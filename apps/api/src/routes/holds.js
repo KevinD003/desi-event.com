@@ -86,7 +86,14 @@ export function registerHoldRoutes(app, { prisma, env }) {
             orderId: orderId ?? null,
             quantity,
             status: 'ACTIVE',
-            expiresAt: holdExpiresAt(now, ttlSeconds ?? env.TICKET_HOLD_TTL_SECONDS),
+            // A caller may ask for a SHORTER hold than the configured one,
+            // never a longer one. Without the clamp an anonymous request could
+            // name a TTL of a year and take a tier off sale for everybody: the
+            // hold counts against availability until it expires.
+            expiresAt: holdExpiresAt(
+              now,
+              Math.min(ttlSeconds ?? env.TICKET_HOLD_TTL_SECONDS, env.TICKET_HOLD_TTL_SECONDS),
+            ),
           },
         })
 
@@ -115,13 +122,23 @@ export function registerHoldRoutes(app, { prisma, env }) {
       // Releasing is idempotent: a hold that already lapsed, or that a
       // double-clicking browser already released, is simply reported as
       // released. A checkout page unmounting twice must not raise an error.
+      //
+      // The status is re-tested inside the write rather than trusted from the
+      // read above. Between the two, a checkout completing in another request
+      // can move this hold to CONVERTED, and an unconditional update would
+      // overwrite that with RELEASED — detaching a paid order from the
+      // inventory it holds.
       if (hold.status === 'ACTIVE') {
         const lapsed = isHoldExpired(hold, new Date())
 
-        await prisma.ticketHold.update({
-          where: { id: hold.id },
+        const { count } = await prisma.ticketHold.updateMany({
+          where: { id: hold.id, status: 'ACTIVE' },
           data: { status: lapsed ? 'EXPIRED' : 'RELEASED' },
         })
+
+        if (count === 0) {
+          throw conflict('This hold has already been converted into a paid order.')
+        }
 
         request.log.info({ holdId: hold.id, lapsed }, 'hold released')
       }

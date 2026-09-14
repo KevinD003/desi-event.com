@@ -246,6 +246,35 @@ Holding a transaction open across a provider round-trip is a real cost — a row
 lock held for the duration — accepted deliberately in exchange for never
 writing a captured payment and its tickets apart.
 
+### Known limitation: payment happens inside the transaction
+
+The capture call to the payment provider sits inside the checkout transaction.
+That is what makes a declined card leave nothing behind — the order, its items,
+the tickets and the `quantitySold` increment all roll back together — but it
+also means an external network call is made while database locks are held.
+
+Prisma's default interactive-transaction timeout is five seconds. The in-memory
+provider answers instantly, so this is invisible today; the transaction is
+configured with a wider window (`ORDER_TRANSACTION_OPTIONS` in
+`apps/api/src/routes/orders.js`) to buy headroom. A real gateway that exceeded
+it would be the worst kind of failure: the money taken, the surrounding
+transaction rolled back, and a charge with no tickets against it.
+
+**Before a production payment gateway is wired up, checkout must move to a
+two-phase flow:**
+
+1. Persist a `PENDING` order and its items in one transaction, holding the
+   inventory that is already reserved.
+2. Capture the payment with no transaction open and no locks held.
+3. Settle in a second transaction — mark the order `PAID`, issue tickets,
+   convert the holds — or compensate by cancelling the order and releasing the
+   holds if the capture failed or timed out.
+
+Step 3 has to be idempotent and safe to retry, because the process can die
+between steps 2 and 3. The `Payment` row keyed on `(provider, providerRef)` is
+the natural place to anchor that: a retry that finds a succeeded payment
+settles the order rather than charging again.
+
 ### The hold state machine
 
 ```mermaid

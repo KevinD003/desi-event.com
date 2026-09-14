@@ -135,10 +135,17 @@ export const createEventRequestSchema = createEventObject.superRefine(checkEvent
 /**
  * Update an event. Every field is optional, but at least one must be present,
  * and a supplied window must still be valid.
+ *
+ * `status` is deliberately not updatable here. Editing an event needs the
+ * `event:update` capability, but publishing one needs `event:publish`, and
+ * publishing also has to check that the event has something to sell. Leaving
+ * `status` writable on this route let a role with edit rights publish by
+ * sending one extra field, skipping both checks. Status changes go through
+ * `POST /v1/events/:id/publish`.
  */
 export const updateEventRequestSchema = eventWritableObject
   .partial()
-  .omit({ organizationId: true })
+  .omit({ organizationId: true, status: true })
   .superRefine((value, ctx) => {
     if (Object.keys(value).length === 0) {
       ctx.addIssue({ code: 'custom', path: [], message: 'Provide at least one field to update' })

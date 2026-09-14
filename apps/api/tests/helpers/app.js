@@ -17,6 +17,10 @@ import { createPrismaStub } from './prisma-stub.js'
 import { makeWorld } from './fixtures.js'
 
 /** A JWT secret long enough for `apiEnvSchema`, and obviously not a real one. */
+import { taxRateBpsForCurrency } from '@desi-event/pricing'
+
+import { feeConfigFor } from '../../src/routes/orders.js'
+
 export const TEST_JWT_SECRET = 'test-only-secret-that-is-long-enough-32'
 
 /**
@@ -109,4 +113,27 @@ export async function signIn(app, email, password = 'correct-horse-battery') {
  */
 export function bearer(token) {
   return { authorization: `Bearer ${token}` }
+}
+
+/**
+ * The platform fee terms the API itself would use for a currency.
+ *
+ * Deliberately routed through the route module's own `feeConfigFor` so a test
+ * cannot assert against terms the server has stopped using.
+ *
+ * @param {string} [currency] ISO 4217 code.
+ * @returns {{percentageBps: number, flatCents: number, currency: string}} The fee config.
+ */
+export function feeConfig(currency = 'INR') {
+  return feeConfigFor(testEnv(), currency)
+}
+
+/**
+ * The sales tax rate the API would apply for a currency.
+ *
+ * @param {string} [currency] ISO 4217 code.
+ * @returns {number} The rate in basis points.
+ */
+export function taxRateBps(currency = 'INR') {
+  return taxRateBpsForCurrency(currency)
 }

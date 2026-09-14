@@ -18,8 +18,9 @@
  *   node scripts/check-language-policy.mjs [--json]
  */
 
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, lstat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -45,14 +46,14 @@ const SKIP_DIRECTORIES = new Set([
 /** TypeScript source and declaration extensions. */
 const TYPESCRIPT_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts'])
 
-/** Configuration files that only exist to serve a TypeScript toolchain. */
-const TYPESCRIPT_CONFIG_FILES = new Set([
-  'tsconfig.json',
-  'tsconfig.base.json',
-  'tsconfig.build.json',
-  'tsconfig.node.json',
-  'tsconfig.eslint.json',
-])
+/**
+ * Configuration files that only exist to serve a TypeScript toolchain.
+ *
+ * A pattern rather than a list of names: projects routinely carry
+ * `tsconfig.app.json`, `tsconfig.spec.json`, `tsconfig.vitest.json` and others,
+ * and an exact-match list quietly lets every variant through.
+ */
+const TYPESCRIPT_CONFIG_PATTERN = /^tsconfig(\..+)?\.json$/
 
 /**
  * Dependency names that pull a TypeScript toolchain into the repository.
@@ -67,6 +68,11 @@ const FORBIDDEN_DEPENDENCIES = [
   { match: 'typedoc', reason: 'a TypeScript documentation generator' },
   { match: 'ttypescript', reason: 'a TypeScript compiler wrapper' },
   { prefix: '@typescript-eslint/', reason: 'TypeScript-specific lint tooling' },
+  // The ESLint 9 flat-config package that supersedes @typescript-eslint/*.
+  // Catching only the scoped names would miss the modern spelling entirely.
+  { match: 'typescript-eslint', reason: 'TypeScript-specific lint tooling' },
+  { match: '@tsconfig/node22', reason: 'shared TypeScript compiler configuration' },
+  { prefix: '@tsconfig/', reason: 'shared TypeScript compiler configuration' },
   { prefix: '@types/', reason: 'hand-installed TypeScript declaration packages' },
   { match: 'jquery', reason: 'DOM manipulation as application architecture' },
   { match: '@types/jquery', reason: 'jQuery type declarations' },
@@ -96,6 +102,7 @@ const OTHER_LANGUAGE_EXTENSIONS = new Map([
 
 /** Fields Rule 21 requires before another language may enter the repository. */
 const REQUIRED_EXCEPTION_FIELDS = [
+  'id',
   'language',
   'paths',
   'reason',
@@ -118,6 +125,10 @@ const ALLOWED_HTML_PATHS = new Set([])
  * Recursively collect every file path in the repository, skipping dependency
  * and build directories.
  *
+ * Only used when the repository is not a git checkout. Symlinked entries are
+ * followed as files rather than silently dropped: a symlink named `app.ts` is
+ * still TypeScript in the tree.
+ *
  * @param {string} directory Absolute directory to walk.
  * @param {string[]} [collected] Accumulator.
  * @returns {Promise<string[]>} Absolute file paths.
@@ -127,6 +138,12 @@ async function walk(directory, collected = []) {
 
   for (const entry of entries) {
     const absolute = path.join(directory, entry.name)
+
+    if (entry.isSymbolicLink()) {
+      const target = await lstat(absolute).catch(() => null)
+      if (target) collected.push(absolute)
+      continue
+    }
 
     if (entry.isDirectory()) {
       if (SKIP_DIRECTORIES.has(entry.name)) continue
@@ -138,6 +155,52 @@ async function walk(directory, collected = []) {
   }
 
   return collected
+}
+
+/**
+ * List the files git knows about: everything committed, plus everything
+ * untracked that is not ignored.
+ *
+ * This is the set the policy actually governs. Walking the filesystem meant
+ * skipping directories by name — `build`, `dist`, `generated`, `coverage` —
+ * which is fine for throwaway output but means a committed
+ * `packages/thing/build/index.ts` was never looked at. Asking git removes the
+ * guesswork: ignored build output is excluded because it is ignored, and
+ * anything committed is checked no matter what the directory is called.
+ *
+ * @returns {string[] | null} Absolute paths, or `null` when this is not a git checkout.
+ */
+function gitFiles() {
+  try {
+    const stdout = execFileSync(
+      'git',
+      ['-C', repoRoot, 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] },
+    )
+
+    const files = stdout
+      .split('\0')
+      .filter(Boolean)
+      .map((relative) => path.join(repoRoot, relative))
+      .filter((absolute) => existsSync(absolute))
+
+    return files.length > 0 ? files : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Collect the files to check, preferring git's view of the repository.
+ *
+ * @returns {Promise<{files: string[], source: string}>} The file list and how it was obtained.
+ */
+async function collectFiles() {
+  const tracked = gitFiles()
+
+  if (tracked) return { files: tracked, source: 'git' }
+
+  return { files: await walk(repoRoot), source: 'filesystem' }
 }
 
 /**
@@ -221,7 +284,7 @@ async function checkManifests(files) {
  * @returns {Promise<{violations: string[], scanned: number, notes: string[]}>} Result summary.
  */
 async function runChecks() {
-  const files = await walk(repoRoot)
+  const { files, source } = await collectFiles()
   const { exceptions } = await loadExceptions()
   const violations = []
   const notes = []
@@ -240,7 +303,7 @@ async function runChecks() {
     }
 
     // 2. TypeScript configuration.
-    if (TYPESCRIPT_CONFIG_FILES.has(base)) {
+    if (TYPESCRIPT_CONFIG_PATTERN.test(base)) {
       violations.push(`${relative}: TypeScript configuration is prohibited.`)
       continue
     }
@@ -285,18 +348,20 @@ async function runChecks() {
 
   violations.push(...(await checkManifests(files)))
 
-  return { violations, scanned: files.length, notes }
+  return { violations, scanned: files.length, notes, source }
 }
 
 const asJson = process.argv.includes('--json')
 
 try {
-  const { violations, scanned, notes } = await runChecks()
+  const { violations, scanned, notes, source } = await runChecks()
 
   if (asJson) {
-    console.log(JSON.stringify({ ok: violations.length === 0, scanned, violations, notes }, null, 2))
+    console.log(
+      JSON.stringify({ ok: violations.length === 0, scanned, source, violations, notes }, null, 2),
+    )
   } else if (violations.length === 0) {
-    console.log(`Language policy: OK — ${scanned} files scanned, no violations.`)
+    console.log(`Language policy: OK — ${scanned} files scanned via ${source}, no violations.`)
     for (const note of notes) console.log(`  note: ${note}`)
   } else {
     console.error(`Language policy: ${violations.length} violation(s) across ${scanned} files.\n`)

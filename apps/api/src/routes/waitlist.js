@@ -23,29 +23,38 @@ export function registerWaitlistRoutes(app, { prisma }) {
   defineRoute(app, 'waitlist.join', {
     handler: async (request) => {
       const { eventId } = request.params
-      const { email, quantity, userId } = request.body
+      const { email, quantity } = request.body
 
       const event = await prisma.event.findUnique({ where: { id: eventId } })
       if (!event) throw notFound('No such event.')
 
-      const existing = await prisma.waitlistEntry.findFirst({ where: { eventId: event.id, email } })
-      if (existing) return { data: existing }
-
-      const entry = await prisma.waitlistEntry.create({
-        data: {
+      // Upsert rather than read-then-create. Two things depend on it: a second
+      // join updates the quantity instead of silently discarding it, and two
+      // simultaneous joins for the same address cannot race the
+      // (eventId, email) unique index into a 500.
+      const entry = await prisma.waitlistEntry.upsert({
+        where: { eventId_email: { eventId: event.id, email } },
+        update: { quantity },
+        create: {
           // The path wins over the body, so a stale payload cannot sign
           // somebody up for a different event.
           eventId: event.id,
           email,
           quantity,
-          userId: userId ?? request.actor?.id ?? null,
+          // Ownership follows the authenticated caller. A userId in the body
+          // would let anyone attach a waitlist entry to another account.
+          userId: request.actor?.id ?? null,
           notified: false,
         },
       })
 
       request.log.info({ eventId: event.id, waitlistEntryId: entry.id }, 'waitlist joined')
 
-      return { data: entry }
+      // `userId` is deliberately not echoed. This endpoint accepts an
+      // unauthenticated caller who supplies any address, so returning the
+      // account behind an address would turn it into a lookup for linking
+      // email addresses to accounts.
+      return { data: { ...entry, userId: undefined } }
     },
   })
 }

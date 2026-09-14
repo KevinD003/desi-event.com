@@ -2281,7 +2281,7 @@
       "patch": {
         "operationId": "events.update",
         "summary": "Update an event",
-        "description": "Partial update; at least one field must be supplied. The owning organisation is immutable. Requires `event:update`.",
+        "description": "Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` cannot be changed here — use `POST /v1/events/:id/publish`, which requires `event:publish`. Requires `event:update`.",
         "tags": [
           "events"
         ],
@@ -2927,15 +2927,6 @@
                       "WORKSHOP",
                       "NETWORKING",
                       "SPORTS"
-                    ]
-                  },
-                  "status": {
-                    "type": "string",
-                    "enum": [
-                      "DRAFT",
-                      "PUBLISHED",
-                      "CANCELLED",
-                      "COMPLETED"
                     ]
                   },
                   "startsAt": {

@@ -40,7 +40,8 @@ function issuePaths(result) {
 describe('apiEnvSchema', () => {
   it('fills every default from a minimal environment', () => {
     expect(apiEnvSchema.parse(apiEnv())).toEqual({
-      NODE_ENV: 'development',
+      // Production, not development: see the fail-safe test below.
+      NODE_ENV: 'production',
       LOG_LEVEL: 'info',
       DATABASE_URL: DB_URL,
       REDIS_URL: REDIS,
@@ -183,10 +184,47 @@ describe('isInsecureJwtSecret', () => {
   })
 })
 
+describe('apiEnvSchema fail-safe defaults', () => {
+  it('rejects the placeholder secret when NODE_ENV is not set at all', () => {
+    // The guard used to key off NODE_ENV === 'production' while NODE_ENV
+    // defaulted to development, so a deployment that merely forgot the
+    // variable booted on the public example secret and accepted forged
+    // tokens. Forgetting it now produces the safe behaviour instead.
+    const result = apiEnvSchema.safeParse(
+      apiEnv({ JWT_SECRET: 'dev-only-insecure-secret-change-me-before-any-deploy' }),
+    )
+
+    expect(result.success).toBe(false)
+    expect(issuePaths(result)).toContain('JWT_SECRET')
+  })
+
+  it('still allows the placeholder secret in explicit local development', () => {
+    const result = apiEnvSchema.safeParse(
+      apiEnv({
+        NODE_ENV: 'development',
+        JWT_SECRET: 'dev-only-insecure-secret-change-me-before-any-deploy',
+      }),
+    )
+
+    expect(result.success).toBe(true)
+  })
+
+  it('treats a blank numeric variable as absent rather than zero', () => {
+    // `PLATFORM_FEE_BPS=` in a .env file used to coerce to 0, silently
+    // switching off the platform fee instead of using the default.
+    const parsed = apiEnvSchema.parse(
+      apiEnv({ PLATFORM_FEE_BPS: '', PLATFORM_FEE_FLAT_CENTS: '  ' }),
+    )
+
+    expect(parsed.PLATFORM_FEE_BPS).toBe(590)
+    expect(parsed.PLATFORM_FEE_FLAT_CENTS).toBe(99)
+  })
+})
+
 describe('workerEnvSchema', () => {
   it('fills the queue defaults', () => {
     expect(workerEnvSchema.parse({ DATABASE_URL: DB_URL, REDIS_URL: REDIS })).toEqual({
-      NODE_ENV: 'development',
+      NODE_ENV: 'production',
       LOG_LEVEL: 'info',
       DATABASE_URL: DB_URL,
       REDIS_URL: REDIS,

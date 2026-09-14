@@ -302,7 +302,7 @@ export const apiRoutes = Object.freeze([
     path: '/v1/events/:id',
     summary: 'Update an event',
     description:
-      'Partial update; at least one field must be supplied. The owning organisation is immutable. Requires `event:update`.',
+      'Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` cannot be changed here — use `POST /v1/events/:id/publish`, which requires `event:publish`. Requires `event:update`.',
     tags: ['events'],
     auth: 'bearer',
     params: idParamSchema,

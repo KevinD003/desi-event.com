@@ -254,6 +254,13 @@ export function createPrismaStub(seed = {}) {
         continue
       }
 
+      // A compound unique key arrives as `{ eventId_email: { eventId, email } }`.
+      // There is no such column on the row, so match each part instead.
+      if (key.includes('_') && isCompoundKey(key, condition)) {
+        if (!matches(model, row, condition)) return false
+        continue
+      }
+
       const relation = RELATIONS[model]?.[key]
       if (relation && condition && typeof condition === 'object') {
         const related = resolveRelation(model, row, key)
@@ -269,6 +276,26 @@ export function createPrismaStub(seed = {}) {
     }
 
     return true
+  }
+
+  /**
+   * Does this `where` key name a compound unique index?
+   *
+   * Prisma spells one as the field names joined by underscores, with an object
+   * holding those same fields. Checking both halves avoids mistaking an
+   * ordinary snake_case column for a compound key.
+   *
+   * @param {string} key The `where` key.
+   * @param {unknown} condition The value under that key.
+   * @returns {boolean} True when the key and value form a compound unique clause.
+   */
+  function isCompoundKey(key, condition) {
+    if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return false
+
+    const parts = key.split('_')
+    const fields = Object.keys(condition)
+
+    return fields.length > 1 && fields.every((field) => parts.includes(field))
   }
 
   /**
@@ -376,6 +403,44 @@ export function createPrismaStub(seed = {}) {
    * @param {string} model The model name.
    * @returns {object} A Prisma-like delegate.
    */
+  /**
+   * Apply a Prisma `data` payload to a row.
+   *
+   * Prisma lets a field be an atomic operator object rather than a value —
+   * `{ redemptionCount: { increment: 1 } }` — and production code uses that
+   * form precisely because it is race-free. A stub that assigned the object
+   * verbatim would store `{ increment: 1 }` as the column value and let a
+   * broken write pass its tests.
+   *
+   * @param {object} row The row to mutate.
+   * @param {object} data The Prisma data payload.
+   * @returns {void}
+   */
+  function applyData(row, data) {
+    for (const [field, value] of Object.entries(data ?? {})) {
+      if (value && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
+        if ('increment' in value) {
+          row[field] = (row[field] ?? 0) + value.increment
+          continue
+        }
+        if ('decrement' in value) {
+          row[field] = (row[field] ?? 0) - value.decrement
+          continue
+        }
+        if ('multiply' in value) {
+          row[field] = (row[field] ?? 0) * value.multiply
+          continue
+        }
+        if ('set' in value) {
+          row[field] = value.set
+          continue
+        }
+      }
+
+      row[field] = value
+    }
+  }
+
   function delegate(model) {
     /**
      * Rows matching an argument object.
@@ -429,13 +494,37 @@ export function createPrismaStub(seed = {}) {
           throw error
         }
 
-        Object.assign(row, args.data, TIMESTAMPED.has(model) ? { updatedAt: new Date() } : {})
+        applyData(row, args.data)
+        if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
         return hydrate(model, row, args.include)
       },
       updateMany: async (args) => {
         const rows = tables[model].filter((candidate) => matches(model, candidate, args.where))
-        for (const row of rows) Object.assign(row, args.data)
+        for (const row of rows) {
+          applyData(row, args.data)
+          if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
+        }
         return { count: rows.length }
+      },
+      upsert: async (args) => {
+        const row = tables[model].find((candidate) => matches(model, candidate, args.where))
+
+        if (row) {
+          applyData(row, args.update)
+          if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
+          return hydrate(model, row, args.include)
+        }
+
+        const now = new Date()
+        const created = {
+          id: cuid(),
+          ...DEFAULTS[model],
+          ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
+          ...args.create,
+        }
+
+        tables[model].push(created)
+        return hydrate(model, created, args.include)
       },
       delete: async (args) => {
         const index = tables[model].findIndex((candidate) => matches(model, candidate, args.where))

@@ -1,20 +1,43 @@
 import { describe, expect, it } from 'vitest'
 
+import { computeOrderTotals } from '@desi-event/pricing'
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
 
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, createTestApp, feeConfig, signIn, taxRateBps } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
-import { minutesFromNow } from './helpers/fixtures.js'
+import { makeWorld, minutesFromNow } from './helpers/fixtures.js'
 
 /** Face value of the General Admission tier in the fixtures. */
 const GA_PRICE = 150_000
 
 /**
- * The total a one-ticket General Admission order comes to.
+ * The totals a General Admission order comes to, derived rather than written
+ * out by hand.
  *
- * subtotal 150000, fee 590bps = 8850 plus 99 flat per ticket, tax 0.
+ * These were hardcoded, and when the API began applying sales tax the figures
+ * silently stopped describing what the server charges — including the amount
+ * the declined-payment test uses as its trigger, which quietly stopped
+ * declining anything. Computing them from the same functions the route uses
+ * keeps the expectations honest without making them tautological: the
+ * assertions below still pin down the individual columns.
+ *
+ * @param {number} quantity How many tickets.
+ * @param {object} [promoCode] An optional promo row.
+ * @returns {object} The totals for that order.
  */
-const ONE_TICKET_TOTAL = GA_PRICE + 8_850 + 99
+function expectedTotals(quantity, promoCode = null) {
+  return computeOrderTotals({
+    items: [{ ticketTypeId: 'ga', quantity, unitPriceCents: GA_PRICE, name: 'General' }],
+    promoCode,
+    feeConfig: feeConfig('INR'),
+    taxRateBps: taxRateBps('INR'),
+    currency: 'INR',
+    now: new Date(),
+  })
+}
+
+/** The total a one-ticket General Admission order comes to. */
+const ONE_TICKET_TOTAL = expectedTotals(1).totalCents
 
 /**
  * Build a checkout payload.
@@ -79,14 +102,19 @@ describe('POST /v1/orders', () => {
     expect(response.statusCode).toBe(201)
 
     const { data } = response.json()
+    const totals = expectedTotals(2)
+
+    // Face value is pinned explicitly; the derived columns are checked against
+    // the pricing package so the two cannot drift apart unnoticed.
+    expect(totals.subtotalCents).toBe(300_000)
     expect(data).toMatchObject({
       status: 'PAID',
       currency: 'INR',
       subtotalCents: 300_000,
       discountCents: 0,
-      feesCents: 17_898,
-      taxCents: 0,
-      totalCents: 317_898,
+      feesCents: totals.feesCents,
+      taxCents: totals.taxCents,
+      totalCents: totals.totalCents,
     })
     expect(data.reference).toMatch(/^DE-[0-9A-Z]+$/)
     expect(data.paidAt).toEqual(expect.any(String))
@@ -104,7 +132,10 @@ describe('POST /v1/orders', () => {
       orderId: data.id,
     })
     expect(prisma._store.payment).toHaveLength(1)
-    expect(prisma._store.payment[0]).toMatchObject({ status: 'SUCCEEDED', amountCents: 317_898 })
+    expect(prisma._store.payment[0]).toMatchObject({
+      status: 'SUCCEEDED',
+      amountCents: totals.totalCents,
+    })
 
     await app.close()
   })
@@ -132,9 +163,61 @@ describe('POST /v1/orders', () => {
     expect(data.discountCents).toBe(15_000)
     // The fee is charged on the discounted subtotal, not the list price.
     expect(data.feesCents).toBe(Math.round((GA_PRICE - 15_000) * 0.059) + 99)
-    expect(data.totalCents).toBe(GA_PRICE - 15_000 + data.feesCents)
+    expect(data.totalCents).toBe(GA_PRICE - 15_000 + data.feesCents + data.taxCents)
 
     expect(prisma._store.promoCode[0].redemptionCount).toBe(1)
+
+    await app.close()
+  })
+
+  it('does not consume a redemption for a promo code that gave no discount', async () => {
+    // Regression guard. `computeDiscount` correctly returns zero for a code
+    // that has expired or been switched off, but the route used to increment
+    // the counter and stamp the order regardless. Quoting a paused campaign
+    // enough times burned it to its cap, so real buyers got nothing, and
+    // full-price revenue was attributed to a promo that never applied.
+    const world = await makeWorld()
+    world.seed.promoCode.push({
+      id: cuid(),
+      organizationId: world.ids.organization.id,
+      eventId: world.ids.publishedEvent.id,
+      code: 'OLDCODE',
+      type: 'PERCENTAGE',
+      value: 2000,
+      maxRedemptions: 2,
+      redemptionCount: 0,
+      startsAt: null,
+      endsAt: new Date('2020-02-01T00:00:00.000Z'),
+      active: true,
+      createdAt: new Date('2020-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2020-01-01T00:00:00.000Z'),
+    })
+
+    const { app, prisma, ids } = await createTestApp({ seed: world.seed, ids: world.ids })
+
+    const response = await order(app, checkout(ids, { promoCode: 'OLDCODE' }))
+
+    expect(response.statusCode).toBe(201)
+
+    const { data } = response.json()
+    expect(data.discountCents).toBe(0)
+    expect(data.promoCodeId ?? null).toBeNull()
+
+    const stored = prisma._store.promoCode.find((row) => row.code === 'OLDCODE')
+    expect(stored.redemptionCount).toBe(0)
+
+    await app.close()
+  })
+
+  it('ignores a userId in the body and attributes the order to the caller', async () => {
+    // Regression guard: the route used `body.userId ?? actor.id`, so an
+    // anonymous request could attach its order to anyone's account.
+    const { app, prisma, ids } = await createTestApp()
+
+    const response = await order(app, checkout(ids, { userId: ids.attendee.id }))
+
+    expect(response.statusCode).toBe(201)
+    expect(prisma._store.order[0].userId).toBeNull()
 
     await app.close()
   })

@@ -10,6 +10,17 @@
  * transition — rather than a faster version of the same movement. Vestibular
  * disorders are not helped by a shorter slide.
  *
+ * Every element rendered here carries a `data-motion` attribute, and that is
+ * load-bearing rather than decorative. The server cannot know the visitor's
+ * motion preference, so it renders the animated branch and inlines
+ * `opacity: 0`. A visitor who prefers reduced motion then hydrates into the
+ * plain branch, which sets no style at all — and React does not strip the
+ * inline style the server already wrote. The content stays invisible forever.
+ *
+ * `data-motion` gives `globals.css` something to target, so the final state is
+ * forced in CSS under `prefers-reduced-motion: reduce` and inside `noscript`.
+ * CSS is the only layer here that cannot disagree with the server.
+ *
  * @module components/motion
  */
 
@@ -53,7 +64,7 @@ export function FadeIn({
 
   if (prefersReducedMotion) {
     return (
-      <Component className={className} {...rest}>
+      <Component className={className} data-motion="" {...rest}>
         {children}
       </Component>
     )
@@ -62,6 +73,7 @@ export function FadeIn({
   return (
     <Component
       className={className}
+      data-motion=""
       initial={{ opacity: 0, y: distance }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5, ease: EASE_OUT, delay: delay + index * STAGGER_STEP }}
@@ -95,7 +107,7 @@ export function RevealOnScroll({
 
   if (prefersReducedMotion) {
     return (
-      <Component className={className} {...rest}>
+      <Component className={className} data-motion="" {...rest}>
         {children}
       </Component>
     )
@@ -104,6 +116,7 @@ export function RevealOnScroll({
   return (
     <Component
       className={className}
+      data-motion=""
       initial={{ opacity: 0, y: distance }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.15 }}
@@ -130,7 +143,7 @@ export function HoverLift({ as = 'div', className, children, ...rest }) {
 
   if (prefersReducedMotion) {
     return (
-      <Component className={className} {...rest}>
+      <Component className={className} data-motion="" {...rest}>
         {children}
       </Component>
     )
@@ -139,6 +152,7 @@ export function HoverLift({ as = 'div', className, children, ...rest }) {
   return (
     <Component
       className={className}
+      data-motion=""
       whileHover={{ y: -4 }}
       transition={{ type: 'spring', stiffness: 320, damping: 26 }}
       {...rest}

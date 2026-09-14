@@ -34,6 +34,15 @@ export {
 export { DEFAULT_FEE_CONFIG, computePlatformFee, normaliseFeeConfig } from './fees.js'
 
 export {
+  BASE_CURRENCY,
+  FALLBACK_FLAT_FEE_CENTS,
+  FLAT_FEE_CENTS_BY_CURRENCY,
+  TAX_RATE_BPS_BY_CURRENCY,
+  feeConfigForCurrency,
+  taxRateBpsForCurrency,
+} from './currencies.js'
+
+export {
   PROMO_REJECTION_REASONS,
   PROMO_TYPES,
   computeDiscount,

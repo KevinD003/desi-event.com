@@ -124,3 +124,37 @@ test.describe('accessibility smoke checks', () => {
     expect(outline.outlineStyle).not.toBe('none')
   })
 })
+
+test.describe('reduced motion', () => {
+  test.use({ reducedMotion: 'reduce' })
+
+  // A regression guard for a real defect, not a hypothetical one. The server
+  // renders markup before it can know the visitor's motion preference, so it
+  // inlines `opacity: 0` for the entrance animations. A visitor who prefers
+  // reduced motion hydrates into a branch that sets no style, and React leaves
+  // the server's inline style in place: every animated element stayed
+  // invisible, permanently. CSS under `prefers-reduced-motion` now forces the
+  // final state. If that rule is ever dropped, this test fails.
+  for (const { name, path } of PAGES) {
+    test(`${name} renders no permanently invisible content`, async ({ page }) => {
+      await page.goto(path)
+      await page.waitForLoadState('networkidle')
+
+      const hidden = await page.evaluate(() =>
+        [...document.querySelectorAll('[data-motion]')]
+          .filter((element) => Number.parseFloat(getComputedStyle(element).opacity) === 0)
+          .map((element) => element.textContent.trim().slice(0, 60)),
+      )
+
+      expect(hidden).toEqual([])
+    })
+  }
+
+  test('the home page hero is readable, not merely present', async ({ page }) => {
+    await page.goto('/')
+
+    const hero = page.getByRole('heading', { level: 1 })
+    await expect(hero).toBeVisible()
+    await expect(hero).toHaveCSS('opacity', '1')
+  })
+})

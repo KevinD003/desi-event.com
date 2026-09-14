@@ -27,7 +27,11 @@
 
 import { salesWindowState, validateQuantityRequest } from '@desi-event/inventory'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
-import { computeOrderTotals } from '@desi-event/pricing'
+import {
+  computeOrderTotals,
+  feeConfigForCurrency,
+  taxRateBpsForCurrency,
+} from '@desi-event/pricing'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
@@ -37,6 +41,24 @@ import { toOrder } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Everything an order payload needs, in one query. */
+/**
+ * Transaction settings for checkout.
+ *
+ * Prisma's defaults are `timeout: 5000` and `maxWait: 2000`, and the payment
+ * capture happens inside this transaction so that a declined card leaves no
+ * partial order behind. Five seconds is comfortable for the in-memory provider
+ * and thin for a real one: a gateway that takes longer would have the money
+ * taken while the surrounding transaction rolls the order back, leaving a
+ * charge with no tickets against it.
+ *
+ * The wider window buys headroom, but it is not a substitute for the real fix.
+ * Before a production gateway is wired up, checkout should move to a two-phase
+ * flow — persist a PENDING order, capture outside any transaction, then settle
+ * or compensate in a second transaction — so that no external call is ever
+ * holding database locks. See docs/architecture.md.
+ */
+const ORDER_TRANSACTION_OPTIONS = Object.freeze({ timeout: 20_000, maxWait: 10_000 })
+
 const ORDER_INCLUDE = Object.freeze({
   items: { include: { tickets: true } },
   event: { include: { venue: true, organization: true, ticketTypes: true } },
@@ -45,8 +67,14 @@ const ORDER_INCLUDE = Object.freeze({
 /**
  * Build the platform fee configuration for one order.
  *
- * The flat component is denominated in a currency, so it is stamped with the
- * order's currency; `computeOrderTotals` rejects a mismatch rather than
+ * The terms come from `@desi-event/pricing` so that the total quoted on the
+ * checkout page and the total charged here are computed from the same table.
+ * They used to be computed from different ones, and the buyer was shown a
+ * figure that was never what got billed.
+ *
+ * The flat component is denominated in a currency, so the deployment's
+ * configured flat fee applies only to the base currency; other currencies take
+ * their own figure. `computeOrderTotals` rejects a mismatch rather than
  * quietly charging an INR fee on a USD order.
  *
  * @param {object} env The parsed API environment.
@@ -54,11 +82,10 @@ const ORDER_INCLUDE = Object.freeze({
  * @returns {{percentageBps: number, flatCents: number, currency: string}} A fee configuration.
  */
 export function feeConfigFor(env, currency) {
-  return {
+  return feeConfigForCurrency(currency, {
     percentageBps: env.PLATFORM_FEE_BPS,
     flatCents: env.PLATFORM_FEE_FLAT_CENTS,
-    currency,
-  }
+  })
 }
 
 /**
@@ -264,15 +291,25 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           })),
           promoCode,
           feeConfig: feeConfigFor(env, currency),
+          taxRateBps: taxRateBpsForCurrency(currency),
           currency,
           now,
         })
+
+        // A promo that exists but is inactive, out of window or exhausted
+        // yields a zero discount. It must not consume a redemption or be
+        // stamped on the order: doing so burns a campaign for buyers who never
+        // received the discount, and misattributes full-price revenue to it.
+        const promoApplied = Boolean(promoCode) && totals.discountCents > 0
 
         const created = await tx.order.create({
           data: {
             reference: generateOrderReference(),
             eventId: event.id,
-            userId: body.userId ?? request.actor?.id ?? null,
+            // Ownership follows the authenticated caller only. Honouring a
+            // userId from the body would let an anonymous request attach an
+            // order to any account.
+            userId: request.actor?.id ?? null,
             buyerEmail: body.buyerEmail,
             buyerName: body.buyerName,
             status: 'PENDING',
@@ -282,7 +319,7 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
             feesCents: totals.feesCents,
             taxCents: totals.taxCents,
             totalCents: totals.totalCents,
-            promoCodeId: promoCode?.id ?? null,
+            promoCodeId: promoApplied ? promoCode.id : null,
           },
         })
 
@@ -343,10 +380,13 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           }
         }
 
-        if (promoCode) {
+        if (promoApplied) {
+          // `increment` rather than a read-modify-write: two checkouts that
+          // resolved the same promo row concurrently would otherwise both
+          // write the same count and lose a redemption.
           await tx.promoCode.update({
             where: { id: promoCode.id },
-            data: { redemptionCount: promoCode.redemptionCount + 1 },
+            data: { redemptionCount: { increment: 1 } },
           })
         }
 
@@ -356,7 +396,7 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         })
 
         return tx.order.findUnique({ where: { id: created.id }, include: ORDER_INCLUDE })
-      })
+      }, ORDER_TRANSACTION_OPTIONS)
 
       request.log.info(
         { orderId: order.id, reference: order.reference, totalCents: order.totalCents },

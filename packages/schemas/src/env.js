@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 
-import { logLevelSchema, nodeEnvSchema } from './enums.js'
+import { NODE_ENVS, logLevelSchema, nodeEnvSchema } from './enums.js'
 import { parseOrThrow } from './errors.js'
 import { urlSchema } from './primitives.js'
 
@@ -62,21 +62,54 @@ const redisUrlSchema = z
 
 const portSchema = z.coerce.number().int().min(1).max(65_535)
 
-/** Variables every process shares. */
+/**
+ * `NODE_ENV` for a long-running server process.
+ *
+ * Deliberately defaults to `production`, unlike the shared `nodeEnvSchema`,
+ * which defaults to development so local tooling needs no setup.
+ *
+ * The security guards below key off this value: the placeholder-secret check
+ * only fires in production. With a development default, a deployment that
+ * simply forgot to set `NODE_ENV` would boot happily on the public example
+ * secret and accept forged tokens. Defaulting to production means forgetting
+ * the variable produces the *safe* behaviour, and local development — which
+ * already sets `NODE_ENV=development` in `.env.example` — is unaffected.
+ */
+const serverNodeEnvSchema = z.enum([...NODE_ENVS]).default('production')
+
+/**
+ * Treat an empty string as absent.
+ *
+ * `z.coerce.number()` turns `''` into `0`, so a variable left blank in a `.env`
+ * file (`PLATFORM_FEE_BPS=`) silently becomes a zero fee rather than falling
+ * back to the default. Blank means "not set".
+ *
+ * @param {unknown} value The raw environment value.
+ * @returns {unknown} `undefined` when blank, otherwise the value unchanged.
+ */
+const blankAsAbsent = (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value)
+
+/** Variables every server process shares. */
 const commonEnvFields = {
-  NODE_ENV: nodeEnvSchema,
+  NODE_ENV: serverNodeEnvSchema,
   LOG_LEVEL: logLevelSchema.default('info'),
 }
 
 /** Pricing knobs shared by the API and the worker, which both price orders. */
 const feeEnvFields = {
-  PLATFORM_FEE_BPS: z.coerce.number().int().min(0).max(10_000).default(590),
-  PLATFORM_FEE_FLAT_CENTS: z.coerce.number().int().min(0).max(100_000).default(99),
+  PLATFORM_FEE_BPS: z.preprocess(blankAsAbsent, z.coerce.number().int().min(0).max(10_000).default(590)),
+  PLATFORM_FEE_FLAT_CENTS: z.preprocess(
+    blankAsAbsent,
+    z.coerce.number().int().min(0).max(100_000).default(99),
+  ),
 }
 
 /** How long a checkout hold survives, shared by the API and the worker sweep. */
 const holdTtlField = {
-  TICKET_HOLD_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(600),
+  TICKET_HOLD_TTL_SECONDS: z.preprocess(
+    blankAsAbsent,
+    z.coerce.number().int().min(30).max(86_400).default(600),
+  ),
 }
 
 /** `process.env` for the Fastify API. */
