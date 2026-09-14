@@ -412,3 +412,87 @@ describe('PATCH /v1/events/:id and POST /v1/events/:id/publish', () => {
     expect(response.json().data.publishedAt).toEqual(expect.any(String))
   })
 })
+
+describe('caller-supplied input never surfaces as a server fault', () => {
+  it('answers 422, not 500, for a title no slug can be derived from', async () => {
+    // Devanagari, Tamil, Hangul or emoji are perfectly reasonable titles that
+    // slugify cannot turn into a URL. That is the caller's problem to solve by
+    // supplying a slug, not a server fault.
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, ids.manager.email)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      headers: bearer(token),
+      payload: {
+        organizationId: ids.organization.id,
+        title: '한국 축제 🎉',
+        summary: 'Summary',
+        description: 'Description',
+        category: 'COMEDY',
+        startsAt: '2030-01-01T00:00:00.000Z',
+        endsAt: '2030-01-01T02:00:00.000Z',
+      },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.message).toMatch(/slug/i)
+
+    await app.close()
+  })
+
+  it('accepts such a title when a slug is supplied explicitly', async () => {
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, ids.manager.email)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      headers: bearer(token),
+      payload: {
+        organizationId: ids.organization.id,
+        title: '한국 축제 🎉',
+        slug: 'korean-festival',
+        summary: 'Summary',
+        description: 'Description',
+        category: 'COMEDY',
+        startsAt: '2030-01-01T00:00:00.000Z',
+        endsAt: '2030-01-01T02:00:00.000Z',
+      },
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data.slug).toBe('korean-festival')
+
+    await app.close()
+  })
+
+  it('answers 422 for an unknown venueId rather than letting the foreign key fail', async () => {
+    // venueId is caller-controlled. Passing an unknown one to the database
+    // turns a bad request into a 500 with a driver error attached.
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, ids.manager.email)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      headers: bearer(token),
+      payload: {
+        organizationId: ids.organization.id,
+        venueId: 'cnosuchvenue000000000zz',
+        title: 'A Perfectly Fine Title',
+        summary: 'Summary',
+        description: 'Description',
+        category: 'COMEDY',
+        startsAt: '2030-01-01T00:00:00.000Z',
+        endsAt: '2030-01-01T02:00:00.000Z',
+      },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.message).toMatch(/no such venue/i)
+
+    await app.close()
+  })
+})

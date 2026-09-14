@@ -10,6 +10,7 @@
  */
 
 import { customAlphabet } from 'nanoid'
+import { unprocessable } from './errors.js'
 
 /** Unambiguous upper-case alphabet shared by every generated code. */
 export const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
@@ -68,7 +69,14 @@ export function slugify(title) {
     .replace(/-+$/g, '')
 
   if (slug === '') {
-    throw new Error('Cannot derive a slug from the supplied title; supply "slug" explicitly.')
+    // A title written entirely outside the ASCII range — Devanagari, Tamil,
+    // Hangul, or just emoji — is a perfectly reasonable thing for an organiser
+    // to submit, and slugify cannot turn it into a URL. That is the caller's
+    // problem to solve by supplying a slug, not a server fault, so it must not
+    // surface as a 500.
+    throw unprocessable('Cannot derive a URL slug from this title. Supply "slug" explicitly.', {
+      field: 'title',
+    })
   }
 
   return slug

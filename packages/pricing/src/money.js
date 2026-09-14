@@ -25,11 +25,19 @@ import { PricingError } from './errors.js'
 export const BPS_DENOMINATOR = 10_000
 
 /**
- * Largest amount accepted by the engine, in minor units (10 billion major
- * units). Anything beyond this is a data error rather than a real order, and
- * rejecting it early keeps every intermediate product inside `Number.MAX_SAFE_INTEGER`.
+ * Largest amount the engine accepts, in minor units.
+ *
+ * Deliberately PostgreSQL's `integer` maximum, because that is the type every
+ * money column uses. The ceiling used to be 1e12, which meant a line total the
+ * engine happily computed — a ticket priced near the per-value limit, times a
+ * permitted quantity — was larger than the column it was about to be written
+ * to. Validation passed and the insert failed, turning a bad request into a
+ * 500 from the database.
+ *
+ * Anything beyond this is a data error rather than a real order. Raising it
+ * requires widening the money columns to `bigint` first, in the same change.
  */
-export const MAX_CENTS = 1_000_000_000_000
+export const MAX_CENTS = 2_147_483_647
 
 /** Largest basis-point value accepted (10 000 % — generous, but bounded). */
 export const MAX_BPS = 1_000_000

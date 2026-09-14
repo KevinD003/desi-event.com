@@ -22,14 +22,35 @@
  * @module lib/api
  */
 
-import { createApiClient } from '@desi-event/api-contract'
 
 import { filterEvents, sortByStartDate } from './catalog.js'
 import { paginate } from './search-params.js'
+import {
+  DEFAULT_API_URL,
+  getApiBaseUrl,
+  getApiClient,
+  resetApiClient as resetClientCache,
+} from './api-client.js'
 import { findSampleEvent, sampleEventSummaries } from './sample-data.js'
 
-/** Where the API lives when `NEXT_PUBLIC_API_URL` is not set. */
-export const DEFAULT_API_URL = 'http://127.0.0.1:4000'
+// Re-exported so server-side callers keep one import. Client components must
+// import from './api-client.js' directly: this module pulls in the fallback
+// catalogue, which has no business in a browser bundle.
+export { DEFAULT_API_URL, getApiBaseUrl, getApiClient }
+
+/**
+ * Discard the memoised client and the logged-warning set.
+ *
+ * The warning set lives here rather than alongside the client, so resetting the
+ * client alone would leave a suite's earlier warnings suppressing its later
+ * ones.
+ *
+ * @returns {void}
+ */
+export function resetApiClient() {
+  resetClientCache()
+  warnedKeys.clear()
+}
 
 /**
  * How long a single API read may take before the page gives up and renders the
@@ -41,54 +62,6 @@ const REQUEST_TIMEOUT_MS = 2500
 /** Warning keys already logged, so one dead API does not produce one line per card. */
 const warnedKeys = new Set()
 
-/** Memoised client, keyed by base URL so a changed env var rebuilds it. */
-let cachedClient = null
-let cachedBaseUrl = null
-
-/**
- * The configured API origin.
- *
- * Read through `process.env.NEXT_PUBLIC_API_URL` rather than destructured, so
- * that Next's build-time inlining of `NEXT_PUBLIC_*` works in browser bundles.
- *
- * @returns {string} An absolute origin such as `http://127.0.0.1:4000`.
- */
-export function getApiBaseUrl() {
-  const configured = process.env.NEXT_PUBLIC_API_URL
-
-  return typeof configured === 'string' && configured.trim() !== ''
-    ? configured.trim()
-    : DEFAULT_API_URL
-}
-
-/**
- * The shared API client, built from the route table in `@desi-event/api-contract`.
- *
- * @returns {object} A client exposing one method per contract route id.
- * @throws {ApiContractError} If no `fetch` implementation is available in this runtime.
- */
-export function getApiClient() {
-  const baseUrl = getApiBaseUrl()
-
-  if (!cachedClient || cachedBaseUrl !== baseUrl) {
-    cachedClient = createApiClient({ baseUrl })
-    cachedBaseUrl = baseUrl
-  }
-
-  return cachedClient
-}
-
-/**
- * Discard the memoised client. Exists for tests, which swap the environment
- * between cases.
- *
- * @returns {void}
- */
-export function resetApiClient() {
-  cachedClient = null
-  cachedBaseUrl = null
-  warnedKeys.clear()
-}
 
 /**
  * Log an API failure once per key, on the server only.

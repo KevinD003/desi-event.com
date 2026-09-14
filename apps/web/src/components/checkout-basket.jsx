@@ -20,7 +20,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Alert, Badge, Button, Card, CardBody, CardFooter, CardHeader } from './ui.jsx'
 
-import { getApiClient } from '../lib/api.js'
+import { getApiClient } from '../lib/api-client.js'
 import { formatAmount, formatPrice, priceSelection, taxLabelForPlace } from '../lib/pricing.js'
 import { QuantityStepper, clampQuantity } from './quantity-stepper.jsx'
 

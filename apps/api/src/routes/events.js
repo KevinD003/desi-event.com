@@ -160,6 +160,27 @@ async function resolveSlug(prisma, requested, title) {
 }
 
 /**
+ * Check that a caller-supplied venue exists before it reaches the database.
+ *
+ * A `venueId` arrives in the request body, so it is caller-controlled. Passing
+ * an unknown one straight through turns a foreign key violation into a 500 —
+ * a bad request reported as a server fault, with a database error message
+ * attached. Resolving it first gives the caller a 422 that names the problem.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {string|null|undefined} venueId The venue id from the request body.
+ * @returns {Promise<void>} Resolves when the venue exists or none was supplied.
+ * @throws {Error} A 422 when the venue does not exist.
+ */
+async function assertVenueExists(prisma, venueId) {
+  if (venueId === undefined || venueId === null) return
+
+  const venue = await prisma.venue.findUnique({ where: { id: venueId }, select: { id: true } })
+
+  if (!venue) throw unprocessable(`No such venue: ${venueId}.`, { field: 'venueId' })
+}
+
+/**
  * Register the `/v1/events` routes.
  *
  * @param {object} app The Fastify instance.
@@ -225,6 +246,8 @@ export function registerEventRoutes(app, { prisma }) {
       })
       if (!organization) throw notFound('No such organisation.')
 
+      await assertVenueExists(prisma, body.venueId)
+
       const slug = await resolveSlug(prisma, body.slug, body.title)
       const data = withEventDates({ ...body, slug })
 
@@ -266,6 +289,8 @@ export function registerEventRoutes(app, { prisma }) {
       if (endsAt.getTime() <= startsAt.getTime()) {
         throw unprocessable('endsAt must be strictly after startsAt.')
       }
+
+      await assertVenueExists(prisma, body.venueId)
 
       const event = await prisma.event.update({
         where: { id: existing.id },

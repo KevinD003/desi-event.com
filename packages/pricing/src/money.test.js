@@ -15,6 +15,7 @@ import {
   normaliseCurrency,
 } from './money.js'
 import { PricingError } from './errors.js'
+import { computeOrderTotals } from './totals.js'
 
 /**
  * Run `fn` and return the error it threw, or `null` if it did not throw.
@@ -197,5 +198,32 @@ describe('formatMoney', () => {
     expect(error).toBeInstanceOf(PricingError)
     expect(error.code).toBe('INVALID_LOCALE')
     expect(error.cause).toBeInstanceOf(RangeError)
+  })
+})
+
+describe('the money ceiling matches the database column', () => {
+  /** PostgreSQL `integer`, which is what every money column in the schema is. */
+  const INT4_MAX = 2_147_483_647
+
+  it('accepts the largest value the column can hold', () => {
+    expect(assertCents(INT4_MAX, 'amount')).toBe(INT4_MAX)
+  })
+
+  it('rejects anything the column could not store', () => {
+    // Regression guard. The ceiling was 1e12, so the engine would compute a
+    // line total larger than the column it was about to be written to:
+    // validation passed and the INSERT failed, turning a bad request into a
+    // 500 from the database.
+    expect(() => assertCents(INT4_MAX + 1, 'amount')).toThrow(PricingError)
+    expect(() => assertCents(10_000_000_000, 'amount')).toThrow(PricingError)
+  })
+
+  it('rejects a line total that would overflow, not just a single price', () => {
+    // A price and a quantity that are each individually acceptable must not
+    // multiply into something unstorable.
+    expect(() => computeOrderTotals({
+      items: [{ ticketTypeId: 'tt', quantity: 10, unitPriceCents: 500_000_000 }],
+      now: new Date('2026-06-15T12:00:00.000Z'),
+    })).toThrow(PricingError)
   })
 })
