@@ -35,7 +35,8 @@
     "openapi:emit": "pnpm --filter @desi-event/api run openapi:emit",
     "clean": "node scripts/clean.mjs",
     "secrets:scan": "node scripts/scan-secrets.mjs",
-    "test:e2e:prod": "pnpm --filter @desi-event/web test:e2e:prod"
+    "test:e2e:prod": "pnpm --filter @desi-event/web test:e2e:prod",
+    "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh"
   },
   "devDependencies": {
     "@desi-event/config": "workspace:*",

@@ -192,6 +192,32 @@ pnpm db:reset              # drop, recreate, migrate, then re-seed
 Destructive and unconditional (`--force`). It is the right answer to a drifted
 development database and the wrong answer to anything with data in it.
 
+### Verifying against a database that has never seen this project
+
+```bash
+pnpm db:verify:fresh                    # create, migrate, seed, probe, drop
+pnpm db:verify:fresh --keep             # leave it behind to inspect
+pnpm db:verify:fresh --report=out.json  # machine-readable results
+```
+
+A development database accumulates history: a column added by hand, rows left
+by an earlier schema, a migration applied out of order. Verifying against it
+proves that _that_ database works, which is not the claim anyone cares about.
+
+So this creates a new one named `desi_event_disposable_<16 hex digits>`, applies
+every migration into it from zero, seeds it twice to prove the seed is
+idempotent, probes the constraints the application relies on but cannot enforce
+(single hold owner, denominated fixed-amount promos, order and payment
+idempotency keys, provider charge references, webhook deliveries, ticket
+codes), runs both database integration suites against it, and drops it.
+
+It will only ever touch a database whose name matches that pattern:
+`DATABASE_URL`, `TEST_DATABASE_URL` and anything else are refused before a
+single statement runs, and there is no flag that overrides it. `DATABASE_URL`
+is read only to learn which _server_ to create the database on. Nothing it
+prints contains a credential — the connection is reported as
+`postgresql://<redacted>@<redacted>/<database>`.
+
 ### Regenerating the client
 
 ```bash

@@ -25,7 +25,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "verify:fresh": "node scripts/verify-fresh-database.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
