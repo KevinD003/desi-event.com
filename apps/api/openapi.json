@@ -37,6 +37,10 @@
       "description": "Checkout and order retrieval."
     },
     {
+      "name": "payments",
+      "description": "Provider callbacks. The authoritative signal that money moved."
+    },
+    {
       "name": "tickets",
       "description": "Door scanning and attendance."
     },
@@ -6153,6 +6157,118 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/payments/webhook": {
+      "post": {
+        "operationId": "payments.webhook",
+        "summary": "Payment provider callback",
+        "description": "The authoritative signal that money moved. A browser redirect is not: a buyer can close the tab, replay it or forge it, so fulfilment is driven from here. Processing is idempotent on `(provider, providerEventId)` — a replayed or duplicated delivery is acknowledged and changes nothing. In production this endpoint is authenticated by the provider signature; the Phase 1 mock provider posts unsigned callbacks and real payments remain disabled.",
+        "tags": [
+          "payments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment provider callback",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "providerEventId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "eventType": {
+                    "type": "string",
+                    "enum": [
+                      "payment.succeeded",
+                      "payment.failed"
+                    ]
+                  },
+                  "orderReference": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 32,
+                    "pattern": "^[A-Z0-9-]+$"
+                  },
+                  "providerRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "amountCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                  },
+                  "currency": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "failureCode": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "provider",
+                  "providerEventId",
+                  "eventType",
+                  "orderReference"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/v1/tickets/check-in": {

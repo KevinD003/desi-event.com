@@ -246,36 +246,71 @@ Holding a transaction open across a provider round-trip is a real cost — a row
 lock held for the duration — accepted deliberately in exchange for never
 writing a captured payment and its tickets apart.
 
-### Known limitation: payment happens inside the transaction
+### Checkout is two-phase, and the boundary is the point
 
-The capture call to the payment provider sits inside the checkout transaction.
-That is what makes a declined card leave nothing behind — the order, its items,
-the tickets and the `quantitySold` increment all roll back together — but it
-also means an external network call is made while database locks are held.
+**No call to a payment provider ever happens while a database transaction is
+open.** Holding locks across a network call to a third party couples this
+system's availability to theirs, and the failure it produces is the worst one a
+ticketing system has: the gateway is merely slow, the transaction times out and
+rolls back, and the money has still moved — a charge with no order and no
+tickets against it.
 
-Prisma's default interactive-transaction timeout is five seconds. The in-memory
-provider answers instantly, so this is invisible today; the transaction is
-configured with a wider window (`ORDER_TRANSACTION_OPTIONS` in
-`apps/api/src/routes/orders.js`) to buy headroom. A real gateway that exceeded
-it would be the worst kind of failure: the money taken, the surrounding
-transaction rolled back, and a charge with no tickets against it.
+So checkout is three steps:
 
-**Before a production payment gateway is wired up, checkout must move to a
-two-phase flow:**
+1. **Begin** (transaction). Validate the cart, lock the tiers, price the order,
+   reserve inventory, and write a `PENDING` order with an `INITIATED` payment
+   attempt. Commit. After this returns, durable evidence exists that a charge is
+   about to be attempted — which is what makes a process that dies mid-call
+   recoverable rather than invisible.
+2. **Capture** (no transaction). Call the provider. However long it takes, no
+   locks are held and nothing can time out underneath it.
+3. **Settle or compensate** (short transaction). Record the outcome.
 
-1. Persist a `PENDING` order and its items in one transaction, holding the
-   inventory that is already reserved.
-2. Capture the payment with no transaction open and no locks held.
-3. Settle in a second transaction — mark the order `PAID`, issue tickets,
-   convert the holds — or compensate by cancelling the order and releasing the
-   holds if the capture failed or timed out.
+Inventory stays reserved for the whole of step 2. Any quantity not already
+covered by a buyer's hold gets one created for it in step 1, so nothing in the
+cart is purchasable by somebody else while the card is authorising.
 
-Step 3 has to be idempotent and safe to retry, because the process can die
-between steps 2 and 3. The `Payment` row keyed on `(provider, providerRef)` is
-the natural place to anchor that: a retry that finds a succeeded payment
-settles the order rather than charging again.
+#### Three outcomes, three paths
 
-### The hold state machine
+| Provider says | Order | Payment | Inventory |
+| --- | --- | --- | --- |
+| Captured | `PAID`, tickets issued | `SUCCEEDED` | `quantitySold` incremented, holds `CONVERTED` |
+| Declined | `CANCELLED` | `FAILED` with the decline code | Untouched; holds stay `ACTIVE` so the buyer can retry |
+| Nothing (timeout) | stays `PENDING` | `TIMEOUT`, `reconciliationRequired` | Stays reserved |
+
+A timeout is not a decline. A decline means no money moved; a timeout means
+nobody knows. Cancelling an order whose charge may have succeeded either strands
+a buyer who paid or refunds money that was never taken, so the ambiguous case is
+left for reconciliation rather than guessed at.
+
+#### The webhook is authoritative
+
+Fulfilment is driven by the provider's callback, not by the browser redirect. A
+redirect is a message from the buyer's user agent: it can be closed before it
+arrives, replayed from history, or forged. `WebhookEvent` records every delivery
+against a unique `(provider, providerEventId)`, so a duplicate delivery is
+acknowledged and changes nothing.
+
+Settlement is a conditional update — `WHERE status = 'PENDING'` — which is what
+stops two workers from fulfilling one payment. Whether the second arrival is a
+duplicate webhook, a retry, or the synchronous checkout path racing the
+callback, it finds the order already `PAID` and does nothing. There is exactly
+one set of tickets, one inventory decrement and one audit row per order.
+
+A retried checkout carrying the same `Idempotency-Key` resolves to the original
+order instead of creating and charging a second one; the unique index on
+`Order.idempotencyKey` is the real guarantee.
+
+#### Phase 1 scope
+
+The provider is the deterministic in-memory mock. Real payment credentials are
+not configured and real payment activation remains out of scope for Phase 1;
+the flow above is exercised against the mock's success, decline, timeout,
+duplicate-webhook, delayed-webhook and retry scenarios. Before a live gateway is
+connected, the webhook endpoint needs provider signature verification, which the
+mock does not model.
+
+### The hold state machine### The hold state machine
 
 ```mermaid
 stateDiagram-v2

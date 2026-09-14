@@ -264,7 +264,7 @@ describe('POST /v1/orders', () => {
     await app.close()
   })
 
-  it('leaves nothing behind when the payment is declined', async () => {
+  it('records a cancelled order and a failed attempt when the payment is declined', async () => {
     const providers = createInMemoryProviderRegistry({
       payments: { declineAmountCents: ONE_TICKET_TOTAL },
     })
@@ -276,11 +276,18 @@ describe('POST /v1/orders', () => {
     expect(response.statusCode).toBe(402)
     expect(response.json().error.code).toBe('PAYMENT_DECLINED')
 
-    // Every write inside the transaction is gone.
-    expect(prisma._store.order).toHaveLength(0)
-    expect(prisma._store.orderItem).toHaveLength(0)
+    // The order and the attempt survive on purpose. Rolling them away would
+    // erase the evidence that a charge was attempted at all, which is exactly
+    // what makes a provider-side charge impossible to reconcile later.
+    expect(prisma._store.order).toHaveLength(1)
+    expect(prisma._store.order[0].status).toBe('CANCELLED')
+    expect(prisma._store.order[0].cancelledAt).toBeInstanceOf(Date)
+    expect(prisma._store.payment).toHaveLength(1)
+    expect(prisma._store.payment[0].status).toBe('FAILED')
+    expect(prisma._store.payment[0].failureCode).toEqual(expect.any(String))
+
+    // Nothing was fulfilled: no tickets, no inventory consumed.
     expect(prisma._store.ticket).toHaveLength(0)
-    expect(prisma._store.payment).toHaveLength(0)
     expect(prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold).toBe(0)
     // The buyer keeps their reservation and can retry with another card.
     expect(prisma._store.ticketHold.find((row) => row.id === hold.id).status).toBe('ACTIVE')
@@ -288,7 +295,7 @@ describe('POST /v1/orders', () => {
     await app.close()
   })
 
-  it('leaves nothing behind when the capture fails after authorisation', async () => {
+  it('fulfils nothing when the capture fails after authorisation', async () => {
     const base = createInMemoryProviderRegistry()
     const providers = {
       ...base,
@@ -307,7 +314,7 @@ describe('POST /v1/orders', () => {
     const response = await order(app, checkout(ids))
 
     expect(response.statusCode).toBe(402)
-    expect(prisma._store.order).toHaveLength(0)
+    expect(prisma._store.order[0].status).toBe('CANCELLED')
     expect(prisma._store.ticket).toHaveLength(0)
 
     await app.close()

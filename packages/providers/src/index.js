@@ -50,6 +50,7 @@ export {
   createInMemoryPaymentProvider,
   PAYMENT_INTENT_STATUS,
   PAYMENT_DECLINE_AMOUNT_CENTS,
+  PAYMENT_TIMEOUT_AMOUNT_CENTS,
   DEFAULT_DECLINE_CODE,
   toPaymentStatus,
 } from './payments.js'

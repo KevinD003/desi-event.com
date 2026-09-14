@@ -64,6 +64,13 @@ const PAYMENT_STATUS_BY_INTENT_STATUS = Object.freeze({
  */
 export const PAYMENT_DECLINE_AMOUNT_CENTS = 999_999
 
+/**
+ * Amount that always times out, modelling a provider that takes the request
+ * and never answers. The money may or may not have moved: that ambiguity is
+ * the point, and it is what the reconciliation path exists for.
+ */
+export const PAYMENT_TIMEOUT_AMOUNT_CENTS = 999_998
+
 /** Decline code reported when no explicit `failureCode` was supplied. */
 export const DEFAULT_DECLINE_CODE = 'card_declined'
 
@@ -207,12 +214,16 @@ export function toPaymentStatus(intentStatus) {
  * @param {number} declineAmountCents The provider's magic decline amount.
  * @returns {{atCreate: boolean, atCapture: boolean}} Which lifecycle step should fail.
  */
-function resolveFailureTrigger(input, declineAmountCents) {
+function resolveFailureTrigger(input, declineAmountCents, timeoutAmountCents) {
   const { amountCents, forceFailure } = input
-  const atCapture = forceFailure === 'capture'
+  const timeout = forceFailure === 'timeout' || amountCents === timeoutAmountCents
+  const atCapture = !timeout && forceFailure === 'capture'
   const atCreate =
-    !atCapture && (forceFailure === true || forceFailure === 'create' || amountCents === declineAmountCents)
-  return { atCreate, atCapture }
+    !timeout &&
+    !atCapture &&
+    (forceFailure === true || forceFailure === 'create' || amountCents === declineAmountCents)
+
+  return { atCreate, atCapture, timeout }
 }
 
 /**
@@ -220,6 +231,7 @@ function resolveFailureTrigger(input, declineAmountCents) {
  * @property {string} [name] Adapter name recorded on `Payment.provider`.
  * @property {string} [idPrefix] Prefix for generated intent ids.
  * @property {number} [declineAmountCents] Amount that always declines; defaults to {@link PAYMENT_DECLINE_AMOUNT_CENTS}.
+ * @property {number} [timeoutAmountCents] Amount that always times out; defaults to {@link PAYMENT_TIMEOUT_AMOUNT_CENTS}.
  * @property {(Date|number|string|function(): (Date|number|string))} [now] Fixed instant or clock function, for deterministic timestamps.
  */
 
@@ -238,6 +250,7 @@ export function createInMemoryPaymentProvider(options = {}) {
     name = 'in-memory-payments',
     idPrefix = 'pi',
     declineAmountCents = PAYMENT_DECLINE_AMOUNT_CENTS,
+    timeoutAmountCents = PAYMENT_TIMEOUT_AMOUNT_CENTS,
     now,
   } = options
 
@@ -360,6 +373,7 @@ export function createInMemoryPaymentProvider(options = {}) {
     const trigger = resolveFailureTrigger(
       { amountCents, forceFailure: input.forceFailure },
       declineAmountCents,
+      timeoutAmountCents,
     )
 
     const id = nextId()
@@ -380,6 +394,7 @@ export function createInMemoryPaymentProvider(options = {}) {
       refundReason: null,
       metadata,
       failAtCapture: trigger.atCapture,
+      timeoutAtCapture: trigger.timeout,
       captureFailureCode: failureCode,
     }
     intents.set(id, record)
@@ -433,6 +448,17 @@ export function createInMemoryPaymentProvider(options = {}) {
     }
 
     assertMatchesIntent(record, effective, 'capture')
+
+    // A timeout is not a decline. The intent stays REQUIRES_CAPTURE and the
+    // caller is told nothing definite: whether the money moved is exactly what
+    // reconciliation has to establish against the provider afterwards.
+    if (record.timeoutAtCapture) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_TIMEOUT,
+        `Capture of payment intent ${record.id} timed out`,
+        { provider: name, details: { intentId: record.id, amountCents: record.amountCents } },
+      )
+    }
 
     if (record.failAtCapture) {
       record.status = PAYMENT_INTENT_STATUS.FAILED

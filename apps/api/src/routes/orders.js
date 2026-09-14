@@ -25,9 +25,14 @@
  * @module @desi-event/api/routes/orders
  */
 
-import { salesWindowState, validateQuantityRequest } from '@desi-event/inventory'
+import {
+  authorizeHoldRelease,
+  holdExpiresAt,
+  resolveHoldOwnership,
+  salesWindowState,
+  validateQuantityRequest,
+} from '@desi-event/inventory'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
-import { authorizeHoldRelease } from '@desi-event/inventory'
 import {
   computeOrderTotals,
   feeConfigForCurrency,
@@ -39,6 +44,13 @@ import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
 import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
 import { toOrder } from '../lib/presenters.js'
+import {
+  CAPTURE_OUTCOMES,
+  captureOutsideTransaction,
+  compensateCheckout,
+  recordCaptureTimeout,
+  settleCheckout,
+} from '../lib/checkout.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Everything an order payload needs, in one query. */
@@ -58,7 +70,13 @@ import { defineRoute } from '../lib/register.js'
  * or compensate in a second transaction — so that no external call is ever
  * holding database locks. See docs/architecture.md.
  */
-const ORDER_TRANSACTION_OPTIONS = Object.freeze({ timeout: 20_000, maxWait: 10_000 })
+/**
+ * Phase 1 and phase 3 are both purely local work — validate and write, or
+ * record an outcome. Neither calls anything external. The provider call happens
+ * between them with no transaction open at all; see lib/checkout.js.
+ */
+const CHECKOUT_TRANSACTION_OPTIONS = Object.freeze({ timeout: 10_000, maxWait: 5_000 })
+const SETTLEMENT_TRANSACTION_OPTIONS = Object.freeze({ timeout: 10_000, maxWait: 5_000 })
 
 const ORDER_INCLUDE = Object.freeze({
   items: { include: { tickets: true } },
@@ -182,25 +200,6 @@ async function resolveHolds(tx, holdIds, ticketTypeIds, now, owner = {}) {
 }
 
 /**
- * Take payment for an order and return the captured intent.
- *
- * @param {object} payments The injected payment provider.
- * @param {object} order The `Order` row being paid for.
- * @returns {Promise<object>} The captured intent.
- * @throws {Error} When the provider refuses or declines.
- */
-async function capturePayment(payments, order) {
-  const intent = await payments.createIntent({
-    amountCents: order.totalCents,
-    currency: order.currency,
-    orderId: order.id,
-    metadata: { reference: order.reference, buyerEmail: order.buyerEmail },
-  })
-
-  return payments.capture(intent.id, { amountCents: order.totalCents, currency: order.currency })
-}
-
-/**
  * Whether this caller may read an order.
  *
  * The buyer always may — matched on the signed-in user id, or on the email the
@@ -238,9 +237,31 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
     handler: async (request) => {
       const body = request.body
       const now = new Date()
+      // An idempotency key lets a retried checkout resolve to the original
+      // order instead of creating and charging a second one.
+      const idempotencyKey = request.headers['idempotency-key'] ?? null
       const requestedIds = body.items.map((item) => item.ticketTypeId)
 
-      const order = await prisma.$transaction(async (tx) => {
+      // A retry carrying the same key must not produce a second charge. The
+      // unique index on Order.idempotencyKey is the real guarantee; this read
+      // just turns the common case into a clean replay instead of a 409.
+      if (idempotencyKey) {
+        const existing = await prisma.order.findUnique({
+          where: { idempotencyKey },
+          include: ORDER_INCLUDE,
+        })
+
+        if (existing) {
+          request.log.info(
+            { orderId: existing.id, reference: existing.reference },
+            'checkout replayed; returning the original order',
+          )
+
+          return { data: toOrder(existing) }
+        }
+      }
+
+      const begun = await prisma.$transaction(async (tx) => {
         // Same discipline as holds.create: lock every tier involved, in sorted
         // order so two concurrent multi-tier orders cannot deadlock, and only
         // then read anything.
@@ -326,6 +347,7 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         const created = await tx.order.create({
           data: {
             reference: generateOrderReference(),
+            idempotencyKey,
             eventId: event.id,
             // Ownership follows the authenticated caller only. Honouring a
             // userId from the body would let an anonymous request attach an
@@ -345,7 +367,7 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         })
 
         for (const line of totals.lineItems) {
-          const item = await tx.orderItem.create({
+          await tx.orderItem.create({
             data: {
               orderId: created.id,
               ticketTypeId: line.ticketTypeId,
@@ -354,49 +376,36 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
               subtotalCents: line.subtotalCents,
             },
           })
-
-          for (let index = 0; index < line.quantity; index += 1) {
-            await tx.ticket.create({
-              data: {
-                orderItemId: item.id,
-                code: generateTicketCode(),
-                attendeeName: body.buyerName,
-                status: 'VALID',
-              },
-            })
-          }
         }
 
-        // A zero-total order (a 100% promo code, a free event) never touches
-        // the payment provider: there is nothing to authorise, and a provider
-        // that rejects zero-amount intents would otherwise block free tickets.
-        if (totals.totalCents > 0) {
-          const intent = await capturePayment(providers.payments, created)
-
-          await tx.payment.create({
-            data: {
-              orderId: created.id,
-              provider: providers.payments.name,
-              providerRef: intent.id,
-              status: 'SUCCEEDED',
-              amountCents: totals.totalCents,
-              currency: totals.currency,
-            },
-          })
-        }
-
+        // Attach the buyer's holds to the order so the settlement step can
+        // convert them, and reserve anything not already held. Inventory has
+        // to stay reserved for the whole time the provider is being called:
+        // without this an unheld line would be free for somebody else to buy
+        // while this buyer's card is authorising.
         for (const item of body.items) {
-          await tx.ticketType.update({
-            where: { id: item.ticketTypeId },
-            data: { quantitySold: byId.get(item.ticketTypeId).quantitySold + item.quantity },
-          })
-        }
+          const held = (holdsByType.get(item.ticketTypeId) ?? []).reduce(
+            (sum, hold) => sum + hold.quantity,
+            0,
+          )
 
-        for (const holds of holdsByType.values()) {
-          for (const hold of holds) {
-            await tx.ticketHold.update({
-              where: { id: hold.id },
-              data: { status: 'CONVERTED', orderId: created.id },
+          for (const hold of holdsByType.get(item.ticketTypeId) ?? []) {
+            await tx.ticketHold.update({ where: { id: hold.id }, data: { orderId: created.id } })
+          }
+
+          const unheld = item.quantity - held
+          if (unheld > 0) {
+            const { ownership } = resolveHoldOwnership({ actor: request.actor })
+            await tx.ticketHold.create({
+              data: {
+                ticketTypeId: item.ticketTypeId,
+                orderId: created.id,
+                quantity: unheld,
+                status: 'ACTIVE',
+                expiresAt: holdExpiresAt(now, env.TICKET_HOLD_TTL_SECONDS),
+                userId: ownership.userId,
+                guestTokenHash: ownership.guestTokenHash,
+              },
             })
           }
         }
@@ -411,13 +420,71 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           })
         }
 
-        await tx.order.update({
-          where: { id: created.id },
-          data: { status: 'PAID', paidAt: now },
-        })
+        // A zero-total order (a 100% promo, a free event) moves no money, so
+        // there is nothing to attempt and no attempt row to write.
+        const zeroTotal = totals.totalCents === 0
 
-        return tx.order.findUnique({ where: { id: created.id }, include: ORDER_INCLUDE })
-      }, ORDER_TRANSACTION_OPTIONS)
+        // Otherwise the payment attempt is written and committed BEFORE the
+        // provider is called, so a process that dies mid-call still leaves
+        // evidence that a charge may exist.
+        const payment = zeroTotal
+          ? null
+          : await tx.payment.create({
+              data: {
+                orderId: created.id,
+                provider: providers.payments.name,
+                status: 'INITIATED',
+                amountCents: totals.totalCents,
+                currency: totals.currency,
+                idempotencyKey: idempotencyKey ? `${idempotencyKey}:1` : null,
+                attemptNumber: 1,
+              },
+            })
+
+        return { order: created, payment, zeroTotal }
+      }, CHECKOUT_TRANSACTION_OPTIONS)
+
+      // ---- Phase 2: the provider call, with NO transaction open -------------
+      const result = begun.zeroTotal
+        ? { outcome: CAPTURE_OUTCOMES.SUCCEEDED, intent: null, failureCode: null, rawStatus: 'ZERO_TOTAL' }
+        : await captureOutsideTransaction(providers.payments, begun.order)
+
+      // ---- Phase 3: a short transaction recording the outcome ---------------
+      const order = await prisma.$transaction(async (tx) => {
+        const common = {
+          order: begun.order,
+          payment: begun.payment,
+          now,
+          actorId: request.actor?.id ?? null,
+          requestId: request.id,
+        }
+
+        if (result.outcome === CAPTURE_OUTCOMES.SUCCEEDED) {
+          await settleCheckout(tx, { ...common, result, generateTicketCode })
+        } else if (result.outcome === CAPTURE_OUTCOMES.TIMEOUT) {
+          await recordCaptureTimeout(tx, { ...common, result })
+        } else {
+          await compensateCheckout(tx, { ...common, failureCode: result.failureCode })
+        }
+
+        return tx.order.findUnique({ where: { id: begun.order.id }, include: ORDER_INCLUDE })
+      }, SETTLEMENT_TRANSACTION_OPTIONS)
+
+      if (result.outcome === CAPTURE_OUTCOMES.TIMEOUT) {
+        request.log.error(
+          { orderId: order.id, reference: order.reference, paymentId: begun.payment.id },
+          'payment capture timed out; order left pending for reconciliation',
+        )
+        throw httpError(
+          502,
+          'PAYMENT_TIMEOUT',
+          'The payment provider did not respond in time. Your order is being confirmed; do not retry yet.',
+        )
+      }
+
+      if (result.outcome === CAPTURE_OUTCOMES.DECLINED) {
+        throw httpError(402, 'PAYMENT_DECLINED', 'The payment was declined.')
+      }
 
       request.log.info(
         { orderId: order.id, reference: order.reference, totalCents: order.totalCents },

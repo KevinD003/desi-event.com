@@ -26,6 +26,7 @@ import {
   holdResponseSchema,
   idParamSchema,
   joinWaitlistRequestSchema,
+  paymentWebhookRequestSchema,
   listEventsQuerySchema,
   listQuerySchema,
   loginRequestSchema,
@@ -64,6 +65,7 @@ export const API_TAGS = Object.freeze([
   { name: 'ticket-types', description: 'Ticket tiers belonging to an event.' },
   { name: 'holds', description: 'Short-lived inventory reservations taken during checkout.' },
   { name: 'orders', description: 'Checkout and order retrieval.' },
+  { name: 'payments', description: 'Provider callbacks. The authoritative signal that money moved.' },
   { name: 'tickets', description: 'Door scanning and attendance.' },
   { name: 'waitlist', description: 'Waitlist sign-up for sold-out events.' },
 ])
@@ -473,6 +475,22 @@ export const apiRoutes = Object.freeze([
     response: orderListResponseSchema,
     successStatus: 200,
     errors: [API_ERRORS.validation, API_ERRORS.unauthorized],
+  },
+  {
+    id: 'payments.webhook',
+    method: 'POST',
+    path: '/v1/payments/webhook',
+    summary: 'Payment provider callback',
+    description:
+      'The authoritative signal that money moved. A browser redirect is not: a buyer can close the tab, replay it or forge it, so fulfilment is driven from here. Processing is idempotent on `(provider, providerEventId)` — a replayed or duplicated delivery is acknowledged and changes nothing. In production this endpoint is authenticated by the provider signature; the Phase 1 mock provider posts unsigned callbacks and real payments remain disabled.',
+    tags: ['payments'],
+    auth: 'none',
+    params: null,
+    query: null,
+    body: paymentWebhookRequestSchema,
+    response: okResponseSchema,
+    successStatus: 200,
+    errors: [API_ERRORS.validation, API_ERRORS.notFound],
   },
   {
     id: 'tickets.checkIn',

@@ -26,6 +26,12 @@ export const PROVIDER_ERROR_CODES = Object.freeze({
 
   /** An amount is not a positive integer number of cents. */
   INVALID_AMOUNT: 'INVALID_AMOUNT',
+  /**
+   * The provider did not answer in time. Deliberately distinct from a decline:
+   * a decline means no money moved, a timeout means nobody knows yet. The
+   * caller must record it for reconciliation rather than retrying blindly.
+   */
+  PAYMENT_TIMEOUT: 'PAYMENT_TIMEOUT',
   /** A currency is not a three-letter ISO-4217 code. */
   INVALID_CURRENCY: 'INVALID_CURRENCY',
   /** A payment intent reference is neither an id string nor an object carrying one. */

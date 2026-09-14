@@ -21,6 +21,7 @@ import {
   localeSchema,
   longitudeSchema,
   nonEmptyStringSchema,
+  orderReferenceSchema,
   passwordSchema,
   phoneSchema,
   promoCodeStringSchema,
@@ -380,3 +381,21 @@ export const idParamSchema = z.object({ id: cuidSchema })
 
 /** Path parameter shape for routes keyed by a slug. */
 export const slugParamSchema = z.object({ slug: slugSchema })
+
+/**
+ * A payment provider callback.
+ *
+ * The webhook is the authoritative signal that money moved. A browser redirect
+ * is not: the buyer can close the tab, replay it, or forge it. `providerEventId`
+ * is what makes replay a no-op — the same event id is only ever processed once.
+ */
+export const paymentWebhookRequestSchema = z.object({
+  provider: z.string().min(1).max(64),
+  providerEventId: z.string().min(1).max(200),
+  eventType: z.enum(['payment.succeeded', 'payment.failed']),
+  orderReference: orderReferenceSchema,
+  providerRef: z.string().min(1).max(200).optional(),
+  amountCents: centsSchema.optional(),
+  currency: currencySchema.optional(),
+  failureCode: z.string().min(1).max(100).optional(),
+})
