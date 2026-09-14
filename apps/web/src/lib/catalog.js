@@ -170,6 +170,26 @@ export function categoriesWithEvents(events) {
 }
 
 /**
+ * Turn facet counts into browsing descriptors, in editorial order.
+ *
+ * Takes counts computed over the whole catalogue rather than over a page of
+ * results, so a category whose events all start later than the current page
+ * still appears. Categories with no events are still omitted: offering a filter
+ * that returns nothing is worse than not offering it.
+ *
+ * @param {Array<{value: string, count: number}>} facets Category facet counts.
+ * @returns {object[]} Category descriptors carrying their counts.
+ */
+export function describeCategories(facets) {
+  const counts = new Map((facets ?? []).map((entry) => [entry.value, entry.count]))
+
+  return EVENT_CATEGORIES.filter((category) => counts.has(category.value)).map((category) => ({
+    ...category,
+    count: counts.get(category.value),
+  }))
+}
+
+/**
  * The cities represented in a set of events, alphabetically.
  *
  * @param {object[]} events Event summaries.

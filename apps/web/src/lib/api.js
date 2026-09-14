@@ -237,7 +237,12 @@ export async function loadEventBySlug(slug, options = {}) {
 }
 
 /**
- * Load every event summary the catalogue holds, for building filter options.
+ * Load every event summary the catalogue holds, for the home page.
+ *
+ * Deliberately NOT used to build filter options any more. Filter options come
+ * from {@link loadCatalogueFacets}, which counts in the database: deriving them
+ * from a page of results meant a city whose events all fell past the first
+ * forty-eight was not merely hidden but unselectable.
  *
  * @param {object} [options] Overrides.
  * @param {object} [options.client] API client to use; defaults to the shared one.
@@ -246,6 +251,65 @@ export async function loadEventBySlug(slug, options = {}) {
 export async function loadCatalogueOverview(options = {}) {
   return loadEventList({ page: 1, perPage: 48 }, options)
 }
+
+/** Facet lists used when the API cannot be reached. */
+const FALLBACK_FACETS = Object.freeze({
+  scope: { status: 'PUBLISHED', total: 0 },
+  categories: [],
+  cities: [],
+  languages: [],
+  formats: [],
+})
+
+/**
+ * Load filter facets, counted over the complete catalogue.
+ *
+ * @param {object} [options] Overrides.
+ * @param {object} [options.client] API client to use; defaults to the shared one.
+ * @returns {Promise<{facets: object, usedFallback: boolean}>} Facet counts, and whether the API answered.
+ */
+export async function loadCatalogueFacets(options = {}) {
+  /**
+   * Tally a list of values into facet entries.
+   *
+   * @param {string[]} values Raw values.
+   * @returns {Array<{value: string, count: number}>} Counted, deterministically ordered.
+   */
+  const count = (values) => {
+    const tally = new Map()
+    for (const value of values) tally.set(value, (tally.get(value) ?? 0) + 1)
+
+    return [...tally.entries()]
+      .map(([value, n]) => ({ value, count: n }))
+      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+  }
+
+  return readOrFallback(
+    'facets',
+    async () => {
+      const client = options.client ?? getApiClient()
+      const response = await client.events.facets()
+
+      return { facets: response.data, usedFallback: false }
+    },
+    () => {
+      // Derive what we can from the sample catalogue so the selects are not
+      // empty when the API is down.
+      const events = sampleEventSummaries()
+
+      return {
+        facets: {
+          ...FALLBACK_FACETS,
+          scope: { status: 'PUBLISHED', total: events.length },
+          categories: count(events.map((event) => event.category)),
+          cities: count(events.map((event) => event.city).filter(Boolean)),
+        },
+        usedFallback: true,
+      }
+    },
+  )
+}
+
 
 /**
  * Derive the availability fields a ticket tier needs for display.

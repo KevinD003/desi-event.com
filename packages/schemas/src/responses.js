@@ -12,11 +12,12 @@ import { z } from 'zod'
 
 import {
   centsSchema,
+  countSchema,
   cuidSchema,
   nonEmptyStringSchema,
   timestampSchema,
 } from './primitives.js'
-import { logLevelSchema } from './enums.js'
+import { eventCategorySchema, logLevelSchema } from './enums.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -167,4 +168,26 @@ export const healthResponseSchema = z.object({
 /** Envelope for endpoints that only confirm the write succeeded. */
 export const okResponseSchema = z.object({
   ok: z.literal(true),
+})
+
+/**
+ * Facet counts for the event catalogue.
+ *
+ * Computed over the whole eligible set, not over the page being displayed.
+ * Paginating the results must not shrink the filter universe: a city whose
+ * events all fall outside the current page still has to be selectable, or the
+ * filters silently hide part of the catalogue.
+ */
+export const eventFacetsResponseSchema = z.object({
+  data: z.object({
+    /** The query scope these counts were computed over. */
+    scope: z.object({
+      status: z.string(),
+      total: countSchema,
+    }),
+    categories: z.array(z.object({ value: eventCategorySchema, count: countSchema })),
+    cities: z.array(z.object({ value: z.string(), count: countSchema })),
+    languages: z.array(z.object({ value: z.string(), count: countSchema })),
+    formats: z.array(z.object({ value: z.enum(['online', 'in_person']), count: countSchema })),
+  }),
 })

@@ -185,6 +185,7 @@ describe('routesByTag', () => {
   it('collects the event routes', () => {
     expect(routesByTag('events').map((route) => route.id)).toEqual([
       'events.list',
+      'events.facets',
       'events.get',
       'events.create',
       'events.update',

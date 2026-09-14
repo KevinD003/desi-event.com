@@ -11,6 +11,7 @@ import { organizationsWhere } from '../lib/actor.js'
 import { conflict, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
 import { toEventDetail, toEventSummary } from '../lib/presenters.js'
+import { loadEventFacets } from '../lib/facets.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Relations every event payload carries. */
@@ -167,6 +168,10 @@ async function resolveSlug(prisma, requested, title) {
  * @returns {void} Nothing.
  */
 export function registerEventRoutes(app, { prisma }) {
+  defineRoute(app, 'events.facets', {
+    handler: async () => ({ data: await loadEventFacets(prisma) }),
+  })
+
   defineRoute(app, 'events.list', {
     handler: async (request) => {
       const { where, orderBy, skip, take } = buildEventQuery(request.query, request.actor)

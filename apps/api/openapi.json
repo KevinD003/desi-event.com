@@ -1709,6 +1709,169 @@
         ]
       }
     },
+    "/v1/events/facets": {
+      "get": {
+        "operationId": "events.facets",
+        "summary": "Filter facets for the catalogue",
+        "description": "Counts for every filterable dimension, computed over the complete eligible set — all PUBLISHED events — rather than over the page currently being displayed. Pagination changes which rows a visitor sees, never which options exist: a city whose events all fall beyond page one must still be selectable, or the filters silently hide part of the catalogue. Aggregated in the database; no table is loaded into application memory.",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "200": {
+            "description": "Filter facets for the catalogue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "scope": {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "total": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 10000000
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "total"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "categories": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string",
+                                "enum": [
+                                  "MUSIC_CONCERT",
+                                  "GARBA_DANDIYA",
+                                  "BOLLYWOOD_NIGHT",
+                                  "CLASSICAL_DANCE",
+                                  "COMEDY",
+                                  "FILM_SCREENING",
+                                  "CULTURAL_FESTIVAL",
+                                  "FOOD_FESTIVAL",
+                                  "WEDDING_EXPO",
+                                  "RELIGIOUS",
+                                  "THEATRE",
+                                  "WORKSHOP",
+                                  "NETWORKING",
+                                  "SPORTS"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "cities": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "languages": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string"
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "formats": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string",
+                                "enum": [
+                                  "online",
+                                  "in_person"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              }
+                            },
+                            "required": [
+                              "value",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "scope",
+                        "categories",
+                        "cities",
+                        "languages",
+                        "formats"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/events/{slug}": {
       "get": {
         "operationId": "events.get",

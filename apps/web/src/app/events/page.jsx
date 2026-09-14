@@ -12,8 +12,8 @@
 import Link from 'next/link'
 import { EmptyState } from '../../components/ui.jsx'
 
-import { loadCatalogueOverview, loadEventList } from '../../lib/api.js'
-import { categoriesWithEvents, citiesWithEvents } from '../../lib/catalog.js'
+import { loadCatalogueFacets, loadEventList } from '../../lib/api.js'
+import { describeCategories } from '../../lib/catalog.js'
 import { buildEventsHref, hasActiveFilters, parseEventFilters } from '../../lib/search-params.js'
 import { EventFilters } from '../../components/listing-filters.jsx'
 import { EventGrid } from '../../components/listing-card.jsx'
@@ -59,14 +59,16 @@ export default async function EventsPage({ searchParams }) {
   // The filter selects offer every category and city the catalogue has, not
   // just the ones surviving the current filter — otherwise choosing "Toronto"
   // would delete every other city from the city select.
-  const [listing, overview] = await Promise.all([
-    loadEventList(filters),
-    loadCatalogueOverview(),
-  ])
+  //
+  // They come from facet counts computed in the database over every published
+  // event, not from a page of results. Deriving them from one page meant a city
+  // whose events all started later than the forty-eighth was absent from the
+  // select entirely, and its events unreachable through filtering.
+  const [listing, facetResult] = await Promise.all([loadEventList(filters), loadCatalogueFacets()])
 
   const { events, pagination, usedFallback } = listing
-  const categories = categoriesWithEvents(overview.events)
-  const cities = citiesWithEvents(overview.events)
+  const categories = describeCategories(facetResult.facets.categories)
+  const cities = facetResult.facets.cities.map((entry) => entry.value)
   const active = hasActiveFilters(filters)
 
   return (
@@ -78,12 +80,17 @@ export default async function EventsPage({ searchParams }) {
       </p>
 
       <div className="mt-6">
+        {/*
+          No `key` here, deliberately. It used to be derived from the filter
+          values, which remounted the whole form on every change and threw
+          keyboard focus back to the document body mid-interaction.
+        */}
         <EventFilters
-          key={`${filters.category}|${filters.city}|${filters.q}`}
           categories={categories}
           cities={cities}
           filters={filters}
           anyActive={active}
+          resultCount={pagination?.total ?? events.length}
         />
       </div>
 
@@ -93,7 +100,13 @@ export default async function EventsPage({ searchParams }) {
         {resultSummary(pagination, filters)}
       </p>
 
-      <div className="mt-4">
+      {/*
+        `tabIndex={-1}` makes this a focus target for the filter bar's
+        "Skip to results" link without putting it in the tab order. Focus moves
+        here only when a visitor asks for it, never automatically on a filter
+        change.
+      */}
+      <div id="event-results" tabIndex={-1} className="mt-4 scroll-mt-4">
         {events.length === 0 ? (
           <EmptyState
             icon="◎"

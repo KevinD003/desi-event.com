@@ -10,16 +10,23 @@
  * selects apply themselves on change instead of waiting for a submit, and the
  * navigation is client-side.
  *
- * The form is uncontrolled. The server component that renders it passes the
- * current filters as `defaultValue`s and remounts it with a `key` derived from
- * those filters, so the browser's own form state is the single source of truth
- * between navigations and there is no controlled-input state to fall out of
- * sync with the URL.
+ * The form is uncontrolled: the server passes the current filters as
+ * `defaultValue`s and the browser's own form state is the source of truth
+ * between navigations.
+ *
+ * It is deliberately NOT remounted when the filters change. It used to be —
+ * the parent gave it a `key` derived from the filter values — which meant every
+ * change destroyed and rebuilt the form, throwing keyboard focus back to the
+ * document body in the middle of the interaction. A keyboard or screen-reader
+ * user who changed the category select was dropped at the top of the page with
+ * no idea what had happened. Reconciling in place keeps focus where the visitor
+ * put it, and a polite live region tells them what changed instead of moving
+ * them.
  *
  * @module components/listing-filters
  */
 
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button, FormField, Input, Select } from './ui.jsx'
 
@@ -31,6 +38,7 @@ import { buildEventsHref } from '../lib/search-params.js'
  * @property {string[]} cities Cities offered in the select.
  * @property {object} filters Current filter state, used for the initial values.
  * @property {boolean} [anyActive] Whether to offer the "clear filters" control.
+ * @property {number} [resultCount] How many events match, announced politely when it changes.
  */
 
 /**
@@ -55,9 +63,30 @@ function readFilters(form) {
  * @param {EventFiltersProps} props Component props.
  * @returns {JSX.Element} The rendered filter form.
  */
-export function EventFilters({ categories, cities, filters, anyActive = false }) {
+export function EventFilters({ categories, cities, filters, anyActive = false, resultCount }) {
   const router = useRouter()
   const formRef = useRef(null)
+
+  // Announced rather than focused. Moving focus on every filter change is its
+  // own accessibility problem: it interrupts whatever the visitor was doing.
+  // The count is held in state and only published after the first render so a
+  // screen reader announces the *change*, not the initial page content it is
+  // already reading.
+  const [announcement, setAnnouncement] = useState('')
+  const announced = useRef(false)
+
+  useEffect(() => {
+    if (!announced.current) {
+      announced.current = true
+      return
+    }
+
+    if (typeof resultCount !== 'number') return
+
+    setAnnouncement(
+      resultCount === 1 ? '1 event matches your filters' : `${resultCount} events match your filters`,
+    )
+  }, [resultCount])
 
   /**
    * Navigate to the listing URL described by the form's current values.
@@ -78,6 +107,27 @@ export function EventFilters({ categories, cities, filters, anyActive = false })
   function handleSubmit(event) {
     event.preventDefault()
     applyFilters()
+  }
+
+  /**
+   * Clear every filter, resetting the form's own state as well as the URL.
+   *
+   * The form is uncontrolled and no longer remounts, so its DOM values have to
+   * be cleared explicitly — otherwise the inputs would keep showing filters
+   * that are no longer applied.
+   *
+   * @returns {void}
+   */
+  function clearFilters() {
+    formRef.current?.reset()
+
+    for (const field of formRef.current?.elements ?? []) {
+      if (field.name === 'category' || field.name === 'city' || field.name === 'q') {
+        field.value = ''
+      }
+    }
+
+    router.push('/events')
   }
 
   return (
@@ -127,10 +177,29 @@ export function EventFilters({ categories, cities, filters, anyActive = false })
         />
       </FormField>
 
+      {/*
+        Polite, atomic, and never focused: the count is read out after whatever
+        the visitor is currently doing, rather than interrupting them.
+      */}
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
+      </p>
+
       <div className="flex items-center gap-2">
         <Button type="submit">Apply</Button>
+        {/*
+          A deliberate way to reach the results, for a keyboard user who has
+          just changed a filter and does not want to tab through the rest of
+          the bar. Focus moves only when they ask for it.
+        */}
+        <a
+          href="#event-results"
+          className="rounded-lg px-3 py-2 text-sm font-medium text-indigo-night-700 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+        >
+          Skip to results
+        </a>
         {anyActive ? (
-          <Button type="button" variant="ghost" onClick={() => router.push('/events')}>
+          <Button type="button" variant="ghost" onClick={clearFilters}>
             Clear
           </Button>
         ) : null}
