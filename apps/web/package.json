@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event web app \u2014 Next.js App Router, React and JSX, styled with Tailwind CSS.",
+  "description": "Desi-Event web app — Next.js App Router, React and JSX, styled with Tailwind CSS.",
   "scripts": {
     "dev": "next dev --port ${WEB_PORT:-3000}",
     "build": "NODE_ENV=production next build",
@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:prod": "pnpm run build && playwright test --config playwright.production.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",

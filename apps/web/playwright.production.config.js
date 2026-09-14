@@ -1,14 +1,21 @@
+/**
+ * The production-build browser suite.
+ *
+ * The not-found behaviour this suite covers differs between `next dev` and a
+ * compiled build, and the build is the one that ships — so these specs are run
+ * against `next start` over a freshly compiled `.next`, never against the dev
+ * server. `reuseExistingServer: false` is the guard that makes that true: if
+ * anything already owns the port, Playwright refuses to start rather than
+ * quietly testing a stale server someone left running.
+ *
+ * @module playwright.production.config
+ */
+
 import { defineConfig, devices } from '@playwright/test'
 import { preinstalledChromium } from './e2e/support/chromium.js'
 
-/**
- * Port the suite starts the application on.
- *
- * Deliberately not 3000: a developer running `pnpm dev` in another terminal
- * should not have their session hijacked — or, worse, have the suite silently
- * test whatever is already listening there.
- */
-const port = Number(process.env.WEB_E2E_PORT ?? 3210)
+/** Port the production suite starts the application on. Distinct from the dev suite's. */
+const port = Number(process.env.WEB_E2E_PROD_PORT ?? 3220)
 
 /** Origin every `page.goto('/…')` is resolved against. */
 const baseURL = `http://127.0.0.1:${port}`
@@ -17,15 +24,12 @@ const executablePath = preinstalledChromium()
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: '**/*.spec.js',
-  // The not-found specs assert compiled-build behaviour and run under
-  // playwright.production.config.js against `next start`, not the dev server.
-  testIgnore: '**/not-found.spec.js',
+  testMatch: '**/not-found.spec.js',
   timeout: 45_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: [['list']],
 
@@ -46,11 +50,12 @@ export default defineConfig({
   // state a visitor gets when the listings service is down, which is the state
   // the fallback catalogue exists for.
   webServer: {
-    command: `npx next dev --port ${port}`,
+    command: `npx next start --port ${port}`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    reuseExistingServer: false,
+    timeout: 120_000,
     stdout: 'pipe',
     stderr: 'pipe',
+    env: { NODE_ENV: 'production' },
   },
 })

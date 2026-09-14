@@ -6,7 +6,6 @@
  */
 
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
 import { Badge, Card, CardBody } from '../../../components/ui.jsx'
 
 import { loadEventBySlug } from '../../../lib/api.js'
@@ -22,6 +21,7 @@ import {
 } from '../../../lib/format.js'
 import { formatPrice } from '../../../lib/pricing.js'
 import { EventPoster } from '../../../components/poster.jsx'
+import { NotFoundView } from '../../../components/not-found-view.jsx'
 import { FadeIn, RevealOnScroll } from '../../../components/motion.jsx'
 import { SampleDataNotice } from '../../../components/sample-data-notice.jsx'
 import { TicketTiers } from '../../../components/ticket-tiers.jsx'
@@ -88,7 +88,10 @@ export default async function EventDetailPage({ params }) {
   const { slug } = await params
   const { event, usedFallback } = await loadEventBySlug(slug)
 
-  if (!event) notFound()
+  // Next.js 16.3.5 answers `notFound()` with a document that has no body until
+  // the browser hydrates, so a missing event renders the shared not-found view
+  // here instead. See components/not-found-view.jsx.
+  if (!event) return <NotFoundView />
 
   const ticketTypes = event.ticketTypes ?? []
   const cheapest = cheapestAvailable(ticketTypes)

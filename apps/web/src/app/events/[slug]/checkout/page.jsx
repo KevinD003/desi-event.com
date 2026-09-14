@@ -9,12 +9,12 @@
  */
 
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
 import { EmptyState } from '../../../../components/ui.jsx'
 
 import { loadEventBySlug } from '../../../../lib/api.js'
 import { formatEventWhen, formatEventLocation } from '../../../../lib/format.js'
 import { CheckoutBasket } from '../../../../components/checkout-basket.jsx'
+import { NotFoundView } from '../../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../../components/sample-data-notice.jsx'
 
 export const dynamic = 'force-dynamic'
@@ -54,7 +54,9 @@ export default async function CheckoutPage({ params }) {
   const { slug } = await params
   const { event, usedFallback } = await loadEventBySlug(slug)
 
-  if (!event) notFound()
+  // Same reason as the event page: `notFound()` cannot be server-rendered by
+  // this version of Next.js. See components/not-found-view.jsx.
+  if (!event) return <NotFoundView />
 
   const ticketTypes = event.ticketTypes ?? []
 
