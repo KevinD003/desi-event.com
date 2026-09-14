@@ -1,0 +1,28 @@
+{
+  "name": "@desi-event/schemas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Zod runtime schemas — the single source of truth for validation across API, web and worker.",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["src"],
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@desi-event/config": "workspace:*",
+    "@vitest/coverage-v8": "^5.0.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

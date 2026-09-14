@@ -1,0 +1,29 @@
+{
+  "name": "@desi-event/providers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Provider interfaces (payments, email, SMS, storage) with in-memory implementations for development and tests.",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["src"],
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@desi-event/schemas": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@desi-event/config": "workspace:*",
+    "@vitest/coverage-v8": "^5.0.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

@@ -1,0 +1,410 @@
+// Desi-Event data model.
+//
+// Conventions:
+//  * Money is always stored as integer cents in the smallest currency unit.
+//    Never use floating point for money.
+//  * Every timestamp is stored in UTC. Events additionally carry an IANA
+//    timezone so that local start times survive daylight-saving changes.
+//  * Soft business state lives in enums so the database rejects bad values.
+//
+// The datasource URL is supplied by prisma.config.mjs (Prisma 7 no longer
+// accepts `url` inside the schema).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Identity and access
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ATTENDEE
+  ORGANIZER
+  ADMIN
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MANAGER
+  STAFF
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  phone        String?
+  locale       String   @default("en-IN")
+  role         UserRole @default(ATTENDEE)
+  emailVerified Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships Membership[]
+  orders      Order[]
+  waitlist    WaitlistEntry[]
+  auditLogs   AuditLog[]
+
+  @@index([role])
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  contactEmail String
+  websiteUrl  String?
+  verified    Boolean  @default(false)
+  payoutCurrency String @default("INR")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships Membership[]
+  events      Event[]
+  promoCodes  PromoCode[]
+
+  @@index([verified])
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           OrgRole  @default(VIEWER)
+  createdAt      DateTime @default(now())
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, role])
+}
+
+// ---------------------------------------------------------------------------
+// Events and venues
+// ---------------------------------------------------------------------------
+
+enum EventCategory {
+  MUSIC_CONCERT
+  GARBA_DANDIYA
+  BOLLYWOOD_NIGHT
+  CLASSICAL_DANCE
+  COMEDY
+  FILM_SCREENING
+  CULTURAL_FESTIVAL
+  FOOD_FESTIVAL
+  WEDDING_EXPO
+  RELIGIOUS
+  THEATRE
+  WORKSHOP
+  NETWORKING
+  SPORTS
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+model Venue {
+  id         String  @id @default(cuid())
+  name       String
+  addressLine1 String
+  addressLine2 String?
+  city       String
+  region     String
+  postalCode String
+  country    String  @default("IN")
+  latitude   Float?
+  longitude  Float?
+  capacity   Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  events Event[]
+
+  @@index([city, region])
+}
+
+model Event {
+  id             String        @id @default(cuid())
+  organizationId String
+  venueId        String?
+  title          String
+  slug           String        @unique
+  summary        String
+  description    String
+  category       EventCategory
+  status         EventStatus   @default(DRAFT)
+  // Stored in UTC; render using `timezone`.
+  startsAt       DateTime
+  endsAt         DateTime
+  timezone       String        @default("Asia/Kolkata")
+  coverImageUrl  String?
+  isOnline       Boolean       @default(false)
+  onlineUrl      String?
+  languages      String[]      @default([])
+  publishedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venue        Venue?       @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTypes  TicketType[]
+  orders       Order[]
+  promoCodes   PromoCode[]
+  waitlist     WaitlistEntry[]
+
+  @@index([status, startsAt])
+  @@index([category, startsAt])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Ticketing
+// ---------------------------------------------------------------------------
+
+enum TicketTypeStatus {
+  DRAFT
+  ON_SALE
+  PAUSED
+  SOLD_OUT
+  CLOSED
+}
+
+model TicketType {
+  id            String           @id @default(cuid())
+  eventId       String
+  name          String
+  description   String?
+  // Face value in integer cents of `currency`.
+  priceCents    Int
+  currency      String           @default("INR")
+  quantityTotal Int
+  // Denormalised counter kept in step with paid orders inside a transaction.
+  quantitySold  Int              @default(0)
+  minPerOrder   Int              @default(1)
+  maxPerOrder   Int              @default(10)
+  salesStartAt  DateTime?
+  salesEndAt    DateTime?
+  status        TicketTypeStatus @default(DRAFT)
+  sortOrder     Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  holds      TicketHold[]
+  orderItems OrderItem[]
+
+  @@index([eventId, status])
+}
+
+enum HoldStatus {
+  ACTIVE
+  CONVERTED
+  RELEASED
+  EXPIRED
+}
+
+/// A short-lived reservation taken while a buyer completes checkout.
+/// Expired holds are swept back into availability by the worker.
+model TicketHold {
+  id           String     @id @default(cuid())
+  ticketTypeId String
+  orderId      String?
+  quantity     Int
+  status       HoldStatus @default(ACTIVE)
+  expiresAt    DateTime
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([status, expiresAt])
+  @@index([ticketTypeId, status])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+  EXPIRED
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  reference     String      @unique
+  eventId       String
+  userId        String?
+  buyerEmail    String
+  buyerName     String
+  status        OrderStatus @default(PENDING)
+  currency      String      @default("INR")
+  subtotalCents Int
+  discountCents Int         @default(0)
+  feesCents     Int         @default(0)
+  taxCents      Int         @default(0)
+  totalCents    Int
+  promoCodeId   String?
+  expiresAt     DateTime?
+  paidAt        DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  event     Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  promoCode PromoCode?  @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  items     OrderItem[]
+  holds     TicketHold[]
+  payments  Payment[]
+
+  @@index([status, createdAt])
+  @@index([eventId, status])
+  @@index([buyerEmail])
+}
+
+model OrderItem {
+  id             String @id @default(cuid())
+  orderId        String
+  ticketTypeId   String
+  quantity       Int
+  unitPriceCents Int
+  subtotalCents  Int
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  tickets    Ticket[]
+
+  @@index([orderId])
+}
+
+enum TicketStatus {
+  VALID
+  CHECKED_IN
+  VOID
+  REFUNDED
+}
+
+model Ticket {
+  id           String       @id @default(cuid())
+  orderItemId  String
+  /// Opaque code encoded into the attendee QR pass.
+  code         String       @unique
+  attendeeName String?
+  status       TicketStatus @default(VALID)
+  checkedInAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([orderItemId])
+  @@index([status])
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  orderId     String
+  provider    String
+  providerRef String?
+  status      PaymentStatus @default(INITIATED)
+  amountCents Int
+  currency    String        @default("INR")
+  failureCode String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerRef])
+  @@index([orderId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Promotions and demand capture
+// ---------------------------------------------------------------------------
+
+enum PromoType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model PromoCode {
+  id              String    @id @default(cuid())
+  organizationId  String
+  eventId         String?
+  code            String
+  type            PromoType
+  /// Basis points for PERCENTAGE (1000 = 10%), integer cents for FIXED_AMOUNT.
+  value           Int
+  maxRedemptions  Int?
+  redemptionCount Int       @default(0)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([organizationId, code])
+  @@index([eventId, active])
+}
+
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String?
+  email     String
+  quantity  Int      @default(1)
+  notified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, email])
+  @@index([eventId, notified])
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}

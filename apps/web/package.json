@@ -1,0 +1,46 @@
+{
+  "name": "@desi-event/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Desi-Event web app — Next.js App Router, React and JSX, styled with Tailwind CSS.",
+  "scripts": {
+    "dev": "next dev --port ${WEB_PORT:-3000}",
+    "build": "next build",
+    "start": "next start --port ${WEB_PORT:-3000}",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@desi-event/api-contract": "workspace:*",
+    "@desi-event/pricing": "workspace:*",
+    "@desi-event/schemas": "workspace:*",
+    "@desi-event/ui": "workspace:*",
+    "clsx": "^2.1.1",
+    "framer-motion": "^13.3.0",
+    "next": "^16.3.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@desi-event/config": "workspace:*",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.0",
+    "jsdom": "^30.0.1",
+    "postcss": "^8.5.28",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

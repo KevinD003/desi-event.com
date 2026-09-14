@@ -1,0 +1,53 @@
+/*
+ * Shared Tailwind CSS v4 theme for Desi-Event.
+ *
+ * Tailwind v4 is configured in CSS rather than a JavaScript config file, so the
+ * design tokens below are the single source of truth for both the web app and
+ * the shared component library.
+ *
+ * The palette takes its cues from South Asian festive colour: marigold, deep
+ * saffron, henna green and indigo.
+ */
+
+@import 'tailwindcss';
+
+@theme {
+  --color-marigold-50: oklch(0.977 0.032 82.5);
+  --color-marigold-100: oklch(0.954 0.068 82.1);
+  --color-marigold-200: oklch(0.912 0.114 82.0);
+  --color-marigold-300: oklch(0.862 0.152 80.4);
+  --color-marigold-400: oklch(0.806 0.172 76.1);
+  --color-marigold-500: oklch(0.751 0.176 70.3);
+  --color-marigold-600: oklch(0.672 0.169 58.7);
+  --color-marigold-700: oklch(0.567 0.148 48.6);
+  --color-marigold-800: oklch(0.481 0.123 44.3);
+  --color-marigold-900: oklch(0.417 0.102 42.6);
+
+  --color-indigo-night-50: oklch(0.962 0.018 285.9);
+  --color-indigo-night-100: oklch(0.924 0.035 286.5);
+  --color-indigo-night-500: oklch(0.548 0.184 287.2);
+  --color-indigo-night-700: oklch(0.417 0.161 288.1);
+  --color-indigo-night-900: oklch(0.283 0.106 288.7);
+  --color-indigo-night-950: oklch(0.213 0.076 289.4);
+
+  --color-henna-500: oklch(0.612 0.128 152.4);
+  --color-henna-700: oklch(0.462 0.101 153.8);
+
+  --font-display: 'Georgia', 'Times New Roman', serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --radius-card: 1rem;
+}
+
+/* Respect users who ask the platform for reduced motion. Framer Motion reads
+   the same preference, but plain CSS transitions need this too. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

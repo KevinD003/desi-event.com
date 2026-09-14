@@ -1,0 +1,48 @@
+{
+  "name": "desi-event",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Desi-Event — event discovery and ticketing platform for the South Asian community. JavaScript-only monorepo.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.22.0 <23.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{js,mjs,cjs,jsx,json,md,css,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{js,mjs,cjs,jsx,json,md,css,yml,yaml}\"",
+    "test": "turbo run test",
+    "test:watch": "turbo run test:watch",
+    "test:coverage": "turbo run test:coverage",
+    "test:e2e": "pnpm --filter @desi-event/web test:e2e",
+    "policy:check": "node scripts/check-language-policy.mjs",
+    "contract:check": "pnpm --filter @desi-event/api-contract run validate",
+    "verify": "pnpm run policy:check && pnpm run lint && pnpm run test && pnpm run build",
+    "db:generate": "pnpm --filter @desi-event/db run generate",
+    "db:migrate": "pnpm --filter @desi-event/db run migrate",
+    "db:migrate:deploy": "pnpm --filter @desi-event/db run migrate:deploy",
+    "db:reset": "pnpm --filter @desi-event/db run reset",
+    "db:seed": "pnpm --filter @desi-event/db run seed",
+    "db:studio": "pnpm --filter @desi-event/db run studio",
+    "openapi:emit": "pnpm --filter @desi-event/api run openapi:emit",
+    "clean": "node scripts/clean.mjs"
+  },
+  "devDependencies": {
+    "@desi-event/config": "workspace:*",
+    "@eslint/js": "^9.39.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsdoc": "^64.4.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.12"
+  }
+}
