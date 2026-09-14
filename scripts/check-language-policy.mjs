@@ -291,13 +291,24 @@ async function runChecks() {
 
   for (const absolute of files) {
     const relative = path.relative(repoRoot, absolute).split(path.sep).join('/')
-    const base = path.basename(absolute)
-    const extension = path.extname(absolute)
+    // Compared in lower case throughout. Linux filesystems are case-sensitive,
+    // so `Sneaky.TS` is a perfectly valid filename that an extension list
+    // written in lower case would wave straight through — and it is still
+    // TypeScript. macOS and Windows would additionally treat it as the same
+    // file as `sneaky.ts`, so a repository checked out on either would hide the
+    // problem entirely.
+    const base = path.basename(absolute).toLowerCase()
+    const extension = path.extname(absolute).toLowerCase()
 
-    // 1. TypeScript sources and declarations.
+    // 1. TypeScript sources and declarations. `.d.ts` ends in `.ts` and is
+    // caught here too; it is named separately in the message because a hand
+    // written declaration file is a different mistake from a hand written
+    // source file.
     if (TYPESCRIPT_EXTENSIONS.has(extension)) {
       violations.push(
-        `${relative}: TypeScript source files are prohibited. Use .js, .mjs, .cjs or .jsx with JSDoc and Zod.`,
+        base.endsWith('.d.ts')
+          ? `${relative}: hand-written TypeScript declaration files are prohibited. Describe shapes with JSDoc @typedef instead.`
+          : `${relative}: TypeScript source files are prohibited. Use .js, .mjs, .cjs or .jsx with JSDoc and Zod.`,
       )
       continue
     }

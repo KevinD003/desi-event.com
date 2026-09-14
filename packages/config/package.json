@@ -11,7 +11,9 @@
     "./tailwind": "./src/tailwind.css",
     "./package.json": "./package.json"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "dependencies": {
     "@eslint/js": "^9.39.0",
     "eslint-plugin-jsdoc": "^64.4.0",
@@ -24,7 +26,20 @@
     "vitest": "^5.0.0"
   },
   "peerDependenciesMeta": {
-    "eslint": { "optional": true },
-    "vitest": { "optional": true }
+    "eslint": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   }
 }
