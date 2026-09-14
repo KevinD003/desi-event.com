@@ -1,20 +1,24 @@
 # Phase 1 implementation report
 
-**Status: PARTIAL.** Every Phase 1 surface is built, tested and verified.
-Production payments remain prohibited, which is the single reason this is not
-COMPLETE. See [Why PARTIAL](#why-partial).
+**Status: COMPLETE.** Every Phase 1 surface is built, tested and verified
+against the original Phase 1 acceptance criteria. Production card payments were
+never among them: they are a Phase 2 prerequisite, and their absence is now
+enforced rather than assumed — see
+[Why this is COMPLETE](#why-this-is-complete).
 
-This file did not exist before the corrective cycle; it is written here from
-the repository as it actually stands, not from a plan.
+This file did not exist before the post-`efda577` corrective cycle; it is
+written from the repository as it actually stands, not from a plan. It was
+re-stated at the final closure cycle, whose evidence is in
+`PHASE1_FINAL_CLOSURE_REPORT.md`.
 
-|                            |                                     |
-| -------------------------- | ----------------------------------- |
-| Head                       | `5fedb03`                           |
-| Branch                     | `claude/desi-event-js-stack-gb4uqe` |
-| Unit and integration tests | 2,029 across 13 workspaces          |
-| End-to-end tests           | 89                                  |
-| Migrations                 | 4                                   |
-| Verification               | every code-owned command exits 0    |
+|                            |                                                    |
+| -------------------------- | -------------------------------------------------- |
+| Head                       | `728ca3a`                                          |
+| Branch                     | `claude/desi-event-js-stack-gb4uqe`                |
+| Unit and integration tests | 2,160 across 13 workspaces                         |
+| End-to-end tests           | 89 against `next dev`, 19 against a compiled build |
+| Migrations                 | 4                                                  |
+| Verification               | every code-owned command exits 0                   |
 
 ## What Desi-Event is
 
@@ -121,28 +125,47 @@ against live Redis and PostgreSQL.
 
 - **Refunds.** The allocation primitive and the pricing snapshot exist; the
   endpoint does not.
-- **Real payments.** Mock provider only. See below.
+- **Real payments.** One in-memory provider, and no way to reach another.
+  A Phase 2 prerequisite rather than an unfinished Phase 1 task; the kill
+  switch that makes that true is described below.
 - **Mobile.** React Native with Expo is Phase 3. `docs/architecture.md`
   describes how it shares `schemas`, `pricing`, `permissions` and
   `api-contract`; nothing is scaffolded.
 - **Search indexing.** The queue and processor exist as a documented
   integration point that logs; there is no index behind it.
 
-## Why PARTIAL
+## Why this is COMPLETE
 
-Production payments are prohibited, and three things must land first:
+Phase 1's acceptance criteria are the ones it was scoped against: discovery,
+ticketing, holds, checkout against a deterministic provider, door scanning,
+and the operational surface around them. All of it is built, tested and
+verified. Production card processing was never a Phase 1 criterion, so its
+absence is not a Phase 1 failure — provided the absence is real, which is the
+part that had to be proved rather than asserted.
 
-1. Provider signature verification on `POST /v1/payments/webhook`. It accepts
-   unsigned callbacks — correct for a deterministic mock, unacceptable for
-   anything real.
-2. An operator surface or job for `TIMEOUT` payments flagged
-   `reconciliationRequired`. The state is recorded; nothing consumes it.
-3. The refund path.
+It is proved. There is one payment mode, no code in the repository opens a
+socket to a payment service provider, no manifest depends on a payment SDK, and
+a full checkout under test opens no socket and calls no `fetch`. A deployment
+that asks for production payments — through `PAYMENT_PROVIDER`,
+`ENABLE_PRODUCTION_PAYMENTS`, eight other variables, or a live-looking
+credential anywhere in its environment — is refused at boot by both the API and
+the worker rather than quietly downgraded, so nobody can believe they enabled
+card payments when they have not. Every artefact the mock produces says `DEMO`:
+intents, captures, refunds, order confirmations, ticket emails, the checkout
+page and the liveness probe. `PHASE1_FINAL_CLOSURE_REPORT.md` carries the
+evidence.
 
-Everything else in Phase 1 is complete and verified. The corrective cycle that
-produced this state is documented in `POST_EFDA577_CORRECTIVE_REPORT.md`, and
-the 34 review findings behind it reconcile in
-`docs/ADVERSARIAL_REVIEW_FINDINGS.md`.
+What remains for Phase 2 is listed under
+[What is not implemented](#what-is-not-implemented) and, in full, in
+`PHASE1_FINAL_CLOSURE_REPORT.md` — production Stripe, signed webhooks, payment
+reconciliation operations, real refunds, a real tax determination and real
+payouts. None of them is started, and none of them should be described as an
+unfinished Phase 1 task.
+
+The corrective cycle that produced this state is documented in
+`POST_EFDA577_CORRECTIVE_REPORT.md`; the 34 review findings behind it reconcile
+in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`, which also records the two findings
+raised after that review closed.
 
 ## Running it
 
@@ -160,20 +183,28 @@ API docs at `/docs`.
 
 ```bash
 pnpm verify             # policy, secrets, format, lint, tests, build
-pnpm test:e2e           # Playwright
+pnpm test:e2e           # Playwright, against next dev
+pnpm test:e2e:prod      # the not-found suite, against a freshly compiled build
+pnpm db:verify:fresh    # migrations and seed on a disposable database
 ```
 
 ## Verification at this head
 
-| Command                   | Exit | Result                   |
-| ------------------------- | ---: | ------------------------ |
-| `pnpm run policy:check`   |    0 | 327 files, no violations |
-| `pnpm run secrets:scan`   |    0 | 326 files, clean         |
-| `pnpm run format:check`   |    0 | All formatted            |
-| `pnpm run lint`           |    0 | 0 errors, 0 warnings     |
-| `pnpm run contract:check` |    0 | 20 routes                |
-| `pnpm run test`           |    0 | 2,029 tests, 14/14 tasks |
-| `pnpm run build`          |    0 | 3/3 tasks                |
-| `pnpm audit`              |    0 | No known vulnerabilities |
-| `pnpm db:seed` ×2         |    0 | Idempotent               |
-| `npx playwright test`     |    0 | 89 passed                |
+Run in one sweep on Node v22.22.2, pnpm 10.33.0, PostgreSQL 16.13, Redis 7.0.15.
+No command was skipped, and none was retried. `test` and `build` were run
+with `turbo --force`, so their durations are real executions rather than
+cache hits.
+
+| Command                    | Exit | Duration | Result                                       |
+| -------------------------- | ---: | -------: | -------------------------------------------- |
+| `pnpm run policy:check`    |    0 |     0.4s | 348 files scanned via git, no violations     |
+| `pnpm run secrets:scan`    |    0 |     3.0s | 347 tracked files, nothing credential-shaped |
+| `pnpm run format:check`    |    0 |     4.5s | all files Prettier-clean                     |
+| `pnpm run lint`            |    0 |     4.9s | 0 errors, 0 warnings                         |
+| `pnpm run contract:check`  |    0 |     0.9s | 20 routes, 20 operations, 17 paths           |
+| `pnpm run test`            |    0 |    39.4s | 2,160 passed, 0 failed, 0 skipped            |
+| `pnpm run db:verify:fresh` |    0 |     8.3s | 22/22 checks on a disposable database        |
+| `pnpm run build`           |    0 |     5.6s | 3/3 tasks                                    |
+| `pnpm audit`               |    0 |     0.7s | no known vulnerabilities                     |
+| `pnpm run test:e2e`        |    0 |    60.2s | 89 passed                                    |
+| `pnpm run test:e2e:prod`   |    0 |    10.2s | 19 passed against a freshly compiled build   |

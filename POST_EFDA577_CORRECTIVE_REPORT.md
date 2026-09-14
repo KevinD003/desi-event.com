@@ -1,11 +1,13 @@
 # Corrective verification cycle — post-`efda577`
 
-**Status: Phase 1 is PARTIAL.** Every defect listed below is fixed and tested,
-and every code-owned verification command passes. Phase 1 is not COMPLETE
-because production payments remain prohibited: the payment flow is exercised
-only against a deterministic mock, and the webhook endpoint has no provider
-signature verification. That is a deliberate scope boundary, not an unfinished
-task — see [Production payments](#production-payments).
+**Status: Phase 1 is COMPLETE, as of the closure cycle that followed this
+one.** Every defect listed below is fixed and tested, and every code-owned
+verification command passes. This report described Phase 1 as PARTIAL on the
+grounds that production payments remain prohibited; that judgement has been
+corrected. Production card processing was never a Phase 1 acceptance criterion,
+so its absence is a Phase 2 prerequisite rather than a Phase 1 failure —
+provided the absence is enforced rather than assumed, which is what
+[the closure cycle](#the-closure-cycle-after-7732960) added and proved.
 
 |                       |                                            |
 | --------------------- | ------------------------------------------ |
@@ -384,9 +386,13 @@ other flakiness observed.
 
 ## Production payments
 
-**Production payments remain prohibited.** The provider is the deterministic
-in-memory mock; no real credentials are configured, and none were requested.
-Before a live gateway is connected:
+**Production payments remain prohibited**, and since the closure cycle that
+prohibition is enforced rather than assumed: a deployment carrying a
+live-looking credential, or asking for production payments through any of
+nine environment variables, is refused at boot by both the API and the worker.
+See [the closure cycle](#6-payment-kill-switch-evidence). The provider is the
+deterministic in-memory mock; no real credentials are configured, and none
+were requested. Before a live gateway is connected:
 
 1. The webhook endpoint needs provider signature verification. It currently
    accepts unsigned callbacks, which is correct for the mock and unacceptable
@@ -397,12 +403,13 @@ Before a live gateway is connected:
 
 ## Known limitations and accepted risks
 
-**`notFound()` does not server-render on a force-dynamic page.** Discovered
-while writing the no-JavaScript tests, and not one of the 34 findings. Next
-emits `<html id="__next_error__">` with the content in the RSC payload only, so
-a visitor or crawler without JavaScript gets a blank document for a dead event
-link. Next's own unrouted 404 does server-render — `e2e/reduced-motion.spec.js`
-pins that contrast. Worth fixing for SEO; not a security or correctness defect.
+**`notFound()` does not server-render — fixed in the closure cycle.** Recorded
+here as a limitation at the time, and corrected afterwards. The diagnosis in
+this paragraph was half right: the blank document is real, but it is not
+specific to `force-dynamic`, and it was not fixable by moving a boundary. The
+cause, the experiment matrix that found it and the correction are in
+[the closure cycle](#1-the-not-found-body--root-cause); the finding is **NF-01**
+in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`.
 
 **Content is not inspected for jQuery or DOM-as-architecture** (finding F28).
 Enforced through dependency names only. A content check would have to tell
@@ -417,10 +424,14 @@ determination.
 
 **The development database carries pre-`efda577` rows.** Venue and ticket-type
 counts there are roughly double a clean seed, because those models are keyed by
-id and the legacy rows remain. The seed is idempotent from that state onward and
-verified against a clean database. Prisma blocks `migrate reset` for AI agents
+id and the legacy rows remain. Prisma blocks `migrate reset` for AI agents
 without explicit human consent; that guard was respected rather than worked
 around, so the local database was left as found. `pnpm db:reset` clears it.
+
+The closure cycle removed the reason this mattered for verification: rather than
+reasoning about what a dirty database proves, `pnpm db:verify:fresh` builds a
+disposable one, walks every migration into it from zero and seeds it twice.
+See [the closure cycle](#5-disposable-database-method-migrations-and-seed).
 
 ## Phase 2 prerequisites
 
@@ -428,7 +439,8 @@ around, so the local database was left as found. `pnpm db:reset` clears it.
 2. A reconciliation surface for `TIMEOUT` payments.
 3. The refund endpoint, allocating through the stored pricing snapshot.
 4. A real tax determination, or an explicit decision to run on demo rates.
-5. Server-rendered `notFound()`.
+5. ~~Server-rendered `notFound()`.~~ Closed by the closure cycle, though not in
+   the way this list expected — see **NF-01**.
 6. Hold ownership for the mobile client, which will need the guest-token flow.
 
 ## Manual reviewer checklist
@@ -450,6 +462,227 @@ around, so the local database was left as found. `pnpm db:reset` clears it.
 - [ ] `apps/web/src/app/events/page.jsx` — no `key` on `EventFilters`.
 - [ ] `scripts/scan-secrets.mjs` — the `ALLOWED` list names a reason per entry.
 
+## The closure cycle, after `7732960`
+
+A second corrective cycle ran on top of this one. It was commissioned to close
+Phase 1, and it is reported here because two of its three work items are
+continuations of the work above. Its full evidence is in
+`PHASE1_FINAL_CLOSURE_REPORT.md`.
+
+|                       |                                            |
+| --------------------- | ------------------------------------------ |
+| Starting commit       | `773296089f4584189be83fa13f073f3c21f1bf4b` |
+| Ending commit (code)  | `728ca3a`                                  |
+| Branch                | `claude/desi-event-js-stack-gb4uqe`        |
+| Working tree at start | clean, in sync with `origin`               |
+| Working tree at end   | clean, pushed                              |
+| Commits               | 4 code commits plus documentation          |
+| Diff                  | 46 files, +2,903 −74                       |
+
+### 1. The not-found body — root cause
+
+`notFound()` never server-renders its UI in Next.js 16.3.5. The signal is
+handled by the renderer's error-recovery path, which emits
+`<html id="__next_error__">` with an empty `<body>` and defers the not-found
+UI to client hydration.
+
+None of the suspected causes was the cause. Each of these was built and
+measured against a compiled production build before anything was changed:
+
+| Variant                                                       | Status | Body                                |
+| ------------------------------------------------------------- | -----: | ----------------------------------- |
+| `force-dynamic`, awaits, then `notFound()`                    |    404 | empty                               |
+| Statically prerendered, awaits, then `notFound()`             |    404 | empty                               |
+| `force-dynamic`, `notFound()` with no await at all            |    404 | empty                               |
+| The above, plus a segment-local `not-found.jsx`               |    404 | empty                               |
+| Dynamic by `await connection()`                               |    404 | empty                               |
+| `notFound()` thrown from a Client Component during SSR        |    404 | empty                               |
+| The above, after the page had already rendered the view       |    404 | empty                               |
+| `experimental.globalNotFound` with `app/global-not-found.jsx` |    404 | empty                               |
+| `notFound()` inside a `<Suspense>` boundary                   |    200 | the Suspense fallback, not the view |
+| A pristine minimal app on the same installed Next.js          |    404 | empty                               |
+
+So it is not `force-dynamic`, not streaming, not Suspense placement, not a
+client-only data path, not an unawaited lookup, and not a misplaced
+`not-found.js` boundary. It is the framework, and the pristine-app row is what
+makes that a measurement rather than an opinion.
+
+`global-not-found.js` exists in this version behind
+`experimental.globalNotFound`, and the bundled documentation scopes it to
+multiple root layouts or a top-level dynamic segment — neither of which applies
+here. Enabling it changed only the unmatched-URL path, which already worked. It
+is therefore **not** used.
+
+### 2. The not-found body — reproduction evidence
+
+Against `next start` over a freshly compiled `.next`, with `curl`, so no
+JavaScript is involved at any point:
+
+| URL                                     | Status |  Bytes | `__next_error__` | `<h1>` | Visible text                   |
+| --------------------------------------- | -----: | -----: | ---------------: | -----: | ------------------------------ |
+| `/events/no-such-event-at-all`          |    404 | 18,418 |                1 |      0 | the `<title>` and nothing else |
+| `/events/no-such-event-at-all/checkout` |    404 | 18,921 |                1 |      0 | the `<title>` and nothing else |
+| `/totally-unmatched-url`                |    404 | 26,970 |                0 |      1 | the complete not-found page    |
+
+The body of the broken case was literally
+`<body><div hidden=""><!--$--><!--/$--></div>` plus inlined Flight data. The
+copy existed only inside a `<script>`.
+
+### 3. The not-found body — correction
+
+Routes that discover a missing _resource_ render a shared server component
+(`apps/web/src/components/not-found-view.jsx`) instead of calling `notFound()`.
+It has no client component in its tree, no motion, and no props — so the wording
+cannot vary by reason, and the page cannot be used to probe whether a resource
+is unpublished, withdrawn, private or deleted. It carries a heading, an
+explanation, and links to discovery, search and home.
+
+`app/not-found.jsx` renders the same component, so the router's own 404 page and
+the in-segment one are the same page.
+
+**HTTP behaviour, measured and documented rather than assumed:**
+
+| URL kind                            | Before         | After          |
+| ----------------------------------- | -------------- | -------------- |
+| Missing resource on a matched route | 404, no body   | 200, full page |
+| URL matching no route at all        | 404, full page | 404, full page |
+
+The 200 is deliberate. In this version of Next.js the status and the body are
+mutually exclusive for `notFound()`: the 404 exists _because_ the shell render
+failed, and a failed shell has no body. A genuine 404 was achievable only by
+probing the API from middleware on every event-page request — doubling the
+requests on the busiest route, and _failing open_ when the API is unreachable,
+which would have made the status non-deterministic. A page a visitor can read,
+with `noindex, nofollow`, no canonical and no structured data, was judged worth
+more than a status code no visitor sees.
+
+**Without JavaScript:** every missing-resource URL renders the complete page,
+its links work, and the requested URL is unchanged. Asserted in the browser with
+`javaScriptEnabled: false`, not inferred.
+
+`apps/web/src/app/sitemap.js` was added at the same time: it lists only events
+the API reports as `PUBLISHED`, and deliberately does **not** fall back to the
+sample catalogue when the API is down — everywhere else a dead API is answered
+with sample data so a visitor still sees a page, but a sitemap built that way
+would publish URLs that do not exist.
+
+### 4. Files changed and tests added
+
+| Area                        | Added                                                                                                   |               Tests |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------: |
+| Not-found view and routing  | `not-found-view.jsx`, `sitemap.js`, rewired event and checkout pages, `app/not-found.jsx`               |             23 unit |
+| Not-found browser evidence  | `e2e/not-found.spec.js`, `playwright.production.config.js`, `e2e/support/chromium.js`                   |              19 e2e |
+| Fresh-database verification | `verify-fresh-database.mjs`, `disposable-database.mjs`                                                  | 19 unit + 22 checks |
+| Payment kill switch         | `packages/schemas/src/payments.js`, `packages/providers/src/payment-mode.js`, `payment-mode-notice.jsx` |      52 + 9 + 6 + 5 |
+| Environment idempotence     | `packages/schemas/src/env.js`                                                                           |               4 + 2 |
+
+### 5. Disposable database method, migrations and seed
+
+`pnpm db:verify:fresh` creates a PostgreSQL database named
+`desi_event_disposable_<16 hex digits>` on the server `DATABASE_URL` names —
+`DATABASE_URL`'s own database is never the target — walks every migration into
+it from zero, seeds it twice, probes the constraints, runs both database
+integration suites against it, and drops it. The guard lives in its own module
+so it can be tested without running any of the destructive work it protects:
+the target's name must match the disposable pattern and must not be
+`DATABASE_URL` or `TEST_DATABASE_URL` whatever those are called, and there is no
+flag that overrides either half. Prisma's AI-agent guard is untouched: nothing
+here resets, truncates or drops an existing database.
+
+Results, 22 of 22 checks:
+
+- 4 migrations applied from zero; `prisma migrate status` reports the schema up
+  to date; the applied set is exactly the repository's, in order, none rolled
+  back or unfinished.
+- 15 tables, all empty before seeding — so no pre-`efda577` residual rows are
+  possible — and all ten columns added by the corrective cycle present, which
+  is what makes "this is the current schema" a measurement.
+- Seed once: 162 rows. Seed twice: 162 rows, every table identical.
+- Constraint probes, each in its own rolled-back transaction: a hold may not
+  have two owners; a hold may not be ownerless; a hold with exactly one owner is
+  accepted; a fixed-amount promo may not be currency-less; order and payment
+  idempotency keys are unique; a provider charge reference and a provider
+  webhook delivery are each recorded once; a ticket code is issued once.
+- `@desi-event/db` integration suite and the API's database integration suite
+  both pass against it.
+- The disposable database is destroyed. The development database was verified
+  untouched before and after: same row counts, same databases on the server.
+
+Refusal was checked too: pointing the command at the development database, the
+test database, or `postgres` exits 2 with a message naming the database and
+nothing else.
+
+### 6. Payment kill-switch evidence
+
+- **Default.** One mode exists — `MOCK`. `LIVE` is not present-and-disabled, it
+  is absent, because there is no code path that reaches it.
+- **Live credentials.** `sk_live_`, `pk_live_`, `rk_live_`, `whsec_`,
+  `rzp_live_` and Adyen-shaped values anywhere in the environment refuse the
+  boot, for the API and the worker alike. The refusal names the variable and
+  never the value.
+- **Mode requests.** `PAYMENT_PROVIDER`, `PAYMENTS_PROVIDER`, `PAYMENT_MODE`,
+  `PAYMENTS_MODE`, `ENABLE_PRODUCTION_PAYMENTS`, `ENABLE_LIVE_PAYMENTS`,
+  `STRIPE_LIVE_MODE` and `PAYMENTS_LIVE` refuse the boot when they ask for
+  anything real — rather than being ignored, so nobody believes it worked.
+- **Sandbox credentials.** Reported as unused and ignored; they activate
+  nothing.
+- **No outbound call.** A full checkout under test opens no socket
+  (`net.Socket.prototype.connect` and `tls.connect` instrumented) and calls no
+  `fetch`. No manifest depends on a payment SDK. No shipped file names a
+  payment-provider endpoint.
+- **Nothing to select.** There is no payment-method control anywhere, and a
+  checkout body carrying `provider`, `paymentProvider`, `paymentMethod` or
+  `mode` changes nothing.
+- **Nothing reads as real.** Intents, captures and refunds carry `mode`, `demo`
+  and a notice; order confirmations, ticket deliveries and cancellations are
+  prefixed `[DEMO]` with the reason on the first line, and the marker survives a
+  caller-supplied subject; checkout says
+  `Production payments disabled — Phase 2 integration required.` above the
+  basket; `GET /health` reports the mode.
+
+No partial production webhook endpoint was added. No PCI or Stripe readiness is
+claimed.
+
+### 7. A boot failure found on the way
+
+Writing the kill-switch startup tests surfaced a defect nothing else had: the
+API could not start in any environment. `loadApiEnv()` parses `process.env` and
+`buildApp` parses the result again, so the schema is applied to its own output —
+and `ALLOW_DEMO_TAX_IN_PRODUCTION`, added during the cycle above, read a string
+and produced a boolean the second pass rejected. Eleven startup tests passed
+throughout, because each supplied a deliberately broken environment and failed
+earlier, on the secret. None covered the case where nothing is wrong.
+
+Recorded as **NF-02** in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`.
+
+### 8. Verification totals
+
+Run in one sweep, no command skipped and none retried:
+
+| Command                    | Exit | Duration | Result                                       |
+| -------------------------- | ---: | -------: | -------------------------------------------- |
+| `pnpm run policy:check`    |    0 |     0.4s | 348 files scanned via git, no violations     |
+| `pnpm run secrets:scan`    |    0 |     3.0s | 347 tracked files, nothing credential-shaped |
+| `pnpm run format:check`    |    0 |     4.5s | all files Prettier-clean                     |
+| `pnpm run lint`            |    0 |     4.9s | 0 errors, 0 warnings                         |
+| `pnpm run contract:check`  |    0 |     0.9s | 20 routes, 20 operations, 17 paths           |
+| `pnpm run test`            |    0 |    39.4s | 2,160 passed, 0 failed, 0 skipped            |
+| `pnpm run db:verify:fresh` |    0 |     8.3s | 22/22 checks                                 |
+| `pnpm run build`           |    0 |     5.6s | 3/3 tasks                                    |
+| `pnpm audit`               |    0 |     0.7s | no known vulnerabilities                     |
+| `pnpm run test:e2e`        |    0 |    60.2s | 89 passed                                    |
+| `pnpm run test:e2e:prod`   |    0 |    10.2s | 19 passed against a freshly compiled build   |
+
+`pnpm run test` and `pnpm run build` were re-run with `turbo --force`, so the
+durations above are real executions rather than Turborepo cache hits. Every
+other command does its own work on every invocation.
+
+### 9. Phase 2 prerequisites after this cycle
+
+Unchanged by this cycle, and none of them a Phase 1 failure: production Stripe,
+signed webhooks, payment reconciliation operations, real refunds, a real tax
+determination, and real payouts.
+
 ## Honesty notes
 
 No secrets appear in this report. Every number in the verification table came
@@ -457,4 +690,7 @@ from a command run during this cycle; none is estimated. Where a fix could not
 be fully verified — the refund policy, which has no endpoint — that is stated
 rather than implied. The one destructive operation this cycle needed
 (`prisma migrate reset` on the development database) was blocked by Prisma's
-AI-agent guard and was not circumvented.
+AI-agent guard and was not circumvented. The closure cycle did not circumvent
+it either: it builds its own disposable database rather than resetting an
+existing one, and the guard that keeps it there is tested separately from the
+destructive work it protects.

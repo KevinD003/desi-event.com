@@ -123,6 +123,69 @@ it. The realistic way jQuery enters a repository is by being installed, and
 that is caught. The rest is a code-review judgement, and
 `docs/language-policy.md` §4 says so.
 
+## New findings after original 34
+
+These were **not** part of the adversarial review. They were found afterwards —
+NF-01 by the reviewer who commissioned the final closure cycle, NF-02 by this
+author while writing tests for NF-01's cycle — and they are recorded separately
+so the original run's arithmetic stays exactly as reconciled above: **34 raw
+findings, 32 fixed, 1 refuted, 1 accepted risk.** Nothing in this section
+changes those numbers.
+
+| ID    | Dimension  | Sev          | Claim                                                                                                                    | Location                                     | Found by                                       | Disposition | Evidence                                                                                                                                                                                                                                                                           | Regression test                                                                                                                                          | Commit    |
+| ----- | ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | ---------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| NF-01 | web        | high         | A URL that matches a route but not a resource answers with a document whose `<body>` is empty until the browser hydrates | `apps/web/src/app/events/[slug]/page.jsx:91` | Reviewer, closure cycle                        | **Fixed**   | Reproduced against a compiled build: `/events/<unknown>` returned 404, 18,418 bytes, `<html id="__next_error__">`, `<body><div hidden><!--$--><!--/$--></div>` and zero `<h1>` or `<main>`. Root cause is in Next.js 16.3.5, not this app — see below                              | `apps/web/e2e/not-found.spec.js` (19 cases, production build); 23 unit tests                                                                             | `a8baf43` |
+| NF-02 | validation | **critical** | The API could not start in any environment: `apiEnvSchema` rejects its own output, and the server parses twice           | `packages/schemas/src/env.js:144`            | This author, while writing NF-01's cycle tests | **Fixed**   | `loadApiEnv()` produces `ALLOW_DEMO_TAX_IN_PRODUCTION: false` (boolean) and `buildApp` re-parses it through `z.stringbool()`, which wants a string. Reproduced by running `node src/server.js` with a valid environment: `The API environment is invalid` and exit before `listen` | `apps/api/tests/startup-safety.test.js` — "binds the port with a valid environment"; `packages/schemas/src/env.test.js` — "parsing an environment twice" | `5c62ec3` |
+
+### NF-01 — the not-found body
+
+The defect is in the framework, and the experiment matrix says so. Every one of
+these produced the same empty `<html id="__next_error__">` document against a
+compiled production build:
+
+| Variant                                                     | Status | Body                               |
+| ----------------------------------------------------------- | -----: | ---------------------------------- |
+| `force-dynamic` page, awaits then calls `notFound()`        |    404 | empty                              |
+| Statically prerendered page, awaits then calls `notFound()` |    404 | empty                              |
+| `force-dynamic` page, `notFound()` with no await at all     |    404 | empty                              |
+| As above, plus a segment-local `not-found.jsx`              |    404 | empty                              |
+| Page made dynamic by `await connection()`                   |    404 | empty                              |
+| `notFound()` thrown from a Client Component during SSR      |    404 | empty                              |
+| The above, after the page already rendered the view         |    404 | empty                              |
+| `experimental.globalNotFound` + `app/global-not-found.jsx`  |    404 | empty                              |
+| `notFound()` inside a `<Suspense>` boundary                 |    200 | the fallback, not the not-found UI |
+| A pristine minimal app on the same installed Next.js        |    404 | empty                              |
+
+The status and the body are mutually exclusive in this version: the 404 exists
+_because_ the shell render failed, and a failed shell has no body. Only the
+`/_not-found` route — reached when a URL matches no route at all, and rendered
+through the router rather than the renderer — produces both.
+
+So the segments render the shared view themselves. `apps/web/e2e/not-found.spec.js`
+holds both halves: a missing resource answers 200 with the complete page and
+`noindex, nofollow`; an unmatched URL still answers a genuine 404 with the same
+page. `PHASE1_FINAL_CLOSURE_REPORT.md` records the trade-off in full.
+
+The existing end-to-end test for a missing event passed throughout, because
+Playwright runs JavaScript and the heading it asserted on appeared after
+hydration. That is why the defect survived the original review: the only test
+covering the case could not see it.
+
+### NF-02 — the API could not start
+
+`loadApiEnv()` parses `process.env` and `buildApp` parses the result again, so
+the schema is applied to its own output. `ALLOW_DEMO_TAX_IN_PRODUCTION` — added
+during the post-`efda577` corrective cycle — read a string and produced a
+boolean, and the second pass rejected the boolean. Because the field carries a
+default, it is present in the output whether or not anybody sets it, so this
+failed for every environment, including the one in `.env.example`.
+
+Eleven startup tests existed and all of them passed, because every one supplied
+a deliberately broken environment and failed earlier, on the secret. None
+covered the case where nothing is wrong. That case is now covered twice: once
+in a spawned process that must bind its port, and once as a property — parsing
+an environment twice must produce what parsing it once did.
+
 ## Provenance
 
 - Raw findings: `journal.jsonl`, 6 records of type `result` carrying a

@@ -37,3 +37,6 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Redis writes this into whatever directory it was started in.
+dump.rdb
