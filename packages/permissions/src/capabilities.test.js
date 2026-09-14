@@ -22,6 +22,7 @@ const REQUIRED_CAPABILITIES = [
   'order:view',
   'order:refund',
   'ticket:check_in',
+  'hold:release_any',
   'organization:manage',
   'organization:view_members',
   'promo:manage',

@@ -406,7 +406,7 @@ export const apiRoutes = Object.freeze([
     path: '/v1/holds/:id',
     summary: 'Release a hold',
     description:
-      'Returns held inventory to the pool. Idempotent for a hold that has already expired or been released; only a hold already converted into a paid order answers 409.',
+      'Returns held inventory to the pool. Ownership is verified on the server: an authenticated caller must own the hold, an anonymous one must present the one-time token from `X-Hold-Token` that was returned when the hold was taken, and releasing somebody else\'s hold requires the `hold:release_any` capability. A hold that does not exist and one the caller may not release both answer 404, so the endpoint cannot be used to discover hold ids. Idempotent for a hold that has already expired or been released; only a hold already converted into a paid order answers 409.',
     tags: ['holds'],
     auth: 'optional',
     params: idParamSchema,

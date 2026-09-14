@@ -47,6 +47,10 @@ export const CAPABILITIES = deepFreeze({
   ORDER_VIEW: 'order:view',
   ORDER_REFUND: 'order:refund',
   TICKET_CHECK_IN: 'ticket:check_in',
+  // Releasing a hold belonging to somebody else is a support action, kept
+  // separate from ticketType:manage: freeing another buyer's reservation is
+  // not part of running an event day to day.
+  HOLD_RELEASE_ANY: 'hold:release_any',
   ORGANIZATION_MANAGE: 'organization:manage',
   ORGANIZATION_VIEW_MEMBERS: 'organization:view_members',
   PROMO_MANAGE: 'promo:manage',
@@ -107,7 +111,7 @@ const ORG_ROLE_GRANTS = {
     CAPABILITIES.PROMO_MANAGE,
   ],
   // Destructive and money-moving actions.
-  ADMIN: [CAPABILITIES.EVENT_DELETE, CAPABILITIES.ORDER_REFUND],
+  ADMIN: [CAPABILITIES.EVENT_DELETE, CAPABILITIES.ORDER_REFUND, CAPABILITIES.HOLD_RELEASE_ANY],
   // Owns the organisation record itself, including its membership list.
   OWNER: [CAPABILITIES.ORGANIZATION_MANAGE],
 }

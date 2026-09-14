@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createTestApp } from './helpers/app.js'
+import { createTestApp, holdHeaders } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 
 /**
@@ -216,18 +216,33 @@ describe('DELETE /v1/holds/:id', () => {
   async function take(app, ticketTypeId) {
     const response = await hold(app, { ticketTypeId, quantity: 1 })
     expect(response.statusCode).toBe(201)
-    return response.json().data.id
+    return response.json().data
+  }
+
+  /**
+   * Release a hold, presenting whatever ownership proof it came with.
+   *
+   * @param {object} app The Fastify instance.
+   * @param {object} taken The `data` object returned when the hold was taken.
+   * @returns {Promise<object>} The inject result.
+   */
+  function release(app, taken) {
+    return app.inject({
+      method: 'DELETE',
+      url: `/v1/holds/${taken.id}`,
+      headers: holdHeaders(taken),
+    })
   }
 
   it('returns the inventory to the pool', async () => {
     const { app, prisma, ids } = await createTestApp()
 
     prisma._store.ticketType.find((tier) => tier.id === ids.vip.id).quantitySold = 3
-    const id = await take(app, ids.vip.id)
+    const taken = await take(app, ids.vip.id)
 
     expect((await hold(app, { ticketTypeId: ids.vip.id, quantity: 1 })).statusCode).toBe(409)
 
-    const released = await app.inject({ method: 'DELETE', url: `/v1/holds/${id}` })
+    const released = await release(app, taken)
     expect(released.statusCode).toBe(200)
     expect(released.json()).toEqual({ ok: true })
 
@@ -238,34 +253,34 @@ describe('DELETE /v1/holds/:id', () => {
 
   it('is idempotent for a hold that was already released', async () => {
     const { app, ids } = await createTestApp()
-    const id = await take(app, ids.generalAdmission.id)
+    const taken = await take(app, ids.generalAdmission.id)
 
-    expect((await app.inject({ method: 'DELETE', url: `/v1/holds/${id}` })).statusCode).toBe(200)
-    expect((await app.inject({ method: 'DELETE', url: `/v1/holds/${id}` })).statusCode).toBe(200)
+    expect((await release(app, taken)).statusCode).toBe(200)
+    expect((await release(app, taken)).statusCode).toBe(200)
 
     await app.close()
   })
 
   it('records a lapsed hold as EXPIRED rather than RELEASED', async () => {
     const { app, prisma, ids } = await createTestApp()
-    const id = await take(app, ids.generalAdmission.id)
+    const taken = await take(app, ids.generalAdmission.id)
 
-    prisma._store.ticketHold.find((row) => row.id === id).expiresAt = minutesFromNow(-1)
+    prisma._store.ticketHold.find((row) => row.id === taken.id).expiresAt = minutesFromNow(-1)
 
-    await app.inject({ method: 'DELETE', url: `/v1/holds/${id}` })
+    await release(app, taken)
 
-    expect(prisma._store.ticketHold.find((row) => row.id === id).status).toBe('EXPIRED')
+    expect(prisma._store.ticketHold.find((row) => row.id === taken.id).status).toBe('EXPIRED')
 
     await app.close()
   })
 
   it('refuses to release a hold that has become a paid order', async () => {
     const { app, prisma, ids } = await createTestApp()
-    const id = await take(app, ids.generalAdmission.id)
+    const taken = await take(app, ids.generalAdmission.id)
 
-    prisma._store.ticketHold.find((row) => row.id === id).status = 'CONVERTED'
+    prisma._store.ticketHold.find((row) => row.id === taken.id).status = 'CONVERTED'
 
-    const response = await app.inject({ method: 'DELETE', url: `/v1/holds/${id}` })
+    const response = await release(app, taken)
 
     expect(response.statusCode).toBe(409)
     expect(response.json().error.code).toBe('CONFLICT')

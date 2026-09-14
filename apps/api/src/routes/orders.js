@@ -27,6 +27,7 @@
 
 import { salesWindowState, validateQuantityRequest } from '@desi-event/inventory'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
+import { authorizeHoldRelease } from '@desi-event/inventory'
 import {
   computeOrderTotals,
   feeConfigForCurrency,
@@ -121,14 +122,23 @@ async function resolvePromoCode(tx, code, event) {
 /**
  * Validate the holds a checkout request claims, and group them by ticket type.
  *
+ * Ownership is checked here for the same reason it is checked on release:
+ * spending a hold consumes somebody's reservation. A caller who guessed or
+ * observed another buyer's hold id could otherwise convert it into their own
+ * order. An unowned hold answers 404 exactly as a non-existent one does, so
+ * this cannot be used to discover which ids are real.
+ *
  * @param {object} tx A Prisma transaction client.
  * @param {string[]} holdIds Hold ids from the request.
  * @param {Set<string>} ticketTypeIds Ticket type ids the order is for.
  * @param {Date} now The instant the request is being evaluated at.
+ * @param {object} owner Caller identity.
+ * @param {{id: string}|null} [owner.actor] The verified server actor.
+ * @param {string|null} [owner.guestToken] The one-time token for a guest hold.
  * @returns {Promise<Map<string, object[]>>} Live holds grouped by ticket type id.
- * @throws {Error} A 404 for an unknown hold, 410 for a lapsed one, 409 for one already spent.
+ * @throws {Error} A 404 for an unknown or unowned hold, 410 for a lapsed one, 409 for one already spent.
  */
-async function resolveHolds(tx, holdIds, ticketTypeIds, now) {
+async function resolveHolds(tx, holdIds, ticketTypeIds, now, owner = {}) {
   /** @type {Map<string, object[]>} */
   const byTicketType = new Map()
 
@@ -142,6 +152,14 @@ async function resolveHolds(tx, holdIds, ticketTypeIds, now) {
   }
 
   for (const hold of holds) {
+    const { allowed } = authorizeHoldRelease({
+      hold,
+      actor: owner.actor,
+      guestToken: owner.guestToken,
+    })
+
+    if (!allowed) throw notFound(`No such hold: ${hold.id}.`)
+
     if (hold.status === 'CONVERTED') {
       throw conflict(`Hold ${hold.id} has already been used for another order.`)
     }
@@ -248,7 +266,10 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         }
         const currency = ticketTypes[0].currency
 
-        const holdsByType = await resolveHolds(tx, body.holdIds, new Set(requestedIds), now)
+        const holdsByType = await resolveHolds(tx, body.holdIds, new Set(requestedIds), now, {
+          actor: request.actor,
+          guestToken: request.headers['x-hold-token'] ?? null,
+        })
 
         for (const item of body.items) {
           const ticketType = byId.get(item.ticketTypeId)

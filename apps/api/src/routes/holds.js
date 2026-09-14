@@ -8,9 +8,18 @@
  * @module @desi-event/api/routes/holds
  */
 
-import { holdExpiresAt, isHoldExpired, salesWindowState, validateQuantityRequest } from '@desi-event/inventory'
+import {
+  authorizeHoldRelease,
+  holdExpiresAt,
+  isHoldExpired,
+  resolveHoldOwnership,
+  salesWindowState,
+  validateQuantityRequest,
+} from '@desi-event/inventory'
+import { CAPABILITIES, can } from '@desi-event/permissions'
 
 import { conflict, notFound, unprocessable } from '../lib/errors.js'
+import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
 import { toHold } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
@@ -36,10 +45,10 @@ const WINDOW_MESSAGE = Object.freeze({
 export function registerHoldRoutes(app, { prisma, env }) {
   defineRoute(app, 'holds.create', {
     handler: async (request) => {
-      const { ticketTypeId, quantity, orderId, ttlSeconds } = request.body
+      const { ticketTypeId, quantity, ttlSeconds } = request.body
       const now = new Date()
 
-      const { hold, ticketType } = await prisma.$transaction(async (tx) => {
+      const { hold, ticketType, guestToken } = await prisma.$transaction(async (tx) => {
         // FIRST statement of the transaction: take the row lock before reading
         // any counter. A second request for the same tier blocks here until
         // this transaction commits, so it cannot decide on a stale view of
@@ -80,10 +89,19 @@ export function registerHoldRoutes(app, { prisma, env }) {
           availableQuantity,
         })
 
+        // Identity comes from the verified actor, or from a freshly minted
+        // guest token. Nothing in the request body reaches these columns, so a
+        // caller cannot create a hold owned by somebody else — and the
+        // `ticket_hold_single_owner` check constraint rejects the row outright
+        // if this ever returns both or neither.
+        const { ownership, guestToken } = resolveHoldOwnership({ actor: request.actor })
+
         const created = await tx.ticketHold.create({
           data: {
             ticketTypeId: tier.id,
-            orderId: orderId ?? null,
+            orderId: null,
+            userId: ownership.userId,
+            guestTokenHash: ownership.guestTokenHash,
             quantity,
             status: 'ACTIVE',
             // A caller may ask for a SHORTER hold than the configured one,
@@ -97,7 +115,7 @@ export function registerHoldRoutes(app, { prisma, env }) {
           },
         })
 
-        return { hold: created, ticketType: tier }
+        return { hold: created, ticketType: tier, guestToken }
       })
 
       request.log.info(
@@ -105,42 +123,138 @@ export function registerHoldRoutes(app, { prisma, env }) {
         'inventory held',
       )
 
-      return { data: toHold(hold, ticketType) }
+      // The token is returned exactly once. It is not stored in plaintext and
+      // cannot be recovered, so a caller that loses it must wait for expiry.
+      return { data: { ...toHold(hold, ticketType), ...(guestToken ? { guestToken } : {}) } }
     },
   })
 
   defineRoute(app, 'holds.release', {
     handler: async (request) => {
-      const hold = await prisma.ticketHold.findUnique({ where: { id: request.params.id } })
+      const holdId = request.params.id
+      const guestToken = request.headers['x-hold-token'] ?? null
+      const now = new Date()
 
-      if (!hold) throw notFound('No such hold.')
+      // One transaction covers the ownership check AND the state transition.
+      // Splitting them would leave a window in which a hold that was authorised
+      // for release is converted into a paid order before the write lands.
+      const outcome = await prisma.$transaction(async (tx) => {
+        const hold = await tx.ticketHold.findUnique({ where: { id: holdId } })
 
-      if (hold.status === 'CONVERTED') {
-        throw conflict('This hold has already been converted into a paid order.')
-      }
+        // "No such hold" and "not yours" must be indistinguishable. Answering
+        // 403 for a hold that exists and 404 for one that does not turns this
+        // endpoint into an oracle for which ids are real.
+        if (!hold) return { result: 'NOT_FOUND' }
 
-      // Releasing is idempotent: a hold that already lapsed, or that a
-      // double-clicking browser already released, is simply reported as
-      // released. A checkout page unmounting twice must not raise an error.
-      //
-      // The status is re-tested inside the write rather than trusted from the
-      // read above. Between the two, a checkout completing in another request
-      // can move this hold to CONVERTED, and an unconditional update would
-      // overwrite that with RELEASED — detaching a paid order from the
-      // inventory it holds.
-      if (hold.status === 'ACTIVE') {
-        const lapsed = isHoldExpired(hold, new Date())
+        const ticketType = await tx.ticketType.findUnique({
+          where: { id: hold.ticketTypeId },
+          select: { eventId: true },
+        })
+        const event = ticketType
+          ? await tx.event.findUnique({
+              where: { id: ticketType.eventId },
+              select: { organizationId: true },
+            })
+          : null
 
-        const { count } = await prisma.ticketHold.updateMany({
+        const canOverride =
+          Boolean(event) &&
+          can(request.actor, CAPABILITIES.HOLD_RELEASE_ANY, {
+            organizationId: event.organizationId,
+          })
+
+        const { allowed, mode } = authorizeHoldRelease({
+          hold,
+          actor: request.actor,
+          guestToken,
+          canOverride,
+        })
+
+        if (!allowed) {
+          // Recorded so that probing shows up in the audit trail even though
+          // the caller cannot tell a denial from a miss.
+          await recordAudit(tx, {
+            action: AUDIT_ACTIONS.HOLD_RELEASE_DENIED,
+            entityType: 'TicketHold',
+            entityId: hold.id,
+            actorId: request.actor?.id ?? null,
+            metadata: {
+              requestId: request.id,
+              at: now.toISOString(),
+              presentedGuestToken: Boolean(guestToken),
+            },
+          })
+
+          return { result: 'NOT_FOUND' }
+        }
+
+        if (hold.status === 'CONVERTED') {
+          return { result: 'CONVERTED' }
+        }
+
+        // Already released or expired: report success without writing again.
+        // A replayed request must not produce a second audit entry or a second
+        // business transition.
+        if (hold.status !== 'ACTIVE') {
+          return { result: 'ALREADY_RELEASED', mode }
+        }
+
+        const lapsed = isHoldExpired(hold, now)
+        const nextStatus = lapsed ? 'EXPIRED' : 'RELEASED'
+
+        // Conditional on ACTIVE so that two simultaneous releases produce
+        // exactly one transition: the loser sees count 0 and writes nothing.
+        const { count } = await tx.ticketHold.updateMany({
           where: { id: hold.id, status: 'ACTIVE' },
-          data: { status: lapsed ? 'EXPIRED' : 'RELEASED' },
+          data: {
+            status: nextStatus,
+            releasedAt: now,
+            releasedBy: request.actor?.id ?? mode,
+            releaseReason: lapsed ? 'EXPIRED_ON_RELEASE' : mode,
+          },
         })
 
         if (count === 0) {
-          throw conflict('This hold has already been converted into a paid order.')
+          const current = await tx.ticketHold.findUnique({
+            where: { id: hold.id },
+            select: { status: true },
+          })
+
+          return current?.status === 'CONVERTED'
+            ? { result: 'CONVERTED' }
+            : { result: 'ALREADY_RELEASED', mode }
         }
 
-        request.log.info({ holdId: hold.id, lapsed }, 'hold released')
+        await recordAudit(tx, {
+          action: AUDIT_ACTIONS.HOLD_RELEASED,
+          entityType: 'TicketHold',
+          entityId: hold.id,
+          actorId: request.actor?.id ?? null,
+          metadata: {
+            mode,
+            requestId: request.id,
+            at: now.toISOString(),
+            previousStatus: 'ACTIVE',
+            newStatus: nextStatus,
+            ticketTypeId: hold.ticketTypeId,
+            quantity: hold.quantity,
+            reason: lapsed ? 'EXPIRED_ON_RELEASE' : 'RELEASED_BY_' + mode,
+          },
+        })
+
+        return { result: 'RELEASED', mode, lapsed }
+      })
+
+      if (outcome.result === 'NOT_FOUND') throw notFound('No such hold.')
+      if (outcome.result === 'CONVERTED') {
+        throw conflict('This hold has already been converted into a paid order.')
+      }
+
+      if (outcome.result === 'RELEASED') {
+        request.log.info(
+          { holdId, mode: outcome.mode, lapsed: outcome.lapsed },
+          'hold released',
+        )
       }
 
       return { ok: true }

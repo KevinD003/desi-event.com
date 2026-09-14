@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { computeOrderTotals } from '@desi-event/pricing'
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
 
-import { bearer, createTestApp, feeConfig, signIn, taxRateBps } from './helpers/app.js'
+import { bearer, createTestApp, feeConfig, holdHeaders, signIn, taxRateBps } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
 import { makeWorld, minutesFromNow } from './helpers/fixtures.js'
 
@@ -76,27 +76,29 @@ function order(app, payload, headers = {}) {
  * @param {number} quantity How many seats.
  * @returns {Promise<string>} The hold id.
  */
-async function takeHold(app, ticketTypeId, quantity) {
+async function takeHold(app, ticketTypeId, quantity, headers = {}) {
   const response = await app.inject({
+    headers,
     method: 'POST',
     url: '/v1/holds',
     payload: { ticketTypeId, quantity },
   })
   expect(response.statusCode).toBe(201)
-  return response.json().data.id
+  return response.json().data
 }
 
 describe('POST /v1/orders', () => {
   it('prices the order server-side, issues tickets and converts the hold', async () => {
     const { app, prisma, ids } = await createTestApp()
-    const holdId = await takeHold(app, ids.generalAdmission.id, 2)
+    const hold = await takeHold(app, ids.generalAdmission.id, 2)
 
     const response = await order(
       app,
       checkout(ids, {
         items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 2 }],
-        holdIds: [holdId],
+        holdIds: [hold.id],
       }),
+      holdHeaders(hold),
     )
 
     expect(response.statusCode).toBe(201)
@@ -127,7 +129,7 @@ describe('POST /v1/orders', () => {
     expect(data.tickets.every((ticket) => ticket.status === 'VALID')).toBe(true)
 
     expect(prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold).toBe(2)
-    expect(prisma._store.ticketHold.find((row) => row.id === holdId)).toMatchObject({
+    expect(prisma._store.ticketHold.find((row) => row.id === hold.id)).toMatchObject({
       status: 'CONVERTED',
       orderId: data.id,
     })
@@ -267,9 +269,9 @@ describe('POST /v1/orders', () => {
       payments: { declineAmountCents: ONE_TICKET_TOTAL },
     })
     const { app, prisma, ids } = await createTestApp({ providers })
-    const holdId = await takeHold(app, ids.generalAdmission.id, 1)
+    const hold = await takeHold(app, ids.generalAdmission.id, 1)
 
-    const response = await order(app, checkout(ids, { holdIds: [holdId] }))
+    const response = await order(app, checkout(ids, { holdIds: [hold.id] }), holdHeaders(hold))
 
     expect(response.statusCode).toBe(402)
     expect(response.json().error.code).toBe('PAYMENT_DECLINED')
@@ -281,7 +283,7 @@ describe('POST /v1/orders', () => {
     expect(prisma._store.payment).toHaveLength(0)
     expect(prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold).toBe(0)
     // The buyer keeps their reservation and can retry with another card.
-    expect(prisma._store.ticketHold.find((row) => row.id === holdId).status).toBe('ACTIVE')
+    expect(prisma._store.ticketHold.find((row) => row.id === hold.id).status).toBe('ACTIVE')
 
     await app.close()
   })
@@ -316,11 +318,12 @@ describe('POST /v1/orders', () => {
 
     // One seat left, and the buyer is holding it.
     prisma._store.ticketType.find((tier) => tier.id === ids.vip.id).quantitySold = 3
-    const holdId = await takeHold(app, ids.vip.id, 1)
+    const hold = await takeHold(app, ids.vip.id, 1)
 
     const response = await order(
       app,
-      checkout(ids, { items: [{ ticketTypeId: ids.vip.id, quantity: 1 }], holdIds: [holdId] }),
+      checkout(ids, { items: [{ ticketTypeId: ids.vip.id, quantity: 1 }], holdIds: [hold.id] }),
+      holdHeaders(hold),
     )
 
     expect(response.statusCode).toBe(201)
@@ -362,11 +365,11 @@ describe('POST /v1/orders', () => {
 
   it('answers 410 for a hold that lapsed between the cart and the card', async () => {
     const { app, prisma, ids } = await createTestApp()
-    const holdId = await takeHold(app, ids.generalAdmission.id, 1)
+    const hold = await takeHold(app, ids.generalAdmission.id, 1)
 
-    prisma._store.ticketHold.find((row) => row.id === holdId).expiresAt = minutesFromNow(-1)
+    prisma._store.ticketHold.find((row) => row.id === hold.id).expiresAt = minutesFromNow(-1)
 
-    const response = await order(app, checkout(ids, { holdIds: [holdId] }))
+    const response = await order(app, checkout(ids, { holdIds: [hold.id] }), holdHeaders(hold))
 
     expect(response.statusCode).toBe(410)
     expect(response.json().error.code).toBe('HOLD_EXPIRED')
@@ -377,10 +380,10 @@ describe('POST /v1/orders', () => {
 
   it('refuses a hold that has already paid for another order', async () => {
     const { app, prisma, ids } = await createTestApp()
-    const holdId = await takeHold(app, ids.generalAdmission.id, 1)
-    prisma._store.ticketHold.find((row) => row.id === holdId).status = 'CONVERTED'
+    const hold = await takeHold(app, ids.generalAdmission.id, 1)
+    prisma._store.ticketHold.find((row) => row.id === hold.id).status = 'CONVERTED'
 
-    const response = await order(app, checkout(ids, { holdIds: [holdId] }))
+    const response = await order(app, checkout(ids, { holdIds: [hold.id] }), holdHeaders(hold))
 
     expect(response.statusCode).toBe(409)
 
@@ -392,7 +395,7 @@ describe('POST /v1/orders', () => {
     const otherHold = await takeHold(app, ids.vip.id, 1)
 
     const unknown = await order(app, checkout(ids, { holdIds: ['cnosuchhold00000000000zz'] }))
-    const mismatched = await order(app, checkout(ids, { holdIds: [otherHold] }))
+    const mismatched = await order(app, checkout(ids, { holdIds: [otherHold.id] }), holdHeaders(otherHold))
 
     expect(unknown.statusCode).toBe(404)
     expect(mismatched.statusCode).toBe(409)

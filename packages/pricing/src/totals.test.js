@@ -4,6 +4,7 @@ import { allocateProportionally, computeOrderTotals } from './totals.js'
 import { DEFAULT_FEE_CONFIG } from './fees.js'
 import { PROMO_TYPES } from './discount.js'
 import { PricingError } from './errors.js'
+import { MAX_CENTS } from './money.js'
 
 const NOW = new Date('2026-06-15T12:00:00.000Z')
 const NO_FEES = { percentageBps: 0, flatCents: 0, currency: 'INR' }
@@ -19,6 +20,7 @@ const percentagePromo = (value, overrides = {}) => ({
 const fixedPromo = (value, overrides = {}) => ({
   code: 'FLAT500',
   type: PROMO_TYPES.FIXED_AMOUNT,
+  currency: 'INR',
   value,
   active: true,
   ...overrides,
@@ -358,10 +360,17 @@ describe('allocateProportionally', () => {
     }
   })
 
-  it('returns zeros when there is nothing to split or nothing to split across', () => {
+  it('returns zeros when there is nothing to split', () => {
     expect(allocateProportionally(0, [5, 5])).toEqual([0, 0])
-    expect(allocateProportionally(100, [0, 0])).toEqual([0, 0])
-    expect(allocateProportionally(100, [])).toEqual([])
+  })
+
+  it('refuses to split a non-zero amount across nothing', () => {
+    // Previously returned zeros, which silently discarded the amount. An
+    // allocation that does not sum to its input is a lost-money bug, so these
+    // now throw instead.
+    expect(() => allocateProportionally(100, [0, 0])).toThrow(PricingError)
+    expect(() => allocateProportionally(100, [])).toThrow(PricingError)
+    expect(allocateProportionally(0, [])).toEqual([])
   })
 
   it('gives everything to a single bucket', () => {
@@ -372,5 +381,56 @@ describe('allocateProportionally', () => {
     expect(() => allocateProportionally(-1, [1])).toThrow(PricingError)
     expect(() => allocateProportionally(10, 'nope')).toThrow(/weights must be an array/)
     expect(() => allocateProportionally(10, [-1])).toThrow(PricingError)
+  })
+})
+
+describe('allocateProportionally at scale', () => {
+  // Regression guard for a real defect. The intermediate `total * weight` was
+  // computed in doubles, so although each operand is valid up to MAX_CENTS
+  // (1e12) their product overflowed Number.MAX_SAFE_INTEGER. The effective
+  // ceiling was about 9.4e7 minor units: allocating a ₹1,000,000 discount
+  // across a line of the same size threw AMOUNT_OUT_OF_RANGE and refused a
+  // legitimate order.
+  const scales = [
+    ['a hundred rupees', 10_000, [50_000, 30_000]],
+    ['ten lakh rupees', 100_000_000, [100_000_000, 50_000_000]],
+    ['one crore rupees', 1_000_000_000, [1_000_000_000, 500_000_000]],
+    ['the documented maximum', MAX_CENTS, [MAX_CENTS, 1]],
+  ]
+
+  for (const [name, total, weights] of scales) {
+    it(`allocates ${name} exactly`, () => {
+      const shares = allocateProportionally(total, weights)
+
+      expect(shares.reduce((sum, share) => sum + share, 0)).toBe(total)
+      for (const share of shares) expect(Number.isSafeInteger(share)).toBe(true)
+    })
+  }
+
+  it('never loses or invents a minor unit, whatever the weights', () => {
+    // Exhaustive over awkward remainders: three-way splits of every total from
+    // 0 to 200 must still sum exactly.
+    for (let total = 0; total <= 200; total += 1) {
+      const shares = allocateProportionally(total, [1, 1, 1])
+      expect(shares.reduce((sum, share) => sum + share, 0)).toBe(total)
+    }
+  })
+
+  it('refuses to allocate a non-zero amount across zero total weight', () => {
+    // Returning zeros here would silently discard money: the discount would
+    // vanish from the breakdown while still reducing the order total.
+    expect(() => allocateProportionally(500, [0, 0])).toThrow(PricingError)
+    expect(allocateProportionally(0, [0, 0])).toEqual([0, 0])
+  })
+
+  it('rejects non-integer and adversarial inputs', () => {
+    expect(() => allocateProportionally(10.5, [1])).toThrow(PricingError)
+    expect(() => allocateProportionally(100, [1.5])).toThrow(PricingError)
+    expect(() => allocateProportionally(-1, [1])).toThrow(PricingError)
+    expect(() => allocateProportionally(100, [-1])).toThrow(PricingError)
+    expect(() => allocateProportionally(MAX_CENTS + 1, [1])).toThrow(PricingError)
+    expect(() => allocateProportionally(Number.NaN, [1])).toThrow(PricingError)
+    expect(() => allocateProportionally(Number.POSITIVE_INFINITY, [1])).toThrow(PricingError)
+    expect(() => allocateProportionally(100, 'nope')).toThrow(PricingError)
   })
 })

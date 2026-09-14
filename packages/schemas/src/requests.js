@@ -287,7 +287,6 @@ export const updateTicketTypeRequestSchema = ticketTypeWritableObject
 export const createHoldRequestSchema = z.object({
   ticketTypeId: cuidSchema,
   quantity: quantitySchema,
-  orderId: cuidSchema.optional(),
   ttlSeconds: z.coerce.number().int().min(30).max(3600).optional(),
 })
 

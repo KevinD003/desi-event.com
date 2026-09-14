@@ -25,3 +25,12 @@ export {
   partitionExpiredHolds,
   activeHeldQuantity,
 } from './holds.js'
+
+export {
+  HOLD_RELEASE_MODES,
+  authorizeHoldRelease,
+  createGuestHoldToken,
+  digestsMatch,
+  hashGuestHoldToken,
+  resolveHoldOwnership,
+} from './ownership.js'

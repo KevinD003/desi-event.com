@@ -35,6 +35,10 @@ export const PROMO_REJECTION_REASONS = Object.freeze({
   NOT_STARTED: 'NOT_STARTED',
   EXPIRED: 'EXPIRED',
   EXHAUSTED: 'EXHAUSTED',
+  /** A FIXED_AMOUNT promo denominated in a different currency than the order. */
+  CURRENCY_MISMATCH: 'CURRENCY_MISMATCH',
+  /** A FIXED_AMOUNT promo with no currency recorded at all. */
+  CURRENCY_MISSING: 'CURRENCY_MISSING',
 })
 
 /**
@@ -137,6 +141,8 @@ export function normalisePromoCode(promoCode) {
   return {
     type,
     value: amount,
+    // Upper-cased so a mismatch is decided on the code, not on its casing.
+    currency: promoCode.currency ? String(promoCode.currency).toUpperCase() : null,
     active: promoCode.active ?? true,
     startsAt: promoCode.startsAt == null ? null : toDate(promoCode.startsAt, 'promoCode.startsAt'),
     endsAt: promoCode.endsAt == null ? null : toDate(promoCode.endsAt, 'promoCode.endsAt'),
@@ -156,12 +162,27 @@ export function normalisePromoCode(promoCode) {
  * @param {object} params Evaluation inputs.
  * @param {PromoCodeInput} params.promoCode Promo code record.
  * @param {Date|string|number} params.now Instant to evaluate against; never read from the clock internally.
+ * @param {string|null} [params.currency] Order currency. A FIXED_AMOUNT promo denominated in another currency is not applicable.
  * @returns {PromoEvaluation} Whether the code applies, and why not if it does not.
  * @throws {PricingError} If the promo record or `now` is structurally invalid.
  */
-export function evaluatePromoCode({ promoCode, now }) {
+export function evaluatePromoCode({ promoCode, now, currency = null }) {
   const promo = normalisePromoCode(promoCode)
   const at = toDate(now, 'now')
+
+  // A flat discount is denominated: "500 off" only means anything alongside a
+  // currency. Applying a ₹500 campaign to a CAD order at face value would hand
+  // out roughly a hundred times the intended discount, so a mismatch makes the
+  // promo inapplicable rather than being silently converted. There is no
+  // exchange-rate policy here, and inventing one would be worse than refusing.
+  if (promo.type === PROMO_TYPES.FIXED_AMOUNT) {
+    if (!promo.currency) {
+      return { applicable: false, reason: PROMO_REJECTION_REASONS.CURRENCY_MISSING }
+    }
+    if (currency && promo.currency !== String(currency).toUpperCase()) {
+      return { applicable: false, reason: PROMO_REJECTION_REASONS.CURRENCY_MISMATCH }
+    }
+  }
 
   if (!promo.active) {
     return { applicable: false, reason: PROMO_REJECTION_REASONS.INACTIVE }
@@ -192,15 +213,16 @@ export function evaluatePromoCode({ promoCode, now }) {
  * @param {number} params.subtotalCents Order subtotal in minor units.
  * @param {PromoCodeInput|null} [params.promoCode] Promo code record, or `null`/`undefined` for no promo.
  * @param {Date|string|number} [params.now] Instant used for validity checks; required whenever a promo code is given.
+ * @param {string|null} [params.currency] Order currency. A FIXED_AMOUNT promo denominated in another currency yields no discount.
  * @returns {number} The discount in minor units: an integer in `[0, subtotalCents]`.
  * @throws {PricingError} If the subtotal, promo record or `now` is structurally invalid.
  */
-export function computeDiscount({ subtotalCents, promoCode = null, now }) {
+export function computeDiscount({ subtotalCents, promoCode = null, now, currency = null }) {
   const subtotal = assertCents(subtotalCents, 'subtotalCents')
 
   if (promoCode == null) return 0
 
-  const evaluation = evaluatePromoCode({ promoCode, now })
+  const evaluation = evaluatePromoCode({ promoCode, now, currency })
   if (!evaluation.applicable) return 0
 
   const promo = normalisePromoCode(promoCode)

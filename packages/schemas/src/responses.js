@@ -120,6 +120,13 @@ export const holdResponseSchema = z.object({
     quantity: z.int().min(1),
     expiresAt: timestampSchema,
     unitPriceCents: centsSchema.optional(),
+    /**
+     * Returned exactly once, when an anonymous caller takes a hold, and never
+     * stored in plaintext. The caller must present it to release the hold.
+     * Absent for holds owned by an authenticated user, whose identity comes
+     * from their token instead.
+     */
+    guestToken: z.string().min(1).optional(),
   }),
 })
 

@@ -77,7 +77,8 @@ describe('computeDiscount for PERCENTAGE promos', () => {
 })
 
 describe('computeDiscount for FIXED_AMOUNT promos', () => {
-  const fixed = (value) => promo({ type: PROMO_TYPES.FIXED_AMOUNT, value })
+  // A flat discount is denominated, so every fixture names its currency.
+  const fixed = (value) => promo({ type: PROMO_TYPES.FIXED_AMOUNT, value, currency: 'INR' })
 
   it('treats the value as minor units', () => {
     expect(computeDiscount({ subtotalCents: 100_000, promoCode: fixed(25_000), now: NOW })).toBe(25_000)
@@ -160,7 +161,7 @@ describe('promo validity', () => {
   })
 
   it('defaults active to true and redemptionCount to zero for partial records', () => {
-    const minimal = { type: PROMO_TYPES.FIXED_AMOUNT, value: 5_000 }
+    const minimal = { type: PROMO_TYPES.FIXED_AMOUNT, value: 5_000, currency: 'INR' }
 
     expect(evaluatePromoCode({ promoCode: minimal, now: NOW }).applicable).toBe(true)
     expect(computeDiscount({ subtotalCents: 100_000, promoCode: minimal, now: NOW })).toBe(5_000)
@@ -209,5 +210,45 @@ describe('promo input validation', () => {
 
     expect(before.applicable).toBe(true)
     expect(evaluatePromoCode({ promoCode: code, now: '2019-12-31T23:59:59.999Z' })).toEqual(before)
+  })
+})
+
+describe('FIXED_AMOUNT promos are denominated', () => {
+  // Regression guard. A flat discount carried no currency, so an
+  // organisation-wide "₹500 off" campaign quoted against a CAD order took
+  // CA$500 off at face value — roughly a hundred times the intended discount.
+  const inr = { type: PROMO_TYPES.FIXED_AMOUNT, value: 50_000, currency: 'INR', active: true }
+
+  it('applies when the order currency matches', () => {
+    expect(computeDiscount({ subtotalCents: 200_000, promoCode: inr, currency: 'INR', now: NOW })).toBe(50_000)
+  })
+
+  it('is case-insensitive about the currency code', () => {
+    expect(computeDiscount({ subtotalCents: 200_000, promoCode: { ...inr, currency: 'inr' }, currency: 'INR', now: NOW })).toBe(50_000)
+  })
+
+  it('yields nothing against a different currency instead of converting', () => {
+    expect(computeDiscount({ subtotalCents: 200_000, promoCode: inr, currency: 'CAD', now: NOW })).toBe(0)
+
+    const evaluation = evaluatePromoCode({ promoCode: inr, currency: 'CAD', now: NOW })
+    expect(evaluation.applicable).toBe(false)
+    expect(evaluation.reason).toBe(PROMO_REJECTION_REASONS.CURRENCY_MISMATCH)
+  })
+
+  it('yields nothing when the promo records no currency at all', () => {
+    const undenominated = { type: PROMO_TYPES.FIXED_AMOUNT, value: 50_000, active: true }
+
+    expect(computeDiscount({ subtotalCents: 200_000, promoCode: undenominated, currency: 'INR', now: NOW })).toBe(0)
+    expect(evaluatePromoCode({ promoCode: undenominated, currency: 'INR', now: NOW }).reason).toBe(
+      PROMO_REJECTION_REASONS.CURRENCY_MISSING,
+    )
+  })
+
+  it('leaves percentage promos currency-neutral', () => {
+    const percentage = { type: PROMO_TYPES.PERCENTAGE, value: 1_000, active: true }
+
+    for (const currency of ['INR', 'CAD', 'GBP']) {
+      expect(computeDiscount({ subtotalCents: 200_000, promoCode: percentage, currency, now: NOW })).toBe(20_000)
+    }
   })
 })

@@ -137,3 +137,13 @@ export function feeConfig(currency = 'INR') {
 export function taxRateBps(currency = 'INR') {
   return taxRateBpsForCurrency(currency)
 }
+
+/**
+ * Headers proving ownership of a guest hold.
+ *
+ * @param {{guestToken?: string}} hold The `data` object returned when the hold was taken.
+ * @returns {Record<string, string>} Headers carrying the one-time token, or none for an owned hold.
+ */
+export function holdHeaders(hold) {
+  return hold?.guestToken ? { 'x-hold-token': hold.guestToken } : {}
+}

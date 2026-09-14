@@ -34,6 +34,21 @@ import { hashSync } from 'bcryptjs'
 import { createPrismaClient } from '../src/index.js'
 
 /**
+ * A deterministic guest-ownership digest for a seeded hold.
+ *
+ * Real guest tokens are random and returned to the caller once; a seed has
+ * nobody to return one to, and re-running it must not rewrite the row. Hashing
+ * the order key gives a stable digest that matches no token anyone can present,
+ * so seeded guest holds can only lapse or be released by an audited override.
+ *
+ * @param {string} key The order's stable seed key.
+ * @returns {string} A hex SHA-256 digest.
+ */
+function seedGuestTokenHash(key) {
+  return createHash('sha256').update(`seed-guest-hold:${key}`).digest('hex')
+}
+
+/**
  * Derive a stable, CUID-shaped primary key from a human-readable seed key.
  *
  * Models without a natural unique column still need the same row targeted on
@@ -146,6 +161,7 @@ export function applyBps(cents, bps) {
  * @typedef {object} SeedPromo
  * @property {'PERCENTAGE'|'FIXED_AMOUNT'} type Discount kind.
  * @property {number} value Basis points for PERCENTAGE, cents for FIXED_AMOUNT.
+ * @property {string} [currency] Required for FIXED_AMOUNT; null for PERCENTAGE.
  */
 
 /**
@@ -1193,6 +1209,10 @@ const PROMO_CODES = [
     eventKey: 'garba',
     code: 'GARBA500',
     type: 'FIXED_AMOUNT',
+    // A flat discount is denominated: ₹500 off, never CA$500 off. The
+    // `promo_code_fixed_amount_currency` check constraint rejects the row
+    // without this.
+    currency: 'INR',
     value: 50000,
     maxRedemptions: 500,
     startsDays: -20,
@@ -1219,6 +1239,8 @@ const PROMO_CODES = [
     eventKey: null,
     code: 'WELCOME5',
     type: 'FIXED_AMOUNT',
+    // Toronto Desi Cultural Society sells in CAD, so CA$5 off.
+    currency: 'CAD',
     value: 500,
     maxRedemptions: 100,
     startsDays: -200,
@@ -1597,6 +1619,9 @@ export function buildSeedData(now = new Date()) {
           code: promo.code,
           type: promo.type,
           value: promo.value,
+          // Required for FIXED_AMOUNT and null for PERCENTAGE, which is
+          // currency-neutral. The database rejects the row otherwise.
+          currency: promo.currency ?? null,
           maxRedemptions: promo.maxRedemptions,
           redemptionCount: 0,
           startsAt: promo.startsDays === null ? null : offset(anchor, promo.startsDays, 0),
@@ -1700,6 +1725,16 @@ export function buildSeedData(now = new Date()) {
           ticketTypeId: lines[0].ticketTypeId,
           quantity: holdQuantity,
           status: order.hold.status,
+          // Every hold has exactly one owner — the database enforces it with
+          // the `ticket_hold_single_owner` check constraint. A seeded hold
+          // belongs to the buyer who placed the order when there is one, and
+          // otherwise carries a deterministic guest digest so the seed stays
+          // idempotent rather than minting a new token on every run.
+          //
+          // User ids are assigned by the database, so the owner travels as an
+          // email here and is resolved when the row is written.
+          userEmail: order.userKey ? userByKey.get(order.userKey).email : null,
+          guestTokenHash: order.userKey ? null : seedGuestTokenHash(order.key),
           // An ACTIVE hold must be genuinely unexpired for the availability
           // logic to treat it as reserved, so it tracks the wall clock rather
           // than the day anchor.
@@ -1967,6 +2002,7 @@ export async function writeSeedData(prisma, data) {
       eventId: promo.eventId,
       type: promo.type,
       value: promo.value,
+      currency: promo.currency ?? null,
       maxRedemptions: promo.maxRedemptions,
       redemptionCount: promo.redemptionCount,
       startsAt: promo.startsAt,
@@ -2094,6 +2130,8 @@ export async function writeSeedData(prisma, data) {
         quantity: order.hold.quantity,
         status: order.hold.status,
         expiresAt: order.hold.expiresAt,
+        userId: order.hold.userEmail ? userIdByEmail.get(order.hold.userEmail) : null,
+        guestTokenHash: order.hold.userEmail ? null : order.hold.guestTokenHash,
       }
       await prisma.ticketHold.upsert({
         where: { id: order.hold.id },

@@ -52,6 +52,7 @@ model User {
   orders      Order[]
   waitlist    WaitlistEntry[]
   auditLogs   AuditLog[]
+  ticketHolds TicketHold[]
 
   @@index([role])
 }
@@ -219,21 +220,42 @@ enum HoldStatus {
 
 /// A short-lived reservation taken while a buyer completes checkout.
 /// Expired holds are swept back into availability by the worker.
+///
+/// Ownership: exactly one of `userId` (an authenticated buyer) or
+/// `guestTokenHash` (an anonymous one) is set. That invariant is enforced by
+/// the `ticket_hold_single_owner` check constraint in the migration, because an
+/// application-only rule is one bad code path away from a hold nobody can
+/// release — or one anybody can.
+///
+/// `guestTokenHash` stores a SHA-256 of a token that is returned to the buyer
+/// exactly once, at creation. The plaintext is never persisted, so a database
+/// leak does not let the reader release or claim other people's holds.
 model TicketHold {
-  id           String     @id @default(cuid())
-  ticketTypeId String
-  orderId      String?
-  quantity     Int
-  status       HoldStatus @default(ACTIVE)
-  expiresAt    DateTime
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id             String     @id @default(cuid())
+  ticketTypeId   String
+  orderId        String?
+  quantity       Int
+  status         HoldStatus @default(ACTIVE)
+  expiresAt      DateTime
+  /// Owning user when the hold was taken by an authenticated caller.
+  userId         String?
+  /// SHA-256 of the guest ownership token. Never the token itself.
+  guestTokenHash String?
+  /// Who released it and why, for the audit trail.
+  releasedAt     DateTime?
+  releasedBy     String?
+  releaseReason  String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
 
   ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
   order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([status, expiresAt])
   @@index([ticketTypeId, status])
+  @@index([userId, status])
+  @@index([guestTokenHash])
 }
 
 enum OrderStatus {
@@ -247,6 +269,9 @@ enum OrderStatus {
 model Order {
   id            String      @id @default(cuid())
   reference     String      @unique
+  /// Caller-supplied key that makes a retried checkout return the original
+  /// order instead of creating and charging a second one.
+  idempotencyKey String?    @unique
   eventId       String
   userId        String?
   buyerEmail    String
@@ -317,12 +342,23 @@ model Ticket {
 }
 
 enum PaymentStatus {
+  /// Recorded before the provider is called, inside the first transaction.
   INITIATED
+  /// The provider was called and has not yet given a final answer.
+  PENDING
   SUCCEEDED
   FAILED
+  /// The call timed out. The money may or may not have moved, so this is the
+  /// state a human or a reconciliation job has to resolve against the provider.
+  TIMEOUT
   REFUNDED
 }
 
+/// One attempt to move money for an order.
+///
+/// A row is written and committed BEFORE the provider is called, so a process
+/// that dies mid-call still leaves evidence that a charge may exist. Nothing
+/// here is inferred from a browser redirect.
 model Payment {
   id          String        @id @default(cuid())
   orderId     String
@@ -332,6 +368,15 @@ model Payment {
   amountCents Int
   currency    String        @default("INR")
   failureCode String?
+  /// Caller-scoped key making retries of the same checkout idempotent.
+  idempotencyKey String?    @unique
+  attemptNumber  Int        @default(1)
+  /// Set when the provider's answer was ambiguous (a timeout). Money may have
+  /// moved; the row must not be reused and a human must reconcile it.
+  reconciliationRequired Boolean @default(false)
+  /// The provider's own status string, kept verbatim for reconciliation.
+  rawProviderStatus String?
+  settledAt   DateTime?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -339,6 +384,30 @@ model Payment {
 
   @@unique([provider, providerRef])
   @@index([orderId, status])
+  @@index([reconciliationRequired])
+}
+
+/// A provider callback, recorded once.
+///
+/// The webhook is the authoritative signal that money moved — not the redirect
+/// the browser follows, which a buyer can close, replay or forge. The unique
+/// `(provider, providerEventId)` makes replays a no-op, and `processedAt`
+/// guarantees only one worker ever fulfils a given event.
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  providerEventId String
+  eventType       String
+  payload         Json
+  orderId         String?
+  paymentId       String?
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  processingError String?
+
+  @@unique([provider, providerEventId])
+  @@index([processedAt])
+  @@index([orderId])
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +427,10 @@ model PromoCode {
   type            PromoType
   /// Basis points for PERCENTAGE (1000 = 10%), integer cents for FIXED_AMOUNT.
   value           Int
+  /// Required for FIXED_AMOUNT: a flat discount is denominated, and ₹500 is not
+  /// CA$500. Null for PERCENTAGE, which is currency-neutral. Enforced by the
+  /// `promo_code_fixed_amount_currency` check constraint.
+  currency        String?
   maxRedemptions  Int?
   redemptionCount Int       @default(0)
   startsAt        DateTime?

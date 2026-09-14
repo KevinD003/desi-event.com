@@ -40,7 +40,6 @@ import {
   assertBps,
   assertCents,
   assertQuantity,
-  floorDivide,
   multiplyExact,
   normaliseCurrency,
 } from './money.js'
@@ -98,15 +97,39 @@ export function allocateProportionally(totalCents, weights) {
   const safeWeights = weights.map((weight, index) => assertCents(weight, `weights[${index}]`))
   const weightSum = safeWeights.reduce((sum, weight) => sum + weight, 0)
 
-  if (total === 0 || weightSum === 0) return safeWeights.map(() => 0)
+  if (total === 0) return safeWeights.map(() => 0)
+
+  // Allocating a non-zero amount across buckets that carry no weight has no
+  // defined answer, and returning zeros would silently discard money: a
+  // discount would vanish from the breakdown while still reducing the total.
+  // Callers must not reach this state, so say so loudly rather than lose it.
+  if (weightSum === 0) {
+    throw new PricingError('cannot allocate a non-zero amount across zero total weight', {
+      code: 'INVALID_ALLOCATION',
+      details: { totalCents: total, weights: safeWeights },
+    })
+  }
+
+  // The intermediate `total * weight` is computed in BigInt.
+  //
+  // Both operands are individually valid up to MAX_CENTS (1e12), but their
+  // product reaches 1e24 — far past Number.MAX_SAFE_INTEGER. Doing this in
+  // doubles put the real ceiling at about 9.4e7 minor units, so allocating a
+  // ₹1,000,000 discount across a line of the same size threw
+  // AMOUNT_OUT_OF_RANGE and refused a perfectly legitimate order. BigInt makes
+  // the division exact at any size the surrounding guards permit; every
+  // quotient is bounded by `total`, so converting back to Number is safe.
+  const bigTotal = BigInt(total)
+  const bigWeightSum = BigInt(weightSum)
 
   const shares = []
   const remainders = []
   let allocated = 0
 
   for (let index = 0; index < safeWeights.length; index += 1) {
-    const numerator = multiplyExact(total, safeWeights[index], 'totalCents * weight')
-    const { quotient, remainder } = floorDivide(numerator, weightSum)
+    const numerator = bigTotal * BigInt(safeWeights[index])
+    const quotient = Number(numerator / bigWeightSum)
+    const remainder = Number(numerator % bigWeightSum)
 
     shares.push(quotient)
     remainders.push(remainder)
@@ -220,7 +243,7 @@ export function computeOrderTotals({
   )
   const quantity = lineItems.reduce((sum, line) => sum + line.quantity, 0)
 
-  const discountCents = computeDiscount({ subtotalCents, promoCode, now })
+  const discountCents = computeDiscount({ subtotalCents, promoCode, now, currency: orderCurrency })
   const discountedSubtotalCents = subtotalCents - discountCents
 
   const feesCents = computePlatformFee({
