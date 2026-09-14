@@ -53,32 +53,32 @@ desi-event.com
 
 ## Tech stack
 
-| Layer | Choice | Version |
-| --- | --- | --- |
-| Runtime | Node.js | 22.22.2 (`.nvmrc`) |
-| Package manager | pnpm | 10.33.0 |
-| Monorepo tasks | Turborepo | 2.10.12 |
-| API framework | Fastify | 5.12.4 |
-| Web framework | Next.js App Router | 16.3.5 |
-| UI | React | 19.3.0 |
-| Styling | Tailwind CSS (CSS-first) | 4.3.3 |
-| Animation | Framer Motion | 13.3.0 |
-| Database | PostgreSQL via Prisma | Prisma 7.10.0 |
-| Cache and queues | Redis via BullMQ | BullMQ 6.3.6, ioredis 6.0.0 |
-| Validation | Zod | 4.6.5 |
-| Logging | Pino | 10.3.1 |
-| Unit and component tests | Vitest, React Testing Library | Vitest 5.0.0 |
-| End-to-end tests | Playwright | 1.63.0 |
-| Linting | ESLint (flat config) | 9.39.5 |
+| Layer                    | Choice                        | Version                     |
+| ------------------------ | ----------------------------- | --------------------------- |
+| Runtime                  | Node.js                       | 22.22.2 (`.nvmrc`)          |
+| Package manager          | pnpm                          | 10.33.0                     |
+| Monorepo tasks           | Turborepo                     | 2.10.12                     |
+| API framework            | Fastify                       | 5.12.4                      |
+| Web framework            | Next.js App Router            | 16.3.5                      |
+| UI                       | React                         | 19.3.0                      |
+| Styling                  | Tailwind CSS (CSS-first)      | 4.3.3                       |
+| Animation                | Framer Motion                 | 13.3.0                      |
+| Database                 | PostgreSQL via Prisma         | Prisma 7.10.0               |
+| Cache and queues         | Redis via BullMQ              | BullMQ 6.3.6, ioredis 6.0.0 |
+| Validation               | Zod                           | 4.6.5                       |
+| Logging                  | Pino                          | 10.3.1                      |
+| Unit and component tests | Vitest, React Testing Library | Vitest 5.0.0                |
+| End-to-end tests         | Playwright                    | 1.63.0                      |
+| Linting                  | ESLint (flat config)          | 9.39.5                      |
 
 ## Prerequisites
 
-* **Node.js 22.22.2** — the exact version is in `.nvmrc`; `nvm use` picks it up.
+- **Node.js 22.22.2** — the exact version is in `.nvmrc`; `nvm use` picks it up.
   `.npmrc` sets `engine-strict=true`, so an unsupported runtime fails at
   install rather than at runtime.
-* **pnpm 10.33.0** — pinned in `packageManager`. `corepack enable` installs it.
-* **PostgreSQL 16+** — listening on `127.0.0.1:5432`.
-* **Redis 7+** — listening on `127.0.0.1:6379`.
+- **pnpm 10.33.0** — pinned in `packageManager`. `corepack enable` installs it.
+- **PostgreSQL 16+** — listening on `127.0.0.1:5432`.
+- **Redis 7+** — listening on `127.0.0.1:6379`.
 
 The default connection strings in `.env.example` expect a `desi` role with
 password `desi` and a `desi_event` database. Create them once:
@@ -110,11 +110,11 @@ pnpm dev                   # api, web and worker together
 
 That leaves three processes running:
 
-| Process | URL | Notes |
-| --- | --- | --- |
-| Web | http://127.0.0.1:3000 | Next.js dev server |
-| API | http://127.0.0.1:4000 | Fastify; `/health`, `/docs`, `/openapi.json` |
-| Worker | — | BullMQ; sweeps expired holds every 30 seconds |
+| Process | URL                   | Notes                                         |
+| ------- | --------------------- | --------------------------------------------- |
+| Web     | http://127.0.0.1:3000 | Next.js dev server                            |
+| API     | http://127.0.0.1:4000 | Fastify; `/health`, `/docs`, `/openapi.json`  |
+| Worker  | —                     | BullMQ; sweeps expired holds every 30 seconds |
 
 Seeded accounts all share the password `DesiEvent!2026`.
 
@@ -131,30 +131,30 @@ it reads the root `.env` itself — but the rest need the export.
 
 Run from the repository root.
 
-| Script | What it does |
-| --- | --- |
-| `pnpm dev` | Start api, web and worker in watch mode (`turbo run dev`) |
-| `pnpm build` | Build every workspace: Prisma client, `openapi.json`, `next build` |
-| `pnpm start` | Run the built applications |
-| `pnpm lint` | ESLint across the whole repository |
-| `pnpm lint:fix` | The same, with `--fix` |
-| `pnpm format` | Prettier over js/jsx/json/md/css/yaml |
-| `pnpm format:check` | Prettier in check mode |
-| `pnpm test` | Vitest in every workspace |
-| `pnpm test:watch` | Vitest in watch mode |
-| `pnpm test:coverage` | Vitest with coverage and thresholds |
-| `pnpm test:e2e` | Playwright end-to-end suite (`@desi-event/web`) |
-| `pnpm policy:check` | Enforce the JavaScript-only language policy |
-| `pnpm contract:check` | Structurally validate the API contract and OpenAPI document |
-| `pnpm verify` | `policy:check` → `lint` → `test` → `build`. The pre-push gate |
-| `pnpm db:generate` | `prisma generate` |
-| `pnpm db:migrate` | `prisma migrate dev` — create and apply a migration |
-| `pnpm db:migrate:deploy` | `prisma migrate deploy` — apply existing migrations |
-| `pnpm db:reset` | Drop, recreate, migrate and re-seed the database |
-| `pnpm db:seed` | Idempotent development seed |
-| `pnpm db:studio` | Prisma Studio |
-| `pnpm openapi:emit` | Regenerate `apps/api/openapi.json` from the contract |
-| `pnpm clean` | Remove node_modules, .next, .turbo, dist, coverage and test output |
+| Script                   | What it does                                                       |
+| ------------------------ | ------------------------------------------------------------------ |
+| `pnpm dev`               | Start api, web and worker in watch mode (`turbo run dev`)          |
+| `pnpm build`             | Build every workspace: Prisma client, `openapi.json`, `next build` |
+| `pnpm start`             | Run the built applications                                         |
+| `pnpm lint`              | ESLint across the whole repository                                 |
+| `pnpm lint:fix`          | The same, with `--fix`                                             |
+| `pnpm format`            | Prettier over js/jsx/json/md/css/yaml                              |
+| `pnpm format:check`      | Prettier in check mode                                             |
+| `pnpm test`              | Vitest in every workspace                                          |
+| `pnpm test:watch`        | Vitest in watch mode                                               |
+| `pnpm test:coverage`     | Vitest with coverage and thresholds                                |
+| `pnpm test:e2e`          | Playwright end-to-end suite (`@desi-event/web`)                    |
+| `pnpm policy:check`      | Enforce the JavaScript-only language policy                        |
+| `pnpm contract:check`    | Structurally validate the API contract and OpenAPI document        |
+| `pnpm verify`            | `policy:check` → `lint` → `test` → `build`. The pre-push gate      |
+| `pnpm db:generate`       | `prisma generate`                                                  |
+| `pnpm db:migrate`        | `prisma migrate dev` — create and apply a migration                |
+| `pnpm db:migrate:deploy` | `prisma migrate deploy` — apply existing migrations                |
+| `pnpm db:reset`          | Drop, recreate, migrate and re-seed the database                   |
+| `pnpm db:seed`           | Idempotent development seed                                        |
+| `pnpm db:studio`         | Prisma Studio                                                      |
+| `pnpm openapi:emit`      | Regenerate `apps/api/openapi.json` from the contract               |
+| `pnpm clean`             | Remove node_modules, .next, .turbo, dist, coverage and test output |
 
 `pnpm clean --dry-run` lists what it would delete without touching anything.
 
@@ -181,9 +181,9 @@ pnpm --filter @desi-event/pricing test
 
 The API describes itself. With the API running:
 
-* **http://127.0.0.1:4000/docs** — Swagger UI, generated from the route
+- **http://127.0.0.1:4000/docs** — Swagger UI, generated from the route
   contract in `@desi-event/api-contract`.
-* **http://127.0.0.1:4000/openapi.json** — the raw OpenAPI 3.1 document.
+- **http://127.0.0.1:4000/openapi.json** — the raw OpenAPI 3.1 document.
 
 `pnpm build` also writes the document to `apps/api/openapi.json`, so it is a
 build artefact rather than a file someone remembers to regenerate.
@@ -201,10 +201,10 @@ pnpm test:e2e                              # Playwright, from apps/web
 
 Three layers:
 
-* **Vitest units** in every package, co-located as `src/<name>.test.js`. Pure
+- **Vitest units** in every package, co-located as `src/<name>.test.js`. Pure
   logic packages enforce 80% line and function coverage.
-* **React Testing Library** component tests in `@desi-event/ui` and `apps/web`.
-* **Playwright** end-to-end specs in `apps/web/e2e`, which start their own
+- **React Testing Library** component tests in `@desi-event/ui` and `apps/web`.
+- **Playwright** end-to-end specs in `apps/web/e2e`, which start their own
   Next.js server on port 3210.
 
 The suites that need PostgreSQL or Redis — `packages/db/tests/client.test.js`
@@ -214,11 +214,11 @@ with nothing running and still tests the real wiring where it exists.
 
 ## Documentation
 
-| Document | Contents |
-| --- | --- |
-| [docs/architecture.md](docs/architecture.md) | Request flow, the checkout and hold lifecycle, package graph, trust boundaries |
-| [docs/development.md](docs/development.md) | Day-to-day workflow: services, env vars, migrations, debugging, testing |
-| [docs/api.md](docs/api.md) | REST reference: auth, errors, pagination, every endpoint |
-| [docs/language-policy.md](docs/language-policy.md) | The JavaScript-only policy and the exception process |
-| [docs/adr/](docs/adr/) | Architecture decision records |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Branches, commits, the verify gate, definition of done |
+| Document                                           | Contents                                                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| [docs/architecture.md](docs/architecture.md)       | Request flow, the checkout and hold lifecycle, package graph, trust boundaries |
+| [docs/development.md](docs/development.md)         | Day-to-day workflow: services, env vars, migrations, debugging, testing        |
+| [docs/api.md](docs/api.md)                         | REST reference: auth, errors, pagination, every endpoint                       |
+| [docs/language-policy.md](docs/language-policy.md) | The JavaScript-only policy and the exception process                           |
+| [docs/adr/](docs/adr/)                             | Architecture decision records                                                  |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                 | Branches, commits, the verify gate, definition of done                         |

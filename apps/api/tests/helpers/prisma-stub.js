@@ -173,8 +173,7 @@ function matchesCondition(value, condition) {
   if (Array.isArray(condition)) return condition.includes(value)
 
   const insensitive = condition.mode === 'insensitive'
-  const fold = (input) =>
-    insensitive && typeof input === 'string' ? input.toLowerCase() : input
+  const fold = (input) => (insensitive && typeof input === 'string' ? input.toLowerCase() : input)
 
   for (const [operator, operand] of Object.entries(condition)) {
     if (operator === 'mode') continue

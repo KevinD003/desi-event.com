@@ -19,12 +19,7 @@ export { HOLD_STATUS, TICKET_TYPE_STATUS, SALES_WINDOW_STATE } from './constants
 export { computeAvailability } from './availability.js'
 export { salesWindowState } from './sales-window.js'
 export { validateQuantityRequest } from './quantity.js'
-export {
-  holdExpiresAt,
-  isHoldExpired,
-  partitionExpiredHolds,
-  activeHeldQuantity,
-} from './holds.js'
+export { holdExpiresAt, isHoldExpired, partitionExpiredHolds, activeHeldQuantity } from './holds.js'
 
 export {
   HOLD_RELEASE_MODES,

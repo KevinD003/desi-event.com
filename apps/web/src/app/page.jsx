@@ -80,7 +80,9 @@ export default async function HomePage() {
             <h2 id="featured-heading" className="text-2xl font-bold text-indigo-night-900">
               On soon
             </h2>
-            <p className="mt-1 text-slate-600">The next few nights worth clearing your calendar for.</p>
+            <p className="mt-1 text-slate-600">
+              The next few nights worth clearing your calendar for.
+            </p>
           </div>
           <Link
             href="/events"

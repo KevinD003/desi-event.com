@@ -18,7 +18,14 @@ import { controlClasses, isInvalidControl } from './controlClasses.js'
  * @param {InputProps} props Component props, forwarded to the `input` element.
  * @returns {JSX.Element} The rendered input.
  */
-export function Input({ type = 'text', invalid = false, className, ref, 'aria-invalid': ariaInvalid, ...rest }) {
+export function Input({
+  type = 'text',
+  invalid = false,
+  className,
+  ref,
+  'aria-invalid': ariaInvalid,
+  ...rest
+}) {
   const isInvalid = isInvalidControl(invalid, ariaInvalid)
 
   return (

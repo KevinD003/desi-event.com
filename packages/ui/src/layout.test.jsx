@@ -105,7 +105,9 @@ describe('EmptyState', () => {
     )
 
     expect(screen.getByRole('heading', { level: 2, name: 'No events yet' })).toBeInTheDocument()
-    expect(screen.getByText('Publish your first event to start selling tickets.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Publish your first event to start selling tickets.'),
+    ).toBeInTheDocument()
     expect(screen.getByText('🎪')).toHaveAttribute('aria-hidden', 'true')
 
     await user.click(screen.getByRole('button', { name: 'Create an event' }))
@@ -113,7 +115,11 @@ describe('EmptyState', () => {
   })
 
   it('lets the caller pick a heading level that fits the page outline', () => {
-    render(<EmptyState title="No orders" headingLevel="h3">Nothing here yet.</EmptyState>)
+    render(
+      <EmptyState title="No orders" headingLevel="h3">
+        Nothing here yet.
+      </EmptyState>,
+    )
 
     expect(screen.getByRole('heading', { level: 3, name: 'No orders' })).toBeInTheDocument()
     expect(screen.getByText('Nothing here yet.')).toBeInTheDocument()

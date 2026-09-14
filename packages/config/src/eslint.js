@@ -43,7 +43,7 @@ const sharedRules = {
   'no-var': 'error',
   'prefer-const': 'error',
   'object-shorthand': ['error', 'properties'],
-  'eqeqeq': ['error', 'always', { null: 'ignore' }],
+  eqeqeq: ['error', 'always', { null: 'ignore' }],
   'no-implicit-coercion': ['error', { boolean: false }],
   'no-return-await': 'error',
   'no-throw-literal': 'error',
@@ -52,7 +52,7 @@ const sharedRules = {
   'no-restricted-syntax': [
     'error',
     {
-      selector: "TSInterfaceDeclaration, TSTypeAliasDeclaration, TSEnumDeclaration",
+      selector: 'TSInterfaceDeclaration, TSTypeAliasDeclaration, TSEnumDeclaration',
       message:
         'TypeScript syntax is prohibited in this repository. Use JSDoc and Zod schemas instead.',
     },
@@ -147,7 +147,12 @@ export function createConfig(options = {}) {
 
     // Tests may reach for globals and console freely.
     {
-      files: ['**/*.test.{js,jsx}', '**/*.spec.{js,jsx}', '**/tests/**/*.{js,jsx}', '**/e2e/**/*.js'],
+      files: [
+        '**/*.test.{js,jsx}',
+        '**/*.spec.{js,jsx}',
+        '**/tests/**/*.{js,jsx}',
+        '**/e2e/**/*.js',
+      ],
       languageOptions: { globals: { ...globals.node, ...globals.browser } },
       rules: {
         'no-console': 'off',

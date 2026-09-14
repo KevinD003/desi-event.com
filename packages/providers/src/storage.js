@@ -196,11 +196,7 @@ export function createInMemoryStorageProvider(options = {}) {
       typeof input.contentType === 'string' && input.contentType.trim() !== ''
         ? input.contentType.trim()
         : DEFAULT_CONTENT_TYPE
-    const metadata = normaliseMetadata(
-      input.metadata,
-      PROVIDER_ERROR_CODES.INVALID_OPTIONS,
-      name,
-    )
+    const metadata = normaliseMetadata(input.metadata, PROVIDER_ERROR_CODES.INVALID_OPTIONS, name)
 
     const previous = objects.get(key)
     /** @type {Record<string, unknown>} */

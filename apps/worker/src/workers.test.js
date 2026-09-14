@@ -2,12 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { QUEUE_NAMES } from '@desi-event/schemas'
 
-import {
-  QUEUE_WORKER_OPTIONS,
-  closeWorkers,
-  concurrencyFor,
-  instrumentWorker,
-} from './workers.js'
+import { QUEUE_WORKER_OPTIONS, closeWorkers, concurrencyFor, instrumentWorker } from './workers.js'
 import { createFakeLogger } from '../tests/helpers/fakes.js'
 
 describe('concurrencyFor', () => {
@@ -51,8 +46,16 @@ describe('instrumentWorker', () => {
     const logger = createFakeLogger()
     const worker = instrumentWorker(new EventEmitter(), QUEUE_NAMES.TICKETS, logger)
 
-    worker.emit('failed', { name: 'issue-tickets', attemptsMade: 1, opts: { attempts: 3 } }, new Error('blip'))
-    worker.emit('failed', { name: 'issue-tickets', attemptsMade: 3, opts: { attempts: 3 } }, new Error('dead'))
+    worker.emit(
+      'failed',
+      { name: 'issue-tickets', attemptsMade: 1, opts: { attempts: 3 } },
+      new Error('blip'),
+    )
+    worker.emit(
+      'failed',
+      { name: 'issue-tickets', attemptsMade: 3, opts: { attempts: 3 } },
+      new Error('dead'),
+    )
 
     expect(logger.at('warn')[0].fields.willRetry).toBe(true)
     expect(logger.at('error')[0].fields.willRetry).toBe(false)

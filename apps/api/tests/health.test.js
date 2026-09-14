@@ -36,7 +36,10 @@ describe('GET /health', () => {
     const result = await app.inject({ method: 'GET', url: '/health' })
 
     expect(result.statusCode).toBe(200)
-    expect(result.json()).toMatchObject({ status: 'degraded', checks: { database: true, redis: false } })
+    expect(result.json()).toMatchObject({
+      status: 'degraded',
+      checks: { database: true, redis: false },
+    })
 
     await app.close()
   })

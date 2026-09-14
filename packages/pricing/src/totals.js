@@ -219,7 +219,10 @@ export function computeOrderTotals({
   now,
 }) {
   if (!Array.isArray(items)) {
-    throw new PricingError('items must be an array', { code: 'INVALID_ITEMS', details: { value: items } })
+    throw new PricingError('items must be an array', {
+      code: 'INVALID_ITEMS',
+      details: { value: items },
+    })
   }
 
   const config = normaliseFeeConfig(feeConfig)
@@ -258,7 +261,10 @@ export function computeOrderTotals({
     discountCents,
     lineItems.map((line) => line.subtotalCents),
   )
-  const pricedLines = lineItems.map((line, index) => ({ ...line, discountCents: allocation[index] }))
+  const pricedLines = lineItems.map((line, index) => ({
+    ...line,
+    discountCents: allocation[index],
+  }))
 
   return {
     currency: orderCurrency,

@@ -20,9 +20,14 @@ function catchError(request) {
 
 describe('validateQuantityRequest — accepting', () => {
   it('accepts a quantity inside every limit', () => {
-    expect(() => validateQuantityRequest({
-      quantity: 2, minPerOrder: 1, maxPerOrder: 6, availableQuantity: 50,
-    })).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({
+        quantity: 2,
+        minPerOrder: 1,
+        maxPerOrder: 6,
+        availableQuantity: 50,
+      }),
+    ).not.toThrow()
   })
 
   it('returns undefined rather than a result object', () => {
@@ -30,21 +35,36 @@ describe('validateQuantityRequest — accepting', () => {
   })
 
   it('accepts exactly the minimum', () => {
-    expect(() => validateQuantityRequest({
-      quantity: 2, minPerOrder: 2, maxPerOrder: 6, availableQuantity: 10,
-    })).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({
+        quantity: 2,
+        minPerOrder: 2,
+        maxPerOrder: 6,
+        availableQuantity: 10,
+      }),
+    ).not.toThrow()
   })
 
   it('accepts exactly the maximum', () => {
-    expect(() => validateQuantityRequest({
-      quantity: 6, minPerOrder: 1, maxPerOrder: 6, availableQuantity: 10,
-    })).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({
+        quantity: 6,
+        minPerOrder: 1,
+        maxPerOrder: 6,
+        availableQuantity: 10,
+      }),
+    ).not.toThrow()
   })
 
   it('accepts exactly the remaining stock', () => {
-    expect(() => validateQuantityRequest({
-      quantity: 4, minPerOrder: 1, maxPerOrder: 10, availableQuantity: 4,
-    })).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({
+        quantity: 4,
+        minPerOrder: 1,
+        maxPerOrder: 10,
+        availableQuantity: 4,
+      }),
+    ).not.toThrow()
   })
 
   it('accepts the last ticket', () => {
@@ -56,20 +76,31 @@ describe('validateQuantityRequest — accepting', () => {
   })
 
   it('treats a null maxPerOrder as unlimited', () => {
-    expect(() => validateQuantityRequest({
-      quantity: 500, minPerOrder: 1, maxPerOrder: null, availableQuantity: 500,
-    })).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({
+        quantity: 500,
+        minPerOrder: 1,
+        maxPerOrder: null,
+        availableQuantity: 500,
+      }),
+    ).not.toThrow()
   })
 
   it('treats a null minPerOrder as 1', () => {
-    expect(() => validateQuantityRequest({ quantity: 1, minPerOrder: null, availableQuantity: 5 }))
-      .not.toThrow()
+    expect(() =>
+      validateQuantityRequest({ quantity: 1, minPerOrder: null, availableQuantity: 5 }),
+    ).not.toThrow()
   })
 
   it('accepts a min equal to the max', () => {
-    expect(() => validateQuantityRequest({
-      quantity: 4, minPerOrder: 4, maxPerOrder: 4, availableQuantity: 4,
-    })).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({
+        quantity: 4,
+        minPerOrder: 4,
+        maxPerOrder: 4,
+        availableQuantity: 4,
+      }),
+    ).not.toThrow()
   })
 })
 
@@ -124,7 +155,12 @@ describe('validateQuantityRequest — BELOW_MINIMUM', () => {
 
 describe('validateQuantityRequest — ABOVE_MAXIMUM', () => {
   it('rejects one over the maximum', () => {
-    const error = catchError({ quantity: 7, minPerOrder: 1, maxPerOrder: 6, availableQuantity: 500 })
+    const error = catchError({
+      quantity: 7,
+      minPerOrder: 1,
+      maxPerOrder: 6,
+      availableQuantity: 500,
+    })
     expect(error.code).toBe(INVENTORY_ERROR_CODES.ABOVE_MAXIMUM)
     expect(error.statusCode).toBe(422)
     expect(error.details).toEqual({ quantity: 7, maxPerOrder: 6 })

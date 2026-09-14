@@ -18,9 +18,7 @@ test.describe('listing filters', () => {
 
     await page.getByLabel('City').selectOption('London')
     await expect(page).toHaveURL(/city=London/)
-    await expect(page.getByTestId('result-count')).toContainText(
-      '3 events in London',
-    )
+    await expect(page.getByTestId('result-count')).toContainText('3 events in London')
 
     await page.getByLabel('Category').selectOption('COMEDY')
     await expect(page).toHaveURL(/category=COMEDY.*city=London|city=London.*category=COMEDY/)
@@ -34,15 +32,11 @@ test.describe('listing filters', () => {
     await page.getByRole('button', { name: 'Apply' }).click()
 
     await expect(page).toHaveURL(/q=garba/)
-    await expect(page.getByTestId('result-count')).toContainText(
-      '2 events matching',
-    )
+    await expect(page.getByTestId('result-count')).toContainText('2 events matching')
 
     await page.reload()
     await expect(page.getByLabel('Search')).toHaveValue('garba')
-    await expect(page.getByTestId('result-count')).toContainText(
-      '2 events matching',
-    )
+    await expect(page.getByTestId('result-count')).toContainText('2 events matching')
   })
 
   test('a search that matches nothing explains itself instead of showing a blank grid', async ({
@@ -70,7 +64,10 @@ test.describe('listing filters', () => {
   test('a category tile on the home page lands on a filtered listing', async ({ page }) => {
     await page.goto('/')
 
-    await page.getByRole('link', { name: /^Garba & Dandiya/ }).first().click()
+    await page
+      .getByRole('link', { name: /^Garba & Dandiya/ })
+      .first()
+      .click()
 
     await expect(page).toHaveURL(/category=GARBA_DANDIYA/)
     await expect(page.getByLabel('Category')).toHaveValue('GARBA_DANDIYA')

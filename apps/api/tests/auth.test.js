@@ -257,7 +257,11 @@ describe('credential rate limiting', () => {
   it('leaves ordinary browsing unthrottled by the credential budget', async () => {
     const { app } = await createTestApp({ rateLimit: { auth: { max: 1, timeWindow: '1 minute' } } })
 
-    await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: 'priya@example.com', password: 'x' } })
+    await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      payload: { email: 'priya@example.com', password: 'x' },
+    })
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       expect((await app.inject({ method: 'GET', url: '/v1/events' })).statusCode).toBe(200)

@@ -110,5 +110,7 @@ function deriveCode(body, status) {
  * @returns {boolean} True when the value looks like an `ApiClientError`.
  */
 export function isApiClientError(value) {
-  return value instanceof ApiClientError || (value instanceof Error && value.name === 'ApiClientError')
+  return (
+    value instanceof ApiClientError || (value instanceof Error && value.name === 'ApiClientError')
+  )
 }

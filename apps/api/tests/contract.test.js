@@ -82,7 +82,9 @@ describe('the published document', () => {
     const response = await app.inject({ method: 'GET', url: '/openapi.json' })
 
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toEqual(buildOpenApiDocument({ title: 'Desi-Event API', version: '0.1.0' }))
+    expect(response.json()).toEqual(
+      buildOpenApiDocument({ title: 'Desi-Event API', version: '0.1.0' }),
+    )
 
     await app.close()
   })

@@ -1,10 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import {
-  createInMemoryEmailProvider,
-  EMAIL_BOUNCE_ADDRESS,
-  DEFAULT_EMAIL_FROM,
-} from './email.js'
+import { createInMemoryEmailProvider, EMAIL_BOUNCE_ADDRESS, DEFAULT_EMAIL_FROM } from './email.js'
 import { assertEmailProvider } from './interfaces.js'
 
 const NOW = '2026-09-14T10:00:00.000Z'

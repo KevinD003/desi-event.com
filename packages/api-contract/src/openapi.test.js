@@ -23,7 +23,10 @@ describe('toJsonSchema', () => {
   })
 
   it('renders a preprocessed primitive as its inner schema', () => {
-    const fragment = toJsonSchema(z.preprocess((v) => String(v).trim(), z.string().min(2)), 'input')
+    const fragment = toJsonSchema(
+      z.preprocess((v) => String(v).trim(), z.string().min(2)),
+      'input',
+    )
     expect(fragment).toMatchObject({ type: 'string', minLength: 2 })
   })
 
@@ -176,15 +179,15 @@ describe('buildOpenApiDocument', () => {
 
   it('documents every declared error status against the shared envelope', () => {
     for (const route of apiRoutes) {
-      const path = document.paths[
-        route.path.replace(/:([A-Za-z0-9_]+)/g, '{$1}')
-      ]
+      const path = document.paths[route.path.replace(/:([A-Za-z0-9_]+)/g, '{$1}')]
       const operation = path[route.method.toLowerCase()]
 
       for (const error of route.errors) {
         const response = operation.responses[String(error.status)]
         expect(response, `${route.id} ${error.status}`).toBeDefined()
-        expect(response.content['application/json'].schema.$ref).toBe('#/components/schemas/ErrorResponse')
+        expect(response.content['application/json'].schema.$ref).toBe(
+          '#/components/schemas/ErrorResponse',
+        )
       }
     }
   })
@@ -229,7 +232,10 @@ describe('buildOpenApiDocument', () => {
 
     for (const ref of refs) {
       expect(ref.startsWith('#/components/schemas/'), ref).toBe(true)
-      expect(document.components.schemas[ref.slice('#/components/schemas/'.length)], ref).toBeDefined()
+      expect(
+        document.components.schemas[ref.slice('#/components/schemas/'.length)],
+        ref,
+      ).toBeDefined()
     }
   })
 

@@ -135,7 +135,10 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr_1fr] lg:items-start">
       <section aria-labelledby="choose-tickets" className="min-w-0">
-        <h2 id="choose-tickets" className="font-display text-xl font-semibold text-indigo-night-900">
+        <h2
+          id="choose-tickets"
+          className="font-display text-xl font-semibold text-indigo-night-900"
+        >
           Choose your tickets
         </h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -149,7 +152,10 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
             const availabilityId = `availability-${tier.id}`
 
             return (
-              <li key={tier.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <li
+                key={tier.id}
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
                 <div className="min-w-0">
                   <p className="font-medium text-indigo-night-900">{tier.name}</p>
                   {tier.description ? (
@@ -186,7 +192,10 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
 
       <Card as="section" aria-labelledby="order-summary" className="lg:sticky lg:top-24">
         <CardHeader>
-          <h2 id="order-summary" className="font-display text-lg font-semibold text-indigo-night-900">
+          <h2
+            id="order-summary"
+            className="font-display text-lg font-semibold text-indigo-night-900"
+          >
             Order summary
           </h2>
           <p className="text-sm text-slate-500">
@@ -242,7 +251,11 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
           ) : null}
 
           {status === 'unavailable' ? (
-            <Alert variant="warning" title="We could not reach the ticketing service" className="mt-4">
+            <Alert
+              variant="warning"
+              title="We could not reach the ticketing service"
+              className="mt-4"
+            >
               Nothing has been reserved and you have not been charged. Please try again in a moment.
             </Alert>
           ) : null}

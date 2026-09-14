@@ -82,8 +82,13 @@ describe('INVENTORY_ERROR_CODES', () => {
   })
 
   it('defines the four quantity-validation codes required by the contract', () => {
-    expect(Object.keys(INVENTORY_ERROR_CODES)).toEqual(expect.arrayContaining([
-      'BELOW_MINIMUM', 'ABOVE_MAXIMUM', 'INSUFFICIENT_INVENTORY', 'INVALID_QUANTITY',
-    ]))
+    expect(Object.keys(INVENTORY_ERROR_CODES)).toEqual(
+      expect.arrayContaining([
+        'BELOW_MINIMUM',
+        'ABOVE_MAXIMUM',
+        'INSUFFICIENT_INVENTORY',
+        'INVALID_QUANTITY',
+      ]),
+    )
   })
 })

@@ -232,7 +232,9 @@ async function loadExceptions() {
  */
 function findCoveringException(relativePath, exceptions) {
   return exceptions.find((entry) =>
-    (entry.paths ?? []).some((prefix) => relativePath === prefix || relativePath.startsWith(prefix)),
+    (entry.paths ?? []).some(
+      (prefix) => relativePath === prefix || relativePath.startsWith(prefix),
+    ),
   )
 }
 
@@ -258,7 +260,12 @@ async function checkManifests(files) {
     }
 
     const dependencyNames = new Set()
-    for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
+    for (const field of [
+      'dependencies',
+      'devDependencies',
+      'peerDependencies',
+      'optionalDependencies',
+    ]) {
       for (const name of Object.keys(parsed[field] ?? {})) dependencyNames.add(name)
     }
 
@@ -342,8 +349,12 @@ async function runChecks() {
 
       const missing = REQUIRED_EXCEPTION_FIELDS.filter((field) => {
         const value = covering[field]
-        return value === undefined || value === null || value === '' ||
+        return (
+          value === undefined ||
+          value === null ||
+          value === '' ||
           (Array.isArray(value) && value.length === 0)
+        )
       })
 
       if (missing.length > 0) {
@@ -353,7 +364,9 @@ async function runChecks() {
         continue
       }
 
-      notes.push(`${relative}: ${language} permitted under exception "${covering.id ?? covering.language}".`)
+      notes.push(
+        `${relative}: ${language} permitted under exception "${covering.id ?? covering.language}".`,
+      )
     }
   }
 

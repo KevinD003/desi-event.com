@@ -63,7 +63,13 @@ export async function main(argv = process.argv.slice(2)) {
   const result = validateContract()
 
   if (json) {
-    console.log(JSON.stringify({ ok: result.ok, routeCount: result.routeCount, issues: result.issues }, null, 2))
+    console.log(
+      JSON.stringify(
+        { ok: result.ok, routeCount: result.routeCount, issues: result.issues },
+        null,
+        2,
+      ),
+    )
   }
 
   if (!result.ok) {

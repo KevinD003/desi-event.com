@@ -80,46 +80,46 @@ than a confusing failure an hour later.
 
 ### Shared
 
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `NODE_ENV` | `development` | `development`, `test` or `production`. Production tightens error bodies and rejects placeholder secrets. Note: `next build` refuses a non-standard `NODE_ENV`, so build with `NODE_ENV=production pnpm build` when `.env` is exported |
-| `LOG_LEVEL` | `info` | Pino level: `trace`…`fatal`. `.env.example` uses `debug` |
-| `DATABASE_URL` | — | PostgreSQL connection string. Required by the API, the worker and every Prisma command |
-| `REDIS_URL` | — | Redis connection string. Required by the worker |
-| `TEST_DATABASE_URL` | — | Database the integration tests connect to and truncate freely. Never point this at a database you care about |
+| Variable            | Default       | What it does                                                                                                                                                                                                                          |
+| ------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`          | `development` | `development`, `test` or `production`. Production tightens error bodies and rejects placeholder secrets. Note: `next build` refuses a non-standard `NODE_ENV`, so build with `NODE_ENV=production pnpm build` when `.env` is exported |
+| `LOG_LEVEL`         | `info`        | Pino level: `trace`…`fatal`. `.env.example` uses `debug`                                                                                                                                                                              |
+| `DATABASE_URL`      | —             | PostgreSQL connection string. Required by the API, the worker and every Prisma command                                                                                                                                                |
+| `REDIS_URL`         | —             | Redis connection string. Required by the worker                                                                                                                                                                                       |
+| `TEST_DATABASE_URL` | —             | Database the integration tests connect to and truncate freely. Never point this at a database you care about                                                                                                                          |
 
 ### API (`apps/api`)
 
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `API_HOST` | `0.0.0.0` | Interface Fastify binds to |
-| `API_PORT` | `4000` | Port Fastify binds to |
-| `JWT_SECRET` | — | Signing key for bearer tokens. At least 32 characters; known placeholders are refused when `NODE_ENV=production` |
-| `JWT_EXPIRES_IN` | `7d` | Token lifetime, as `30m`, `12h` or `7d` |
-| `CORS_ORIGIN` | `*` | `*` for any origin, or a comma-separated allow-list |
-| `PLATFORM_FEE_BPS` | `590` | Platform fee in basis points; 590 = 5.90% of the discounted subtotal |
-| `PLATFORM_FEE_FLAT_CENTS` | `99` | Flat fee per ticket, in integer cents |
-| `TICKET_HOLD_TTL_SECONDS` | `600` | How long a checkout hold reserves inventory |
+| Variable                  | Default   | What it does                                                                                                     |
+| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| `API_HOST`                | `0.0.0.0` | Interface Fastify binds to                                                                                       |
+| `API_PORT`                | `4000`    | Port Fastify binds to                                                                                            |
+| `JWT_SECRET`              | —         | Signing key for bearer tokens. At least 32 characters; known placeholders are refused when `NODE_ENV=production` |
+| `JWT_EXPIRES_IN`          | `7d`      | Token lifetime, as `30m`, `12h` or `7d`                                                                          |
+| `CORS_ORIGIN`             | `*`       | `*` for any origin, or a comma-separated allow-list                                                              |
+| `PLATFORM_FEE_BPS`        | `590`     | Platform fee in basis points; 590 = 5.90% of the discounted subtotal                                             |
+| `PLATFORM_FEE_FLAT_CENTS` | `99`      | Flat fee per ticket, in integer cents                                                                            |
+| `TICKET_HOLD_TTL_SECONDS` | `600`     | How long a checkout hold reserves inventory                                                                      |
 
 ### Worker (`apps/worker`)
 
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `QUEUE_PREFIX` | `desi-event` | Namespace for every BullMQ key. Change it to run two workers against one Redis without them stealing each other's jobs |
-| `WORKER_CONCURRENCY` | `5` | Jobs each worker runs at once. The hold sweep is pinned to 1 regardless |
-| `EXPIRE_HOLDS_INTERVAL_MS` | `30000` | How often the hold sweep is enqueued |
+| Variable                   | Default      | What it does                                                                                                           |
+| -------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `QUEUE_PREFIX`             | `desi-event` | Namespace for every BullMQ key. Change it to run two workers against one Redis without them stealing each other's jobs |
+| `WORKER_CONCURRENCY`       | `5`          | Jobs each worker runs at once. The hold sweep is pinned to 1 regardless                                                |
+| `EXPIRE_HOLDS_INTERVAL_MS` | `30000`      | How often the hold sweep is enqueued                                                                                   |
 
 The worker also reads `PLATFORM_FEE_BPS`, `PLATFORM_FEE_FLAT_CENTS` and
 `TICKET_HOLD_TTL_SECONDS`, so the two processes agree on pricing and expiry.
 
 ### Web (`apps/web`)
 
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `WEB_PORT` | `3000` | Port `next dev` and `next start` listen on |
-| `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:4000` | API origin the client is built against. Inlined into browser bundles — never put a secret in a `NEXT_PUBLIC_*` variable |
-| `NEXT_PUBLIC_SITE_URL` | `http://127.0.0.1:3000` | Canonical site origin, used for metadata |
-| `WEB_E2E_PORT` | `3210` | Port the Playwright suite starts its own dev server on, deliberately not 3000 |
+| Variable               | Default                 | What it does                                                                                                            |
+| ---------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `WEB_PORT`             | `3000`                  | Port `next dev` and `next start` listen on                                                                              |
+| `NEXT_PUBLIC_API_URL`  | `http://127.0.0.1:4000` | API origin the client is built against. Inlined into browser bundles — never put a secret in a `NEXT_PUBLIC_*` variable |
+| `NEXT_PUBLIC_SITE_URL` | `http://127.0.0.1:3000` | Canonical site origin, used for metadata                                                                                |
+| `WEB_E2E_PORT`         | `3210`                  | Port the Playwright suite starts its own dev server on, deliberately not 3000                                           |
 
 ## Running individual apps
 
@@ -152,8 +152,8 @@ processor or want abandoned holds swept in the table.
 
 Prisma 7 reads its connection details from `packages/db/prisma.config.mjs`,
 which takes `DATABASE_URL` from the environment. Export your `.env` first (see
-above) or every Prisma command fails with *"The datasource.url property is
-required"*.
+above) or every Prisma command fails with _"The datasource.url property is
+required"_.
 
 ### Creating one
 

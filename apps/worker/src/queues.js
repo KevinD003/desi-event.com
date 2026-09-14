@@ -196,9 +196,7 @@ export function validateJobPayload(jobName, payload) {
     )
   }
 
-  return /** @type {object} */ (
-    parseOrThrow(schema, payload, `Invalid "${jobName}" job payload`)
-  )
+  return /** @type {object} */ (parseOrThrow(schema, payload, `Invalid "${jobName}" job payload`))
 }
 
 /**

@@ -37,7 +37,9 @@ describe('toOpenApiPath', () => {
 
 describe('buildPath', () => {
   it('substitutes values', () => {
-    expect(buildPath('/v1/events/:slug', { slug: 'garba-night-2026' })).toBe('/v1/events/garba-night-2026')
+    expect(buildPath('/v1/events/:slug', { slug: 'garba-night-2026' })).toBe(
+      '/v1/events/garba-night-2026',
+    )
   })
 
   it('percent-encodes so a value cannot inject a path segment', () => {
@@ -87,7 +89,9 @@ describe('joinUrl', () => {
   })
 
   it('keeps a base path prefix', () => {
-    expect(joinUrl('https://api.test/gateway', '/v1/events')).toBe('https://api.test/gateway/v1/events')
+    expect(joinUrl('https://api.test/gateway', '/v1/events')).toBe(
+      'https://api.test/gateway/v1/events',
+    )
   })
 })
 

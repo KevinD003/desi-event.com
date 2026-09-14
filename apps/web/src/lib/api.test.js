@@ -116,7 +116,10 @@ describe('loadEventList', () => {
   it('sends only the filters that are set, plus the published-events constraint', async () => {
     const list = vi.fn().mockResolvedValue(liveListing)
 
-    await loadEventList({ category: 'COMEDY', page: 2, perPage: 6 }, { client: stubClient({ list }) })
+    await loadEventList(
+      { category: 'COMEDY', page: 2, perPage: 6 },
+      { client: stubClient({ list }) },
+    )
 
     const [query] = list.mock.calls[0]
 
@@ -200,7 +203,9 @@ describe('loadEventBySlug', () => {
   it('falls back to the curated event of the same slug', async () => {
     const get = vi.fn().mockRejectedValue(new Error('fetch failed'))
 
-    const result = await loadEventBySlug('qawwali-under-the-banyan', { client: stubClient({ get }) })
+    const result = await loadEventBySlug('qawwali-under-the-banyan', {
+      client: stubClient({ get }),
+    })
 
     expect(result.usedFallback).toBe(true)
     expect(result.event.title).toBe('Qawwali Under the Banyan')
@@ -244,7 +249,13 @@ describe('withTicketTypeAvailability', () => {
   it('prefers the availability the API folded in, which already subtracts active holds', () => {
     const event = withTicketTypeAvailability({
       ticketTypes: [
-        { id: 'tta', quantityTotal: 100, quantitySold: 40, status: 'ON_SALE', availableQuantity: 12 },
+        {
+          id: 'tta',
+          quantityTotal: 100,
+          quantitySold: 40,
+          status: 'ON_SALE',
+          availableQuantity: 12,
+        },
       ],
     })
 

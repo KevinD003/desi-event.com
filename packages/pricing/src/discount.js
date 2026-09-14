@@ -69,7 +69,11 @@ export const PROMO_REJECTION_REASONS = Object.freeze({
  */
 export function toDate(value, label) {
   const date =
-    value instanceof Date ? value : typeof value === 'string' || typeof value === 'number' ? new Date(value) : null
+    value instanceof Date
+      ? value
+      : typeof value === 'string' || typeof value === 'number'
+        ? new Date(value)
+        : null
 
   if (date === null || Number.isNaN(date.getTime())) {
     throw new PricingError(`${label} must be a Date, ISO 8601 string or epoch milliseconds`, {

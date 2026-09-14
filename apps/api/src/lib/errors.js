@@ -168,10 +168,10 @@ export function normaliseError(error, options = {}) {
     return {
       statusCode,
       code: exposeInternals
-        ? (/** @type {{code?: string}} */ (error)?.code ?? INTERNAL_ERROR_CODE)
+        ? /** @type {{code?: string}} */ (error?.code ?? INTERNAL_ERROR_CODE)
         : INTERNAL_ERROR_CODE,
       message: exposeInternals
-        ? (/** @type {Error} */ (error)?.message ?? INTERNAL_ERROR_MESSAGE)
+        ? /** @type {Error} */ (error?.message ?? INTERNAL_ERROR_MESSAGE)
         : INTERNAL_ERROR_MESSAGE,
       expected: false,
     }

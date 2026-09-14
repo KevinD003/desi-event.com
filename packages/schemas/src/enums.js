@@ -50,13 +50,7 @@ export const TICKET_TYPE_STATUSES = Object.freeze([
 export const HOLD_STATUSES = Object.freeze(['ACTIVE', 'CONVERTED', 'RELEASED', 'EXPIRED'])
 
 /** @type {string[]} */
-export const ORDER_STATUSES = Object.freeze([
-  'PENDING',
-  'PAID',
-  'CANCELLED',
-  'REFUNDED',
-  'EXPIRED',
-])
+export const ORDER_STATUSES = Object.freeze(['PENDING', 'PAID', 'CANCELLED', 'REFUNDED', 'EXPIRED'])
 
 /** @type {string[]} */
 export const TICKET_STATUSES = Object.freeze(['VALID', 'CHECKED_IN', 'VOID', 'REFUNDED'])

@@ -67,7 +67,12 @@ export function salesWindowState({ status, salesStartAt = null, salesEndAt = nul
     throw new InventoryError(
       INVENTORY_ERROR_CODES.INVALID_DATE,
       'salesEndAt is before salesStartAt',
-      { details: { salesStartAt: new Date(startMs).toISOString(), salesEndAt: new Date(endMs).toISOString() } },
+      {
+        details: {
+          salesStartAt: new Date(startMs).toISOString(),
+          salesEndAt: new Date(endMs).toISOString(),
+        },
+      },
     )
   }
 

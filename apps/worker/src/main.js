@@ -68,8 +68,7 @@ export async function start(options = {}) {
   // for real adapters here — the one place that knows they are not real.
   const providers = options.providers ?? createInMemoryProviderRegistry()
 
-  const connection =
-    options.connection ?? createRedisConnection({ url: env.REDIS_URL, logger })
+  const connection = options.connection ?? createRedisConnection({ url: env.REDIS_URL, logger })
 
   const queues = createQueues({ connection, prefix: env.QUEUE_PREFIX })
   const processors = createProcessors({ prisma, providers, logger })

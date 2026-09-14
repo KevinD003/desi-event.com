@@ -73,7 +73,11 @@ export function normaliseFeeConfig(feeConfig = DEFAULT_FEE_CONFIG) {
  * @returns {number} The fee in minor units, as a non-negative integer.
  * @throws {PricingError} If any input is not a non-negative integer, or the fee configuration is invalid.
  */
-export function computePlatformFee({ subtotalCents, quantity = 1, feeConfig = DEFAULT_FEE_CONFIG }) {
+export function computePlatformFee({
+  subtotalCents,
+  quantity = 1,
+  feeConfig = DEFAULT_FEE_CONFIG,
+}) {
   const amount = assertCents(subtotalCents, 'subtotalCents')
   const tickets = assertQuantity(quantity, 'quantity')
   const config = normaliseFeeConfig(feeConfig)

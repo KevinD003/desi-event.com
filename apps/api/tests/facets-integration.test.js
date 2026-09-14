@@ -149,8 +149,12 @@ describe('facets cover the complete eligible set', () => {
     // The seeded catalogue may already contain these values, so the assertion
     // is that this suite's five late events are counted on top of whatever was
     // there — not that the totals equal five exactly.
-    expect(facets.categories.find((entry) => entry.value === 'SPORTS')?.count).toBeGreaterThanOrEqual(5)
-    expect(facets.languages.find((entry) => entry.value === 'Tamil')?.count).toBeGreaterThanOrEqual(5)
+    expect(
+      facets.categories.find((entry) => entry.value === 'SPORTS')?.count,
+    ).toBeGreaterThanOrEqual(5)
+    expect(facets.languages.find((entry) => entry.value === 'Tamil')?.count).toBeGreaterThanOrEqual(
+      5,
+    )
   })
 
   it('counts the bulk category too, so the totals reconcile', async () => {
@@ -158,9 +162,9 @@ describe('facets cover the complete eligible set', () => {
 
     const facets = await loadEventFacets(prisma)
 
-    expect(facets.categories.find((entry) => entry.value === 'COMEDY')?.count).toBeGreaterThanOrEqual(
-      EVENT_COUNT - 5,
-    )
+    expect(
+      facets.categories.find((entry) => entry.value === 'COMEDY')?.count,
+    ).toBeGreaterThanOrEqual(EVENT_COUNT - 5)
   })
 
   it('orders facets deterministically: count descending, then value', async () => {
@@ -189,7 +193,9 @@ describe('facets cover the complete eligible set', () => {
 
     // Exactly one fewer: a draft is not part of the public catalogue, and
     // counting one would advertise an event nobody can buy into.
-    expect(after.categories.find((entry) => entry.value === 'COMEDY').count).toBe(publishedComedy - 1)
+    expect(after.categories.find((entry) => entry.value === 'COMEDY').count).toBe(
+      publishedComedy - 1,
+    )
     expect(after.scope.total).toBe(before.scope.total - 1)
 
     await prisma.event.update({

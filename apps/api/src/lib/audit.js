@@ -30,7 +30,10 @@ export const AUDIT_ACTIONS = Object.freeze({
  * @param {object} [entry.metadata] Context: reason, request id, previous and new state.
  * @returns {Promise<object>} The created row.
  */
-export async function recordAudit(tx, { action, entityType, entityId, actorId = null, metadata = {} }) {
+export async function recordAudit(
+  tx,
+  { action, entityType, entityId, actorId = null, metadata = {} },
+) {
   return tx.auditLog.create({
     data: {
       action,

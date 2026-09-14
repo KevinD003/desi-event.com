@@ -76,8 +76,12 @@ describe('tax follows jurisdiction, not currency', () => {
       },
     ]
 
-    expect(resolveTaxPolicy({ country: 'XX', at: '2026-01-01', policies: future }).resolved).toBe(false)
-    expect(resolveTaxPolicy({ country: 'XX', at: '2100-01-01', policies: future }).rateBps).toBe(500)
+    expect(resolveTaxPolicy({ country: 'XX', at: '2026-01-01', policies: future }).resolved).toBe(
+      false,
+    )
+    expect(resolveTaxPolicy({ country: 'XX', at: '2100-01-01', policies: future }).rateBps).toBe(
+      500,
+    )
   })
 })
 
@@ -105,11 +109,16 @@ describe('production fails closed on unverified rates', () => {
   it('allows a DEMO policy in production only on an explicit opt-in', () => {
     const policy = resolveTaxPolicy({ country: 'IN' })
 
-    expect(assertTaxPolicyUsable(policy, { environment: 'production', allowDemo: true })).toBe(policy)
+    expect(assertTaxPolicyUsable(policy, { environment: 'production', allowDemo: true })).toBe(
+      policy,
+    )
   })
 
   it('always allows a CONFIGURED policy', () => {
-    const configured = { ...resolveTaxPolicy({ country: 'IN' }), status: TAX_POLICY_STATUS.CONFIGURED }
+    const configured = {
+      ...resolveTaxPolicy({ country: 'IN' }),
+      status: TAX_POLICY_STATUS.CONFIGURED,
+    }
 
     expect(assertTaxPolicyUsable(configured, { environment: 'production' })).toBe(configured)
   })

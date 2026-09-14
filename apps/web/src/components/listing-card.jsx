@@ -126,12 +126,14 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
  */
 export function EventGrid({ events, label, headingLevel = 'h3' }) {
   return (
-    <ul
-      aria-label={label}
-      className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3"
-    >
+    <ul aria-label={label} className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {events.map((event, index) => (
-        <EventCard key={event.id ?? event.slug} event={event} index={index} headingLevel={headingLevel} />
+        <EventCard
+          key={event.id ?? event.slug}
+          event={event}
+          index={index}
+          headingLevel={headingLevel}
+        />
       ))}
     </ul>
   )

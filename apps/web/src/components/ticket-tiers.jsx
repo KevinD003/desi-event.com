@@ -44,12 +44,18 @@ export function availabilityLabel(tier) {
  */
 export function TicketTiers({ ticketTypes }) {
   return (
-    <ul aria-label="Ticket types" className="divide-y divide-slate-200 rounded-card border border-slate-200 bg-white">
+    <ul
+      aria-label="Ticket types"
+      className="divide-y divide-slate-200 rounded-card border border-slate-200 bg-white"
+    >
       {ticketTypes.map((tier) => {
         const availability = availabilityLabel(tier)
 
         return (
-          <li key={tier.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
+          <li
+            key={tier.id}
+            className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
+          >
             <div className="min-w-0">
               <p className="font-medium text-indigo-night-900">{tier.name}</p>
               {tier.description ? (

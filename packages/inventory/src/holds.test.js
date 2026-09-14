@@ -1,11 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import {
-  holdExpiresAt,
-  isHoldExpired,
-  partitionExpiredHolds,
-  activeHeldQuantity,
-} from './holds.js'
+import { holdExpiresAt, isHoldExpired, partitionExpiredHolds, activeHeldQuantity } from './holds.js'
 import { InventoryError, INVENTORY_ERROR_CODES } from './errors.js'
 import { HOLD_STATUS } from './constants.js'
 
@@ -18,7 +13,12 @@ const NOW = new Date('2026-05-01T12:00:00.000Z')
  * @returns {object} A hold fixture.
  */
 function hold(status, quantity, offsetMs) {
-  return { id: `h-${status}-${offsetMs}`, status, quantity, expiresAt: new Date(NOW.getTime() + offsetMs) }
+  return {
+    id: `h-${status}-${offsetMs}`,
+    status,
+    quantity,
+    expiresAt: new Date(NOW.getTime() + offsetMs),
+  }
 }
 
 describe('holdExpiresAt', () => {
@@ -41,8 +41,9 @@ describe('holdExpiresAt', () => {
   })
 
   it('accepts an ISO string', () => {
-    expect(holdExpiresAt('2026-05-01T12:00:00.000Z', 30).toISOString())
-      .toBe('2026-05-01T12:00:30.000Z')
+    expect(holdExpiresAt('2026-05-01T12:00:00.000Z', 30).toISOString()).toBe(
+      '2026-05-01T12:00:30.000Z',
+    )
   })
 
   it('rounds a fractional TTL to the nearest millisecond', () => {
@@ -62,13 +63,15 @@ describe('holdExpiresAt', () => {
     ['null', null],
     ['undefined', undefined],
   ])('rejects a %s TTL', (_label, ttl) => {
-    expect(() => holdExpiresAt(NOW, ttl))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_TTL }))
+    expect(() => holdExpiresAt(NOW, ttl)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_TTL }),
+    )
   })
 
   it('rejects an unusable now', () => {
-    expect(() => holdExpiresAt('whenever', 900))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => holdExpiresAt('whenever', 900)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 })
 
@@ -94,8 +97,9 @@ describe('isHoldExpired', () => {
   })
 
   it('never expires a hold with no expiresAt', () => {
-    expect(isHoldExpired({ status: HOLD_STATUS.ACTIVE, quantity: 1, expiresAt: null }, NOW))
-      .toBe(false)
+    expect(isHoldExpired({ status: HOLD_STATUS.ACTIVE, quantity: 1, expiresAt: null }, NOW)).toBe(
+      false,
+    )
   })
 
   it('never expires a hold whose expiresAt is absent', () => {
@@ -103,8 +107,9 @@ describe('isHoldExpired', () => {
   })
 
   it('accepts an ISO string expiresAt', () => {
-    expect(isHoldExpired({ status: HOLD_STATUS.ACTIVE, expiresAt: '2026-05-01T11:59:59.999Z' }, NOW))
-      .toBe(true)
+    expect(
+      isHoldExpired({ status: HOLD_STATUS.ACTIVE, expiresAt: '2026-05-01T11:59:59.999Z' }, NOW),
+    ).toBe(true)
   })
 
   it('accepts epoch milliseconds for now', () => {
@@ -117,18 +122,21 @@ describe('isHoldExpired', () => {
     ['a string', 'hold-1'],
     ['an array', []],
   ])('rejects %s as a hold', (_label, value) => {
-    expect(() => isHoldExpired(value, NOW))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }))
+    expect(() => isHoldExpired(value, NOW)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }),
+    )
   })
 
   it('rejects an unparseable expiresAt', () => {
-    expect(() => isHoldExpired({ status: HOLD_STATUS.ACTIVE, expiresAt: 'soon' }, NOW))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => isHoldExpired({ status: HOLD_STATUS.ACTIVE, expiresAt: 'soon' }, NOW)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 
   it('rejects a missing now', () => {
-    expect(() => isHoldExpired(hold(HOLD_STATUS.ACTIVE, 1, 60_000)))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => isHoldExpired(hold(HOLD_STATUS.ACTIVE, 1, 60_000))).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 })
 
@@ -217,13 +225,15 @@ describe('partitionExpiredHolds', () => {
     ['an object', { 0: hold(HOLD_STATUS.ACTIVE, 1, 1) }],
     ['a string', 'holds'],
   ])('rejects %s instead of an array', (_label, value) => {
-    expect(() => partitionExpiredHolds(value, NOW))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }))
+    expect(() => partitionExpiredHolds(value, NOW)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }),
+    )
   })
 
   it('rejects an array containing a non-object', () => {
-    expect(() => partitionExpiredHolds([hold(HOLD_STATUS.ACTIVE, 1, 1), null], NOW))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }))
+    expect(() => partitionExpiredHolds([hold(HOLD_STATUS.ACTIVE, 1, 1), null], NOW)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }),
+    )
   })
 
   it('rejects a missing now', () => {
@@ -237,10 +247,7 @@ describe('activeHeldQuantity', () => {
   })
 
   it('sums live ACTIVE holds', () => {
-    const holds = [
-      hold(HOLD_STATUS.ACTIVE, 2, 60_000),
-      hold(HOLD_STATUS.ACTIVE, 3, 120_000),
-    ]
+    const holds = [hold(HOLD_STATUS.ACTIVE, 2, 60_000), hold(HOLD_STATUS.ACTIVE, 3, 120_000)]
     expect(activeHeldQuantity(holds, NOW)).toBe(5)
   })
 
@@ -278,8 +285,9 @@ describe('activeHeldQuantity', () => {
   )
 
   it('counts an ACTIVE hold with no expiresAt, failing towards refusing sales', () => {
-    expect(activeHeldQuantity([{ status: HOLD_STATUS.ACTIVE, quantity: 6, expiresAt: null }], NOW))
-      .toBe(6)
+    expect(
+      activeHeldQuantity([{ status: HOLD_STATUS.ACTIVE, quantity: 6, expiresAt: null }], NOW),
+    ).toBe(6)
   })
 
   it('sees the same list differently as the clock moves past an expiry', () => {
@@ -300,12 +308,17 @@ describe('activeHeldQuantity', () => {
     ['a missing quantity', undefined],
   ])('rejects a live hold with %s', (_label, quantity) => {
     const bad = { status: HOLD_STATUS.ACTIVE, quantity, expiresAt: new Date(NOW.getTime() + 1000) }
-    expect(() => activeHeldQuantity([bad], NOW))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }))
+    expect(() => activeHeldQuantity([bad], NOW)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_HOLD }),
+    )
   })
 
   it('does not care about the quantity of holds it is ignoring', () => {
-    const lapsed = { status: HOLD_STATUS.ACTIVE, quantity: null, expiresAt: new Date(NOW.getTime() - 1) }
+    const lapsed = {
+      status: HOLD_STATUS.ACTIVE,
+      quantity: null,
+      expiresAt: new Date(NOW.getTime() - 1),
+    }
     expect(activeHeldQuantity([lapsed], NOW)).toBe(0)
   })
 

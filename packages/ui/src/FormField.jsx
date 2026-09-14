@@ -72,7 +72,9 @@ export function FormField({
       'aria-describedby': cn(existingDescribedBy, describedBy) || undefined,
     })
   } else {
-    throw new TypeError('FormField expects a single control element or a render function as children')
+    throw new TypeError(
+      'FormField expects a single control element or a render function as children',
+    )
   }
 
   return (

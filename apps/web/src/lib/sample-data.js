@@ -87,7 +87,8 @@ const ORGANIZATIONS = {
     id: 'orgswarsadhana',
     name: 'Swar Sadhana Trust',
     slug: 'swar-sadhana-trust',
-    description: 'Custodians of Hindustani and Carnatic repertoire, and of the artists who carry it.',
+    description:
+      'Custodians of Hindustani and Carnatic repertoire, and of the artists who carry it.',
     contactEmail: 'trust@swarsadhana.example',
     websiteUrl: 'https://swarsadhana.example',
     verified: true,
@@ -589,7 +590,8 @@ const EVENT_DEFINITIONS = [
       {
         id: 'ttdiwalimelapass',
         name: 'Mela Pass',
-        description: 'Reserved main-stage seating, early bazaar entry and a food-truck voucher book.',
+        description:
+          'Reserved main-stage seating, early bazaar entry and a food-truck voucher book.',
         priceCents: 4000,
         quantityTotal: 1500,
         quantitySold: 388,

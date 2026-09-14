@@ -146,7 +146,10 @@ describe('FormField', () => {
       </>,
     )
 
-    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
     expect(screen.getByRole('combobox', { name: 'Currency' })).not.toHaveAttribute('aria-invalid')
   })
 

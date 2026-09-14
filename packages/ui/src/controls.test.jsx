@@ -88,7 +88,10 @@ describe('Textarea', () => {
   it('advertises its invalid state', () => {
     render(<Textarea aria-label="Description" invalid />)
 
-    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByRole('textbox', { name: 'Description' })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
   })
 })
 
@@ -138,7 +141,13 @@ describe('Select', () => {
 
   it('locks the placeholder out once the field is required', () => {
     render(
-      <Select aria-label="Currency" options={CURRENCIES} placeholder="Choose a currency" required defaultValue="" />,
+      <Select
+        aria-label="Currency"
+        options={CURRENCIES}
+        placeholder="Choose a currency"
+        required
+        defaultValue=""
+      />,
     )
 
     expect(screen.getByRole('option', { name: 'Choose a currency' })).toBeDisabled()

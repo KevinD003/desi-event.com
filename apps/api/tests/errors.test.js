@@ -12,7 +12,11 @@ import { bearer, createTestApp, signIn } from './helpers/app.js'
 describe('normaliseError', () => {
   it('keeps the status and code each domain package chose', () => {
     const cases = [
-      [new ValidationError('bad', [{ path: 'email', code: 'invalid', message: 'nope' }]), 400, 'VALIDATION_ERROR'],
+      [
+        new ValidationError('bad', [{ path: 'email', code: 'invalid', message: 'nope' }]),
+        400,
+        'VALIDATION_ERROR',
+      ],
       [new PermissionError('denied', { capability: 'event:create' }), 403, 'FORBIDDEN'],
       [new InventoryError('INSUFFICIENT_INVENTORY', 'sold out'), 409, 'INSUFFICIENT_INVENTORY'],
       [new InventoryError('ABOVE_MAXIMUM', 'too many'), 422, 'ABOVE_MAXIMUM'],
@@ -73,8 +77,9 @@ describe('normaliseError', () => {
       'HOLD_EXPIRED',
     )
     expect(
-      normaliseError(Object.assign(new Error('nope'), { statusCode: 400, code: 'FST_ERR_VALIDATION' }))
-        .code,
+      normaliseError(
+        Object.assign(new Error('nope'), { statusCode: 400, code: 'FST_ERR_VALIDATION' }),
+      ).code,
     ).toBe('VALIDATION_ERROR')
   })
 

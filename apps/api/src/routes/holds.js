@@ -251,10 +251,7 @@ export function registerHoldRoutes(app, { prisma, env }) {
       }
 
       if (outcome.result === 'RELEASED') {
-        request.log.info(
-          { holdId, mode: outcome.mode, lapsed: outcome.lapsed },
-          'hold released',
-        )
+        request.log.info({ holdId, mode: outcome.mode, lapsed: outcome.lapsed }, 'hold released')
       }
 
       return { ok: true }

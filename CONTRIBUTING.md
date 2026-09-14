@@ -21,18 +21,18 @@ Never commit to `main`. Branch from it:
 <type>/<short-kebab-description>
 ```
 
-| Type | For |
-| --- | --- |
-| `feat/` | New behaviour |
-| `fix/` | A defect |
+| Type        | For                                    |
+| ----------- | -------------------------------------- |
+| `feat/`     | New behaviour                          |
+| `fix/`      | A defect                               |
 | `refactor/` | Restructuring with no behaviour change |
-| `docs/` | Documentation only |
-| `chore/` | Tooling, dependencies, CI |
+| `docs/`     | Documentation only                     |
+| `chore/`    | Tooling, dependencies, CI              |
 
 Examples: `feat/waitlist-notifications`, `fix/hold-expiry-boundary`,
 `chore/bump-playwright`.
 
-One branch does one thing. A branch that renames a package *and* fixes a
+One branch does one thing. A branch that renames a package _and_ fixes a
 pricing bug cannot be reviewed properly or reverted cleanly.
 
 ## Commits
@@ -43,12 +43,12 @@ Plain, imperative subject lines — not Conventional Commits:
 Prevent overselling when two holds race for the last ticket
 ```
 
-* Imperative mood ("Add", "Fix", "Move"), capitalised, no trailing full stop.
-* Subject under 72 characters.
-* Blank line, then a body explaining **why**. The diff already says what
+- Imperative mood ("Add", "Fix", "Move"), capitalised, no trailing full stop.
+- Subject under 72 characters.
+- Blank line, then a body explaining **why**. The diff already says what
   changed; what a reader six months from now needs is the reasoning, the
   alternative you rejected, and any trade-off you accepted.
-* Reference issues in the body, not the subject.
+- Reference issues in the body, not the subject.
 
 Keep commits individually coherent. A commit that leaves the tree failing
 `pnpm verify` should be squashed into the one that fixes it before you push.
@@ -64,12 +64,12 @@ pnpm verify
 
 which is:
 
-| Step | Command | Why it is where it is |
-| --- | --- | --- |
-| 1 | `pnpm policy:check` | Cheapest gate, and the rule this repository exists to enforce. It needs no database and no build |
-| 2 | `pnpm lint` | ESLint across every workspace. **Zero errors.** Warnings are tolerated |
-| 3 | `pnpm test` | Vitest everywhere, with coverage thresholds on the pure-logic packages |
-| 4 | `pnpm build` | Prisma client, `openapi.json`, `next build` |
+| Step | Command             | Why it is where it is                                                                            |
+| ---- | ------------------- | ------------------------------------------------------------------------------------------------ |
+| 1    | `pnpm policy:check` | Cheapest gate, and the rule this repository exists to enforce. It needs no database and no build |
+| 2    | `pnpm lint`         | ESLint across every workspace. **Zero errors.** Warnings are tolerated                           |
+| 3    | `pnpm test`         | Vitest everywhere, with coverage thresholds on the pure-logic packages                           |
+| 4    | `pnpm build`        | Prisma client, `openapi.json`, `next build`                                                      |
 
 If you exported `.env` into your shell, run it as
 `NODE_ENV=production pnpm verify`. The `.env` template sets
@@ -149,43 +149,43 @@ and line endings.
 
 **JavaScript.**
 
-* ES modules everywhere. Every package is `"type": "module"`.
-* JSDoc on every exported function: `@param`, `@returns`, and `@throws` where
+- ES modules everywhere. Every package is `"type": "module"`.
+- JSDoc on every exported function: `@param`, `@returns`, and `@throws` where
   it throws. `@typedef` for object shapes. This is how editors know the shapes,
   so an annotation that lies is worse than none.
-* Small pure functions; keep I/O at the edges so the logic stays testable. The
+- Small pure functions; keep I/O at the edges so the logic stays testable. The
   reason `pricing`, `permissions` and `inventory` depend on nothing is that
   their callers pass data in.
-* Money is **integer cents**. Never floating point, anywhere, for any reason.
-* Error classes carry a `statusCode` and a machine-readable `code`, like
+- Money is **integer cents**. Never floating point, anywhere, for any reason.
+- Error classes carry a `statusCode` and a machine-readable `code`, like
   `PermissionError`, `InventoryError` and `PricingError` do.
-* Validate anything crossing a trust boundary with a Zod schema from
+- Validate anything crossing a trust boundary with a Zod schema from
   `@desi-event/schemas` — HTTP payloads, job payloads, environment variables,
   third-party responses.
-* Comments explain **why**, not what. Do not narrate obvious code. A comment
+- Comments explain **why**, not what. Do not narrate obvious code. A comment
   that records a rejected alternative or a subtle ordering constraint is worth
   ten that restate the line below them.
 
 **React.**
 
-* Components in `.jsx`, function components only.
-* Accessible by construction: labels tied to inputs, `aria-*` where roles need
+- Components in `.jsx`, function components only.
+- Accessible by construction: labels tied to inputs, `aria-*` where roles need
   it, focus management in anything that traps focus. Tests query by role and
   accessible name, so an inaccessible component fails its own test.
-* Tailwind utility classes for styling; `cn()` from `@desi-event/ui` to compose
+- Tailwind utility classes for styling; `cn()` from `@desi-event/ui` to compose
   them.
-* Refs for DOM access where React genuinely needs it (focus, measurement).
+- Refs for DOM access where React genuinely needs it (focus, measurement).
   Never `document.querySelector` as architecture.
 
 **Tests.**
 
-* Vitest with explicit imports — the shared preset sets `globals: false`:
+- Vitest with explicit imports — the shared preset sets `globals: false`:
   `import { describe, it, expect } from 'vitest'`.
-* Co-locate units as `src/<name>.test.js`; integration suites go in `tests/`.
-* Test real behaviour and edge cases: rounding, boundaries, expiry, timezones,
+- Co-locate units as `src/<name>.test.js`; integration suites go in `tests/`.
+- Test real behaviour and edge cases: rounding, boundaries, expiry, timezones,
   permission denial, validation rejection. A test that asserts a function is
   defined is worse than no test, because it makes the coverage number lie.
-* A bug fix comes with the test that would have caught it.
+- A bug fix comes with the test that would have caught it.
 
 ## Definition of done
 

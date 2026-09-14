@@ -221,9 +221,11 @@ describe('the money ceiling matches the database column', () => {
   it('rejects a line total that would overflow, not just a single price', () => {
     // A price and a quantity that are each individually acceptable must not
     // multiply into something unstorable.
-    expect(() => computeOrderTotals({
-      items: [{ ticketTypeId: 'tt', quantity: 10, unitPriceCents: 500_000_000 }],
-      now: new Date('2026-06-15T12:00:00.000Z'),
-    })).toThrow(PricingError)
+    expect(() =>
+      computeOrderTotals({
+        items: [{ ticketTypeId: 'tt', quantity: 10, unitPriceCents: 500_000_000 }],
+        now: new Date('2026-06-15T12:00:00.000Z'),
+      }),
+    ).toThrow(PricingError)
   })
 })

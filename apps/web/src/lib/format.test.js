@@ -54,7 +54,10 @@ describe('formatEventWhen', () => {
   })
 
   it('falls back to the start alone when there is no end', () => {
-    const when = formatEventWhen({ startsAt: '2026-10-11T04:00:00.000Z', timezone: 'Europe/London' })
+    const when = formatEventWhen({
+      startsAt: '2026-10-11T04:00:00.000Z',
+      timezone: 'Europe/London',
+    })
 
     expect(when).toBe('Sun, 11 Oct, 2026 · 5:00 am')
   })
@@ -67,7 +70,10 @@ describe('formatEventWhen', () => {
 
 describe('formatTimeZoneLabel', () => {
   it('names the zone the event happens in', () => {
-    const label = formatTimeZoneLabel({ startsAt: '2026-10-11T13:30:00.000Z', timezone: 'Asia/Kolkata' })
+    const label = formatTimeZoneLabel({
+      startsAt: '2026-10-11T13:30:00.000Z',
+      timezone: 'Asia/Kolkata',
+    })
 
     expect(label).toBe('IST')
   })
@@ -99,7 +105,9 @@ describe('formatEventLocation', () => {
   })
 
   it('says Online for a streamed event even when a venue is attached', () => {
-    expect(formatEventLocation({ isOnline: true, venueName: 'Troxy', city: 'London' })).toBe('Online')
+    expect(formatEventLocation({ isOnline: true, venueName: 'Troxy', city: 'London' })).toBe(
+      'Online',
+    )
   })
 
   it('never renders an empty location', () => {

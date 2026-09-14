@@ -129,7 +129,12 @@ const UNKNOWN_POLICY = Object.freeze({
  * @param {ReadonlyArray<object>} [params.policies] Policy table; defaults to the demo table.
  * @returns {object} The matching policy, stamped with the policy version.
  */
-export function resolveTaxPolicy({ country, region = null, at = null, policies = DEMO_TAX_POLICIES } = {}) {
+export function resolveTaxPolicy({
+  country,
+  region = null,
+  at = null,
+  policies = DEMO_TAX_POLICIES,
+} = {}) {
   if (!country) return { ...UNKNOWN_POLICY }
 
   const code = String(country).toUpperCase()
@@ -175,7 +180,10 @@ export function resolveTaxPolicy({ country, region = null, at = null, policies =
  * @returns {object} The policy, unchanged, when it may be used.
  * @throws {PricingError} `TAX_POLICY_NOT_CONFIGURED` when a DEMO policy would be charged in production.
  */
-export function assertTaxPolicyUsable(policy, { environment = 'development', allowDemo = false } = {}) {
+export function assertTaxPolicyUsable(
+  policy,
+  { environment = 'development', allowDemo = false } = {},
+) {
   if (environment !== 'production') return policy
   if (policy.status === TAX_POLICY_STATUS.CONFIGURED) return policy
   if (allowDemo) return policy
@@ -185,7 +193,11 @@ export function assertTaxPolicyUsable(policy, { environment = 'development', all
       'Configure a real tax determination, or set ALLOW_DEMO_TAX_IN_PRODUCTION=true to accept illustrative rates deliberately.',
     {
       code: 'TAX_POLICY_NOT_CONFIGURED',
-      details: { jurisdiction: policy.jurisdiction, status: policy.status, version: policy.version },
+      details: {
+        jurisdiction: policy.jurisdiction,
+        status: policy.status,
+        version: policy.version,
+      },
     },
   )
 }

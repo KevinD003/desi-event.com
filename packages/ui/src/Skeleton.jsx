@@ -22,12 +22,14 @@ export function Skeleton({ as: Component = 'span', lines = 1, className, ...rest
 
   if (lines > 1) {
     return (
-      <Component aria-hidden="true" data-slot="skeleton" className={cn('block space-y-2', className)} {...rest}>
+      <Component
+        aria-hidden="true"
+        data-slot="skeleton"
+        className={cn('block space-y-2', className)}
+        {...rest}
+      >
         {Array.from({ length: lines }, (_unused, index) => (
-          <span
-            key={index}
-            className={cn(bar, 'h-4', index === lines - 1 ? 'w-2/3' : 'w-full')}
-          />
+          <span key={index} className={cn(bar, 'h-4', index === lines - 1 ? 'w-2/3' : 'w-full')} />
         ))}
       </Component>
     )

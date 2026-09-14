@@ -44,9 +44,9 @@ describe('validateContract', () => {
   })
 
   it('catches an empty summary or description', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), summary: '  ' }] }))).toContain(
-      'MISSING_SUMMARY',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), summary: '  ' }] })),
+    ).toContain('MISSING_SUMMARY')
     expect(
       codes(validateContract({ routes: [{ ...routeById('events.list'), description: '' }] })),
     ).toContain('MISSING_DESCRIPTION')
@@ -78,24 +78,24 @@ describe('validateContract', () => {
   })
 
   it('catches an unsupported method and an unknown auth mode', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), method: 'TRACE' }] }))).toContain(
-      'BAD_METHOD',
-    )
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), auth: 'cookie' }] }))).toContain(
-      'BAD_AUTH',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), method: 'TRACE' }] })),
+    ).toContain('BAD_METHOD')
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), auth: 'cookie' }] })),
+    ).toContain('BAD_AUTH')
   })
 
   it('catches a path that does not start with a slash', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), path: 'v1/events' }] }))).toContain(
-      'BAD_PATH',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), path: 'v1/events' }] })),
+    ).toContain('BAD_PATH')
   })
 
   it('catches an id that is not a dotted namespace pair', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), id: 'eventsList' }] }))).toContain(
-      'BAD_ID',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), id: 'eventsList' }] })),
+    ).toContain('BAD_ID')
   })
 
   it('catches a schema slot holding something that is not a Zod schema', () => {
@@ -105,9 +105,9 @@ describe('validateContract', () => {
   })
 
   it('catches a missing response schema', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), response: null }] }))).toContain(
-      'MISSING_RESPONSE',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), response: null }] })),
+    ).toContain('MISSING_RESPONSE')
   })
 
   it('catches a non-2xx success status', () => {
@@ -117,26 +117,36 @@ describe('validateContract', () => {
   })
 
   it('catches a path parameter with no params schema', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.get'), params: null }] }))).toContain(
-      'MISSING_PARAMS_SCHEMA',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.get'), params: null }] })),
+    ).toContain('MISSING_PARAMS_SCHEMA')
   })
 
   it('catches a params schema on a path with no parameters', () => {
     expect(
-      codes(validateContract({ routes: [{ ...routeById('events.list'), params: z.object({ id: z.string() }) }] })),
+      codes(
+        validateContract({
+          routes: [{ ...routeById('events.list'), params: z.object({ id: z.string() }) }],
+        }),
+      ),
     ).toContain('UNUSED_PARAMS_SCHEMA')
   })
 
   it('catches a body declared on a GET', () => {
     expect(
-      codes(validateContract({ routes: [{ ...routeById('events.list'), body: z.object({ a: z.string() }) }] })),
+      codes(
+        validateContract({
+          routes: [{ ...routeById('events.list'), body: z.object({ a: z.string() }) }],
+        }),
+      ),
     ).toContain('BODY_ON_BODYLESS_METHOD')
   })
 
   it('catches a malformed error catalogue entry', () => {
     expect(
-      codes(validateContract({ routes: [{ ...routeById('events.list'), errors: [{ status: 400 }] }] })),
+      codes(
+        validateContract({ routes: [{ ...routeById('events.list'), errors: [{ status: 400 }] }] }),
+      ),
     ).toContain('BAD_ERROR_ENTRY')
   })
 
@@ -145,7 +155,10 @@ describe('validateContract', () => {
       codes(
         validateContract({
           routes: [
-            { ...routeById('events.list'), errors: [API_ERRORS.validation, { ...API_ERRORS.validation }] },
+            {
+              ...routeById('events.list'),
+              errors: [API_ERRORS.validation, { ...API_ERRORS.validation }],
+            },
           ],
         }),
       ),
@@ -153,9 +166,9 @@ describe('validateContract', () => {
   })
 
   it('catches a route with no tags', () => {
-    expect(codes(validateContract({ routes: [{ ...routeById('events.list'), tags: [] }] }))).toContain(
-      'MISSING_TAGS',
-    )
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), tags: [] }] })),
+    ).toContain('MISSING_TAGS')
   })
 
   it('reports generation failure rather than letting it escape', () => {
@@ -178,12 +191,12 @@ describe('assertContractValid', () => {
   it('throws with every issue listed', () => {
     const route = routeById('events.list')
 
-    expect(() => assertContractValid({ routes: [route, { ...route, id: 'events.other' }] })).toThrow(
-      /Invalid API contract/,
-    )
-    expect(() => assertContractValid({ routes: [route, { ...route, id: 'events.other' }] })).toThrow(
-      /DUPLICATE_ROUTE/,
-    )
+    expect(() =>
+      assertContractValid({ routes: [route, { ...route, id: 'events.other' }] }),
+    ).toThrow(/Invalid API contract/)
+    expect(() =>
+      assertContractValid({ routes: [route, { ...route, id: 'events.other' }] }),
+    ).toThrow(/DUPLICATE_ROUTE/)
   })
 })
 

@@ -69,10 +69,7 @@ export const QUEUE_WORKER_OPTIONS = Object.freeze({
  */
 export function instrumentWorker(worker, queueName, logger) {
   worker.on('completed', (job, result) => {
-    logger?.info?.(
-      { queue: queueName, job: job?.name, jobId: job?.id, result },
-      'job completed',
-    )
+    logger?.info?.({ queue: queueName, job: job?.name, jobId: job?.id, result }, 'job completed')
   })
 
   worker.on('failed', (job, error) => {
@@ -129,7 +126,9 @@ export function createWorker({
   logger,
 }) {
   if (typeof processor !== 'function') {
-    throw new TypeError(`Queue "${queueName}" was given a ${typeof processor} instead of a processor`)
+    throw new TypeError(
+      `Queue "${queueName}" was given a ${typeof processor} instead of a processor`,
+    )
   }
 
   const { removeOnComplete, removeOnFail } = jobOptionsFor(queueName)

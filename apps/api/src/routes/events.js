@@ -321,7 +321,9 @@ export function registerEventRoutes(app, { prisma }) {
         })
 
         if (sellable === 0) {
-          throw unprocessable('Publish at least one ON_SALE ticket type before publishing the event.')
+          throw unprocessable(
+            'Publish at least one ON_SALE ticket type before publishing the event.',
+          )
         }
       }
 
@@ -331,7 +333,9 @@ export function registerEventRoutes(app, { prisma }) {
           status,
           publishedAt:
             status === 'PUBLISHED'
-              ? (publishedAt ? new Date(publishedAt) : (existing.publishedAt ?? new Date()))
+              ? publishedAt
+                ? new Date(publishedAt)
+                : (existing.publishedAt ?? new Date())
               : existing.publishedAt,
         },
         include: EVENT_INCLUDE,

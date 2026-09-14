@@ -122,13 +122,19 @@ describe('POST /v1/orders', () => {
     expect(data.paidAt).toEqual(expect.any(String))
 
     expect(data.items).toHaveLength(1)
-    expect(data.items[0]).toMatchObject({ quantity: 2, unitPriceCents: GA_PRICE, subtotalCents: 300_000 })
+    expect(data.items[0]).toMatchObject({
+      quantity: 2,
+      unitPriceCents: GA_PRICE,
+      subtotalCents: 300_000,
+    })
 
     expect(data.tickets).toHaveLength(2)
     expect(new Set(data.tickets.map((ticket) => ticket.code)).size).toBe(2)
     expect(data.tickets.every((ticket) => ticket.status === 'VALID')).toBe(true)
 
-    expect(prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold).toBe(2)
+    expect(
+      prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold,
+    ).toBe(2)
     expect(prisma._store.ticketHold.find((row) => row.id === hold.id)).toMatchObject({
       status: 'CONVERTED',
       orderId: data.id,
@@ -288,7 +294,9 @@ describe('POST /v1/orders', () => {
 
     // Nothing was fulfilled: no tickets, no inventory consumed.
     expect(prisma._store.ticket).toHaveLength(0)
-    expect(prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold).toBe(0)
+    expect(
+      prisma._store.ticketType.find((tier) => tier.id === ids.generalAdmission.id).quantitySold,
+    ).toBe(0)
     // The buyer keeps their reservation and can retry with another card.
     expect(prisma._store.ticketHold.find((row) => row.id === hold.id).status).toBe('ACTIVE')
 
@@ -303,7 +311,12 @@ describe('POST /v1/orders', () => {
         ...base.payments,
         capture: () => {
           const error = new Error('Issuer timed out during capture')
-          Object.assign(error, { name: 'ProviderError', code: 'PAYMENT_DECLINED', statusCode: 402, issues: [] })
+          Object.assign(error, {
+            name: 'ProviderError',
+            code: 'PAYMENT_DECLINED',
+            statusCode: 402,
+            issues: [],
+          })
           throw error
         },
       },
@@ -402,7 +415,11 @@ describe('POST /v1/orders', () => {
     const otherHold = await takeHold(app, ids.vip.id, 1)
 
     const unknown = await order(app, checkout(ids, { holdIds: ['cnosuchhold00000000000zz'] }))
-    const mismatched = await order(app, checkout(ids, { holdIds: [otherHold.id] }), holdHeaders(otherHold))
+    const mismatched = await order(
+      app,
+      checkout(ids, { holdIds: [otherHold.id] }),
+      holdHeaders(otherHold),
+    )
 
     expect(unknown.statusCode).toBe(404)
     expect(mismatched.statusCode).toBe(409)

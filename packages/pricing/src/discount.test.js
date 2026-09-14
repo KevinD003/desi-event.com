@@ -56,23 +56,27 @@ describe('computeDiscount for PERCENTAGE promos', () => {
     // 1004 × 10 % = 100.4 -> 100.
     expect(computeDiscount({ subtotalCents: 1_004, promoCode: promo(), now: NOW })).toBe(100)
     // 1999 × 2.5 % = 49.975 -> 50.
-    expect(computeDiscount({ subtotalCents: 1_999, promoCode: promo({ value: 250 }), now: NOW })).toBe(50)
+    expect(
+      computeDiscount({ subtotalCents: 1_999, promoCode: promo({ value: 250 }), now: NOW }),
+    ).toBe(50)
   })
 
   it('handles a 100 per cent promo', () => {
-    expect(computeDiscount({ subtotalCents: 123_457, promoCode: promo({ value: 10_000 }), now: NOW })).toBe(
-      123_457,
-    )
+    expect(
+      computeDiscount({ subtotalCents: 123_457, promoCode: promo({ value: 10_000 }), now: NOW }),
+    ).toBe(123_457)
   })
 
   it('clamps a promo above 100 per cent to the subtotal', () => {
-    expect(computeDiscount({ subtotalCents: 50_000, promoCode: promo({ value: 25_000 }), now: NOW })).toBe(
-      50_000,
-    )
+    expect(
+      computeDiscount({ subtotalCents: 50_000, promoCode: promo({ value: 25_000 }), now: NOW }),
+    ).toBe(50_000)
   })
 
   it('returns zero on a zero subtotal', () => {
-    expect(computeDiscount({ subtotalCents: 0, promoCode: promo({ value: 10_000 }), now: NOW })).toBe(0)
+    expect(
+      computeDiscount({ subtotalCents: 0, promoCode: promo({ value: 10_000 }), now: NOW }),
+    ).toBe(0)
   })
 })
 
@@ -81,16 +85,22 @@ describe('computeDiscount for FIXED_AMOUNT promos', () => {
   const fixed = (value) => promo({ type: PROMO_TYPES.FIXED_AMOUNT, value, currency: 'INR' })
 
   it('treats the value as minor units', () => {
-    expect(computeDiscount({ subtotalCents: 100_000, promoCode: fixed(25_000), now: NOW })).toBe(25_000)
+    expect(computeDiscount({ subtotalCents: 100_000, promoCode: fixed(25_000), now: NOW })).toBe(
+      25_000,
+    )
   })
 
   it('never discounts more than the subtotal', () => {
-    expect(computeDiscount({ subtotalCents: 10_000, promoCode: fixed(50_000), now: NOW })).toBe(10_000)
+    expect(computeDiscount({ subtotalCents: 10_000, promoCode: fixed(50_000), now: NOW })).toBe(
+      10_000,
+    )
     expect(computeDiscount({ subtotalCents: 0, promoCode: fixed(50_000), now: NOW })).toBe(0)
   })
 
   it('allows a discount exactly equal to the subtotal', () => {
-    expect(computeDiscount({ subtotalCents: 50_000, promoCode: fixed(50_000), now: NOW })).toBe(50_000)
+    expect(computeDiscount({ subtotalCents: 50_000, promoCode: fixed(50_000), now: NOW })).toBe(
+      50_000,
+    )
   })
 })
 
@@ -136,8 +146,12 @@ describe('promo validity', () => {
     const code = promo({ startsAt: '2026-06-01T00:00:00.000Z', endsAt: '2026-07-01T00:00:00.000Z' })
 
     expect(evaluatePromoCode({ promoCode: code, now: NOW }).applicable).toBe(true)
-    expect(evaluatePromoCode({ promoCode: code, now: '2026-05-31T23:59:59.999Z' }).reason).toBe('NOT_STARTED')
-    expect(evaluatePromoCode({ promoCode: code, now: '2026-07-01T00:00:00.000Z' }).reason).toBe('EXPIRED')
+    expect(evaluatePromoCode({ promoCode: code, now: '2026-05-31T23:59:59.999Z' }).reason).toBe(
+      'NOT_STARTED',
+    )
+    expect(evaluatePromoCode({ promoCode: code, now: '2026-07-01T00:00:00.000Z' }).reason).toBe(
+      'EXPIRED',
+    )
   })
 
   it('rejects an exhausted code and accepts one with redemptions left', () => {
@@ -156,8 +170,12 @@ describe('promo validity', () => {
   })
 
   it('treats a null maxRedemptions as unlimited and zero as immediately exhausted', () => {
-    expect(evaluatePromoCode({ promoCode: promo({ redemptionCount: 9_999 }), now: NOW }).applicable).toBe(true)
-    expect(evaluatePromoCode({ promoCode: promo({ maxRedemptions: 0 }), now: NOW }).reason).toBe('EXHAUSTED')
+    expect(
+      evaluatePromoCode({ promoCode: promo({ redemptionCount: 9_999 }), now: NOW }).applicable,
+    ).toBe(true)
+    expect(evaluatePromoCode({ promoCode: promo({ maxRedemptions: 0 }), now: NOW }).reason).toBe(
+      'EXHAUSTED',
+    )
   })
 
   it('defaults active to true and redemptionCount to zero for partial records', () => {
@@ -175,9 +193,9 @@ describe('promo validity', () => {
 
 describe('promo input validation', () => {
   it('throws on an unknown promo type', () => {
-    expect(() => computeDiscount({ subtotalCents: 1_000, promoCode: promo({ type: 'BOGO' }), now: NOW })).toThrow(
-      /PERCENTAGE or FIXED_AMOUNT/,
-    )
+    expect(() =>
+      computeDiscount({ subtotalCents: 1_000, promoCode: promo({ type: 'BOGO' }), now: NOW }),
+    ).toThrow(/PERCENTAGE or FIXED_AMOUNT/)
   })
 
   it('throws on fractional or negative values', () => {
@@ -189,7 +207,9 @@ describe('promo input validation', () => {
   })
 
   it('throws when a promo code is supplied without a clock', () => {
-    expect(() => computeDiscount({ subtotalCents: 1_000, promoCode: promo() })).toThrow(PricingError)
+    expect(() => computeDiscount({ subtotalCents: 1_000, promoCode: promo() })).toThrow(
+      PricingError,
+    )
   })
 
   it('throws on unparseable dates', () => {
@@ -220,15 +240,26 @@ describe('FIXED_AMOUNT promos are denominated', () => {
   const inr = { type: PROMO_TYPES.FIXED_AMOUNT, value: 50_000, currency: 'INR', active: true }
 
   it('applies when the order currency matches', () => {
-    expect(computeDiscount({ subtotalCents: 200_000, promoCode: inr, currency: 'INR', now: NOW })).toBe(50_000)
+    expect(
+      computeDiscount({ subtotalCents: 200_000, promoCode: inr, currency: 'INR', now: NOW }),
+    ).toBe(50_000)
   })
 
   it('is case-insensitive about the currency code', () => {
-    expect(computeDiscount({ subtotalCents: 200_000, promoCode: { ...inr, currency: 'inr' }, currency: 'INR', now: NOW })).toBe(50_000)
+    expect(
+      computeDiscount({
+        subtotalCents: 200_000,
+        promoCode: { ...inr, currency: 'inr' },
+        currency: 'INR',
+        now: NOW,
+      }),
+    ).toBe(50_000)
   })
 
   it('yields nothing against a different currency instead of converting', () => {
-    expect(computeDiscount({ subtotalCents: 200_000, promoCode: inr, currency: 'CAD', now: NOW })).toBe(0)
+    expect(
+      computeDiscount({ subtotalCents: 200_000, promoCode: inr, currency: 'CAD', now: NOW }),
+    ).toBe(0)
 
     const evaluation = evaluatePromoCode({ promoCode: inr, currency: 'CAD', now: NOW })
     expect(evaluation.applicable).toBe(false)
@@ -238,7 +269,14 @@ describe('FIXED_AMOUNT promos are denominated', () => {
   it('yields nothing when the promo records no currency at all', () => {
     const undenominated = { type: PROMO_TYPES.FIXED_AMOUNT, value: 50_000, active: true }
 
-    expect(computeDiscount({ subtotalCents: 200_000, promoCode: undenominated, currency: 'INR', now: NOW })).toBe(0)
+    expect(
+      computeDiscount({
+        subtotalCents: 200_000,
+        promoCode: undenominated,
+        currency: 'INR',
+        now: NOW,
+      }),
+    ).toBe(0)
     expect(evaluatePromoCode({ promoCode: undenominated, currency: 'INR', now: NOW }).reason).toBe(
       PROMO_REJECTION_REASONS.CURRENCY_MISSING,
     )
@@ -248,7 +286,9 @@ describe('FIXED_AMOUNT promos are denominated', () => {
     const percentage = { type: PROMO_TYPES.PERCENTAGE, value: 1_000, active: true }
 
     for (const currency of ['INR', 'CAD', 'GBP']) {
-      expect(computeDiscount({ subtotalCents: 200_000, promoCode: percentage, currency, now: NOW })).toBe(20_000)
+      expect(
+        computeDiscount({ subtotalCents: 200_000, promoCode: percentage, currency, now: NOW }),
+      ).toBe(20_000)
     }
   })
 })

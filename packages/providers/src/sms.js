@@ -150,11 +150,10 @@ export function createInMemorySmsProvider(options = {}) {
     const metadata = normaliseMetadata(message.metadata, PROVIDER_ERROR_CODES.INVALID_MESSAGE, name)
 
     if (message.forceFailure === true || to === normalisedFailureNumber) {
-      throw new ProviderError(
-        PROVIDER_ERROR_CODES.SEND_FAILED,
-        `Delivery to ${to} failed`,
-        { provider: name, details: { to, segments: countSegments(body) } },
-      )
+      throw new ProviderError(PROVIDER_ERROR_CODES.SEND_FAILED, `Delivery to ${to} failed`, {
+        provider: name,
+        details: { to, segments: countSegments(body) },
+      })
     }
 
     const id = nextId()

@@ -136,7 +136,9 @@ describe('startup fails before the port is bound', () => {
 
 describe('failure output never contains a secret', () => {
   it('names the variable without printing its value', async () => {
-    const secret = 'short-but-memorable-canary-value-abcdef'
+    // Self-identifying as fake so the secret scanner does not flag this
+    // fixture — which it correctly did when the value looked like a real one.
+    const secret = 'fake-canary-value-for-this-test-abcdef'
     const result = await startServer({ ...VALID_BASE, JWT_SECRET: secret.slice(0, 10) })
 
     expect(result.code).not.toBe(0)

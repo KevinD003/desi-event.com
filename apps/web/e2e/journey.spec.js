@@ -36,7 +36,10 @@ test.describe('home → events → event → checkout', () => {
     const total = page.getByTestId('summary-total')
     const emptyTotal = await total.textContent()
 
-    await page.getByRole('button', { name: /^Add one / }).first().click()
+    await page
+      .getByRole('button', { name: /^Add one / })
+      .first()
+      .click()
 
     await expect(total).not.toHaveText(emptyTotal)
     await expect(page.getByRole('button', { name: 'Reserve tickets' })).toBeEnabled()

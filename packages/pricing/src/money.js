@@ -164,10 +164,13 @@ export function assertBps(value, label) {
   const bps = assertInteger(value, label, 'INVALID_BPS')
 
   if (bps < 0 || bps > MAX_BPS) {
-    throw new PricingError(`${label} must be between 0 and ${MAX_BPS} basis points, received ${bps}`, {
-      code: 'INVALID_BPS',
-      details: { field: label, value: bps, max: MAX_BPS },
-    })
+    throw new PricingError(
+      `${label} must be between 0 and ${MAX_BPS} basis points, received ${bps}`,
+      {
+        code: 'INVALID_BPS',
+        details: { field: label, value: bps, max: MAX_BPS },
+      },
+    )
   }
 
   return bps

@@ -50,7 +50,9 @@ describe('computePlatformFee', () => {
 
   it('scales the flat component linearly with the ticket count', () => {
     const flatOnly = { percentageBps: 0, flatCents: 250, currency: 'INR' }
-    expect(computePlatformFee({ subtotalCents: 50_000, quantity: 7, feeConfig: flatOnly })).toBe(1_750)
+    expect(computePlatformFee({ subtotalCents: 50_000, quantity: 7, feeConfig: flatOnly })).toBe(
+      1_750,
+    )
   })
 
   it('rejects invalid subtotals and quantities', () => {
@@ -62,13 +64,22 @@ describe('computePlatformFee', () => {
   it('rejects malformed fee configurations', () => {
     expect(() => computePlatformFee({ subtotalCents: 100, feeConfig: null })).toThrow(/object/)
     expect(() =>
-      computePlatformFee({ subtotalCents: 100, feeConfig: { percentageBps: 2.5, flatCents: 0, currency: 'INR' } }),
+      computePlatformFee({
+        subtotalCents: 100,
+        feeConfig: { percentageBps: 2.5, flatCents: 0, currency: 'INR' },
+      }),
     ).toThrow(/integer/)
     expect(() =>
-      computePlatformFee({ subtotalCents: 100, feeConfig: { percentageBps: 250, flatCents: -1, currency: 'INR' } }),
+      computePlatformFee({
+        subtotalCents: 100,
+        feeConfig: { percentageBps: 250, flatCents: -1, currency: 'INR' },
+      }),
     ).toThrow(PricingError)
     expect(() =>
-      computePlatformFee({ subtotalCents: 100, feeConfig: { percentageBps: 250, flatCents: 0, currency: 'RUPEE' } }),
+      computePlatformFee({
+        subtotalCents: 100,
+        feeConfig: { percentageBps: 250, flatCents: 0, currency: 'RUPEE' },
+      }),
     ).toThrow(/ISO 4217/)
   })
 })

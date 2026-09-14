@@ -96,7 +96,11 @@ export default async function EventsPage({ searchParams }) {
 
       <SampleDataNotice show={usedFallback} />
 
-      <p role="status" data-testid="result-count" className="mt-6 text-sm font-medium text-slate-600">
+      <p
+        role="status"
+        data-testid="result-count"
+        className="mt-6 text-sm font-medium text-slate-600"
+      >
         {resultSummary(pagination, filters)}
       </p>
 

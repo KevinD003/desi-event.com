@@ -20,7 +20,12 @@
 import { JOB_NAMES, sendEmailJobSchema } from '@desi-event/schemas'
 import { PROVIDER_ERROR_CODES, assertEmailProvider } from '@desi-event/providers'
 
-import { PermanentJobError, RetryableJobError, WORKER_ERROR_CODES, parseJobPayload } from '../errors.js'
+import {
+  PermanentJobError,
+  RetryableJobError,
+  WORKER_ERROR_CODES,
+  parseJobPayload,
+} from '../errors.js'
 import { renderEmail } from '../email/templates.js'
 
 /**

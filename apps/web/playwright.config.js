@@ -59,9 +59,7 @@ export default defineConfig({
     },
   },
 
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-  ],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
   // The API is intentionally not started: these tests exercise the site in the
   // state a visitor gets when the listings service is down, which is the state

@@ -5,13 +5,19 @@ import { InventoryError, INVENTORY_ERROR_CODES } from './errors.js'
 
 describe('computeAvailability', () => {
   it('subtracts sold and held tickets from the total', () => {
-    expect(computeAvailability({ quantityTotal: 100, quantitySold: 30, heldQuantity: 5 }))
-      .toEqual({ availableQuantity: 65, isSoldOut: false, heldQuantity: 5 })
+    expect(computeAvailability({ quantityTotal: 100, quantitySold: 30, heldQuantity: 5 })).toEqual({
+      availableQuantity: 65,
+      isSoldOut: false,
+      heldQuantity: 5,
+    })
   })
 
   it('defaults sold and held to zero', () => {
-    expect(computeAvailability({ quantityTotal: 12 }))
-      .toEqual({ availableQuantity: 12, isSoldOut: false, heldQuantity: 0 })
+    expect(computeAvailability({ quantityTotal: 12 })).toEqual({
+      availableQuantity: 12,
+      isSoldOut: false,
+      heldQuantity: 0,
+    })
   })
 
   it('reports sold out at exactly zero available', () => {
@@ -27,8 +33,11 @@ describe('computeAvailability', () => {
   })
 
   it('treats holds alone as enough to sell out', () => {
-    expect(computeAvailability({ quantityTotal: 4, quantitySold: 0, heldQuantity: 4 }))
-      .toEqual({ availableQuantity: 0, isSoldOut: true, heldQuantity: 4 })
+    expect(computeAvailability({ quantityTotal: 4, quantitySold: 0, heldQuantity: 4 })).toEqual({
+      availableQuantity: 0,
+      isSoldOut: true,
+      heldQuantity: 4,
+    })
   })
 
   it('floors at zero rather than returning a negative count', () => {
@@ -40,13 +49,17 @@ describe('computeAvailability', () => {
   })
 
   it('treats a zero-total ticket type as sold out', () => {
-    expect(computeAvailability({ quantityTotal: 0 }))
-      .toEqual({ availableQuantity: 0, isSoldOut: true, heldQuantity: 0 })
+    expect(computeAvailability({ quantityTotal: 0 })).toEqual({
+      availableQuantity: 0,
+      isSoldOut: true,
+      heldQuantity: 0,
+    })
   })
 
   it('echoes the held quantity back to the caller', () => {
-    expect(computeAvailability({ quantityTotal: 50, quantitySold: 1, heldQuantity: 7 }).heldQuantity)
-      .toBe(7)
+    expect(
+      computeAvailability({ quantityTotal: 50, quantitySold: 1, heldQuantity: 7 }).heldQuantity,
+    ).toBe(7)
   })
 
   it.each([
@@ -61,8 +74,9 @@ describe('computeAvailability', () => {
     ['Infinity', { quantityTotal: Number.POSITIVE_INFINITY }],
   ])('rejects %s', (_label, input) => {
     expect(() => computeAvailability(input)).toThrow(InventoryError)
-    expect(() => computeAvailability(input))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_INVENTORY }))
+    expect(() => computeAvailability(input)).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_INVENTORY }),
+    )
   })
 
   it('rejects being called with no argument at all', () => {

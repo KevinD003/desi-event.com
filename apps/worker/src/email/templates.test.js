@@ -113,7 +113,11 @@ describe('renderEmail', () => {
   it('carries the claim link into a waitlist notification', () => {
     const rendered = renderEmail({
       template: 'WAITLIST_AVAILABLE',
-      data: { eventTitle: 'Comedy Night', quantity: 2, claimUrl: 'https://desi-event.com/e/comedy' },
+      data: {
+        eventTitle: 'Comedy Night',
+        quantity: 2,
+        claimUrl: 'https://desi-event.com/e/comedy',
+      },
     })
 
     expect(rendered.subject).toBe('Tickets are available for Comedy Night')

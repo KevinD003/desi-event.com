@@ -30,8 +30,7 @@ export const BCRYPT_ROUNDS = 10
  *
  * @type {string}
  */
-export const DUMMY_PASSWORD_HASH =
-  '$2b$10$ZqBKkLSqSsKxpy98eAsJ/uSKZ9oxWCHVmlEoxYrmU8iG.ukUu.kj2'
+export const DUMMY_PASSWORD_HASH = '$2b$10$ZqBKkLSqSsKxpy98eAsJ/uSKZ9oxWCHVmlEoxYrmU8iG.ukUu.kj2'
 
 /**
  * Hash a plaintext password.

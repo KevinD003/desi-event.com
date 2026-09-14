@@ -25,11 +25,9 @@ export function toTimestamp(value, label) {
   if (value instanceof Date) {
     const ms = value.getTime()
     if (Number.isNaN(ms)) {
-      throw new InventoryError(
-        INVENTORY_ERROR_CODES.INVALID_DATE,
-        `${label} is an invalid Date`,
-        { details: { argument: label } },
-      )
+      throw new InventoryError(INVENTORY_ERROR_CODES.INVALID_DATE, `${label} is an invalid Date`, {
+        details: { argument: label },
+      })
     }
     return ms
   }
@@ -63,11 +61,9 @@ export function toTimestamp(value, label) {
  */
 export function assertCount(value, label, code = INVENTORY_ERROR_CODES.INVALID_INVENTORY) {
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new InventoryError(
-      code,
-      `${label} must be a non-negative integer`,
-      { details: { argument: label, received: describe(value) } },
-    )
+    throw new InventoryError(code, `${label} must be a non-negative integer`, {
+      details: { argument: label, received: describe(value) },
+    })
   }
   return value
 }
@@ -81,11 +77,9 @@ export function assertCount(value, label, code = INVENTORY_ERROR_CODES.INVALID_I
  */
 export function assertHoldList(holds) {
   if (!Array.isArray(holds)) {
-    throw new InventoryError(
-      INVENTORY_ERROR_CODES.INVALID_HOLD,
-      'holds must be an array',
-      { details: { received: describe(holds) } },
-    )
+    throw new InventoryError(INVENTORY_ERROR_CODES.INVALID_HOLD, 'holds must be an array', {
+      details: { received: describe(holds) },
+    })
   }
 
   for (const hold of holds) assertHold(hold)

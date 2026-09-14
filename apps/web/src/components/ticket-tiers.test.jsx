@@ -55,7 +55,9 @@ describe('TicketTiers', () => {
 
   it('lists each tier with its price and availability', () => {
     render(<TicketTiers ticketTypes={tiers} />)
-    const items = within(screen.getByRole('list', { name: 'Ticket types' })).getAllByRole('listitem')
+    const items = within(screen.getByRole('list', { name: 'Ticket types' })).getAllByRole(
+      'listitem',
+    )
 
     expect(items).toHaveLength(2)
     expect(within(items[0]).getByText('₹8,999.00')).toBeInTheDocument()

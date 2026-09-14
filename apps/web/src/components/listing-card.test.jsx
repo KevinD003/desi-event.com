@@ -64,7 +64,9 @@ describe('EventCard', () => {
   })
 
   it('prices a Toronto event in Canadian dollars', () => {
-    render(<EventCard event={{ ...garba, minPriceCents: 5500, currency: 'CAD', city: 'Toronto' }} />)
+    render(
+      <EventCard event={{ ...garba, minPriceCents: 5500, currency: 'CAD', city: 'Toronto' }} />,
+    )
 
     expect(screen.getByText('$55.00')).toBeInTheDocument()
   })

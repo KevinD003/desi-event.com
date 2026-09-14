@@ -22,7 +22,6 @@
  * @module lib/api
  */
 
-
 import { filterEvents, sortByStartDate } from './catalog.js'
 import { paginate } from './search-params.js'
 import {
@@ -61,7 +60,6 @@ const REQUEST_TIMEOUT_MS = 2500
 
 /** Warning keys already logged, so one dead API does not produce one line per card. */
 const warnedKeys = new Set()
-
 
 /**
  * Log an API failure once per key, on the server only.
@@ -282,7 +280,6 @@ export async function loadCatalogueFacets(options = {}) {
     },
   )
 }
-
 
 /**
  * Derive the availability fields a ticket tier needs for display.

@@ -207,9 +207,9 @@ describe('createInMemoryProviderRegistry', () => {
     })
 
     expect(registry.payments.name).toBe('razorpay-fake')
-    expect(() => registry.payments.createIntent({ amountCents: 4242, currency: 'INR' })).toThrowError(
-      /declined/,
-    )
+    expect(() =>
+      registry.payments.createIntent({ amountCents: 4242, currency: 'INR' }),
+    ).toThrowError(/declined/)
     expect(registry.storage.put({ key: 'a.txt', body: 'x' }).url).toBe(
       'https://cdn.example.com/media/a.txt',
     )

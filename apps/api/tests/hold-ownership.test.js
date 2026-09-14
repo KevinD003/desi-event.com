@@ -259,7 +259,9 @@ describe('hold release concurrency and replay', () => {
     const taken = await take(app, ids.generalAdmission.id)
 
     // The sweep would call this lapsed; the caller asks to release it.
-    prisma._store.ticketHold.find((row) => row.id === taken.id).expiresAt = new Date(Date.now() - 1_000)
+    prisma._store.ticketHold.find((row) => row.id === taken.id).expiresAt = new Date(
+      Date.now() - 1_000,
+    )
 
     const response = await release(app, taken.id, holdHeaders(taken))
 

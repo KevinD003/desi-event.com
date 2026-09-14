@@ -19,8 +19,14 @@ import {
 describe('public surface', () => {
   it('exports every name in the cross-package contract', () => {
     for (const name of [
-      'computeAvailability', 'salesWindowState', 'validateQuantityRequest', 'holdExpiresAt',
-      'isHoldExpired', 'partitionExpiredHolds', 'activeHeldQuantity', 'InventoryError',
+      'computeAvailability',
+      'salesWindowState',
+      'validateQuantityRequest',
+      'holdExpiresAt',
+      'isHoldExpired',
+      'partitionExpiredHolds',
+      'activeHeldQuantity',
+      'InventoryError',
     ]) {
       expect(inventory[name], name).toBeTypeOf('function')
     }
@@ -37,13 +43,24 @@ describe('public surface', () => {
   })
 
   it('mirrors the Prisma TicketTypeStatus enum exactly', () => {
-    expect(Object.keys(TICKET_TYPE_STATUS))
-      .toEqual(['DRAFT', 'ON_SALE', 'PAUSED', 'SOLD_OUT', 'CLOSED'])
+    expect(Object.keys(TICKET_TYPE_STATUS)).toEqual([
+      'DRAFT',
+      'ON_SALE',
+      'PAUSED',
+      'SOLD_OUT',
+      'CLOSED',
+    ])
   })
 
   it('returns only the six documented sales-window states', () => {
-    expect(Object.keys(SALES_WINDOW_STATE))
-      .toEqual(['ON_SALE', 'NOT_STARTED', 'ENDED', 'PAUSED', 'CLOSED', 'DRAFT'])
+    expect(Object.keys(SALES_WINDOW_STATE)).toEqual([
+      'ON_SALE',
+      'NOT_STARTED',
+      'ENDED',
+      'PAUSED',
+      'CLOSED',
+      'DRAFT',
+    ])
   })
 })
 
@@ -62,10 +79,25 @@ describe('checkout, end to end against a fixed clock', () => {
   }
 
   const holds = [
-    { id: 'live', status: HOLD_STATUS.ACTIVE, quantity: 4, expiresAt: new Date('2026-07-04T18:05:00.000Z') },
+    {
+      id: 'live',
+      status: HOLD_STATUS.ACTIVE,
+      quantity: 4,
+      expiresAt: new Date('2026-07-04T18:05:00.000Z'),
+    },
     // The sweeper has not run, so this lapsed hold is still marked ACTIVE.
-    { id: 'stale', status: HOLD_STATUS.ACTIVE, quantity: 12, expiresAt: new Date('2026-07-04T17:50:00.000Z') },
-    { id: 'paid', status: HOLD_STATUS.CONVERTED, quantity: 2, expiresAt: new Date('2026-07-04T17:00:00.000Z') },
+    {
+      id: 'stale',
+      status: HOLD_STATUS.ACTIVE,
+      quantity: 12,
+      expiresAt: new Date('2026-07-04T17:50:00.000Z'),
+    },
+    {
+      id: 'paid',
+      status: HOLD_STATUS.CONVERTED,
+      quantity: 2,
+      expiresAt: new Date('2026-07-04T17:00:00.000Z'),
+    },
   ]
 
   it('releases the stale hold back into availability', () => {
@@ -82,7 +114,9 @@ describe('checkout, end to end against a fixed clock', () => {
       .reduce((sum, h) => sum + h.quantity, 0)
 
     expect(naiveHeld).toBe(16)
-    expect(computeAvailability({ ...ticketType, heldQuantity: naiveHeld }).availableQuantity).toBe(4)
+    expect(computeAvailability({ ...ticketType, heldQuantity: naiveHeld }).availableQuantity).toBe(
+      4,
+    )
     expect(activeHeldQuantity(holds, now)).toBe(4)
   })
 
@@ -94,10 +128,12 @@ describe('checkout, end to end against a fixed clock', () => {
 
     expect(salesWindowState({ ...ticketType, now })).toBe(SALES_WINDOW_STATE.ON_SALE)
 
-    expect(() => validateQuantityRequest({ ...ticketType, quantity: 8, availableQuantity }))
-      .not.toThrow()
-    expect(() => validateQuantityRequest({ ...ticketType, quantity: 9, availableQuantity }))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.ABOVE_MAXIMUM }))
+    expect(() =>
+      validateQuantityRequest({ ...ticketType, quantity: 8, availableQuantity }),
+    ).not.toThrow()
+    expect(() =>
+      validateQuantityRequest({ ...ticketType, quantity: 9, availableQuantity }),
+    ).toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.ABOVE_MAXIMUM }))
   })
 
   it('refuses everything once the window closes, whatever the stock says', () => {
@@ -120,7 +156,12 @@ describe('checkout, end to end against a fixed clock', () => {
 
   it('sells out only when live holds plus sales cover the total', () => {
     const heavyHolds = [
-      { id: 'a', status: HOLD_STATUS.ACTIVE, quantity: 20, expiresAt: new Date('2026-07-04T18:05:00.000Z') },
+      {
+        id: 'a',
+        status: HOLD_STATUS.ACTIVE,
+        quantity: 20,
+        expiresAt: new Date('2026-07-04T18:05:00.000Z'),
+      },
     ]
     const availability = computeAvailability({
       ...ticketType,
@@ -130,7 +171,11 @@ describe('checkout, end to end against a fixed clock', () => {
     expect(availability.isSoldOut).toBe(true)
     const error = (() => {
       try {
-        validateQuantityRequest({ ...ticketType, quantity: 1, availableQuantity: availability.availableQuantity })
+        validateQuantityRequest({
+          ...ticketType,
+          quantity: 1,
+          availableQuantity: availability.availableQuantity,
+        })
         return null
       } catch (caught) {
         return caught

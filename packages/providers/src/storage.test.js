@@ -46,7 +46,9 @@ describe('createInMemoryStorageProvider', () => {
   it('trims trailing slashes off the base URL', () => {
     const provider = makeProvider({ baseUrl: 'https://cdn.example.com///', bucket: 'media' })
 
-    expect(provider.put({ key: 'a.txt', body: 'x' }).url).toBe('https://cdn.example.com/media/a.txt')
+    expect(provider.put({ key: 'a.txt', body: 'x' }).url).toBe(
+      'https://cdn.example.com/media/a.txt',
+    )
   })
 
   it('rejects an unusable bucket name', () => {

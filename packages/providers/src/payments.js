@@ -381,7 +381,9 @@ export function createInMemoryPaymentProvider(options = {}) {
     /** @type {Record<string, unknown>} */
     const record = {
       id,
-      status: trigger.atCreate ? PAYMENT_INTENT_STATUS.FAILED : PAYMENT_INTENT_STATUS.REQUIRES_CAPTURE,
+      status: trigger.atCreate
+        ? PAYMENT_INTENT_STATUS.FAILED
+        : PAYMENT_INTENT_STATUS.REQUIRES_CAPTURE,
       amountCents,
       currency,
       orderId,

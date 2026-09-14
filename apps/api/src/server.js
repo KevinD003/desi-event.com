@@ -33,7 +33,11 @@ export async function start() {
   dotenv.config({ quiet: true })
 
   const env = loadApiEnv()
-  const logger = createLogger({ name: 'api', level: env.LOG_LEVEL, pretty: env.NODE_ENV !== 'production' })
+  const logger = createLogger({
+    name: 'api',
+    level: env.LOG_LEVEL,
+    pretty: env.NODE_ENV !== 'production',
+  })
   const prisma = createPrismaClient({ connectionString: env.DATABASE_URL })
 
   // The in-memory providers are the default wiring. A deployment swaps them

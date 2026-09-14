@@ -55,11 +55,7 @@ export {
   toPaymentStatus,
 } from './payments.js'
 
-export {
-  createInMemoryEmailProvider,
-  EMAIL_BOUNCE_ADDRESS,
-  DEFAULT_EMAIL_FROM,
-} from './email.js'
+export { createInMemoryEmailProvider, EMAIL_BOUNCE_ADDRESS, DEFAULT_EMAIL_FROM } from './email.js'
 
 export { createInMemorySmsProvider, SMS_FAILURE_NUMBER, DEFAULT_SMS_SENDER } from './sms.js'
 

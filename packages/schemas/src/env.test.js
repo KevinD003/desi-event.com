@@ -94,9 +94,9 @@ describe('apiEnvSchema', () => {
     expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ DATABASE_URL: 'mysql://x/y' })))).toEqual([
       'DATABASE_URL',
     ])
-    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ REDIS_URL: 'http://localhost:6379' })))).toEqual(
-      ['REDIS_URL'],
-    )
+    expect(
+      issuePaths(apiEnvSchema.safeParse(apiEnv({ REDIS_URL: 'http://localhost:6379' }))),
+    ).toEqual(['REDIS_URL'])
   })
 
   it('accepts postgres:// and rediss:// spellings', () => {
@@ -112,14 +112,17 @@ describe('apiEnvSchema', () => {
     const result = apiEnvSchema.safeParse(apiEnv({ JWT_SECRET: short }))
     expect(issuePaths(result)).toEqual(['JWT_SECRET'])
     expect(result.error.issues[0].message).toMatch(/at least 32 characters/)
-    expect(apiEnvSchema.safeParse(apiEnv({ JWT_SECRET: 'x'.repeat(MIN_JWT_SECRET_LENGTH) })).success)
-      .toBe(true)
+    expect(
+      apiEnvSchema.safeParse(apiEnv({ JWT_SECRET: 'x'.repeat(MIN_JWT_SECRET_LENGTH) })).success,
+    ).toBe(true)
   })
 
   it('accepts the .env.example placeholder outside production', () => {
     const placeholder = INSECURE_JWT_SECRETS[0]
     for (const NODE_ENV of ['development', 'test']) {
-      expect(apiEnvSchema.safeParse(apiEnv({ NODE_ENV, JWT_SECRET: placeholder })).success).toBe(true)
+      expect(apiEnvSchema.safeParse(apiEnv({ NODE_ENV, JWT_SECRET: placeholder })).success).toBe(
+        true,
+      )
     }
   })
 
@@ -159,7 +162,9 @@ describe('apiEnvSchema', () => {
     expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ LOG_LEVEL: 'verbose' })))).toEqual([
       'LOG_LEVEL',
     ])
-    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ NODE_ENV: 'staging' })))).toEqual(['NODE_ENV'])
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ NODE_ENV: 'staging' })))).toEqual([
+      'NODE_ENV',
+    ])
   })
 })
 
@@ -314,7 +319,9 @@ describe('loaders', () => {
   })
 
   it('loadWorkerEnv and loadWebEnv behave the same way', () => {
-    expect(loadWorkerEnv({ DATABASE_URL: DB_URL, REDIS_URL: REDIS }).QUEUE_PREFIX).toBe('desi-event')
+    expect(loadWorkerEnv({ DATABASE_URL: DB_URL, REDIS_URL: REDIS }).QUEUE_PREFIX).toBe(
+      'desi-event',
+    )
     expect(() => loadWorkerEnv({})).toThrow(ValidationError)
 
     expect(loadWebEnv({}).WEB_PORT).toBe(3000)

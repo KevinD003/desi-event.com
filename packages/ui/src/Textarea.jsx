@@ -14,7 +14,14 @@ import { controlClasses, isInvalidControl } from './controlClasses.js'
  * @param {TextareaProps} props Component props, forwarded to the `textarea` element.
  * @returns {JSX.Element} The rendered textarea.
  */
-export function Textarea({ rows = 4, invalid = false, className, ref, 'aria-invalid': ariaInvalid, ...rest }) {
+export function Textarea({
+  rows = 4,
+  invalid = false,
+  className,
+  ref,
+  'aria-invalid': ariaInvalid,
+  ...rest
+}) {
   const isInvalid = isInvalidControl(invalid, ariaInvalid)
 
   return (

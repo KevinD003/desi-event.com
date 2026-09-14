@@ -107,11 +107,7 @@ describe('Tabs', () => {
 
   it('skips disabled tabs when arrowing', async () => {
     const user = userEvent.setup()
-    const items = [
-      ITEMS[0],
-      { ...ITEMS[1], disabled: true },
-      ITEMS[2],
-    ]
+    const items = [ITEMS[0], { ...ITEMS[1], disabled: true }, ITEMS[2]]
 
     render(<Tabs items={items} label="Event sections" />)
 

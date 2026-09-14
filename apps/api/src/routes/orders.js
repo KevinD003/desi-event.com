@@ -477,7 +477,12 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
 
       // ---- Phase 2: the provider call, with NO transaction open -------------
       const result = begun.zeroTotal
-        ? { outcome: CAPTURE_OUTCOMES.SUCCEEDED, intent: null, failureCode: null, rawStatus: 'ZERO_TOTAL' }
+        ? {
+            outcome: CAPTURE_OUTCOMES.SUCCEEDED,
+            intent: null,
+            failureCode: null,
+            rawStatus: 'ZERO_TOTAL',
+          }
         : await captureOutsideTransaction(providers.payments, begun.order)
 
       // ---- Phase 3: a short transaction recording the outcome ---------------

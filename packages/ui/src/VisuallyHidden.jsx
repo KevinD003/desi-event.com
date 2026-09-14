@@ -18,7 +18,13 @@ import { cn } from './cn.js'
  * @param {VisuallyHiddenProps} props Component props.
  * @returns {JSX.Element} The rendered element.
  */
-export function VisuallyHidden({ as: Component = 'span', focusable = false, className, children, ...rest }) {
+export function VisuallyHidden({
+  as: Component = 'span',
+  focusable = false,
+  className,
+  children,
+  ...rest
+}) {
   return (
     <Component className={cn('sr-only', focusable && 'focus:not-sr-only', className)} {...rest}>
       {children}

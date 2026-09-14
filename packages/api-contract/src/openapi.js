@@ -146,7 +146,11 @@ function buildParameters(schema, location, routeId, components, required = []) {
     }))
   }
 
-  const fragment = hoistDefinitions(toJsonSchema(schema, 'input'), `${routeId}.${location}`, components)
+  const fragment = hoistDefinitions(
+    toJsonSchema(schema, 'input'),
+    `${routeId}.${location}`,
+    components,
+  )
   const properties = /** @type {Record<string, object>} */ (fragment.properties ?? {})
   const declaredRequired = new Set([...(fragment.required ?? []), ...required])
   const names = new Set([...Object.keys(properties), ...required])
@@ -302,7 +306,10 @@ export function buildOpenApiDocument(options = {}) {
     if (pathItem[method]) {
       throw new ApiContractError(
         `Duplicate operation ${route.method} ${route.path} (route "${route.id}")`,
-        { code: 'DUPLICATE_ROUTE', details: { id: route.id, method: route.method, path: route.path } },
+        {
+          code: 'DUPLICATE_ROUTE',
+          details: { id: route.id, method: route.method, path: route.path },
+        },
       )
     }
 

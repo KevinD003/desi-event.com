@@ -19,7 +19,14 @@ import { cn } from './cn.js'
  * @param {LabelProps} props Component props.
  * @returns {JSX.Element} The rendered label.
  */
-export function Label({ htmlFor, required = false, requiredLabel = '(required)', className, children, ...rest }) {
+export function Label({
+  htmlFor,
+  required = false,
+  requiredLabel = '(required)',
+  className,
+  children,
+  ...rest
+}) {
   return (
     <label
       htmlFor={htmlFor}

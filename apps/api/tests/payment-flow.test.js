@@ -228,12 +228,16 @@ describe('webhook is authoritative and idempotent', () => {
     expect(prisma._store.ticket).toHaveLength(1)
 
     const order = prisma._store.order[0]
-    expect((await webhook(app, {
-      provider: 'in-memory-payments',
-      providerEventId: 'evt_late_1',
-      eventType: 'payment.succeeded',
-      orderReference: order.reference,
-    })).statusCode).toBe(200)
+    expect(
+      (
+        await webhook(app, {
+          provider: 'in-memory-payments',
+          providerEventId: 'evt_late_1',
+          eventType: 'payment.succeeded',
+          orderReference: order.reference,
+        })
+      ).statusCode,
+    ).toBe(200)
 
     // Still one set of tickets, one inventory decrement, one audit row.
     expect(prisma._store.ticket).toHaveLength(1)
@@ -335,13 +339,16 @@ describe('inventory stays reserved across the provider call', () => {
     expect(response.statusCode).toBe(201)
 
     // A hold was created for the order and converted at settlement.
-    const holds = prisma._store.ticketHold.filter((row) => row.orderId === prisma._store.order[0].id)
+    const holds = prisma._store.ticketHold.filter(
+      (row) => row.orderId === prisma._store.order[0].id,
+    )
     expect(holds.length).toBeGreaterThan(0)
     expect(holds.every((row) => row.status === 'CONVERTED')).toBe(true)
     heldDuringCapture = holds[0]
-    expect(heldDuringCapture.userId === null || typeof heldDuringCapture.userId === 'string').toBe(true)
+    expect(heldDuringCapture.userId === null || typeof heldDuringCapture.userId === 'string').toBe(
+      true,
+    )
 
     await app.close()
   })
 })
-

@@ -10,7 +10,9 @@
     "./styles.css": "./src/styles.css",
     "./package.json": "./package.json"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "lint": "eslint .",
     "test": "vitest run",

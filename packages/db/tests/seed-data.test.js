@@ -10,7 +10,13 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { applyBps, buildSeedData, computeSeedOrderTotals, offset, startOfUtcDay } from '../scripts/seed.mjs'
+import {
+  applyBps,
+  buildSeedData,
+  computeSeedOrderTotals,
+  offset,
+  startOfUtcDay,
+} from '../scripts/seed.mjs'
 
 const NOW = new Date('2026-09-14T11:22:33.456Z')
 const data = buildSeedData(NOW)

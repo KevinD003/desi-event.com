@@ -2,13 +2,22 @@ import { describe, it, expect } from 'vitest'
 
 import { createIssueTicketsProcessor } from './issue-tickets.js'
 import { TICKET_CODE_PREFIX } from '../ticket-codes.js'
-import { buildOrder, createFakeLogger, createFakePrisma, ORDER_ID } from '../../tests/helpers/fakes.js'
+import {
+  buildOrder,
+  createFakeLogger,
+  createFakePrisma,
+  ORDER_ID,
+} from '../../tests/helpers/fakes.js'
 
 /**
  * @param {object} [data] Payload overrides.
  * @returns {object} A minimal BullMQ job.
  */
-const job = (data = {}) => ({ name: 'issue-tickets', id: '1', data: { orderId: ORDER_ID, ...data } })
+const job = (data = {}) => ({
+  name: 'issue-tickets',
+  id: '1',
+  data: { orderId: ORDER_ID, ...data },
+})
 
 /**
  * Deterministic code factory, so a test can assert on exact codes.
@@ -26,7 +35,13 @@ describe('createIssueTicketsProcessor', () => {
 
     const result = await process(job())
 
-    expect(result).toMatchObject({ orderId: ORDER_ID, issued: 3, existing: 0, total: 3, complete: true })
+    expect(result).toMatchObject({
+      orderId: ORDER_ID,
+      issued: 3,
+      existing: 0,
+      total: 3,
+      complete: true,
+    })
     expect(prisma.rows.tickets).toHaveLength(3)
     expect(prisma.rows.tickets.every((ticket) => ticket.status === 'VALID')).toBe(true)
     expect(prisma.rows.tickets.every((ticket) => ticket.orderItemId === 'item-1')).toBe(true)
@@ -55,7 +70,9 @@ describe('createIssueTicketsProcessor', () => {
       ],
     })
 
-    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(job())
+    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(
+      job(),
+    )
 
     expect(result).toMatchObject({ issued: 2, existing: 2, total: 4, complete: true })
     expect(prisma.rows.tickets).toHaveLength(4)
@@ -69,7 +86,9 @@ describe('createIssueTicketsProcessor', () => {
     ]
 
     const prisma = createFakePrisma({ orders: [order] })
-    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(job())
+    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(
+      job(),
+    )
 
     expect(result.issued).toBe(3)
     const perItem = prisma.rows.tickets.reduce((counts, ticket) => {
@@ -84,7 +103,9 @@ describe('createIssueTicketsProcessor', () => {
 
     await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(job())
 
-    const inTransaction = prisma.calls.slice(prisma.calls.findIndex((c) => c.method === '$transaction') + 1)
+    const inTransaction = prisma.calls.slice(
+      prisma.calls.findIndex((c) => c.method === '$transaction') + 1,
+    )
     expect(inTransaction[0].method).toBe('$queryRaw')
     expect(inTransaction[0].sql).toContain('FOR UPDATE')
     expect(inTransaction[0].values).toEqual([ORDER_ID])
@@ -94,7 +115,9 @@ describe('createIssueTicketsProcessor', () => {
   it('never returns the ticket codes themselves — they are bearer tokens', async () => {
     const prisma = createFakePrisma({ orders: [buildOrder({ quantity: 2 })] })
 
-    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(job())
+    const result = await createIssueTicketsProcessor({ prisma, generateCodes: sequentialCodes })(
+      job(),
+    )
 
     expect(JSON.stringify(result)).not.toContain(TICKET_CODE_PREFIX)
   })
@@ -150,7 +173,10 @@ describe('createIssueTicketsProcessor', () => {
     ).rejects.toMatchObject({ code: 'INVALID_JOB_PAYLOAD' })
 
     await expect(
-      createIssueTicketsProcessor({ prisma })({ name: 'issue-tickets', data: { orderId: 'nope!' } }),
+      createIssueTicketsProcessor({ prisma })({
+        name: 'issue-tickets',
+        data: { orderId: 'nope!' },
+      }),
     ).rejects.toMatchObject({ code: 'INVALID_JOB_PAYLOAD' })
 
     expect(prisma.calls).toHaveLength(0)

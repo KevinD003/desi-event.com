@@ -51,7 +51,9 @@ export function registerTicketRoutes(app, { prisma }) {
       const event = order?.event
       if (!event) throw notFound('No ticket with that code.')
 
-      assertCan(request.actor, CAPABILITIES.TICKET_CHECK_IN, { organizationId: event.organizationId })
+      assertCan(request.actor, CAPABILITIES.TICKET_CHECK_IN, {
+        organizationId: event.organizationId,
+      })
 
       if (eventId && eventId !== event.id) {
         throw conflict('This ticket belongs to a different event.', {

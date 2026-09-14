@@ -13,7 +13,11 @@ import {
 
 describe('feeConfigForCurrency', () => {
   it('denominates the flat fee in the order currency', () => {
-    expect(feeConfigForCurrency('GBP')).toEqual({ percentageBps: 250, flatCents: 79, currency: 'GBP' })
+    expect(feeConfigForCurrency('GBP')).toEqual({
+      percentageBps: 250,
+      flatCents: 79,
+      currency: 'GBP',
+    })
   })
 
   it('upper-cases the code so a lower-case env value still matches', () => {
@@ -21,7 +25,11 @@ describe('feeConfigForCurrency', () => {
   })
 
   it('falls back to a sane flat fee for a currency it has never seen', () => {
-    expect(feeConfigForCurrency('SGD')).toEqual({ percentageBps: 250, flatCents: 99, currency: 'SGD' })
+    expect(feeConfigForCurrency('SGD')).toEqual({
+      percentageBps: 250,
+      flatCents: 99,
+      currency: 'SGD',
+    })
   })
 })
 
@@ -86,7 +94,12 @@ describe('formatAmount', () => {
 
 describe('priceSelection', () => {
   const lines = [
-    { ticketTypeId: 'ttqawwaligarden', name: 'Garden Seating', quantity: 2, unitPriceCents: 249_900 },
+    {
+      ticketTypeId: 'ttqawwaligarden',
+      name: 'Garden Seating',
+      quantity: 2,
+      unitPriceCents: 249_900,
+    },
     { ticketTypeId: 'ttqawwalilawn', name: 'Lawn Entry', quantity: 1, unitPriceCents: 99_900 },
   ]
 
@@ -117,9 +130,9 @@ describe('priceSelection', () => {
     const totals = priceSelection({ lines, currency: 'INR', place: { country: 'IN' } })
 
     expect(totals.subtotalCents).toBe(599_700)
-    expect(
-      totals.subtotalCents - totals.discountCents + totals.feesCents + totals.taxCents,
-    ).toBe(totals.totalCents)
+    expect(totals.subtotalCents - totals.discountCents + totals.feesCents + totals.taxCents).toBe(
+      totals.totalCents,
+    )
   })
 
   it('keeps every column an integer number of minor units', () => {
@@ -137,7 +150,10 @@ describe('priceSelection', () => {
 
   it('drops zero-quantity lines so the per-ticket fee is not charged on them', () => {
     const withZero = priceSelection({
-      lines: [...lines, { ticketTypeId: 'ttqawwalimehfil', name: 'Mehfil', quantity: 0, unitPriceCents: 449_900 }],
+      lines: [
+        ...lines,
+        { ticketTypeId: 'ttqawwalimehfil', name: 'Mehfil', quantity: 0, unitPriceCents: 449_900 },
+      ],
       currency: 'INR',
     })
 
@@ -154,7 +170,14 @@ describe('priceSelection', () => {
 
   it('prices a free tier as a genuinely free order', () => {
     const totals = priceSelection({
-      lines: [{ ticketTypeId: 'ttdiwalisquareentry', name: 'Square Entry', quantity: 4, unitPriceCents: 0 }],
+      lines: [
+        {
+          ticketTypeId: 'ttdiwalisquareentry',
+          name: 'Square Entry',
+          quantity: 4,
+          unitPriceCents: 0,
+        },
+      ],
       currency: 'CAD',
     })
 

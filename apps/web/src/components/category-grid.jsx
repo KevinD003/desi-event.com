@@ -25,7 +25,10 @@ import { RevealOnScroll } from './motion.jsx'
  */
 export function CategoryGrid({ categories }) {
   return (
-    <ul aria-label="Browse by category" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <ul
+      aria-label="Browse by category"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+    >
       {categories.map((category, index) => (
         <RevealOnScroll as="li" key={category.value} index={index}>
           <Link

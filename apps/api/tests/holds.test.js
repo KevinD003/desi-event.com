@@ -24,7 +24,11 @@ describe('POST /v1/holds', () => {
     expect(response.statusCode).toBe(201)
 
     const { data } = response.json()
-    expect(data).toMatchObject({ ticketTypeId: ids.generalAdmission.id, quantity: 2, unitPriceCents: 150_000 })
+    expect(data).toMatchObject({
+      ticketTypeId: ids.generalAdmission.id,
+      quantity: 2,
+      unitPriceCents: 150_000,
+    })
 
     const expiresAt = Date.parse(data.expiresAt)
     expect(expiresAt).toBeGreaterThanOrEqual(before + 300_000)
@@ -131,12 +135,14 @@ describe('POST /v1/holds', () => {
 
     Object.assign(tier(), { salesStartAt: minutesFromNow(60), salesEndAt: null })
     expect(
-      (await hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 1 })).json().error.message,
+      (await hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 1 })).json().error
+        .message,
     ).toMatch(/not opened/i)
 
     Object.assign(tier(), { salesStartAt: minutesFromNow(-120), salesEndAt: minutesFromNow(-60) })
     expect(
-      (await hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 1 })).json().error.message,
+      (await hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 1 })).json().error
+        .message,
     ).toMatch(/closed/i)
 
     await app.close()
@@ -189,7 +195,9 @@ describe('POST /v1/holds', () => {
 
     // Ten seats, ten simultaneous requests for two seats each.
     const attempts = await Promise.all(
-      Array.from({ length: 10 }, () => hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 2 })),
+      Array.from({ length: 10 }, () =>
+        hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 2 }),
+      ),
     )
 
     const granted = attempts.filter((attempt) => attempt.statusCode === 201)
@@ -292,7 +300,8 @@ describe('DELETE /v1/holds/:id', () => {
     const { app } = await createTestApp()
 
     expect(
-      (await app.inject({ method: 'DELETE', url: '/v1/holds/cnosuchhold00000000000zz' })).statusCode,
+      (await app.inject({ method: 'DELETE', url: '/v1/holds/cnosuchhold00000000000zz' }))
+        .statusCode,
     ).toBe(404)
 
     await app.close()

@@ -83,15 +83,15 @@ sequenceDiagram
 Inside Fastify, a request passes through a fixed pipeline, assembled in
 `apps/api/src/app.js`:
 
-| Stage | Plugin | What it does |
-| --- | --- | --- |
-| 1 | `plugins/validation` | Compiles Zod schemas into Fastify validators and serialisers |
-| 2 | `plugins/error-handler` | One exit point; every failure leaves as the same envelope |
-| 3 | `plugins/security` | Helmet headers, CORS from `CORS_ORIGIN` |
-| 4 | `plugins/rate-limit` | 300 requests/minute globally, 10/minute on credentials |
-| 5 | `plugins/auth` | JWT verification, then actor loading from the database |
-| 6 | `plugins/docs` | `/docs` (Swagger UI) and `/openapi.json` |
-| 7 | `routes/*` | Handlers, attached to contract descriptors by id |
+| Stage | Plugin                  | What it does                                                 |
+| ----- | ----------------------- | ------------------------------------------------------------ |
+| 1     | `plugins/validation`    | Compiles Zod schemas into Fastify validators and serialisers |
+| 2     | `plugins/error-handler` | One exit point; every failure leaves as the same envelope    |
+| 3     | `plugins/security`      | Helmet headers, CORS from `CORS_ORIGIN`                      |
+| 4     | `plugins/rate-limit`    | 300 requests/minute globally, 10/minute on credentials       |
+| 5     | `plugins/auth`          | JWT verification, then actor loading from the database       |
+| 6     | `plugins/docs`          | `/docs` (Swagger UI) and `/openapi.json`                     |
+| 7     | `routes/*`              | Handlers, attached to contract descriptors by id             |
 
 Two details are load-bearing. The auth guard runs as an `onRequest` hook rather
 than a `preHandler`, so an anonymous caller gets a 401 before the body is
@@ -104,18 +104,18 @@ this morning loses access this morning, not when their seven-day token lapses.
 Redis is the queue transport and nothing else today. Being precise about that
 matters more than the diagram:
 
-* **The worker** opens the only Redis connection in the system. It creates four
+- **The worker** opens the only Redis connection in the system. It creates four
   queues (`email`, `holds`, `tickets`, `search`), one `Worker` per queue, and
   upserts a job scheduler that enqueues an `expire-holds` job every
   `EXPIRE_HOLDS_INTERVAL_MS` (30 seconds by default).
-* **The API does not currently talk to Redis.** `buildApp()` accepts an
+- **The API does not currently talk to Redis.** `buildApp()` accepts an
   optional ioredis-compatible client for the `/health` probe, but `server.js`
   injects none, so `GET /health` reports `checks.database` only. Rate limiting
   is `@fastify/rate-limit`'s in-process store, which means the budgets above
   are per instance rather than per cluster. Both are deliberate for a
   single-instance deployment and both are the first things to change when a
   second instance appears.
-* **The only wired producer is the worker's own scheduler.** `enqueueSendEmail`,
+- **The only wired producer is the worker's own scheduler.** `enqueueSendEmail`,
   `enqueueIssueTickets` and `enqueueIndexEvent` are implemented, validated and
   tested, but nothing in `apps/api` calls them yet: `orders.create` mints
   tickets inline inside the checkout transaction. The `issue-tickets` processor
@@ -230,14 +230,14 @@ sequenceDiagram
 
 Three rules this endpoint never breaks:
 
-* **Prices are never taken from the request.** Only `ticketTypeId` and
+- **Prices are never taken from the request.** Only `ticketTypeId` and
   `quantity` are trusted; every amount is recomputed by `@desi-event/pricing`
   from the ticket type rows, in integer cents.
-* **Availability is re-checked under the lock**, because a hold may have lapsed
+- **Availability is re-checked under the lock**, because a hold may have lapsed
   between the cart and the card. The buyer's own holds are excluded from the
   held total so their reservation is not counted against the very request it
   exists to protect.
-* **Nothing survives a failed payment.** Order, items, tickets, the sold
+- **Nothing survives a failed payment.** Order, items, tickets, the sold
   counter and the hold conversions are written inside one transaction that the
   payment call runs inside. A decline throws, the transaction rolls back, and
   the database looks exactly as it did before the attempt.
@@ -272,11 +272,11 @@ cart is purchasable by somebody else while the card is authorising.
 
 #### Three outcomes, three paths
 
-| Provider says | Order | Payment | Inventory |
-| --- | --- | --- | --- |
-| Captured | `PAID`, tickets issued | `SUCCEEDED` | `quantitySold` incremented, holds `CONVERTED` |
-| Declined | `CANCELLED` | `FAILED` with the decline code | Untouched; holds stay `ACTIVE` so the buyer can retry |
-| Nothing (timeout) | stays `PENDING` | `TIMEOUT`, `reconciliationRequired` | Stays reserved |
+| Provider says     | Order                  | Payment                             | Inventory                                             |
+| ----------------- | ---------------------- | ----------------------------------- | ----------------------------------------------------- |
+| Captured          | `PAID`, tickets issued | `SUCCEEDED`                         | `quantitySold` incremented, holds `CONVERTED`         |
+| Declined          | `CANCELLED`            | `FAILED` with the decline code      | Untouched; holds stay `ACTIVE` so the buyer can retry |
+| Nothing (timeout) | stays `PENDING`        | `TIMEOUT`, `reconciliationRequired` | Stays reserved                                        |
 
 A timeout is not a decline. A decline means no money moved; a timeout means
 nobody knows. Cancelling an order whose charge may have succeeded either strands
@@ -411,10 +411,10 @@ three packages carry coverage thresholds.
 
 Two rules keep it that way:
 
-* **Nothing but `apps/api` and `apps/worker` imports `@desi-event/db`.** The web
+- **Nothing but `apps/api` and `apps/worker` imports `@desi-event/db`.** The web
   app has no database credentials and no Prisma client; it reaches data only
   through the API.
-* **Nothing hard-codes a URL.** `apps/web` calls `createApiClient()` from
+- **Nothing hard-codes a URL.** `apps/web` calls `createApiClient()` from
   `@desi-event/api-contract`, so a renamed path is a compile-free but
   test-visible change in exactly one file.
 
@@ -447,28 +447,28 @@ flowchart LR
 
 Four boundaries, and what is checked at each:
 
-| Boundary | Crossing | Enforcement |
-| --- | --- | --- |
-| Browser → API | Untrusted input | Every param, query and body is parsed by a Zod schema from the route descriptor before a handler sees it. Responses are serialised through their schema too, so a handler cannot leak a field the contract does not declare |
-| Anonymous → authenticated | Bearer JWT | `app.authenticate` verifies the signature, then re-loads the user and memberships from the database on every request |
-| Authenticated → authorized | Capability check | `assertCan(actor, capability, { organizationId })` from `@desi-event/permissions`. No route compares a role itself |
-| Producer → worker | Queue payload | Job payloads are validated twice, by the producer (`validateJobPayload`) and again by the processor (`parseJobPayload`), because the two catch different bugs |
+| Boundary                   | Crossing         | Enforcement                                                                                                                                                                                                                 |
+| -------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser → API              | Untrusted input  | Every param, query and body is parsed by a Zod schema from the route descriptor before a handler sees it. Responses are serialised through their schema too, so a handler cannot leak a field the contract does not declare |
+| Anonymous → authenticated  | Bearer JWT       | `app.authenticate` verifies the signature, then re-loads the user and memberships from the database on every request                                                                                                        |
+| Authenticated → authorized | Capability check | `assertCan(actor, capability, { organizationId })` from `@desi-event/permissions`. No route compares a role itself                                                                                                          |
+| Producer → worker          | Queue payload    | Job payloads are validated twice, by the producer (`validateJobPayload`) and again by the processor (`parseJobPayload`), because the two catch different bugs                                                               |
 
 Supporting rules:
 
-* Money never crosses a boundary as a client-supplied amount. Prices come from
+- Money never crosses a boundary as a client-supplied amount. Prices come from
   the database; totals come from `@desi-event/pricing`.
-* Environment variables are parsed at boot through `apiEnvSchema`,
+- Environment variables are parsed at boot through `apiEnvSchema`,
   `workerEnvSchema` or `webEnvSchema`, so a misconfiguration is an immediate
   crash naming the variable rather than a confusing failure later.
-* `JWT_SECRET` must be at least 32 characters, and the schema refuses known
+- `JWT_SECRET` must be at least 32 characters, and the schema refuses known
   placeholder values when `NODE_ENV=production`.
-* Sign-in answers 401 identically for a wrong password and an unknown email,
+- Sign-in answers 401 identically for a wrong password and an unknown email,
   and hashes against a dummy bcrypt hash in the unknown-email case so the two
   take the same time. The endpoint cannot be used to enumerate accounts.
-* 5xx bodies in production carry a fixed message; internal detail is logged,
+- 5xx bodies in production carry a fixed message; internal detail is logged,
   never sent.
-* The error handler is the single exit point, so nothing reaches a client
+- The error handler is the single exit point, so nothing reaches a client
   outside the `errorResponseSchema` envelope.
 
 ## Phase 3: mobile
@@ -479,12 +479,12 @@ React Native with Expo is planned and **not yet scaffolded**. There is no
 When it lands, it is a fourth consumer of the same packages rather than a
 second implementation of the product:
 
-* `@desi-event/schemas` — the same Zod schemas validating the same payloads.
-* `@desi-event/pricing` — the same integer-cent totals, so a basket cannot show
+- `@desi-event/schemas` — the same Zod schemas validating the same payloads.
+- `@desi-event/pricing` — the same integer-cent totals, so a basket cannot show
   one price on a phone and another on the web.
-* `@desi-event/permissions` — the same capability checks deciding which
+- `@desi-event/permissions` — the same capability checks deciding which
   organiser tools appear.
-* `@desi-event/api-contract` — the same generated client against the same
+- `@desi-event/api-contract` — the same generated client against the same
   routes, which is what makes a new endpoint reach mobile without anybody
   hand-writing a URL.
 

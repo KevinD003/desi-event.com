@@ -121,7 +121,12 @@ describe('createExpireHoldsProcessor', () => {
     const prisma = createFakePrisma({
       holds: [
         buildHold({ id: 'a', ticketTypeId: TICKET_TYPE_ID, quantity: 1, expiresAt: stale }),
-        buildHold({ id: 'b', ticketTypeId: 'cltypeb000000000000001a', quantity: 5, expiresAt: stale }),
+        buildHold({
+          id: 'b',
+          ticketTypeId: 'cltypeb000000000000001a',
+          quantity: 5,
+          expiresAt: stale,
+        }),
         buildHold({ id: 'c', ticketTypeId: TICKET_TYPE_ID, quantity: 2, expiresAt: stale }),
       ],
     })
@@ -211,7 +216,11 @@ describe('createExpireHoldsProcessor', () => {
     await createExpireHoldsProcessor({ prisma, logger, clock: () => NOW })(job())
 
     expect(logger.at('info')).toHaveLength(1)
-    expect(logger.at('info')[0].fields).toMatchObject({ expired: 1, updated: 1, releasedQuantity: 2 })
+    expect(logger.at('info')[0].fields).toMatchObject({
+      expired: 1,
+      updated: 1,
+      releasedQuantity: 2,
+    })
   })
 
   it('refuses to be constructed without a prisma client', () => {

@@ -1,9 +1,9 @@
 # ADR 0002 — When another language may enter the repository
 
-* **Status:** Accepted
-* **Date:** 2026-09-14
-* **Supersedes:** nothing
-* **Related:** ADR 0001
+- **Status:** Accepted
+- **Date:** 2026-09-14
+- **Supersedes:** nothing
+- **Related:** ADR 0001
 
 ## Context
 
@@ -13,7 +13,7 @@ certain compute-bound services have real homes outside Node.js, and pretending
 otherwise leads to worse engineering than admitting the boundary.
 
 The failure mode we actually want to prevent is not "a second language exists".
-It is a second language arriving *by accident* — a script someone found
+It is a second language arriving _by accident_ — a script someone found
 convenient, with no owner, no deployment story, no security review, and no
 documented interface, which becomes load-bearing before anyone notices.
 

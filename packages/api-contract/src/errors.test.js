@@ -47,8 +47,12 @@ describe('ApiClientError', () => {
 
   it('falls back to HTTP_<status> when the body is not an envelope', () => {
     expect(new ApiClientError('nope', { status: 500, body: 'oops' }).code).toBe('HTTP_500')
-    expect(new ApiClientError('nope', { status: 500, body: { error: 'oops' } }).code).toBe('HTTP_500')
-    expect(new ApiClientError('nope', { status: 500, body: { error: { code: 7 } } }).code).toBe('HTTP_500')
+    expect(new ApiClientError('nope', { status: 500, body: { error: 'oops' } }).code).toBe(
+      'HTTP_500',
+    )
+    expect(new ApiClientError('nope', { status: 500, body: { error: { code: 7 } } }).code).toBe(
+      'HTTP_500',
+    )
   })
 
   it('defaults to a network error with status 0', () => {

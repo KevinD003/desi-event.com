@@ -285,7 +285,11 @@ describe('capabilitiesFor', () => {
   })
 
   it('unions platform and membership capabilities without duplicates', () => {
-    const admin = { id: 'usr_admin', role: 'ADMIN', memberships: [{ organizationId: ORG_A, role: 'OWNER' }] }
+    const admin = {
+      id: 'usr_admin',
+      role: 'ADMIN',
+      memberships: [{ organizationId: ORG_A, role: 'OWNER' }],
+    }
     const result = capabilitiesFor(admin, ORG_A)
 
     expect(result).toEqual([...ALL_CAPABILITIES])

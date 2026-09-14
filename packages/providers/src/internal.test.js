@@ -120,9 +120,9 @@ describe('normaliseMetadata', () => {
   })
 
   it('rejects non-object metadata with the supplied code', () => {
-    expect(() =>
-      normaliseMetadata(['a'], PROVIDER_ERROR_CODES.INVALID_MESSAGE, 'p'),
-    ).toThrowError(/plain object/)
+    expect(() => normaliseMetadata(['a'], PROVIDER_ERROR_CODES.INVALID_MESSAGE, 'p')).toThrowError(
+      /plain object/,
+    )
 
     try {
       normaliseMetadata('nope', PROVIDER_ERROR_CODES.INVALID_MESSAGE, 'p')

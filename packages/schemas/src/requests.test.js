@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  DEFAULT_PAGE,
-  DEFAULT_PER_PAGE,
-  MAX_PER_PAGE,
-} from './primitives.js'
+import { DEFAULT_PAGE, DEFAULT_PER_PAGE, MAX_PER_PAGE } from './primitives.js'
 import {
   checkInRequestSchema,
   createEventRequestSchema,
@@ -177,9 +173,9 @@ describe('createEventRequestSchema', () => {
   })
 
   it('requires onlineUrl for an online event', () => {
-    expect(issuePaths(createEventRequestSchema.safeParse({ ...validEvent, isOnline: true }))).toEqual(
-      ['onlineUrl'],
-    )
+    expect(
+      issuePaths(createEventRequestSchema.safeParse({ ...validEvent, isOnline: true })),
+    ).toEqual(['onlineUrl'])
     expect(
       createEventRequestSchema.safeParse({
         ...validEvent,
@@ -236,7 +232,9 @@ describe('updateEventRequestSchema', () => {
   })
 
   it('does not fire the window check when only one end is supplied', () => {
-    expect(updateEventRequestSchema.safeParse({ endsAt: '2026-10-01T00:00:00Z' }).success).toBe(true)
+    expect(updateEventRequestSchema.safeParse({ endsAt: '2026-10-01T00:00:00Z' }).success).toBe(
+      true,
+    )
   })
 
   it('refuses to move an event between organisations', () => {
@@ -292,7 +290,9 @@ describe('listEventsQuerySchema', () => {
   })
 
   it('caps perPage', () => {
-    expect(listEventsQuerySchema.parse({ perPage: String(MAX_PER_PAGE) }).perPage).toBe(MAX_PER_PAGE)
+    expect(listEventsQuerySchema.parse({ perPage: String(MAX_PER_PAGE) }).perPage).toBe(
+      MAX_PER_PAGE,
+    )
     expect(issuePaths(listEventsQuerySchema.safeParse({ perPage: '101' }))).toEqual(['perPage'])
   })
 
@@ -564,9 +564,9 @@ describe('checkInRequestSchema', () => {
 
 describe('joinWaitlistRequestSchema', () => {
   it('defaults the quantity to one', () => {
-    expect(joinWaitlistRequestSchema.parse({ eventId: EVENT_ID, email: 'Fan@Example.com' })).toEqual(
-      { eventId: EVENT_ID, email: 'fan@example.com', quantity: 1 },
-    )
+    expect(
+      joinWaitlistRequestSchema.parse({ eventId: EVENT_ID, email: 'Fan@Example.com' }),
+    ).toEqual({ eventId: EVENT_ID, email: 'fan@example.com', quantity: 1 })
   })
 
   it('rejects an absurd quantity', () => {

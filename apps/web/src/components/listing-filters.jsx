@@ -84,7 +84,9 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
     if (typeof resultCount !== 'number') return
 
     setAnnouncement(
-      resultCount === 1 ? '1 event matches your filters' : `${resultCount} events match your filters`,
+      resultCount === 1
+        ? '1 event matches your filters'
+        : `${resultCount} events match your filters`,
     )
   }, [resultCount])
 

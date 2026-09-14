@@ -151,8 +151,20 @@ describe('toEventSummary', () => {
     const event = {
       ...SAMPLE_EVENTS[0],
       ticketTypes: [
-        { id: 'ttcheapgone', priceCents: 100, currency: 'INR', status: 'SOLD_OUT', isSoldOut: true },
-        { id: 'ttdearleft', priceCents: 5000, currency: 'INR', status: 'ON_SALE', isSoldOut: false },
+        {
+          id: 'ttcheapgone',
+          priceCents: 100,
+          currency: 'INR',
+          status: 'SOLD_OUT',
+          isSoldOut: true,
+        },
+        {
+          id: 'ttdearleft',
+          priceCents: 5000,
+          currency: 'INR',
+          status: 'ON_SALE',
+          isSoldOut: false,
+        },
       ],
     }
 
@@ -165,7 +177,13 @@ describe('toEventSummary', () => {
       ...SAMPLE_EVENTS[0],
       ticketTypes: [
         { id: 'ttallgone1', priceCents: 100, currency: 'INR', status: 'SOLD_OUT', isSoldOut: true },
-        { id: 'ttallgone2', priceCents: 5000, currency: 'INR', status: 'SOLD_OUT', isSoldOut: true },
+        {
+          id: 'ttallgone2',
+          priceCents: 5000,
+          currency: 'INR',
+          status: 'SOLD_OUT',
+          isSoldOut: true,
+        },
       ],
     }
 

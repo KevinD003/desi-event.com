@@ -47,7 +47,9 @@ const REQUIRED_FIELDS = Object.freeze([
  * @returns {boolean} True when the value can parse.
  */
 function isZodSchema(value) {
-  return Boolean(value) && typeof (/** @type {{safeParse?: unknown}} */ (value).safeParse) === 'function'
+  return (
+    Boolean(value) && typeof (/** @type {{safeParse?: unknown}} */ (value).safeParse) === 'function'
+  )
 }
 
 /**
@@ -79,7 +81,10 @@ function checkRoute(route, index) {
     if (!(field in route)) fail('MISSING_FIELD', `Route ${routeId} is missing "${field}"`)
   }
 
-  if (typeof route.id !== 'string' || !/^[a-z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$/.test(route.id ?? '')) {
+  if (
+    typeof route.id !== 'string' ||
+    !/^[a-z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$/.test(route.id ?? '')
+  ) {
     fail('BAD_ID', `Route id "${routeId}" must be a dotted camelCase pair, e.g. "events.list"`)
   }
 
@@ -118,7 +123,11 @@ function checkRoute(route, index) {
     }
   }
 
-  if (!Number.isInteger(route.successStatus) || route.successStatus < 200 || route.successStatus > 299) {
+  if (
+    !Number.isInteger(route.successStatus) ||
+    route.successStatus < 200 ||
+    route.successStatus > 299
+  ) {
     fail('BAD_SUCCESS_STATUS', `Route ${routeId} successStatus must be a 2xx integer`)
   }
 
@@ -129,7 +138,10 @@ function checkRoute(route, index) {
 
     for (const error of route.errors) {
       if (!Number.isInteger(error?.status) || !error?.code || !error?.description) {
-        fail('BAD_ERROR_ENTRY', `Route ${routeId} has an error entry missing status, code or description`)
+        fail(
+          'BAD_ERROR_ENTRY',
+          `Route ${routeId} has an error entry missing status, code or description`,
+        )
         continue
       }
 
@@ -145,11 +157,17 @@ function checkRoute(route, index) {
   const declared = pathParamNames(route.path ?? '')
 
   if (declared.length > 0 && !route.params) {
-    fail('MISSING_PARAMS_SCHEMA', `Route ${routeId} has path params (${declared.join(', ')}) but no params schema`)
+    fail(
+      'MISSING_PARAMS_SCHEMA',
+      `Route ${routeId} has path params (${declared.join(', ')}) but no params schema`,
+    )
   }
 
   if (declared.length === 0 && route.params) {
-    fail('UNUSED_PARAMS_SCHEMA', `Route ${routeId} declares a params schema but its path has no parameters`)
+    fail(
+      'UNUSED_PARAMS_SCHEMA',
+      `Route ${routeId} declares a params schema but its path has no parameters`,
+    )
   }
 
   if (route.body && ['GET', 'DELETE'].includes(route.method)) {
@@ -200,7 +218,8 @@ function checkDocument(document, expectedOperations) {
 
   for (const [path, item] of Object.entries(paths)) {
     if (!path.startsWith('/')) fail('BAD_DOCUMENT_PATH', `Path "${path}" must start with "/"`)
-    if (path.includes(':')) fail('UNCONVERTED_PATH', `Path "${path}" still uses Fastify ":param" syntax`)
+    if (path.includes(':'))
+      fail('UNCONVERTED_PATH', `Path "${path}" still uses Fastify ":param" syntax`)
 
     const templated = [...path.matchAll(/\{([^}]+)\}/g)].map((match) => match[1])
 
@@ -221,20 +240,29 @@ function checkDocument(document, expectedOperations) {
 
       for (const name of templated) {
         if (!pathParams.includes(name)) {
-          fail('UNDOCUMENTED_PATH_PARAM', `${method.toUpperCase()} ${path} does not document "{${name}}"`)
+          fail(
+            'UNDOCUMENTED_PATH_PARAM',
+            `${method.toUpperCase()} ${path} does not document "{${name}}"`,
+          )
         }
       }
 
       for (const [status, response] of Object.entries(operation.responses ?? {})) {
         if (!response.description) {
-          fail('MISSING_RESPONSE_DESCRIPTION', `${method.toUpperCase()} ${path} ${status} has no description`)
+          fail(
+            'MISSING_RESPONSE_DESCRIPTION',
+            `${method.toUpperCase()} ${path} ${status} has no description`,
+          )
         }
       }
     }
   }
 
   if (operations !== expectedOperations) {
-    fail('OPERATION_COUNT', `Expected ${expectedOperations} operations in the document, found ${operations}`)
+    fail(
+      'OPERATION_COUNT',
+      `Expected ${expectedOperations} operations in the document, found ${operations}`,
+    )
   }
 
   issues.push(...checkDanglingRefs(document))
@@ -272,14 +300,20 @@ function checkDanglingRefs(document) {
     for (const [key, value] of Object.entries(node)) {
       if (key === '$ref' && typeof value === 'string') {
         if (value.startsWith('#/$defs/')) {
-          issues.push({ code: 'LOCAL_DEFS_REF', message: `Reference "${value}" was not hoisted into components` })
+          issues.push({
+            code: 'LOCAL_DEFS_REF',
+            message: `Reference "${value}" was not hoisted into components`,
+          })
         } else if (value.startsWith('#/components/schemas/')) {
           const name = value.slice('#/components/schemas/'.length)
           if (!known.has(name)) {
             issues.push({ code: 'DANGLING_REF', message: `Reference "${value}" does not resolve` })
           }
         } else {
-          issues.push({ code: 'EXTERNAL_REF', message: `Reference "${value}" is not document-local` })
+          issues.push({
+            code: 'EXTERNAL_REF',
+            message: `Reference "${value}" is not document-local`,
+          })
         }
         continue
       }
@@ -308,7 +342,12 @@ export function validateContract(options = {}) {
   const issues = []
 
   if (!Array.isArray(routes) || routes.length === 0) {
-    return { ok: false, issues: [{ code: 'EMPTY_CONTRACT', message: 'The route table is empty' }], document: null, routeCount: 0 }
+    return {
+      ok: false,
+      issues: [{ code: 'EMPTY_CONTRACT', message: 'The route table is empty' }],
+      document: null,
+      routeCount: 0,
+    }
   }
 
   const seenIds = new Set()
@@ -318,11 +357,16 @@ export function validateContract(options = {}) {
     issues.push(...checkRoute(route, index))
 
     if (seenIds.has(route?.id)) {
-      issues.push({ code: 'DUPLICATE_ID', message: `Route id "${route.id}" is declared twice`, routeId: route.id })
+      issues.push({
+        code: 'DUPLICATE_ID',
+        message: `Route id "${route.id}" is declared twice`,
+        routeId: route.id,
+      })
     }
     seenIds.add(route?.id)
 
-    const key = typeof route?.method === 'string' && typeof route?.path === 'string' ? routeKey(route) : null
+    const key =
+      typeof route?.method === 'string' && typeof route?.path === 'string' ? routeKey(route) : null
 
     if (key) {
       // Compared on the routing shape, so `/e/:id` and `/e/:slug` — which
@@ -347,7 +391,10 @@ export function validateContract(options = {}) {
   try {
     document = buildOpenApiDocument({ routes })
   } catch (error) {
-    issues.push({ code: 'GENERATION_FAILED', message: `Document generation threw: ${error.message}` })
+    issues.push({
+      code: 'GENERATION_FAILED',
+      message: `Document generation threw: ${error.message}`,
+    })
   }
 
   if (document) issues.push(...checkDocument(document, routes.length))

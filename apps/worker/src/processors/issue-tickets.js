@@ -28,7 +28,12 @@
 
 import { JOB_NAMES, issueTicketsJobSchema } from '@desi-event/schemas'
 
-import { PermanentJobError, RetryableJobError, WORKER_ERROR_CODES, parseJobPayload } from '../errors.js'
+import {
+  PermanentJobError,
+  RetryableJobError,
+  WORKER_ERROR_CODES,
+  parseJobPayload,
+} from '../errors.js'
 import { generateTicketCodes } from '../ticket-codes.js'
 
 /** `OrderStatus.PAID`. */

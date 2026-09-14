@@ -89,7 +89,9 @@ test.describe('announcements and deliberate focus movement', () => {
     await page.goto('/events')
 
     // Scoped to the filter bar: the sample-data notice is also a status region.
-    const live = page.locator('form[aria-label="Filter events"] [role="status"][aria-live="polite"]')
+    const live = page.locator(
+      'form[aria-label="Filter events"] [role="status"][aria-live="polite"]',
+    )
     await expect(live).toHaveCount(1)
 
     // Empty on first paint: a screen reader is already reading the page, and
@@ -133,10 +135,11 @@ test.describe('filter focus under reduced motion', () => {
 
     expect((await activeElement(page)).name).toBe('category')
 
-    const hidden = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-motion]')].filter(
-        (element) => Number.parseFloat(getComputedStyle(element).opacity) === 0,
-      ).length,
+    const hidden = await page.evaluate(
+      () =>
+        [...document.querySelectorAll('[data-motion]')].filter(
+          (element) => Number.parseFloat(getComputedStyle(element).opacity) === 0,
+        ).length,
     )
 
     expect(hidden).toBe(0)

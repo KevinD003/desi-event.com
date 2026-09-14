@@ -61,7 +61,9 @@ describe('salesWindowState — explicit status precedence', () => {
 
 describe('salesWindowState — the clock, for ON_SALE ticket types', () => {
   it('is NOT_STARTED before the window opens', () => {
-    expect(salesWindowState(input({ now: new Date('2026-02-28T09:59:59.999Z') }))).toBe('NOT_STARTED')
+    expect(salesWindowState(input({ now: new Date('2026-02-28T09:59:59.999Z') }))).toBe(
+      'NOT_STARTED',
+    )
   })
 
   it('is NOT_STARTED one millisecond before the start', () => {
@@ -93,13 +95,15 @@ describe('salesWindowState — the clock, for ON_SALE ticket types', () => {
   })
 
   it('treats a missing start as "open from the beginning"', () => {
-    expect(salesWindowState(input({ salesStartAt: null, now: new Date('2020-01-01T00:00:00.000Z') })))
-      .toBe('ON_SALE')
+    expect(
+      salesWindowState(input({ salesStartAt: null, now: new Date('2020-01-01T00:00:00.000Z') })),
+    ).toBe('ON_SALE')
   })
 
   it('treats a missing end as "never closes"', () => {
-    expect(salesWindowState(input({ salesEndAt: null, now: new Date('2099-01-01T00:00:00.000Z') })))
-      .toBe('ON_SALE')
+    expect(
+      salesWindowState(input({ salesEndAt: null, now: new Date('2099-01-01T00:00:00.000Z') })),
+    ).toBe('ON_SALE')
   })
 
   it('treats undefined bounds like null', () => {
@@ -107,36 +111,45 @@ describe('salesWindowState — the clock, for ON_SALE ticket types', () => {
   })
 
   it('reports NOT_STARTED, not ENDED, for a future window', () => {
-    expect(salesWindowState(input({
-      salesStartAt: new Date('2027-01-01T00:00:00.000Z'),
-      salesEndAt: new Date('2027-02-01T00:00:00.000Z'),
-    }))).toBe('NOT_STARTED')
+    expect(
+      salesWindowState(
+        input({
+          salesStartAt: new Date('2027-01-01T00:00:00.000Z'),
+          salesEndAt: new Date('2027-02-01T00:00:00.000Z'),
+        }),
+      ),
+    ).toBe('NOT_STARTED')
   })
 
   it('handles a zero-length window as permanently ENDED once reached', () => {
     const instant = new Date('2026-03-10T00:00:00.000Z')
-    expect(salesWindowState(input({ salesStartAt: instant, salesEndAt: instant, now: instant })))
-      .toBe('ENDED')
+    expect(
+      salesWindowState(input({ salesStartAt: instant, salesEndAt: instant, now: instant })),
+    ).toBe('ENDED')
   })
 })
 
 describe('salesWindowState — accepted instant formats', () => {
   it('accepts ISO strings', () => {
-    expect(salesWindowState({
-      status: 'ON_SALE',
-      salesStartAt: '2026-03-01T10:00:00.000Z',
-      salesEndAt: '2026-03-31T23:00:00.000Z',
-      now: '2026-03-02T00:00:00.000Z',
-    })).toBe('ON_SALE')
+    expect(
+      salesWindowState({
+        status: 'ON_SALE',
+        salesStartAt: '2026-03-01T10:00:00.000Z',
+        salesEndAt: '2026-03-31T23:00:00.000Z',
+        now: '2026-03-02T00:00:00.000Z',
+      }),
+    ).toBe('ON_SALE')
   })
 
   it('accepts epoch milliseconds', () => {
-    expect(salesWindowState({
-      status: 'ON_SALE',
-      salesStartAt: START.getTime(),
-      salesEndAt: END.getTime(),
-      now: START.getTime(),
-    })).toBe('ON_SALE')
+    expect(
+      salesWindowState({
+        status: 'ON_SALE',
+        salesStartAt: START.getTime(),
+        salesEndAt: END.getTime(),
+        now: START.getTime(),
+      }),
+    ).toBe('ON_SALE')
   })
 
   it('compares absolute instants, so a non-UTC offset resolves correctly', () => {
@@ -149,8 +162,9 @@ describe('salesWindowState — accepted instant formats', () => {
 
 describe('salesWindowState — rejections', () => {
   it('rejects an unknown status', () => {
-    expect(() => salesWindowState(input({ status: 'ON_SALE_SOON' })))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_STATUS }))
+    expect(() => salesWindowState(input({ status: 'ON_SALE_SOON' }))).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_STATUS }),
+    )
   })
 
   it('rejects a missing status', () => {
@@ -158,28 +172,33 @@ describe('salesWindowState — rejections', () => {
   })
 
   it('rejects a lower-case status — enum values are exact', () => {
-    expect(() => salesWindowState(input({ status: 'on_sale' })))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_STATUS }))
+    expect(() => salesWindowState(input({ status: 'on_sale' }))).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_STATUS }),
+    )
   })
 
   it('rejects a missing now', () => {
-    expect(() => salesWindowState({ status: 'ON_SALE' }))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => salesWindowState({ status: 'ON_SALE' })).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 
   it('rejects an invalid Date for now', () => {
-    expect(() => salesWindowState(input({ now: new Date('not a date') })))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => salesWindowState(input({ now: new Date('not a date') }))).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 
   it('rejects an unparseable start', () => {
-    expect(() => salesWindowState(input({ salesStartAt: 'next Tuesday' })))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => salesWindowState(input({ salesStartAt: 'next Tuesday' }))).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 
   it('rejects a window that ends before it starts', () => {
-    expect(() => salesWindowState(input({ salesStartAt: END, salesEndAt: START })))
-      .toThrow(expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }))
+    expect(() => salesWindowState(input({ salesStartAt: END, salesEndAt: START }))).toThrow(
+      expect.objectContaining({ code: INVENTORY_ERROR_CODES.INVALID_DATE }),
+    )
   })
 
   it('rejects being called with no argument at all', () => {

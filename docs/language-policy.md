@@ -19,14 +19,14 @@ serve well, and only after the justification below is written down.
 
 The following must not appear anywhere in the repository:
 
-| Prohibited | Use instead |
-| --- | --- |
-| `.ts`, `.tsx`, `.mts`, `.cts` source files | `.js`, `.mjs`, `.cjs`, `.jsx` |
-| `tsconfig.json` and variants | No compiler configuration is needed |
-| Hand-written `.d.ts` declarations | JSDoc `@typedef` blocks |
-| `typescript`, `ts-node`, `tsx`, `tsup`, `ts-jest`, `typedoc` | Node.js runs the source directly |
-| `@typescript-eslint/*` | `eslint` with the shared preset in `@desi-event/config` |
-| Hand-installed `@types/*` packages | JSDoc and Zod |
+| Prohibited                                                   | Use instead                                             |
+| ------------------------------------------------------------ | ------------------------------------------------------- |
+| `.ts`, `.tsx`, `.mts`, `.cts` source files                   | `.js`, `.mjs`, `.cjs`, `.jsx`                           |
+| `tsconfig.json` and variants                                 | No compiler configuration is needed                     |
+| Hand-written `.d.ts` declarations                            | JSDoc `@typedef` blocks                                 |
+| `typescript`, `ts-node`, `tsx`, `tsup`, `ts-jest`, `typedoc` | Node.js runs the source directly                        |
+| `@typescript-eslint/*`                                       | `eslint` with the shared preset in `@desi-event/config` |
+| Hand-installed `@types/*` packages                           | JSDoc and Zod                                           |
 
 This is a deliberate trade. The cost is that the compiler will not catch type
 errors for us. The mitigation is Section 5, and it is not optional: correctness
@@ -39,23 +39,23 @@ source we write, not the internals of packages we install.
 
 ## 3. Language of each surface
 
-| Surface | Technology |
-| --- | --- |
-| Backend runtime | Node.js |
-| Backend framework | Fastify |
-| Frontend | React with Next.js App Router, JSX |
-| Mobile (Phase 3) | React Native with Expo, JSX |
-| Database | PostgreSQL |
-| ORM | Prisma |
-| Cache and queues | Redis with BullMQ |
-| Package manager | pnpm |
-| Monorepo | Turborepo |
-| Styling | Tailwind CSS |
-| Animation | Framer Motion |
-| Validation | Zod |
-| Testing | Vitest, React Testing Library, Playwright |
-| API style | REST described by OpenAPI |
-| Deployment runtime | Node.js |
+| Surface            | Technology                                |
+| ------------------ | ----------------------------------------- |
+| Backend runtime    | Node.js                                   |
+| Backend framework  | Fastify                                   |
+| Frontend           | React with Next.js App Router, JSX        |
+| Mobile (Phase 3)   | React Native with Expo, JSX               |
+| Database           | PostgreSQL                                |
+| ORM                | Prisma                                    |
+| Cache and queues   | Redis with BullMQ                         |
+| Package manager    | pnpm                                      |
+| Monorepo           | Turborepo                                 |
+| Styling            | Tailwind CSS                              |
+| Animation          | Framer Motion                             |
+| Validation         | Zod                                       |
+| Testing            | Vitest, React Testing Library, Playwright |
+| API style          | REST described by OpenAPI                 |
+| Deployment runtime | Node.js                                   |
 
 The supported Node.js version is pinned in `.nvmrc` and in the `engines` field
 of the root `package.json`. `.npmrc` sets `engine-strict=true`, so an
@@ -63,19 +63,19 @@ unsupported runtime fails at install rather than at runtime.
 
 ## 4. User interface rules
 
-* Every page and every interface element is a React component written in JSX.
-* Standalone hand-written `.html` application pages are prohibited. The policy
+- Every page and every interface element is a React component written in JSX.
+- Standalone hand-written `.html` application pages are prohibited. The policy
   checker fails the build if one appears.
-* HTML produced by React, Next.js or Expo at render time is not only allowed
+- HTML produced by React, Next.js or Expo at render time is not only allowed
   but required — it is how the application is delivered, and it is what makes
   the product accessible and indexable. The rule is about authoring, not output.
-* jQuery, `document.querySelector`-driven page logic and other
+- jQuery, `document.querySelector`-driven page logic and other
   DOM-manipulation-as-architecture approaches are prohibited. Reach for React
   state and effects. Direct DOM access inside a `ref` callback, for focus
   management or measurement, is normal React and is fine.
-* Styling goes through Tailwind CSS or CSS Modules. No inline style sheets
+- Styling goes through Tailwind CSS or CSS Modules. No inline style sheets
   masquerading as a design system.
-* Low-code and no-code platforms are not part of this architecture.
+- Low-code and no-code platforms are not part of this architecture.
 
 ## 5. What replaces the compiler
 
@@ -108,30 +108,30 @@ particular ecosystem are not sufficient reasons.
 
 Where another language is genuinely warranted:
 
-* **Python** — data processing, recommendation models, machine learning,
+- **Python** — data processing, recommendation models, machine learning,
   analytics pipelines, specialised automation.
-* **Java or Kotlin** — Android-native integration that React Native cannot
+- **Java or Kotlin** — Android-native integration that React Native cannot
   reach.
-* **Swift** — iOS-native integration that React Native cannot reach.
-* **Java, C#, Go or Rust** — a specialised backend service whose architectural
+- **Swift** — iOS-native integration that React Native cannot reach.
+- **Java, C#, Go or Rust** — a specialised backend service whose architectural
   benefit is documented and real.
 
 ### Required before any such code is merged
 
 Add an entry to `docs/language-exceptions.json` containing all of:
 
-| Field | Meaning |
-| --- | --- |
-| `id` | Short stable identifier for the exception |
-| `language` | The language being introduced |
-| `paths` | Repository path prefixes the exception covers |
-| `reason` | Why Node.js cannot serve this requirement |
-| `owner` | The team or person accountable for the component |
-| `deployment` | How it is built, shipped and run |
-| `securityBoundary` | Trust boundary, authentication, and the data it may touch |
-| `operationalCost` | Runtime cost, on-call burden, and upgrade ownership |
+| Field                 | Meaning                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| `id`                  | Short stable identifier for the exception                        |
+| `language`            | The language being introduced                                    |
+| `paths`               | Repository path prefixes the exception covers                    |
+| `reason`              | Why Node.js cannot serve this requirement                        |
+| `owner`               | The team or person accountable for the component                 |
+| `deployment`          | How it is built, shipped and run                                 |
+| `securityBoundary`    | Trust boundary, authentication, and the data it may touch        |
+| `operationalCost`     | Runtime cost, on-call burden, and upgrade ownership              |
 | `integrationContract` | The documented REST API or asynchronous event contract it speaks |
-| `approvedOn` | ISO date of approval |
+| `approvedOn`          | ISO date of approval                                             |
 
 The policy checker fails the build on any non-JavaScript source file that is
 not covered by a complete entry. A partially filled entry fails too — an

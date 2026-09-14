@@ -26,7 +26,12 @@ const cities = ['Ahmedabad', 'London']
  */
 function renderFilters(filters = { category: '', city: '', q: '' }, anyActive = false) {
   render(
-    <EventFilters categories={categories} cities={cities} filters={filters} anyActive={anyActive} />,
+    <EventFilters
+      categories={categories}
+      cities={cities}
+      filters={filters}
+      anyActive={anyActive}
+    />,
   )
 
   return userEvent.setup()

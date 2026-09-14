@@ -172,10 +172,12 @@ export const listEventsQuerySchema = paginationQuerySchema
     category: eventCategorySchema.optional(),
     status: eventStatusSchema.optional(),
     city: nonEmptyStringSchema.optional(),
-    q: z.preprocess(
-      (value) => (typeof value === 'string' ? value.trim() : value),
-      z.string().min(1).max(120),
-    ).optional(),
+    q: z
+      .preprocess(
+        (value) => (typeof value === 'string' ? value.trim() : value),
+        z.string().min(1).max(120),
+      )
+      .optional(),
     startsAfter: queryDateTimeSchema.optional(),
     startsBefore: queryDateTimeSchema.optional(),
     organizationId: cuidSchema.optional(),

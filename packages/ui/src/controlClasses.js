@@ -15,7 +15,8 @@ export const CONTROL_BASE_CLASSES =
   'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500'
 
 /** Border and focus ring colours for a control in its valid state. */
-export const CONTROL_VALID_CLASSES = 'border-slate-300 focus:border-marigold-500 focus:ring-marigold-500'
+export const CONTROL_VALID_CLASSES =
+  'border-slate-300 focus:border-marigold-500 focus:ring-marigold-500'
 
 /** Border and focus ring colours for a control that failed validation. */
 export const CONTROL_INVALID_CLASSES = 'border-rose-500 focus:border-rose-600 focus:ring-rose-500'

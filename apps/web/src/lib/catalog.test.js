@@ -77,8 +77,18 @@ describe('categoryLabel', () => {
 describe('filterEvents', () => {
   const events = [
     summary(),
-    summary({ id: 'evtcomedylondon1', category: 'COMEDY', city: 'London', title: 'Desi Comedy Uncensored' }),
-    summary({ id: 'evtbollytoronto1', category: 'BOLLYWOOD_NIGHT', city: 'Toronto', title: 'Retro Rewind' }),
+    summary({
+      id: 'evtcomedylondon1',
+      category: 'COMEDY',
+      city: 'London',
+      title: 'Desi Comedy Uncensored',
+    }),
+    summary({
+      id: 'evtbollytoronto1',
+      category: 'BOLLYWOOD_NIGHT',
+      city: 'Toronto',
+      title: 'Retro Rewind',
+    }),
   ]
 
   it('returns everything when no filter is set', () => {
@@ -86,7 +96,9 @@ describe('filterEvents', () => {
   })
 
   it('narrows by category', () => {
-    expect(filterEvents(events, { category: 'COMEDY' }).map((event) => event.city)).toEqual(['London'])
+    expect(filterEvents(events, { category: 'COMEDY' }).map((event) => event.city)).toEqual([
+      'London',
+    ])
   })
 
   it('narrows by exact city', () => {

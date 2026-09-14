@@ -11,7 +11,12 @@
  * @module @desi-event/api-contract/client
  */
 
-import { ApiClientError, ApiContractError, NETWORK_ERROR_STATUS, isApiClientError } from './errors.js'
+import {
+  ApiClientError,
+  ApiContractError,
+  NETWORK_ERROR_STATUS,
+  isApiClientError,
+} from './errors.js'
 import { buildPath, joinUrl, pathParamNames } from './path.js'
 import { apiRoutes } from './routes.js'
 
@@ -89,7 +94,9 @@ function mergeParamsIntoBody(route, body, params) {
  * @returns {boolean} True for `undefined` and for non-array objects.
  */
 function isObjectOrUndefined(value) {
-  return value === undefined || (typeof value === 'object' && value !== null && !Array.isArray(value))
+  return (
+    value === undefined || (typeof value === 'object' && value !== null && !Array.isArray(value))
+  )
 }
 
 /**
@@ -261,7 +268,11 @@ export function createApiClient(options = {}) {
     const url = joinUrl(baseUrl, buildPath(route.path, params)) + (search ? `?${search}` : '')
 
     /** @type {Record<string, string>} */
-    const headers = { accept: 'application/json', ...defaultHeaders, ...(callOptions.headers ?? {}) }
+    const headers = {
+      accept: 'application/json',
+      ...defaultHeaders,
+      ...(callOptions.headers ?? {}),
+    }
 
     const hasToken = Object.prototype.hasOwnProperty.call(callOptions, 'token')
     const bearer = await resolveToken(hasToken ? callOptions.token : token)
@@ -283,14 +294,17 @@ export function createApiClient(options = {}) {
     try {
       response = await fetchImpl(url, init)
     } catch (cause) {
-      throw new ApiClientError(`Request to ${route.method} ${url} failed: ${cause?.message ?? cause}`, {
-        status: NETWORK_ERROR_STATUS,
-        code: 'NETWORK_ERROR',
-        method: route.method,
-        url,
-        routeId: route.id,
-        cause,
-      })
+      throw new ApiClientError(
+        `Request to ${route.method} ${url} failed: ${cause?.message ?? cause}`,
+        {
+          status: NETWORK_ERROR_STATUS,
+          code: 'NETWORK_ERROR',
+          method: route.method,
+          url,
+          routeId: route.id,
+          cause,
+        },
+      )
     }
 
     const parsed = await parseBody(response)
@@ -327,9 +341,7 @@ export function createApiClient(options = {}) {
     attachRoute(client, route, request)
   }
 
-  return /** @type {object} */ (
-    client
-  )
+  return /** @type {object} */ (client)
 }
 
 /**

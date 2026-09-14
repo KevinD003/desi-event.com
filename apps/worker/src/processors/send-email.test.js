@@ -126,9 +126,9 @@ describe('createSendEmailProcessor', () => {
   it('fails permanently when the provider rejects the address', async () => {
     const email = createInMemoryEmailProvider()
 
-    const error = await createSendEmailProcessor({ email })(job({ to: EMAIL_BOUNCE_ADDRESS })).catch(
-      (thrown) => thrown,
-    )
+    const error = await createSendEmailProcessor({ email })(
+      job({ to: EMAIL_BOUNCE_ADDRESS }),
+    ).catch((thrown) => thrown)
 
     // The bounce address is a *send* failure in the provider, which is
     // transient by our mapping, so this must be retryable rather than fatal.

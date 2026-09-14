@@ -87,7 +87,8 @@ const serverNodeEnvSchema = z.enum([...NODE_ENVS]).default('production')
  * @param {unknown} value The raw environment value.
  * @returns {unknown} `undefined` when blank, otherwise the value unchanged.
  */
-const blankAsAbsent = (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value)
+const blankAsAbsent = (value) =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value
 
 /** Variables every server process shares. */
 const commonEnvFields = {
@@ -97,7 +98,10 @@ const commonEnvFields = {
 
 /** Pricing knobs shared by the API and the worker, which both price orders. */
 const feeEnvFields = {
-  PLATFORM_FEE_BPS: z.preprocess(blankAsAbsent, z.coerce.number().int().min(0).max(10_000).default(590)),
+  PLATFORM_FEE_BPS: z.preprocess(
+    blankAsAbsent,
+    z.coerce.number().int().min(0).max(10_000).default(590),
+  ),
   PLATFORM_FEE_FLAT_CENTS: z.preprocess(
     blankAsAbsent,
     z.coerce.number().int().min(0).max(100_000).default(99),

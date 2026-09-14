@@ -227,7 +227,9 @@ export default async function EventDetailPage({ params }) {
                 </CardBody>
               </Card>
             ) : (
-              <p className="mt-4 text-slate-700">The venue for this event has not been announced.</p>
+              <p className="mt-4 text-slate-700">
+                The venue for this event has not been announced.
+              </p>
             )}
           </RevealOnScroll>
 

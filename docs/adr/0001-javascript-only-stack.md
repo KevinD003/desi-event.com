@@ -1,8 +1,8 @@
 # ADR 0001 — JavaScript everywhere, TypeScript nowhere
 
-* **Status:** Accepted
-* **Date:** 2026-09-14
-* **Applies to:** the whole repository
+- **Status:** Accepted
+- **Date:** 2026-09-14
+- **Applies to:** the whole repository
 
 ## Context
 

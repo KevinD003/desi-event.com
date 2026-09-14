@@ -9,7 +9,10 @@
     ".": "./src/index.js",
     "./package.json": "./package.json"
   },
-  "files": ["src", "prisma"],
+  "files": [
+    "src",
+    "prisma"
+  ],
   "scripts": {
     "build": "prisma generate",
     "generate": "prisma generate",

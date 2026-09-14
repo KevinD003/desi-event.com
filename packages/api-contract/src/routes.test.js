@@ -125,7 +125,14 @@ describe('apiRoutes', () => {
   })
 
   it('returns 201 from the routes that create a resource', () => {
-    const created = ['auth.register', 'events.create', 'ticketTypes.create', 'holds.create', 'orders.create', 'waitlist.join']
+    const created = [
+      'auth.register',
+      'events.create',
+      'ticketTypes.create',
+      'holds.create',
+      'orders.create',
+      'waitlist.join',
+    ]
 
     for (const id of created) {
       expect(routeById(id).successStatus, id).toBe(201)

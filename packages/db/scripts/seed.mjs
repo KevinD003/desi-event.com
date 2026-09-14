@@ -67,7 +67,9 @@ function seedGuestTokenHash(key) {
  */
 function seedId(key) {
   const digest = createHash('sha256').update(key).digest('hex')
-  const body = BigInt(`0x${digest}`).toString(36).replace(/[^a-z0-9]/g, '')
+  const body = BigInt(`0x${digest}`)
+    .toString(36)
+    .replace(/[^a-z0-9]/g, '')
 
   return `c${body.padEnd(24, '0').slice(0, 24)}`
 }
@@ -198,8 +200,7 @@ export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
 
   let discountCents = 0
   if (promo) {
-    discountCents =
-      promo.type === 'PERCENTAGE' ? applyBps(subtotalCents, promo.value) : promo.value
+    discountCents = promo.type === 'PERCENTAGE' ? applyBps(subtotalCents, promo.value) : promo.value
     discountCents = Math.min(discountCents, subtotalCents)
   }
 
@@ -1414,9 +1415,7 @@ const ORDERS = [
     lines: [{ ticketTypeKey: 'punjabi-table', quantity: 1 }],
     attendees: ['Nair Party of Eight'],
     ticketStatus: 'VOID',
-    payments: [
-      { suffix: 'a', status: 'FAILED', amount: 'total', failureCode: 'card_declined' },
-    ],
+    payments: [{ suffix: 'a', status: 'FAILED', amount: 'total', failureCode: 'card_declined' }],
     hold: { status: 'RELEASED', offsetMinutes: 10 },
   },
   {
@@ -1904,6 +1903,22 @@ export async function writeSeedData(prisma, data) {
   /** @type {Map<string, string>} email -> User.id */
   const userIdByEmail = new Map()
 
+  /**
+   * Computed id -> the id the database actually holds, for rows upserted on a
+   * natural key. Empty when the database was created by this version.
+   *
+   * @type {Map<string, string>}
+   */
+  const realId = new Map()
+
+  /**
+   * Resolve a computed id to the one the database holds.
+   *
+   * @param {string|null|undefined} id A computed id.
+   * @returns {string|null|undefined} The real id, or the input when unmapped.
+   */
+  const real = (id) => (id == null ? id : (realId.get(id) ?? id))
+
   for (const user of data.users) {
     const fields = {
       passwordHash: user.passwordHash,
@@ -1931,11 +1946,20 @@ export async function writeSeedData(prisma, data) {
       verified: org.verified,
       payoutCurrency: org.payoutCurrency,
     }
-    await prisma.organization.upsert({
+    const row = await prisma.organization.upsert({
       where: { slug: org.slug },
       update: fields,
       create: { id: org.id, slug: org.slug, ...fields },
+      select: { id: true },
     })
+
+    // An upsert keyed on the slug matches an existing row and keeps *its* id,
+    // which need not be the one this run computed — a database seeded by an
+    // older version of this script holds different ids entirely. Every foreign
+    // key below therefore goes through `realId`, exactly as user ids already
+    // go through `userIdByEmail`. Without this the seed only works against a
+    // database it created itself.
+    realId.set(org.id, row.id)
   }
 
   let membershipCount = 0
@@ -1943,9 +1967,9 @@ export async function writeSeedData(prisma, data) {
     for (const member of org.members) {
       const userId = userIdByEmail.get(member.email)
       await prisma.membership.upsert({
-        where: { userId_organizationId: { userId, organizationId: org.id } },
+        where: { userId_organizationId: { userId, organizationId: real(org.id) } },
         update: { role: member.role },
-        create: { userId, organizationId: org.id, role: member.role },
+        create: { userId, organizationId: real(org.id), role: member.role },
       })
       membershipCount += 1
     }
@@ -1973,8 +1997,8 @@ export async function writeSeedData(prisma, data) {
 
   for (const event of data.events) {
     const fields = {
-      organizationId: event.organizationId,
-      venueId: event.venueId,
+      organizationId: real(event.organizationId),
+      venueId: real(event.venueId),
       title: event.title,
       summary: event.summary,
       description: event.description,
@@ -1989,17 +2013,22 @@ export async function writeSeedData(prisma, data) {
       languages: event.languages,
       publishedAt: event.publishedAt,
     }
-    await prisma.event.upsert({
+    const eventRow = await prisma.event.upsert({
       where: { slug: event.slug },
       update: fields,
       create: { id: event.id, slug: event.slug, ...fields },
+      select: { id: true },
     })
+
+    // Same reasoning as organizations: the slug matched an existing row, whose
+    // id is authoritative regardless of what this run computed.
+    realId.set(event.id, eventRow.id)
   }
 
   // Promo codes are written before orders because orders reference them.
   for (const promo of data.promoCodes) {
     const fields = {
-      eventId: promo.eventId,
+      eventId: real(promo.eventId),
       type: promo.type,
       value: promo.value,
       currency: promo.currency ?? null,
@@ -2009,16 +2038,26 @@ export async function writeSeedData(prisma, data) {
       endsAt: promo.endsAt,
       active: promo.active,
     }
-    await prisma.promoCode.upsert({
-      where: { organizationId_code: { organizationId: promo.organizationId, code: promo.code } },
+    const promoRow = await prisma.promoCode.upsert({
+      where: {
+        organizationId_code: { organizationId: real(promo.organizationId), code: promo.code },
+      },
       update: fields,
-      create: { id: promo.id, organizationId: promo.organizationId, code: promo.code, ...fields },
+      create: {
+        id: promo.id,
+        organizationId: real(promo.organizationId),
+        code: promo.code,
+        ...fields,
+      },
+      select: { id: true },
     })
+
+    realId.set(promo.id, promoRow.id)
   }
 
   for (const ticketType of data.ticketTypes) {
     const fields = {
-      eventId: ticketType.eventId,
+      eventId: real(ticketType.eventId),
       name: ticketType.name,
       description: ticketType.description,
       priceCents: ticketType.priceCents,
@@ -2046,7 +2085,7 @@ export async function writeSeedData(prisma, data) {
 
   for (const order of data.orders) {
     const fields = {
-      eventId: order.eventId,
+      eventId: real(order.eventId),
       userId: order.userEmail ? userIdByEmail.get(order.userEmail) : null,
       buyerEmail: order.buyerEmail,
       buyerName: order.buyerName,
@@ -2057,7 +2096,7 @@ export async function writeSeedData(prisma, data) {
       feesCents: order.feesCents,
       taxCents: order.taxCents,
       totalCents: order.totalCents,
-      promoCodeId: order.promoCodeId,
+      promoCodeId: real(order.promoCodeId),
       expiresAt: order.expiresAt,
       paidAt: order.paidAt,
       cancelledAt: order.cancelledAt,
@@ -2069,6 +2108,7 @@ export async function writeSeedData(prisma, data) {
       select: { id: true },
     })
     const orderId = row.id
+    realId.set(order.id, orderId)
 
     for (const item of order.items) {
       const itemFields = {
@@ -2149,9 +2189,9 @@ export async function writeSeedData(prisma, data) {
       notified: entry.notified,
     }
     await prisma.waitlistEntry.upsert({
-      where: { eventId_email: { eventId: entry.eventId, email: entry.email } },
+      where: { eventId_email: { eventId: real(entry.eventId), email: entry.email } },
       update: fields,
-      create: { eventId: entry.eventId, email: entry.email, ...fields },
+      create: { eventId: real(entry.eventId), email: entry.email, ...fields },
     })
   }
 
@@ -2279,9 +2319,13 @@ export async function runSeed(options = {}) {
       console.log(`    ${model.padEnd(22)} ${count}`)
     }
     console.log('')
-    console.log(`  events                  ${published} published, ${data.events.length - published} draft, ${online} online`)
+    console.log(
+      `  events                  ${published} published, ${data.events.length - published} draft, ${online} online`,
+    )
     console.log(`  ticket types            ${soldOut} sold out`)
-    console.log(`  paid orders             ${paidOrders.length} worth ${grossCents} cents gross (mixed INR/CAD)`)
+    console.log(
+      `  paid orders             ${paidOrders.length} worth ${grossCents} cents gross (mixed INR/CAD)`,
+    )
     console.log(`  seeded login password   ${SEED_PASSWORD} (development only)`)
 
     return counts

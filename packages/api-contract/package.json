@@ -10,7 +10,9 @@
     "./client": "./src/client.js",
     "./package.json": "./package.json"
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "lint": "eslint .",
     "test": "vitest run",

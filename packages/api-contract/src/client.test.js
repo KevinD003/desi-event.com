@@ -217,7 +217,11 @@ describe('createApiClient', () => {
 
   it('attaches the bearer header when a token is configured', async () => {
     const stub = stubFetch([{ body: { data: {} } }])
-    const client = createApiClient({ baseUrl: 'https://api.test', fetch: stub.fetch, token: 'jwt-1' })
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      fetch: stub.fetch,
+      token: 'jwt-1',
+    })
 
     await client.auth.me()
 
@@ -235,7 +239,11 @@ describe('createApiClient', () => {
 
   it('never leaks the token to a route that takes no credentials', async () => {
     const stub = stubFetch([{ body: { status: 'ok' } }])
-    const client = createApiClient({ baseUrl: 'https://api.test', fetch: stub.fetch, token: 'jwt-1' })
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      fetch: stub.fetch,
+      token: 'jwt-1',
+    })
 
     await client.health.get()
 
@@ -244,7 +252,11 @@ describe('createApiClient', () => {
 
   it('resolves a token getter, including an async one', async () => {
     const stub = stubFetch([{ body: {} }, { body: {} }])
-    const sync = createApiClient({ baseUrl: 'https://api.test', fetch: stub.fetch, token: () => 'sync-token' })
+    const sync = createApiClient({
+      baseUrl: 'https://api.test',
+      fetch: stub.fetch,
+      token: () => 'sync-token',
+    })
     const async = createApiClient({
       baseUrl: 'https://api.test',
       fetch: stub.fetch,
@@ -260,7 +272,11 @@ describe('createApiClient', () => {
 
   it('lets a call override the token, and null suppress it', async () => {
     const stub = stubFetch([{ body: {} }, { body: {} }])
-    const client = createApiClient({ baseUrl: 'https://api.test', fetch: stub.fetch, token: 'jwt-1' })
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      fetch: stub.fetch,
+      token: 'jwt-1',
+    })
 
     await client.auth.me(undefined, { token: 'jwt-2' })
     await client.auth.me(undefined, { token: null })
@@ -307,7 +323,10 @@ describe('createApiClient', () => {
 
   it('parses and returns a JSON success body', async () => {
     const payload = { data: { id: 'abcdefgh' } }
-    const client = createApiClient({ baseUrl: 'https://api.test', fetch: stubFetch([{ body: payload }]).fetch })
+    const client = createApiClient({
+      baseUrl: 'https://api.test',
+      fetch: stubFetch([{ body: payload }]).fetch,
+    })
 
     await expect(client.events.get({ slug: 'x' })).resolves.toEqual(payload)
   })
@@ -378,7 +397,9 @@ describe('error mapping', () => {
       fetch: stubFetch([{ status: 400, body }]).fetch,
     })
 
-    const error = await client.auth.login({ email: 'nope', password: 'x' }).catch((caught) => caught)
+    const error = await client.auth
+      .login({ email: 'nope', password: 'x' })
+      .catch((caught) => caught)
 
     expect(error.code).toBe('VALIDATION_ERROR')
     expect(error.body.error.issues).toHaveLength(1)

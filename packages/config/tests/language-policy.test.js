@@ -32,7 +32,10 @@ let planted = []
  * @returns {string} stdout.
  */
 function git(args) {
-  return execFileSync('git', ['-C', repoRoot, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+  return execFileSync('git', ['-C', repoRoot, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  })
 }
 
 /**
@@ -201,6 +204,8 @@ describe('other languages', () => {
     const report = runChecker()
 
     expect(report.ok).toBe(false)
-    expect(report.violations.join('\n')).toMatch(/not registered in docs\/language-exceptions\.json/i)
+    expect(report.violations.join('\n')).toMatch(
+      /not registered in docs\/language-exceptions\.json/i,
+    )
   })
 })

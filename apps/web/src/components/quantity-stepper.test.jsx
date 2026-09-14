@@ -45,7 +45,14 @@ describe('clampQuantity', () => {
 function renderStepper(props = {}) {
   const onChange = vi.fn()
   render(
-    <QuantityStepper label="Garden Seating" value={0} min={1} max={6} onChange={onChange} {...props} />,
+    <QuantityStepper
+      label="Garden Seating"
+      value={0}
+      min={1}
+      max={6}
+      onChange={onChange}
+      {...props}
+    />,
   )
 
   return { user: userEvent.setup(), onChange }

@@ -35,14 +35,12 @@ export function createFakeLogger() {
    * @param {string} level The pino level name.
    * @returns {Function} The level method.
    */
-  const at =
-    (level) =>
-    (fields, message) =>
-      lines.push(
-        typeof fields === 'string'
-          ? { level, fields: {}, message: fields }
-          : { level, fields, message },
-      )
+  const at = (level) => (fields, message) =>
+    lines.push(
+      typeof fields === 'string'
+        ? { level, fields: {}, message: fields }
+        : { level, fields, message },
+    )
 
   /** @type {object} */
   const logger = {
@@ -80,8 +78,10 @@ function matchesClause(value, clause) {
   if (clause !== null && typeof clause === 'object') {
     const criteria = /** @type {Record<string, unknown>} */ (clause)
     if (Array.isArray(criteria.in)) return criteria.in.includes(value)
-    if (criteria.lte !== undefined) return new Date(value).getTime() <= new Date(criteria.lte).getTime()
-    if (criteria.gt !== undefined) return new Date(value).getTime() > new Date(criteria.gt).getTime()
+    if (criteria.lte !== undefined)
+      return new Date(value).getTime() <= new Date(criteria.lte).getTime()
+    if (criteria.gt !== undefined)
+      return new Date(value).getTime() > new Date(criteria.gt).getTime()
   }
   return value === clause
 }
@@ -203,7 +203,11 @@ export function createFakePrisma(seed = {}) {
      * @returns {Promise<Array<object>>} An empty result set; the call is recorded for ordering assertions.
      */
     $queryRaw: async (strings, ...values) => {
-      calls.push({ method: '$queryRaw', sql: Array.isArray(strings) ? strings.join('?') : strings, values })
+      calls.push({
+        method: '$queryRaw',
+        sql: Array.isArray(strings) ? strings.join('?') : strings,
+        values,
+      })
       return []
     },
 

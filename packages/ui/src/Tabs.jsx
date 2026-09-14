@@ -36,7 +36,7 @@ function nextEnabledIndex(items, from, step) {
   const count = items.length
 
   for (let offset = 1; offset <= count; offset += 1) {
-    const index = ((from + step * offset) % count + count) % count
+    const index = (((from + step * offset) % count) + count) % count
     if (!items[index].disabled) return index
   }
 
@@ -196,7 +196,10 @@ export function Tabs({
           aria-labelledby={tabId(item.id)}
           hidden={index !== selectedIndex}
           tabIndex={0}
-          className={cn('focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500', panelClassName)}
+          className={cn(
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500',
+            panelClassName,
+          )}
         >
           {item.content}
         </div>
