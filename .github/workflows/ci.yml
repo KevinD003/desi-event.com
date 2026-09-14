@@ -1,0 +1,178 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the run it supersedes. Nothing here
+# deploys, so an interrupted run leaves nothing half-done.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Policy, lint, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: desi
+          POSTGRES_PASSWORD: desi
+          POSTGRES_DB: desi_event
+        ports:
+          - 5432:5432
+        # Without the health check the job races the container: the port is
+        # bound before PostgreSQL is ready to answer, and migrate deploy fails.
+        options: >-
+          --health-cmd "pg_isready -U desi -d desi_event"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event?schema=public
+      TEST_DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      # 48 characters, CI-only. `apiEnvSchema` requires at least 32 and rejects
+      # obvious placeholders when NODE_ENV=production, which CI never sets.
+      JWT_SECRET: ci-only-jwt-secret-not-used-outside-github-runner
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      PLATFORM_FEE_BPS: '590'
+      PLATFORM_FEE_FLAT_CENTS: '99'
+      TICKET_HOLD_TTL_SECONDS: '600'
+      TURBO_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # pnpm must be installed before setup-node, otherwise `cache: pnpm` has
+      # no store path to cache.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # First, and on purpose. It needs no database, no build and no
+      # dependencies beyond Node itself, it runs in about a second, and it
+      # enforces the single rule this repository exists to enforce. A pull
+      # request that introduces TypeScript should be told so before a runner
+      # spends five minutes compiling it.
+      - name: Language policy
+        run: pnpm run policy:check
+
+      - name: Lint
+        run: pnpm run lint
+
+      # The OpenAPI contract is structurally validated before anything is
+      # generated from it: a duplicate route id or a colliding path fails here
+      # rather than in the published document.
+      - name: Validate API contract
+        run: pnpm run contract:check
+
+      - name: Create the test database
+        run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_test'
+
+      - name: Apply migrations
+        run: |
+          pnpm run db:migrate:deploy
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
+
+      # Unit and integration tests. The suites that need PostgreSQL or Redis
+      # skip themselves when neither is reachable; both are reachable here, so
+      # they run for real.
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      # openapi.json is committed so that a change to the API surface shows up
+      # as a reviewable diff. `pnpm build` regenerates it, so if the working
+      # tree is dirty here somebody changed a route without regenerating the
+      # document, and the published contract no longer matches the server.
+      - name: Check the OpenAPI document is current
+        run: git diff --exit-code -- apps/api/openapi.json
+
+  e2e:
+    name: Playwright end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Independent of `verify` on purpose: the two report different classes of
+    # failure and a developer wants both answers from one push, not the second
+    # only after the first goes green.
+    env:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      WEB_E2E_PORT: '3210'
+      TURBO_TELEMETRY_DISABLED: '1'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @desi-event/web exec playwright install --with-deps chromium
+
+      # The suite starts `next dev` itself on WEB_E2E_PORT and deliberately
+      # runs with no API process: it exercises the site in the degraded state
+      # the fallback catalogue exists for. The HTML reporter is added on the
+      # command line so there is an artefact to upload; the checked-in config
+      # uses the list reporter, which is the right default locally.
+      - name: Run end-to-end tests
+        run: pnpm --filter @desi-event/web exec playwright test --reporter=list,html
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore

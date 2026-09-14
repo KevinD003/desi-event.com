@@ -1,0 +1,17 @@
+/*
+ * Stylesheet for @desi-event/ui.
+ *
+ * The design tokens live in the shared theme so that the component library and
+ * the web application cannot drift apart. Consumers that already import the
+ * shared theme only need the `@source` line below; importing this file gives
+ * them both.
+ */
+
+@import '@desi-event/config/tailwind';
+
+/*
+ * Tailwind v4 only emits utilities it can see used. The library ships JSX
+ * rather than compiled CSS, so a consuming application has to scan this
+ * package's sources as well as its own.
+ */
+@source './';

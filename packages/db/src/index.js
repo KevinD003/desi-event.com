@@ -41,7 +41,7 @@ export {
  * `$disconnect()` when finished.
  *
  * @param {PrismaClientOptions} [options] Client options.
- * @returns {import('@prisma/client').PrismaClient} A connected-on-demand Prisma client.
+ * @returns {PrismaClient} A connected-on-demand Prisma client.
  * @throws {Error} If no connection string is available.
  */
 export function createPrismaClient(options = {}) {
@@ -61,7 +61,7 @@ export function createPrismaClient(options = {}) {
   })
 }
 
-/** @type {import('@prisma/client').PrismaClient | null} */
+/** @type {PrismaClient | null} */
 let singleton = null
 
 /**
@@ -71,14 +71,14 @@ let singleton = null
  * instance is cached on `globalThis` to avoid exhausting the connection pool.
  *
  * @param {PrismaClientOptions} [options] Options used only on first creation.
- * @returns {import('@prisma/client').PrismaClient} The shared Prisma client.
+ * @returns {PrismaClient} The shared Prisma client.
  */
 export function getPrisma(options = {}) {
   const globalKey = Symbol.for('desi-event.prisma')
   const store = /** @type {Record<symbol, unknown>} */ (globalThis)
 
   if (store[globalKey]) {
-    return /** @type {import('@prisma/client').PrismaClient} */ (store[globalKey])
+    return /** @type {PrismaClient} */ (store[globalKey])
   }
 
   if (!singleton) {
@@ -98,22 +98,22 @@ export function getPrisma(options = {}) {
 export async function disconnectPrisma() {
   const globalKey = Symbol.for('desi-event.prisma')
   const store = /** @type {Record<symbol, unknown>} */ (globalThis)
-  const client = /** @type {import('@prisma/client').PrismaClient | null} */ (
-    store[globalKey] ?? singleton
-  )
+  const client = /** @type {PrismaClient | null} */ (store[globalKey] ?? singleton)
+
+  // Clear both references before awaiting. A concurrent getPrisma() must not be
+  // handed a client that is already mid-disconnect.
+  singleton = null
+  delete store[globalKey]
 
   if (client) {
     await client.$disconnect()
   }
-
-  singleton = null
-  delete store[globalKey]
 }
 
 /**
  * Check that the database is reachable. Used by the API health endpoint.
  *
- * @param {import('@prisma/client').PrismaClient} client Prisma client to probe.
+ * @param {PrismaClient} client Prisma client to probe.
  * @returns {Promise<boolean>} True when a trivial query succeeds.
  */
 export async function isDatabaseReachable(client) {

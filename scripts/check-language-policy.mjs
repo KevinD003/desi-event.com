@@ -18,7 +18,7 @@
  *   node scripts/check-language-policy.mjs [--json]
  */
 
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
