@@ -16,7 +16,7 @@ import {
   computeOrderTotals,
   feeConfigForCurrency,
   formatMoney,
-  taxRateBpsForCurrency,
+  resolveTaxPolicy,
 } from '@desi-event/pricing'
 
 // Re-exported so existing callers keep working, but the tables themselves now
@@ -24,22 +24,21 @@ import {
 // its own: checkout quoted a per-currency fee plus GST, the server charged a
 // flat fee and no tax at all, and the buyer was billed a number they were
 // never shown. Both sides now read the same source.
-export { feeConfigForCurrency, taxRateBpsForCurrency }
+export { feeConfigForCurrency, resolveTaxPolicy }
 
 /**
  * The tax's display name, so the summary line says "GST" in Mumbai and "VAT" in
  * London rather than a generic "Tax".
  *
- * @param {string} [currency] ISO 4217 code.
+ * @param {object} [place] Where the event is held: `{ country, region }`.
  * @returns {string} A short label such as `GST (18%)`.
  */
-export function taxLabelForCurrency(currency = 'INR') {
-  const code = String(currency || 'INR').toUpperCase()
-  const bps = taxRateBpsForCurrency(code)
-  const percent = bps / 100
-  const name = { INR: 'GST', CAD: 'HST', GBP: 'VAT' }[code] ?? 'Tax'
+export function taxLabelForPlace(place = {}) {
+  const policy = resolveTaxPolicy({ country: place.country, region: place.region })
 
-  return `${name} (${percent}%)`
+  if (!policy.resolved || policy.rateBps === 0) return 'Tax'
+
+  return `${policy.name} (${policy.rateBps / 100}%)`
 }
 
 /**
@@ -102,10 +101,11 @@ export function formatAmount(cents, currency = 'INR') {
  * @param {object} params Basket inputs.
  * @param {CartLine[]} params.lines Selected tiers with their quantities.
  * @param {string} params.currency ISO 4217 code every tier is priced in.
- * @returns {object} The broken-down totals: currency, subtotalCents, discountCents, feesCents, taxCents, totalCents and lineItems.
+ * @param {object} [params.place] Where the event is held: `{ country, region }`.
+ * @returns {object} The broken-down totals plus the tax policy they were computed under.
  * @throws {PricingError} If a line carries a non-integer quantity or price.
  */
-export function priceSelection({ lines, currency }) {
+export function priceSelection({ lines, currency, place = {} }) {
   const items = (lines ?? [])
     .filter((line) => line.quantity > 0)
     .map((line) => ({
@@ -115,10 +115,17 @@ export function priceSelection({ lines, currency }) {
       unitPriceCents: line.unitPriceCents,
     }))
 
-  return computeOrderTotals({
+  // Tax follows where the event is held, not the currency it is priced in —
+  // the same resolution the server performs, from the same table, so the quote
+  // the buyer sees and the total they are charged cannot disagree.
+  const taxPolicy = resolveTaxPolicy({ country: place.country, region: place.region })
+
+  const totals = computeOrderTotals({
     items,
     feeConfig: feeConfigForCurrency(currency),
-    taxRateBps: taxRateBpsForCurrency(currency),
+    taxRateBps: taxPolicy.rateBps,
     currency,
   })
+
+  return { ...totals, taxPolicy }
 }

@@ -21,7 +21,7 @@ import Link from 'next/link'
 import { Alert, Badge, Button, Card, CardBody, CardFooter, CardHeader } from './ui.jsx'
 
 import { getApiClient } from '../lib/api.js'
-import { formatAmount, formatPrice, priceSelection, taxLabelForCurrency } from '../lib/pricing.js'
+import { formatAmount, formatPrice, priceSelection, taxLabelForPlace } from '../lib/pricing.js'
 import { QuantityStepper, clampQuantity } from './quantity-stepper.jsx'
 
 /** Nothing selected, service not yet contacted. */
@@ -91,7 +91,14 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
     [ticketTypes, quantities],
   )
 
-  const totals = useMemo(() => priceSelection({ lines, currency }), [lines, currency])
+  // Where the event is held decides the tax, so the basket quotes the same
+  // jurisdiction the server will charge against rather than guessing from the
+  // currency.
+  const place = useMemo(
+    () => ({ country: event?.venue?.country ?? null, region: event?.venue?.region ?? null }),
+    [event?.venue?.country, event?.venue?.region],
+  )
+  const totals = useMemo(() => priceSelection({ lines, currency, place }), [lines, currency, place])
   const ticketCount = lines.reduce((sum, line) => sum + line.quantity, 0)
 
   /**
@@ -215,7 +222,7 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-700">{taxLabelForCurrency(totals.currency)}</dt>
+              <dt className="text-slate-700">{taxLabelForPlace(place)}</dt>
               <dd className="tabular-nums text-slate-900">
                 {formatAmount(totals.taxCents, totals.currency)}
               </dd>

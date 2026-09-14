@@ -130,6 +130,15 @@ export const apiEnvSchema = z
     CORS_ORIGIN: z.string().min(1).default('*'),
     ...feeEnvFields,
     ...holdTtlField,
+    /**
+     * Deliberate opt-in to illustrative tax rates in production.
+     *
+     * Absent, production refuses to price an order under a DEMO tax policy.
+     * Setting this is a decision somebody has to make on purpose and own.
+     */
+    ALLOW_DEMO_TAX_IN_PRODUCTION: z
+      .preprocess(blankAsAbsent, z.stringbool().default(false))
+      .describe('Charge illustrative tax rates in production. Requires a deliberate decision.'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && isInsecureJwtSecret(env.JWT_SECRET)) {

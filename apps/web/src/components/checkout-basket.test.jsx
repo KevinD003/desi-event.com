@@ -9,6 +9,8 @@ const event = {
   id: 'evtqawwalibanyan',
   slug: 'qawwali-under-the-banyan',
   title: 'Qawwali Under the Banyan',
+  // The venue decides the tax jurisdiction, so the basket needs one.
+  venue: { city: 'Mumbai', region: 'MH', country: 'IN' },
 }
 
 const ticketTypes = [
@@ -121,6 +123,7 @@ describe('CheckoutBasket', () => {
         },
       ],
       currency: 'INR',
+      place: { country: event.venue.country, region: event.venue.region },
     })
 
     expect(screen.getByTestId('summary-subtotal')).toHaveTextContent(
@@ -143,17 +146,19 @@ describe('CheckoutBasket', () => {
     expect(screen.getByText(/Lawn Entry/, { selector: 'dt' })).toBeInTheDocument()
   })
 
-  it('names the right tax for the currency the event sells in', () => {
+  it('names the tax of the jurisdiction the event is held in', () => {
     renderBasket()
 
     expect(screen.getByText('GST (18%)')).toBeInTheDocument()
   })
 
-  it('names the right tax for an event sold in pounds', () => {
+  it('names the tax by venue country, not by the currency it is priced in', () => {
+    // The same rupee prices, held in London: VAT, not GST. Deciding tax from
+    // the currency got this backwards.
     render(
       <CheckoutBasket
-        event={event}
-        ticketTypes={[{ ...ticketTypes[0], currency: 'GBP', priceCents: 2800 }]}
+        event={{ ...event, venue: { ...event.venue, country: 'GB', region: null } }}
+        ticketTypes={ticketTypes}
         reserve={vi.fn()}
       />,
     )

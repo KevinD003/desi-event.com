@@ -52,3 +52,13 @@ export {
 } from './discount.js'
 
 export { allocateProportionally, computeOrderTotals } from './totals.js'
+
+export {
+  DEMO_TAX_POLICIES,
+  TAX_POLICY_STATUS,
+  TAX_POLICY_VERSION,
+  TAX_TREATMENT,
+  assertTaxPolicyUsable,
+  buildPricingSnapshot,
+  resolveTaxPolicy,
+} from './tax.js'

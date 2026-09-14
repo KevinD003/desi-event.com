@@ -30,7 +30,7 @@ function oneTicketTotal() {
   return computeOrderTotals({
     items: [{ ticketTypeId: 'ga', quantity: 1, unitPriceCents: GA_PRICE }],
     feeConfig: feeConfig('INR'),
-    taxRateBps: taxRateBps('INR'),
+    taxRateBps: taxRateBps('IN'),
     currency: 'INR',
     now: new Date(),
   }).totalCents

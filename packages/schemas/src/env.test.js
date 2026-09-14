@@ -53,6 +53,9 @@ describe('apiEnvSchema', () => {
       PLATFORM_FEE_BPS: 590,
       PLATFORM_FEE_FLAT_CENTS: 99,
       TICKET_HOLD_TTL_SECONDS: 600,
+      // Off by default: charging illustrative tax rates in production has to
+      // be a deliberate decision somebody owns.
+      ALLOW_DEMO_TAX_IN_PRODUCTION: false,
     })
   })
 

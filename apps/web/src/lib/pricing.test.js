@@ -7,8 +7,8 @@ import {
   formatPrice,
   localeForCurrency,
   priceSelection,
-  taxLabelForCurrency,
-  taxRateBpsForCurrency,
+  resolveTaxPolicy,
+  taxLabelForPlace,
 } from './pricing.js'
 
 describe('feeConfigForCurrency', () => {
@@ -25,23 +25,35 @@ describe('feeConfigForCurrency', () => {
   })
 })
 
-describe('taxRateBpsForCurrency', () => {
-  it('applies the rate of the jurisdiction the event sells in', () => {
-    expect(taxRateBpsForCurrency('INR')).toBe(1800)
-    expect(taxRateBpsForCurrency('GBP')).toBe(2000)
-    expect(taxRateBpsForCurrency('CAD')).toBe(1300)
+describe('tax follows where the event is held', () => {
+  it('applies the rate of the jurisdiction the event is in', () => {
+    expect(resolveTaxPolicy({ country: 'IN' }).rateBps).toBe(1800)
+    expect(resolveTaxPolicy({ country: 'GB' }).rateBps).toBe(2000)
+    expect(resolveTaxPolicy({ country: 'CA', region: 'ON' }).rateBps).toBe(1300)
   })
 
-  it('charges nothing for a currency with no configured rate', () => {
-    expect(taxRateBpsForCurrency('SGD')).toBe(0)
+  it('does not decide tax from the currency', () => {
+    // A Toronto event priced in rupees is taxed in Ontario, not in India. The
+    // previous currency-keyed lookup got this exactly backwards.
+    expect(resolveTaxPolicy({ country: 'CA', region: 'ON' }).jurisdiction).toBe('CA-ON')
+    expect(resolveTaxPolicy({ country: 'US' }).rateBps).toBe(0)
+  })
+
+  it('charges nothing where it has no policy', () => {
+    expect(resolveTaxPolicy({ country: 'SG' }).rateBps).toBe(0)
+    expect(resolveTaxPolicy({ country: null }).resolved).toBe(false)
   })
 })
 
-describe('taxLabelForCurrency', () => {
+describe('taxLabelForPlace', () => {
   it('names the tax the way the buyer knows it', () => {
-    expect(taxLabelForCurrency('INR')).toBe('GST (18%)')
-    expect(taxLabelForCurrency('GBP')).toBe('VAT (20%)')
-    expect(taxLabelForCurrency('SGD')).toBe('Tax (0%)')
+    expect(taxLabelForPlace({ country: 'IN' })).toBe('GST (18%)')
+    expect(taxLabelForPlace({ country: 'GB' })).toBe('VAT (20%)')
+  })
+
+  it('falls back to a plain label where no rate applies', () => {
+    expect(taxLabelForPlace({ country: 'SG' })).toBe('Tax')
+    expect(taxLabelForPlace({})).toBe('Tax')
   })
 })
 
@@ -79,7 +91,14 @@ describe('priceSelection', () => {
   ]
 
   it('matches computeOrderTotals called with the same fee and tax terms', () => {
-    expect(priceSelection({ lines, currency: 'INR' })).toEqual(
+    const { taxPolicy, ...totals } = priceSelection({
+      lines,
+      currency: 'INR',
+      place: { country: 'IN' },
+    })
+
+    expect(taxPolicy.jurisdiction).toBe('IN')
+    expect(totals).toEqual(
       computeOrderTotals({
         items: lines.map(({ ticketTypeId, name, quantity, unitPriceCents }) => ({
           ticketTypeId,
@@ -95,7 +114,7 @@ describe('priceSelection', () => {
   })
 
   it('reconciles exactly: subtotal - discount + fees + tax === total', () => {
-    const totals = priceSelection({ lines, currency: 'INR' })
+    const totals = priceSelection({ lines, currency: 'INR', place: { country: 'IN' } })
 
     expect(totals.subtotalCents).toBe(599_700)
     expect(

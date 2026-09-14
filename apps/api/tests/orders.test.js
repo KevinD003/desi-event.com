@@ -30,7 +30,7 @@ function expectedTotals(quantity, promoCode = null) {
     items: [{ ticketTypeId: 'ga', quantity, unitPriceCents: GA_PRICE, name: 'General' }],
     promoCode,
     feeConfig: feeConfig('INR'),
-    taxRateBps: taxRateBps('INR'),
+    taxRateBps: taxRateBps('IN'),
     currency: 'INR',
     now: new Date(),
   })

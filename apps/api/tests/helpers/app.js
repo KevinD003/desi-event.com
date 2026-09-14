@@ -17,7 +17,7 @@ import { createPrismaStub } from './prisma-stub.js'
 import { makeWorld } from './fixtures.js'
 
 /** A JWT secret long enough for `apiEnvSchema`, and obviously not a real one. */
-import { taxRateBpsForCurrency } from '@desi-event/pricing'
+import { resolveTaxPolicy } from '@desi-event/pricing'
 
 import { feeConfigFor } from '../../src/routes/orders.js'
 
@@ -129,13 +129,18 @@ export function feeConfig(currency = 'INR') {
 }
 
 /**
- * The sales tax rate the API would apply for a currency.
+ * The tax rate the API would apply to the fixture event.
  *
- * @param {string} [currency] ISO 4217 code.
+ * Resolved by jurisdiction, exactly as the route does. Taking it from the
+ * currency instead is the defect this replaced: an event is taxed where it is
+ * held, not where its currency is used.
+ *
+ * @param {string} [country] ISO 3166-1 alpha-2 country of the venue.
+ * @param {string|null} [region] Subdivision code.
  * @returns {number} The rate in basis points.
  */
-export function taxRateBps(currency = 'INR') {
-  return taxRateBpsForCurrency(currency)
+export function taxRateBps(country = 'IN', region = null) {
+  return resolveTaxPolicy({ country, region }).rateBps
 }
 
 /**

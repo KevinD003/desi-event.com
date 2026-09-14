@@ -34,9 +34,11 @@ import {
 } from '@desi-event/inventory'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import {
+  assertTaxPolicyUsable,
+  buildPricingSnapshot,
   computeOrderTotals,
   feeConfigForCurrency,
-  taxRateBpsForCurrency,
+  resolveTaxPolicy,
 } from '@desi-event/pricing'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
@@ -322,6 +324,30 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           })
         }
 
+        // Tax follows the jurisdiction of the supply — where the event is held
+        // — not the currency it is priced in. A Toronto event priced in rupees
+        // is taxed in Ontario, and the previous currency-keyed lookup would
+        // have charged it Indian GST.
+        const venue = event.venueId
+          ? await tx.venue.findUnique({
+              where: { id: event.venueId },
+              select: { country: true, region: true },
+            })
+          : null
+
+        const taxPolicy = resolveTaxPolicy({
+          country: venue?.country ?? null,
+          region: venue?.region ?? null,
+          at: now,
+        })
+
+        // Fails closed in production: charging a buyer an unverified rate, and
+        // telling an organiser they owe it, is worse than refusing the sale.
+        assertTaxPolicyUsable(taxPolicy, {
+          environment: env.NODE_ENV,
+          allowDemo: env.ALLOW_DEMO_TAX_IN_PRODUCTION === true,
+        })
+
         const promoCode = await resolvePromoCode(tx, body.promoCode, event)
 
         const totals = computeOrderTotals({
@@ -333,7 +359,7 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           })),
           promoCode,
           feeConfig: feeConfigFor(env, currency),
-          taxRateBps: taxRateBpsForCurrency(currency),
+          taxRateBps: taxPolicy.rateBps,
           currency,
           now,
         })
@@ -348,6 +374,11 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           data: {
             reference: generateOrderReference(),
             idempotencyKey,
+            pricingSnapshot: buildPricingSnapshot({
+              feeConfig: feeConfigFor(env, currency),
+              taxPolicy,
+              currency,
+            }),
             eventId: event.id,
             // Ownership follows the authenticated caller only. Honouring a
             // userId from the body would let an anonymous request attach an

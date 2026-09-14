@@ -284,6 +284,10 @@ model Order {
   taxCents      Int         @default(0)
   totalCents    Int
   promoCodeId   String?
+  /// The fee terms and tax policy this order was priced under, captured at
+  /// checkout. The receipt, any refund and the ledger recompute from this
+  /// rather than from the live tables, which may have moved on since.
+  pricingSnapshot Json?
   expiresAt     DateTime?
   paidAt        DateTime?
   cancelledAt   DateTime?
