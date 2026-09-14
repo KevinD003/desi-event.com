@@ -55,6 +55,20 @@ export {
   toPaymentStatus,
 } from './payments.js'
 
+export {
+  assertMockPaymentsOnly,
+  classifyPaymentCredential,
+  DEMO_LABEL,
+  DEMO_PAYMENT_NOTICE,
+  DEMO_TICKET_NOTICE,
+  findPaymentCredentials,
+  findProductionModeRequests,
+  PAYMENT_MODES,
+  PAYMENT_MODE_REQUEST_KEYS,
+  PRODUCTION_PAYMENTS_DISABLED_MESSAGE,
+  resolvePaymentMode,
+} from './payment-mode.js'
+
 export { createInMemoryEmailProvider, EMAIL_BOUNCE_ADDRESS, DEFAULT_EMAIL_FROM } from './email.js'
 
 export { createInMemorySmsProvider, SMS_FAILURE_NUMBER, DEFAULT_SMS_SENDER } from './sms.js'

@@ -16,7 +16,7 @@
 import dotenv from 'dotenv'
 import { createLogger } from '@desi-event/logger'
 import { createPrismaClient } from '@desi-event/db'
-import { createInMemoryProviderRegistry } from '@desi-event/providers'
+import { assertMockPaymentsOnly, createInMemoryProviderRegistry } from '@desi-event/providers'
 
 import { describeEnvError, loadEnv } from './env.js'
 import { closeRedisConnection, createRedisConnection } from './connection.js'
@@ -46,6 +46,7 @@ import { createShutdown, installShutdownHandlers } from './shutdown.js'
  * @param {object} [options.prisma] A Prisma client to use instead of creating one.
  * @param {object} [options.providers] A provider registry; defaults to the in-memory one.
  * @param {object} [options.connection] A Redis connection to use instead of opening one.
+ * @param {Record<string, string|undefined>} [options.processEnv] Environment the payment kill switch inspects. Defaults to the process environment.
  * @returns {Promise<WorkerRuntime>} The running process's parts and its closer.
  * @throws {ValidationError} When the environment is invalid.
  */
@@ -61,6 +62,11 @@ export async function start(options = {}) {
       level: env.LOG_LEVEL,
       pretty: env.NODE_ENV === 'development',
     })
+
+  // The worker fulfils orders and would be the process issuing refunds, so it
+  // refuses to start for the same reasons the API does: a deployment that
+  // believes it has card payments must be told it does not.
+  assertMockPaymentsOnly({ env: options.processEnv ?? process.env, logger })
 
   const prisma = options.prisma ?? createPrismaClient({ connectionString: env.DATABASE_URL })
 

@@ -12,6 +12,7 @@
  * @module @desi-event/schemas
  */
 
+export * from './payments.js'
 export * from './errors.js'
 export * from './primitives.js'
 export * from './enums.js'

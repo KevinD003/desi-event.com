@@ -333,3 +333,52 @@ describe('loaders', () => {
     expect(loadWebEnv().NEXT_PUBLIC_API_URL).toBe('https://api.desi-event.com')
   })
 })
+
+describe('parsing an environment twice', () => {
+  /** The smallest environment `apiEnvSchema` accepts. */
+  const MINIMAL = Object.freeze({
+    DATABASE_URL: 'postgresql://desi:desi@127.0.0.1:5432/desi_event',
+    REDIS_URL: 'redis://127.0.0.1:6379',
+    JWT_SECRET: 'a-genuinely-random-secret-value-of-length',
+  })
+
+  it('produces something the schema still accepts', () => {
+    // The API parses `process.env` at startup and `buildApp` parses the result
+    // again. A schema whose output its own input rejects means the server
+    // cannot start — which is exactly what happened, in every environment,
+    // because the offending field has a default and is therefore always
+    // present in the output.
+    const once = apiEnvSchema.parse(MINIMAL)
+    const twice = apiEnvSchema.safeParse(once)
+
+    expect(twice.success).toBe(true)
+    expect(twice.data).toEqual(once)
+  })
+
+  it('is idempotent for an explicitly supplied boolean', () => {
+    const once = apiEnvSchema.parse({ ...MINIMAL, ALLOW_DEMO_TAX_IN_PRODUCTION: 'true' })
+
+    expect(once.ALLOW_DEMO_TAX_IN_PRODUCTION).toBe(true)
+    expect(apiEnvSchema.parse(once)).toEqual(once)
+  })
+
+  it('still reads the string forms a real environment supplies', () => {
+    expect(
+      apiEnvSchema.parse({ ...MINIMAL, ALLOW_DEMO_TAX_IN_PRODUCTION: 'false' })
+        .ALLOW_DEMO_TAX_IN_PRODUCTION,
+    ).toBe(false)
+    expect(
+      apiEnvSchema.parse({ ...MINIMAL, ALLOW_DEMO_TAX_IN_PRODUCTION: '' })
+        .ALLOW_DEMO_TAX_IN_PRODUCTION,
+    ).toBe(false)
+    expect(apiEnvSchema.parse(MINIMAL).ALLOW_DEMO_TAX_IN_PRODUCTION).toBe(false)
+  })
+
+  it('is idempotent for the worker and web environments too', () => {
+    const worker = workerEnvSchema.parse(MINIMAL)
+    expect(workerEnvSchema.parse(worker)).toEqual(worker)
+
+    const web = webEnvSchema.parse({})
+    expect(webEnvSchema.parse(web)).toEqual(web)
+  })
+})

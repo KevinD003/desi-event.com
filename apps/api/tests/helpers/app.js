@@ -59,6 +59,7 @@ export function testEnv(overrides = {}) {
  * @param {boolean} [options.docs] Whether to mount the documentation routes.
  * @param {object} [options.logger] A pino logger; omitted (silent) by default.
  * @param {object} [options.rateLimit] Rate-limit overrides.
+ * @param {Record<string, string|undefined>} [options.processEnv] Environment the payment kill switch inspects. Empty by default, so a stray variable on the machine running the suite cannot change the result.
  * @returns {Promise<{app: object, prisma: object, providers: object, ids: object}>} The harness.
  */
 export async function createTestApp(options = {}) {
@@ -75,6 +76,7 @@ export async function createTestApp(options = {}) {
     redis: options.redis,
     docs: options.docs ?? false,
     rateLimit: options.rateLimit ?? { global: { max: 10_000, timeWindow: '1 minute' } },
+    processEnv: options.processEnv ?? {},
   })
 
   await app.ready()

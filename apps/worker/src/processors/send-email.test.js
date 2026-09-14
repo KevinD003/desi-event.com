@@ -75,7 +75,9 @@ describe('createSendEmailProcessor', () => {
 
     await createSendEmailProcessor({ email })(job({ subject: 'A subject we chose' }))
 
-    expect(email.sent[0].subject).toBe('A subject we chose')
+    // The demonstration marker survives a caller-supplied subject: the one
+    // field an operator controls must not be the one that removes it.
+    expect(email.sent[0].subject).toBe('[DEMO] A subject we chose')
   })
 
   it('applies the configured from and replyTo addresses', async () => {

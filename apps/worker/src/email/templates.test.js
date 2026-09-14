@@ -79,7 +79,7 @@ describe('renderEmail', () => {
       },
     })
 
-    expect(rendered.subject).toBe('Your Desi-Event order DE-8F3K2Q')
+    expect(rendered.subject).toBe('[DEMO] Your Desi-Event order DE-8F3K2Q')
     expect(rendered.text).toContain('Hi Priya Sharma,')
     expect(rendered.text).toContain('order DE-8F3K2Q')
     expect(rendered.text).toContain('Navratri Garba Night')
@@ -138,5 +138,56 @@ describe('renderEmail', () => {
 
   it('refuses an unknown template instead of sending an empty email', () => {
     expect(() => renderEmail({ template: 'NOT_A_TEMPLATE' })).toThrow(/No renderer/)
+  })
+})
+
+describe('marking what is not real', () => {
+  /**
+   * Desi-Event settles every order with an in-memory mock and issues passes
+   * that admit nobody. A confirmation that reads like a receipt, or a ticket
+   * email that reads like a ticket, is the point at which a demonstration
+   * starts misleading somebody — so the marker goes in the subject line and in
+   * the first line of the body, where it cannot be scrolled past.
+   */
+  it.each(['ORDER_CONFIRMATION', 'TICKETS_ISSUED', 'ORDER_CANCELLED'])(
+    'marks %s in the subject and the body',
+    (template) => {
+      const rendered = renderEmail({ template, data: { buyerName: 'Priya Sharma' } })
+
+      expect(rendered.subject.startsWith('[DEMO] ')).toBe(true)
+      expect(rendered.text.split('\n')[0]).toContain('DEMO')
+      expect(rendered.html).toContain('DEMO')
+    },
+  )
+
+  it('says no money moved on anything shaped like a receipt', () => {
+    const rendered = renderEmail({ template: 'ORDER_CONFIRMATION', data: {} })
+
+    expect(rendered.text).toMatch(/no money moved/i)
+    expect(rendered.text).toMatch(/not a valid receipt/i)
+  })
+
+  it('says the pass admits nobody on the ticket email', () => {
+    const rendered = renderEmail({ template: 'TICKETS_ISSUED', data: {} })
+
+    expect(rendered.text).toMatch(/admits nobody/i)
+  })
+
+  it('keeps the marker even when the caller supplies its own subject', () => {
+    // Otherwise the one field an operator controls would be the one that
+    // removes the warning.
+    const rendered = renderEmail({
+      template: 'ORDER_CONFIRMATION',
+      data: {},
+      subject: 'Anything at all',
+    })
+
+    expect(rendered.subject).toBe('[DEMO] Anything at all')
+  })
+
+  it('leaves messages that are not about money or admission alone', () => {
+    const rendered = renderEmail({ template: 'EMAIL_VERIFICATION', data: {} })
+
+    expect(rendered.subject.startsWith('[DEMO]')).toBe(false)
   })
 })

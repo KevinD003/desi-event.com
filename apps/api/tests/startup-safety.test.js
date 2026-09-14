@@ -165,3 +165,79 @@ describe('failure output never contains a secret', () => {
     expect(result.output).not.toContain('hunter2-canary')
   }, 30_000)
 })
+
+describe('the production-payment kill switch, in a real process', () => {
+  /** A valid environment, so the only thing wrong is the payment configuration. */
+  const PAYABLE_BASE = {
+    ...VALID_BASE,
+    JWT_SECRET: 'a-genuinely-random-secret-value-of-length',
+  }
+
+  /** Live-looking and obviously fabricated, so the secret scanner leaves it alone. */
+  const FAKE_LIVE_KEY = 'sk_live_NOT_A_REAL_KEY_THIS_IS_A_TEST_FIXTURE_0000'
+
+  it('refuses a live-looking credential and never listens', async () => {
+    const result = await startServer({ ...PAYABLE_BASE, STRIPE_SECRET_KEY: FAKE_LIVE_KEY })
+
+    expect(result.code).not.toBe(0)
+    expect(result.everListened).toBe(false)
+  }, 30_000)
+
+  it('refuses a request for production payments and never listens', async () => {
+    const result = await startServer({ ...PAYABLE_BASE, ENABLE_PRODUCTION_PAYMENTS: 'true' })
+
+    expect(result.code).not.toBe(0)
+    expect(result.everListened).toBe(false)
+  }, 30_000)
+
+  it('says why, in the words the operator will search for', async () => {
+    const result = await startServer({ ...PAYABLE_BASE, PAYMENT_PROVIDER: 'stripe' })
+
+    expect(result.output).toContain('Production payments disabled')
+    expect(result.output).toContain('PAYMENT_PROVIDER')
+  }, 30_000)
+
+  it('never echoes the credential it refused', async () => {
+    const result = await startServer({ ...PAYABLE_BASE, STRIPE_SECRET_KEY: FAKE_LIVE_KEY })
+
+    expect(result.output).toContain('STRIPE_SECRET_KEY')
+    expect(result.output).not.toContain(FAKE_LIVE_KEY)
+  }, 30_000)
+})
+
+describe('startup succeeds when nothing is wrong', () => {
+  /**
+   * The case every other test in this file assumes and none of them covered.
+   *
+   * `loadApiEnv()` parses the environment and `buildApp` parses it again, so
+   * the schema is applied to its own output. A field that read a string and
+   * produced a boolean made the second pass fail — which meant the API could
+   * not start at all, in any environment, while every failure test here went on
+   * passing because they all failed earlier, on the secret.
+   */
+  it('binds the port with a valid environment', async () => {
+    const result = await startServer({
+      ...VALID_BASE,
+      JWT_SECRET: 'a-genuinely-random-secret-value-of-length',
+    })
+
+    expect(result.output).not.toContain('environment is invalid')
+    expect(result.everListened).toBe(true)
+  }, 30_000)
+
+  it('starts with every optional variable explicitly supplied', async () => {
+    const result = await startServer({
+      ...VALID_BASE,
+      JWT_SECRET: 'a-genuinely-random-secret-value-of-length',
+      ALLOW_DEMO_TAX_IN_PRODUCTION: 'false',
+      PLATFORM_FEE_BPS: '590',
+      PLATFORM_FEE_FLAT_CENTS: '99',
+      TICKET_HOLD_TTL_SECONDS: '600',
+      CORS_ORIGIN: 'https://example.com',
+      LOG_LEVEL: 'error',
+    })
+
+    expect(result.output).not.toContain('environment is invalid')
+    expect(result.everListened).toBe(true)
+  }, 30_000)
+})

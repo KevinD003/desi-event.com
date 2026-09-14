@@ -7,6 +7,7 @@ import {
   DEFAULT_DECLINE_CODE,
   toPaymentStatus,
 } from './payments.js'
+import { DEMO_PAYMENT_NOTICE, PAYMENT_MODES } from './payment-mode.js'
 import { assertPaymentProvider } from './interfaces.js'
 
 const NOW = '2026-09-14T10:00:00.000Z'
@@ -584,5 +585,48 @@ describe('toPaymentStatus', () => {
     } catch (error) {
       expect(error.code).toBe('INVALID_OPTIONS')
     }
+  })
+})
+
+describe('every intent is marked as a demonstration', () => {
+  it('stamps a freshly authorised intent', () => {
+    const payments = createInMemoryPaymentProvider()
+    const intent = payments.createIntent({ amountCents: 2500, currency: 'INR' })
+
+    expect(intent.mode).toBe(PAYMENT_MODES.MOCK)
+    expect(intent.demo).toBe(true)
+    expect(intent.demoNotice).toBe(DEMO_PAYMENT_NOTICE)
+  })
+
+  it('stamps a captured one, which is the one that could be mistaken for money', () => {
+    const payments = createInMemoryPaymentProvider()
+    const intent = payments.createIntent({ amountCents: 2500, currency: 'INR' })
+    const captured = payments.capture(intent.id)
+
+    expect(captured.status).toBe(PAYMENT_INTENT_STATUS.SUCCEEDED)
+    expect(captured.demo).toBe(true)
+    expect(captured.demoNotice).toMatch(/no money moved/i)
+  })
+
+  it('stamps a refund, which could be mistaken for money going back', () => {
+    const payments = createInMemoryPaymentProvider()
+    const intent = payments.createIntent({ amountCents: 2500, currency: 'INR' })
+    payments.capture(intent.id)
+    const refunded = payments.refund(intent.id)
+
+    expect(refunded.status).toBe(PAYMENT_INTENT_STATUS.REFUNDED)
+    expect(refunded.demo).toBe(true)
+    expect(refunded.demoNotice).toMatch(/not a valid receipt/i)
+  })
+
+  it('stamps what a later status read returns', () => {
+    const payments = createInMemoryPaymentProvider()
+    const intent = payments.createIntent({ amountCents: 2500, currency: 'INR' })
+
+    expect(payments.getStatus(intent.id).demo).toBe(true)
+  })
+
+  it('names itself something no payment service provider is called', () => {
+    expect(createInMemoryPaymentProvider().name).toBe('in-memory-payments')
   })
 })

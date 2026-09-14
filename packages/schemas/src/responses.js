@@ -18,6 +18,7 @@ import {
   timestampSchema,
 } from './primitives.js'
 import { eventCategorySchema, logLevelSchema } from './enums.js'
+import { PAYMENT_MODES } from './payments.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -162,6 +163,20 @@ export const healthResponseSchema = z.object({
       redis: z.boolean(),
     })
     .partial()
+    .optional(),
+  /**
+   * What this instance can do with money.
+   *
+   * There is one payment mode and it moves no money. Reporting it on the
+   * liveness probe means an operator never has to read the source to find out
+   * whether a deployment can charge a card: it cannot, and it says so.
+   */
+  payments: z
+    .object({
+      mode: z.literal(PAYMENT_MODES.MOCK),
+      demo: z.literal(true),
+      message: z.string().min(1).max(200),
+    })
     .optional(),
 })
 

@@ -90,6 +90,29 @@ const serverNodeEnvSchema = z.enum([...NODE_ENVS]).default('production')
 const blankAsAbsent = (value) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value
 
+/**
+ * A boolean environment variable that survives being parsed twice.
+ *
+ * `z.stringbool()` reads a string and produces a boolean, which makes the
+ * schema's output invalid as its own input: the API parses the environment at
+ * startup and `buildApp` parses it again, and the second pass was handed the
+ * boolean the first pass produced. That failed with "expected string, received
+ * boolean" — and it failed for every deployment, because the field has a
+ * default and so is always present in the output whether or not anybody set it.
+ *
+ * Normalising a boolean back to its string form makes parsing idempotent, which
+ * is the property any schema applied to its own output needs.
+ *
+ * @param {boolean} defaultValue Value used when the variable is absent or blank.
+ * @returns {object} A Zod schema accepting 'true', 'false', a real boolean, or nothing.
+ */
+const envBoolean = (defaultValue) =>
+  z.preprocess((value) => {
+    if (typeof value === 'boolean') return value ? 'true' : 'false'
+
+    return blankAsAbsent(value)
+  }, z.stringbool().default(defaultValue))
+
 /** Variables every server process shares. */
 const commonEnvFields = {
   NODE_ENV: serverNodeEnvSchema,
@@ -140,9 +163,9 @@ export const apiEnvSchema = z
      * Absent, production refuses to price an order under a DEMO tax policy.
      * Setting this is a decision somebody has to make on purpose and own.
      */
-    ALLOW_DEMO_TAX_IN_PRODUCTION: z
-      .preprocess(blankAsAbsent, z.stringbool().default(false))
-      .describe('Charge illustrative tax rates in production. Requires a deliberate decision.'),
+    ALLOW_DEMO_TAX_IN_PRODUCTION: envBoolean(false).describe(
+      'Charge illustrative tax rates in production. Requires a deliberate decision.',
+    ),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && isInsecureJwtSecret(env.JWT_SECRET)) {

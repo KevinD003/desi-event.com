@@ -15,6 +15,7 @@
 
 import { centsSchema, currencySchema } from '@desi-event/schemas'
 import { ProviderError, PROVIDER_ERROR_CODES } from './errors.js'
+import { DEMO_PAYMENT_NOTICE, PAYMENT_MODES } from './payment-mode.js'
 import {
   createClock,
   createIdFactory,
@@ -182,6 +183,11 @@ function toIntent(record) {
       refundReason: record.refundReason,
       metadata: record.metadata,
       paymentStatus: PAYMENT_STATUS_BY_INTENT_STATUS[/** @type {string} */ (record.status)],
+      // Stamped on every intent this adapter hands out, so a captured mock
+      // payment can never be mistaken downstream for money that moved.
+      mode: PAYMENT_MODES.MOCK,
+      demo: true,
+      demoNotice: DEMO_PAYMENT_NOTICE,
     })
   )
 }

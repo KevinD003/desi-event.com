@@ -53,6 +53,9 @@ export const PROVIDER_ERROR_CODES = Object.freeze({
   /** The (simulated) issuer declined the payment. */
   PAYMENT_DECLINED: 'PAYMENT_DECLINED',
 
+  /** A deployment asked for production payments, which Phase 1 does not implement. */
+  PRODUCTION_PAYMENTS_DISABLED: 'PRODUCTION_PAYMENTS_DISABLED',
+
   /** A message body is malformed: missing subject, empty body, wrong type. */
   INVALID_MESSAGE: 'INVALID_MESSAGE',
   /** A recipient address or phone number is not usable. */

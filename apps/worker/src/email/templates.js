@@ -19,6 +19,8 @@
  * @module @desi-event/worker/email/templates
  */
 
+import { DEMO_LABEL, DEMO_PAYMENT_NOTICE, DEMO_TICKET_NOTICE } from '@desi-event/providers'
+
 /** Sender name shown to recipients. */
 export const BRAND_NAME = 'Desi-Event'
 
@@ -243,6 +245,25 @@ export const TEMPLATES = Object.freeze({
 })
 
 /**
+ * Templates whose subject is money or admission, and which therefore have to
+ * say so when neither is real.
+ *
+ * Desi-Event has no payment integration: every order is settled by an
+ * in-memory mock and every ticket admits nobody. A confirmation that reads like
+ * a receipt, or a pass that reads like a ticket, is the point at which a
+ * demonstration starts misleading somebody — so these carry the notice in the
+ * subject line and in the first line of the body, where it cannot be scrolled
+ * past.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const DEMO_NOTICE_BY_TEMPLATE = Object.freeze({
+  ORDER_CONFIRMATION: DEMO_PAYMENT_NOTICE,
+  TICKETS_ISSUED: DEMO_TICKET_NOTICE,
+  ORDER_CANCELLED: DEMO_PAYMENT_NOTICE,
+})
+
+/**
  * Render a transactional email.
  *
  * @param {object} payload A validated `sendEmailJobSchema` payload.
@@ -262,10 +283,13 @@ export function renderEmail({ template, data = {}, subject }) {
   }
 
   const rendered = renderer(data)
-  const lines = rendered.lines.map((line) => String(line).trim()).filter((line) => line !== '')
+  const notice = DEMO_NOTICE_BY_TEMPLATE[template]
+  const body = notice ? [notice, ...rendered.lines] : rendered.lines
+  const lines = body.map((line) => String(line).trim()).filter((line) => line !== '')
+  const headline = subject ?? rendered.subject
 
   return {
-    subject: subject ?? rendered.subject,
+    subject: notice ? `[${DEMO_LABEL}] ${headline}` : headline,
     text: [...lines, '', `— ${BRAND_NAME}`].join('\n\n'),
     html: toHtml(rendered.heading, lines),
   }

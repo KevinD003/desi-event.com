@@ -13,6 +13,7 @@
 
 import Fastify from 'fastify'
 import { apiEnvSchema, parseOrThrow } from '@desi-event/schemas'
+import { assertMockPaymentsOnly } from '@desi-event/providers'
 
 import { registerAuth } from './plugins/auth.js'
 import { registerDocs } from './plugins/docs.js'
@@ -36,6 +37,7 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
  * @property {{global?: object, auth?: object}} [rateLimit] Rate-limit overrides.
+ * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
  */
 
 /**
@@ -55,12 +57,22 @@ export async function buildApp(options) {
     version = '0.1.0',
     docs = true,
     rateLimit = {},
+    processEnv = process.env,
   } = options
 
   if (!prisma) throw new TypeError('buildApp requires a prisma client')
   if (!providers) throw new TypeError('buildApp requires a provider registry')
 
   const env = parseOrThrow(apiEnvSchema, rawEnv ?? {}, 'Invalid API environment')
+
+  // Before anything is built: refuse a deployment that believes it has card
+  // payments. The schema above strips unknown variables, so the kill switch
+  // reads the unparsed environment — a stray STRIPE_SECRET_KEY has to be
+  // visible to it.
+  const payments = assertMockPaymentsOnly({
+    env: { ...processEnv, ...(rawEnv ?? {}) },
+    logger,
+  })
 
   const app = Fastify({
     ...(logger ? { loggerInstance: logger } : { logger: false }),
@@ -74,6 +86,7 @@ export async function buildApp(options) {
   app.decorate('prisma', prisma)
   app.decorate('providers', providers)
   app.decorate('env', env)
+  app.decorate('payments', payments)
 
   await registerValidation(app)
   await registerErrorHandler(app, { nodeEnv: env.NODE_ENV })
@@ -89,6 +102,7 @@ export async function buildApp(options) {
     env,
     redis,
     version,
+    payments,
     authLimit: rateLimit.auth,
   })
 

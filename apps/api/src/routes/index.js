@@ -28,6 +28,7 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {object} deps.env The parsed API environment.
  * @param {object} [deps.redis] An optional ioredis-compatible client for the health probe.
  * @param {string} [deps.version] Version string reported by the health endpoint.
+ * @param {object} [deps.payments] The resolved payment mode, reported by the health endpoint.
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the credential-endpoint rate limit.
  * @returns {void} Nothing.
  */

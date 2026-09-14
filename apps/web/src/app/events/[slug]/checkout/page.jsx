@@ -14,6 +14,7 @@ import { EmptyState } from '../../../../components/ui.jsx'
 import { loadEventBySlug } from '../../../../lib/api.js'
 import { formatEventWhen, formatEventLocation } from '../../../../lib/format.js'
 import { CheckoutBasket } from '../../../../components/checkout-basket.jsx'
+import { PaymentModeNotice } from '../../../../components/payment-mode-notice.jsx'
 import { NotFoundView } from '../../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../../components/sample-data-notice.jsx'
 
@@ -94,6 +95,8 @@ export default async function CheckoutPage({ params }) {
       <p className="mt-2 text-slate-700">
         {formatEventWhen(event)} · {formatEventLocation(event)}
       </p>
+
+      <PaymentModeNotice />
 
       <SampleDataNotice show={usedFallback} />
 

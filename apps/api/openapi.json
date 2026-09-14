@@ -110,6 +110,30 @@
                         }
                       },
                       "additionalProperties": false
+                    },
+                    "payments": {
+                      "type": "object",
+                      "properties": {
+                        "mode": {
+                          "type": "string",
+                          "const": "MOCK"
+                        },
+                        "demo": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "message": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        }
+                      },
+                      "required": [
+                        "mode",
+                        "demo",
+                        "message"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [

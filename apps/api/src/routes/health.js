@@ -4,6 +4,8 @@
  * @module @desi-event/api/routes/health
  */
 
+import { PAYMENT_MODES, PRODUCTION_PAYMENTS_DISABLED_MESSAGE } from '@desi-event/providers'
+
 import { httpError } from '../lib/errors.js'
 import { defineRoute } from '../lib/register.js'
 
@@ -52,10 +54,11 @@ async function checkRedis(redis) {
  * @param {object} deps.prisma The Prisma client.
  * @param {object} [deps.redis] An optional ioredis-compatible client.
  * @param {object} deps.env The parsed API environment.
+ * @param {object} [deps.payments] The resolved payment mode. Reported so an operator can see, without reading the code, that no card payment can occur.
  * @param {string} [deps.version] Version string reported in the payload.
  * @returns {void} Nothing.
  */
-export function registerHealthRoutes(app, { prisma, redis, env, version = '0.1.0' }) {
+export function registerHealthRoutes(app, { prisma, redis, env, payments, version = '0.1.0' }) {
   defineRoute(app, 'health.get', {
     handler: async () => {
       const [database, redisOk] = await Promise.all([checkDatabase(prisma), checkRedis(redis)])
@@ -75,6 +78,14 @@ export function registerHealthRoutes(app, { prisma, redis, env, version = '0.1.0
         logLevel: env.LOG_LEVEL,
         timestamp: new Date(),
         checks,
+        // Deliberately part of the liveness payload rather than a separate
+        // endpoint: an operator checking whether this instance is healthy is
+        // exactly the person who needs to know it cannot take money.
+        payments: {
+          mode: payments?.mode ?? PAYMENT_MODES.MOCK,
+          demo: true,
+          message: payments?.message ?? PRODUCTION_PAYMENTS_DISABLED_MESSAGE,
+        },
       }
     },
   })
