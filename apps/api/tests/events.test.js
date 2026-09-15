@@ -22,6 +22,46 @@ async function list(app, query = '', headers = {}) {
   return response.json()
 }
 
+describe('what a public event page says about its organiser, finding NF-14', () => {
+  it('carries no contact address and no payout currency', async () => {
+    // The endpoint used to return the whole Organization row. An organiser's
+    // account contact address and the currency they are paid in are not things
+    // an anonymous visitor to a listing needs.
+    const { app } = await createTestApp()
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toMatch(/hello@rangoli/)
+    expect(Object.keys(response.json().data.organization).sort()).toEqual([
+      'description',
+      'id',
+      'name',
+      'slug',
+      'verified',
+      'websiteUrl',
+    ])
+
+    await app.close()
+  })
+
+  it('shows no badge when the column and the verification state disagree', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const organization = prisma._store.organization.find(
+      (row) => row.id === ids.organization.id,
+    )
+
+    organization.verified = true
+    organization.verificationStatus = 'SUSPENDED'
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+
+    expect(response.json().data.organization.verified).toBe(false)
+
+    await app.close()
+  })
+})
+
 describe('GET /v1/events', () => {
   it('shows anonymous callers published events only, and counts only those', async () => {
     const { app } = await createTestApp()

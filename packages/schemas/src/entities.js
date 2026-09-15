@@ -95,6 +95,28 @@ export const organizationSchema = z.object({
   ...auditColumns,
 })
 
+/**
+ * An organisation as an anonymous caller may see it.
+ *
+ * Finding NF-14: the event detail endpoint returned the whole `Organization`
+ * row, so `contactEmail` — the account contact, not a published box office
+ * address — and `payoutCurrency` were served to anybody who loaded a public
+ * event page. This is the allow-list that replaced it, and it is a separate
+ * schema rather than an `.omit()` so that a field added to the row is absent
+ * from the public payload until somebody decides otherwise.
+ *
+ * `verified` stays, because it is the badge, but the presenter derives it from
+ * the verification state rather than copying the denormalised column.
+ */
+export const publicOrganizerSummarySchema = z.object({
+  id: cuidSchema,
+  name: nonEmptyStringSchema,
+  slug: slugSchema,
+  description: richTextSchema.nullish(),
+  websiteUrl: urlSchema.nullish(),
+  verified: z.boolean().default(false),
+})
+
 /** A `Venue` row. */
 export const venueSchema = z.object({
   id: cuidSchema,
@@ -296,7 +318,7 @@ export const auditLogSchema = z.object({
 /** An event with the relations the detail page needs, all in one payload. */
 export const eventWithRelationsSchema = eventSchema.extend({
   venue: venueSchema.nullish(),
-  organization: organizationSchema.nullish(),
+  organization: publicOrganizerSummarySchema.nullish(),
   ticketTypes: z.array(ticketTypeSchema).default([]),
 })
 

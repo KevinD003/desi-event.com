@@ -504,7 +504,11 @@ describe('eventWithRelationsSchema', () => {
 
     expect(parsed.venue.city).toBe('Ahmedabad')
     expect(parsed.ticketTypes).toHaveLength(1)
-    expect(parsed.organization.payoutCurrency).toBe('INR')
+    expect(parsed.organization.name).toBe('Rhythm Collective')
+    // Finding NF-14: the nested organisation is the public summary, not the
+    // row, so an account contact address offered here does not come back out.
+    expect(parsed.organization).not.toHaveProperty('contactEmail')
+    expect(parsed.organization).not.toHaveProperty('payoutCurrency')
   })
 
   it('defaults ticketTypes to an empty array and allows a null venue', () => {

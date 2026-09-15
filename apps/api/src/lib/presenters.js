@@ -9,6 +9,8 @@
  * @module @desi-event/api/lib/presenters
  */
 
+import { BADGED_STATES } from './verification.js'
+
 /** `TicketTypeStatus.ON_SALE`, inlined to avoid importing the database client. */
 const ON_SALE = 'ON_SALE'
 
@@ -58,6 +60,35 @@ export function toEventSummary(event) {
 }
 
 /**
+ * An organisation, reduced to what an anonymous caller may see.
+ *
+ * Finding NF-14: this endpoint used to return the row, which carried
+ * `contactEmail` and `payoutCurrency` to anybody who loaded a public event
+ * page. Built by naming each field rather than by deleting the two that were
+ * wrong, so the next column added to `Organization` is absent here until
+ * somebody decides it should be public.
+ *
+ * `verified` is derived from the verification state, not copied from the
+ * denormalised column, so this page cannot show a badge the organiser page
+ * would not — and cannot show one at all if the two ever disagree.
+ *
+ * @param {object|null} organization An `Organization` row, or null.
+ * @returns {object|null} A payload satisfying `publicOrganizerSummarySchema`.
+ */
+export function toPublicOrganizer(organization) {
+  if (!organization) return null
+
+  return {
+    id: organization.id,
+    name: organization.name,
+    slug: organization.slug,
+    description: organization.description ?? null,
+    websiteUrl: organization.websiteUrl ?? null,
+    verified: BADGED_STATES.has(organization.verificationStatus),
+  }
+}
+
+/**
  * The full event payload returned by the detail endpoint.
  *
  * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
@@ -69,7 +100,7 @@ export function toEventDetail(event) {
   return {
     ...rest,
     venue,
-    organization,
+    organization: toPublicOrganizer(organization),
     ticketTypes: [...ticketTypes].sort(
       (left, right) => left.sortOrder - right.sortOrder || left.priceCents - right.priceCents,
     ),
