@@ -1,6 +1,8 @@
 # Phase 2 final verification report
 
-> **Scope.** This is the account of the `3f5add0`…`e1b2069` cycle.
+> **Scope.** This is the account of the `3f5add0`…`e1b2069` cycle. A later cycle
+> (`09a27cb`…`8661bbf`) reconciled the evidence and built the event lifecycle;
+> its account is in `PHASE2_STATUS.md` §§2, 9 and 10.
 > `PHASE2_STATUS.md` is the authoritative current record and is where the
 > numbers below should be read against.
 

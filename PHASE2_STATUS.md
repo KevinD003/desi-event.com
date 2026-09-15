@@ -2,6 +2,9 @@
 
 **Status: `PARTIAL`.** Phase 3 has not been started.
 
+**As of `8661bbf`.** The repository-state table in §1 is measured at `a949cb7`,
+the commit this cycle started from; §10 records the state at the end.
+
 This document is the single current-status record for Phase 2. Where it
 disagrees with any other file in this repository, this one is right and the
 other is historical.
@@ -255,10 +258,11 @@ Used below with exactly these meanings and nothing softer.
 
 ---
 
-## 4. Findings NF-04 to NF-16
+## 4. Findings NF-04 to NF-21
 
-All thirteen are closed. Each row was re-verified against the code at `a949cb7`,
-not against the prose that claimed it.
+All eighteen are closed. NF-04 to NF-16 were re-verified against the code at
+`a949cb7`, not against the prose that claimed them; NF-17 to NF-21 were found,
+reproduced and closed in this cycle.
 
 | ID        | Finding                                                                       | Closed in            | Evidence at `a949cb7`                                                                                                                        | Status                 |
 | --------- | ----------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
@@ -276,8 +280,15 @@ not against the prose that claimed it.
 | **NF-15** | Platform password hashing reached the production client bundle                | `3e9a327`, `62d3e66` | `apps/web/src/lib/browser-bundle.js` import-graph guard; `pnpm run bundle:scan` finds `scrypt` absent from all 173 browser-deliverable files | `AUTOMATICALLY TESTED` |
 | **NF-16** | The API and worker deployment contract shipped in the browser bundle          | `33f2d7d`, `a894258` | `pnpm run bundle:scan` finds `DATABASE_URL`, `JWT_SECRET`, `AUTH_SECRET`, `PLACEHOLDER_SECRETS` absent from all 173                          | `AUTOMATICALLY TESTED` |
 
+| **NF-17** | Creating an event accepted a caller-supplied `status`, skipping review | `8661bbf` | `apps/api/tests/event-lifecycle.test.js` — "ignores a status the caller supplies" | `AUTOMATICALLY TESTED` |
+| **NF-18** | The publish route wrote any of thirteen statuses with no transition check | `8661bbf` | `packages/schemas/src/lifecycle.js` table; `apps/api/src/lib/event-lifecycle.js`; 34 + 20 + 11 tests | `AUTOMATICALLY TESTED` |
+| **NF-19** | Every pre-publication state was served to anonymous callers, `moderationNote` too | `8661bbf` | Three fixtures in non-public states; `apps/api/tests/event-lifecycle.test.js` — "what a stranger may see" | `AUTOMATICALLY TESTED` |
+| **NF-20** | A `TicketType` could name an `EventSession` from a different event | `8661bbf` | Trigger `desi_ticket_type_session_matches`; `apps/api/tests/event-lifecycle-integration.test.js` | `DB-ENFORCED` |
+| **NF-21** | An `Event` could end before it started | `8661bbf` | CHECK `event_ends_after_start`; same integration suite | `DB-ENFORCED` |
+
 NF-01 through NF-03 predate this range and are recorded in
-`docs/ADVERSARIAL_REVIEW_FINDINGS.md`.
+`docs/ADVERSARIAL_REVIEW_FINDINGS.md`. NF-17 through NF-21 were found and closed
+in this cycle; each was reproduced with a failing test first.
 
 ---
 
@@ -316,30 +327,38 @@ names; counting them toward gate 15 would be scoring the wrong test.
 
 ## 6. The twenty required end-to-end journeys
 
-The twenty are the event-lifecycle journeys. None exists at `a949cb7`.
+The twenty are the event-lifecycle journeys. None existed at `a949cb7`. After
+`8661bbf` the lifecycle behind thirteen of them is built and tested at the API
+level; no browser journey exists for any of the twenty.
 
-| #   | Journey                                                         | Status            |
-| --- | --------------------------------------------------------------- | ----------------- |
-| 1   | Verified organizer creates a draft event                        | `NOT IMPLEMENTED` |
-| 2   | Organizer configures sessions and GA inventory                  | `NOT IMPLEMENTED` |
-| 3   | Organizer selects a published reserved-seat map version         | `NOT IMPLEMENTED` |
-| 4   | Organizer submits event for review                              | `NOT IMPLEMENTED` |
-| 5   | Unauthorized organization member cannot submit it               | `NOT IMPLEMENTED` |
-| 6   | Moderator requests changes                                      | `NOT IMPLEMENTED` |
-| 7   | Organizer updates and resubmits                                 | `NOT IMPLEMENTED` |
-| 8   | Moderator approves                                              | `NOT IMPLEMENTED` |
-| 9   | Authorized organizer publishes                                  | `NOT IMPLEMENTED` |
-| 10  | Unverified organizer cannot publish                             | `NOT IMPLEMENTED` |
-| 11  | Reserved event cannot publish with a draft map                  | `NOT IMPLEMENTED` |
-| 12  | Published event appears publicly                                | `NOT IMPLEMENTED` |
-| 13  | Draft and rejected events remain private                        | `NOT IMPLEMENTED` |
-| 14  | Public page works without JavaScript                            | `NOT IMPLEMENTED` |
-| 15  | Event editor works by keyboard                                  | `NOT IMPLEMENTED` |
-| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `NOT IMPLEMENTED` |
-| 17  | Material post-publication change requires confirmation          | `NOT IMPLEMENTED` |
-| 18  | Sales can be paused and resumed                                 | `NOT IMPLEMENTED` |
-| 19  | Cancellation creates notification/refund work exactly once      | `NOT IMPLEMENTED` |
-| 20  | Cross-organization edit and publication attempts are denied     | `NOT IMPLEMENTED` |
+| #   | Journey                                                         | Status                       | Where                                                                                       |
+| --- | --------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- |
+| 1   | Verified organizer creates a draft event                        | `IMPLEMENTED` (API only)     | `apps/api/tests/event-lifecycle.test.js`; no browser journey                                |
+| 2   | Organizer configures sessions and GA inventory                  | `NOT IMPLEMENTED`            | No session-authoring routes exist                                                           |
+| 3   | Organizer selects a published reserved-seat map version         | `DB-ENFORCED`                | The database refuses a draft map on a session; no authoring route and no UI                 |
+| 4   | Organizer submits event for review                              | `AUTOMATICALLY TESTED` (API) | `events.submitReview`; no browser journey                                                   |
+| 5   | Unauthorized organization member cannot submit it               | `AUTOMATICALLY TESTED` (API) | "cross-organisation attempts"; no browser journey                                           |
+| 6   | Moderator requests changes                                      | `AUTOMATICALLY TESTED` (API) | `moderation.decide`; no browser journey                                                     |
+| 7   | Organizer updates and resubmits                                 | `IMPLEMENTED` (API only)     | CHANGES_REQUIRED to REVIEW_PENDING is in the table and tested                               |
+| 8   | Moderator approves                                              | `AUTOMATICALLY TESTED` (API) | "lets a moderator approve, and records who and why"                                         |
+| 9   | Authorized organizer publishes                                  | `AUTOMATICALLY TESTED` (API) | `events.publish`; no browser journey                                                        |
+| 10  | Unverified organizer cannot publish                             | `AUTOMATICALLY TESTED` (API) | `apps/api/tests/event-lifecycle-integration.test.js` — "a failed transition writes nothing" |
+| 11  | Reserved event cannot publish with a draft map                  | `AUTOMATICALLY TESTED` (API) | The service gate and the database refusal, both asserted                                    |
+| 12  | Published event appears publicly                                | `AUTOMATICALLY TESTED` (API) | The visibility set; no browser journey                                                      |
+| 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` (API) | NF-19 regression cover; no browser journey                                                  |
+| 14  | Public page works without JavaScript                            | `NOT IMPLEMENTED`            | Exists for the venue page, not for an event in a lifecycle state                            |
+| 15  | Event editor works by keyboard                                  | `NOT IMPLEMENTED`            | No event editor exists                                                                      |
+| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `NOT IMPLEMENTED`            | No event screens exist                                                                      |
+| 17  | Material post-publication change requires confirmation          | `NOT IMPLEMENTED`            | `materialChanges()` exists and is tested; nothing calls it yet                              |
+| 18  | Sales can be paused and resumed                                 | `IMPLEMENTED` (API only)     | `events.pauseSales`, `events.openSales`; no browser journey                                 |
+| 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` (API) | "cancellation creates the work it owes, exactly once"                                       |
+| 20  | Cross-organization edit and publication attempts are denied     | `AUTOMATICALLY TESTED` (API) | "cross-organisation attempts"; no browser journey                                           |
+
+**None of the twenty exists as a browser journey.** Thirteen are asserted at the
+API level, which is where the authorization and state rules actually live and is
+the stronger assertion for those rules — but the brief asks for browser
+journeys, and API coverage is not what it asks for. Gate 15 therefore stays
+`NOT MET`. Seven are not implemented at all.
 
 Browser coverage that **does** exist, and which these twenty are separate from:
 
@@ -427,7 +446,96 @@ answered.
 
 ---
 
-## 9. Stripe and external verification
+## 9. Verification at `8661bbf`
+
+Run with PostgreSQL 16.13 and Redis 7.0.15 up, caches deleted first, browser
+suites one at a time on a four-core machine.
+
+| #   | Command                       | Exit | Elapsed | Result                                                     | Cache                     |
+| --- | ----------------------------- | ---: | ------- | ---------------------------------------------------------- | ------------------------- |
+| 1   | `pnpm run policy:check`       |    0 | 1s      | 464 files, no violations                                   | n/a                       |
+| 2   | `pnpm run secrets:scan`       |    0 | 1s      | 463 files, nothing credential-shaped                       | n/a                       |
+| 3   | `pnpm run format:check`       |    0 | 8s      | clean                                                      | n/a                       |
+| 4   | `pnpm run lint`               |    0 | 9s      | no problems                                                | n/a                       |
+| 5   | `pnpm run contract:check`     |    0 | 2s      | **71 routes**, 71 operations, 64 paths; artefact current   | n/a                       |
+| 6   | `pnpm run test`               |    0 | 65s     | **3,901 passed, 0 failed, 0 skipped**, 138 files, 16 tasks | **0 of 16 cached** (cold) |
+| 7   | `pnpm run db:verify:fresh`    |    0 | 12s     | **68/68**                                                  | n/a                       |
+| 8   | `pnpm run db:verify:upgrade`  |    0 | —       | **20/20**, 14 triggers, 9 migrations                       | n/a                       |
+| 9   | `pnpm run build`              |    0 | 17s     | 3 tasks                                                    | **0 of 3 cached** (cold)  |
+| 10  | `pnpm audit`                  |    0 | 0s      | no known vulnerabilities                                   | n/a                       |
+| 11  | `pnpm run bundle:scan`        |    0 | 1s      | 173 browser-deliverable files, nothing server-only         | n/a                       |
+| 12  | `pnpm run test:e2e`           |    0 | 91s     | **118 passed**                                             | n/a                       |
+| 13  | `pnpm run test:e2e:prod`      |    0 | 13s     | **19 passed**                                              | n/a                       |
+| 14  | `pnpm run test:e2e:organizer` |    0 | 36s     | **13 passed**                                              | n/a                       |
+
+**Failures during the cycle, and their causes.** Three commands failed on a
+first attempt and each was a real defect rather than a flake:
+
+1. `pnpm run test` — `routesByTag('events')` listed six route ids where there are
+   now sixteen. The expectation was updated to the full list in declaration
+   order, so a route inserted in the wrong place in the table is visible there.
+2. `pnpm run db:verify:upgrade` — the new migration was classified as
+   pre-Phase-2, so its `TicketType` trigger fired against a table that did not
+   yet have `eventSessionId`, and its `Event` CHECK refused the row filler's
+   zero-length window. Both were fixed at the verifier's own documented
+   extension points: the migration was added to `PHASE2_MIGRATIONS`, and the
+   filler was given a coherent window rather than the constraint being relaxed.
+3. `pnpm run test:e2e` — a filter live-region regex read
+   `/events? match your filters/`, which matches the plural phrasing only. The
+   component correctly writes "1 event matches your filters" for a single
+   result, so the test passed for exactly as long as the filtered count happened
+   to be above one. A latent defect this run surfaced, not one this cycle
+   introduced.
+
+**No retry was needed anywhere.** Nothing was re-run in the hope of a different
+answer; each failure was diagnosed and fixed, then the command was run again.
+
+**Container restart.** The sandbox restarted at the start of this cycle and
+neither PostgreSQL nor Redis was running. Both were started before any command,
+and the Redis init script prints
+`ulimit: error setting limit (Operation not permitted)` in this sandbox and
+starts anyway. Environment quirk, not a repository defect.
+
+---
+
+## 10. What this cycle built, and what it did not
+
+**Built and tested.**
+
+- The lifecycle as a graph — `packages/schemas/src/lifecycle.js`, 34 tests
+  including a reachability proof that every status is reachable from DRAFT and a
+  coverage proof that the table names every member of the enum.
+- The transition service — `apps/api/src/lib/event-lifecycle.js`: table, then
+  entitlement, then gates, then a conditional write, in that order.
+- Seven lifecycle commands and two moderation routes, all in the contract and
+  the regenerated OpenAPI artefact.
+- Cancellation and postponement work — idempotent notices, refund rows created
+  `REQUESTED` and left there.
+- 11 real-PostgreSQL integration tests covering concurrent submission,
+  concurrent moderation, concurrent publication, partial-write rollback,
+  illegal transitions and the two new database invariants.
+- Five findings, NF-17 to NF-21, each reproduced before being fixed.
+
+**Not built.** Stated plainly because the brief asked for it and it is not here:
+
+| Area                                                                     | Status                                                                            |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| Event authoring API: sessions, ticket types, price zones, sales windows  | `NOT IMPLEMENTED`                                                                 |
+| Inventory preparation command                                            | `NOT IMPLEMENTED` — the gate that checks it exists and is tested                  |
+| All-in price preview                                                     | `NOT IMPLEMENTED`                                                                 |
+| Organizer event list, create workflow, multi-step editor, draft autosave | `NOT IMPLEMENTED`                                                                 |
+| Organizer preview, moderator queue UI                                    | `NOT IMPLEMENTED`                                                                 |
+| Event JSON-LD, canonical metadata, sitemap changes for lifecycle states  | `NOT IMPLEMENTED`                                                                 |
+| The twenty browser journeys                                              | `NOT IMPLEMENTED` — §6                                                            |
+| Material-change confirmation flow                                        | `NOT IMPLEMENTED` — `materialChanges()` exists and is tested; nothing calls it    |
+| Attendee notification _delivery_                                         | `SEAM ONLY` — rows are written; no worker sends them                              |
+| Refund execution                                                         | `NOT IMPLEMENTED` — deliberately; see NF-20's neighbours in the findings document |
+
+Gate 3 is `PARTIAL` and gate 15 is `NOT MET` for exactly these reasons.
+
+---
+
+## 11. Stripe and external verification
 
 No Stripe credentials have ever been supplied to this repository, and none were
 requested as a blocker. Every Stripe test runs against a double with the real

@@ -242,6 +242,112 @@ proof is not the guard's opinion: `scripts/scan-browser-bundle.mjs` reads the
 manifests, prerendered RSC payloads, static HTML, 16 source maps — and finds
 none of the forbidden markers and all of the required ones.
 
+## NF-17 to NF-21 — the event lifecycle
+
+Five findings from building the event lifecycle. Each was reproduced with a
+failing test before it was fixed, and each test stays as regression cover.
+
+| ID        | Severity     | Claim                                                                                     | Location                                                            | Found by                                                 | Status    |
+| --------- | ------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------- | --------- |
+| **NF-17** | **high**     | Creating an event could skip review entirely: `status` was accepted from the request body | `packages/schemas/src/requests.js`, `apps/api/src/routes/events.js` | This author, reading the create handler                  | **Fixed** |
+| **NF-18** | **critical** | The publish route was a status setter over the whole thirteen-member enum                 | `packages/schemas/src/requests.js:156`                              | This author, reading `publishEventRequestSchema`         | **Fixed** |
+| **NF-19** | **high**     | Every pre-publication state was served to anonymous callers, `moderationNote` included    | `apps/api/src/routes/events.js` `loadVisibleEvent`                  | A codebase survey, then reproduced                       | **Fixed** |
+| **NF-20** | **medium**   | A `TicketType` could name an `EventSession` belonging to a different event                | `packages/db/prisma/schema.prisma` `TicketType`                     | An integration test that expected a refusal and got none | **Fixed** |
+| **NF-21** | **low**      | An `Event` could end before it started; only `EventSession` carried the check             | `packages/db/prisma/schema.prisma` `Event`                          | The same survey                                          | **Fixed** |
+
+### NF-17 — a DRAFT default is not a DRAFT guarantee
+
+`createEventRequestSchema` extended the writable object with
+`status: eventStatusSchema.default('DRAFT')`. A default is what happens when the
+caller says nothing; it is not what happens when the caller says something else.
+A caller holding only `event:create` could post `status: 'PUBLISHED'` and have
+the row written that way — no moderator, no `event:publish` capability, and not
+even the on-sale-tier check the publish route performed, because that check
+lived in the publish route. `'APPROVED'` worked equally well, which is a forged
+moderator decision.
+
+The route's own contract description read "Creates an event in DRAFT status".
+That was the intent, and the intent was not the code.
+
+Reproduced by `apps/api/tests/event-lifecycle.test.js` — "ignores a status the
+caller supplies and always starts in DRAFT" returned `'PUBLISHED'` before the
+fix. The status is now ignored rather than rejected, so a client that still
+sends one keeps working and simply does not get its way.
+
+### NF-18 — one capability, thirteen destinations
+
+`publishEventRequestSchema` was `{ status: eventStatusSchema, publishedAt? }`
+and the handler wrote whatever arrived. There was no transition validation of
+any kind, so with `event:publish` a caller could move an event from DRAFT
+straight to PUBLISHED — skipping REVIEW_PENDING and APPROVED — or to ARCHIVED,
+or to CANCELLED, which is a claim that refunds are owed.
+
+The only thing standing in the way of DRAFT to PUBLISHED was an unrelated check
+that at least one ticket type was on sale, which a real organiser satisfies
+before publishing anyway.
+
+Closed by `packages/schemas/src/lifecycle.js`, a table naming every legal move,
+who may make it and what must be true first, and by
+`apps/api/src/lib/event-lifecycle.js`, which enforces it. Seven commands replace
+the one setter, and the destination is the route rather than a field.
+
+### NF-19 — DRAFT was the only state anybody had excluded
+
+Both the list filter and the detail handler asked one question: is this a draft?
+Everything between "submitted" and "published" answered no and was served in
+full to anonymous callers — a submission waiting on a moderator, an approval the
+organiser had not chosen to announce, an archived event, and a rejection.
+
+The rejection is the worst of the four. `Event.moderationNote` is what a
+moderator wrote to the organiser about why they were turned down, and it came
+back in the payload.
+
+Closed by deriving both filters from the lifecycle table rather than from a
+literal. The table distinguishes two questions that had been conflated:
+_appearing in a listing_ and _resolving at a URL_. A cancelled event must still
+resolve, because somebody holding a ticket needs the page to say what happened;
+it does not belong in "what is on" or in a sitemap.
+
+### NF-20 — the same mistake one level up from NF-04
+
+NF-04 closed the hole between an `OrderItem` and its `TicketType`: a line could
+sell a tier from a different event, and under the Connect charge model that
+attributes money to the wrong account. The tier-to-session pairing had the same
+shape and no guard: `TicketType.eventSessionId` referenced `EventSession(id)`
+and nothing more, so a tier sold for event A could be scoped to a session of
+event B. Inventory would count against B while the order, the ticket and the
+door list all said A.
+
+Found the way NF-07 was found — by writing the test and discovering there was
+nothing behind it. `desi_ticket_type_session_matches` closes it, and a null
+session stays legitimate: it means "every session of this event", which is how a
+Phase 1 single-session event migrates without inventing one.
+
+### NF-21 — the parent could hold a window its children were forbidden
+
+`EventSession` has carried `event_session_ends_after_start` since the Phase 2
+migration. `Event` never got the equivalent. The API validated it on create and
+on update, and a backfill, a console fix or a future route does not go through
+the API.
+
+Added `NOT VALID` then `VALIDATE`, so the check binds new and updated rows
+immediately and existing rows are verified under a weaker lock — a deployment
+holding a bad row is told which invariant it breaks rather than having the
+`ALTER` fail with nothing useful.
+
+### What this did not change
+
+Nothing in this cycle weakened a database constraint, a trigger or a
+client/server boundary. Two places where the database turned out to be stricter
+than a test expected were resolved by asserting the database's refusal:
+
+- A **draft** map version cannot be attached to a session at all — the service
+  gate that refuses to publish such an event is defence in depth, and the
+  database refuses one step earlier.
+- The populated-upgrade verifier's generic row filler gives every timestamp the
+  same value, which `event_ends_after_start` now refuses. The filler was given a
+  coherent window rather than the constraint being relaxed.
+
 ## Provenance
 
 - Raw findings: `wf_6b34ffef-3e2/journal.jsonl`, 6 records of type `result`
