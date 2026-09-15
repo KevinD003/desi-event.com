@@ -244,9 +244,23 @@ export default async function EventDetailPage({ params }) {
               <Card className="mt-4">
                 <CardBody>
                   <p className="flex flex-wrap items-center gap-2">
-                    <span className="font-display text-lg font-semibold text-indigo-night-900">
-                      {event.organization.name}
-                    </span>
+                    {/*
+                      Linked when there is a slug to link to, plain text when
+                      there is not. Building the href from the name would
+                      produce a URL that looks right and 404s.
+                    */}
+                    {event.organization.slug ? (
+                      <Link
+                        href={`/organizers/${event.organization.slug}`}
+                        className="rounded-sm font-display text-lg font-semibold text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+                      >
+                        {event.organization.name}
+                      </Link>
+                    ) : (
+                      <span className="font-display text-lg font-semibold text-indigo-night-900">
+                        {event.organization.name}
+                      </span>
+                    )}
                     {event.organization.verified ? (
                       <Badge variant="success" srLabel="Organiser status:">
                         Verified organiser

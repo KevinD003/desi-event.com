@@ -7,6 +7,8 @@ const PAGES = [
   { name: 'filtered listing', path: '/events?category=COMEDY' },
   { name: 'event detail', path: '/events/qawwali-under-the-banyan' },
   { name: 'checkout', path: '/events/qawwali-under-the-banyan/checkout' },
+  { name: 'organiser', path: '/organizers/rangmanch-collective' },
+  { name: 'unverified organiser', path: '/organizers/masala-arts-london' },
   { name: 'not found', path: '/events/no-such-event' },
 ]
 

@@ -4350,6 +4350,19 @@
                               }
                             ]
                           },
+                          "organizationSlug": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 140,
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "minPriceCents": {
                             "anyOf": [
                               {
@@ -9451,6 +9464,19 @@
                                     }
                                   ]
                                 },
+                                "organizationSlug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "minPriceCents": {
                                   "anyOf": [
                                     {
@@ -10094,6 +10120,19 @@
                                       }
                                     ]
                                   },
+                                  "organizationSlug": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 140,
+                                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
                                   "minPriceCents": {
                                     "anyOf": [
                                       {
@@ -10681,6 +10720,19 @@
                                       "type": "string",
                                       "minLength": 1,
                                       "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "organizationSlug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
                                     },
                                     {
                                       "type": "null"

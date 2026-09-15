@@ -30,7 +30,7 @@ import {
   getApiClient,
   resetApiClient as resetClientCache,
 } from './api-client.js'
-import { findSampleEvent, sampleEventSummaries } from './sample-data.js'
+import { findSampleEvent, findSampleOrganizer, sampleEventSummaries } from './sample-data.js'
 
 // Re-exported so server-side callers keep one import. Client components must
 // import from './api-client.js' directly: this module pulls in the fallback
@@ -204,6 +204,42 @@ export async function loadEventBySlug(slug, options = {}) {
       return { event: withTicketTypeAvailability(response.data), usedFallback: false }
     },
     () => ({ event: findSampleEvent(slug), usedFallback: true }),
+  )
+}
+
+/**
+ * @typedef {object} OrganizerResult
+ * @property {object|null} organizer The public organiser profile, or `null` when there is none.
+ * @property {boolean} usedFallback Whether the curated catalogue answered instead of the API.
+ */
+
+/**
+ * Load a public organiser profile by slug.
+ *
+ * Falls back to the curated catalogue like every other read here, and for the
+ * same reason: an organiser link on a fallback-rendered event page has to lead
+ * somewhere. What it will not do is invent an organiser — a slug the catalogue
+ * does not have comes back `null`, and the page renders not-found.
+ *
+ * @param {string} slug The organiser's slug.
+ * @param {object} [options] Overrides.
+ * @param {object} [options.client] API client to use; defaults to the shared one.
+ * @returns {Promise<OrganizerResult>} The profile, or `null` with the fallback flag set.
+ */
+export async function loadOrganizerBySlug(slug, options = {}) {
+  return readOrFallback(
+    'organizers.get',
+    async () => {
+      const client = options.client ?? getApiClient()
+      const response = await client.organizers.get({ slug }, callOptions())
+
+      if (!response?.data?.slug) {
+        throw new Error('organizers.get returned no organiser')
+      }
+
+      return { organizer: response.data, usedFallback: false }
+    },
+    () => ({ organizer: findSampleOrganizer(slug), usedFallback: true }),
   )
 }
 

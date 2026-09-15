@@ -176,6 +176,12 @@ export const eventSummarySchema = z.object({
   city: nonEmptyStringSchema.nullish(),
   venueName: nonEmptyStringSchema.nullish(),
   organizationName: nonEmptyStringSchema.nullish(),
+  /**
+   * The organiser's slug, so a card can link to their page without a second
+   * request. Nullish because a summary built from a row with no organisation
+   * joined has no honest answer, and guessing one would produce a dead link.
+   */
+  organizationSlug: slugSchema.nullish(),
   minPriceCents: centsSchema.nullish(),
   currency: currencySchema.nullish(),
   soldOut: z.boolean().optional(),

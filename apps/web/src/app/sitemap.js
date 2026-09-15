@@ -46,13 +46,19 @@ function staticRoutes() {
 }
 
 /**
- * Every published event, walked page by page.
+ * Every published event, walked page by page, and the organisers behind them.
+ *
+ * Organiser pages are derived from the same walk rather than listed separately,
+ * and that is the rule rather than a convenience: an organiser with nothing
+ * published has a page that says so, and a sitemap entry for it would be an
+ * invitation to index an empty listing.
  *
  * @returns {Promise<object[]>} Sitemap entries, or an empty list when the API cannot be reached.
  */
 async function publishedEvents() {
   const client = getApiClient()
   const entries = []
+  const organizers = new Set()
 
   try {
     for (let page = 1; page <= MAX_PAGES; page += 1) {
@@ -74,6 +80,9 @@ async function publishedEvents() {
           changeFrequency: 'daily',
           priority: 0.8,
         })
+
+        // Deduplicated by slug: an organiser with forty events is one page.
+        if (event.organizationSlug) organizers.add(event.organizationSlug)
       }
 
       if (!response.pagination?.hasNextPage) break
@@ -86,6 +95,14 @@ async function publishedEvents() {
     )
 
     return []
+  }
+
+  for (const slug of organizers) {
+    entries.push({
+      url: `${siteUrl}/organizers/${slug}`,
+      changeFrequency: 'weekly',
+      priority: 0.6,
+    })
   }
 
   return entries

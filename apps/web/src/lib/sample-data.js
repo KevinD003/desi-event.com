@@ -52,6 +52,10 @@ const ORGANIZATIONS = {
     websiteUrl: 'https://rangmanch.example',
     verified: true,
     payoutCurrency: 'INR',
+    verificationStatus: 'VERIFIED',
+    timezone: 'Asia/Kolkata',
+    refundPolicy:
+      'Full refund up to seven days before the performance; no refunds after that, but tickets may be transferred.',
   },
   navrang: {
     id: 'orgnavrangutsav',
@@ -62,6 +66,10 @@ const ORGANIZATIONS = {
     websiteUrl: 'https://navrangutsav.example',
     verified: true,
     payoutCurrency: 'INR',
+    verificationStatus: 'VERIFIED',
+    timezone: 'Asia/Kolkata',
+    refundPolicy:
+      'Passes are non-refundable once the first night has begun. Before that, a full refund less the payment fee.',
   },
   desiBeats: {
     id: 'orgdesibeatsto',
@@ -72,6 +80,10 @@ const ORGANIZATIONS = {
     websiteUrl: 'https://desibeats.example',
     verified: true,
     payoutCurrency: 'CAD',
+    verificationStatus: 'VERIFIED',
+    timezone: 'America/Toronto',
+    refundPolicy:
+      'Refunds up to 72 hours before doors. After that the ticket is yours to transfer.',
   },
   masala: {
     id: 'orgmasalaartsldn',
@@ -82,6 +94,10 @@ const ORGANIZATIONS = {
     websiteUrl: 'https://masalaarts.example',
     verified: false,
     payoutCurrency: 'GBP',
+    verificationStatus: 'UNVERIFIED',
+    timezone: 'Europe/London',
+    refundPolicy:
+      'Refunds up to 24 hours before curtain, or an exchange into any other show in the season.',
   },
   swarSadhana: {
     id: 'orgswarsadhana',
@@ -93,6 +109,10 @@ const ORGANIZATIONS = {
     websiteUrl: 'https://swarsadhana.example',
     verified: true,
     payoutCurrency: 'INR',
+    verificationStatus: 'VERIFIED',
+    timezone: 'Asia/Kolkata',
+    refundPolicy:
+      'A full refund at any point up to the interval of the first half, in keeping with a long-standing practice of the trust.',
   },
 }
 
@@ -239,6 +259,43 @@ function toTicketType(eventId, currency, tier, index) {
 }
 
 /**
+ * Whether a verification state earns the public badge.
+ *
+ * One state, mirroring `BADGED_STATES` on the server. Duplicated rather than
+ * imported because this module is the *offline* catalogue and must not depend
+ * on the API package it stands in for — but kept to one place here, so the
+ * fallback cannot show a badge the live site would not.
+ *
+ * @param {object} organization A sample organisation.
+ * @returns {boolean} True when the badge is earned.
+ */
+function isBadged(organization) {
+  return organization.verificationStatus === 'VERIFIED'
+}
+
+/**
+ * A sample organisation reduced to the shape the API publishes.
+ *
+ * Matches `publicOrganizerSummarySchema`: no contact address, no payout
+ * currency. The point of the fallback is that a component cannot tell the
+ * difference between it and a live payload, and finding NF-14 narrowed what
+ * the live payload contains.
+ *
+ * @param {object} organization A sample organisation.
+ * @returns {object} The public summary.
+ */
+function toPublicOrganizer(organization) {
+  return {
+    id: organization.id,
+    name: organization.name,
+    slug: organization.slug,
+    description: organization.description,
+    websiteUrl: organization.websiteUrl,
+    verified: isBadged(organization),
+  }
+}
+
+/**
  * Expand a compact event definition into the full relation-bearing shape the
  * detail page consumes.
  *
@@ -257,7 +314,7 @@ function toEvent(definition) {
     isOnline: false,
     onlineUrl: null,
     publishedAt: daysFromNow(-42, 9, 0),
-    organization,
+    organization: toPublicOrganizer(organization),
     venue,
     ticketTypes: tiers.map((tier, index) => toTicketType(event.id, currency, tier, index)),
   }
@@ -797,6 +854,7 @@ export function toEventSummary(event) {
     city: event.venue?.city ?? null,
     venueName: event.venue?.name ?? null,
     organizationName: event.organization?.name ?? null,
+    organizationSlug: event.organization?.slug ?? null,
     minPriceCents: priced.length > 0 ? Math.min(...priced.map((tier) => tier.priceCents)) : null,
     currency: priced[0]?.currency ?? null,
     soldOut: tiers.length > 0 && onSale.length === 0,
@@ -822,6 +880,61 @@ export function findSampleEvent(slug) {
   if (typeof slug !== 'string') return null
 
   return SAMPLE_EVENTS.find((event) => event.slug === slug) ?? null
+}
+
+/**
+ * Look a sample organiser up by slug, with their events split around now.
+ *
+ * Exists so that an organiser link on a fallback-rendered event page leads
+ * somewhere. Without it, the site would be internally inconsistent exactly when
+ * the API is down — which is when consistency is the only thing holding the
+ * page together.
+ *
+ * @param {string} slug Organiser slug, e.g. `rangmanch-collective`.
+ * @returns {object|null} A payload matching `publicOrganizerSchema`, or `null`.
+ */
+export function findSampleOrganizer(slug) {
+  if (typeof slug !== 'string') return null
+
+  const organization = Object.values(ORGANIZATIONS).find(
+    (candidate) => candidate.slug === slug,
+  )
+
+  if (!organization) return null
+
+  const listed = SAMPLE_EVENTS.filter((event) => event.organizationId === organization.id)
+  const now = Date.now()
+
+  /**
+   * One event as the organiser page lists it.
+   *
+   * @param {object} event A sample event.
+   * @returns {object} The listing entry.
+   */
+  const entry = (event) => ({
+    slug: event.slug,
+    title: event.title,
+    startsAt: event.startsAt,
+    venueName: event.venue?.name ?? null,
+  })
+
+  return {
+    slug: organization.slug,
+    name: organization.name,
+    description: organization.description ?? null,
+    websiteUrl: organization.websiteUrl ?? null,
+    verified: isBadged(organization),
+    refundPolicy: organization.refundPolicy ?? null,
+    timezone: organization.timezone,
+    upcomingEvents: listed
+      .filter((event) => Date.parse(event.startsAt) >= now)
+      .sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt))
+      .map(entry),
+    pastEvents: listed
+      .filter((event) => Date.parse(event.startsAt) < now)
+      .sort((left, right) => Date.parse(right.startsAt) - Date.parse(left.startsAt))
+      .map(entry),
+  }
 }
 
 /**

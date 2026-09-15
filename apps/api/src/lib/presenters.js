@@ -44,6 +44,7 @@ export function toEventSummary(event) {
     city: event.venue?.city ?? null,
     venueName: event.venue?.name ?? null,
     organizationName: event.organization?.name ?? null,
+    organizationSlug: event.organization?.slug ?? null,
     minPriceCents,
     currency: priced[0]?.currency ?? null,
   }

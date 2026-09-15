@@ -47,6 +47,33 @@ describe('the sitemap', () => {
     )
   })
 
+  it('lists an organiser page once, however many events they have', async () => {
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [
+          { slug: 'one', organizationSlug: 'rangmanch-collective' },
+          { slug: 'two', organizationSlug: 'rangmanch-collective' },
+          { slug: 'three', organizationSlug: 'navrang-utsav-samiti' },
+        ],
+      ]),
+    )
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths.filter((path) => path.startsWith('/organizers/'))).toEqual([
+      '/organizers/rangmanch-collective',
+      '/organizers/navrang-utsav-samiti',
+    ])
+  })
+
+  it('omits an organiser whose events carry no slug rather than guessing one', async () => {
+    getApiClient.mockReturnValue(clientReturning([[{ slug: 'one', organizationName: 'Someone' }]]))
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths.some((path) => path.startsWith('/organizers/'))).toBe(false)
+  })
+
   it('walks every page of the catalogue', async () => {
     getApiClient.mockReturnValue(clientReturning([[{ slug: 'one' }], [{ slug: 'two' }]]))
 

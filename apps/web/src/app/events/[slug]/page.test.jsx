@@ -24,7 +24,7 @@ const event = {
   endsAt: '2026-11-01T17:30:00.000Z',
   languages: ['Urdu'],
   venue: { name: 'Banyan Courtyard', city: 'Mumbai', addressLine1: '1 Road', country: 'IN' },
-  organization: { name: 'Swar Sadhana Trust', verified: true },
+  organization: { name: 'Swar Sadhana Trust', slug: 'swar-sadhana-trust', verified: true },
   ticketTypes: [],
 }
 
@@ -85,5 +85,28 @@ describe('the event detail page when the event exists', () => {
     const metadata = await generateMetadata({ params: Promise.resolve({ slug: event.slug }) })
 
     expect(metadata.alternates.canonical).toBe(`/events/${event.slug}`)
+  })
+
+  it('links the organiser to their own page', async () => {
+    render(await EventDetailPage({ params: Promise.resolve({ slug: event.slug }) }))
+
+    expect(screen.getByRole('link', { name: 'Swar Sadhana Trust' })).toHaveAttribute(
+      'href',
+      '/organizers/swar-sadhana-trust',
+    )
+  })
+
+  it('leaves the organiser as plain text when there is no slug to link to', async () => {
+    // Deriving the href from the name would produce a URL that looks right and
+    // 404s, which is worse than not linking.
+    loadEventBySlug.mockResolvedValue({
+      event: { ...event, organization: { name: 'Swar Sadhana Trust', verified: false } },
+      usedFallback: false,
+    })
+
+    render(await EventDetailPage({ params: Promise.resolve({ slug: event.slug }) }))
+
+    expect(screen.queryByRole('link', { name: 'Swar Sadhana Trust' })).not.toBeInTheDocument()
+    expect(screen.getByText('Swar Sadhana Trust')).toBeInTheDocument()
   })
 })
