@@ -488,27 +488,59 @@ export async function listDevices(prisma, userId, now = new Date()) {
  * The one place the whole session lifecycle is applied, so that no route can
  * accidentally accept an idle session or skip a rotation.
  *
+ * Rotation happens only when the new secret can be delivered — which, today,
+ * means the caller presented a cookie. This is not a preference; it fixes a
+ * defect. The secret was rotated on schedule regardless of how it was presented,
+ * but the replacement was only ever written back as a `Set-Cookie`. A client
+ * using the bearer form was silently locked out at the first rotation window —
+ * after an hour for a privileged session — presenting a secret that no longer
+ * resolved to anything, with no channel through which it could learn the new
+ * one.
+ *
+ * Rotating a credential the holder cannot be told about is not a security
+ * control; it is an outage on a timer. So a bearer-presented session is not
+ * rotated. It is still bounded, by the same absolute expiry every session has —
+ * twelve hours for a privileged actor — and it can still be revoked, listed and
+ * attributed to a device. The alternative, returning the new secret in a custom
+ * response header, was rejected: `Set-Cookie` is redacted by convention in every
+ * logging layer between here and the client, and a bespoke header carrying a
+ * session secret is not.
+ *
  * @param {object} prisma A Prisma client.
  * @param {object} options Options.
  * @param {object} options.session The session row.
  * @param {object} options.actor The actor it belongs to.
+ * @param {boolean} [options.canDeliverSecret] Whether the caller can be handed a replacement. False for a bearer token.
  * @param {Date} [options.now] The current time.
- * @returns {Promise<{valid: boolean, reason: string|null, rotatedSecret: string|null, policy: object}>} The outcome.
+ * @returns {Promise<{valid: boolean, reason: string|null, rotatedSecret: string|null, rotationDeferred: boolean, policy: object}>} The outcome.
  */
-export async function refreshSession(prisma, { session, actor, now = new Date() }) {
+export async function refreshSession(
+  prisma,
+  { session, actor, canDeliverSecret = true, now = new Date() },
+) {
   const policy = sessionPolicyFor(actor)
   const { valid, reason } = sessionUsable(session, { now, lifetimes: policy.lifetimes })
 
-  if (!valid) return { valid: false, reason, rotatedSecret: null, policy }
+  if (!valid) {
+    return { valid: false, reason, rotatedSecret: null, rotationDeferred: false, policy }
+  }
 
   let rotatedSecret = null
+  let rotationDeferred = false
 
   if (shouldRotate(session, { now, lifetimes: policy.lifetimes })) {
-    const { secret, rotated } = await rotateSession(prisma, session, now)
-    if (rotated) rotatedSecret = secret
+    if (canDeliverSecret) {
+      const { secret, rotated } = await rotateSession(prisma, session, now)
+      if (rotated) rotatedSecret = secret
+    } else {
+      // Due, but undeliverable. Reported rather than performed, so the caller
+      // can log it and the behaviour is visible instead of being an absence.
+      rotationDeferred = true
+      await touchSession(prisma, session, now)
+    }
   } else {
     await touchSession(prisma, session, now)
   }
 
-  return { valid: true, reason: null, rotatedSecret, policy }
+  return { valid: true, reason: null, rotatedSecret, rotationDeferred, policy }
 }

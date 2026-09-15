@@ -278,9 +278,13 @@ export async function registerAuth(app, { prisma, env }) {
       throw forbidden('This account is suspended.')
     }
 
-    const { valid, reason, rotatedSecret } = await refreshSession(prisma, {
+    const { valid, reason, rotatedSecret, rotationDeferred } = await refreshSession(prisma, {
       session,
       actor: loaded.actor,
+      // Only a cookie caller can be handed a replacement secret. A bearer client
+      // has no channel to learn one, and rotating anyway locked it out at the
+      // first rotation window — see the note on `refreshSession`.
+      canDeliverSecret: fromCookie,
     })
 
     if (!valid) {
@@ -295,6 +299,13 @@ export async function registerAuth(app, { prisma, env }) {
 
     if (rotatedSecret && fromCookie) {
       setSessionCookies(reply, rotatedSecret, session.expiresAt)
+    }
+
+    if (rotationDeferred) {
+      request.log.debug(
+        { sessionId: session.id },
+        'a bearer session is due for rotation and has no channel to receive the new secret',
+      )
     }
 
     Object.assign(request, {

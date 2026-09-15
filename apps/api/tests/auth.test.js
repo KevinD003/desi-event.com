@@ -1003,6 +1003,69 @@ describe('POST /v1/auth/change-password', () => {
   })
 })
 
+describe('scheduled rotation and the bearer client', () => {
+  // The defect this covers: the secret was rotated on schedule however it was
+  // presented, but the replacement was only ever written back as a Set-Cookie.
+  // A bearer client was locked out at the first rotation window — an hour for a
+  // privileged session — presenting a secret that resolved to nothing, with no
+  // channel through which it could learn the new one.
+
+  it('does not rotate a bearer session out from under its holder', async () => {
+    const { app, prisma } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+    const [session] = prisma._store.session
+
+    // Push the session past its rotation window without touching anything else.
+    session.createdAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
+    session.rotatedAt = null
+    session.lastSeenAt = new Date()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(signedIn.body.token),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    // And the secret it is still holding is still the right one.
+    const again = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(signedIn.body.token),
+    })
+
+    expect(again.statusCode).toBe(200)
+
+    await app.close()
+  })
+
+  it('still rotates a cookie session, which can be told about it', async () => {
+    const { app, prisma } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+    const [session] = prisma._store.session
+
+    session.createdAt = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
+    session.rotatedAt = null
+    session.lastSeenAt = new Date()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: signedIn.headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const rotated = (response.cookies ?? []).find((cookie) => cookie.name === '__Host-desi_session')
+
+    expect(rotated?.value).toBeTruthy()
+    expect(rotated.value).not.toBe(signedIn.body.token)
+
+    await app.close()
+  })
+})
+
 describe('sessions and devices', () => {
   it('lists this account sessions and flags the current one', async () => {
     const { app } = await createTestApp()
