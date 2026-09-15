@@ -519,6 +519,74 @@ export async function runPhase2Probes(prisma, { probe, record }) {
     ),
   )
 
+  // The seat a hold reserves must belong to the hold's own session. Without
+  // this a hold for tonight could pin a seat in next week's session, and the
+  // sweep that expires it would never think to look there.
+  results.push(
+    await probe(
+      prisma,
+      'a hold cannot reserve a seat from another session',
+      /but the hold is for session/,
+      async (tx) => {
+        const otherSession = await tx.eventSession.create({
+          data: {
+            eventId: fixtures.event.id,
+            startsAt: new Date(Date.now() + 172_800_000),
+            endsAt: new Date(Date.now() + 176_400_000),
+            venueMapVersionId: publishedVersion.id,
+          },
+        })
+
+        const hold = await tx.ticketHold.create({
+          data: {
+            ticketTypeId: fixtures.ticketType.id,
+            quantity: 1,
+            expiresAt: new Date(Date.now() + 600_000),
+            guestTokenHash: 'c'.repeat(64),
+            eventSessionId: otherSession.id,
+          },
+        })
+
+        return tx.holdItem.create({
+          data: {
+            holdId: hold.id,
+            ticketTypeId: fixtures.ticketType.id,
+            eventSeatId: eventSeat.id,
+          },
+        })
+      },
+    ),
+  )
+
+  // A hold with no session is a general-admission hold. It counts quantity; it
+  // does not name seats, and the database says so rather than trusting that no
+  // caller will try.
+  results.push(
+    await probe(
+      prisma,
+      'a general-admission hold cannot reserve a named seat',
+      /has no session/,
+      async (tx) => {
+        const hold = await tx.ticketHold.create({
+          data: {
+            ticketTypeId: fixtures.ticketType.id,
+            quantity: 1,
+            expiresAt: new Date(Date.now() + 600_000),
+            guestTokenHash: 'd'.repeat(64),
+          },
+        })
+
+        return tx.holdItem.create({
+          data: {
+            holdId: hold.id,
+            ticketTypeId: fixtures.ticketType.id,
+            eventSeatId: eventSeat.id,
+          },
+        })
+      },
+    ),
+  )
+
   // ---- NF-04: one organiser per order -------------------------------------
 
   results.push(
