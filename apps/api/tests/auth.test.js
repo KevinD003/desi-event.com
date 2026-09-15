@@ -39,6 +39,42 @@ const ORIGIN = 'https://desi-event.test'
  * @param {string} [options.code] A one-time code.
  * @returns {Promise<object>} The body, plus the cookie header and CSRF header a browser would send back.
  */
+/**
+ * Apply a response's Set-Cookie headers to an existing header bag.
+ *
+ * A browser does this automatically. These tests carry their headers by hand, so
+ * without it a response that rotates the session cookie — which the
+ * privilege-changing routes now do, per finding NF-10 — leaves the test holding a
+ * secret the server has already replaced.
+ *
+ * @param {object} headers The headers being carried between requests.
+ * @param {object} response An inject result.
+ * @returns {object} A new header bag with the response's cookies applied.
+ */
+function followCookies(headers, response) {
+  const existing = Object.fromEntries(
+    (headers.cookie ?? '')
+      .split('; ')
+      .filter(Boolean)
+      .map((pair) => [pair.slice(0, pair.indexOf('=')), pair.slice(pair.indexOf('=') + 1)]),
+  )
+
+  for (const cookie of response.cookies ?? []) existing[cookie.name] = cookie.value
+
+  // Rotation issues a fresh CSRF token alongside the session, and the double
+  // submit only works if the header matches the cookie. A real client reads that
+  // cookie — it is deliberately not httpOnly — and echoes it, so this does too.
+  const csrf = existing['__Host-desi_csrf'] ?? existing.desi_csrf ?? headers['x-desi-csrf']
+
+  return {
+    ...headers,
+    ...(csrf ? { 'x-desi-csrf': csrf } : {}),
+    cookie: Object.entries(existing)
+      .map(([name, value]) => `${name}=${value}`)
+      .join('; '),
+  }
+}
+
 async function signInAsBrowser(app, email, { password = PASSWORD, code } = {}) {
   const response = await app.inject({
     method: 'POST',
@@ -1308,14 +1344,21 @@ describe('the second factor', () => {
 
     expect(confirmed.statusCode).toBe(200)
 
-    return { secret, factorId, recoveryCodes: confirmed.json().data.recoveryCodes }
+    return {
+      secret,
+      factorId,
+      recoveryCodes: confirmed.json().data.recoveryCodes,
+      // Confirming a factor rotates the session, so the caller needs the
+      // replacement — exactly as a browser would have it after the Set-Cookie.
+      headers: followCookies(headers, confirmed),
+    }
   }
 
   it('enrols, confirms, and returns recovery codes exactly once', async () => {
     const { app, prisma } = await createTestApp()
     const signedIn = await signInAsBrowser(app, 'priya@example.com')
 
-    const { factorId, recoveryCodes } = await enrol(app, signedIn.headers)
+    const { factorId, recoveryCodes, headers } = await enrol(app, signedIn.headers)
 
     expect(recoveryCodes).toHaveLength(10)
     expect(new Set(recoveryCodes).size).toBe(10)
@@ -1330,7 +1373,7 @@ describe('the second factor', () => {
     const listed = await app.inject({
       method: 'GET',
       url: '/v1/auth/mfa',
-      headers: { cookie: signedIn.headers.cookie },
+      headers: { cookie: headers.cookie },
     })
 
     expect(listed.json().data.satisfied).toBe(true)
@@ -1511,12 +1554,16 @@ describe('step-up authentication', () => {
     const { factorId, secret } = started.json().data
     const { totp } = await import('@desi-event/auth')
 
-    await app.inject({
+    const confirmed = await app.inject({
       method: 'POST',
       url: '/v1/auth/mfa/totp/confirm',
       headers: signedIn.headers,
       payload: { factorId, code: totp(secret) },
     })
+
+    // Confirming rotates the session, so carry the replacement forward the way a
+    // browser would.
+    const headers = followCookies(signedIn.headers, confirmed)
 
     // Confirming counts as a step-up, so it is cleared here to reach the guard —
     // which is what an hour later looks like.
@@ -1525,7 +1572,7 @@ describe('step-up authentication', () => {
     const response = await app.inject({
       method: 'POST',
       url: `/v1/auth/mfa/${factorId}/disable`,
-      headers: signedIn.headers,
+      headers,
       payload: { currentPassword: PASSWORD },
     })
 
@@ -1543,14 +1590,14 @@ describe('step-up authentication', () => {
     await app.inject({
       method: 'POST',
       url: '/v1/auth/step-up',
-      headers: signedIn.headers,
+      headers,
       payload: { code: later },
     })
 
     const allowed = await app.inject({
       method: 'POST',
       url: `/v1/auth/mfa/${factorId}/disable`,
-      headers: signedIn.headers,
+      headers,
       payload: { currentPassword: PASSWORD },
     })
 
@@ -1639,6 +1686,170 @@ describe('step-up authentication', () => {
 
     expect(response.statusCode).toBe(401)
     expect(prisma._store.mfaFactor.find((row) => row.id === factor.id).disabledAt).toBeNull()
+
+    await app.close()
+  })
+})
+
+describe('rotation on a privilege change, finding NF-10', () => {
+  // The session module's docstring claimed rotation on "sign-in, password
+  // change, MFA enrolment, step-up". Only the password change rotated. A secret
+  // captured before a second factor existed stayed valid after it was added,
+  // which is most of the value of adding one.
+
+  /**
+   * Enrol a factor and return what the caller holds afterwards.
+   *
+   * @param {object} app The instance.
+   * @param {object} headers The signed-in headers.
+   * @returns {Promise<object>} The confirm response and the post-rotation headers.
+   */
+  async function enrolFactor(app, headers) {
+    const { totp } = await import('@desi-event/auth')
+    const started = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp',
+      headers,
+      payload: {},
+    })
+    const { factorId, secret } = started.json().data
+
+    const confirmed = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp/confirm',
+      headers,
+      payload: { factorId, code: totp(secret) },
+    })
+
+    expect(confirmed.statusCode).toBe(200)
+
+    return { confirmed, factorId, secret, headers: followCookies(headers, confirmed) }
+  }
+
+  it('replaces the secret when a second factor is confirmed', async () => {
+    const { app } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+
+    const { confirmed } = await enrolFactor(app, signedIn.headers)
+    const rotated = (confirmed.cookies ?? []).find((c) => c.name === '__Host-desi_session')
+
+    expect(rotated?.value).toBeTruthy()
+    expect(rotated.value).not.toBe(signedIn.body.token)
+
+    await app.close()
+  })
+
+  it('stops the pre-enrolment secret working', async () => {
+    const { app } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+
+    await enrolFactor(app, signedIn.headers)
+
+    const withOld = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(signedIn.body.token),
+    })
+
+    expect(withOld.statusCode).toBe(401)
+
+    await app.close()
+  })
+
+  it('replaces the secret again when a factor is removed', async () => {
+    const { app, prisma } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+    const { factorId, secret, headers } = await enrolFactor(app, signedIn.headers)
+    const { TOTP_PARAMETERS, totp } = await import('@desi-event/auth')
+
+    // A later window: confirming the enrolment already spent this one.
+    const stepUp = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/step-up',
+      headers,
+      payload: {
+        code: totp(secret, { at: new Date(Date.now() + TOTP_PARAMETERS.stepSeconds * 1000) }),
+      },
+    })
+
+    expect(stepUp.statusCode).toBe(200)
+
+    const before = headers.cookie
+    const removed = await app.inject({
+      method: 'POST',
+      url: `/v1/auth/mfa/${factorId}/disable`,
+      headers: followCookies(headers, stepUp),
+      payload: { currentPassword: PASSWORD },
+    })
+
+    expect(removed.statusCode).toBe(200)
+    expect(prisma._store.mfaFactor.find((row) => row.id === factorId).disabledAt).not.toBeNull()
+
+    const rotated = (removed.cookies ?? []).find((c) => c.name === '__Host-desi_session')
+
+    expect(rotated?.value).toBeTruthy()
+    expect(before).not.toContain(rotated.value)
+
+    await app.close()
+  })
+
+  it('does not lock out a bearer client that enrols a factor', async () => {
+    // The other half of the requirement, and the one that is easy to break while
+    // fixing the first: a bearer caller has no channel to receive a replacement,
+    // so rotating it would leave the holder with a dead secret.
+    const { app } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+    const { totp } = await import('@desi-event/auth')
+
+    const started = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp',
+      headers: bearer(signedIn.body.token),
+      payload: {},
+    })
+
+    expect(started.statusCode).toBe(201)
+
+    const { factorId, secret } = started.json().data
+    const confirmed = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp/confirm',
+      headers: bearer(signedIn.body.token),
+      payload: { factorId, code: totp(secret) },
+    })
+
+    expect(confirmed.statusCode).toBe(200)
+
+    // The token it is still holding still works.
+    const after = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(signedIn.body.token),
+    })
+
+    expect(after.statusCode).toBe(200)
+
+    await app.close()
+  })
+
+  it('revokes the other sessions either way', async () => {
+    // Rotation protects the session in front of you; revocation deals with the
+    // ones you cannot see. Both are needed, and the bearer exception applies
+    // only to the first.
+    const { app, prisma } = await createTestApp()
+    const keeping = await signInAsBrowser(app, 'priya@example.com')
+    const losing = await signInAsBrowser(app, 'priya@example.com')
+
+    await enrolFactor(app, keeping.headers)
+
+    const other = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(losing.body.token),
+    })
+
+    expect(other.statusCode).toBe(401)
+    expect(prisma._store.session.filter((s) => s.revokedAt === null)).toHaveLength(1)
 
     await app.close()
   })

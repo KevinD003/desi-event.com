@@ -112,6 +112,39 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
   const recoverySealing = { secret: app.authKeys.sealingSecret, purpose: KEY_PURPOSES.recovery }
 
   /**
+   * Rotate the caller's own session after a privilege change, and deliver it.
+   *
+   * Finding NF-10. The docstring on `@desi-event/auth/sessions` claimed rotation
+   * on "sign-in, password change, MFA enrolment, step-up"; only the password
+   * change rotated. A session opened before a second factor existed carried on
+   * with the same secret afterwards, so a secret captured under the weaker
+   * requirement stayed valid under the stronger one — which is most of the value
+   * of adding the factor.
+   *
+   * Sibling sessions are revoked separately by `applyRevocationRule`. This one is
+   * rotated rather than revoked: signing somebody out of the form they just
+   * submitted teaches nothing except that securing your account is annoying.
+   *
+   * A bearer caller is deliberately *not* rotated. It has no channel to receive
+   * the replacement, and rotating it would lock the holder out — the defect
+   * `b37b242` fixed on the scheduled path, which would be reintroduced here if
+   * this helper rotated unconditionally.
+   *
+   * @param {object} request The request, carrying the session and how it was presented.
+   * @param {object} reply The reply, for the cookie.
+   * @returns {Promise<boolean>} Whether the secret was replaced.
+   */
+  async function rotateAfterPrivilegeChange(request, reply) {
+    if (!request.cookieAuthenticated) return false
+
+    const { secret, rotated } = await rotateSession(prisma, request.session)
+
+    if (rotated) app.setSessionCookies(reply, secret, request.session.expiresAt)
+
+    return rotated
+  }
+
+  /**
    * Hand a single-use link to whoever is going to deliver it.
    *
    * With no mail provider configured, this logs that a link was issued — the
@@ -688,18 +721,14 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         exceptSessionId: request.session.id,
       })
 
-      const { secret, rotated } = await rotateSession(prisma, request.session)
-
-      if (rotated && request.cookieAuthenticated) {
-        app.setSessionCookies(reply, secret, request.session.expiresAt)
-      }
+      const rotated = await rotateAfterPrivilegeChange(request, reply)
 
       await recordAudit(prisma, {
         actorId: request.actor.id,
         action: 'auth.password_changed',
         entityType: 'User',
         entityId: request.actor.id,
-        metadata: { sessionsRevoked: revoked },
+        metadata: { sessionsRevoked: revoked, rotated },
       })
 
       return { ok: true }
@@ -910,7 +939,7 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
 
   defineRoute(app, 'auth.confirmTotp', {
     config: limit,
-    handler: async (request) => {
+    handler: async (request, reply) => {
       const factor = await prisma.mfaFactor.findFirst({
         where: {
           id: request.body.factorId,
@@ -970,12 +999,17 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         data: { mfaSatisfiedAt: now },
       })
 
+      // The account is now protected by something it was not protected by a
+      // moment ago, so the secret established under the weaker requirement is
+      // replaced — finding NF-10.
+      const rotated = await rotateAfterPrivilegeChange(request, reply)
+
       await recordAudit(prisma, {
         actorId: request.actor.id,
         action: 'auth.mfa_confirmed',
         entityType: 'MfaFactor',
         entityId: factor.id,
-        metadata: { recoveryCodes: codes.length, sessionsRevoked: revoked },
+        metadata: { recoveryCodes: codes.length, sessionsRevoked: revoked, rotated },
       })
 
       return { data: { factorId: factor.id, recoveryCodes: codes } }
@@ -984,7 +1018,7 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
 
   defineRoute(app, 'auth.disableFactor', {
     config: limit,
-    handler: async (request) => {
+    handler: async (request, reply) => {
       if (!(await app.verifyUserPassword(request.currentUser, request.body.currentPassword))) {
         throw unauthorized('That is not your current password.')
       }
@@ -1031,12 +1065,18 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         exceptSessionId: request.session.id,
       })
 
+      const rotated = await rotateAfterPrivilegeChange(request, reply)
+
       await recordAudit(prisma, {
         actorId: request.actor.id,
         action: 'auth.mfa_disabled',
         entityType: 'MfaFactor',
         entityId: factor.id,
-        metadata: { sessionsRevoked: revoked, recoveryCodesCleared: remaining.length === 0 },
+        metadata: {
+          sessionsRevoked: revoked,
+          recoveryCodesCleared: remaining.length === 0,
+          rotated,
+        },
       })
 
       return { ok: true }
