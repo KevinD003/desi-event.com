@@ -5004,6 +5004,282 @@
         ]
       }
     },
+    "/v1/venues/slug/{slug}": {
+      "get": {
+        "operationId": "venues.public",
+        "summary": "Read a venue’s public page by slug",
+        "description": "What somebody checks before buying: where it is, how to get in, the house rules, the fifteen structured accessibility claims, and what is on there. A venue that has been merged still resolves — the response names the record that survived, so a link or a QR printed before the merge leads somewhere rather than nowhere.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read a venue’s public page by slug",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "slug": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "addressLine1": {
+                          "type": "string"
+                        },
+                        "addressLine2": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "city": {
+                          "type": "string"
+                        },
+                        "region": {
+                          "type": "string"
+                        },
+                        "postalCode": {
+                          "type": "string"
+                        },
+                        "country": {
+                          "type": "string"
+                        },
+                        "latitude": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "longitude": {
+                          "type": [
+                            "number",
+                            "null"
+                          ]
+                        },
+                        "capacity": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "timezone": {
+                          "type": "string"
+                        },
+                        "shared": {
+                          "type": "boolean"
+                        },
+                        "mergedIntoVenueId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "description": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "directions": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "policies": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "provenance": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "canonicalSlug": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "upcomingEvents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slug": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "organizerName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "slug",
+                              "title",
+                              "startsAt",
+                              "organizerName"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "slug",
+                        "name",
+                        "addressLine1",
+                        "addressLine2",
+                        "city",
+                        "region",
+                        "postalCode",
+                        "country",
+                        "latitude",
+                        "longitude",
+                        "capacity",
+                        "timezone",
+                        "shared",
+                        "mergedIntoVenueId",
+                        "accessibility",
+                        "description",
+                        "directions",
+                        "policies",
+                        "provenance",
+                        "canonicalSlug",
+                        "upcomingEvents"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          }
+        ]
+      }
+    },
     "/v1/venues/{id}": {
       "get": {
         "operationId": "venues.get",
@@ -9042,6 +9318,19 @@
                               }
                             ]
                           },
+                          "venueSlug": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 140,
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "minPriceCents": {
                             "anyOf": [
                               {
@@ -9484,6 +9773,19 @@
                                   "type": "string",
                                   "maxLength": 64,
                                   "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "slug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 },
                                 "name": {
                                   "type": "string",
@@ -10364,6 +10666,19 @@
                                   "maxLength": 64,
                                   "pattern": "^[a-z][a-z0-9]{7,31}$"
                                 },
+                                "slug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "name": {
                                   "type": "string",
                                   "minLength": 1,
@@ -10924,6 +11239,19 @@
                                   "type": "string",
                                   "maxLength": 64,
                                   "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "slug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 },
                                 "name": {
                                   "type": "string",
@@ -11628,6 +11956,19 @@
                                   "type": "string",
                                   "maxLength": 64,
                                   "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "slug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
                                 },
                                 "name": {
                                   "type": "string",
@@ -14156,6 +14497,19 @@
                                     }
                                   ]
                                 },
+                                "venueSlug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "minPriceCents": {
                                   "anyOf": [
                                     {
@@ -14812,6 +15166,19 @@
                                       }
                                     ]
                                   },
+                                  "venueSlug": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 140,
+                                        "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
                                   "minPriceCents": {
                                     "anyOf": [
                                       {
@@ -15406,6 +15773,19 @@
                                   ]
                                 },
                                 "organizationSlug": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 140,
+                                      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "venueSlug": {
                                   "anyOf": [
                                     {
                                       "type": "string",

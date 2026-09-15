@@ -120,6 +120,8 @@ export const publicOrganizerSummarySchema = z.object({
 /** A `Venue` row. */
 export const venueSchema = z.object({
   id: cuidSchema,
+  /** The venue's public page, so an event can link to it without a second read. */
+  slug: slugSchema.nullish(),
   name: nonEmptyStringSchema,
   addressLine1: nonEmptyStringSchema,
   addressLine2: nonEmptyStringSchema.nullish(),
@@ -182,6 +184,8 @@ export const eventSummarySchema = z.object({
    * joined has no honest answer, and guessing one would produce a dead link.
    */
   organizationSlug: slugSchema.nullish(),
+  /** The venue's slug, for the same reason and with the same caveat. */
+  venueSlug: slugSchema.nullish(),
   minPriceCents: centsSchema.nullish(),
   currency: currencySchema.nullish(),
   soldOut: z.boolean().optional(),

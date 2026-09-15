@@ -20,6 +20,7 @@
  */
 
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
+import { PUBLIC_EVENT_STATUSES } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import {
@@ -34,6 +35,9 @@ import {
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { slugify, disambiguateSlug } from '../lib/identifiers.js'
 import { defineRoute } from '../lib/register.js'
+
+/** How many events the public venue page lists. */
+export const PUBLIC_EVENT_LIMIT = 24
 
 /** How far a merge chain is followed before we call it a loop. */
 const MERGE_CHAIN_LIMIT = 8
@@ -635,6 +639,61 @@ export function registerVenueMapRoutes(app, { prisma }) {
         data: {
           ...toVersion(published, await versionInUse(prisma, published.id)),
           layout: await readLayout(prisma, published.id),
+        },
+      }
+    },
+  })
+}
+
+/**
+ * Register the public venue page route.
+ *
+ * Separate from {@link registerVenueRoutes} because it is the only venue route
+ * an anonymous caller reaches, and keeping it apart makes that visible rather
+ * than something a reader has to infer from an `auth` field.
+ *
+ * @param {object} app The Fastify instance.
+ * @param {object} deps Injected dependencies.
+ * @param {object} deps.prisma The Prisma client.
+ * @returns {void} Nothing.
+ */
+export function registerPublicVenueRoutes(app, { prisma }) {
+  defineRoute(app, 'venues.public', {
+    handler: async (request) => {
+      const found = await prisma.venue.findUnique({ where: { slug: request.params.slug } })
+
+      if (!found) throw notFound('No such venue.')
+
+      // A merged venue still resolves. Every link, every printed ticket and
+      // every QR code made before the merge points at the old slug, and
+      // answering 404 to all of them to tidy a duplicate is not a tidy-up.
+      const venue = await resolveMerge(prisma, found)
+
+      const now = new Date()
+      const events = await prisma.event.findMany({
+        where: {
+          venueId: venue.id,
+          status: { in: PUBLIC_EVENT_STATUSES },
+          startsAt: { gte: now },
+        },
+        orderBy: { startsAt: 'asc' },
+        take: PUBLIC_EVENT_LIMIT,
+        include: { organization: true },
+      })
+
+      return {
+        data: {
+          ...toVenue(venue),
+          // Null when this URL is already the canonical one, so a page can
+          // decide between "this is the page" and "this is a redirect" without
+          // comparing strings.
+          canonicalSlug: venue.slug === request.params.slug ? null : venue.slug,
+          upcomingEvents: events.map((event) => ({
+            slug: event.slug,
+            title: event.title,
+            startsAt: event.startsAt,
+            organizerName: event.organization?.name ?? null,
+          })),
         },
       }
     },

@@ -30,7 +30,12 @@ import {
   getApiClient,
   resetApiClient as resetClientCache,
 } from './api-client.js'
-import { findSampleEvent, findSampleOrganizer, sampleEventSummaries } from './sample-data.js'
+import {
+  findSampleEvent,
+  findSampleOrganizer,
+  findSampleVenue,
+  sampleEventSummaries,
+} from './sample-data.js'
 
 // Re-exported so server-side callers keep one import. Client components must
 // import from './api-client.js' directly: this module pulls in the fallback
@@ -240,6 +245,35 @@ export async function loadOrganizerBySlug(slug, options = {}) {
       return { organizer: response.data, usedFallback: false }
     },
     () => ({ organizer: findSampleOrganizer(slug), usedFallback: true }),
+  )
+}
+
+/**
+ * @typedef {object} VenueResult
+ * @property {object|null} venue The public venue profile, or `null` when there is none.
+ * @property {boolean} usedFallback Whether the curated catalogue answered instead of the API.
+ */
+
+/**
+ * Load a public venue page by slug.
+ *
+ * @param {string} slug The venue's slug.
+ * @param {object} [options] Overrides.
+ * @param {object} [options.client] API client to use; defaults to the shared one.
+ * @returns {Promise<VenueResult>} The venue, or `null` with the fallback flag set.
+ */
+export async function loadVenueBySlug(slug, options = {}) {
+  return readOrFallback(
+    'venues.public',
+    async () => {
+      const client = options.client ?? getApiClient()
+      const response = await client.venues.public({ slug }, callOptions())
+
+      if (!response?.data?.slug) throw new Error('venues.public returned no venue')
+
+      return { venue: response.data, usedFallback: false }
+    },
+    () => ({ venue: findSampleVenue(slug), usedFallback: true }),
   )
 }
 

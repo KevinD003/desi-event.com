@@ -16,7 +16,7 @@ import { registerEventRoutes } from './events.js'
 import { registerHealthRoutes } from './health.js'
 import { registerHoldRoutes } from './holds.js'
 import { registerOrganizerRoutes } from './organizers.js'
-import { registerVenueMapRoutes, registerVenueRoutes } from './venues.js'
+import { registerPublicVenueRoutes, registerVenueMapRoutes, registerVenueRoutes } from './venues.js'
 import { registerOrderRoutes } from './orders.js'
 import { registerPaymentRoutes } from './payments.js'
 import { registerTicketRoutes } from './tickets.js'
@@ -45,6 +45,7 @@ export function registerRoutes(app, deps) {
   registerOrganizerRoutes(app, deps)
   registerVenueRoutes(app, deps)
   registerVenueMapRoutes(app, deps)
+  registerPublicVenueRoutes(app, deps)
   registerEventRoutes(app, deps)
   registerTicketTypeRoutes(app, deps)
   registerSessionRoutes(app, deps)

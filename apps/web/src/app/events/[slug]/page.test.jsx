@@ -23,7 +23,13 @@ const event = {
   startsAt: '2026-11-01T14:30:00.000Z',
   endsAt: '2026-11-01T17:30:00.000Z',
   languages: ['Urdu'],
-  venue: { name: 'Banyan Courtyard', city: 'Mumbai', addressLine1: '1 Road', country: 'IN' },
+  venue: {
+    name: 'Banyan Courtyard',
+    slug: 'banyan-courtyard',
+    city: 'Mumbai',
+    addressLine1: '1 Road',
+    country: 'IN',
+  },
   organization: { name: 'Swar Sadhana Trust', slug: 'swar-sadhana-trust', verified: true },
   ticketTypes: [],
 }
@@ -85,6 +91,15 @@ describe('the event detail page when the event exists', () => {
     const metadata = await generateMetadata({ params: Promise.resolve({ slug: event.slug }) })
 
     expect(metadata.alternates.canonical).toBe(`/events/${event.slug}`)
+  })
+
+  it('links the venue to its own page', async () => {
+    render(await EventDetailPage({ params: Promise.resolve({ slug: event.slug }) }))
+
+    expect(screen.getByRole('link', { name: 'Banyan Courtyard' })).toHaveAttribute(
+      'href',
+      '/venues/banyan-courtyard',
+    )
   })
 
   it('links the organiser to their own page', async () => {

@@ -9,6 +9,7 @@ const PAGES = [
   { name: 'checkout', path: '/events/qawwali-under-the-banyan/checkout' },
   { name: 'organiser', path: '/organizers/rangmanch-collective' },
   { name: 'unverified organiser', path: '/organizers/masala-arts-london' },
+  { name: 'venue', path: '/venues/jio-world-garden' },
   { name: 'not found', path: '/events/no-such-event' },
 ]
 

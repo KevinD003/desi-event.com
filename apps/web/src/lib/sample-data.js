@@ -130,6 +130,15 @@ const VENUES = {
     latitude: 19.0653,
     longitude: 72.8676,
     capacity: 6000,
+    slug: 'jio-world-garden',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   nehruCentre: {
     id: 'vnunehrucentremum',
@@ -143,6 +152,15 @@ const VENUES = {
     latitude: 18.9949,
     longitude: 72.8203,
     capacity: 1100,
+    slug: 'nehru-centre-auditorium',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   gmdcGround: {
     id: 'vnugmdcahmedabad',
@@ -156,6 +174,15 @@ const VENUES = {
     latitude: 23.0367,
     longitude: 72.5455,
     capacity: 20000,
+    slug: 'gmdc-ground',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   tagoreHall: {
     id: 'vnutagoreahmedabad',
@@ -169,6 +196,15 @@ const VENUES = {
     latitude: 23.0159,
     longitude: 72.5652,
     capacity: 700,
+    slug: 'tagore-hall',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   meridianHall: {
     id: 'vnumeridiantoronto',
@@ -182,6 +218,15 @@ const VENUES = {
     latitude: 43.6462,
     longitude: -79.3755,
     capacity: 3191,
+    slug: 'meridian-hall',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   celebrationSquare: {
     id: 'vnucelebrationsqto',
@@ -195,6 +240,15 @@ const VENUES = {
     latitude: 43.5931,
     longitude: -79.6444,
     capacity: 12000,
+    slug: 'mississauga-celebration-square',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   troxy: {
     id: 'vnutroxylondon',
@@ -208,6 +262,15 @@ const VENUES = {
     latitude: 51.5133,
     longitude: -0.0377,
     capacity: 3100,
+    slug: 'troxy',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
   southbank: {
     id: 'vnusouthbanklondon',
@@ -221,6 +284,15 @@ const VENUES = {
     latitude: 51.5062,
     longitude: -0.1161,
     capacity: 900,
+    slug: 'southbank-centre-queen-elizabeth-hall',
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    description: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
   },
 }
 
@@ -855,6 +927,7 @@ export function toEventSummary(event) {
     venueName: event.venue?.name ?? null,
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,
+    venueSlug: event.venue?.slug ?? null,
     minPriceCents: priced.length > 0 ? Math.min(...priced.map((tier) => tier.priceCents)) : null,
     currency: priced[0]?.currency ?? null,
     soldOut: tiers.length > 0 && onSale.length === 0,
@@ -880,6 +953,60 @@ export function findSampleEvent(slug) {
   if (typeof slug !== 'string') return null
 
   return SAMPLE_EVENTS.find((event) => event.slug === slug) ?? null
+}
+
+/**
+ * Look a sample venue up by slug, with what is on there.
+ *
+ * Exists for the same reason `findSampleOrganizer` does: a venue link on a
+ * fallback-rendered event page has to lead somewhere, and the site being
+ * internally consistent matters most exactly when the API is down.
+ *
+ * @param {string} slug Venue slug, e.g. `jio-world-garden`.
+ * @returns {object|null} A payload matching `publicVenueSchema`, or `null`.
+ */
+export function findSampleVenue(slug) {
+  if (typeof slug !== 'string') return null
+
+  const venue = Object.values(VENUES).find((candidate) => candidate.slug === slug)
+
+  if (!venue) return null
+
+  const now = Date.now()
+
+  return {
+    id: venue.id,
+    slug: venue.slug,
+    name: venue.name,
+    addressLine1: venue.addressLine1,
+    addressLine2: venue.addressLine2 ?? null,
+    city: venue.city,
+    region: venue.region,
+    postalCode: venue.postalCode,
+    country: venue.country,
+    latitude: venue.latitude ?? null,
+    longitude: venue.longitude ?? null,
+    capacity: venue.capacity ?? null,
+    timezone: venue.timezone,
+    shared: true,
+    mergedIntoVenueId: null,
+    canonicalSlug: null,
+    accessibility: venue.accessibility ?? null,
+    description: venue.description ?? null,
+    directions: venue.directions ?? null,
+    policies: venue.policies ?? null,
+    provenance: venue.provenance ?? null,
+    upcomingEvents: SAMPLE_EVENTS.filter(
+      (event) => event.venueId === venue.id && Date.parse(event.startsAt) >= now,
+    )
+      .sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt))
+      .map((event) => ({
+        slug: event.slug,
+        title: event.title,
+        startsAt: event.startsAt,
+        organizerName: event.organization?.name ?? null,
+      })),
+  }
 }
 
 /**

@@ -49,17 +49,17 @@ const VALID_EVENT = '/events/qawwali-under-the-banyan'
  * 200 with the complete page rather than 404 with an error shell. That is the
  * same trade the event routes make and for the same reason.
  *
- * `/venues/*` still has no route, so it remains an unmatched URL and a genuine
- * 404. When the public venue page lands it moves too, and this comment is the
- * reminder to move its expectation with it rather than discovering the mismatch
- * in a production run.
+ * `/venues/*` moved the same way when the public venue page landed, which is
+ * what the previous version of this comment said would happen. Both are now
+ * matched routes with missing resources.
  */
 const MISSING = [
   { name: 'unknown event slug', path: '/events/no-such-event-at-all', status: 200 },
   { name: 'unknown event checkout', path: '/events/no-such-event-at-all/checkout', status: 200 },
   // 200, not 404: Phase 2 gave this a route, so it renders the shared view.
   { name: 'unknown organiser slug', path: '/organizers/nobody', status: 200 },
-  { name: 'unknown venue slug', path: '/venues/nowhere', status: 404 },
+  // 200, not 404: Phase 2 gave this a route too.
+  { name: 'unknown venue slug', path: '/venues/nowhere', status: 200 },
   { name: 'completely unmatched URL', path: '/totally-unmatched-url', status: 404 },
 ]
 

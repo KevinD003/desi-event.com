@@ -66,6 +66,25 @@ describe('the sitemap', () => {
     ])
   })
 
+  it('lists a venue page once, however many events are on there', async () => {
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [
+          { slug: 'one', venueSlug: 'jio-world-garden' },
+          { slug: 'two', venueSlug: 'jio-world-garden' },
+          { slug: 'three', venueSlug: 'nehru-centre' },
+        ],
+      ]),
+    )
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths.filter((path) => path.startsWith('/venues/'))).toEqual([
+      '/venues/jio-world-garden',
+      '/venues/nehru-centre',
+    ])
+  })
+
   it('omits an organiser whose events carry no slug rather than guessing one', async () => {
     getApiClient.mockReturnValue(clientReturning([[{ slug: 'one', organizationName: 'Someone' }]]))
 

@@ -59,6 +59,7 @@ async function publishedEvents() {
   const client = getApiClient()
   const entries = []
   const organizers = new Set()
+  const venues = new Set()
 
   try {
     for (let page = 1; page <= MAX_PAGES; page += 1) {
@@ -83,6 +84,7 @@ async function publishedEvents() {
 
         // Deduplicated by slug: an organiser with forty events is one page.
         if (event.organizationSlug) organizers.add(event.organizationSlug)
+        if (event.venueSlug) venues.add(event.venueSlug)
       }
 
       if (!response.pagination?.hasNextPage) break
@@ -103,6 +105,12 @@ async function publishedEvents() {
       changeFrequency: 'weekly',
       priority: 0.6,
     })
+  }
+
+  // Venues change far less often than listings do: an address and a set of
+  // accessibility claims are close to static once somebody has checked them.
+  for (const slug of venues) {
+    entries.push({ url: `${siteUrl}/venues/${slug}`, changeFrequency: 'monthly', priority: 0.5 })
   }
 
   return entries

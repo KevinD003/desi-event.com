@@ -220,3 +220,29 @@ export const venueListResponseSchema = z.object({
     hasNextPage: z.boolean(),
   }),
 })
+
+/** Path parameter for the public venue route. */
+export const venueSlugParamSchema = z.object({ slug: z.string().min(1).max(160) })
+
+/**
+ * A venue as the public page shows it.
+ *
+ * Extends the detail shape with what the page is actually for: what is on
+ * there. `canonicalSlug` is how a merged venue stays reachable — the old URL
+ * resolves, and says which record it really is, rather than 404ing every link
+ * and QR code printed before the merge.
+ */
+export const publicVenueSchema = venueDetailSchema.extend({
+  canonicalSlug: z.string().nullable(),
+  upcomingEvents: z.array(
+    z.object({
+      slug: z.string(),
+      title: z.string(),
+      startsAt: timestampSchema,
+      organizerName: z.string().nullable(),
+    }),
+  ),
+})
+
+/** `GET /v1/venues/slug/:slug`. */
+export const publicVenueResponseSchema = z.object({ data: publicVenueSchema })

@@ -213,7 +213,18 @@ export default async function EventDetailPage({ params }) {
               <Card className="mt-4">
                 <CardBody>
                   <p className="font-display text-lg font-semibold text-indigo-night-900">
-                    {event.venue.name}
+                    {/* Linked when there is a slug. Deriving one from the name
+                        would produce a URL that looks right and 404s. */}
+                    {event.venue.slug ? (
+                      <Link
+                        href={`/venues/${event.venue.slug}`}
+                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      >
+                        {event.venue.name}
+                      </Link>
+                    ) : (
+                      event.venue.name
+                    )}
                   </p>
                   <address className="mt-2 text-slate-700 not-italic">
                     {address.map((line) => (
