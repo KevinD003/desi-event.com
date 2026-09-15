@@ -2,6 +2,11 @@
 
 **Status: `PARTIAL`.**
 
+> **Superseded in part.** A later cycle corrected three claims in this document
+> (see §3a) and continued the work. `PHASE2_COMPLETION_REPORT.md` is the current
+> record and scores the twenty completion gates; this document remains the account
+> of the cycle that produced commits `7777322` through `926d1a3`.
+
 Phase 2 as specified spans twenty-one work items. Thirteen commits landed six of
 them to a standard I would defend, and the rest are not started. That is the headline,
 and the rest of this document says exactly which are which, because a report whose
@@ -410,6 +415,23 @@ the violation; `desi_hold_item_session_matches` had none, so "a hold may only
 reserve seats from its own session" was a claim in a migration rather than a
 tested property. Two probes added in `289e4a0`, one per branch of the trigger.
 Found by writing the traceability matrix, which is the argument for writing one.
+
+**NF-08** — the capability-scope hole, found by auditing this document's own
+claim that NF-05 was closed. It was half closed: a route could omit
+`capabilityScope` entirely and fall back to a search for `organizationId` that
+found nothing on the paths that matter, and a declared scope was checked only as
+far as the request part, not the key. Closed in `3a2d4ff`; see
+`PHASE2_COMPLETION_REPORT.md` §4.
+
+**NF-09** — scheduled session rotation replaced a bearer client's secret and had
+no channel to tell it, locking out API clients after an hour. Closed in
+`b37b242`; see `PHASE2_COMPLETION_REPORT.md` §8.
+
+**NF-10 to NF-13** — four smaller findings from the same audit, recorded open
+rather than fixed because each needs a product decision or sits behind work that
+does not exist. The most serious is NF-12: step-up authentication for a
+privileged account with no enrolled factor is satisfied by the same password the
+session was opened with. All four are listed in `PHASE2_COMPLETION_REPORT.md` §9.
 
 ## 16–19. Saga, refunds, ledger service, transfers
 
