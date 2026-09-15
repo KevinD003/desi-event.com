@@ -137,6 +137,22 @@ The policy checker fails the build on any non-JavaScript source file that is
 not covered by a complete entry. A partially filled entry fails too — an
 undocumented service is exactly what this process exists to prevent.
 
+### Procedural SQL inside migrations
+
+Phase 2 introduces plpgsql trigger functions inside
+`packages/db/prisma/migrations/`. This is **not** a section 6 exception and needs
+no entry in `docs/language-exceptions.json`: PostgreSQL is already the sanctioned
+datastore in section 3, and a trigger is a property of the schema in the same way
+a `CHECK` constraint or a unique index is — it has no deployment, no on-call
+owner and no integration contract for an exception entry to describe.
+
+The permission is narrow and the reasoning is recorded in
+`docs/adr/0004-plpgsql-in-migrations.md`: procedural SQL may appear only in a
+migration file, only to enforce an invariant that application code cannot be
+trusted to keep, and never to compute a business result or replace application
+logic. Application code never calls a stored function. A non-JavaScript
+_service_ still requires the full process above.
+
 ### Integration rule
 
 Any non-JavaScript service communicates **only** through a documented REST API
