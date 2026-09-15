@@ -14,8 +14,8 @@ organiser screens, public page and twelve browser journeys.
 | ------------------------------ | ------------------------------------------------------------ |
 | Starting commit                | `3f5add0`                                                    |
 | Last executable commit         | `e1b2069`                                                    |
-| This report's commit           | the commit carrying this file                                |
-| Final pushed HEAD              | recorded in §10, after the push                              |
+| This report's commit           | `fe60872`                                                    |
+| Final pushed HEAD              | the closing commit — §11                                     |
 | Branch                         | `claude/desi-event-js-stack-gb4uqe`                          |
 | Upstream                       | `origin/claude/desi-event-js-stack-gb4uqe`                   |
 | Working tree                   | clean — §10                                                  |
@@ -484,6 +484,32 @@ are in separate commits; nothing was combined for convenience. No history was
 rewritten, squashed or force-pushed. No secret, local database, personal data,
 provider payload or build cache was committed.
 
-The final pushed HEAD, the upstream equality and the clean-tree proof are
-recorded in `PHASE2_COMPLETION_REPORT.md` §1 after the last push of this cycle,
-because this file cannot name the commit that contains it.
+No secret, local database, personal data, provider payload or build cache was
+committed.
+
+## 11. Closing state
+
+`fe60872` — the commit carrying this report — was pushed and verified:
+
+```
+$ git push -u origin claude/desi-event-js-stack-gb4uqe
+   71a3b8e..fe60872  claude/desi-event-js-stack-gb4uqe -> claude/desi-event-js-stack-gb4uqe
+
+$ git rev-parse HEAD && git rev-parse @{u}
+fe6087236162dc3ab3f81c082f99be8337b25816
+fe6087236162dc3ab3f81c082f99be8337b25816
+
+$ git status --porcelain
+(no output)
+```
+
+HEAD equalled upstream and the working tree was clean.
+
+One commit sits above `fe60872`: the one that adds this section, pushed
+immediately after it, and it is the final pushed HEAD of this cycle. A file
+cannot contain the hash of the commit that introduces it, so the check that
+matters is the property rather than the number — after that push, `git rev-parse
+HEAD` and `git rev-parse @{u}` agree and `git status --porcelain` is silent. The
+branch is `claude/desi-event-js-stack-gb4uqe`, its upstream is
+`origin/claude/desi-event-js-stack-gb4uqe`, every commit of this cycle is
+pushed, and no history was rewritten, squashed or force-pushed to get there.
