@@ -8,7 +8,6 @@ import {
   createOrderRequestSchema,
   createPromoCodeRequestSchema,
   createTicketTypeRequestSchema,
-  createVenueRequestSchema,
   idParamSchema,
   joinWaitlistRequestSchema,
   listEventsQuerySchema,
@@ -19,6 +18,7 @@ import {
   updateEventRequestSchema,
   updateTicketTypeRequestSchema,
 } from './requests.js'
+import { createVenueRequestSchema } from './venues.js'
 
 const ORG_ID = 'ckl1a2b3c4d5e6f7g8h9i0jl'
 const EVENT_ID = 'ckl1a2b3c4d5e6f7g8h9i0jn'

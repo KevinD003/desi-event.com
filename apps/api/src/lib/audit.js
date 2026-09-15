@@ -24,7 +24,9 @@ export const AUDIT_ACTIONS = Object.freeze({
   WEBHOOK_DEAD_LETTERED: 'webhook.dead_lettered',
   RECONCILIATION_OPENED: 'reconciliation.opened',
   VERIFICATION_SUBMITTED: 'organization.verification_submitted',
-  VERIFICATION_DECIDED: 'organization.verification_decided',
+  VENUE_CREATED: 'venue.created',
+  VENUE_UPDATED: 'venue.updated',
+  VENUE_MERGED: 'venue.merged',
 })
 
 /**

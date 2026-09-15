@@ -145,6 +145,54 @@ export function createConfig(options = {}) {
       },
     },
 
+    // The web application talks to the API over HTTP and has no business
+    // importing the server's internals. Finding NF-15 is why this exists: the
+    // platform's scrypt password hashing reached the production client bundle
+    // through four hops of individually reasonable barrel imports, and nothing
+    // in the repository failed.
+    //
+    // `apps/web/src/lib/browser-bundle.js` catches the same class of mistake by
+    // walking the import graph, and it catches more — a transitive leak through
+    // a package this list does not name. This rule is the fast half: it fails in
+    // the editor, on the line, before a test run.
+    {
+      files: ['apps/web/**/*.{js,jsx,mjs}'],
+      ignores: ['apps/web/**/*.test.{js,jsx}', 'apps/web/e2e/**'],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [
+              {
+                group: ['@desi-event/auth', '@desi-event/auth/*'],
+                message:
+                  'Credential primitives are server-only. password.js calls promisify(node:crypto.scrypt) at module scope, which throws in a browser, and the rest of the package tells a reader how sessions, TOTP and lockout work. The web app authenticates by calling the API.',
+              },
+              {
+                group: ['@desi-event/db', '@desi-event/db/*'],
+                message:
+                  'Prisma and the schema are server-only. The web app reads data through the API client.',
+              },
+              {
+                group: ['@desi-event/providers', '@desi-event/providers/*'],
+                message:
+                  'Payment provider adapters handle secret keys. The browser talks to Stripe through the provider\u2019s own published client, never through ours.',
+              },
+              {
+                group: ['@desi-event/ledger', '@desi-event/ledger/*'],
+                message: 'Double-entry posting rules are server-side. Money is never counted in a browser.',
+              },
+              {
+                group: ['@desi-event/schemas/env', '@desi-event/schemas/jobs'],
+                message:
+                  'Finding NF-16: these describe how the API and the worker are deployed \u2014 variable names, the JWT_SECRET floor, the placeholder-secret blocklist, queue names. None of it belongs in a client bundle.',
+              },
+            ],
+          },
+        ],
+      },
+    },
+
     // Tests may reach for globals and console freely.
     {
       files: [

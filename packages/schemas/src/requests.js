@@ -17,9 +17,7 @@ import {
   cuidSchema,
   currencySchema,
   emailSchema,
-  latitudeSchema,
   localeSchema,
-  longitudeSchema,
   nonEmptyStringSchema,
   orderReferenceSchema,
   passwordSchema,
@@ -194,20 +192,6 @@ export const listEventsQuerySchema = paginationQuerySchema
       })
     }
   })
-
-/** Create a venue. */
-export const createVenueRequestSchema = z.object({
-  name: nonEmptyStringSchema,
-  addressLine1: nonEmptyStringSchema,
-  addressLine2: nonEmptyStringSchema.optional(),
-  city: nonEmptyStringSchema,
-  region: nonEmptyStringSchema,
-  postalCode: z.string().min(1).max(16),
-  country: z.string().length(2).optional(),
-  latitude: latitudeSchema.optional(),
-  longitude: longitudeSchema.optional(),
-  capacity: countSchema.optional(),
-})
 
 const ticketTypeWritableFields = {
   eventId: cuidSchema,

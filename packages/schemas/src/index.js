@@ -22,6 +22,7 @@ export * from './auth.js'
 export * from './teams.js'
 export * from './verification.js'
 export * from './seating.js'
+export * from './venues.js'
 export * from './payments-wire.js'
 export * from './responses.js'
 

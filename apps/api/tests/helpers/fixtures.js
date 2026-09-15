@@ -305,11 +305,29 @@ export async function makeWorld(overrides = {}) {
     region: 'Maharashtra',
     postalCode: '400018',
     country: 'IN',
+    // A shared venue: `organizationId` is null, so only platform staff may edit
+    // it. The organisation-owned case is built by the tests that need it.
+    slug: 'nehru-centre',
+    organizationId: null,
+    description: null,
+    timezone: 'Asia/Kolkata',
+    directions: null,
+    policies: null,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+    provenance: 'moderator',
+    mergedIntoVenueId: null,
     createdAt: new Date('2025-01-01T00:00:00.000Z'),
     updatedAt: new Date('2025-01-01T00:00:00.000Z'),
   }
 
-  const otherVenue = { ...venue, id: cuid(), name: 'Phoenix Hall', city: 'Pune' }
+  const otherVenue = {
+    ...venue,
+    id: cuid(),
+    name: 'Phoenix Hall',
+    slug: 'phoenix-hall',
+    city: 'Pune',
+    accessibility: { features: ['HEARING_LOOP'], note: null },
+  }
 
   /**
    * Build a user row.

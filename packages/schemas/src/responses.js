@@ -27,7 +27,6 @@ import {
   publicUserSchema,
   ticketSchema,
   ticketTypeSchema,
-  venueSchema,
 } from './entities.js'
 
 /** Page counters returned alongside every list payload. */
@@ -143,11 +142,6 @@ export const checkInResponseSchema = z.object({
 /** `GET /organizations/:id`. */
 export const organizationResponseSchema = z.object({
   data: organizationSchema,
-})
-
-/** `GET /venues/:id`. */
-export const venueResponseSchema = z.object({
-  data: venueSchema,
 })
 
 /** `GET /health` and `GET /ready`. */

@@ -14,7 +14,6 @@ import {
   organizationResponseSchema,
   paginationMetaSchema,
   ticketTypeListResponseSchema,
-  venueResponseSchema,
 } from './responses.js'
 import { ValidationError, parseOrThrow } from './errors.js'
 
@@ -322,19 +321,6 @@ describe('simple envelopes', () => {
           name: 'Rhythm Collective',
           slug: 'rhythm-collective',
           contactEmail: 'hello@rhythm.example',
-        },
-      }).success,
-    ).toBe(true)
-
-    expect(
-      venueResponseSchema.safeParse({
-        data: {
-          id: ids.venue,
-          name: 'GMDC Ground',
-          addressLine1: 'University Road',
-          city: 'Ahmedabad',
-          region: 'Gujarat',
-          postalCode: '380015',
         },
       }).success,
     ).toBe(true)
