@@ -53,8 +53,19 @@ export const PROVIDER_ERROR_CODES = Object.freeze({
   /** The (simulated) issuer declined the payment. */
   PAYMENT_DECLINED: 'PAYMENT_DECLINED',
 
-  /** A deployment asked for production payments, which Phase 1 does not implement. */
+  /** A deployment asked for production payments, which this system refuses. */
   PRODUCTION_PAYMENTS_DISABLED: 'PRODUCTION_PAYMENTS_DISABLED',
+  /**
+   * A webhook delivery did not verify.
+   *
+   * One code for every reason — absent header, malformed header, stale timestamp,
+   * wrong secret, re-encoded body — because the sender is told nothing useful.
+   * Which reason it was goes to the log; telling a forger which part was wrong is
+   * telling them how to fix it.
+   */
+  WEBHOOK_SIGNATURE_INVALID: 'WEBHOOK_SIGNATURE_INVALID',
+  /** The provider could not be reached, or answered in a way this system cannot use. */
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
 
   /** A message body is malformed: missing subject, empty body, wrong type. */
   INVALID_MESSAGE: 'INVALID_MESSAGE',
@@ -97,6 +108,10 @@ const STATUS_BY_CODE = Object.freeze({
   [PROVIDER_ERROR_CODES.AMOUNT_MISMATCH]: 422,
   [PROVIDER_ERROR_CODES.CURRENCY_MISMATCH]: 422,
   [PROVIDER_ERROR_CODES.PAYMENT_DECLINED]: 402,
+  // 400, because that is what an unverifiable delivery gets. Not 401: there is
+  // no credential to correct, and a 401 invites a sender to retry with one.
+  [PROVIDER_ERROR_CODES.WEBHOOK_SIGNATURE_INVALID]: 400,
+  [PROVIDER_ERROR_CODES.PROVIDER_UNAVAILABLE]: 502,
 
   [PROVIDER_ERROR_CODES.INVALID_MESSAGE]: 400,
   [PROVIDER_ERROR_CODES.INVALID_RECIPIENT]: 400,

@@ -213,7 +213,20 @@ describe('the repository', () => {
     .filter((file) => /\.(js|mjs|cjs|jsx|json)$/.test(file))
     .filter((file) => !file.includes('/tests/') && !file.endsWith('.test.js'))
 
-  it('depends on no payment SDK', () => {
+  /**
+   * Payment SDKs this repository is allowed to depend on.
+   *
+   * Phase 1 depended on none, because Phase 1 took no payments. Phase 2 takes
+   * them in Stripe's sandbox, so the guard changes shape rather than going away:
+   * the official Stripe SDKs are permitted and every other payment SDK is still
+   * refused. A second processor arriving unnoticed is exactly what this test is
+   * for, and it is a more likely mistake now than it was before.
+   *
+   * @type {Set<string>}
+   */
+  const ALLOWED_PAYMENT_SDKS = new Set(['stripe', '@stripe/stripe-js', '@stripe/react-stripe-js'])
+
+  it('depends on no payment SDK other than the official Stripe ones', () => {
     const manifests = tracked.filter((file) => file.endsWith('package.json'))
     const offenders = []
 
@@ -226,6 +239,8 @@ describe('the repository', () => {
       })
 
       for (const name of names) {
+        if (ALLOWED_PAYMENT_SDKS.has(name)) continue
+
         if (/^(stripe|razorpay|braintree|square|adyen|@stripe\/|@adyen\/|paypal)/.test(name)) {
           offenders.push(`${file}: ${name}`)
         }
@@ -235,7 +250,25 @@ describe('the repository', () => {
     expect(offenders).toEqual([])
   })
 
+  it('pins the Stripe SDK rather than floating it', () => {
+    // A webhook payload is only interpretable against the API version that
+    // produced it, and an unpinned SDK is an API version that moves on its own.
+    const manifest = JSON.parse(
+      readFileSync(path.join(repoRoot, 'packages/providers/package.json'), 'utf8'),
+    )
+
+    expect(manifest.dependencies.stripe).toMatch(/^\^?\d+\.\d+\.\d+$/)
+  })
+
+  it('pins the Stripe API version in code, not in an environment variable alone', () => {
+    const source = readFileSync(path.join(repoRoot, 'packages/schemas/src/payments.js'), 'utf8')
+
+    expect(source).toMatch(/STRIPE_API_VERSION\s*=\s*'\d{4}-\d{2}-\d{2}/)
+  })
+
   it('names no payment-provider endpoint in code that ships', () => {
+    // Still no hard-coded endpoints. The Stripe SDK knows its own base URL, and
+    // a URL written into this repository is a URL somebody can point elsewhere.
     const offenders = []
 
     for (const file of tracked) {
@@ -250,5 +283,20 @@ describe('the repository', () => {
     }
 
     expect(offenders).toEqual([])
+  })
+
+  it('never calls the Stripe SDK outside the adapter', () => {
+    // One module imports `stripe`. Everything else goes through the adapter,
+    // which is where the amount, the idempotency key and the API version are
+    // decided — a second import site is a second set of those decisions.
+    const importers = tracked.filter((file) => {
+      if (!/\.(js|mjs|cjs|jsx)$/.test(file)) return false
+
+      return /from 'stripe'|import\('stripe'\)|require\('stripe'\)/.test(
+        readFileSync(path.join(repoRoot, file), 'utf8'),
+      )
+    })
+
+    expect(importers).toEqual(['packages/providers/src/stripe.js'])
   })
 })
