@@ -12,7 +12,7 @@
  */
 
 import Fastify from 'fastify'
-import { apiEnvSchema, parseOrThrow } from '@desi-event/schemas'
+import { PAYMENT_MODES, apiEnvSchema, parseOrThrow } from '@desi-event/schemas'
 import { assertPaymentModeAllowed } from '@desi-event/providers'
 
 import { registerAuth } from './plugins/auth.js'
@@ -59,6 +59,8 @@ export async function buildApp(options) {
     rateLimit = {},
     processEnv = process.env,
     deliver,
+    payments: paymentsOverride,
+    processInline = false,
   } = options
 
   if (!prisma) throw new TypeError('buildApp requires a prisma client')
@@ -73,10 +75,22 @@ export async function buildApp(options) {
   //
   // The schema above strips unknown variables, so the gate reads the unparsed
   // environment — a stray STRIPE_SECRET_KEY has to be visible to it.
-  const payments = assertPaymentModeAllowed({
+  // The gate always runs, even when a caller supplies a resolution: a test that
+  // hands in sandbox credentials must not be a way past the kill switch. The
+  // supplied resolution replaces the *result*, never the check, and it cannot
+  // name a mode the gate would have refused.
+  const gated = assertPaymentModeAllowed({
     env: { ...processEnv, ...(rawEnv ?? {}) },
     logger,
   })
+  const payments = paymentsOverride ?? gated
+
+  if (payments.live === true || !Object.values(PAYMENT_MODES).includes(payments.mode)) {
+    throw new TypeError(
+      `A payment mode of "${payments.mode}" was supplied, which is not one this system runs. ` +
+        'Only mock and stripe_test exist, and neither moves real money.',
+    )
+  }
 
   const app = Fastify({
     ...(logger ? { loggerInstance: logger } : { logger: false }),
@@ -109,6 +123,7 @@ export async function buildApp(options) {
     payments,
     authLimit: rateLimit.auth,
     deliver,
+    processInline,
   })
 
   return app

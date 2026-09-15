@@ -64,6 +64,9 @@ const RELATIONS = {
     section: { kind: 'one', model: 'section', from: 'sectionId', to: 'id' },
     row: { kind: 'one', model: 'seatRow', from: 'rowId', to: 'id' },
   },
+  payment: {
+    order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
+  },
   device: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
     sessions: { kind: 'many', model: 'session', from: 'id', to: 'deviceId' },
@@ -138,7 +141,6 @@ const DEFAULTS = {
     settledAt: null,
   },
   auditLog: { actorId: null, metadata: null },
-  webhookEvent: { orderId: null, paymentId: null, processedAt: null, processingError: null },
   promoCode: {
     active: true,
     redemptionCount: 0,
@@ -208,6 +210,47 @@ const DEFAULTS = {
     blockedReason: null,
   },
   holdItem: { quantity: 1, eventSeatId: null },
+  webhookEvent: {
+    accountContext: '',
+    apiVersion: null,
+    providerCreatedAt: null,
+    payloadHash: null,
+    orderId: null,
+    paymentId: null,
+    state: 'RECEIVED',
+    attemptCount: 0,
+    nextAttemptAt: null,
+    processedAt: null,
+    processingError: null,
+  },
+  reconciliationTask: {
+    state: 'OPEN',
+    paymentId: null,
+    orderId: null,
+    refundId: null,
+    webhookEventId: null,
+    providerRef: null,
+    localState: null,
+    providerState: null,
+    attempts: 0,
+    lastError: null,
+    assignedToId: null,
+    resolution: null,
+    resolutionNote: null,
+    resolvedAt: null,
+  },
+  connectedAccount: {
+    providerMode: 'test',
+    country: null,
+    defaultCurrency: null,
+    onboardingStatus: 'NOT_STARTED',
+    chargesEnabled: false,
+    payoutsEnabled: false,
+    detailsSubmitted: false,
+    disabledReason: null,
+    requirementsDue: null,
+    syncedAt: null,
+  },
 }
 
 /** Unique constraints the API relies on the database to enforce. */
@@ -233,6 +276,10 @@ const UNIQUE_FIELDS = {
  */
 const COMPOUND_UNIQUE = {
   device: [['userId', 'fingerprintHash']],
+  // The index that makes webhook replay a no-op. Carries the account context,
+  // because the same provider event id for two connected accounts is two facts.
+  webhookEvent: [['provider', 'accountContext', 'providerEventId']],
+  connectedAccount: [['provider', 'providerAccountId']],
   seat: [['venueMapVersionId', 'label']],
   eventSeat: [['eventSessionId', 'seatId']],
   venueMapVersion: [['venueMapId', 'version']],
@@ -253,6 +300,8 @@ const TIMESTAMPED = new Set([
   'payment',
   'promoCode',
   'membership',
+  'reconciliationTask',
+  'connectedAccount',
 ])
 
 /**
@@ -275,6 +324,7 @@ const CREATED_ONLY = new Set([
   'venueMap',
   'venueMapVersion',
   'eventSession',
+  'webhookEvent',
 ])
 
 let idCounter = 0
@@ -632,6 +682,7 @@ export function createPrismaStub(seed = {}) {
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
           ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
+          ...(model === 'webhookEvent' ? { receivedAt: now } : {}),
           ...(model === 'session' ? { lastSeenAt: now } : {}),
           ...(model === 'device' ? { firstSeenAt: now, lastSeenAt: now } : {}),
           ...args.data,

@@ -18,6 +18,11 @@ export const AUDIT_ACTIONS = Object.freeze({
   ORDER_PAID: 'order.paid',
   ORDER_CANCELLED: 'order.cancelled',
   PAYMENT_TIMEOUT: 'payment.timeout',
+  PAYMENT_DECLINED: 'payment.declined',
+  WEBHOOK_RECEIVED: 'webhook.received',
+  WEBHOOK_PROCESSED: 'webhook.processed',
+  WEBHOOK_DEAD_LETTERED: 'webhook.dead_lettered',
+  RECONCILIATION_OPENED: 'reconciliation.opened',
 })
 
 /**
