@@ -4,8 +4,20 @@
 
 > **Superseded in part.** A later cycle corrected three claims in this document
 > (see §3a) and continued the work. `PHASE2_COMPLETION_REPORT.md` is the current
-> record and scores the twenty completion gates; this document remains the account
-> of the cycle that produced commits `7777322` through `926d1a3`.
+> record and scores the twenty completion gates;
+> `PHASE2_FINAL_VERIFICATION_REPORT.md` holds the latest cycle's evidence — the
+> 19-agent audit reconciliation, the clean-build bundle scan closing NF-15 and
+> NF-16, and every command with its exit code and duration. This document
+> remains the account of the cycle that produced commits `7777322` through
+> `926d1a3`.
+>
+> Two rows in §1 have moved since: WI2 is no longer partial in its venue half,
+> and WI17 is no longer "not started". The `3f5add0..e1b2069` cycle delivered
+> the venue and venue-map slice end to end — database, service, contract, API,
+> organiser screens, public page and twelve browser journeys — and with it the
+> application's first authenticated surface. The rows below are left as they
+> were written, because rewriting a superseded report in place is how a record
+> stops being one; the current state is scored in the completion report.
 
 Phase 2 as specified spans twenty-one work items. Thirteen commits landed six of
 them to a standard I would defend, and the rest are not started. That is the headline,

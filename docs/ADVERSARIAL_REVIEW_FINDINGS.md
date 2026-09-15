@@ -186,12 +186,70 @@ covered the case where nothing is wrong. That case is now covered twice: once
 in a spawned process that must bind its port, and once as a property — parsing
 an environment twice must produce what parsing it once did.
 
+## The browser-exposure audit — 19 agents, reconciled
+
+A second, narrower run — workflow `wf_cd65607b-d6d` — audited one question:
+what server-only code reaches the browser. It is recorded here because its
+arithmetic was misread the same way the first run's was, and the correction is
+the same kind of correction.
+
+**Nineteen agents: four audit, fifteen verify.** An audit agent surveys a vector
+and emits claims; a verify agent takes one claim and tries to refute it.
+4 + 15 = 19. Nine verifiers returned `refuted: false`, six returned
+`refuted: true`. That nine-and-six split describes the fifteen verifiers and
+nothing else — the four audit agents are neither confirmed nor refuted, because
+they never returned a verdict to be either. There is no unclassified remainder
+and no twentieth agent.
+
+| Agent                                  | Kind   | Disposition                            |
+| -------------------------------------- | ------ | -------------------------------------- |
+| `audit:import-graph`                   | audit  | emitted 2 findings (1 severity `none`) |
+| `audit:built-chunks`                   | audit  | emitted 8 findings (1 severity `none`) |
+| `audit:secrets`                        | audit  | emitted 3 findings (1 severity `none`) |
+| `audit:guards`                         | audit  | emitted 5 findings                     |
+| `verify:import-graph:env.js`           | verify | **CONFIRMED**                          |
+| `verify:built-chunks:tokens.js`        | verify | **REFUTED**                            |
+| `verify:built-chunks:password.js`      | verify | **CONFIRMED**                          |
+| `verify:built-chunks:totp.js`          | verify | **REFUTED**                            |
+| `verify:built-chunks:sessions.js`      | verify | **REFUTED**                            |
+| `verify:built-chunks:throttle.js`      | verify | **CONFIRMED**                          |
+| `verify:built-chunks:env.js`           | verify | **CONFIRMED**                          |
+| `verify:built-chunks:capabilities.js`  | verify | **CONFIRMED**                          |
+| `verify:secrets:env.js`                | verify | **CONFIRMED**                          |
+| `verify:secrets:browser-bundle.js`     | verify | **CONFIRMED**                          |
+| `verify:guards:browser-bundle.test.js` | verify | **CONFIRMED**                          |
+| `verify:guards:browser-bundle.js`      | verify | **REFUTED**                            |
+| `verify:guards:eslint.js`              | verify | **CONFIRMED**                          |
+| `verify:guards:package.json`           | verify | **REFUTED**                            |
+| `verify:guards:next.config.mjs`        | verify | **REFUTED**                            |
+
+18 raw claims − 3 of severity `none` = 15 sent to verification. The three
+severity-`none` claims are an agent saying it looked and found nothing: the auth
+barrel (already fixed mid-session), `packages/db` / `packages/providers` /
+`apps/api` (verified absent from the client bundle in both builds), and the 17
+static files then present (no secret _value_ reached any of them).
+
+Two of the six refutations are worth naming, because they describe real leaks
+that the claimant measured against a stale build: `tokens.js` and `totp.js` had
+both been fixed by `3e9a327` before the claim was filed. The other four describe
+chains that do not exist — one of them manufactured by a verifier editing a
+tracked source file, which its own adversary caught.
+
+Every confirmed finding is closed, with its fixing commit, regression test and
+clean-build proof tabulated in `PHASE2_FINAL_VERIFICATION_REPORT.md` §2. The
+proof is not the guard's opinion: `scripts/scan-browser-bundle.mjs` reads the
+173 browser-deliverable files a clean production build emits — chunks,
+manifests, prerendered RSC payloads, static HTML, 16 source maps — and finds
+none of the forbidden markers and all of the required ones.
+
 ## Provenance
 
-- Raw findings: `journal.jsonl`, 6 records of type `result` carrying a
-  `findings` array — 34 entries total.
+- Raw findings: `wf_6b34ffef-3e2/journal.jsonl`, 6 records of type `result`
+  carrying a `findings` array — 34 entries total.
 - Verdicts: 17 records of type `result` carrying `refuted` — 14 false, 3 true.
 - Failures: 17 records of type `failed`, all
   `"You've hit your session limit"`.
 - Every finding whose verifier died was reproduced or refuted by hand against
   the code at `efda577`, with the method recorded in the Evidence column.
+- The browser-exposure audit: `wf_cd65607b-d6d/journal.jsonl`, 4 audit results
+  carrying 18 claims and 15 verify results carrying `refuted` — 9 false, 6 true.

@@ -2,36 +2,58 @@
 
 **Status: `PARTIAL`.**
 
-This cycle was asked to finish Phase 2. It did not. It closed the evidence gaps
-that made the previous report untrustworthy, fixed three real defects it found
-while doing so, and built the financial ledger — the one subsystem every
-remaining work item depends on. Eleven of the twenty completion gates remain
-unmet, and §12 lists them one by one.
+Phase 2 is not finished. The most recent cycle reconciled the browser-exposure
+audit to the last agent, re-verified NF-15 and NF-16 against a clean production
+build, and built the venue and venue-map vertical slice end to end. Fourteen of
+the twenty completion gates remain unmet or partial, §12 lists them one by one,
+and Phase 3 has not been started.
 
 Saying so first is the point. A report that opens with what was built and leaves
 the reader to infer what was not is the failure mode this document exists to
 avoid.
 
-|                                |                                                            |
-| ------------------------------ | ---------------------------------------------------------- |
-| Phase 2 starting commit        | `efdd640` (Phase 1 closure)                                |
-| This cycle's starting commit   | `e93d4e9`                                                  |
-| This cycle's ending commit     | `b37b242`, plus this report                                |
-| Branch                         | `claude/desi-event-js-stack-gb4uqe`                        |
-| Upstream                       | `origin/claude/desi-event-js-stack-gb4uqe`, in sync        |
-| Working tree                   | clean                                                      |
-| Unit and integration           | **3,540 passed, 0 failed, 0 skipped**, 15 workspace suites |
-| End-to-end                     | **89** against `next dev`, **19** against a compiled build |
-| Database checks                | **68/68** fresh, **17/17** populated-upgrade               |
-| Stripe test credentials        | **none supplied**                                          |
-| Real Stripe sandbox operations | **none, and none claimed**                                 |
-| Production payments            | **disabled and unreachable**                               |
+|                                       |                                                                                                           |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Phase 2 starting commit               | `efdd640` (Phase 1 closure)                                                                               |
+| Latest cycle's starting commit        | `3f5add0`                                                                                                 |
+| Latest cycle's last executable commit | `e1b2069`                                                                                                 |
+| Branch                                | `claude/desi-event-js-stack-gb4uqe`                                                                       |
+| Upstream                              | `origin/claude/desi-event-js-stack-gb4uqe`, in sync                                                       |
+| Working tree                          | clean                                                                                                     |
+| Unit, integration and database        | **3,836 passed, 0 failed, 0 skipped**, 135 files, 16 suites                                               |
+| End-to-end                            | **118** against `next dev`, **19** against a compiled build, **13** organiser journeys against a live API |
+| Database checks                       | **68/68** fresh, **19/19** populated-upgrade                                                              |
+| Browser bundle scan                   | **173 files, nothing server-only present**                                                                |
+| Stripe test credentials               | **none supplied**                                                                                         |
+| Real Stripe sandbox operations        | **none, and none claimed**                                                                                |
+| Production payments                   | **disabled and unreachable**                                                                              |
+
+The cycle-by-cycle verification detail — every command, exit code, duration,
+failure and root cause, and the full 19-agent audit reconciliation — is in
+`PHASE2_FINAL_VERIFICATION_REPORT.md`.
 
 ---
 
 ## 1. Commits
 
-This cycle, in order:
+The latest cycle, from `3f5add0`:
+
+```
+10ab0d3  style: format the files this session added
+4c07ee3  test(web): correct the not-found expectation for /organizers, which now has a route
+98dd142  feat(venue-maps): author a seating layout whole, publish it once, clone it after
+ef5f03d  feat(web): public venue page, with accessibility as fifteen claims
+a3fa449  feat(web): the authenticated organiser area, and the seating-map editor
+71a3b8e  feat(web): venue authoring end to end, and the browser journeys that prove it
+02747f4  test(security): scan the built bundle for server-only code, not just the imports
+e1b2069  fix(web): keep the organiser journeys out of the API-down browser suite
+```
+
+69 files changed, 11,888 insertions, 421 deletions since `3f5add0`. Security
+work and venue work are in separate commits; nothing was combined for
+convenience.
+
+The cycle before it, from `e93d4e9`:
 
 ```
 0786fdf  fix(contract): make the committed OpenAPI artefact impossible to leave stale
@@ -42,9 +64,9 @@ b5abe1e  feat(checkout): turn an ambiguous charge into a work item, not just a f
 b37b242  fix(auth): stop rotating a session secret the holder cannot be told about
 ```
 
-29 files changed, 3,535 insertions, 123 deletions since `e93d4e9`. Across the
-whole of Phase 2, from `efdd640`: 118 files, 34,463 insertions, 2,753 deletions.
-No history was rewritten, squashed or force-pushed.
+29 files changed, 3,535 insertions, 123 deletions. No history was rewritten,
+squashed or force-pushed at any point in Phase 2, and no secret, local database,
+personal data, provider payload or build cache has been committed.
 
 ## 2. Corrections to the previous report
 
@@ -524,7 +546,7 @@ touched the kill switch, and `apps/api/tests/payment-kill-switch.test.js` and
 | --- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1   | NF-06 fixed and proven                                                     | **MET** — §3                                                                                                                                                                                                                                                             |
 | 2   | Report inconsistencies reconciled                                          | **MET** — §2                                                                                                                                                                                                                                                             |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **NOT MET** — schema only; no service, no route, no screen                                                                                                                                                                                                               |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **PARTIAL** — organiser verification and the whole venue / venue-map slice are built, tested and on screen; event lifecycle and moderation are not                                                                                                                       |
 | 4   | GA and reserved inventory concurrency-safe                                 | **MET** — carried, and the nine real-PostgreSQL probes still pass                                                                                                                                                                                                        |
 | 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **MET for general admission.** Order, payment, ledger and tickets all happen and are asserted end to end in `apps/api/tests/checkout-ledger.test.js`. The reserved-seat path is implemented but has no test that buys a _seated_ order end to end, so it is not claimed. |
 | 6   | Provider calls outside database transactions                               | **MET** — carried, still proven by instrumentation                                                                                                                                                                                                                       |
@@ -534,18 +556,24 @@ touched the kill switch, and `apps/api/tests/payment-kill-switch.test.js` and
 | 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** — true for a paid order; the other actions do not exist to post                                                                                                                                                                                              |
 | 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** — Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                       |
 | 12  | Notifications use an idempotent outbox                                     | **NOT MET** — table exists, nothing writes it                                                                                                                                                                                                                            |
-| 13  | Organizer and operations dashboards                                        | **NOT MET**                                                                                                                                                                                                                                                              |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **NOT MET** — no Phase 2 screens exist                                                                                                                                                                                                                                   |
-| 15  | All 20 required E2E journeys pass                                          | **NOT MET** — the Phase 1 suites pass (89 + 19); the 20 journeys do not exist                                                                                                                                                                                            |
+| 13  | Organizer and operations dashboards                                        | **NOT MET** — the venue screens are the first authenticated surface; no dashboard                                                                                                                                                                                        |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** — the venue and map screens pass at phone, tablet and desktop widths and with reduced motion; the remaining screens do not exist                                                                                                                             |
+| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** — the twelve venue journeys pass, alongside 118 + 19 carried; the other eight do not exist                                                                                                                                                                   |
 | 16  | Load and reliability tests exist                                           | **NOT MET**                                                                                                                                                                                                                                                              |
 | 17  | CI enforces the Phase 2 gates                                              | **NOT MET** — no workflow                                                                                                                                                                                                                                                |
 | 18  | All required documentation complete                                        | **NOT MET** — 2 of 16 written                                                                                                                                                                                                                                            |
 | 19  | Production payments technically disabled                                   | **MET** — §11                                                                                                                                                                                                                                                            |
 | 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET** — §10                                                                                                                                                                                                                                                            |
 
-Seven met, three partial, ten not met. Phase 2 is `PARTIAL`, and would be
+Six met, six partial, eight not met. Phase 2 is `PARTIAL`, and would be
 `PARTIAL` even if Stripe credentials had been supplied: the missing credentials
 are much the smaller of the two reasons.
+
+Gate 20's evidence — the final pushed HEAD, upstream equality and a clean tree —
+is in `PHASE2_FINAL_VERIFICATION_REPORT.md` §7 and §10, together with every
+command, exit code and duration behind the numbers above.
+
+Phase 3 has not been started.
 
 ## 13. What was built, precisely
 
