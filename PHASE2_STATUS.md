@@ -2,8 +2,8 @@
 
 **Status: `PARTIAL`.** Phase 3 has not been started.
 
-**As of `8661bbf`.** The repository-state table in §1 is measured at `a949cb7`,
-the commit this cycle started from; §10 records the state at the end.
+**As of `08b9a61`.** §1 is measured at that commit and nowhere else; §12
+records the final pushed HEAD, which no file can contain its own hash of.
 
 This document is the single current-status record for Phase 2. Where it
 disagrees with any other file in this repository, this one is right and the
@@ -29,44 +29,53 @@ rewrites what it said last time is not a record.
 
 ## 1. Repository state
 
-Measured, not recalled. Every value below is the output of the command named.
+Measured, not recalled, **at `08b9a61`** — one commit, every row. Each value is
+the output of the command named beside it.
+
+A file cannot contain the hash of the commit that edits it, so §12 records the
+final pushed HEAD after this document's own commit, and the rule is that §1 is
+always re-measured at the commit named in this paragraph.
 
 | Fact                        | Value                                                | Command                                |
 | --------------------------- | ---------------------------------------------------- | -------------------------------------- |
 | Branch                      | `claude/desi-event-js-stack-gb4uqe`                  | `git rev-parse --abbrev-ref HEAD`      |
-| Local HEAD                  | `a949cb7be1043f3576d608b1b1159e27a30c2099`           | `git rev-parse HEAD`                   |
+| Local HEAD                  | `08b9a61bf61a1d84d6281565058b5eb009e7f2c7`           | `git rev-parse HEAD`                   |
 | Upstream ref                | `origin/claude/desi-event-js-stack-gb4uqe`           | `git rev-parse --abbrev-ref @{u}`      |
-| Upstream HEAD               | `a949cb7be1043f3576d608b1b1159e27a30c2099`           | `git rev-parse @{u}` after `git fetch` |
+| Upstream HEAD               | `08b9a61bf61a1d84d6281565058b5eb009e7f2c7`           | `git rev-parse @{u}` after `git fetch` |
 | Local equals upstream       | **yes**                                              | the two hashes above                   |
 | Working tree                | **clean** — `git status --porcelain` printed nothing | `git status --porcelain`               |
 | Worktrees                   | one, the repository itself                           | `git worktree list`                    |
-| Last executable-code commit | `e1b2069`                                            | see below                              |
+| Last executable-code commit | `8661bbf`                                            | see below                              |
 
-**Last executable-code commit.** `a949cb7` and `fe60872` change only Markdown.
-`e1b2069` is the newest commit touching a `.js`, `.jsx`, `.mjs`, `.cjs`, `.sql`,
-`.json` or `.prisma` file — one file, `apps/web/playwright.config.js`.
+**Last executable-code commit.** `08b9a61`, `09a27cb`, `a949cb7` and `fe60872`
+change only Markdown. `8661bbf` is the newest commit touching a `.js`, `.jsx`,
+`.mjs`, `.cjs`, `.sql`, `.json` or `.prisma` file — twenty-three of them, the
+event lifecycle.
 
 ```
 $ for c in $(git log --format=%h -10); do
     n=$(git show --name-only --format= "$c" | grep -cE '\.(js|jsx|mjs|cjs|sql|json|prisma)$')
     echo "$c code-files=$n"
   done
+08b9a61 code-files=0     ← docs only
+09a27cb code-files=0     ← docs only
 a949cb7 code-files=0     ← docs only
 fe60872 code-files=0     ← docs only
-e1b2069 code-files=1     ← last executable-code commit
+8661bbf code-files=23    ← last executable-code commit
+e1b2069 code-files=1
 02747f4 code-files=2
-71a3b8e code-files=17
 ```
 
 **Which commit contains each report.**
 
 | Report                                | Introduced in | Last changed in |
 | ------------------------------------- | ------------- | --------------- |
-| `PHASE2_IMPLEMENTATION_REPORT.md`     | `e93d4e9`     | `fe60872`       |
-| `PHASE2_REQUIREMENTS_TRACEABILITY.md` | `e93d4e9`     | `fe60872`       |
-| `PHASE2_COMPLETION_REPORT.md`         | `cea7470`     | `fe60872`       |
-| `PHASE2_FINAL_VERIFICATION_REPORT.md` | `fe60872`     | `a949cb7`       |
-| `docs/ADVERSARIAL_REVIEW_FINDINGS.md` | `9b3dab1`     | `fe60872`       |
+| `PHASE2_STATUS.md`                    | `09a27cb`     | `08b9a61`       |
+| `PHASE2_IMPLEMENTATION_REPORT.md`     | `e93d4e9`     | `08b9a61`       |
+| `PHASE2_REQUIREMENTS_TRACEABILITY.md` | `e93d4e9`     | `08b9a61`       |
+| `PHASE2_COMPLETION_REPORT.md`         | `cea7470`     | `08b9a61`       |
+| `PHASE2_FINAL_VERIFICATION_REPORT.md` | `fe60872`     | `08b9a61`       |
+| `docs/ADVERSARIAL_REVIEW_FINDINGS.md` | `9b3dab1`     | `08b9a61`       |
 
 ---
 
@@ -264,58 +273,60 @@ All eighteen are closed. NF-04 to NF-16 were re-verified against the code at
 `a949cb7`, not against the prose that claimed them; NF-17 to NF-21 were found,
 reproduced and closed in this cycle.
 
-| ID        | Finding                                                                       | Closed in            | Evidence at `a949cb7`                                                                                                                        | Status                 |
-| --------- | ----------------------------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **NF-04** | An `OrderItem` could reference a `TicketType` from a different event          | `7777322`            | Trigger `desi_order_item_event_matches` in `20260915020000_phase2_integrity_triggers/migration.sql`                                          | `DB-ENFORCED`          |
-| **NF-05** | Capability guard asserted with no organisation scope                          | `3a2d4ff`            | `packages/api-contract/src/validate.js:211` refuses a scoped capability declared without a `capabilityScope`                                 | `AUTOMATICALLY TESTED` |
-| **NF-06** | `contract:check` could not see a stale OpenAPI artefact                       | `0786fdf`, `6714f1a` | `apps/api/src/lib/openapi-artifact.js`; `build` runs `--check` and never writes; `apps/api/tests/openapi-artifact.test.js`                   | `AUTOMATICALLY TESTED` |
-| **NF-07** | `desi_hold_item_session_matches` had no probe                                 | `289e4a0`            | Two probes in `packages/db/scripts/phase2-probes.mjs`, one per trigger branch, asserting the refusal messages                                | `DB-ENFORCED`          |
-| **NF-08** | The other half of the capability-scope hole                                   | `3a2d4ff`            | `validate.js:202-216` — the comment names the half that was left open                                                                        | `AUTOMATICALLY TESTED` |
-| **NF-09** | Scheduled rotation locked out bearer clients                                  | `b37b242`            | `apps/api/src/lib/sessions.js:127` — "A bearer caller is deliberately _not_ rotated"                                                         | `AUTOMATICALLY TESTED` |
-| **NF-10** | Rotation claimed on every privilege change, delivered only on password change | `02e4571`            | `apps/api/src/lib/sessions.js` `rotateSession`, called from every privilege-changing route                                                   | `AUTOMATICALLY TESTED` |
-| **NF-11** | `requireStepUp` always used the module default window                         | `12ebd07`            | `apps/api/src/plugins/auth.js:495-506` — `stepUpWindowFor(policy)`, which throws on an unknown policy                                        | `AUTOMATICALLY TESTED` |
-| **NF-12** | Step-up for a privileged account with no factor was a re-typed password       | `51feced`            | `PRIVILEGED_ORG_ROLES` in `packages/auth/src/sessions.js`; `mfaExempt` in the route contract keeps enrolment reachable                       | `AUTOMATICALLY TESTED` |
-| **NF-13** | Acyclicity check caught only reciprocal edges                                 | `12ebd07`            | `packages/permissions/src/capabilities.js:324` `findRoleCycle` — depth-first, returns the loop                                               | `AUTOMATICALLY TESTED` |
-| **NF-14** | Event detail served an organiser's contact address to anonymous callers       | `33c78ff`            | `apps/api/src/lib/presenters.js:80` `toPublicOrganizer` — an allow-list, not a row                                                           | `AUTOMATICALLY TESTED` |
-| **NF-15** | Platform password hashing reached the production client bundle                | `3e9a327`, `62d3e66` | `apps/web/src/lib/browser-bundle.js` import-graph guard; `pnpm run bundle:scan` finds `scrypt` absent from all 173 browser-deliverable files | `AUTOMATICALLY TESTED` |
-| **NF-16** | The API and worker deployment contract shipped in the browser bundle          | `33f2d7d`, `a894258` | `pnpm run bundle:scan` finds `DATABASE_URL`, `JWT_SECRET`, `AUTH_SECRET`, `PLACEHOLDER_SECRETS` absent from all 173                          | `AUTOMATICALLY TESTED` |
+| ID        | Finding                                                                                            | Closed in            | Evidence                                                                                                                                       | Status                 |
+| --------- | -------------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **NF-01** | A missing resource answered 404 with a body empty until hydration                                  | `9b3dab1`            | Every segment renders the shared not-found view itself; `apps/web/e2e/not-found.spec.js` holds both halves — 19 tests against a compiled build | `AUTOMATICALLY TESTED` |
+| **NF-02** | The API could not start in any environment: the schema rejected its own output                     | `5c62ec3`            | `apps/api/tests/startup-safety.test.js` binds a port in a spawned process; `packages/schemas/src/env.test.js` parses an environment twice      | `AUTOMATICALLY TESTED` |
+| **NF-03** | `paymentStatusSchema` rejected `PENDING` and `TIMEOUT`; the drift guard restated the enums by hand | `7777322`            | Both guards parse `schema.prisma` off disk; `packages/schemas/src/enums.test.js`                                                               | `AUTOMATICALLY TESTED` |
+| **NF-04** | An `OrderItem` could reference a `TicketType` from a different event                               | `7777322`            | Trigger `desi_order_item_event_matches` in `20260915020000_phase2_integrity_triggers/migration.sql`                                            | `DB-ENFORCED`          |
+| **NF-05** | Capability guard asserted with no organisation scope                                               | `3a2d4ff`            | `packages/api-contract/src/validate.js:211` refuses a scoped capability declared without a `capabilityScope`                                   | `AUTOMATICALLY TESTED` |
+| **NF-06** | `contract:check` could not see a stale OpenAPI artefact                                            | `0786fdf`, `6714f1a` | `apps/api/src/lib/openapi-artifact.js`; `build` runs `--check` and never writes; `apps/api/tests/openapi-artifact.test.js`                     | `AUTOMATICALLY TESTED` |
+| **NF-07** | `desi_hold_item_session_matches` had no probe                                                      | `289e4a0`            | Two probes in `packages/db/scripts/phase2-probes.mjs`, one per trigger branch, asserting the refusal messages                                  | `DB-ENFORCED`          |
+| **NF-08** | The other half of the capability-scope hole                                                        | `3a2d4ff`            | `validate.js:202-216` — the comment names the half that was left open                                                                          | `AUTOMATICALLY TESTED` |
+| **NF-09** | Scheduled rotation locked out bearer clients                                                       | `b37b242`            | `apps/api/src/lib/sessions.js:127` — "A bearer caller is deliberately _not_ rotated"                                                           | `AUTOMATICALLY TESTED` |
+| **NF-10** | Rotation claimed on every privilege change, delivered only on password change                      | `02e4571`            | `apps/api/src/lib/sessions.js` `rotateSession`, called from every privilege-changing route                                                     | `AUTOMATICALLY TESTED` |
+| **NF-11** | `requireStepUp` always used the module default window                                              | `12ebd07`            | `apps/api/src/plugins/auth.js:495-506` — `stepUpWindowFor(policy)`, which throws on an unknown policy                                          | `AUTOMATICALLY TESTED` |
+| **NF-12** | Step-up for a privileged account with no factor was a re-typed password                            | `51feced`            | `PRIVILEGED_ORG_ROLES` in `packages/auth/src/sessions.js`; `mfaExempt` in the route contract keeps enrolment reachable                         | `AUTOMATICALLY TESTED` |
+| **NF-13** | Acyclicity check caught only reciprocal edges                                                      | `12ebd07`            | `packages/permissions/src/capabilities.js:324` `findRoleCycle` — depth-first, returns the loop                                                 | `AUTOMATICALLY TESTED` |
+| **NF-14** | Event detail served an organiser's contact address to anonymous callers                            | `33c78ff`            | `apps/api/src/lib/presenters.js:80` `toPublicOrganizer` — an allow-list, not a row                                                             | `AUTOMATICALLY TESTED` |
+| **NF-15** | Platform password hashing reached the production client bundle                                     | `3e9a327`, `62d3e66` | `apps/web/src/lib/browser-bundle.js` import-graph guard; `pnpm run bundle:scan` finds `scrypt` absent from all 173 browser-deliverable files   | `AUTOMATICALLY TESTED` |
+| **NF-16** | The API and worker deployment contract shipped in the browser bundle                               | `33f2d7d`, `a894258` | `pnpm run bundle:scan` finds `DATABASE_URL`, `JWT_SECRET`, `AUTH_SECRET`, `PLACEHOLDER_SECRETS` absent from all 173                            | `AUTOMATICALLY TESTED` |
+| **NF-17** | Creating an event accepted a caller-supplied `status`, skipping review                             | `8661bbf`            | `apps/api/tests/event-lifecycle.test.js` — "ignores a status the caller supplies"                                                              | `AUTOMATICALLY TESTED` |
+| **NF-18** | The publish route wrote any of thirteen statuses with no transition check                          | `8661bbf`            | `packages/schemas/src/lifecycle.js` table; `apps/api/src/lib/event-lifecycle.js`; 34 + 20 + 11 tests                                           | `AUTOMATICALLY TESTED` |
+| **NF-19** | Every pre-publication state was served to anonymous callers, `moderationNote` too                  | `8661bbf`            | Three fixtures in non-public states; `apps/api/tests/event-lifecycle.test.js` — "what a stranger may see"                                      | `AUTOMATICALLY TESTED` |
+| **NF-20** | A `TicketType` could name an `EventSession` from a different event                                 | `8661bbf`            | Trigger `desi_ticket_type_session_matches`; `apps/api/tests/event-lifecycle-integration.test.js`                                               | `DB-ENFORCED`          |
+| **NF-21** | An `Event` could end before it started                                                             | `8661bbf`            | CHECK `event_ends_after_start`; same integration suite                                                                                         | `DB-ENFORCED`          |
 
-| **NF-17** | Creating an event accepted a caller-supplied `status`, skipping review | `8661bbf` | `apps/api/tests/event-lifecycle.test.js` — "ignores a status the caller supplies" | `AUTOMATICALLY TESTED` |
-| **NF-18** | The publish route wrote any of thirteen statuses with no transition check | `8661bbf` | `packages/schemas/src/lifecycle.js` table; `apps/api/src/lib/event-lifecycle.js`; 34 + 20 + 11 tests | `AUTOMATICALLY TESTED` |
-| **NF-19** | Every pre-publication state was served to anonymous callers, `moderationNote` too | `8661bbf` | Three fixtures in non-public states; `apps/api/tests/event-lifecycle.test.js` — "what a stranger may see" | `AUTOMATICALLY TESTED` |
-| **NF-20** | A `TicketType` could name an `EventSession` from a different event | `8661bbf` | Trigger `desi_ticket_type_session_matches`; `apps/api/tests/event-lifecycle-integration.test.js` | `DB-ENFORCED` |
-| **NF-21** | An `Event` could end before it started | `8661bbf` | CHECK `event_ends_after_start`; same integration suite | `DB-ENFORCED` |
-
-NF-01 through NF-03 predate this range and are recorded in
-`docs/ADVERSARIAL_REVIEW_FINDINGS.md`. NF-17 through NF-21 were found and closed
-in this cycle; each was reproduced with a failing test first.
+Full accounts of all twenty-one are in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`.
+NF-17 through NF-21 were each reproduced with a failing test before being fixed,
+and those tests stay as regression cover.
 
 ---
 
 ## 5. The twenty completion gates
 
-| #   | Gate                                                                       | Status      | Evidence                                                                                                            |
-| --- | -------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------- |
-| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                       |
-| 2   | Report inconsistencies reconciled                                          | **MET**     | §2 of this document; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                    |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **PARTIAL** | Verification `77b3040`; venues and venue maps `98dd142`…`71a3b8e`. **Event lifecycle and moderation: not started.** |
-| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`                                                                    |
-| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end         |
-| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                           |
-| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                               |
-| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; no refund service                                                                          |
-| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                              |
-| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                       |
-| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                |
-| 12  | Notifications use an idempotent outbox                                     | **NOT MET** | Table exists, nothing writes it                                                                                     |
-| 13  | Organizer and operations dashboards                                        | **NOT MET** | The venue screens are the only authenticated surface                                                                |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | Venue and map screens at phone, tablet and desktop, with reduced motion; the rest do not exist                      |
-| 15  | All 20 required E2E journeys pass                                          | **NOT MET** | §6 — none of the twenty exist                                                                                       |
-| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                   |
-| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                         |
-| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                     |
-| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                             |
-| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §8; §1                                                                                                              |
+| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                                                                                              |
+| --- | -------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                                                                                                                                                                                         |
+| 2   | Report inconsistencies reconciled                                          | **MET**     | §2 of this document; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                                      |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **PARTIAL** | Verification `77b3040`; venues and venue maps `98dd142`…`71a3b8e`; the lifecycle state machine, moderation, publication gates and cancellation `8661bbf`, all API-level. **Event authoring, the organiser event UI, the moderator UI and the public event page are not built** — §10. |
+| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`                                                                                                                                                                                                                                      |
+| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end                                                                                                                                                                           |
+| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                                                                                                                                                                                             |
+| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                                                                                                                                                                                                 |
+| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; no refund service                                                                                                                                                                                                                                            |
+| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                                                                                                                                                                                                |
+| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                                                                                                                                                                                         |
+| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                                                  |
+| 12  | Notifications use an idempotent outbox                                     | **NOT MET** | Table exists, nothing writes it                                                                                                                                                                                                                                                       |
+| 13  | Organizer and operations dashboards                                        | **NOT MET** | The venue screens are the only authenticated surface                                                                                                                                                                                                                                  |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | Venue and map screens at phone, tablet and desktop, with reduced motion; the rest do not exist                                                                                                                                                                                        |
+| 15  | All 20 required E2E journeys pass                                          | **NOT MET** | §6 — none exists as a browser journey; thirteen are asserted at the API level, which is not what the gate asks for                                                                                                                                                                    |
+| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                                                     |
+| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                                                           |
+| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                                                       |
+| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                                                                                                                                                                                               |
+| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §8; §1                                                                                                                                                                                                                                                                                |
 
 **Six met, five partial, nine not met.**
 
@@ -548,3 +559,29 @@ transfer or payout has been fabricated anywhere in this repository.
 | Real Stripe sandbox operations | `EXTERNAL VERIFICATION PENDING` |
 | Stripe adapter call shapes     | `MOCK-ONLY`                     |
 | Production payments            | `DISABLED` — and asserted so    |
+
+---
+
+## 12. Closing state
+
+A file cannot contain the hash of the commit that introduces it, so what is
+recorded here is the property rather than the number. After this document's own
+commit is pushed:
+
+```
+$ git rev-parse HEAD && git rev-parse @{u}
+(the two agree)
+
+$ git status --porcelain
+(no output)
+
+$ git worktree list
+/home/user/desi-event.com  <HEAD>  [claude/desi-event-js-stack-gb4uqe]
+```
+
+Branch `claude/desi-event-js-stack-gb4uqe`, upstream
+`origin/claude/desi-event-js-stack-gb4uqe`, every commit of every cycle pushed,
+no history rewritten, squashed or force-pushed, and one worktree.
+
+**The last executable-code commit is named separately from the report commit**
+in §1, and stays so: a documentation commit is not a change to the system.
