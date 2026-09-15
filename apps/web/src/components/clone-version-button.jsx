@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { Button } from './ui.jsx'
+import { apiFetch } from '../lib/api-fetch.js'
 
 /**
  * @typedef {object} CloneVersionButtonProps
@@ -42,9 +43,8 @@ export function CloneVersionButton({ mapId, versionId }) {
     setError(null)
 
     try {
-      const response = await fetch(`/api/v1/venue-maps/${encodeURIComponent(mapId)}/versions`, {
+      const response = await apiFetch(`/v1/venue-maps/${encodeURIComponent(mapId)}/versions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ cloneFromVersionId: versionId }),
       })
 

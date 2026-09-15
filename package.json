@@ -38,7 +38,8 @@
     "secrets:scan": "node scripts/scan-secrets.mjs",
     "test:e2e:prod": "pnpm --filter @desi-event/web test:e2e:prod",
     "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh",
-    "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade"
+    "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade",
+    "test:e2e:organizer": "pnpm --filter @desi-event/web run test:e2e:organizer"
   },
   "devDependencies": {
     "@desi-event/config": "workspace:*",

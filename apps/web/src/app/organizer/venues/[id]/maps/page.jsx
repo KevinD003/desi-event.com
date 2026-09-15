@@ -74,7 +74,7 @@ export default async function VenueMapsPage({ params }) {
 
   if (failure) {
     return (
-      <Alert variant="danger" title="Could not load this venue">
+      <Alert variant="error" title="Could not load this venue">
         {failure.status === 403
           ? 'This venue belongs to another organisation, or is shared between all of them. You can list an event here without being able to change its layout.'
           : failure.message}

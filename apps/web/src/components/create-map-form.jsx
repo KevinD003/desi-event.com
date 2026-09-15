@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input } from './ui.jsx'
+import { apiFetch } from '../lib/api-fetch.js'
 
 /**
  * @typedef {object} CreateMapFormProps
@@ -42,9 +43,8 @@ export function CreateMapForm({ venueId }) {
     const form = new FormData(event.currentTarget)
 
     try {
-      const response = await fetch(`/api/v1/venues/${encodeURIComponent(venueId)}/maps`, {
+      const response = await apiFetch(`/v1/venues/${encodeURIComponent(venueId)}/maps`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           name: String(form.get('name') ?? ''),
           notes: String(form.get('notes') ?? '') || null,
@@ -72,8 +72,8 @@ export function CreateMapForm({ venueId }) {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       {error ? (
-        <div ref={errorRef} tabIndex={-1} role="alert">
-          <Alert variant="danger" title="Could not create the map">
+        <div ref={errorRef} tabIndex={-1}>
+          <Alert variant="error" title="Could not create the map">
             {error}
           </Alert>
         </div>

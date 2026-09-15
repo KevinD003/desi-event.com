@@ -170,9 +170,15 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@desi-event/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@desi-event/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@desi-event/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@playwright/test':
         specifier: ^1.63.0
         version: 1.63.0

@@ -39,7 +39,7 @@ export default async function MapVersionPage({ params }) {
 
   if (failure) {
     return (
-      <Alert variant="danger" title="Could not load this layout">
+      <Alert variant="error" title="Could not load this layout">
         {failure.status === 403
           ? 'This map belongs to another organisation, or to a venue shared between all of them.'
           : failure.message}

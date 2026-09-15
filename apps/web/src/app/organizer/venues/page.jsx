@@ -60,7 +60,7 @@ export default async function OrganizerVenuesPage() {
 
       {failure ? (
         <div className="mt-6">
-          <Alert variant="danger" title="Could not load your venues">
+          <Alert variant="error" title="Could not load your venues">
             {failure} Nothing has been changed.
           </Alert>
         </div>

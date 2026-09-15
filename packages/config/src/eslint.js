@@ -145,6 +145,17 @@ export function createConfig(options = {}) {
       },
     },
 
+    // Browser modules the web application ships that are not components. A
+    // `.jsx` file gets browser globals from the block above; a plain `.js`
+    // module under `apps/web/src` may equally run in the browser — the CSRF
+    // helper reads `document.cookie` — and Next decides which by the `'use
+    // client'` directive, not by the extension. Node globals stay in scope
+    // because the same directory holds server modules.
+    {
+      files: ['apps/web/src/**/*.js'],
+      languageOptions: { globals: { ...globals.browser, ...globals.node } },
+    },
+
     // The web application talks to the API over HTTP and has no business
     // importing the server's internals. Finding NF-15 is why this exists: the
     // platform's scrypt password hashing reached the production client bundle

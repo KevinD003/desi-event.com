@@ -26,6 +26,7 @@
 import { useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input } from './ui.jsx'
+import { apiFetch } from '../lib/api-fetch.js'
 
 /**
  * @typedef {object} SignInFormProps
@@ -66,11 +67,24 @@ export function SignInForm({ next = '/organizer/venues' }) {
     if (code) payload.code = code
 
     try {
-      const response = await fetch('/api/v1/auth/login', {
+      const response = await apiFetch('/v1/auth/login', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       })
+
+      const body = await response.json().catch(() => null)
+
+      // A 200 is not necessarily a sign-in. When the account holds a second
+      // factor and no code was sent, the API answers 200 with
+      // `mfaRequired: true` and no token — deliberately, because an error here
+      // would separate "wrong password" from "right password, code needed",
+      // which is exactly the distinction an attacker is probing for. So the
+      // body decides, not the status.
+      if (response.ok && body?.mfaRequired && !code) {
+        setNeedsCode(true)
+        queueMicrotask(() => codeRef.current?.focus())
+        return
+      }
 
       if (response.ok) {
         // A full navigation rather than a client transition: the session cookie
@@ -80,13 +94,11 @@ export function SignInForm({ next = '/organizer/venues' }) {
         return
       }
 
-      const body = await response.json().catch(() => null)
       const message = body?.error?.message ?? 'Sign-in failed. Try again.'
 
-      // The API asks for a code by refusing with a specific code rather than by
-      // a message a client would have to pattern-match.
-      if (body?.error?.code === 'MFA_REQUIRED' || /second factor|one-time code/i.test(message)) {
-        setNeedsCode(true)
+      // A wrong or expired code comes back as an ordinary refusal; keep the
+      // field on screen so the next code can be typed without starting over.
+      if (needsCode) {
         setError(message)
         queueMicrotask(() => codeRef.current?.focus())
         return
@@ -105,8 +117,8 @@ export function SignInForm({ next = '/organizer/venues' }) {
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
       {error ? (
-        <div ref={errorRef} tabIndex={-1} role="alert" aria-live="assertive">
-          <Alert variant="danger" title="Could not sign you in">
+        <div ref={errorRef} tabIndex={-1}>
+          <Alert variant="error" title="Could not sign you in">
             {error}
           </Alert>
         </div>

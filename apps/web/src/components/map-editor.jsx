@@ -22,6 +22,11 @@
  *     — is a button, never a gesture. A gesture that has no keyboard equivalent
  *     is a feature that does not exist for some of the people who need it.
  *
+ * A third view, the preview, shows the same tree as a buyer will meet it —
+ * including unsaved changes, because previewing the stored version would
+ * preview the wrong thing. It offers nothing to press, which is the point: it
+ * is for checking a promise before it is frozen, not for making one.
+ *
  * Saving is explicit rather than automatic, and that is deliberate for this
  * artefact: an autosave that raced another author would produce the revision
  * conflict silently and repeatedly. The revision the editor loaded is sent with
@@ -43,6 +48,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { validateLayout } from '@desi-event/inventory/layout'
 
 import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
+import { apiFetch } from '../lib/api-fetch.js'
 
 /** A key that is unique within this editing session. */
 let counter = 0
@@ -147,11 +153,10 @@ export function MapEditor({ version, initialLayout, readOnly }) {
     setServerIssues([])
 
     try {
-      const response = await fetch(
-        `/api/v1/venue-map-versions/${encodeURIComponent(version.id)}/layout`,
+      const response = await apiFetch(
+        `/v1/venue-map-versions/${encodeURIComponent(version.id)}/layout`,
         {
           method: 'PUT',
-          headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ revision, ...layout }),
         },
       )
@@ -193,8 +198,8 @@ export function MapEditor({ version, initialLayout, readOnly }) {
     setConfirmingPublish(false)
 
     try {
-      const response = await fetch(
-        `/api/v1/venue-map-versions/${encodeURIComponent(version.id)}/publish`,
+      const response = await apiFetch(
+        `/v1/venue-map-versions/${encodeURIComponent(version.id)}/publish`,
         { method: 'POST' },
       )
 
@@ -242,6 +247,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
             {[
               ['plan', 'Plan'],
               ['list', 'List'],
+              ['preview', 'Preview'],
             ].map(([value, label]) => (
               <Button
                 key={value}
@@ -311,9 +317,13 @@ export function MapEditor({ version, initialLayout, readOnly }) {
       ) : null}
 
       {issues.length > 0 ? (
-        <div className="mt-4" ref={summaryRef} tabIndex={-1} role="alert">
+        // The wrapper is a focus target, nothing more. `Alert` already carries
+        // `role="alert"` for its urgent variants, and repeating the role here
+        // would announce the same thing twice and nest one alert inside
+        // another.
+        <div className="mt-4" ref={summaryRef} tabIndex={-1}>
           <Alert
-            variant="danger"
+            variant="error"
             title={`${issues.length} problem${issues.length === 1 ? '' : 's'} to fix`}
           >
             <p>Nothing has been saved. Each problem links to the thing that caused it.</p>
@@ -341,20 +351,24 @@ export function MapEditor({ version, initialLayout, readOnly }) {
         </div>
       ) : null}
 
+      {view === 'preview' ? <PreviewView layout={layout} /> : null}
+
       {view === 'plan' ? (
-        <PlanView
-          sections={sections}
-          selected={selected}
-          onSelect={setSelected}
-          readOnly={readOnly}
-        />
-      ) : (
+        <PlanView sections={sections} selected={selected} onSelect={setSelected} />
+      ) : null}
+
+      {view === 'list' ? (
         <ListView sections={sections} selected={selected} onSelect={setSelected} />
-      )}
+      ) : null}
 
-      {!readOnly ? <StructureControls layout={layout} change={change} newKey={newKey} /> : null}
+      {/* The preview is a preview: no structure controls under it and no
+          properties panel beside it, because a surface that is half editable
+          is not a preview of anything. */}
+      {!readOnly && view !== 'preview' ? (
+        <StructureControls layout={layout} change={change} newKey={newKey} />
+      ) : null}
 
-      {selected ? (
+      {selected && view !== 'preview' ? (
         <SeatProperties
           layout={layout}
           seatKey={selected}
@@ -421,10 +435,9 @@ export function MapEditor({ version, initialLayout, readOnly }) {
  * @param {object[]} props.sections The sections.
  * @param {string|null} props.selected The selected seat key.
  * @param {Function} props.onSelect Selects a seat.
- * @param {boolean} props.readOnly Whether editing is possible.
  * @returns {JSX.Element} The rendered plan.
  */
-function PlanView({ sections, selected, onSelect, readOnly }) {
+function PlanView({ sections, selected, onSelect }) {
   /**
    * Move the selection with the arrow keys.
    *
@@ -481,7 +494,6 @@ function PlanView({ sections, selected, onSelect, readOnly }) {
                     tabIndex={selected === seat.key || (!selected && index === 0) ? 0 : -1}
                     onSelect={onSelect}
                     onKeyDown={(event) => onKeyDown(event, row.seats ?? [], index)}
-                    readOnly={readOnly}
                   />
                 ))}
               </div>
@@ -504,7 +516,6 @@ function PlanView({ sections, selected, onSelect, readOnly }) {
                   tabIndex={selected === seat.key ? 0 : -1}
                   onSelect={onSelect}
                   onKeyDown={(event) => onKeyDown(event, section.seats ?? [], index)}
-                  readOnly={readOnly}
                 />
               ))}
             </div>
@@ -512,6 +523,152 @@ function PlanView({ sections, selected, onSelect, readOnly }) {
         </section>
       ))}
     </div>
+  )
+}
+
+/**
+ * The preview: the layout as a person choosing a seat will meet it.
+ *
+ * Not a second editor with the controls hidden. An author publishing a map is
+ * making a promise to somebody who will read it on a phone before buying —
+ * that the wheelchair spaces are where they say, that the companion seat is
+ * beside the space it belongs to, that a restricted seat says so before the
+ * money rather than after. This view is where that promise can be checked, so
+ * it shows the working layout including changes not yet saved: previewing the
+ * stored version would preview the wrong thing.
+ *
+ * Seats are text, not buttons. There is nothing to press here, and a control
+ * that does nothing is worse than no control — it is in the tab order, it
+ * takes a screen reader's time, and it teaches the wrong thing about the
+ * surface.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.layout The working layout.
+ * @returns {JSX.Element} The rendered preview.
+ */
+function PreviewView({ layout }) {
+  const zones = layout?.zones ?? []
+  const sections = layout?.sections ?? []
+  const zoneName = new Map(zones.map((zone) => [zone.key, zone.name]))
+
+  const seats = sections.flatMap(seatsOf)
+  const accessible = seats.filter((seat) => seat.accessible).length
+  const companions = seats.filter((seat) => seat.companionOfKey).length
+  const unavailable = seats.filter((seat) => seat.restricted).length
+
+  return (
+    <div className="mt-6">
+      <Alert variant="info" title="Preview">
+        This is what somebody choosing a seat sees, including anything you have changed and not yet
+        saved. Nothing here is for sale; no seat can be picked.
+      </Alert>
+
+      <p className="mt-4 text-slate-700">
+        {seats.length.toLocaleString('en-IN')} seats
+        {accessible > 0 ? `, ${accessible.toLocaleString('en-IN')} wheelchair spaces` : ''}
+        {companions > 0 ? `, ${companions.toLocaleString('en-IN')} companion seats` : ''}
+        {unavailable > 0 ? `, ${unavailable.toLocaleString('en-IN')} not on sale` : ''}.
+      </p>
+
+      {zones.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold text-indigo-night-900">Price zones</h3>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {zones.map((zone) => (
+              <li key={zone.key}>
+                <Badge variant="neutral">{zone.name}</Badge>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-6 space-y-8 overflow-x-auto">
+        {sections.map((section) => (
+          <section key={section.key} aria-labelledby={`preview-section-${section.key}`}>
+            <h3
+              id={`preview-section-${section.key}`}
+              className="font-display text-lg font-semibold text-indigo-night-900"
+            >
+              {section.name}
+            </h3>
+
+            {section.kind === 'STANDING' ? (
+              <p className="mt-2 text-slate-700">
+                Standing room for {section.standingCapacity ?? '—'}. No numbered seats.
+              </p>
+            ) : null}
+
+            {(section.rows ?? []).map((row) => (
+              <div key={row.key} className="mt-3 flex items-center gap-3">
+                <span className="w-12 shrink-0 text-sm font-medium text-slate-600">
+                  {row.label}
+                </span>
+                <div role="group" aria-label={`Row ${row.label}`} className="flex flex-wrap gap-1">
+                  {(row.seats ?? []).map((seat) => (
+                    <PreviewSeat key={seat.key} seat={seat} zoneName={zoneName} />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+            {(section.seats ?? []).length > 0 ? (
+              <div
+                role="group"
+                aria-label={`${section.name} seats`}
+                className="mt-3 flex flex-wrap gap-1"
+              >
+                {(section.seats ?? []).map((seat) => (
+                  <PreviewSeat key={seat.key} seat={seat} zoneName={zoneName} />
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One seat, as a buyer meets it.
+ *
+ * Everything the colour says, the text says too. A seat that is not on sale is
+ * struck through *and* named as such, because a strike-through is a visual
+ * convention and nothing more.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.seat The seat.
+ * @param {Map<string, string>} props.zoneName Zone key to zone name.
+ * @returns {JSX.Element} The rendered seat.
+ */
+function PreviewSeat({ seat, zoneName }) {
+  const traits = [
+    seat.accessible ? 'wheelchair space' : null,
+    seat.companionOfKey ? 'companion seat' : null,
+    seat.obstructedView ? 'obstructed view' : null,
+    seat.restricted ? 'not on sale' : null,
+    seat.zoneKey ? zoneName.get(seat.zoneKey) : null,
+  ].filter(Boolean)
+
+  return (
+    <span
+      className={[
+        'inline-flex h-9 min-w-9 items-center justify-center rounded border px-1 text-xs font-medium',
+        seat.restricted
+          ? 'border-slate-200 bg-slate-100 text-slate-500 line-through'
+          : 'border-slate-300 bg-white text-slate-700',
+      ].join(' ')}
+    >
+      <span className="sr-only">
+        {seat.label}
+        {traits.length > 0 ? `, ${traits.join(', ')}` : ''}
+      </span>
+      <span aria-hidden="true">
+        {seat.accessible ? '♿ ' : ''}
+        {seat.label}
+      </span>
+    </span>
   )
 }
 
@@ -529,10 +686,9 @@ function PlanView({ sections, selected, onSelect, readOnly }) {
  * @param {number} props.tabIndex Roving tabindex: 0 for the one tab stop, -1 otherwise.
  * @param {Function} props.onSelect Selects this seat.
  * @param {Function} props.onKeyDown Handles arrow-key movement.
- * @param {boolean} props.readOnly Whether the layout is frozen.
  * @returns {JSX.Element} The rendered seat.
  */
-function SeatButton({ seat, section, row, selected, tabIndex, onSelect, onKeyDown, readOnly }) {
+function SeatButton({ seat, section, row, selected, tabIndex, onSelect, onKeyDown }) {
   const traits = [
     seat.accessible ? 'accessible space' : null,
     seat.companionOfKey ? 'companion seat' : null,
@@ -564,7 +720,6 @@ function SeatButton({ seat, section, row, selected, tabIndex, onSelect, onKeyDow
       {/* A marker as well as the colour, so the state survives greyscale. */}
       {seat.accessible ? '♿ ' : ''}
       {seat.label}
-      {readOnly ? '' : ''}
     </button>
   )
 }

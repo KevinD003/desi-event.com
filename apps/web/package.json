@@ -14,7 +14,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:prod": "pnpm run build && playwright test --config playwright.production.config.js"
+    "test:e2e:prod": "pnpm run build && playwright test --config playwright.production.config.js",
+    "test:e2e:organizer": "ORGANIZER_E2E_TAG=e2e$(date +%s) playwright test --config playwright.organizer.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",
@@ -30,7 +31,9 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@desi-event/auth": "workspace:*",
     "@desi-event/config": "workspace:*",
+    "@desi-event/db": "workspace:*",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
