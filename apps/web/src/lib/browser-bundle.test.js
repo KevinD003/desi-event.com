@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   FORBIDDEN,
+  declaresUseClient,
   forbiddenReason,
   reachableFrom,
   resolveSpecifier,
@@ -65,11 +66,7 @@ function browserEntryPoints() {
     (file) => (file.endsWith('.js') || file.endsWith('.jsx')) && !file.includes('.test.'),
   )
 
-  return sources.filter((file) => {
-    const head = readFileSync(resolve(ROOT, file), 'utf8').slice(0, 200)
-
-    return /^\s*['"]use client['"]/m.test(head)
-  })
+  return sources.filter((file) => declaresUseClient(readFileSync(resolve(ROOT, file), 'utf8')))
 }
 
 describe('what reaches the browser', () => {
@@ -125,6 +122,30 @@ describe('what reaches the browser', () => {
 })
 
 describe('the walker itself', () => {
+  it('finds the directive behind a long docstring, which is the house style', () => {
+    // The bug this replaced: the first version looked at the first 200
+    // characters, and every module in this repository opens with a paragraph
+    // explaining itself. A client component with a fifteen-line docstring was
+    // invisible to the guard, so it could import anything it liked.
+    const withDocstring = ['/**', ' * '.padEnd(240, 'x'), ' */', '', "'use client'", ''].join('\n')
+
+    expect(withDocstring.indexOf("'use client'")).toBeGreaterThan(200)
+    expect(declaresUseClient(withDocstring)).toBe(true)
+  })
+
+  it('does not mistake the words for the directive', () => {
+    expect(declaresUseClient("// we should 'use client' here one day\nexport const a = 1")).toBe(
+      false,
+    )
+    expect(declaresUseClient("const note = 'use client'\n")).toBe(false)
+    expect(declaresUseClient('export function Server() {}')).toBe(false)
+  })
+
+  it('accepts either quote style and a leading line comment', () => {
+    expect(declaresUseClient('// a note\n"use client"\n')).toBe(true)
+    expect(declaresUseClient("'use client'\n")).toBe(true)
+  })
+
   it('sees static imports, re-exports and dynamic imports', () => {
     const source = [
       "import { a } from './a.js'",

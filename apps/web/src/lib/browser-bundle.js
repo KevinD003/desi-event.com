@@ -152,6 +152,34 @@ function readModule(file) {
 }
 
 /**
+ * Whether a module's first statement is the `'use client'` directive.
+ *
+ * The naive check — look for the directive in the first couple of hundred
+ * characters — is wrong in this repository specifically, because the house
+ * style opens every module with a long docstring explaining why it exists. A
+ * client component whose reasoning runs to fifteen lines would not be
+ * recognised as a browser entry point at all, and the guard would pass while
+ * the component shipped whatever it liked. That is not hypothetical: it is how
+ * the first version of this file missed a component importing the placeholder
+ * secret blocklist.
+ *
+ * So comments and blank lines are stripped from the head first, and the
+ * directive has to be what is left — which is also the rule the bundler
+ * applies.
+ *
+ * @param {string} source The module's text.
+ * @returns {boolean} True when the module is a client component.
+ */
+export function declaresUseClient(source) {
+  const head = source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .trimStart()
+
+  return /^['"]use client['"]/.test(head)
+}
+
+/**
  * Whether a path is one the browser must never be given, and why.
  *
  * @param {string} file A repo-relative path.
