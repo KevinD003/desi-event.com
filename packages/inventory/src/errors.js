@@ -31,6 +31,12 @@ export const INVENTORY_ERROR_CODES = Object.freeze({
   INVALID_DATE: 'INVALID_DATE',
   /** A hold time-to-live that is not a positive number of seconds. */
   INVALID_TTL: 'INVALID_TTL',
+  /** A named seat, session or map is not part of what was being sold. */
+  NOT_FOUND: 'NOT_FOUND',
+  /** A seat is spoken for. Deliberately the same code however it is spoken for. */
+  SEAT_UNAVAILABLE: 'SEAT_UNAVAILABLE',
+  /** A seat transition this system does not perform, e.g. SOLD back to AVAILABLE by a sweep. */
+  INVALID_TRANSITION: 'INVALID_TRANSITION',
 })
 
 /**

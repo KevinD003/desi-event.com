@@ -22,6 +22,21 @@ export { validateQuantityRequest } from './quantity.js'
 export { holdExpiresAt, isHoldExpired, partitionExpiredHolds, activeHeldQuantity } from './holds.js'
 
 export {
+  MAX_SEATS_PER_ORDER,
+  OCCUPIED,
+  SEAT_STATUS,
+  SEAT_TRANSITIONS,
+  TAKEABLE_FROM,
+  canTransition,
+  groupSeatMap,
+  seatCounts,
+  toPublicSeat,
+  validateSeatSelection,
+  withCompanions,
+  wouldStrandCompanion,
+} from './seating.js'
+
+export {
   HOLD_RELEASE_MODES,
   authorizeHoldRelease,
   createGuestHoldToken,
