@@ -301,9 +301,105 @@ reachable or a privileged user could never enrol.
 **NF-13** — _open._ The acyclicity test on the role-inheritance graph rejects
 only directly reciprocal edges. A three-role cycle would pass it.
 
-NF-10 through NF-13 are recorded rather than fixed because each needs a product
-decision or sits behind work that does not exist yet. None is a regression from
-Phase 1; all four are pre-existing.
+**NF-10 through NF-13 are all closed now**, in commits `02e4571`, `12ebd07` and
+`51feced`. The paragraph above is left as it was written, because a report that
+quietly rewrites what it said last time is not a record. What changed since:
+sessions rotate on every privilege change; each route names its own step-up
+policy from a server-held table; privileged accounts must hold a confirmed
+second factor before any guarded route, with the enrolment routes declared
+`mfaExempt` in the contract so enrolment stays reachable; recovery codes are
+stored as digests; and cycle detection is a depth-first search that returns the
+loop it found rather than a check for reciprocal edges.
+
+**NF-14** — _closed._ **The event detail endpoint served an organiser's contact
+address to anonymous callers.** `eventWithRelationsSchema` nested
+`organizationSchema`, the whole row, so every public request for a published
+event returned `contactEmail` — the account contact, not a box office address —
+and `payoutCurrency`. Found while building the public organiser page, whose own
+schema deliberately excludes both.
+
+Reproduced before the fix, against `/v1/events/navratri-garba-night` with no
+credentials:
+
+```json
+{"id":"…","name":"Rangoli Collective","slug":"rangoli-collective",
+ "contactEmail":"hello@rangoli.example","verified":true,"payoutCurrency":"INR",…}
+```
+
+The nested shape is now `publicOrganizerSummarySchema` — id, name, slug,
+description, websiteUrl, verified — written as its own schema rather than an
+`.omit()` of the row, so the next column added to `Organization` is absent from
+the public payload until somebody decides otherwise. `verified` there is derived
+from `verificationStatus` rather than copied from the denormalised column, the
+same rule the organiser page follows. Commit `33c78ff`.
+
+**NF-15** — _closed, and the most serious found this cycle._ **The platform's
+password hashing was compiled into the browser bundle.** Not the dev server: the
+production client bundle, at `.next/static/chunks`, contained
+
+```js
+(0,i.i(78585).promisify)(yB.scrypt),
+Object.freeze({N:32768,r:8,p:1,keyLength:32,saltLength:16,maxmem:0x6000000})
+```
+
+— `packages/auth/src/password.js` with its exact scrypt tuning, served to every
+visitor, along with the rest of the auth package: TOTP verification and its
+replay window, the sealing key derivation, bearer-secret digesting, the
+pseudonymisation of email and IP addresses, and the lockout thresholds.
+
+The chain was four hops, each individually reasonable:
+
+    apps/web/src/lib/api-client.js
+      -> @desi-event/api-contract   (barrel)
+      -> packages/api-contract/src/validate.js
+      -> @desi-event/auth           (barrel)
+      -> packages/auth/src/password.js
+
+`validate.js` wanted one frozen array of strings and imported a package barrel
+to get it.
+
+It also **crashed**. `node:crypto.scrypt` is undefined in a browser, so
+`promisify(undefined)` threw at module evaluation and took the checkout page
+into its error boundary. That is what the two long-standing `journey.spec.js`
+failures were, and why they only appeared under parallel load — the chunk had to
+evaluate before the page settled. They were present on the committed baseline
+before any of this cycle's work: confirmed by stashing every uncommitted change
+and reproducing them identically.
+
+How it was missed for two phases: nothing in the repository looked. There was no
+lint rule, no exports-map restriction, no bundler configuration and no test that
+would fail if `apps/web` imported `packages/auth/src/password.js`.
+
+Closed in `3e9a327`:
+
+- `@desi-event/auth` exposes `./sessions`, which imports nothing, and
+  `validate.js` takes the policy names from there.
+- `validate.js` left the api-contract barrel for
+  `@desi-event/api-contract/validate`. It is a build- and CI-time check over the
+  whole contract and the only module in that package that reaches outside it, so
+  importing the client should not drag it in.
+- `apps/web/src/lib/browser-bundle.js` walks the import graph statically from
+  every file carrying `'use client'` — found by reading the directive rather
+  than from a list, because a list is what fails open — and refuses a set of
+  named server-only modules, each with a recorded reason.
+
+**Proven by restoring the defect.** With the two imports put back, the walker
+reported all six leaked auth modules and the exact chain to each:
+
+```
+LEAK: packages/auth/src/password.js
+  chain: apps/web/src/lib/api-client.js -> packages/api-contract/src/index.js
+         -> packages/api-contract/src/validate.js -> packages/auth/src/index.js
+         -> packages/auth/src/password.js
+  why: scrypt password hashing and its tuning parameters. Calls
+       promisify(node:crypto.scrypt) at module scope, which throws in a browser.
+```
+
+With the fix in place: `leaks after the fix: 0 of 22 modules`. Empirically, a
+clean rebuild leaves no `scrypt`, `promisify`, `timingSafeEqual`, `maxmem` or
+`keyLength` anywhere in `.next/static/chunks`, and the client bundle fell from
+1.7M to 1.3M — 400KB of server code every visitor was being made to download.
+The browser suite is 105/105.
 
 ## 10. Verification
 
