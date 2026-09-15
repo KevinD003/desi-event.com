@@ -5,8 +5,10 @@ import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
+
 import { API_ERRORS, apiRoutes, routeById } from './routes.js'
-import { assertContractValid, validateContract } from './validate.js'
+import { assertContractValid, objectKeysOf, validateContract } from './validate.js'
 
 const run = promisify(execFile)
 const SCRIPT = fileURLToPath(new URL('../scripts/validate-contract.mjs', import.meta.url))
@@ -180,6 +182,121 @@ describe('validateContract', () => {
 
   it('handles a table entry that is not an object at all', () => {
     expect(codes(validateContract({ routes: [null] }))).toContain('NOT_AN_OBJECT')
+  })
+})
+
+describe('capability scope, the other half of NF-05', () => {
+  // NF-05 was a capability guard that asserted with no organisation whenever it
+  // could not find one — which refuses every organiser and passes every platform
+  // admin. The first fix let a route *declare* where the organisation is. These
+  // tests cover the ways a route could still avoid declaring it, or declare it
+  // wrongly, and end up back at the inverted check.
+
+  it('refuses an organisation-scoped capability with no scope at all', () => {
+    const { capabilityScope: _scope, ...route } = routeById('teams.list')
+    const result = validateContract({ routes: [route] })
+
+    expect(codes(result)).toContain('CAPABILITY_SCOPE_REQUIRED')
+    expect(result.ok).toBe(false)
+  })
+
+  it('refuses a scope naming a key the schema does not declare', () => {
+    // The exact NF-05 shape: the path spells it `id`, somebody writes
+    // `organizationId`, and at runtime the value is undefined.
+    const route = { ...routeById('teams.list'), capabilityScope: 'params.organizationId' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('CAPABILITY_SCOPE_UNKNOWN_KEY')
+  })
+
+  it('refuses a scope naming an optional field', () => {
+    const route = {
+      ...routeById('teams.list'),
+      params: z.object({ id: z.string().optional() }),
+    }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('CAPABILITY_SCOPE_OPTIONAL')
+  })
+
+  it('refuses a scope whose request part the route does not have', () => {
+    const route = { ...routeById('teams.list'), capabilityScope: 'body.organizationId' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('CAPABILITY_SCOPE_MISSING_PART')
+  })
+
+  it('refuses a scope that is not a part-and-key pair', () => {
+    const route = { ...routeById('teams.list'), capabilityScope: 'organizationId' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('BAD_CAPABILITY_SCOPE')
+  })
+
+  it('refuses a scope on a platform-only capability, where it would be ignored', () => {
+    const route = {
+      ...routeById('teams.list'),
+      capability: 'platform:admin',
+      capabilityScope: 'params.id',
+    }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('PLATFORM_CAPABILITY_WITH_SCOPE')
+  })
+
+  it('accepts a platform-only capability with no scope', () => {
+    const { capabilityScope: _scope, ...base } = routeById('teams.list')
+    const route = { ...base, capability: 'platform:admin' }
+
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
+  it('accepts no capability at all, for a route that asserts in its handler', () => {
+    const { capability: _capability, capabilityScope: _scope, ...route } = routeById('teams.list')
+
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
+  it('still refuses a scope with no capability beside it', () => {
+    const { capability: _capability, ...route } = routeById('teams.list')
+
+    expect(codes(validateContract({ routes: [route] }))).toContain(
+      'CAPABILITY_SCOPE_WITHOUT_CAPABILITY',
+    )
+  })
+
+  it('requires every organisation-scoped capability in the real contract to name its scope', () => {
+    // A standing assertion rather than a one-off: it fails the moment somebody
+    // adds a route that declares an organisation capability and forgets the scope.
+    const offenders = apiRoutes
+      .filter((route) => route.capability && !PLATFORM_ONLY_CAPABILITIES.includes(route.capability))
+      .filter((route) => !route.capabilityScope)
+      .map((route) => route.id)
+
+    expect(offenders).toEqual([])
+  })
+})
+
+describe('objectKeysOf', () => {
+  it('reads a plain object schema', () => {
+    const shape = objectKeysOf(z.object({ id: z.string(), note: z.string().optional() }))
+
+    expect([...shape.keys]).toEqual(['id', 'note'])
+    expect([...shape.required]).toEqual(['id'])
+  })
+
+  it('reads through a preprocess pipe, which is how this repository coerces', () => {
+    const schema = z.preprocess((value) => value, z.object({ id: z.string() }))
+    const shape = objectKeysOf(schema)
+
+    expect([...shape.keys]).toEqual(['id'])
+    expect([...shape.required]).toEqual(['id'])
+  })
+
+  it('treats a defaulted field as optional, because the request may omit it', () => {
+    const shape = objectKeysOf(z.object({ page: z.number().default(1) }))
+
+    expect([...shape.required]).toEqual([])
+  })
+
+  it('returns null for something that is not an object schema', () => {
+    expect(objectKeysOf(z.string())).toBeNull()
+    expect(objectKeysOf(null)).toBeNull()
   })
 })
 

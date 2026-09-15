@@ -43,7 +43,7 @@ import {
   stepUpSatisfied,
   verifyPassword,
 } from '@desi-event/auth'
-import { assertCan } from '@desi-event/permissions'
+import { assertCan, PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 
 import { loadActor } from '../lib/actor.js'
 import { forbidden, unauthorized } from '../lib/errors.js'
@@ -401,38 +401,68 @@ export async function registerAuth(app, { prisma, env }) {
   /**
    * A preHandler asserting the capability a route declares.
    *
-   * The scope is where the contract says it is. That explicitness matters: a
-   * capability asserted with *no* organisation is a platform-level check, and an
-   * organisation route whose scope is not found silently becomes one — refusing
-   * every organiser and passing every super-admin. So `capabilityScope` names the
-   * request part, the contract checker verifies that part exists, and a route
-   * that declares neither falls back to an `organizationId` anywhere in the
-   * request.
+   * The scope is where the contract says it is, and nowhere else. That
+   * explicitness is the whole point: a capability asserted with *no* organisation
+   * is a platform-level check, so an organisation route whose scope cannot be
+   * found does not become lenient — it becomes inverted, refusing every organiser
+   * and passing every platform admin. That was finding NF-05.
    *
-   * A route whose scope is not in the request at all (the organisation that owns
-   * an event, say) declares no capability and asserts in its handler, where the
-   * resource has been loaded.
+   * There used to be a fallback here that looked for an `organizationId` in the
+   * body, then the query, then the params. It read as helpful and was the bug:
+   * a route at `/v1/organizations/:id/members` spells it `params.id`, so the
+   * fallback found nothing and asserted unscoped. The fallback is gone. The
+   * contract checker now *requires* a `capabilityScope` for every
+   * organisation-scoped capability and verifies the named key exists in that
+   * route's own schema and is required, so by the time a route is registered
+   * there is nothing left to guess.
+   *
+   * A route whose organisation is only known after a record is loaded (the
+   * organisation that owns an event, say) declares no capability and asserts in
+   * its handler, where the record exists.
    *
    * @param {string} capability The capability from the contract descriptor.
-   * @param {string} [scope] Where to read the organisation, as `params.id`.
+   * @param {string} [scope] Where to read the organisation, as `params.id`. Required unless the capability is platform-only.
    * @returns {Function} A Fastify preHandler.
    */
   function requireCapability(capability, scope) {
-    return async function assertCapability(request) {
-      let organizationId = null
+    const platformOnly = PLATFORM_ONLY_CAPABILITIES.includes(capability)
 
-      if (scope) {
-        const [part, key] = scope.split('.')
-        organizationId = request[part]?.[key] ?? null
-      } else {
-        organizationId =
-          request.body?.organizationId ??
-          request.query?.organizationId ??
-          request.params?.organizationId ??
-          null
+    return async function assertCapability(request) {
+      if (!scope) {
+        // Unreachable for an organisation-scoped capability once the contract
+        // checker has run — but a guard that trusts a checker it cannot see is
+        // one refactor away from being wrong, and the consequence here is a
+        // silent authorization inversion rather than a crash.
+        if (!platformOnly) {
+          request.log.error(
+            { capability },
+            'a route asserted an organisation-scoped capability with no capabilityScope',
+          )
+
+          throw forbidden('This action is not available.', 'CAPABILITY_SCOPE_MISSING')
+        }
+
+        assertCan(request.actor, capability, {})
+
+        return
       }
 
-      assertCan(request.actor, capability, organizationId ? { organizationId } : {})
+      const [part, key] = scope.split('.')
+      const organizationId = request[part]?.[key] ?? null
+
+      if (typeof organizationId !== 'string' || organizationId.length === 0) {
+        // The contract says this field exists and is required, so reaching here
+        // means the schema and the scope have drifted apart. Refuse rather than
+        // assert unscoped: an unscoped assertion is the inversion itself.
+        request.log.error(
+          { capability, scope },
+          'a capabilityScope named a field the request did not carry',
+        )
+
+        throw forbidden('This action is not available.', 'CAPABILITY_SCOPE_MISSING')
+      }
+
+      assertCan(request.actor, capability, { organizationId })
     }
   }
 

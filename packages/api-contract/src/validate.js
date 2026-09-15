@@ -8,7 +8,7 @@
  * @module @desi-event/api-contract/validate
  */
 
-import { isCapability } from '@desi-event/permissions'
+import { isCapability, PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 
 import { buildOpenApiDocument, OPENAPI_VERSION } from './openapi.js'
 import { pathParamNames, routeShape } from './path.js'
@@ -52,6 +52,78 @@ function isZodSchema(value) {
   return (
     Boolean(value) && typeof (/** @type {{safeParse?: unknown}} */ (value).safeParse) === 'function'
   )
+}
+
+/**
+ * The keys of a Zod object schema, and which of them are required.
+ *
+ * Needed because a `capabilityScope` that names a field the schema does not have
+ * is worse than useless: at runtime the value is `undefined`, the guard has no
+ * organisation to scope by, and an organisation-scoped check silently becomes a
+ * platform-level one. Checking the part exists is not enough — the *key* has to
+ * exist too, and it has to be required, because an optional field is absent on
+ * exactly the request an attacker would send.
+ *
+ * Unwraps the wrappers this repository actually uses. `z.preprocess` is the
+ * house convention for coercion (a `.transform()` cannot be rendered as JSON
+ * Schema), and it presents as a pipe whose input side carries the shape.
+ *
+ * @param {unknown} schema A candidate Zod object schema.
+ * @returns {{keys: Set<string>, required: Set<string>}|null} The keys, or null when the schema cannot be introspected.
+ */
+export function objectKeysOf(schema) {
+  // Breadth-first rather than a single chain, because a wrapper can have two
+  // sides and which one carries the shape depends on the wrapper.
+  // `z.preprocess(fn, object)` puts the object on `out`; `object.transform(fn)`
+  // puts it on `in`. Following only one of them silently returns null, and a null
+  // here is reported as "cannot verify the scope", which would make the rule
+  // advisory exactly where it needs to be binding.
+  /** @type {any[]} */
+  const queue = [schema]
+  const seen = new Set()
+
+  while (queue.length > 0 && seen.size < 32) {
+    const current = queue.shift()
+
+    if (!current || typeof current !== 'object' || seen.has(current)) continue
+
+    seen.add(current)
+
+    const shape = current.shape ?? current._def?.shape
+    const resolved = typeof shape === 'function' ? shape() : shape
+
+    if (resolved && typeof resolved === 'object') {
+      const keys = new Set(Object.keys(resolved))
+      const required = new Set(
+        Object.entries(resolved)
+          .filter(([, value]) => {
+            // `isOptional()` covers `.optional()`, `.nullish()` and `.default()`
+            // across Zod versions; a missing method means "assume required",
+            // which fails closed.
+            const test = value?.isOptional
+
+            return typeof test === 'function' ? !test.call(value) : true
+          })
+          .map(([key]) => key),
+      )
+
+      return { keys, required }
+    }
+
+    const def = current._def ?? {}
+
+    queue.push(def.out, def.in, def.innerType, def.schema, def.type)
+
+    if (typeof current.unwrap === 'function') {
+      try {
+        queue.push(current.unwrap())
+      } catch {
+        // A wrapper whose unwrap needs arguments. Nothing to follow.
+      }
+    }
+  }
+
+  return null
 }
 
 /**
@@ -121,8 +193,37 @@ function checkRoute(route, index) {
     }
   }
 
-  if ('capabilityScope' in route) {
-    const match = /^(params|query|body)\.([A-Za-z][A-Za-z0-9_]*)$/.exec(route.capabilityScope ?? '')
+  // The scope rules are the other half of finding NF-05, and the half that was
+  // left open: the original fix checked a `capabilityScope` *if one was
+  // declared*, so a route could omit it entirely and fall back to hunting for an
+  // `organizationId` anywhere in the request. When it found none — which is the
+  // normal case for a path like `/v1/organizations/:id/...` — the guard asserted
+  // with no organisation, which refuses every organiser and passes every
+  // platform admin. So the scope is now mandatory for anything organisation-
+  // scoped, forbidden for anything platform-only, and checked down to the key.
+  const declaresCapability = typeof route.capability === 'string' && route.capability.length > 0
+  const platformOnly = declaresCapability && PLATFORM_ONLY_CAPABILITIES.includes(route.capability)
+  const hasScope = typeof route.capabilityScope === 'string' && route.capabilityScope.length > 0
+
+  if (declaresCapability && !platformOnly && !hasScope && isCapability(route.capability)) {
+    fail(
+      'CAPABILITY_SCOPE_REQUIRED',
+      `Route ${routeId} declares the organisation-scoped capability "${route.capability}" but no capabilityScope. ` +
+        'Name where the organisation is, as "params.id" — without it the check degrades to a platform-level one. ' +
+        'A route whose organisation is only known after loading a record should declare no capability and assert in its handler.',
+    )
+  }
+
+  if (platformOnly && hasScope) {
+    fail(
+      'PLATFORM_CAPABILITY_WITH_SCOPE',
+      `Route ${routeId} declares the platform-only capability "${route.capability}" with capabilityScope ` +
+        `"${route.capabilityScope}". Platform capabilities are not held per organisation, so the scope would be ignored.`,
+    )
+  }
+
+  if (hasScope) {
+    const match = /^(params|query|body)\.([A-Za-z][A-Za-z0-9_]*)$/.exec(route.capabilityScope)
 
     if (!match) {
       fail(
@@ -137,6 +238,30 @@ function checkRoute(route, index) {
         'CAPABILITY_SCOPE_MISSING_PART',
         `Route ${routeId} capabilityScope reads ${match[1]}.${match[2]} but declares no ${match[1]} schema`,
       )
+    } else {
+      const [, part, key] = match
+      const shape = objectKeysOf(route[part])
+
+      if (!shape) {
+        fail(
+          'CAPABILITY_SCOPE_UNREADABLE',
+          `Route ${routeId} capabilityScope reads ${part}.${key} but the ${part} schema is not an object schema, ` +
+            'so the key cannot be verified',
+        )
+      } else if (!shape.keys.has(key)) {
+        fail(
+          'CAPABILITY_SCOPE_UNKNOWN_KEY',
+          `Route ${routeId} capabilityScope reads ${part}.${key}, which the ${part} schema does not declare ` +
+            `(it has: ${[...shape.keys].join(', ') || 'nothing'}). At runtime that is undefined and the ` +
+            'organisation check silently becomes a platform check.',
+        )
+      } else if (!shape.required.has(key)) {
+        fail(
+          'CAPABILITY_SCOPE_OPTIONAL',
+          `Route ${routeId} capabilityScope reads ${part}.${key}, which is optional. An optional scope is absent on ` +
+            'exactly the request that wants it absent.',
+        )
+      }
     }
 
     if (!route.capability) {
