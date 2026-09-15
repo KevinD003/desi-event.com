@@ -485,3 +485,101 @@ export const moderationDecisionRequestSchema = z
 export const moderationQueueQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED', 'REJECTED']).optional(),
 })
+
+/**
+ * The optimistic-concurrency precondition every authoring write carries.
+ *
+ * A client sends the revision it read. The write applies only if that is still
+ * current, and a mismatch is reported rather than resolved by whoever saved
+ * last. Two tabs open on one event is the ordinary case, not the exotic one.
+ */
+const revisionPrecondition = { revision: z.number().int().min(0) }
+
+/** Create a session on an event. */
+export const createSessionRequestSchema = z.object({
+  ...revisionPrecondition,
+  startsAt: timestampSchema,
+  endsAt: timestampSchema,
+  doorsOpenAt: timestampSchema.nullish(),
+  timezone: timezoneSchema,
+  salesStartAt: timestampSchema.nullish(),
+  salesEndAt: timestampSchema.nullish(),
+  /** Null for general admission; a published map version for reserved seating. */
+  venueMapVersionId: cuidSchema.nullish(),
+  /** General-admission capacity. Null when the session is reserved. */
+  capacity: z.number().int().min(1).max(1_000_000).nullish(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+})
+
+/** Update a session. Every field optional, but the revision is not. */
+export const updateSessionRequestSchema = z.object({
+  ...revisionPrecondition,
+  startsAt: timestampSchema.optional(),
+  endsAt: timestampSchema.optional(),
+  doorsOpenAt: timestampSchema.nullish(),
+  timezone: timezoneSchema.optional(),
+  salesStartAt: timestampSchema.nullish(),
+  salesEndAt: timestampSchema.nullish(),
+  venueMapVersionId: cuidSchema.nullish(),
+  capacity: z.number().int().min(1).max(1_000_000).nullish(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+})
+
+/** Remove a session. The revision guards it like any other authoring write. */
+export const deleteSessionRequestSchema = z.object({ ...revisionPrecondition })
+
+/** Create a ticket type. */
+export const authorTicketTypeRequestSchema = z.object({
+  ...revisionPrecondition,
+  name: nonEmptyStringSchema,
+  description: z.string().trim().max(2000).nullish(),
+  priceCents: centsSchema,
+  currency: currencySchema.optional(),
+  quantityTotal: z.number().int().min(0).max(1_000_000).optional(),
+  minPerOrder: z.number().int().min(1).max(100).optional(),
+  maxPerOrder: z.number().int().min(1).max(100).optional(),
+  salesStartAt: timestampSchema.nullish(),
+  salesEndAt: timestampSchema.nullish(),
+  eventSessionId: cuidSchema.nullish(),
+  priceZoneId: cuidSchema.nullish(),
+  reserved: z.boolean().optional(),
+  complimentary: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+})
+
+/** Update a ticket type. */
+export const updateAuthorTicketTypeRequestSchema = authorTicketTypeRequestSchema.partial().extend({
+  ...revisionPrecondition,
+})
+
+/** Remove a ticket type. */
+export const deleteTicketTypeRequestSchema = z.object({ ...revisionPrecondition })
+
+/**
+ * Prepare a session's seat inventory.
+ *
+ * No fields beyond the session. The command is idempotent, so there is nothing
+ * to configure and nothing a caller could get wrong by repeating it.
+ */
+export const prepareInventoryRequestSchema = z.object({
+  eventSessionId: cuidSchema,
+})
+
+/**
+ * Confirm a material change to a published event.
+ *
+ * `confirm` must be explicitly true. A default of true would make the
+ * confirmation a formality, which is the opposite of what it is for.
+ */
+export const materialChangeRequestSchema = z.object({
+  ...revisionPrecondition,
+  confirm: z.literal(true),
+  reason: z.string().trim().min(1).max(2000),
+  changes: z.record(z.string(), z.unknown()),
+})
+
+/** Path parameters for a route addressing one session of one event. */
+export const eventSessionParamSchema = z.object({ id: cuidSchema, sessionId: cuidSchema })
+
+/** Path parameters for a route addressing one ticket type of one event. */
+export const eventTierParamSchema = z.object({ id: cuidSchema, tierId: cuidSchema })

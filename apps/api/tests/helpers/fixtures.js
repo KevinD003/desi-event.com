@@ -401,6 +401,9 @@ export async function makeWorld(overrides = {}) {
     // because they are snapshotted onto every order and a buyer has to have
     // agreed to something.
     policies: { entry: 'Doors at seven.', refund: 'Refundable up to 48 hours before.' },
+    // The authoring editor's optimistic-concurrency precondition. Seeded rows
+    // bypass the stub's column defaults, so it is spelled here.
+    revision: 0,
   }
 
   const draftEvent = {

@@ -75,6 +75,21 @@ export const errorResponseSchema = z.object({
     message: nonEmptyStringSchema,
     statusCode: z.int().min(100).max(599),
     issues: z.array(issueResponseSchema).optional(),
+    /**
+     * Human-readable reasons a business rule refused, in the order they were
+     * found.
+     *
+     * Distinct from `issues`, which are schema violations keyed to a field.
+     * These are coherence failures a schema cannot express — "a reserved ticket
+     * type needs a price zone", "the sales window closes before it opens" — and
+     * they are plural because an organiser fixing one thing at a time and
+     * resubmitting is a worse experience than a list.
+     *
+     * They were being collected and then dropped: the services built the array,
+     * attached it to the error, and the serialiser forwarded only `issues`. So
+     * a 422 said "that is not coherent" and nothing else.
+     */
+    problems: z.array(z.string()).optional(),
     requestId: z.string().min(1).max(64).optional(),
   }),
 })
@@ -245,4 +260,101 @@ export const eventTransitionsResponseSchema = z.object({
     status: z.string(),
     transitions: z.array(availableTransitionSchema),
   }),
+})
+
+/** One session of an event, as an organiser sees it. */
+export const eventSessionSchema = z.object({
+  id: z.string(),
+  eventId: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string(),
+  doorsOpenAt: z.string().nullable(),
+  timezone: z.string(),
+  salesStartAt: z.string().nullable(),
+  salesEndAt: z.string().nullable(),
+  status: z.string(),
+  venueMapVersionId: z.string().nullable(),
+  capacity: z.number().nullable(),
+  sortOrder: z.number(),
+})
+
+/** A session, with the event's new revision so the editor can keep editing. */
+export const eventSessionResponseSchema = z.object({
+  data: eventSessionSchema,
+  meta: z.object({ revision: z.number() }),
+})
+
+/**
+ * Every session of an event.
+ *
+ * `eventSession`, not `session`: `sessionListResponseSchema` already exists and
+ * means a signed-in person's *authentication* sessions. Two things called a
+ * session is the kind of collision that produces a route returning the wrong
+ * shape and nobody noticing until it is in a browser.
+ */
+export const eventSessionListResponseSchema = z.object({
+  data: z.array(eventSessionSchema),
+  meta: z.object({ revision: z.number() }),
+})
+
+/** A ticket type, with the event's new revision. */
+export const authorTicketTypeResponseSchema = z.object({
+  data: ticketTypeSchema,
+  meta: z.object({ revision: z.number() }),
+})
+
+/**
+ * What preparing inventory did.
+ *
+ * `created` and `prepared` are separate because the difference is the whole
+ * point: a second run creates nothing and leaves `prepared` where it was, which
+ * is how a caller can see the command was idempotent rather than being told so.
+ */
+export const inventoryPreparationResponseSchema = z.object({
+  data: z.object({
+    sessionId: z.string(),
+    kind: z.enum(['reserved', 'general_admission']),
+    expected: z.number(),
+    prepared: z.number(),
+    created: z.number(),
+  }),
+})
+
+/**
+ * Whether an event is ready to be published, and what is missing.
+ *
+ * Every blocker rather than the first, because an organiser fixing one thing at
+ * a time and resubmitting is worse than a list — and a moderator reading the
+ * same list knows what to expect.
+ */
+export const readinessResponseSchema = z.object({
+  data: z.object({
+    ready: z.boolean(),
+    status: z.string(),
+    publishable: z.array(z.string()),
+    sellable: z.array(z.string()),
+    inventory: z.array(z.string()),
+    organizerVerified: z.boolean(),
+  }),
+})
+
+/**
+ * The all-in price of a ticket, as a buyer will be charged it.
+ *
+ * A face value that becomes something else at the last step of checkout is the
+ * practice this makes hard to ship by accident.
+ */
+export const pricePreviewResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      ticketTypeId: z.string(),
+      name: z.string(),
+      currency: z.string(),
+      quantity: z.number(),
+      faceValueCents: z.number(),
+      feesCents: z.number(),
+      taxCents: z.number(),
+      allInCents: z.number(),
+    }),
+  ),
 })

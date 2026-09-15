@@ -152,6 +152,10 @@ const DEFAULTS = {
     coverImageUrl: null,
     onlineUrl: null,
     publishedAt: null,
+    // The authoring editor's optimistic-concurrency precondition. Absent here,
+    // the sessions route serialised `meta.revision: undefined` and the response
+    // contract refused it — which is the contract doing its job.
+    revision: 0,
   },
   ticketType: {
     currency: 'INR',

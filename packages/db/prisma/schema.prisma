@@ -280,6 +280,10 @@ model Event {
   publishedAt    DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+  /// Optimistic-concurrency precondition for the draft editor. A client sends
+  /// the revision it read; a write whose precondition no longer holds is
+  /// reported rather than resolved by whoever saved last.
+  revision       Int           @default(0)
 
   /// Minimum age at the door, when there is one. Null means no restriction.
   ageRestriction Int?

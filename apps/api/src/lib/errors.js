@@ -153,6 +153,14 @@ export function normaliseError(error, options = {}) {
       normalised.issues = issues
     }
 
+    // Coherence reasons a business rule collected. Forwarded only below 500:
+    // a refusal the caller can act on is worth explaining, and an internal
+    // fault's details are not theirs to read.
+    const problems = /** @type {{details?: {problems?: unknown}}} */ (error).details?.problems
+    if (Array.isArray(problems) && problems.length > 0 && statusCode < 500) {
+      normalised.problems = problems.map(String)
+    }
+
     // A provider wiring mistake is a 500: do not leak the adapter's own words.
     if (statusCode >= 500 && !exposeInternals) {
       normalised.message = INTERNAL_ERROR_MESSAGE
@@ -200,6 +208,15 @@ export function normaliseError(error, options = {}) {
     }))
   }
 
+  // The API's own refusals arrive here rather than above: `httpError` builds a
+  // plain `Error` with a `statusCode`, not one of the packages' domain classes.
+  // This branch is where a 422 from `unprocessable(message, { problems })`
+  // actually lands, so it is where the reasons have to be picked up.
+  const problems = /** @type {{details?: {problems?: unknown}}} */ (error)?.details?.problems
+  if (Array.isArray(problems) && problems.length > 0) {
+    normalised.problems = problems.map(String)
+  }
+
   return normalised
 }
 
@@ -219,6 +236,7 @@ export function toErrorBody(normalised, requestId) {
   }
 
   if (normalised.issues) error.issues = normalised.issues
+  if (normalised.problems) error.problems = normalised.problems
   if (requestId) error.requestId = String(requestId).slice(0, 64)
 
   return { error: /** @type {never} */ (error) }

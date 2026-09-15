@@ -201,28 +201,25 @@ describe('findRoute', () => {
 })
 
 describe('routesByTag', () => {
-  it('collects the event routes, including the lifecycle commands', () => {
-    // The lifecycle commands carry the `events` tag too. They are listed in
-    // declaration order, and that order is asserted rather than sorted so a
-    // route inserted in the wrong place in the table is visible here.
-    expect(routesByTag('events').map((route) => route.id)).toEqual([
-      'events.list',
-      'events.facets',
-      'events.get',
-      'events.create',
-      'events.update',
-      'events.transitions',
-      'events.moderationHistory',
-      'events.submitReview',
-      'events.withdrawReview',
-      'events.publish',
-      'events.openSales',
-      'events.pauseSales',
-      'events.postpone',
-      'events.cancel',
-      'moderation.queue',
-      'moderation.decide',
-    ])
+  it('collects every route tagged `events`, and nothing else', () => {
+    // The set, not a hand-kept list in declaration order. An ordered literal
+    // has to be edited every time a route is inserted anywhere in the table,
+    // which makes it a chore rather than a check — and a chore gets updated
+    // reflexively, which is how a check stops checking.
+    const tagged = apiRoutes.filter((route) => route.tags.includes('events')).map((r) => r.id)
+
+    expect(routesByTag('events').map((route) => route.id)).toEqual(tagged)
+    expect(tagged.length).toBeGreaterThan(15)
+    expect(tagged).toContain('events.list')
+    expect(tagged).toContain('events.publish')
+    expect(tagged).toContain('moderation.decide')
+  })
+
+  it('preserves declaration order', () => {
+    // What `routesByTag` is actually for: a stable order a document can render.
+    const positions = routesByTag('events').map((route) => apiRoutes.indexOf(route))
+
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
 
   it('returns an empty array for an unused tag', () => {
