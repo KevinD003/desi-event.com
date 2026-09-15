@@ -39,6 +39,7 @@ import { PROVIDER_ERROR_CODES } from '@desi-event/providers'
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { postBatch } from './ledger.js'
 import { sellSeats } from './seating.js'
+import { openReconciliation } from './webhook-handlers.js'
 
 /** What the provider told us, once we are out of the transaction. */
 export const CAPTURE_OUTCOMES = Object.freeze({
@@ -404,6 +405,26 @@ export async function recordCaptureTimeout(
       rawProviderStatus: result.rawStatus,
       providerRef: result.providerRef ?? payment.providerRef,
     },
+  })
+
+  // A flag nothing reads is not a queue. `reconciliationRequired` marked the
+  // payment, and until this line there was no work item for anybody to find, so
+  // an ambiguous charge sat in the database waiting to be noticed. The task
+  // carries what we believed at the time, verbatim: a later fix should not erase
+  // what the problem looked like.
+  await openReconciliation(tx, {
+    kind: 'PAYMENT_TIMEOUT',
+    paymentId: payment.id,
+    orderId: order.id,
+    providerRef: result.providerRef ?? payment.providerRef ?? null,
+    localState: {
+      orderStatus: 'PENDING',
+      paymentStatus: 'TIMEOUT',
+      totalCents: order.totalCents,
+      currency: order.currency,
+      at: now.toISOString(),
+    },
+    lastError: 'the provider did not answer; the charge may or may not have succeeded',
   })
 
   await recordAudit(tx, {

@@ -178,6 +178,18 @@ describe('deterministic provider outcomes', () => {
     )
     expect(timeouts).toHaveLength(1)
 
+    // A flag nothing reads is not a queue. The ambiguous charge has to become a
+    // work item somebody can find, carrying what we believed at the time.
+    const tasks = prisma._store.reconciliationTask ?? []
+
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0]).toMatchObject({
+      kind: 'PAYMENT_TIMEOUT',
+      state: 'OPEN',
+      paymentId: prisma._store.payment[0].id,
+    })
+    expect(tasks[0].localState).toMatchObject({ orderStatus: 'PENDING', paymentStatus: 'TIMEOUT' })
+
     await app.close()
   })
 })
