@@ -532,10 +532,14 @@ async function main() {
     const dbSuite = await run('npx', ['vitest', 'run'], { env: childEnv })
     ok = record('the @desi-event/db integration suite passes against it', dbSuite.code === 0) && ok
 
-    const apiSuite = await run('npx', ['vitest', 'run', 'tests/facets-integration.test.js'], {
-      cwd: path.join(REPO_ROOT, 'apps', 'api'),
-      env: childEnv,
-    })
+    const apiSuite = await run(
+      'npx',
+      ['vitest', 'run', 'tests/facets-integration.test.js', 'tests/ledger-integration.test.js'],
+      {
+        cwd: path.join(REPO_ROOT, 'apps', 'api'),
+        env: childEnv,
+      },
+    )
     ok = record('the API database integration suite passes against it', apiSuite.code === 0) && ok
   } catch (error) {
     ok = record('the verification ran to completion', false, {
