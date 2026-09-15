@@ -49,6 +49,10 @@
       "description": "Provider callbacks. The authoritative signal that money moved."
     },
     {
+      "name": "webhooks",
+      "description": "Provider callbacks. The authoritative signal that money moved, verified over the exact bytes sent."
+    },
+    {
       "name": "tickets",
       "description": "Door scanning and attendance."
     },
@@ -10181,6 +10185,120 @@
                   "eventType",
                   "orderReference"
                 ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/webhooks/stripe": {
+      "post": {
+        "operationId": "webhooks.stripe",
+        "summary": "Stripe account webhook",
+        "description": "Receives platform-account events. The body is read as raw bytes and the `Stripe-Signature` header is verified against them before anything else happens — a parsed body is a body whose bytes are gone, and the signature is over the bytes. A verified delivery is stored durably and acknowledged; the work happens afterwards from the stored row, so that a provider retry cannot repeat a side effect. A duplicate delivery answers 2xx without storing a second row, because the unique index on (provider, account context, event id) is what makes replay a no-op. Every refusal answers a bare 400: which part of a forgery was wrong goes to the log only. There is no mode that skips verification, and a deployment with no Stripe credentials refuses every delivery rather than accepting unsigned ones.",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Stripe account webhook",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "duplicate": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "duplicate"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/webhooks/stripe/connect": {
+      "post": {
+        "operationId": "webhooks.stripeConnect",
+        "summary": "Stripe Connect webhook",
+        "description": "Receives connected-account events, verified against the Connect endpoint's own signing secret. A separate endpoint with a separate secret on purpose: a Connect event names an account, and verifying it with the platform secret would let a platform event impersonate one. The same event id arriving for two different accounts is two facts, not a duplicate.",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Stripe Connect webhook",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "duplicate": {
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "duplicate"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
               }
             }
           }
