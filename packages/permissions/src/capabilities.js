@@ -127,6 +127,15 @@ export const CAPABILITIES = deepFreeze({
    */
   TEAM_ROLE_MANAGE: 'team:role_manage',
   ORGANIZATION_MANAGE: 'organization:manage',
+  /**
+   * Submit the organisation for verification, and answer a moderator's question.
+   *
+   * Separate from `organization:manage`, which is the OWNER's grant over the
+   * record itself. Verification is a conversation with the platform rather than
+   * an edit to the organisation, and an ADMIN should be able to have it without
+   * also being able to rename the company.
+   */
+  ORGANIZATION_SUBMIT_VERIFICATION: 'organization:submit_verification',
   ORGANIZATION_VIEW_MEMBERS: 'organization:view_members',
 
   // --- Promotions and reporting --------------------------------------------
@@ -280,6 +289,7 @@ const ORG_ROLE_GRANTS = {
   // Destructive actions, and approving somebody else's refund request.
   ADMIN: [
     CAPABILITIES.EVENT_CANCEL,
+    CAPABILITIES.ORGANIZATION_SUBMIT_VERIFICATION,
     CAPABILITIES.EVENT_DELETE,
     CAPABILITIES.ORDER_REFUND,
     CAPABILITIES.ORDER_REFUND_APPROVE,

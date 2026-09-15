@@ -25,6 +25,10 @@
       "description": "Organisation membership: who belongs, what they may do, and how they were invited."
     },
     {
+      "name": "organizers",
+      "description": "Organiser verification, and the public page an organiser is judged by. Verification gates publishing and payouts, so its transitions are commands rather than a writable field."
+    },
+    {
       "name": "events",
       "description": "Public event discovery and organiser event management."
     },
@@ -3356,6 +3360,840 @@
           },
           {
             "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/organizations/{id}/verification": {
+      "get": {
+        "operationId": "organizers.verification",
+        "summary": "Read the verification state and its history",
+        "description": "The current state, whether the organisation may publish and be paid, and every transition it has been through with the reason recorded at the time. The history is append-only: a later decision is a new row, never an edit to an old one, because an audit trail that can be rewritten is a story rather than a record.\n\nRequires the `organization:view_members` capability.",
+        "tags": [
+          "organizers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read the verification state and its history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "organizationId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "UNVERIFIED",
+                            "PENDING",
+                            "REQUIRES_INFORMATION",
+                            "VERIFIED",
+                            "REJECTED",
+                            "SUSPENDED",
+                            "REVOKED"
+                          ]
+                        },
+                        "eligible": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "fromStatus": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "UNVERIFIED",
+                                      "PENDING",
+                                      "REQUIRES_INFORMATION",
+                                      "VERIFIED",
+                                      "REJECTED",
+                                      "SUSPENDED",
+                                      "REVOKED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "toStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "UNVERIFIED",
+                                  "PENDING",
+                                  "REQUIRES_INFORMATION",
+                                  "VERIFIED",
+                                  "REJECTED",
+                                  "SUSPENDED",
+                                  "REVOKED"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "fromStatus",
+                              "toStatus",
+                              "reason",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "organizationId",
+                        "status",
+                        "eligible",
+                        "note",
+                        "updatedAt",
+                        "history"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "organizers.submitVerification",
+        "summary": "Submit the organisation for verification",
+        "description": "Moves the organisation into PENDING from UNVERIFIED, REQUIRES_INFORMATION, REJECTED or REVOKED. The body carries no target state: PENDING is the only place an organiser can go, and offering a field would imply a choice they do not have. A moderator decides what happens next.\n\nRequires the `organization:submit_verification` capability.",
+        "tags": [
+          "organizers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Submit the organisation for verification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "organizationId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "UNVERIFIED",
+                            "PENDING",
+                            "REQUIRES_INFORMATION",
+                            "VERIFIED",
+                            "REJECTED",
+                            "SUSPENDED",
+                            "REVOKED"
+                          ]
+                        },
+                        "eligible": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "fromStatus": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "UNVERIFIED",
+                                      "PENDING",
+                                      "REQUIRES_INFORMATION",
+                                      "VERIFIED",
+                                      "REJECTED",
+                                      "SUSPENDED",
+                                      "REVOKED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "toStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "UNVERIFIED",
+                                  "PENDING",
+                                  "REQUIRES_INFORMATION",
+                                  "VERIFIED",
+                                  "REJECTED",
+                                  "SUSPENDED",
+                                  "REVOKED"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "fromStatus",
+                              "toStatus",
+                              "reason",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "organizationId",
+                        "status",
+                        "eligible",
+                        "note",
+                        "updatedAt",
+                        "history"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "legalName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/organizations/{id}/verification/decision": {
+      "post": {
+        "operationId": "organizers.moderateVerification",
+        "summary": "Decide a verification submission",
+        "description": "Platform staff only, and a reason is required for every outcome: a verification decision nobody recorded a rationale for is one nobody can review or appeal. Requires a recent second factor under the SECURITY_ROLE policy, because verification is what gates publishing and payouts.\n\nRequires the `moderation:review` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "organizers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Decide a verification submission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "organizationId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "UNVERIFIED",
+                            "PENDING",
+                            "REQUIRES_INFORMATION",
+                            "VERIFIED",
+                            "REJECTED",
+                            "SUSPENDED",
+                            "REVOKED"
+                          ]
+                        },
+                        "eligible": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "history": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "fromStatus": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "UNVERIFIED",
+                                      "PENDING",
+                                      "REQUIRES_INFORMATION",
+                                      "VERIFIED",
+                                      "REJECTED",
+                                      "SUSPENDED",
+                                      "REVOKED"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "toStatus": {
+                                "type": "string",
+                                "enum": [
+                                  "UNVERIFIED",
+                                  "PENDING",
+                                  "REQUIRES_INFORMATION",
+                                  "VERIFIED",
+                                  "REJECTED",
+                                  "SUSPENDED",
+                                  "REVOKED"
+                                ]
+                              },
+                              "reason": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "fromStatus",
+                              "toStatus",
+                              "reason",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "organizationId",
+                        "status",
+                        "eligible",
+                        "note",
+                        "updatedAt",
+                        "history"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "REQUIRES_INFORMATION",
+                      "VERIFIED",
+                      "REJECTED",
+                      "SUSPENDED",
+                      "REVOKED"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 500
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "decision",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/organizers/{slug}": {
+      "get": {
+        "operationId": "organizers.get",
+        "summary": "Read a public organiser profile",
+        "description": "The page an organiser is judged by: who they are, what they have on sale, what they have run before, and their refund policy. The verified badge is derived from the verification state server-side rather than from the denormalised column, so a stale badge cannot be served. A suspended organisation is not found here at all.",
+        "tags": [
+          "organizers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read a public organiser profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "slug": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "websiteUrl": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "verified": {
+                          "type": "boolean"
+                        },
+                        "refundPolicy": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "timezone": {
+                          "type": "string"
+                        },
+                        "upcomingEvents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slug": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "venueName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "slug",
+                              "title",
+                              "startsAt",
+                              "venueName"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "pastEvents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "slug": {
+                                "type": "string"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "venueName": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "slug",
+                              "title",
+                              "startsAt",
+                              "venueName"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "slug",
+                        "name",
+                        "description",
+                        "websiteUrl",
+                        "verified",
+                        "refundPolicy",
+                        "timezone",
+                        "upcomingEvents",
+                        "pastEvents"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            }
           }
         ]
       }

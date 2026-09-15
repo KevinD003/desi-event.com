@@ -93,7 +93,20 @@ const RELATIONS = {
 const DEFAULTS = {
   user: { locale: 'en-IN', role: 'ATTENDEE', emailVerified: false, phone: null },
   membership: { role: 'VIEWER' },
-  organization: { verified: false, payoutCurrency: 'INR', description: null, websiteUrl: null },
+  organization: {
+    verified: false,
+    payoutCurrency: 'INR',
+    description: null,
+    websiteUrl: null,
+    verificationStatus: 'UNVERIFIED',
+    verificationNote: null,
+    verificationUpdatedAt: null,
+    legalName: null,
+    timezone: 'Asia/Kolkata',
+    refundPolicy: null,
+    suspendedAt: null,
+    suspendedReason: null,
+  },
   venue: { country: 'IN', addressLine2: null, latitude: null, longitude: null, capacity: null },
   event: {
     status: 'DRAFT',
@@ -249,6 +262,7 @@ const DEFAULTS = {
     resolutionNote: null,
     resolvedAt: null,
   },
+  organizationVerificationEvent: { fromStatus: null, actorId: null, reason: null },
   ledgerAccount: { currency: null, active: true },
   ledgerBatch: {
     status: 'DRAFT',
@@ -360,6 +374,7 @@ const CREATED_ONLY = new Set([
   'ledgerAccount',
   'ledgerBatch',
   'ledgerEntry',
+  'organizationVerificationEvent',
 ])
 
 let idCounter = 0

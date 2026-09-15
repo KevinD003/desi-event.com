@@ -990,6 +990,11 @@ enum VerificationStatus {
   VERIFIED
   REJECTED
   SUSPENDED
+  /// Verification was granted and then withdrawn — distinct from REJECTED, which
+  /// was never granted, and from SUSPENDED, which is a temporary hold. An
+  /// organiser who was verified and is no longer is a different conversation
+  /// from one who never was.
+  REVOKED
 }
 
 /// One transition in an organisation's verification history.

@@ -50,6 +50,7 @@ const REQUIRED_CAPABILITIES = [
   'team:remove',
   'team:role_manage',
   'organization:manage',
+  'organization:submit_verification',
   'organization:view_members',
   // Promotions and reporting
   'promo:manage',

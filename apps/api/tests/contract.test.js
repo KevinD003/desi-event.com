@@ -4,7 +4,12 @@ import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { apiRoutes, buildOpenApiDocument, validateContract } from '@desi-event/api-contract'
+import {
+  apiRoutes,
+  buildOpenApiDocument,
+  objectKeysOf,
+  validateContract,
+} from '@desi-event/api-contract'
 
 import { emitOpenApi } from '../scripts/emit-openapi.mjs'
 import { routeSchema } from '../src/lib/validation.js'
@@ -65,6 +70,25 @@ describe('the server matches the contract', () => {
       if (route.query) expect(schema.querystring).toBe(route.query)
       if (route.params) expect(schema.params).toBe(route.params)
       expect(schema.response[route.successStatus]).toBe(route.response)
+    }
+  })
+
+  it('lets no request body write a field that is only reachable by command', () => {
+    // Verification and suspension gate publishing and payouts. They move through
+    // their own state machine, with an actor, a reason and a history row; a
+    // generic update that accepted `verificationStatus` would be that machine
+    // bypassed by anybody holding `organization:update`, and a `verified` a
+    // client could set is a badge anybody can award themselves.
+    const sealed = ['verificationStatus', 'verified', 'suspendedAt', 'suspendedReason']
+
+    for (const route of apiRoutes) {
+      const shape = objectKeysOf(route.body)
+
+      if (!shape) continue
+
+      for (const field of sealed) {
+        expect(shape.keys, `${route.id} must not accept ${field} in its body`).not.toContain(field)
+      }
     }
   })
 

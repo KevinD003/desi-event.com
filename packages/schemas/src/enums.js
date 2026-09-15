@@ -156,6 +156,7 @@ export const VERIFICATION_STATUSES = Object.freeze([
   'VERIFIED',
   'REJECTED',
   'SUSPENDED',
+  'REVOKED',
 ])
 
 export const INVITATION_STATUSES = Object.freeze(['PENDING', 'ACCEPTED', 'REVOKED', 'EXPIRED'])

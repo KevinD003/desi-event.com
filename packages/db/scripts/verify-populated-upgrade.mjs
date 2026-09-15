@@ -75,6 +75,7 @@ loadDotenv({ path: path.join(REPO_ROOT, '.env'), override: false, quiet: true })
 const PHASE2_MIGRATIONS = Object.freeze([
   '20260915010000_phase2_commerce_and_operations',
   '20260915020000_phase2_integrity_triggers',
+  '20260915120000_verification_revoked',
 ])
 
 /**

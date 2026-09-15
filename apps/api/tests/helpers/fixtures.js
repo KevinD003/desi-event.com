@@ -271,7 +271,19 @@ export async function makeWorld(overrides = {}) {
     name: 'Rangoli Collective',
     slug: 'rangoli-collective',
     contactEmail: 'hello@rangoli.example',
+    // Coherent by construction: the denormalised badge and the state it is
+    // derived from agree. A fixture where they disagree would let a bug that
+    // serves a stale badge pass unnoticed, so the one test that needs an
+    // incoherent row builds it deliberately.
     verified: true,
+    verificationStatus: 'VERIFIED',
+    verificationNote: null,
+    verificationUpdatedAt: new Date('2025-01-02T00:00:00.000Z'),
+    legalName: null,
+    timezone: 'Asia/Kolkata',
+    refundPolicy: 'Refunds up to 48 hours before the event.',
+    suspendedAt: null,
+    suspendedReason: null,
     payoutCurrency: 'INR',
     createdAt: new Date('2025-01-01T00:00:00.000Z'),
     updatedAt: new Date('2025-01-01T00:00:00.000Z'),
