@@ -102,6 +102,28 @@ export function authoringOrganizations(session) {
 }
 
 /**
+ * The organisations this person may create an event in.
+ *
+ * Separate from {@link authoringOrganizations}, which asks about venues: the
+ * two capabilities are genuinely different, and somebody who can add a hall is
+ * not thereby somebody who can put an event on in it.
+ *
+ * Only decides what a screen *offers*. The API authorises the create again.
+ *
+ * @param {object|null} session The session as `GET /v1/auth/me` returned it.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The organisations.
+ */
+export function eventOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('event:create'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
  * The absolute origin this request arrived on.
  *
  * Used to build the same-origin API URL for a server-side read, so a screen

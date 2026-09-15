@@ -37,13 +37,21 @@ export const metadata = {
 export default async function OrganizerLayout({ children }) {
   const session = await readSession()
 
-  if (!session) redirect('/sign-in?next=/organizer/venues')
+  if (!session) redirect('/sign-in?next=/organizer/events')
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 pb-4">
         <nav aria-label="Organiser">
           <ul className="flex flex-wrap items-center gap-4 text-sm">
+            <li>
+              <Link
+                href="/organizer/events"
+                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              >
+                Events
+              </Link>
+            </li>
             <li>
               <Link
                 href="/organizer/venues"
