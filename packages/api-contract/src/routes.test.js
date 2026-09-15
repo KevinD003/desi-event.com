@@ -201,14 +201,27 @@ describe('findRoute', () => {
 })
 
 describe('routesByTag', () => {
-  it('collects the event routes', () => {
+  it('collects the event routes, including the lifecycle commands', () => {
+    // The lifecycle commands carry the `events` tag too. They are listed in
+    // declaration order, and that order is asserted rather than sorted so a
+    // route inserted in the wrong place in the table is visible here.
     expect(routesByTag('events').map((route) => route.id)).toEqual([
       'events.list',
       'events.facets',
       'events.get',
       'events.create',
       'events.update',
+      'events.transitions',
+      'events.moderationHistory',
+      'events.submitReview',
+      'events.withdrawReview',
       'events.publish',
+      'events.openSales',
+      'events.pauseSales',
+      'events.postpone',
+      'events.cancel',
+      'moderation.queue',
+      'moderation.decide',
     ])
   })
 

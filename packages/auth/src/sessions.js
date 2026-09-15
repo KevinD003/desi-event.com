@@ -89,6 +89,29 @@ export const STEP_UP_POLICIES = Object.freeze({
   CREDENTIAL: 2 * 60 * 1000,
   /** Granting or removing a privileged role. */
   SECURITY_ROLE: 2 * 60 * 1000,
+  /**
+   * Making an event public, or opening it for sale.
+   *
+   * Ten minutes. Publishing is not a money movement, but it is the moment a
+   * listing becomes visible to strangers and starts taking their money, and it
+   * is not quietly reversible: an event that was live for an hour was live.
+   */
+  EVENT_PUBLISH: 10 * 60 * 1000,
+  /**
+   * Cancelling or postponing a live event.
+   *
+   * Five minutes, the same as moving money, because that is what it does —
+   * every order against the event becomes a refund somebody is owed.
+   */
+  EVENT_CANCEL: 5 * 60 * 1000,
+  /**
+   * Approving, rejecting, or asking for changes to somebody else's event.
+   *
+   * Ten minutes. A moderator works through a queue, so a two-minute window
+   * would re-challenge them mid-batch and train them to keep a factor to hand,
+   * which is the opposite of what the control is for.
+   */
+  MODERATION: 10 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */

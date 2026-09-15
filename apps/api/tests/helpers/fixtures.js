@@ -356,6 +356,10 @@ export async function makeWorld(overrides = {}) {
   const viewer = user('finance@rangoli.example', 'Finance', 'ORGANIZER')
   const outsider = user('rival@dhol.example', 'Rival Organiser', 'ORGANIZER')
   const platformAdmin = user('ops@desi-event.example', 'Platform Ops', 'SUPER_ADMIN')
+  // Cancelling and archiving are ADMIN and OWNER only — a MANAGER can publish
+  // but may not call off something people have paid for. The world needs an
+  // owner to exercise that half of the lifecycle.
+  const owner = user('owner@rangoli.example', 'Meera Owner', 'ORGANIZER')
 
   /**
    * Build a membership row.
@@ -393,6 +397,10 @@ export async function makeWorld(overrides = {}) {
     publishedAt: new Date('2025-02-01T00:00:00.000Z'),
     createdAt: new Date('2025-02-01T00:00:00.000Z'),
     updatedAt: new Date('2025-02-01T00:00:00.000Z'),
+    // Publication refuses an event with no entry, refund and conduct rules,
+    // because they are snapshotted onto every order and a buyer has to have
+    // agreed to something.
+    policies: { entry: 'Doors at seven.', refund: 'Refundable up to 48 hours before.' },
   }
 
   const draftEvent = {
@@ -406,6 +414,48 @@ export async function makeWorld(overrides = {}) {
     publishedAt: null,
     startsAt: minutesFromNow(60 * 24 * 60),
     endsAt: minutesFromNow(60 * 24 * 60 + 240),
+  }
+
+  // Three events in states a stranger must never see. Finding NF-19 was that
+  // only DRAFT was checked, so everything between "submitted" and "published"
+  // — including a rejection, which is somebody being told no — was served to
+  // anonymous callers in full.
+  const reviewPendingEvent = {
+    ...publishedEvent,
+    id: cuid(),
+    title: 'Awaiting A Moderator',
+    slug: 'awaiting-a-moderator',
+    summary: 'Submitted, not yet ruled on.',
+    status: 'REVIEW_PENDING',
+    publishedAt: null,
+    reviewSubmittedAt: new Date('2025-02-02T00:00:00.000Z'),
+    startsAt: minutesFromNow(60 * 24 * 70),
+    endsAt: minutesFromNow(60 * 24 * 70 + 240),
+  }
+
+  const rejectedEvent = {
+    ...publishedEvent,
+    id: cuid(),
+    title: 'Turned Down',
+    slug: 'turned-down',
+    summary: 'A moderator said no.',
+    status: 'REJECTED',
+    publishedAt: null,
+    moderationNote: 'Internal note a stranger must never read.',
+    startsAt: minutesFromNow(60 * 24 * 80),
+    endsAt: minutesFromNow(60 * 24 * 80 + 240),
+  }
+
+  const approvedEvent = {
+    ...publishedEvent,
+    id: cuid(),
+    title: 'Approved Not Published',
+    slug: 'approved-not-published',
+    summary: 'Cleared by a moderator; the organiser has not gone live.',
+    status: 'APPROVED',
+    publishedAt: null,
+    startsAt: minutesFromNow(60 * 24 * 90),
+    endsAt: minutesFromNow(60 * 24 * 90 + 240),
   }
 
   const onlineEvent = {
@@ -488,9 +538,40 @@ export async function makeWorld(overrides = {}) {
     updatedAt: new Date('2025-02-01T00:00:00.000Z'),
   }
 
+  /**
+   * One general-admission session per event.
+   *
+   * Publication refuses an event with no session, which is right: an event
+   * nobody can attend on any date is not an event. Every fixture event gets a
+   * plain GA session so the suites are about the thing they are testing rather
+   * than about the fixture being incomplete.
+   *
+   * @param {object} event The event the session belongs to.
+   * @returns {object} The session row.
+   */
+  function sessionFor(event) {
+    return {
+      id: cuid(),
+      eventId: event.id,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      doorsOpenAt: null,
+      timezone: event.timezone,
+      salesStartAt: null,
+      salesEndAt: null,
+      status: 'SCHEDULED',
+      venueMapVersionId: null,
+      capacity: 500,
+      sortOrder: 0,
+      createdAt: new Date('2025-02-01T00:00:00.000Z'),
+      updatedAt: new Date('2025-02-01T00:00:00.000Z'),
+    }
+  }
+
   const seed = {
-    user: [attendee, manager, staff, viewer, outsider, platformAdmin],
+    user: [attendee, owner, manager, staff, viewer, outsider, platformAdmin],
     membership: [
+      membership(owner, organization, 'OWNER'),
       membership(manager, organization, 'MANAGER'),
       membership(staff, organization, 'STAFF'),
       membership(viewer, organization, 'VIEWER'),
@@ -498,7 +579,22 @@ export async function makeWorld(overrides = {}) {
     ],
     organization: [organization, otherOrganization],
     venue: [venue, otherVenue],
-    event: [publishedEvent, draftEvent, onlineEvent],
+    event: [
+      publishedEvent,
+      draftEvent,
+      reviewPendingEvent,
+      rejectedEvent,
+      approvedEvent,
+      onlineEvent,
+    ],
+    eventSession: [
+      publishedEvent,
+      draftEvent,
+      reviewPendingEvent,
+      rejectedEvent,
+      approvedEvent,
+      onlineEvent,
+    ].map(sessionFor),
     ticketType: [generalAdmission, vip, pausedTier, draftTier],
     promoCode: [promoCode],
     // The chart of accounts, which a migration creates in a real database. The
@@ -520,6 +616,7 @@ export async function makeWorld(overrides = {}) {
       venue,
       otherVenue,
       attendee,
+      owner,
       manager,
       staff,
       viewer,
@@ -527,6 +624,9 @@ export async function makeWorld(overrides = {}) {
       platformAdmin,
       publishedEvent,
       draftEvent,
+      reviewPendingEvent,
+      rejectedEvent,
+      approvedEvent,
       onlineEvent,
       generalAdmission,
       vip,

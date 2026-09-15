@@ -202,3 +202,47 @@ export const eventFacetsResponseSchema = z.object({
     formats: z.array(z.object({ value: z.enum(['online', 'in_person']), count: countSchema })),
   }),
 })
+
+/**
+ * One entry in an event's moderation history.
+ *
+ * `reason` is included because the organiser needs to read what was asked of
+ * them. The public event payload never carries this shape at all — the history
+ * of a negotiation is between the two parties to it.
+ */
+export const moderationActionSchema = z.object({
+  id: z.string(),
+  fromStatus: z.string().nullable(),
+  toStatus: z.string(),
+  reason: z.string().nullable(),
+  requestedChanges: z.record(z.string(), z.string()).nullable(),
+  actorId: z.string().nullable(),
+  createdAt: z.string(),
+})
+
+/** An event's moderation history, newest first. */
+export const moderationHistoryResponseSchema = z.object({
+  data: z.array(moderationActionSchema),
+})
+
+/**
+ * What an actor may do to an event right now.
+ *
+ * `entitled` and `blockers` are separate on purpose: "you may not" and "not
+ * yet" are different sentences, and a screen that conflates them tells an
+ * organiser to ask for a permission they already have.
+ */
+export const availableTransitionSchema = z.object({
+  to: z.string(),
+  actor: z.string(),
+  entitled: z.boolean(),
+  blockers: z.array(z.string()),
+})
+
+/** The moves available out of an event's current status. */
+export const eventTransitionsResponseSchema = z.object({
+  data: z.object({
+    status: z.string(),
+    transitions: z.array(availableTransitionSchema),
+  }),
+})

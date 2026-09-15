@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 
 /**
@@ -94,12 +94,15 @@ describe('GET /v1/events', () => {
   })
 
   it('shows a platform admin everything', async () => {
+    // Six, not three: the fixture world gained a review-pending, a rejected and
+    // an approved event when finding NF-19 was closed, and the point of an
+    // administrator is that none of them are hidden from one.
     const { app } = await createTestApp()
     const token = await signIn(app, 'ops@desi-event.example')
 
     const body = await list(app, '', bearer(token))
 
-    expect(body.pagination.total).toBe(3)
+    expect(body.pagination.total).toBe(6)
   })
 
   it('intersects an explicit status filter with what the caller may see', async () => {
@@ -416,33 +419,41 @@ describe('PATCH /v1/events/:id and POST /v1/events/:id/publish', () => {
     await app.close()
   })
 
-  it('refuses to publish an event with no tier on sale', async () => {
+  // These two used to send `{ status: 'PUBLISHED' }` to the publish route and
+  // expect it to be written. That was finding NF-18: one capability reaching
+  // thirteen destinations with no transition check. They are rewritten rather
+  // than deleted, because what they were really about — you cannot publish
+  // nothing, and a successful publish stamps `publishedAt` — is still true.
+  it('refuses to publish a draft that no moderator has approved', async () => {
     const { app, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+
+    await stepUp(app, 'arun@rangoli.example', headers)
 
     const response = await app.inject({
       method: 'POST',
       url: `/v1/events/${ids.draftEvent.id}/publish`,
-      headers: bearer(token),
-      payload: { status: 'PUBLISHED' },
+      headers,
+      payload: {},
     })
 
-    expect(response.statusCode).toBe(422)
-    expect(response.json().error.code).toBe('UNPROCESSABLE')
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.message).toMatch(/cannot become PUBLISHED/i)
   })
 
-  it('publishes once a tier is on sale and stamps publishedAt', async () => {
-    const { app, prisma, ids } = await createTestApp()
+  it('publishes an approved event and stamps publishedAt', async () => {
+    const { app, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
 
-    const tier = prisma._store.ticketType.find((row) => row.eventId === ids.draftEvent.id)
-    tier.status = 'ON_SALE'
+    await stepUp(app, 'arun@rangoli.example', headers)
 
     const response = await app.inject({
       method: 'POST',
-      url: `/v1/events/${ids.draftEvent.id}/publish`,
-      headers: bearer(token),
-      payload: { status: 'PUBLISHED' },
+      url: `/v1/events/${ids.approvedEvent.id}/publish`,
+      headers,
+      payload: {},
     })
 
     expect(response.statusCode).toBe(200)

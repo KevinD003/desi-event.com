@@ -77,6 +77,7 @@ const PHASE2_MIGRATIONS = Object.freeze([
   '20260915020000_phase2_integrity_triggers',
   '20260915120000_verification_revoked',
   '20260915180000_map_version_revision',
+  '20260915220000_event_lifecycle_integrity',
 ])
 
 /**
@@ -92,6 +93,11 @@ const PHASE2_MIGRATIONS = Object.freeze([
  */
 const OVERRIDES = Object.freeze({
   TicketHold: { guestTokenHash: `'${'c'.repeat(64)}'`, userId: 'NULL' },
+  // `event_ends_after_start`, added by the lifecycle migration. The filler
+  // gives every timestamp the same value, which is fine until a constraint
+  // says one has to be strictly later than another. An event that ends at the
+  // moment it starts is exactly what the constraint exists to refuse.
+  Event: { startsAt: `'2026-01-01T18:00:00Z'`, endsAt: `'2026-01-01T21:00:00Z'` },
 })
 
 /** Steps recorded for the report, in the order they ran. */

@@ -17,6 +17,18 @@ const RELATIONS = {
     venue: { kind: 'one', model: 'venue', from: 'venueId', to: 'id' },
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     ticketTypes: { kind: 'many', model: 'ticketType', from: 'id', to: 'eventId' },
+    // The lifecycle gates read the sessions and, through them, whether each
+    // reserved session names a map version that has actually been published.
+    sessions: { kind: 'many', model: 'eventSession', from: 'id', to: 'eventId' },
+    moderationHistory: {
+      kind: 'many',
+      model: 'eventModerationAction',
+      from: 'id',
+      to: 'eventId',
+    },
+  },
+  eventModerationAction: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
   },
   ticketType: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -69,6 +81,14 @@ const RELATIONS = {
   eventSession: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
     eventSeats: { kind: 'many', model: 'eventSeat', from: 'id', to: 'eventSessionId' },
+    // The publication gate reads this to refuse a reserved session whose map
+    // version is still a draft.
+    venueMapVersion: {
+      kind: 'one',
+      model: 'venueMapVersion',
+      from: 'venueMapVersionId',
+      to: 'id',
+    },
   },
   seat: {
     section: { kind: 'one', model: 'section', from: 'sectionId', to: 'id' },
@@ -278,6 +298,40 @@ const DEFAULTS = {
     resolvedAt: null,
   },
   organizationVerificationEvent: { fromStatus: null, actorId: null, reason: null },
+  // The lifecycle writes one of these per transition, so the delegate has to
+  // exist even in suites that never read them back.
+  eventModerationAction: {
+    actorId: null,
+    fromStatus: null,
+    reason: null,
+    requestedChanges: null,
+  },
+  notificationOutbox: {
+    channel: 'EMAIL',
+    userId: null,
+    status: 'QUEUED',
+    attempts: 0,
+    maxAttempts: 5,
+    sentAt: null,
+    lastError: null,
+    suppressible: true,
+  },
+  refund: {
+    providerRefundId: null,
+    reason: 'CUSTOMER_REQUEST',
+    reasonNote: null,
+    status: 'REQUESTED',
+    allocation: null,
+    platformFeeRefundedCents: 0,
+    transferReversedCents: 0,
+    requestedById: null,
+    approvedById: null,
+    ticketsRevoked: false,
+    inventoryReturned: false,
+    failureCode: null,
+    rawProviderStatus: null,
+    settledAt: null,
+  },
   ledgerAccount: { currency: null, active: true },
   ledgerBatch: {
     status: 'DRAFT',
@@ -319,6 +373,10 @@ const UNIQUE_FIELDS = {
   ledgerAccount: ['code'],
   invitation: ['tokenHash'],
   event: ['slug'],
+  // What makes cancelling twice write one notice and one refund request rather
+  // than two. `skipDuplicates` relies on the stub honouring these.
+  notificationOutbox: ['dedupeKey'],
+  refund: ['idempotencyKey'],
   order: ['reference'],
   ticket: ['code'],
   session: ['tokenHash'],
@@ -363,6 +421,8 @@ const TIMESTAMPED = new Set([
   'membership',
   'reconciliationTask',
   'connectedAccount',
+  'notificationOutbox',
+  'refund',
 ])
 
 /**
@@ -390,6 +450,7 @@ const CREATED_ONLY = new Set([
   'ledgerBatch',
   'ledgerEntry',
   'organizationVerificationEvent',
+  'eventModerationAction',
 ])
 
 let idCounter = 0

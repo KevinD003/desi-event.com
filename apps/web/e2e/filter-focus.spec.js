@@ -101,7 +101,10 @@ test.describe('announcements and deliberate focus movement', () => {
     await page.locator('select[name="category"]').selectOption({ index: 1 })
     await page.waitForURL(/category=/)
 
-    await expect(live).toHaveText(/events? match your filters/)
+    // Both phrasings, because the component writes "1 event matches" and
+    // "N events match" — correct English, and a regex that only covered the
+    // plural passed for as long as the filtered count happened to be above one.
+    await expect(live).toHaveText(/^\d+ events? match(es)? your filters$/)
   })
 
   test('focus moves to the results only when the visitor asks', async ({ page }) => {

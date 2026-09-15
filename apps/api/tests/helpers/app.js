@@ -217,3 +217,39 @@ export function taxRateBps(country = 'IN', region = null) {
 export function holdHeaders(hold) {
   return hold?.guestToken ? { 'x-hold-token': hold.guestToken } : {}
 }
+
+/**
+ * Present a second factor again, satisfying a route's step-up requirement.
+ *
+ * Publishing, cancelling and moderating all demand a recent second factor —
+ * finding NF-11 gave each route its own window from a server-held table. A test
+ * that wants to reach the transition logic has to go through the challenge
+ * rather than around it, because a test that went around it would be testing a
+ * system nobody runs.
+ *
+ * @param {object} app The Fastify instance.
+ * @param {string} email The account's email address.
+ * @param {object} headers The authenticated request headers.
+ * @returns {Promise<void>} Resolves once the step-up is recorded.
+ * @throws {Error} When the account holds no factor, or the challenge is refused.
+ */
+export async function stepUp(app, email, headers) {
+  const code = mfaCodeFor(app, email)
+
+  if (!code) {
+    throw new Error(
+      `${email} holds no second factor, so it cannot step up. Use an enrolled fixture account.`,
+    )
+  }
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/v1/auth/step-up',
+    headers,
+    payload: { code },
+  })
+
+  if (response.statusCode !== 200) {
+    throw new Error(`Step-up failed for ${email}: ${response.statusCode} ${response.body}`)
+  }
+}

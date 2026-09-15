@@ -385,3 +385,103 @@ export const paymentWebhookRequestSchema = z.object({
   currency: currencySchema.optional(),
   failureCode: z.string().min(1).max(100).optional(),
 })
+
+/**
+ * Submit an event for review.
+ *
+ * No body fields: the request *is* the submission. Everything a moderator needs
+ * is already on the event, and letting the submitter attach a status or a
+ * decision is the mistake findings NF-17 and NF-18 were.
+ */
+export const submitEventReviewRequestSchema = z.object({
+  /** An optional note to the moderator. Never shown to the public. */
+  note: z.string().trim().max(2000).optional(),
+})
+
+/**
+ * Publish an approved event.
+ *
+ * Deliberately empty. The old `publishEventRequestSchema` carried a `status`
+ * field over the whole `EventStatus` enum, so one capability reached thirteen
+ * destinations with no transition check — finding NF-18. The destination is now
+ * the route, not a field somebody chooses.
+ */
+export const publishApprovedEventRequestSchema = z.object({})
+
+/**
+ * Open or resume sales.
+ */
+export const openSalesRequestSchema = z.object({})
+
+/**
+ * Pause sales.
+ */
+export const pauseSalesRequestSchema = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+})
+
+/**
+ * Cancel an event.
+ *
+ * A reason code *and* prose: the code is what the refund and notification work
+ * is keyed on, the prose is what an attendee reads. Neither substitutes for the
+ * other — "VENUE_UNAVAILABLE" is not an apology and an apology is not a
+ * category.
+ */
+export const cancelEventRequestSchema = z.object({
+  reasonCode: z.enum([
+    'ORGANIZER_WITHDREW',
+    'VENUE_UNAVAILABLE',
+    'ARTIST_UNAVAILABLE',
+    'LOW_SALES',
+    'WEATHER',
+    'SAFETY',
+    'REGULATORY',
+    'OTHER',
+  ]),
+  reason: z.string().trim().min(1).max(2000),
+})
+
+/**
+ * Postpone an event, with or without a new date.
+ *
+ * A postponement with no new date is a real state: "we will tell you when we
+ * know" is more honest than inventing a placeholder date somebody will plan
+ * around.
+ */
+export const postponeEventRequestSchema = z.object({
+  reasonCode: z.enum(['VENUE_UNAVAILABLE', 'ARTIST_UNAVAILABLE', 'WEATHER', 'SAFETY', 'OTHER']),
+  reason: z.string().trim().min(1).max(2000),
+  newStartsAt: timestampSchema.optional(),
+  newEndsAt: timestampSchema.optional(),
+})
+
+/**
+ * A moderator's decision on a submitted event.
+ *
+ * One route rather than three, because the three outcomes share every
+ * precondition and differ only in what they write. A reason is required for
+ * anything other than an approval: telling somebody no without saying why is
+ * the part of moderation that wastes everybody's time.
+ */
+export const moderationDecisionRequestSchema = z
+  .object({
+    decision: z.enum(['approve', 'request_changes', 'reject']),
+    reason: z.string().trim().max(2000).optional(),
+    /** Field-level notes, for the organiser's editor to link to. */
+    requestedChanges: z.record(z.string(), z.string().max(1000)).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.decision !== 'approve' && !value.reason) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message: 'Say why. A refusal with no reason cannot be acted on.',
+      })
+    }
+  })
+
+/** Query string for the moderation queue. */
+export const moderationQueueQuerySchema = paginationQuerySchema.extend({
+  status: z.enum(['REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED', 'REJECTED']).optional(),
+})

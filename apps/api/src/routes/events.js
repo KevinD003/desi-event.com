@@ -6,8 +6,11 @@
 
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
+import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { organizationsWhere } from '../lib/actor.js'
+import { availableTransitions, loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
+import { cancellationWork } from '../lib/event-cancellation.js'
 import { conflict, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
 import { toEventDetail, toEventSummary } from '../lib/presenters.js'
@@ -45,7 +48,17 @@ export function visibilityFilter(actor, options = {}) {
 
   if (actor && can(actor, CAPABILITIES.PLATFORM_ADMIN)) return {}
 
-  const publicFilter = publishedOnly ? { status: 'PUBLISHED' } : { status: { not: 'DRAFT' } }
+  // Finding NF-19. This used to read `{ status: 'PUBLISHED' }` or, worse,
+  // `{ status: { not: 'DRAFT' } }` — the second of which showed a stranger every
+  // submission, every rejection and every archived event, because DRAFT was the
+  // only state anybody had thought to exclude.
+  //
+  // A *listing* uses the narrower set: a cancelled or finished show has a page
+  // but does not belong in "what is on". `events.get` uses the wider one, so
+  // the page still resolves for the person holding a ticket to it.
+  const publicFilter = publishedOnly
+    ? { status: { in: [...INDEXABLE_STATUSES] } }
+    : { status: { in: [...PUBLICLY_VISIBLE_STATUSES] } }
   const organizationIds = organizationsWhere(actor, can, CAPABILITIES.EVENT_VIEW_DRAFT)
 
   if (organizationIds.length === 0) return publicFilter
@@ -126,15 +139,32 @@ async function loadVisibleEvent(prisma, where, actor) {
 
   if (!event) throw notFound('No such event.')
 
-  if (event.status === 'DRAFT') {
-    const visible =
-      can(actor, CAPABILITIES.PLATFORM_ADMIN) ||
-      can(actor, CAPABILITIES.EVENT_VIEW_DRAFT, { organizationId: event.organizationId })
-
-    if (!visible) throw notFound('No such event.')
-  }
+  assertVisibleTo(event, actor)
 
   return event
+}
+
+/**
+ * Refuse an event this caller has no business seeing.
+ *
+ * A 404 rather than a 403, deliberately: a 403 confirms the slug names
+ * something, and "does this organiser have an unannounced event called X" is
+ * not a question a stranger gets to ask.
+ *
+ * @param {object} event The event row.
+ * @param {object|null} actor The request actor.
+ * @returns {void}
+ * @throws {Error} A 404 when the caller may not see it.
+ */
+function assertVisibleTo(event, actor) {
+  if (PUBLICLY_VISIBLE_STATUSES.has(event.status)) return
+
+  const permitted =
+    can(actor, CAPABILITIES.MODERATION_REVIEW) ||
+    can(actor, CAPABILITIES.PLATFORM_ADMIN) ||
+    can(actor, CAPABILITIES.EVENT_VIEW_DRAFT, { organizationId: event.organizationId })
+
+  if (!permitted) throw notFound('No such event.')
 }
 
 /**
@@ -222,15 +252,7 @@ export function registerEventRoutes(app, { prisma }) {
 
       if (!event) throw notFound('No such event.')
 
-      if (event.status === 'DRAFT') {
-        const visible =
-          can(request.actor, CAPABILITIES.PLATFORM_ADMIN) ||
-          can(request.actor, CAPABILITIES.EVENT_VIEW_DRAFT, {
-            organizationId: event.organizationId,
-          })
-
-        if (!visible) throw notFound('No such event.')
-      }
+      assertVisibleTo(event, request.actor)
 
       return { data: toEventDetail(event) }
     },
@@ -249,13 +271,18 @@ export function registerEventRoutes(app, { prisma }) {
       await assertVenueExists(prisma, body.venueId)
 
       const slug = await resolveSlug(prisma, body.slug, body.title)
-      const data = withEventDates({ ...body, slug })
+
+      // Finding NF-17. `status` carried a DRAFT *default*, which is not a DRAFT
+      // *guarantee*: a caller holding only `event:create` could post
+      // `status: 'PUBLISHED'` — or `'APPROVED'`, forging a moderator's decision
+      // — and have the row written that way. A new event is a draft. There is
+      // no other way to make one, and the status field is ignored rather than
+      // rejected so an old client keeps working and simply does not get its way.
+      const { status: _ignored, ...writable } = body
+      const data = withEventDates({ ...writable, slug })
 
       const event = await prisma.event.create({
-        data: {
-          ...data,
-          publishedAt: data.status === 'PUBLISHED' ? new Date() : null,
-        },
+        data: { ...data, status: 'DRAFT', publishedAt: null },
         include: EVENT_INCLUDE,
       })
 
@@ -302,48 +329,179 @@ export function registerEventRoutes(app, { prisma }) {
     },
   })
 
-  defineRoute(app, 'events.publish', {
-    handler: async (request) => {
-      const existing = await prisma.event.findUnique({ where: { id: request.params.id } })
-      if (!existing) throw notFound('No such event.')
+  /**
+   * Run one lifecycle command.
+   *
+   * Every command is the same four steps in the same order, so they share one
+   * body and differ only in the destination and what they carry. Writing them
+   * out five times would mean five places for the audit record to be forgotten.
+   *
+   * @param {object} request The Fastify request.
+   * @param {string} to The destination status.
+   * @param {object} [extra] `reason`, `requestedChanges`, `onCommit`.
+   * @returns {Promise<object>} The response body.
+   */
+  async function command(request, to, extra = {}) {
+    const event = await loadForTransition(prisma, request.params.id)
 
-      assertCan(request.actor, CAPABILITIES.EVENT_PUBLISH, {
-        organizationId: existing.organizationId,
+    const updated = await transitionEvent(prisma, {
+      event,
+      to,
+      actor: request.actor,
+      ...extra,
+    })
+
+    request.log.info(
+      { eventId: event.id, from: event.status, to, actorId: request.actor?.id },
+      'event lifecycle transition',
+    )
+
+    const full = await prisma.event.findUnique({
+      where: { id: updated.id },
+      include: EVENT_INCLUDE,
+    })
+
+    return { data: toEventDetail(full) }
+  }
+
+  defineRoute(app, 'events.transitions', {
+    handler: async (request) => {
+      const event = await loadForTransition(prisma, request.params.id)
+
+      assertVisibleTo(event, request.actor)
+      assertCan(request.actor, CAPABILITIES.EVENT_VIEW_DRAFT, {
+        organizationId: event.organizationId,
       })
 
-      const { status, publishedAt } = request.body
+      return {
+        data: {
+          status: event.status,
+          transitions: await availableTransitions(prisma, event, request.actor),
+        },
+      }
+    },
+  })
 
-      if (status === 'PUBLISHED') {
-        // Publishing an event nobody can buy into is almost always a mistake
-        // made one step too early, and it is cheap to catch here.
-        const sellable = await prisma.ticketType.count({
-          where: { eventId: existing.id, status: 'ON_SALE' },
+  defineRoute(app, 'events.moderationHistory', {
+    handler: async (request) => {
+      const event = await prisma.event.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, organizationId: true, status: true },
+      })
+
+      if (!event) throw notFound('No such event.')
+
+      // The history of a negotiation belongs to the two parties to it: the
+      // organisation that owns the event, and the moderators who ruled on it.
+      const permitted =
+        can(request.actor, CAPABILITIES.MODERATION_REVIEW) ||
+        can(request.actor, CAPABILITIES.EVENT_VIEW_DRAFT, {
+          organizationId: event.organizationId,
         })
 
-        if (sellable === 0) {
-          throw unprocessable(
-            'Publish at least one ON_SALE ticket type before publishing the event.',
-          )
-        }
-      }
+      if (!permitted) throw notFound('No such event.')
 
-      const event = await prisma.event.update({
-        where: { id: existing.id },
-        data: {
-          status,
-          publishedAt:
-            status === 'PUBLISHED'
-              ? publishedAt
-                ? new Date(publishedAt)
-                : (existing.publishedAt ?? new Date())
-              : existing.publishedAt,
-        },
-        include: EVENT_INCLUDE,
+      const history = await prisma.eventModerationAction.findMany({
+        where: { eventId: event.id },
+        orderBy: { createdAt: 'desc' },
       })
 
-      request.log.info({ eventId: event.id, status }, 'event status changed')
+      return {
+        data: history.map((action) => ({
+          id: action.id,
+          fromStatus: action.fromStatus,
+          toStatus: action.toStatus,
+          reason: action.reason,
+          requestedChanges: action.requestedChanges ?? null,
+          actorId: action.actorId,
+          createdAt: action.createdAt.toISOString(),
+        })),
+      }
+    },
+  })
 
-      return { data: toEventDetail(event) }
+  defineRoute(app, 'events.submitReview', {
+    handler: (request) =>
+      command(request, 'REVIEW_PENDING', { reason: request.body?.note ?? null }),
+  })
+
+  defineRoute(app, 'events.withdrawReview', {
+    handler: (request) => command(request, 'DRAFT'),
+  })
+
+  defineRoute(app, 'events.publish', {
+    handler: (request) => command(request, 'PUBLISHED'),
+  })
+
+  defineRoute(app, 'events.openSales', {
+    handler: (request) => command(request, 'ON_SALE'),
+  })
+
+  defineRoute(app, 'events.pauseSales', {
+    handler: (request) =>
+      command(request, 'SALES_PAUSED', { reason: request.body?.reason ?? null }),
+  })
+
+  defineRoute(app, 'events.postpone', {
+    handler: async (request) => {
+      const { reasonCode, reason, newStartsAt, newEndsAt } = request.body
+
+      return command(request, 'POSTPONED', {
+        reason: `${reasonCode}: ${reason}`,
+        /**
+         * Move the dates and raise the notice in the same transaction.
+         *
+         * @param {object} tx The transaction client.
+         * @param {object} updated The event after the status write.
+         * @returns {Promise<void>} Resolves when done.
+         */
+        onCommit: async (tx, updated) => {
+          if (newStartsAt && newEndsAt) {
+            await tx.event.update({
+              where: { id: updated.id },
+              data: { startsAt: new Date(newStartsAt), endsAt: new Date(newEndsAt) },
+            })
+          }
+
+          await cancellationWork(tx, {
+            event: updated,
+            kind: 'POSTPONED',
+            reasonCode,
+            reason,
+            actorId: request.actor?.id ?? null,
+          })
+        },
+      })
+    },
+  })
+
+  defineRoute(app, 'events.cancel', {
+    handler: async (request) => {
+      const { reasonCode, reason } = request.body
+
+      return command(request, 'CANCELLED', {
+        reason: `${reasonCode}: ${reason}`,
+        /**
+         * Raise the notification and refund work with the cancellation.
+         *
+         * Inside the transaction because the work and the status must commit
+         * together: an event cancelled with no refund work owed is worse than
+         * one that is not cancelled at all.
+         *
+         * @param {object} tx The transaction client.
+         * @param {object} updated The cancelled event.
+         * @returns {Promise<void>} Resolves when done.
+         */
+        onCommit: async (tx, updated) => {
+          await cancellationWork(tx, {
+            event: updated,
+            kind: 'CANCELLED',
+            reasonCode,
+            reason,
+            actorId: request.actor?.id ?? null,
+          })
+        },
+      })
     },
   })
 }
