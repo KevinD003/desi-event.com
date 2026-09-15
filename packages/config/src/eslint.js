@@ -180,7 +180,8 @@ export function createConfig(options = {}) {
               },
               {
                 group: ['@desi-event/ledger', '@desi-event/ledger/*'],
-                message: 'Double-entry posting rules are server-side. Money is never counted in a browser.',
+                message:
+                  'Double-entry posting rules are server-side. Money is never counted in a browser.',
               },
               {
                 group: ['@desi-event/schemas/env', '@desi-event/schemas/jobs'],

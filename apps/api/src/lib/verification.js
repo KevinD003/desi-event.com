@@ -187,11 +187,7 @@ export function assertTransition(from, to, actor) {
     )
   }
 
-  throw httpError(
-    409,
-    'VERIFICATION_INVALID_TRANSITION',
-    permittedMessage(from, verdict.permitted),
-  )
+  throw httpError(409, 'VERIFICATION_INVALID_TRANSITION', permittedMessage(from, verdict.permitted))
 }
 
 /**

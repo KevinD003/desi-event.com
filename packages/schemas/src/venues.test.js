@@ -78,9 +78,9 @@ describe('createVenueRequestSchema', () => {
   })
 
   it('lets a venue be claimed by an organisation or left shared', () => {
-    expect(createVenueRequestSchema.parse({ ...minimal, organizationId: ids.org }).organizationId).toBe(
-      ids.org,
-    )
+    expect(
+      createVenueRequestSchema.parse({ ...minimal, organizationId: ids.org }).organizationId,
+    ).toBe(ids.org)
     expect(createVenueRequestSchema.parse(minimal).organizationId).toBeUndefined()
   })
 })
@@ -179,8 +179,10 @@ describe('mergeVenueRequestSchema', () => {
   it('requires a reason, because a merge is not reversible by guesswork', () => {
     expect(mergeVenueRequestSchema.safeParse({ intoVenueId: ids.venue }).success).toBe(false)
     expect(
-      mergeVenueRequestSchema.parse({ intoVenueId: ids.venue, reason: 'Duplicate of the same hall' })
-        .reason,
+      mergeVenueRequestSchema.parse({
+        intoVenueId: ids.venue,
+        reason: 'Duplicate of the same hall',
+      }).reason,
     ).toMatch(/Duplicate/)
   })
 })

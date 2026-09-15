@@ -59,8 +59,7 @@ export async function generateMetadata({ params }) {
   }
 
   const description =
-    organizer.description ??
-    `Events presented by ${organizer.name}, with tickets on Desi-Event.`
+    organizer.description ?? `Events presented by ${organizer.name}, with tickets on Desi-Event.`
 
   return {
     title: organizer.name,
@@ -304,9 +303,9 @@ export default async function OrganizerPage({ params }) {
             behalf instead.
           */}
           <p className="mt-4 text-slate-700">
-            Questions about an order go through Desi-Event support, using the reply address on
-            your confirmation email. Support puts you in touch with {organizer.name} and keeps the
-            thread attached to your booking.
+            Questions about an order go through Desi-Event support, using the reply address on your
+            confirmation email. Support puts you in touch with {organizer.name} and keeps the thread
+            attached to your booking.
           </p>
         </section>
       </div>

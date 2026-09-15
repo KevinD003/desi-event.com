@@ -47,9 +47,7 @@ describe('what a public event page says about its organiser, finding NF-14', () 
 
   it('shows no badge when the column and the verification state disagree', async () => {
     const { app, prisma, ids } = await createTestApp()
-    const organization = prisma._store.organization.find(
-      (row) => row.id === ids.organization.id,
-    )
+    const organization = prisma._store.organization.find((row) => row.id === ids.organization.id)
 
     organization.verified = true
     organization.verificationStatus = 'SUSPENDED'

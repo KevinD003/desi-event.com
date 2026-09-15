@@ -89,7 +89,9 @@ describe('what reaches the browser', () => {
       .filter((candidate) => candidate.reason)
 
     expect(
-      leaks.map((leak) => `${leak.file}\n  reached by: ${leak.chain.join(' -> ')}\n  ${leak.reason}`),
+      leaks.map(
+        (leak) => `${leak.file}\n  reached by: ${leak.chain.join(' -> ')}\n  ${leak.reason}`,
+      ),
     ).toEqual([])
   })
 
@@ -165,9 +167,9 @@ describe('the walker itself', () => {
   })
 
   it('resolves a workspace subpath the way an exports map does', () => {
-    expect(resolveSpecifier('@desi-event/auth/sessions', 'packages/api-contract/src/validate.js')).toBe(
-      'packages/auth/src/sessions.js',
-    )
+    expect(
+      resolveSpecifier('@desi-event/auth/sessions', 'packages/api-contract/src/validate.js'),
+    ).toBe('packages/auth/src/sessions.js')
     expect(resolveSpecifier('@desi-event/auth', 'packages/api-contract/src/validate.js')).toBe(
       'packages/auth/src/index.js',
     )

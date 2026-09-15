@@ -896,9 +896,7 @@ export function findSampleEvent(slug) {
 export function findSampleOrganizer(slug) {
   if (typeof slug !== 'string') return null
 
-  const organization = Object.values(ORGANIZATIONS).find(
-    (candidate) => candidate.slug === slug,
-  )
+  const organization = Object.values(ORGANIZATIONS).find((candidate) => candidate.slug === slug)
 
   if (!organization) return null
 

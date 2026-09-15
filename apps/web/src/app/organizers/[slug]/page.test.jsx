@@ -152,9 +152,7 @@ describe('the organiser page', () => {
     render(await OrganizerPage(route))
 
     expect(
-      within(screen.getByRole('region', { name: 'Upcoming events' })).getByText(
-        /nothing on sale/i,
-      ),
+      within(screen.getByRole('region', { name: 'Upcoming events' })).getByText(/nothing on sale/i),
     ).toBeInTheDocument()
   })
 
@@ -164,7 +162,9 @@ describe('the organiser page', () => {
     const refunds = screen.getByRole('region', { name: 'Refunds' })
 
     expect(within(refunds).getByText(/full refund up to the interval/i)).toBeInTheDocument()
-    expect(within(refunds).getByText(/A later edit does not change what you agreed to/)).toBeInTheDocument()
+    expect(
+      within(refunds).getByText(/A later edit does not change what you agreed to/),
+    ).toBeInTheDocument()
   })
 
   it('falls back to the checkout terms when no policy is published', async () => {

@@ -70,7 +70,13 @@ const CONTRACT_EXPORTS = [
  * ever wanted in a client bundle.
  */
 const OFF_BARREL = Object.freeze({
-  './env.js': ['apiEnvSchema', 'workerEnvSchema', 'webEnvSchema', 'loadApiEnv', 'isInsecureJwtSecret'],
+  './env.js': [
+    'apiEnvSchema',
+    'workerEnvSchema',
+    'webEnvSchema',
+    'loadApiEnv',
+    'isInsecureJwtSecret',
+  ],
   './jobs.js': [
     'sendEmailJobSchema',
     'expireHoldsJobSchema',
@@ -97,13 +103,16 @@ describe('package entry point', () => {
     },
   )
 
-  it.each(Object.entries(OFF_BARREL))('still serves %s from its own entry point', async (module, names) => {
-    const loaded = await import(module)
+  it.each(Object.entries(OFF_BARREL))(
+    'still serves %s from its own entry point',
+    async (module, names) => {
+      const loaded = await import(module)
 
-    for (const name of names) {
-      expect(loaded[name], `${name} is missing from ${module}`).toBeDefined()
-    }
-  })
+      for (const name of names) {
+        expect(loaded[name], `${name} is missing from ${module}`).toBeDefined()
+      }
+    },
+  )
 
   it('exports the validation helpers', () => {
     expect(typeof schemas.parseOrThrow).toBe('function')

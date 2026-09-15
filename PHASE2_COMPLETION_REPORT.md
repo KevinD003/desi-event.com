@@ -338,8 +338,8 @@ password hashing was compiled into the browser bundle.** Not the dev server: the
 production client bundle, at `.next/static/chunks`, contained
 
 ```js
-(0,i.i(78585).promisify)(yB.scrypt),
-Object.freeze({N:32768,r:8,p:1,keyLength:32,saltLength:16,maxmem:0x6000000})
+;((0, i.i(78585).promisify)(yB.scrypt),
+  Object.freeze({ N: 32768, r: 8, p: 1, keyLength: 32, saltLength: 16, maxmem: 0x6000000 }))
 ```
 
 — `packages/auth/src/password.js` with its exact scrypt tuning, served to every
@@ -428,7 +428,7 @@ DATABASE_URL:vo,REDIS_URL:vs,JWT_SECRET:md.string().min(32,{message:"JWT_SECRET
 must be at least 32 characters"}),JWT_EXPIRES_IN:…
 ```
 
-No secret *value* leaked — `env.js` reads `process.env` only as a default
+No secret _value_ leaked — `env.js` reads `process.env` only as a default
 parameter, so nothing evaluates in a browser — and this is disclosure rather
 than a crash. It is still the server's deployment contract published to the
 public.
@@ -436,7 +436,7 @@ public.
 Closed by giving `@desi-event/schemas` the subpaths `./env` and `./jobs` and
 taking both off the barrel; seventeen server-side and worker-side imports moved
 across. The barrel test now asserts the opposite of what it used to: that these
-names are *absent* from the package entry point and present at their own. Both
+names are _absent_ from the package entry point and present at their own. Both
 modules were added to the guard from NF-15, which now covers what it did not
 catch. After a clean rebuild, none of `DATABASE_URL`, `REDIS_URL`,
 `JWT_SECRET`, `ALLOW_DEMO_TAX_IN_PRODUCTION`, `PLATFORM_FEE_BPS`,

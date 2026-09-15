@@ -78,7 +78,8 @@ const WORKSPACE_PACKAGES = Object.freeze({
 })
 
 /** Matches the specifier of a static `import`, `export … from` or `import()`. */
-const SPECIFIER = /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
+const SPECIFIER =
+  /(?:^|\n)\s*(?:import|export)[\s\S]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
 
 /**
  * Every static specifier a module imports.
@@ -138,7 +139,13 @@ export function resolveSpecifier(specifier, fromFile) {
  * @returns {{path: string, source: string}|null} The module, or null when there is none.
  */
 function readModule(file) {
-  const candidates = [file, `${file}.js`, `${file}.jsx`, join(file, 'index.js'), join(file, 'index.jsx')]
+  const candidates = [
+    file,
+    `${file}.js`,
+    `${file}.jsx`,
+    join(file, 'index.js'),
+    join(file, 'index.jsx'),
+  ]
 
   for (const candidate of candidates) {
     try {

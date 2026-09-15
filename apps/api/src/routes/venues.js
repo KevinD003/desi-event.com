@@ -188,7 +188,10 @@ export function registerVenueRoutes(app, { prisma }) {
       const memberships = (request.actor?.memberships ?? []).map((row) => row.organizationId)
       const visible = organizationId
         ? [{ organizationId }]
-        : [{ organizationId: null }, ...(memberships.length > 0 ? [{ organizationId: { in: memberships } }] : [])]
+        : [
+            { organizationId: null },
+            ...(memberships.length > 0 ? [{ organizationId: { in: memberships } }] : []),
+          ]
 
       if (organizationId && !memberships.includes(organizationId)) {
         // Asking for somebody else's venues by id is not an error worth
@@ -258,7 +261,10 @@ export function registerVenueRoutes(app, { prisma }) {
 
       if (organizationId) {
         assertCan(request.actor, CAPABILITIES.VENUE_MANAGE, { organizationId })
-      } else if (!can(request.actor, CAPABILITIES.PLATFORM_ADMIN) && !can(request.actor, CAPABILITIES.MODERATION_REVIEW)) {
+      } else if (
+        !can(request.actor, CAPABILITIES.PLATFORM_ADMIN) &&
+        !can(request.actor, CAPABILITIES.MODERATION_REVIEW)
+      ) {
         throw forbidden(
           'A venue with no organisation is shared between all of them, so only platform staff ' +
             'can create one. Send organizationId to create a venue of your own.',
@@ -360,14 +366,19 @@ export function registerVenueRoutes(app, { prisma }) {
         })
 
         if (count !== 1) {
-          throw conflict('That venue was merged while you were looking at it. Reload and try again.')
+          throw conflict(
+            'That venue was merged while you were looking at it. Reload and try again.',
+          )
         }
 
         // Future listings point at the survivor. Existing orders and tickets are
         // deliberately left alone: they recorded where somebody actually went,
         // and rewriting history to tidy a duplicate is not a tidy-up.
         await tx.event.updateMany({
-          where: { venueId: duplicate.id, status: { in: ['DRAFT', 'REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED'] } },
+          where: {
+            venueId: duplicate.id,
+            status: { in: ['DRAFT', 'REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED'] },
+          },
           data: { venueId: survivor.id },
         })
 

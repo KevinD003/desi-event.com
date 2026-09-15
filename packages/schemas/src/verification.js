@@ -72,10 +72,10 @@ export const moderateVerificationRequestSchema = z
      */
     note: z.string().trim().max(1000).optional(),
   })
-  .refine(
-    (value) => value.decision !== 'REQUIRES_INFORMATION' || Boolean(value.note),
-    { message: 'Say what the organiser needs to supply.', path: ['note'] },
-  )
+  .refine((value) => value.decision !== 'REQUIRES_INFORMATION' || Boolean(value.note), {
+    message: 'Say what the organiser needs to supply.',
+    path: ['note'],
+  })
 
 /** One entry in the history. */
 export const verificationEventSchema = z.object({

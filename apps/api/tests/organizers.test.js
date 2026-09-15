@@ -204,9 +204,7 @@ describe('POST /v1/organizations/:id/verification', () => {
     })
 
     expect(
-      prisma._store.auditLog.filter(
-        (row) => row.action === 'organization.verification_submitted',
-      ),
+      prisma._store.auditLog.filter((row) => row.action === 'organization.verification_submitted'),
     ).toHaveLength(1)
 
     await app.close()
@@ -598,7 +596,9 @@ describe('GET /v1/organizers/:slug', () => {
     const response = await app.inject({ method: 'GET', url: '/v1/organizers/rangoli-collective' })
     const { upcomingEvents, pastEvents } = response.json().data
 
-    expect([...upcomingEvents, ...pastEvents].map((event) => event.slug)).not.toContain('called-off')
+    expect([...upcomingEvents, ...pastEvents].map((event) => event.slug)).not.toContain(
+      'called-off',
+    )
 
     await app.close()
   })
