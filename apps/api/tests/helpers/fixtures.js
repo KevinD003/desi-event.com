@@ -14,6 +14,79 @@ import { SCRYPT_PARAMETERS, hashPassword } from '@desi-event/auth'
 
 import { cuid } from './prisma-stub.js'
 
+/**
+ * The chart of accounts, copied from the Phase 2 migration.
+ *
+ * Literal ids rather than generated ones, because the migration uses literal ids
+ * and the point of a fixture is to be the same shape as the thing it stands in
+ * for. A generated id here would make the ledger service's per-process account
+ * cache wrong the moment a test and a real database were used in one run.
+ *
+ * @type {ReadonlyArray<{id: string, code: string, name: string, type: string}>}
+ */
+const LEDGER_ACCOUNTS = Object.freeze([
+  {
+    id: 'ledacc0000000processorclear',
+    code: 'processor_clearing',
+    name: 'Processor clearing',
+    type: 'ASSET',
+  },
+  {
+    id: 'ledacc0000000organizerpaybl',
+    code: 'organizer_payable',
+    name: 'Organiser payable',
+    type: 'LIABILITY',
+  },
+  {
+    id: 'ledacc0000000platformfeerev',
+    code: 'platform_fee_revenue',
+    name: 'Platform fee revenue',
+    type: 'REVENUE',
+  },
+  {
+    id: 'ledacc0000000taxpayable0000',
+    code: 'tax_payable',
+    name: 'Tax payable',
+    type: 'LIABILITY',
+  },
+  {
+    id: 'ledacc0000000refundclearing',
+    code: 'refund_clearing',
+    name: 'Refund clearing',
+    type: 'LIABILITY',
+  },
+  {
+    id: 'ledacc0000000disputeclearin',
+    code: 'dispute_clearing',
+    name: 'Dispute clearing',
+    type: 'LIABILITY',
+  },
+  {
+    id: 'ledacc0000000transferclearg',
+    code: 'transfer_clearing',
+    name: 'Transfer clearing',
+    type: 'ASSET',
+  },
+  {
+    id: 'ledacc0000000payoutclearing',
+    code: 'payout_clearing',
+    name: 'Payout clearing',
+    type: 'ASSET',
+  },
+  {
+    id: 'ledacc0000000promotionaldis',
+    code: 'promotional_discount',
+    name: 'Promotional discount',
+    type: 'CONTRA_REVENUE',
+  },
+  {
+    id: 'ledacc0000000paymentfeeexpe',
+    code: 'payment_fee_expense',
+    name: 'Payment processing fees',
+    type: 'EXPENSE',
+  },
+])
+
 /** The password every seeded user signs in with. */
 export const PASSWORD = 'correct-horse-battery'
 
@@ -288,6 +361,11 @@ export async function makeWorld(overrides = {}) {
     event: [publishedEvent, draftEvent, onlineEvent],
     ticketType: [generalAdmission, vip, pausedTier, draftTier],
     promoCode: [promoCode],
+    // The chart of accounts, which a migration creates in a real database. The
+    // ids are the literal ones from that migration, so a fixture and a
+    // deployment name the same rows and the service's account cache is valid
+    // across both.
+    ledgerAccount: LEDGER_ACCOUNTS.map((account) => ({ ...account, createdAt: new Date() })),
   }
 
   for (const [model, rows] of Object.entries(overrides)) {

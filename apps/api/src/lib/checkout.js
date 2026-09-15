@@ -33,9 +33,12 @@
  * @module @desi-event/api/lib/checkout
  */
 
+import { orderPaidBatch } from '@desi-event/ledger'
 import { PROVIDER_ERROR_CODES } from '@desi-event/providers'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
+import { postBatch } from './ledger.js'
+import { sellSeats } from './seating.js'
 
 /** What the provider told us, once we are out of the transaction. */
 export const CAPTURE_OUTCOMES = Object.freeze({
@@ -102,6 +105,122 @@ export async function captureOutsideTransaction(payments, order) {
 }
 
 /**
+ * Move an order's reserved seats from HELD to SOLD.
+ *
+ * Reserved seating is an extra step on top of quantity: a general-admission
+ * order only decrements a counter, but a seated order has named rows that have
+ * to stop being holdable and start belonging to an order line. It happens in the
+ * settlement transaction rather than after it, because a seat that is paid for
+ * and still HELD is a seat the expiry sweep may release out from under a ticket.
+ *
+ * A hold item is matched to the order line of the same ticket type. One order
+ * carries tickets from one event by construction (the `desi_order_item_event_matches`
+ * trigger), so within an order the ticket type is enough to identify the line.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params Inputs.
+ * @param {string} params.orderId The order being settled.
+ * @param {Array<object>} params.items The order's lines.
+ * @returns {Promise<number>} How many seats were sold.
+ */
+export async function sellHeldSeats(tx, { orderId, items }) {
+  const holds = await tx.ticketHold.findMany({
+    where: { orderId, status: 'ACTIVE' },
+    select: { id: true },
+  })
+
+  if (holds.length === 0) return 0
+
+  const lineByTicketType = new Map(items.map((item) => [item.ticketTypeId, item.id]))
+  let sold = 0
+
+  for (const hold of holds) {
+    const heldSeats = await tx.holdItem.findMany({
+      where: { holdId: hold.id, eventSeatId: { not: null } },
+      select: { eventSeatId: true, ticketTypeId: true },
+    })
+
+    if (heldSeats.length === 0) continue
+
+    const orderItemBySeat = {}
+
+    for (const heldSeat of heldSeats) {
+      const orderItemId = lineByTicketType.get(heldSeat.ticketTypeId)
+
+      if (!orderItemId) {
+        // A held seat whose ticket type is not on the order. Nothing sensible
+        // can be done with it, and quietly skipping would sell the rest and
+        // leave this one held with a paid order against it.
+        throw new Error(
+          `Hold ${hold.id} reserves a seat for ticket type ${heldSeat.ticketTypeId}, which order ${orderId} does not buy`,
+        )
+      }
+
+      orderItemBySeat[heldSeat.eventSeatId] = orderItemId
+    }
+
+    sold += await sellSeats(tx, { holdId: hold.id, orderItemBySeat })
+  }
+
+  return sold
+}
+
+/**
+ * Post the ledger batch for a paid order.
+ *
+ * The split comes from the order's own stored totals, which were computed from
+ * the versioned pricing snapshot at checkout — not from the live fee tables,
+ * which may have moved since. The organiser is credited the **subtotal** and the
+ * discount is debited as contra-revenue, so the money given away stays visible
+ * rather than disappearing into a smaller payable.
+ *
+ * The arithmetic is checked by `orderPaidBatch`, which refuses a split that does
+ * not add up to what was captured. That matters more than it looks: a wrong
+ * split that happened to balance would post and never be questioned.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params Inputs.
+ * @param {object} params.order The order, with its totals.
+ * @param {object|null} params.payment The payment attempt, when there was one.
+ * @param {Date} params.now The posting instant.
+ * @param {string|null} [params.actorId] Who settled it. Null means a system job.
+ * @returns {Promise<object|null>} The posted batch, or null for a zero-total order.
+ */
+export async function postOrderLedger(tx, { order, payment, now, actorId = null }) {
+  // A free order moves no money, so there is nothing to record. Posting a
+  // zero-value batch would satisfy the balance rule and mean nothing.
+  if (!order.totalCents) return null
+
+  const event = await tx.event.findUnique({
+    where: { id: order.eventId },
+    select: { organizationId: true },
+  })
+
+  const batch = orderPaidBatch({
+    capturedCents: order.totalCents,
+    organizerNetCents: order.subtotalCents,
+    platformFeeCents: order.feesCents ?? 0,
+    taxCents: order.taxCents ?? 0,
+    discountCents: order.discountCents ?? 0,
+    currency: order.currency,
+    organizationId: event?.organizationId ?? null,
+    reference: order.reference,
+  })
+
+  const { batch: posted } = await postBatch(tx, batch, {
+    sourceType: 'ORDER',
+    sourceId: order.id,
+    reference: `LB-${order.reference}`,
+    orderId: order.id,
+    paymentId: payment?.id ?? null,
+    actorId,
+    now,
+  })
+
+  return posted
+}
+
+/**
  * Record a successful capture and fulfil the order.
  *
  * The update is conditional on the order still being PENDING. That single
@@ -152,10 +271,23 @@ export async function settleCheckout(
     })
   }
 
+  await sellHeldSeats(tx, { orderId: order.id, items })
+
   await tx.ticketHold.updateMany({
     where: { orderId: order.id, status: 'ACTIVE' },
     data: { status: 'CONVERTED' },
   })
+
+  // The ledger, last, and inside the same transaction. A payment recorded with
+  // no ledger entry is money the business cannot see; a ledger entry with no
+  // payment is money it imagines. Both are avoided by making them one commit.
+  //
+  // Idempotency is the batch's, not this function's: `postBatch` keys on the
+  // order, so a settlement that somehow ran twice would post once. The
+  // conditional update above already makes that unreachable, which is the point
+  // — two independent reasons, so a change to one does not silently remove the
+  // protection.
+  await postOrderLedger(tx, { order, payment, now, actorId })
 
   // A zero-total order has no payment attempt to settle.
   if (payment) {

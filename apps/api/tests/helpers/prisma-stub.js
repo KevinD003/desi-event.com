@@ -38,6 +38,16 @@ const RELATIONS = {
   ticket: {
     orderItem: { kind: 'one', model: 'orderItem', from: 'orderItemId', to: 'id' },
   },
+  ledgerBatch: {
+    entries: { kind: 'many', model: 'ledgerEntry', from: 'id', to: 'batchId' },
+  },
+  ledgerEntry: {
+    batch: { kind: 'one', model: 'ledgerBatch', from: 'batchId', to: 'id' },
+    account: { kind: 'one', model: 'ledgerAccount', from: 'accountId', to: 'id' },
+  },
+  holdItem: {
+    hold: { kind: 'one', model: 'ticketHold', from: 'holdId', to: 'id' },
+  },
   membership: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
@@ -239,6 +249,22 @@ const DEFAULTS = {
     resolutionNote: null,
     resolvedAt: null,
   },
+  ledgerAccount: { currency: null, active: true },
+  ledgerBatch: {
+    status: 'DRAFT',
+    debitCents: 0,
+    creditCents: 0,
+    orderId: null,
+    paymentId: null,
+    refundId: null,
+    disputeId: null,
+    transferId: null,
+    payoutId: null,
+    compensatesBatchId: null,
+    actorId: null,
+    postedAt: null,
+  },
+  ledgerEntry: { memo: null, organizationId: null },
   connectedAccount: {
     providerMode: 'test',
     country: null,
@@ -256,6 +282,12 @@ const DEFAULTS = {
 /** Unique constraints the API relies on the database to enforce. */
 const UNIQUE_FIELDS = {
   user: ['email'],
+  // Both matter, and for different reasons: `idempotencyKey` is what makes a
+  // retried post a no-op, and `reference` is what makes two unrelated batches
+  // refuse to share an identity. The service distinguishes them, so the stub
+  // has to as well.
+  ledgerBatch: ['idempotencyKey', 'reference'],
+  ledgerAccount: ['code'],
   invitation: ['tokenHash'],
   event: ['slug'],
   order: ['reference'],
@@ -325,6 +357,9 @@ const CREATED_ONLY = new Set([
   'venueMapVersion',
   'eventSession',
   'webhookEvent',
+  'ledgerAccount',
+  'ledgerBatch',
+  'ledgerEntry',
 ])
 
 let idCounter = 0
@@ -677,6 +712,26 @@ export function createPrismaStub(seed = {}) {
         (tables[model] ?? []).filter((row) => matches(model, row, args.where)).length,
       create: async (args) => {
         const now = new Date()
+
+        // Nested writes, for the one shape the application uses: a parent with
+        // `relation: { create: [...] }`. The ledger needs it — a batch and its
+        // entries are written together or the batch is meaningless — and
+        // supporting it here rather than rewriting the caller keeps the stub
+        // shaped like the client it stands in for.
+        const nestedCreates = []
+        const scalarData = {}
+
+        for (const [key, value] of Object.entries(args.data ?? {})) {
+          const relation = RELATIONS[model]?.[key]
+
+          if (relation && value && typeof value === 'object' && 'create' in value) {
+            nestedCreates.push({ relation, rows: [value.create].flat() })
+            continue
+          }
+
+          scalarData[key] = value
+        }
+
         const row = {
           id: cuid(),
           ...DEFAULTS[model],
@@ -685,7 +740,7 @@ export function createPrismaStub(seed = {}) {
           ...(model === 'webhookEvent' ? { receivedAt: now } : {}),
           ...(model === 'session' ? { lastSeenAt: now } : {}),
           ...(model === 'device' ? { firstSeenAt: now, lastSeenAt: now } : {}),
-          ...args.data,
+          ...scalarData,
         }
 
         for (const field of UNIQUE_FIELDS[model] ?? []) {
@@ -703,6 +758,18 @@ export function createPrismaStub(seed = {}) {
         }
 
         tables[model].push(row)
+
+        // After the parent exists, so the children can point at it. Written
+        // through the same `create` so their defaults and timestamps are applied
+        // the same way.
+        for (const { relation, rows } of nestedCreates) {
+          for (const child of rows) {
+            await client[relation.model].create({
+              data: { ...child, [relation.to]: row[relation.from] },
+            })
+          }
+        }
+
         return hydrate(model, row, args.include)
       },
       update: async (args) => {
