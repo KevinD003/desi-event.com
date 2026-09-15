@@ -28,6 +28,11 @@ avoid.
 | Real Stripe sandbox operations        | **none, and none claimed**                                                                                |
 | Production payments                   | **disabled and unreachable**                                                                              |
 
+**Current status lives in `PHASE2_STATUS.md`**, which is authoritative wherever
+this document and it disagree. This one is an account of the `e93d4e9`…`b37b242`
+cycle plus the gate scoring; passages that time has overtaken are marked
+`HISTORICAL STATUS — SUPERSEDED` in place rather than rewritten.
+
 The cycle-by-cycle verification detail — every command, exit code, duration,
 failure and root cause, and the full 19-agent audit reconciliation — is in
 `PHASE2_FINAL_VERIFICATION_REPORT.md`.
@@ -617,6 +622,11 @@ anticipated the ledger service correctly.
   or sits behind work that does not exist. Fixing NF-12 in particular requires
   deciding what happens to a privileged user who has not yet enrolled.
 
+  > **HISTORICAL STATUS — SUPERSEDED.** All four were closed after this cycle, in
+  > `12ebd07`, `02e4571` and `51feced`. The bullet is left as written because a
+  > report that quietly rewrites what it said last time is not a record. Current
+  > status: `PHASE2_STATUS.md` §4.
+
 ## 15. Residual risks
 
 1. **The reconciliation queue has no operator.** Timeouts now create work items
@@ -625,6 +635,12 @@ anticipated the ledger service correctly.
    is its own hazard.
 2. **NF-12: step-up is password-only for an account with no second factor**,
    which is most likely to be exactly the privileged account that needs one.
+
+   > **HISTORICAL STATUS — SUPERSEDED.** Closed in `51feced`: a privileged role
+   > now requires a confirmed factor before any guarded route, with the
+   > enrolment routes declared `mfaExempt` so enrolment stays reachable.
+   > `PHASE2_STATUS.md` §4.
+
 3. **Reserved-seat checkout is implemented but not end-to-end tested.** The
    mechanism is asserted at unit level and the seat transitions are proven under
    concurrency; what is missing is one test that buys a seated order and checks
@@ -635,6 +651,10 @@ anticipated the ledger service correctly.
 5. **Fourteen of the sixteen required documents do not exist**, so the system's
    security model, data model and runbooks live only in source comments and these
    reports.
+
+   > **HISTORICAL STATUS — SUPERSEDED.** The count has moved: twelve are absent,
+   > four were written or updated, and three more exist but carry no Phase 2
+   > content. The substance of the risk stands. `PHASE2_STATUS.md` §7.
 
 ## 16. Phase 3 prerequisites
 

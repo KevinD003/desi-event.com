@@ -2,6 +2,11 @@
 
 **Status: `PARTIAL`.**
 
+> **HISTORICAL STATUS — SUPERSEDED for current status.** `PHASE2_STATUS.md` is
+> the authoritative current record; this document is the account of the
+> `7777322`…`926d1a3` cycle and its numbers are that cycle's. In particular §20's
+> "3,449 tests" was true at `926d1a3` and is not the current total.
+>
 > **Superseded in part.** A later cycle corrected three claims in this document
 > (see §3a) and continued the work. `PHASE2_COMPLETION_REPORT.md` is the current
 > record and scores the twenty completion gates;

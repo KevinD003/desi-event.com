@@ -1,5 +1,9 @@
 # Phase 2 final verification report
 
+> **Scope.** This is the account of the `3f5add0`…`e1b2069` cycle.
+> `PHASE2_STATUS.md` is the authoritative current record and is where the
+> numbers below should be read against.
+
 **Status: `PARTIAL`.** Phase 2 is not complete and this report does not claim
 it is. Fourteen of the twenty completion gates remain unmet or partial, §9 lists
 each one, and no work on Phase 3 has begun.
