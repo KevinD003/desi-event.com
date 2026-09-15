@@ -39,7 +39,8 @@
     "test:e2e:prod": "pnpm --filter @desi-event/web test:e2e:prod",
     "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh",
     "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade",
-    "test:e2e:organizer": "pnpm --filter @desi-event/web run test:e2e:organizer"
+    "test:e2e:organizer": "pnpm --filter @desi-event/web run test:e2e:organizer",
+    "bundle:scan": "node scripts/scan-browser-bundle.mjs"
   },
   "devDependencies": {
     "@desi-event/config": "workspace:*",

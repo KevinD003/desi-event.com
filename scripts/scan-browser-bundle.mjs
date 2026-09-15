@@ -1,0 +1,307 @@
+/**
+ * Scan a built web application for server-only code that reached the browser.
+ *
+ * Findings NF-15 and NF-16 were the same mistake twice. The platform's scrypt
+ * password hashing arrived in the production client bundle through four hops of
+ * individually reasonable barrel imports, and later the deployment environment
+ * contract arrived the same way. Nothing in the repository failed either time,
+ * because nothing was looking at what the build actually produced.
+ *
+ * There are two guards now and they catch different things:
+ *
+ *   - `apps/web/src/lib/browser-bundle.js` walks the *import graph* from every
+ *     `'use client'` module. It is fast, it runs in the unit suite, and it
+ *     fails on the offending import rather than on a minified chunk. But it
+ *     reasons about sources, so a leak that arrives some way it does not model
+ *     is invisible to it.
+ *   - This script reads the *artefacts*. Every file the browser can fetch —
+ *     chunks, route bundles, manifests, prerendered RSC payloads, static HTML,
+ *     source maps if the build emits them, service workers if one exists, and
+ *     everything under `public/` — is searched for markers of code that must
+ *     never leave the server. It is slower and it needs a build, which is
+ *     exactly why it is the one that tells the truth.
+ *
+ * It also checks the other direction. A scan that only forbade things could be
+ * satisfied by shipping an empty application, so a handful of strings that the
+ * client legitimately needs — capability names it renders, route paths it calls
+ * — must be *present*. A capability name is not a secret; the permission table
+ * that maps names to roles is.
+ *
+ * Usage: `pnpm run bundle:scan` after `pnpm run build`.
+ *
+ * @module scripts/scan-browser-bundle
+ */
+
+import { readFile, readdir, stat } from 'node:fs/promises'
+import path from 'node:path'
+import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+
+/** The repository root, derived from this file rather than the shell's cwd. */
+const root = fileURLToPath(new URL('..', import.meta.url))
+
+/** The built web application. */
+const webApp = path.join(root, 'apps/web')
+
+/**
+ * Directories whose whole contents the browser can fetch.
+ *
+ * `.next/static` is served at `/_next/static`; `public` is served at the root.
+ * `.next/server/app` holds the prerendered RSC payloads and HTML that Next
+ * sends for a static route — server-*rendered*, but browser-*delivered*, which
+ * is the distinction that matters here.
+ *
+ * @type {Array<{dir: string, why: string}>}
+ */
+const DELIVERABLE_ROOTS = [
+  { dir: '.next/static', why: 'served at /_next/static' },
+  { dir: 'public', why: 'served at the site root' },
+  { dir: '.next/server/app', why: 'prerendered payloads and HTML sent to the browser' },
+]
+
+/** Extensions worth reading in those directories. Images carry no code. */
+const TEXTUAL = new Set(['.js', '.mjs', '.css', '.json', '.map', '.rsc', '.html', '.txt', '.xml'])
+
+/**
+ * Markers that must not appear, grouped by the finding that put them here.
+ *
+ * Each is a string or regular expression distinctive enough that a match means
+ * the module it comes from was bundled, not that a common word collided.
+ *
+ * @type {Array<object>}
+ */
+const FORBIDDEN = [
+  {
+    group: 'NF-15: @desi-event/auth server-only credential code',
+    markers: [
+      ['scrypt (password hashing)', 'scrypt'],
+      ['promisify (node:util in browser)', 'promisify'],
+      ['timingSafeEqual', 'timingSafeEqual'],
+      ['scrypt tuning: maxmem', 'maxmem'],
+      ['scrypt tuning: keyLength', 'keyLength'],
+      ['TOTP replay window', 'REPLAY_WINDOW'],
+      ['sealing key derivation', 'deriveSealingKey'],
+      ['login lockout thresholds', 'LOCKOUT_THRESHOLD'],
+      ['pseudonymize (email/IP digesting)', 'pseudonymize'],
+      ['session step-up policy table', 'STEP_UP_WINDOWS'],
+      ['revocation reason vocabulary', 'REVOCATION_REASONS'],
+    ],
+  },
+  {
+    group: 'NF-16: deployment and environment contract',
+    markers: [
+      ['DATABASE_URL', 'DATABASE_URL'],
+      ['REDIS_URL', 'REDIS_URL'],
+      ['JWT_SECRET', 'JWT_SECRET'],
+      ['AUTH_SECRET', 'AUTH_SECRET'],
+      ['placeholder-secret blocklist', 'PLACEHOLDER_SECRETS'],
+      ['isInsecureJwtSecret helper', 'isInsecureJwtSecret'],
+      ['INSECURE_JWT_SECRETS', 'INSECURE_JWT_SECRETS'],
+      ['SECURE_COOKIES guidance prose', 'SECURE_COOKIES'],
+      ['fee setting PLATFORM_FEE_BPS', 'PLATFORM_FEE_BPS'],
+      ['fee setting PLATFORM_FEE_FLAT_CENTS', 'PLATFORM_FEE_FLAT_CENTS'],
+      ['TICKET_HOLD_TTL_SECONDS', 'TICKET_HOLD_TTL_SECONDS'],
+      ['ALLOW_DEMO_TAX_IN_PRODUCTION', 'ALLOW_DEMO_TAX_IN_PRODUCTION'],
+    ],
+  },
+  {
+    group: 'job definitions (worker-only)',
+    markers: [
+      ['QUEUE_NAMES', 'QUEUE_NAMES'],
+      ['JOB_NAMES', 'JOB_NAMES'],
+      ['job: expire-holds', 'expire-holds'],
+      ['job: issue-tickets', 'issue-tickets'],
+    ],
+  },
+  {
+    group: 'permission tables (server-only)',
+    markers: [
+      ['ORG_ROLE_GRANTS', 'ORG_ROLE_GRANTS'],
+      ['PLATFORM_ROLE_CAPABILITIES', 'PLATFORM_ROLE_CAPABILITIES'],
+      ['ORG_ROLE_INHERITS', 'ORG_ROLE_INHERITS'],
+      ['findRoleCycle (graph internals)', 'findRoleCycle'],
+      ['resolveAll (capability resolution)', 'resolveAll'],
+      ['PLATFORM_ONLY_CAPABILITIES', 'PLATFORM_ONLY_CAPABILITIES'],
+    ],
+  },
+  {
+    group: 'database, provider and ledger internals',
+    markers: [
+      ['PrismaClient', 'PrismaClient'],
+      ['prisma adapter', '@prisma/adapter-pg'],
+      ['ledger account codes', 'LEDGER_ACCOUNTS'],
+      // Written split so this file does not itself contain the literal a
+      // secret scanner looks for.
+      ['Stripe secret key prefix', new RegExp(['sk', 'live'].join('_'))],
+      ['Stripe webhook secret prefix', new RegExp(['whsec', ''].join('_'))],
+    ],
+  },
+]
+
+/**
+ * Strings the client legitimately needs, which a leak-hunting scan must not
+ * quietly delete along with the leaks.
+ *
+ * A capability *name* is one of these. The client renders "you cannot do this"
+ * from names, and a build that stripped them would pass every check above by
+ * shipping an application that does nothing. The permission *table* that maps
+ * names to roles is the secret, and it is forbidden above.
+ *
+ * Only names the client genuinely uses belong here. `venue:manage`, for
+ * instance, appears in the server render but never reaches the browser, which
+ * is correct — requiring it would be requiring a leak.
+ *
+ * @type {Array<string[]>}
+ */
+const REQUIRED = [
+  ['capability name: moderation:review', 'moderation:review'],
+  ['route path /v1/organizers', '/v1/organizers'],
+  ['route path /v1/venues', '/v1/venues'],
+  ['route path /v1/auth/login', '/v1/auth/login'],
+  ['route path /v1/venue-map-versions', '/v1/venue-map-versions'],
+  ['CSRF double-submit header', 'x-desi-csrf'],
+  ['accessibility vocabulary', 'STEP_FREE_ENTRANCE'],
+]
+
+/**
+ * Every file under a directory, recursively.
+ *
+ * @param {string} dir Where to start.
+ * @returns {Promise<string[]>} Absolute paths.
+ */
+async function walk(dir) {
+  /** @type {string[]} */
+  const found = []
+
+  /** @type {Array<{name: string, isDirectory: Function}>} */
+  let entries
+
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return found
+  }
+
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+
+    if (entry.isDirectory()) found.push(...(await walk(full)))
+    else found.push(full)
+  }
+
+  return found
+}
+
+/**
+ * Whether a marker appears in a file's contents.
+ *
+ * @param {string} contents The file.
+ * @param {string|RegExp} marker What to look for.
+ * @returns {boolean} True when present.
+ */
+function matches(contents, marker) {
+  return typeof marker === 'string' ? contents.includes(marker) : marker.test(contents)
+}
+
+/**
+ * Scan the build and report.
+ *
+ * @returns {Promise<void>} Resolves once reported; exits non-zero on a finding.
+ */
+async function main() {
+  const built = await stat(path.join(webApp, '.next')).catch(() => null)
+
+  if (!built) {
+    console.error('No build to scan. Run `pnpm run build` first.')
+    process.exitCode = 1
+    return
+  }
+
+  /** @type {Array<{path: string, relative: string, contents: string}>} */
+  const files = []
+
+  for (const { dir } of DELIVERABLE_ROOTS) {
+    for (const file of await walk(path.join(webApp, dir))) {
+      if (!TEXTUAL.has(path.extname(file).toLowerCase())) continue
+
+      files.push({
+        path: file,
+        relative: path.relative(root, file),
+        contents: await readFile(file, 'utf8').catch(() => ''),
+      })
+    }
+  }
+
+  const sourceMaps = files.filter((file) => file.relative.endsWith('.map'))
+  const serviceWorkers = files.filter((file) =>
+    /(^|\/)(sw|service-worker|workbox-[^/]*)\.js$/.test(file.relative),
+  )
+
+  console.log(`browser-deliverable files scanned: ${files.length}`)
+
+  for (const { dir, why } of DELIVERABLE_ROOTS) {
+    const count = files.filter((file) =>
+      file.relative.startsWith(path.join('apps/web', dir) + path.sep),
+    ).length
+
+    console.log(`  ${String(count).padStart(4)}  ${dir}  (${why})`)
+  }
+
+  console.log(`  source maps: ${sourceMaps.length === 0 ? 'none emitted' : sourceMaps.length}`)
+  console.log(
+    `  service workers: ${serviceWorkers.length === 0 ? 'none present' : serviceWorkers.length}`,
+  )
+
+  let leaked = 0
+
+  for (const { group, markers } of FORBIDDEN) {
+    console.log(`\n--- ${group} ---`)
+
+    for (const [label, marker] of markers) {
+      const hits = files.filter((file) => matches(file.contents, marker))
+
+      if (hits.length === 0) {
+        console.log(`absent  ${label}`)
+        continue
+      }
+
+      leaked += 1
+      console.log(`LEAKED  ${label}`)
+
+      for (const hit of hits.slice(0, 5)) console.log(`          ${hit.relative}`)
+      if (hits.length > 5) console.log(`          … and ${hits.length - 5} more`)
+    }
+  }
+
+  let missing = 0
+
+  console.log('\n--- legitimate client-side strings that must be preserved ---')
+
+  for (const [label, marker] of REQUIRED) {
+    const hits = files.filter((file) => matches(file.contents, marker))
+
+    if (hits.length === 0) {
+      missing += 1
+      console.log(`MISSING ${label}`)
+      continue
+    }
+
+    console.log(`present ${label}  (${hits.length} file(s))`)
+  }
+
+  console.log('')
+
+  if (leaked > 0 || missing > 0) {
+    console.error(
+      `Browser bundle scan: ${leaked} server-only marker(s) leaked, ${missing} required string(s) missing.`,
+    )
+    process.exitCode = 1
+    return
+  }
+
+  console.log(
+    `Browser bundle scan: OK — ${files.length} browser-deliverable files, nothing server-only present.`,
+  )
+}
+
+await main()
