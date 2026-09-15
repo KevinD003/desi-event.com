@@ -1097,6 +1097,10 @@ model VenueMapVersion {
   publishedAt DateTime?
   /// Total seats, denormalised at publication so capacity is one read.
   seatCount   Int       @default(0)
+  /// Bumped by every accepted whole-layout write. A client sends the revision
+  /// it read, and a write whose precondition no longer holds is refused rather
+  /// than silently overwriting an edit somebody else made in between.
+  revision    Int       @default(0)
   createdAt   DateTime  @default(now())
 
   venueMap VenueMap       @relation(fields: [venueMapId], references: [id], onDelete: Cascade)

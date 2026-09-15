@@ -6017,6 +6017,2866 @@
         ]
       }
     },
+    "/v1/venues/{id}/maps": {
+      "get": {
+        "operationId": "venueMaps.list",
+        "summary": "List a venue’s seating maps and their version history",
+        "description": "Every map for the venue, each with its versions newest first: which are drafts, which are published, how many seats each holds, and which are in use by a session. The history is the audit trail of a hall’s layout and is never pruned.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "200": {
+            "description": "List a venue’s seating maps and their version history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z][a-z0-9]{7,31}$"
+                          },
+                          "venueId": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z][a-z0-9]{7,31}$"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "notes": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "archivedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "versions": {
+                            "default": [],
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "venueMapId": {
+                                  "type": "string",
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": 1,
+                                  "maximum": 9007199254740991
+                                },
+                                "revision": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "publishedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "seatCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "inUse": {
+                                  "type": "boolean"
+                                },
+                                "createdAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "venueMapId",
+                                "version",
+                                "revision",
+                                "publishedAt",
+                                "seatCount",
+                                "inUse"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "venueId",
+                          "name",
+                          "notes",
+                          "archivedAt",
+                          "versions"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "venueMaps.create",
+        "summary": "Create a seating map for a venue",
+        "description": "A map is a named layout of a hall — \"End stage\", \"In the round\" — and holds versions. Creating one creates its first draft version, because a map with no version is not yet anything. Only the organisation that owns the venue may author maps for it; a shared venue is platform staff’s.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "201": {
+            "description": "Create a seating map for a venue",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "venueId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "archivedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "versions": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "venueMapId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "version": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 9007199254740991
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "publishedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "seatCount": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "inUse": {
+                                "type": "boolean"
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "venueMapId",
+                              "version",
+                              "revision",
+                              "publishedAt",
+                              "seatCount",
+                              "inUse"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "venueId",
+                        "name",
+                        "notes",
+                        "archivedAt",
+                        "versions"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "notes": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 2000
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/venue-maps/{id}/versions": {
+      "post": {
+        "operationId": "venueMaps.createVersion",
+        "summary": "Start a new draft version",
+        "description": "With cloneFromVersionId, the draft starts as a copy of that version — which is how a published map is changed. A published version is never edited; it is cloned, the copy is edited, and the copy is published. Every session, order and ticket already bound to the old version stays bound to it.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "201": {
+            "description": "Start a new draft version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "venueMapId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seatCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "inUse": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "layout": {
+                          "type": "object",
+                          "properties": {
+                            "zones": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "colourToken": {
+                                    "default": "zone-default",
+                                    "type": "string",
+                                    "maxLength": 60
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "colourToken",
+                                  "sortOrder"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "sections": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "kind": {
+                                    "default": "SEATED",
+                                    "type": "string",
+                                    "enum": [
+                                      "SEATED",
+                                      "STANDING",
+                                      "TABLE"
+                                    ]
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  },
+                                  "standingCapacity": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 1000000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "rows": {
+                                    "default": [],
+                                    "maxItems": 500,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 60
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "seats": {
+                                          "default": [],
+                                          "maxItems": 5000,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "key": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[A-Za-z0-9_-]+$"
+                                              },
+                                              "label": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 120
+                                              },
+                                              "sortOrder": {
+                                                "default": 0,
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100000
+                                              },
+                                              "sectionKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "rowKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "zoneKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "accessible": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "companionOfKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "obstructedView": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restricted": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restrictionNote": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "maxLength": 500
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "key",
+                                              "label",
+                                              "sortOrder",
+                                              "accessible",
+                                              "obstructedView",
+                                              "restricted"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "seats"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "seats": {
+                                    "default": [],
+                                    "maxItems": 5000,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "sectionKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "rowKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "zoneKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "accessible": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "companionOfKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "obstructedView": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restricted": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restrictionNote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 500
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "accessible",
+                                        "obstructedView",
+                                        "restricted"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "kind",
+                                  "sortOrder",
+                                  "rows",
+                                  "seats"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "zones",
+                            "sections"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "venueMapId",
+                        "version",
+                        "revision",
+                        "publishedAt",
+                        "seatCount",
+                        "inUse",
+                        "layout"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "cloneFromVersionId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^[a-z][a-z0-9]{7,31}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/venue-map-versions/{id}": {
+      "get": {
+        "operationId": "venueMaps.getVersion",
+        "summary": "Read a map version and its whole layout",
+        "description": "The sections, rows, seats and price zones as one document, in the same shape the layout PUT accepts, so an editor reads and writes the same thing. Carries the revision, which the next write must quote.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read a map version and its whole layout",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "venueMapId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seatCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "inUse": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "layout": {
+                          "type": "object",
+                          "properties": {
+                            "zones": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "colourToken": {
+                                    "default": "zone-default",
+                                    "type": "string",
+                                    "maxLength": 60
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "colourToken",
+                                  "sortOrder"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "sections": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "kind": {
+                                    "default": "SEATED",
+                                    "type": "string",
+                                    "enum": [
+                                      "SEATED",
+                                      "STANDING",
+                                      "TABLE"
+                                    ]
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  },
+                                  "standingCapacity": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 1000000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "rows": {
+                                    "default": [],
+                                    "maxItems": 500,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 60
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "seats": {
+                                          "default": [],
+                                          "maxItems": 5000,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "key": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[A-Za-z0-9_-]+$"
+                                              },
+                                              "label": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 120
+                                              },
+                                              "sortOrder": {
+                                                "default": 0,
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100000
+                                              },
+                                              "sectionKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "rowKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "zoneKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "accessible": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "companionOfKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "obstructedView": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restricted": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restrictionNote": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "maxLength": 500
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "key",
+                                              "label",
+                                              "sortOrder",
+                                              "accessible",
+                                              "obstructedView",
+                                              "restricted"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "seats"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "seats": {
+                                    "default": [],
+                                    "maxItems": 5000,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "sectionKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "rowKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "zoneKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "accessible": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "companionOfKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "obstructedView": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restricted": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restrictionNote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 500
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "accessible",
+                                        "obstructedView",
+                                        "restricted"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "kind",
+                                  "sortOrder",
+                                  "rows",
+                                  "seats"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "zones",
+                            "sections"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "venueMapId",
+                        "version",
+                        "revision",
+                        "publishedAt",
+                        "seatCount",
+                        "inUse",
+                        "layout"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/venue-map-versions/{id}/layout": {
+      "put": {
+        "operationId": "venueMaps.putLayout",
+        "summary": "Replace a draft’s layout, whole",
+        "description": "The entire graph is validated before anything is written: duplicate identities, references that do not resolve, companions across sections or in loops, orphaned rows, standing sections with seats. A layout that fails leaves the previous draft exactly as it was — not rolled back, never begun. The revision is a precondition: a write quoting a stale one is refused rather than silently overwriting somebody else’s edit. Published versions are refused outright.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "200": {
+            "description": "Replace a draft’s layout, whole",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "venueMapId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seatCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "inUse": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "layout": {
+                          "type": "object",
+                          "properties": {
+                            "zones": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "colourToken": {
+                                    "default": "zone-default",
+                                    "type": "string",
+                                    "maxLength": 60
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "colourToken",
+                                  "sortOrder"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "sections": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "kind": {
+                                    "default": "SEATED",
+                                    "type": "string",
+                                    "enum": [
+                                      "SEATED",
+                                      "STANDING",
+                                      "TABLE"
+                                    ]
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  },
+                                  "standingCapacity": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 1000000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "rows": {
+                                    "default": [],
+                                    "maxItems": 500,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 60
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "seats": {
+                                          "default": [],
+                                          "maxItems": 5000,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "key": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[A-Za-z0-9_-]+$"
+                                              },
+                                              "label": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 120
+                                              },
+                                              "sortOrder": {
+                                                "default": 0,
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100000
+                                              },
+                                              "sectionKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "rowKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "zoneKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "accessible": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "companionOfKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "obstructedView": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restricted": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restrictionNote": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "maxLength": 500
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "key",
+                                              "label",
+                                              "sortOrder",
+                                              "accessible",
+                                              "obstructedView",
+                                              "restricted"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "seats"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "seats": {
+                                    "default": [],
+                                    "maxItems": 5000,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "sectionKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "rowKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "zoneKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "accessible": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "companionOfKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "obstructedView": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restricted": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restrictionNote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 500
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "accessible",
+                                        "obstructedView",
+                                        "restricted"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "kind",
+                                  "sortOrder",
+                                  "rows",
+                                  "seats"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "zones",
+                            "sections"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "venueMapId",
+                        "version",
+                        "revision",
+                        "publishedAt",
+                        "seatCount",
+                        "inUse",
+                        "layout"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "zones": {
+                    "default": [],
+                    "maxItems": 200,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_-]+$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        },
+                        "colourToken": {
+                          "default": "zone-default",
+                          "type": "string",
+                          "maxLength": 60
+                        },
+                        "sortOrder": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "name"
+                      ]
+                    }
+                  },
+                  "sections": {
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64,
+                          "pattern": "^[A-Za-z0-9_-]+$"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 120
+                        },
+                        "kind": {
+                          "default": "SEATED",
+                          "type": "string",
+                          "enum": [
+                            "SEATED",
+                            "STANDING",
+                            "TABLE"
+                          ]
+                        },
+                        "sortOrder": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000
+                        },
+                        "standingCapacity": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 1000000
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "rows": {
+                          "default": [],
+                          "maxItems": 500,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[A-Za-z0-9_-]+$"
+                              },
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 60
+                              },
+                              "sortOrder": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000
+                              },
+                              "seats": {
+                                "default": [],
+                                "maxItems": 5000,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 64,
+                                      "pattern": "^[A-Za-z0-9_-]+$"
+                                    },
+                                    "label": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 120
+                                    },
+                                    "sortOrder": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000
+                                    },
+                                    "sectionKey": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "rowKey": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "zoneKey": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "accessible": {
+                                      "default": false,
+                                      "type": "boolean"
+                                    },
+                                    "companionOfKey": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    },
+                                    "obstructedView": {
+                                      "default": false,
+                                      "type": "boolean"
+                                    },
+                                    "restricted": {
+                                      "default": false,
+                                      "type": "boolean"
+                                    },
+                                    "restrictionNote": {
+                                      "anyOf": [
+                                        {
+                                          "type": "string",
+                                          "maxLength": 500
+                                        },
+                                        {
+                                          "type": "null"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "key",
+                                    "label"
+                                  ]
+                                }
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "label"
+                            ]
+                          }
+                        },
+                        "seats": {
+                          "default": [],
+                          "maxItems": 5000,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 64,
+                                "pattern": "^[A-Za-z0-9_-]+$"
+                              },
+                              "label": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
+                              "sortOrder": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000
+                              },
+                              "sectionKey": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "rowKey": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "zoneKey": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "accessible": {
+                                "default": false,
+                                "type": "boolean"
+                              },
+                              "companionOfKey": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "obstructedView": {
+                                "default": false,
+                                "type": "boolean"
+                              },
+                              "restricted": {
+                                "default": false,
+                                "type": "boolean"
+                              },
+                              "restrictionNote": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 500
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "key",
+                              "label"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "name"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "revision",
+                  "sections"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/venue-map-versions/{id}/publish": {
+      "post": {
+        "operationId": "venueMaps.publishVersion",
+        "summary": "Publish a draft, which freezes it",
+        "description": "An explicit transition, never a side effect of an update: no venue or map PATCH can publish a version. Publishing is one-way and the layout becomes immutable, enforced by database triggers rather than by application care alone. Two simultaneous publishes produce one published version.",
+        "tags": [
+          "venues"
+        ],
+        "responses": {
+          "200": {
+            "description": "Publish a draft, which freezes it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "venueMapId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "publishedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seatCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "inUse": {
+                          "type": "boolean"
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "layout": {
+                          "type": "object",
+                          "properties": {
+                            "zones": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "colourToken": {
+                                    "default": "zone-default",
+                                    "type": "string",
+                                    "maxLength": 60
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "colourToken",
+                                  "sortOrder"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "sections": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "key": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64,
+                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                  },
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 120
+                                  },
+                                  "kind": {
+                                    "default": "SEATED",
+                                    "type": "string",
+                                    "enum": [
+                                      "SEATED",
+                                      "STANDING",
+                                      "TABLE"
+                                    ]
+                                  },
+                                  "sortOrder": {
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100000
+                                  },
+                                  "standingCapacity": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 1000000
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "rows": {
+                                    "default": [],
+                                    "maxItems": 500,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 60
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "seats": {
+                                          "default": [],
+                                          "maxItems": 5000,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "object",
+                                            "properties": {
+                                              "key": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 64,
+                                                "pattern": "^[A-Za-z0-9_-]+$"
+                                              },
+                                              "label": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 120
+                                              },
+                                              "sortOrder": {
+                                                "default": 0,
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100000
+                                              },
+                                              "sectionKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "rowKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "zoneKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "accessible": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "companionOfKey": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 64,
+                                                    "pattern": "^[A-Za-z0-9_-]+$"
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              },
+                                              "obstructedView": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restricted": {
+                                                "default": false,
+                                                "type": "boolean"
+                                              },
+                                              "restrictionNote": {
+                                                "anyOf": [
+                                                  {
+                                                    "type": "string",
+                                                    "maxLength": 500
+                                                  },
+                                                  {
+                                                    "type": "null"
+                                                  }
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "key",
+                                              "label",
+                                              "sortOrder",
+                                              "accessible",
+                                              "obstructedView",
+                                              "restricted"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "seats"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "seats": {
+                                    "default": [],
+                                    "maxItems": 5000,
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "key": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 64,
+                                          "pattern": "^[A-Za-z0-9_-]+$"
+                                        },
+                                        "label": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 120
+                                        },
+                                        "sortOrder": {
+                                          "default": 0,
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 100000
+                                        },
+                                        "sectionKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "rowKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "zoneKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "accessible": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "companionOfKey": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64,
+                                              "pattern": "^[A-Za-z0-9_-]+$"
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        },
+                                        "obstructedView": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restricted": {
+                                          "default": false,
+                                          "type": "boolean"
+                                        },
+                                        "restrictionNote": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 500
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "key",
+                                        "label",
+                                        "sortOrder",
+                                        "accessible",
+                                        "obstructedView",
+                                        "restricted"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "key",
+                                  "name",
+                                  "kind",
+                                  "sortOrder",
+                                  "rows",
+                                  "seats"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "zones",
+                            "sections"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "venueMapId",
+                        "version",
+                        "revision",
+                        "publishedAt",
+                        "seatCount",
+                        "inUse",
+                        "layout"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/events": {
       "get": {
         "operationId": "events.list",

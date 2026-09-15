@@ -76,6 +76,7 @@ const PHASE2_MIGRATIONS = Object.freeze([
   '20260915010000_phase2_commerce_and_operations',
   '20260915020000_phase2_integrity_triggers',
   '20260915120000_verification_revoked',
+  '20260915180000_map_version_revision',
 ])
 
 /**

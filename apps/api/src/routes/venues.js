@@ -22,6 +22,15 @@
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
+import {
+  assertEditable,
+  createVersion,
+  loadVersionChain,
+  publishVersion,
+  readLayout,
+  versionInUse,
+  writeLayout,
+} from '../lib/venue-maps.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { slugify, disambiguateSlug } from '../lib/identifiers.js'
 import { defineRoute } from '../lib/register.js'
@@ -399,6 +408,235 @@ export function registerVenueRoutes(app, { prisma }) {
       )
 
       return { data: toVenue(merged) }
+    },
+  })
+}
+
+/**
+ * Register the seating-map authoring routes.
+ *
+ * Authorisation is checked on every one of them, from the venue that owns the
+ * map rather than from anything the caller sent. A shared venue is the case
+ * worth stating: an organiser may *select* it for an event and may not author
+ * its maps, because a shared hall's layout is shared too — one organiser
+ * renumbering the stalls would renumber them for everybody listed there.
+ *
+ * @param {object} app The Fastify instance.
+ * @param {object} deps Injected dependencies.
+ * @param {object} deps.prisma The Prisma client.
+ * @returns {void} Nothing.
+ */
+export function registerVenueMapRoutes(app, { prisma }) {
+  /**
+   * The venue behind a map route, with the caller's right to author it checked.
+   *
+   * @param {object} request The incoming request.
+   * @param {object} venue The venue row.
+   * @returns {void}
+   * @throws {Error} A 403 when the caller may not author maps here.
+   */
+  function assertMayAuthor(request, venue) {
+    assertMayEdit(request.actor, venue)
+  }
+
+  /**
+   * A map version in response shape.
+   *
+   * @param {object} version The version row.
+   * @param {boolean} inUse Whether a session points at it.
+   * @returns {object} The payload.
+   */
+  const toVersion = (version, inUse) => ({
+    id: version.id,
+    venueMapId: version.venueMapId,
+    version: version.version,
+    revision: version.revision,
+    publishedAt: version.publishedAt ?? null,
+    seatCount: version.seatCount,
+    inUse,
+    createdAt: version.createdAt,
+  })
+
+  /**
+   * A map with its versions, newest first.
+   *
+   * @param {object} db A Prisma client.
+   * @param {object} map The map row.
+   * @returns {Promise<object>} The payload.
+   */
+  async function toMap(db, map) {
+    const versions = await db.venueMapVersion.findMany({
+      where: { venueMapId: map.id },
+      orderBy: { version: 'desc' },
+    })
+
+    const used = await Promise.all(versions.map((version) => versionInUse(db, version.id)))
+
+    return {
+      id: map.id,
+      venueId: map.venueId,
+      name: map.name,
+      notes: map.notes ?? null,
+      archivedAt: map.archivedAt ?? null,
+      versions: versions.map((version, index) => toVersion(version, used[index])),
+    }
+  }
+
+  defineRoute(app, 'venueMaps.list', {
+    handler: async (request) => {
+      const venue = await prisma.venue.findUnique({ where: { id: request.params.id } })
+
+      if (!venue) throw notFound('No such venue.')
+
+      assertMayAuthor(request, venue)
+
+      const maps = await prisma.venueMap.findMany({
+        where: { venueId: venue.id },
+        orderBy: { name: 'asc' },
+      })
+
+      return { data: await Promise.all(maps.map((map) => toMap(prisma, map))) }
+    },
+  })
+
+  defineRoute(app, 'venueMaps.create', {
+    handler: async (request) => {
+      const venue = await prisma.venue.findUnique({ where: { id: request.params.id } })
+
+      if (!venue) throw notFound('No such venue.')
+
+      assertMayAuthor(request, venue)
+
+      const existing = await prisma.venueMap.findFirst({
+        where: { venueId: venue.id, name: request.body.name },
+      })
+
+      if (existing) throw conflict(`This venue already has a map called "${request.body.name}".`)
+
+      const map = await prisma.venueMap.create({
+        data: { venueId: venue.id, name: request.body.name, notes: request.body.notes ?? null },
+      })
+
+      // A map with no version is not yet anything, so the first draft comes
+      // with it rather than being a second call somebody can forget.
+      await prisma.venueMapVersion.create({ data: { venueMapId: map.id, version: 1 } })
+
+      await recordAudit(prisma, {
+        action: AUDIT_ACTIONS.VENUE_MAP_CREATED,
+        entityType: 'VenueMap',
+        entityId: map.id,
+        actorId: request.actor.id,
+        metadata: { venueId: venue.id, name: map.name },
+      })
+
+      return { data: await toMap(prisma, map) }
+    },
+  })
+
+  defineRoute(app, 'venueMaps.createVersion', {
+    handler: async (request) => {
+      const map = await prisma.venueMap.findUnique({ where: { id: request.params.id } })
+
+      if (!map) throw notFound('No such map.')
+
+      const venue = await prisma.venue.findUnique({ where: { id: map.venueId } })
+
+      if (!venue) throw notFound('No such map.')
+
+      assertMayAuthor(request, venue)
+
+      const version = await createVersion(prisma, {
+        map,
+        cloneFromVersionId: request.body.cloneFromVersionId ?? null,
+      })
+
+      await recordAudit(prisma, {
+        action: AUDIT_ACTIONS.VENUE_MAP_VERSION_CREATED,
+        entityType: 'VenueMapVersion',
+        entityId: version.id,
+        actorId: request.actor.id,
+        metadata: {
+          venueMapId: map.id,
+          version: version.version,
+          clonedFrom: request.body.cloneFromVersionId ?? null,
+        },
+      })
+
+      return {
+        data: {
+          ...toVersion(version, false),
+          layout: await readLayout(prisma, version.id),
+        },
+      }
+    },
+  })
+
+  defineRoute(app, 'venueMaps.getVersion', {
+    handler: async (request) => {
+      const { version, venue } = await loadVersionChain(prisma, request.params.id)
+
+      assertMayAuthor(request, venue)
+
+      return {
+        data: {
+          ...toVersion(version, await versionInUse(prisma, version.id)),
+          layout: await readLayout(prisma, version.id),
+        },
+      }
+    },
+  })
+
+  defineRoute(app, 'venueMaps.putLayout', {
+    handler: async (request) => {
+      const { version, venue } = await loadVersionChain(prisma, request.params.id)
+
+      assertMayAuthor(request, venue)
+      await assertEditable(prisma, version)
+
+      const { revision, ...layout } = request.body
+      const updated = await writeLayout(prisma, { version, layout, revision })
+
+      await recordAudit(prisma, {
+        action: AUDIT_ACTIONS.VENUE_MAP_LAYOUT_WRITTEN,
+        entityType: 'VenueMapVersion',
+        entityId: version.id,
+        actorId: request.actor.id,
+        metadata: { revision: updated.revision, seatCount: updated.seatCount },
+      })
+
+      return {
+        data: { ...toVersion(updated, false), layout: await readLayout(prisma, updated.id) },
+      }
+    },
+  })
+
+  defineRoute(app, 'venueMaps.publishVersion', {
+    handler: async (request) => {
+      const { version, venue } = await loadVersionChain(prisma, request.params.id)
+
+      assertMayAuthor(request, venue)
+
+      const published = await publishVersion(prisma, version)
+
+      await recordAudit(prisma, {
+        action: AUDIT_ACTIONS.VENUE_MAP_PUBLISHED,
+        entityType: 'VenueMapVersion',
+        entityId: version.id,
+        actorId: request.actor.id,
+        metadata: { version: published.version, seatCount: published.seatCount },
+      })
+
+      request.log.info(
+        { versionId: version.id, actorId: request.actor.id, seatCount: published.seatCount },
+        'map version published',
+      )
+
+      return {
+        data: {
+          ...toVersion(published, await versionInUse(prisma, published.id)),
+          layout: await readLayout(prisma, published.id),
+        },
+      }
     },
   })
 }

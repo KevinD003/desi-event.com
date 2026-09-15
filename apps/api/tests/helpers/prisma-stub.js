@@ -215,7 +215,7 @@ const DEFAULTS = {
   },
   scannerScope: {},
   venueMap: { notes: null, archivedAt: null },
-  venueMapVersion: { publishedAt: null, seatCount: 0 },
+  venueMapVersion: { publishedAt: null, seatCount: 0, revision: 0 },
   section: { kind: 'SEATED', sortOrder: 0, standingCapacity: null },
   seatRow: { sortOrder: 0 },
   priceZone: { colourToken: 'zone-default', sortOrder: 0 },

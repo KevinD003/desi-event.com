@@ -27,6 +27,10 @@ export const AUDIT_ACTIONS = Object.freeze({
   VENUE_CREATED: 'venue.created',
   VENUE_UPDATED: 'venue.updated',
   VENUE_MERGED: 'venue.merged',
+  VENUE_MAP_CREATED: 'venueMap.created',
+  VENUE_MAP_VERSION_CREATED: 'venueMap.version_created',
+  VENUE_MAP_LAYOUT_WRITTEN: 'venueMap.layout_written',
+  VENUE_MAP_PUBLISHED: 'venueMap.published',
 })
 
 /**
