@@ -2,8 +2,8 @@
 
 **Status: `PARTIAL`.**
 
-Phase 2 as specified spans twenty-one work items. Ten commits landed six of them
-to a standard I would defend, and the rest are not started. That is the headline,
+Phase 2 as specified spans twenty-one work items. Thirteen commits landed six of
+them to a standard I would defend, and the rest are not started. That is the headline,
 and the rest of this document says exactly which are which, because a report whose
 status has to be inferred from its length is not a report.
 
@@ -83,40 +83,62 @@ Turborepo cache (`0 cached, 15 total` and `0 cached, 3 total` respectively).
 | `pnpm format:check`      | OK                                                |
 | `pnpm lint`              | OK                                                |
 | `pnpm contract:check`    | OK — 45 routes, 45 operations, 42 paths           |
-| `pnpm test`              | **3,449 passed, 0 failed**, 14 workspace suites   |
+| `pnpm test`              | **3,444 passed, 5 skipped, 0 failed**, 14 suites  |
 | `pnpm db:verify:fresh`   | **68/68 checks passed**                           |
 | `pnpm db:verify:upgrade` | **17/17 checks passed**                           |
 | `pnpm build`             | OK — 3 tasks                                      |
 | `pnpm audit`             | No known vulnerabilities                          |
-| `pnpm test:e2e`          | **Not run this cycle**                            |
-| `pnpm test:e2e:prod`     | **Not run this cycle**                            |
+| `pnpm test:e2e`          | **Not run in that cycle; 89 passed since**        |
+| `pnpm test:e2e:prod`     | **Not run in that cycle; 19 passed since**        |
 | Phase 2 load tests       | **Do not exist**                                  |
 
-The two end-to-end commands and the load tests are listed as not run rather than
-omitted. They are Phase 1 suites that still exist; they were not part of this
-cycle's verification and I am not going to imply they were.
+The two end-to-end commands and the load tests were listed as not run rather than
+omitted. Both suites have since been run at `e93d4e9`: 89 specs against `next
+dev` and 19 against a compiled build, all passing, with no stale server on
+either port. The load tests still do not exist.
 
-### Test counts by workspace
+### 3a. Test counts by workspace, then and now
 
-| Workspace                  | Tests     |
-| -------------------------- | --------- |
-| `@desi-event/schemas`      | 527       |
-| `@desi-event/permissions`  | 530       |
-| `@desi-event/providers`    | 478       |
-| `@desi-event/auth`         | 348       |
-| `@desi-event/api`          | 342       |
-| `@desi-event/inventory`    | 254       |
-| `@desi-event/web`          | 235       |
-| `@desi-event/worker`       | 183       |
-| `@desi-event/api-contract` | 163       |
-| `@desi-event/pricing`      | 116       |
-| `@desi-event/db`           | 102       |
-| `@desi-event/ui`           | 97        |
-| `@desi-event/logger`       | 63        |
-| `@desi-event/config`       | 11        |
-| **Total**                  | **3,449** |
+Both columns were measured by running the suites, not carried over from a
+previous document. The `efdd640` column was produced in a throwaway git worktree
+at that commit.
 
-Phase 1 ended at 2,769. Phase 2 added 680.
+| Workspace                  | `efdd640` (Phase 1 end) | `e93d4e9` (Phase 2 report) |
+| -------------------------- | ----------------------- | -------------------------- |
+| `@desi-event/permissions`  | 134                     | 530                        |
+| `@desi-event/schemas`      | 338                     | 527                        |
+| `@desi-event/providers`    | 336                     | 478                        |
+| `@desi-event/auth`         | — (no such package)     | 348                        |
+| `@desi-event/api`          | 196                     | 342                        |
+| `@desi-event/inventory`    | 197                     | 254                        |
+| `@desi-event/web`          | 235                     | 235                        |
+| `@desi-event/worker`       | 183                     | 183                        |
+| `@desi-event/api-contract` | 160                     | 163                        |
+| `@desi-event/pricing`      | 116                     | 116                        |
+| `@desi-event/db`           | 94                      | 102                        |
+| `@desi-event/ui`           | 97                      | 97                         |
+| `@desi-event/logger`       | 63                      | 63                         |
+| `@desi-event/config`       | 11                      | 11                         |
+| **Total**                  | **2,160** (13)          | **3,449** (14)             |
+
+**Corrected.** An earlier draft of this report said Phase 1 ended at 2,769 and
+Phase 2 added 680. Both numbers were wrong and the 2,769 had no provenance. The
+measured Phase 1 total is 2,160, which is exactly what
+`PHASE1_FINAL_CLOSURE_REPORT.md` recorded at `728ca3a` — the commit `efdd640`
+sits on, and from which `efdd640` changed no code at all: it touched five
+documentation files and `.gitignore`. So **Phase 2 added 1,289 tests**, not 680,
+and the fourteenth workspace is `@desi-event/auth`.
+
+**Corrected.** The same draft reported `pnpm test` as "3,449 passed, 0 failed".
+Five of those 3,449 were **skipped**, not passed: `apps/worker/tests/redis-integration.test.js`
+skips itself when Redis is unreachable, and no Redis was running. The honest
+reading of that run is **3,444 passed, 5 skipped, 0 failed**. Reporting a skip as
+a pass is the specific thing a verification table exists to prevent, so it is
+recorded here rather than quietly fixed.
+
+With Redis started, the same suite is 183 passed and 0 skipped. Every later
+verification in this repository runs with both PostgreSQL and Redis up, and says
+so.
 
 ## 4. Credential modes
 
@@ -363,13 +385,25 @@ on any route whose organisation is not spelled `organizationId`. It would have
 refused every organiser and passed every super-admin. Found by a test that ran
 the ordinary case. Closed with a declared, contract-validated `capabilityScope`.
 
-**NF-06** — `contract:check` cannot see a stale OpenAPI artefact. It validates
-the route table against the OpenAPI document _it generates from that same route
-table_, so the two always agree and the checked-in `apps/api/openapi.json` can
-drift silently. It had: the two webhook routes landed in `f1803b4` and the
-artefact still described 43 operations. Regenerated in `6714f1a`. The guard is
-still blind — closing it properly means emitting and comparing against the
-committed file, which is a change to the checker and is not made here.
+**NF-06** — `contract:check` could not see a stale OpenAPI artefact. It validated
+the route table against the OpenAPI document _it generated from that same route
+table_, so the two always agreed and the committed `apps/api/openapi.json` could
+drift silently. Worse, `pnpm build` ran the emitter, so a stale artefact was
+rewritten rather than reported and the only symptom was a dirty working tree. It
+had drifted: the two webhook routes landed in `f1803b4` and the artefact still
+described 43 operations. Regenerated in `6714f1a`.
+
+**Closed.** `apps/api/src/lib/openapi-artifact.js` compares the committed file
+against a freshly generated document two ways — byte-identical, and semantically
+after sorting object keys — and reports which failed, because "the API changed"
+and "somebody reformatted the file" need different responses. `pnpm build` now
+runs `--check` and never writes; `pnpm openapi:emit` is the only thing that
+writes; `pnpm contract:check` runs both the structural validation and the drift
+check. Proven by restoring the defect: a one-word change to a route summary makes
+`openapi:check` exit 1 and `apps/api/tests/openapi-artifact.test.js` fail, while
+the old `contract validate` alone still exits **0** — the blind spot, demonstrated
+rather than asserted. The file was restored and both SHA-256 hashes verified
+identical.
 
 **NF-07** — nine of the ten plpgsql trigger functions had a probe that attempts
 the violation; `desi_hold_item_session_matches` had none, so "a hold may only

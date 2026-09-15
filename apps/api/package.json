@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build": "node scripts/emit-openapi.mjs",
+    "build": "node scripts/emit-openapi.mjs --check",
+    "openapi:check": "node scripts/emit-openapi.mjs --check",
     "openapi:emit": "node scripts/emit-openapi.mjs",
     "lint": "eslint .",
     "test": "vitest run",
