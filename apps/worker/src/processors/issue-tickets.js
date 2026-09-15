@@ -26,7 +26,7 @@
  * @module @desi-event/worker/processors/issue-tickets
  */
 
-import { JOB_NAMES, issueTicketsJobSchema } from '@desi-event/schemas'
+import { JOB_NAMES, issueTicketsJobSchema } from '@desi-event/schemas/jobs'
 
 import {
   PermanentJobError,

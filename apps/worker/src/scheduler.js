@@ -14,7 +14,7 @@
  * @module @desi-event/worker/scheduler
  */
 
-import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas'
+import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas/jobs'
 
 import { validateJobPayload } from './queues.js'
 

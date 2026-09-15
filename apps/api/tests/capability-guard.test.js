@@ -15,7 +15,8 @@
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
 
-import { apiEnvSchema, parseOrThrow } from '@desi-event/schemas'
+import { parseOrThrow } from '@desi-event/schemas'
+import { apiEnvSchema } from '@desi-event/schemas/env'
 
 import { registerAuth } from '../src/plugins/auth.js'
 import { registerErrorHandler } from '../src/plugins/error-handler.js'

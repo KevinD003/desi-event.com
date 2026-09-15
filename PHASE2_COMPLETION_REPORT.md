@@ -401,6 +401,54 @@ clean rebuild leaves no `scrypt`, `promisify`, `timingSafeEqual`, `maxmem` or
 1.7M to 1.3M — 400KB of server code every visitor was being made to download.
 The browser suite is 105/105.
 
+**NF-16** — _closed._ **The API and worker deployment contract shipped in the
+browser bundle.** Found by an audit run after NF-15, on the suspicion that one
+barrel had probably not been the only one.
+
+`packages/api-contract/src/routes.js` takes about seventy named schemas from the
+`@desi-event/schemas` barrel. A barrel is all-or-nothing and that package had no
+subpaths, so `export * from './env.js'` came along, and with it — served to
+every visitor of the checkout page — the PostgreSQL and Redis variable names,
+the 32-character floor on `JWT_SECRET`, the rule that `AUTH_SECRET` silently
+falls back to `JWT_SECRET` when unset, `SECURE_COOKIES` and its "Only turn this
+off for local HTTP" prose, the fee constants, and the complete
+`INSECURE_JWT_SECRETS` blocklist — which is a precise statement of the check an
+attacker is probing against. `jobs.js` came too: the worker's queue names and
+job payloads.
+
+Reproduced over HTTP against a production build, not a dev server:
+
+```
+$ curl -s .../_next/static/chunks/0uu376hw17ojf.js | grep -o 'Object.freeze(\["dev-only-insecure-secret-change-me-before-any-deploy.\{120\}'
+Object.freeze(["dev-only-insecure-secret-change-me-before-any-deploy","change-me",
+"changeme","secret","supersecret","development","test-secret"]);function va(t){…}
+
+$ … | grep -o 'DATABASE_URL:\w*,REDIS_URL:\w*,JWT_SECRET.\{80\}'
+DATABASE_URL:vo,REDIS_URL:vs,JWT_SECRET:md.string().min(32,{message:"JWT_SECRET
+must be at least 32 characters"}),JWT_EXPIRES_IN:…
+```
+
+No secret *value* leaked — `env.js` reads `process.env` only as a default
+parameter, so nothing evaluates in a browser — and this is disclosure rather
+than a crash. It is still the server's deployment contract published to the
+public.
+
+Closed by giving `@desi-event/schemas` the subpaths `./env` and `./jobs` and
+taking both off the barrel; seventeen server-side and worker-side imports moved
+across. The barrel test now asserts the opposite of what it used to: that these
+names are *absent* from the package entry point and present at their own. Both
+modules were added to the guard from NF-15, which now covers what it did not
+catch. After a clean rebuild, none of `DATABASE_URL`, `REDIS_URL`,
+`JWT_SECRET`, `ALLOW_DEMO_TAX_IN_PRODUCTION`, `PLATFORM_FEE_BPS`,
+`QUEUE_NAMES`, the blocklist or the cookie prose appears anywhere in
+`.next/static/chunks`.
+
+**The audit that found it was partial and is recorded as such.** Nineteen agents
+ran; nine verifiers died on a session limit before reporting. Of the ten that
+finished, the confirmed findings were NF-15 (already closed) and NF-16. The
+unverified vectors were the remaining built-chunk checks and the guard-coverage
+review, and they are being re-run.
+
 ## 10. Verification
 
 Every command below was run at `b37b242` with PostgreSQL 16.13 and Redis 7.0.15

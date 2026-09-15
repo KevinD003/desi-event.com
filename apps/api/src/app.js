@@ -12,7 +12,8 @@
  */
 
 import Fastify from 'fastify'
-import { PAYMENT_MODES, apiEnvSchema, parseOrThrow } from '@desi-event/schemas'
+import { PAYMENT_MODES, parseOrThrow } from '@desi-event/schemas'
+import { apiEnvSchema } from '@desi-event/schemas/env'
 import { assertPaymentModeAllowed } from '@desi-event/providers'
 
 import { registerAuth } from './plugins/auth.js'

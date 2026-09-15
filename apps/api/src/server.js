@@ -13,7 +13,8 @@ import dotenv from 'dotenv'
 import { createLogger } from '@desi-event/logger'
 import { createPrismaClient, disconnectPrisma } from '@desi-event/db'
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
-import { isValidationError, loadApiEnv } from '@desi-event/schemas'
+import { isValidationError } from '@desi-event/schemas'
+import { loadApiEnv } from '@desi-event/schemas/env'
 
 import { buildApp } from './app.js'
 

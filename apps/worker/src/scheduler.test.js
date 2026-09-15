@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { QUEUE_NAMES } from '@desi-event/schemas'
+import { QUEUE_NAMES } from '@desi-event/schemas/jobs'
 
 import {
   DEFAULT_EXPIRE_HOLDS_INTERVAL_MS,

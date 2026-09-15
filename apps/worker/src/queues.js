@@ -15,7 +15,8 @@
  */
 
 import { Queue } from 'bullmq'
-import { JOB_NAMES, QUEUE_NAMES, jobSchemaFor, parseOrThrow } from '@desi-event/schemas'
+import { parseOrThrow } from '@desi-event/schemas'
+import { JOB_NAMES, QUEUE_NAMES, jobSchemaFor } from '@desi-event/schemas/jobs'
 
 export { JOB_NAMES, QUEUE_NAMES }
 

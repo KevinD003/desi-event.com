@@ -17,7 +17,7 @@
  * @module @desi-event/worker/processors/send-email
  */
 
-import { JOB_NAMES, sendEmailJobSchema } from '@desi-event/schemas'
+import { JOB_NAMES, sendEmailJobSchema } from '@desi-event/schemas/jobs'
 import { PROVIDER_ERROR_CODES, assertEmailProvider } from '@desi-event/providers'
 
 import {

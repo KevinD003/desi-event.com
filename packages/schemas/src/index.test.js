@@ -59,22 +59,50 @@ const CONTRACT_EXPORTS = [
   'orderResponseSchema',
   'errorResponseSchema',
   'healthResponseSchema',
-  // Env
-  'apiEnvSchema',
-  'workerEnvSchema',
-  'webEnvSchema',
-  // Jobs
-  'sendEmailJobSchema',
-  'expireHoldsJobSchema',
-  'issueTicketsJobSchema',
-  'indexEventJobSchema',
 ]
+
+/**
+ * Schemas that must NOT be on the barrel, and the entry point that serves them.
+ *
+ * Finding NF-16: this barrel is imported by the API contract's route table,
+ * which is imported by the browser, and a barrel is all-or-nothing. Every name
+ * here describes how a server or the worker is deployed, and none of it was
+ * ever wanted in a client bundle.
+ */
+const OFF_BARREL = Object.freeze({
+  './env.js': ['apiEnvSchema', 'workerEnvSchema', 'webEnvSchema', 'loadApiEnv', 'isInsecureJwtSecret'],
+  './jobs.js': [
+    'sendEmailJobSchema',
+    'expireHoldsJobSchema',
+    'issueTicketsJobSchema',
+    'indexEventJobSchema',
+    'JOB_NAMES',
+    'QUEUE_NAMES',
+  ],
+})
 
 describe('package entry point', () => {
   it.each(CONTRACT_EXPORTS)('exports %s as a parseable schema', (name) => {
     const schema = schemas[name]
     expect(schema, `${name} is missing from @desi-event/schemas`).toBeDefined()
     expect(typeof schema.safeParse).toBe('function')
+  })
+
+  it.each(Object.entries(OFF_BARREL))(
+    'keeps %s off the barrel, where the browser would find it',
+    (_module, names) => {
+      for (const name of names) {
+        expect(schemas[name], `${name} is back on the barrel — see finding NF-16`).toBeUndefined()
+      }
+    },
+  )
+
+  it.each(Object.entries(OFF_BARREL))('still serves %s from its own entry point', async (module, names) => {
+    const loaded = await import(module)
+
+    for (const name of names) {
+      expect(loaded[name], `${name} is missing from ${module}`).toBeDefined()
+    }
   })
 
   it('exports the validation helpers', () => {

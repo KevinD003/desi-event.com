@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { JOB_NAMES, QUEUE_NAMES, isValidationError } from '@desi-event/schemas'
+import { isValidationError } from '@desi-event/schemas'
+import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas/jobs'
 
 import {
   DEFAULT_JOB_OPTIONS,

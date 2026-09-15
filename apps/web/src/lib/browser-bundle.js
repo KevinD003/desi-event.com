@@ -51,6 +51,10 @@ export const FORBIDDEN = Object.freeze({
     'bearer-secret digesting and the pseudonymisation of email and IP addresses.',
   'packages/auth/src/throttle.js': 'the lockout thresholds an attacker would like to know.',
   'packages/auth/src/index.js': 'the auth barrel, which re-exports every module above.',
+  'packages/schemas/src/env.js':
+    'the API and worker deployment contract: the PostgreSQL and Redis variable names, the floor on JWT_SECRET, the AUTH_SECRET fallback rule, the fee constants, and the verbatim list of placeholder secrets production refuses.',
+  'packages/schemas/src/jobs.js':
+    'worker queue and job payload schemas. The browser does not enqueue work.',
   'packages/db/': 'Prisma, the schema, and anything that can open a connection.',
   'packages/providers/': 'payment provider adapters, which hold secret-key handling.',
   'packages/ledger/': 'double-entry posting rules. Server-side money, never client-side.',

@@ -11,7 +11,7 @@
  */
 
 import { Worker } from 'bullmq'
-import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas'
+import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas/jobs'
 
 import { DEFAULT_QUEUE_PREFIX, QUEUE_FOR_JOB, jobOptionsFor } from './queues.js'
 

@@ -15,7 +15,7 @@
  * @module @desi-event/worker/processors/index-event
  */
 
-import { JOB_NAMES, indexEventJobSchema } from '@desi-event/schemas'
+import { JOB_NAMES, indexEventJobSchema } from '@desi-event/schemas/jobs'
 
 import { RetryableJobError, WORKER_ERROR_CODES, parseJobPayload } from '../errors.js'
 

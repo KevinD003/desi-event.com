@@ -11,7 +11,7 @@
  * @module @desi-event/worker/processors
  */
 
-import { JOB_NAMES } from '@desi-event/schemas'
+import { JOB_NAMES } from '@desi-event/schemas/jobs'
 
 import { createExpireHoldsProcessor } from './expire-holds.js'
 import { createIssueTicketsProcessor } from './issue-tickets.js'

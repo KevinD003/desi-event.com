@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EMAIL_TEMPLATES } from '@desi-event/schemas'
+import { EMAIL_TEMPLATES } from '@desi-event/schemas/jobs'
 
 import { TEMPLATES, escapeHtml, field, formatCents, renderEmail } from './templates.js'
 

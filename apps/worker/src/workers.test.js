@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { QUEUE_NAMES } from '@desi-event/schemas'
+import { QUEUE_NAMES } from '@desi-event/schemas/jobs'
 
 import { QUEUE_WORKER_OPTIONS, closeWorkers, concurrencyFor, instrumentWorker } from './workers.js'
 import { createFakeLogger } from '../tests/helpers/fakes.js'

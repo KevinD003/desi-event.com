@@ -33,7 +33,7 @@
  */
 
 import { partitionExpiredHolds } from '@desi-event/inventory'
-import { JOB_NAMES, expireHoldsJobSchema } from '@desi-event/schemas'
+import { JOB_NAMES, expireHoldsJobSchema } from '@desi-event/schemas/jobs'
 
 import { parseJobPayload } from '../errors.js'
 

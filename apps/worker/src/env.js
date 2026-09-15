@@ -9,7 +9,8 @@
  * @module @desi-event/worker/env
  */
 
-import { workerEnvSchema, ValidationError, formatIssues } from '@desi-event/schemas'
+import { ValidationError, formatIssues } from '@desi-event/schemas'
+import { workerEnvSchema } from '@desi-event/schemas/env'
 
 /**
  * @typedef {object} WorkerEnv

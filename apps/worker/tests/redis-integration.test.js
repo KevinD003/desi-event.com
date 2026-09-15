@@ -14,7 +14,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { QueueEvents } from 'bullmq'
-import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas'
+import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas/jobs'
 import { createInMemoryEmailProvider } from '@desi-event/providers'
 
 import { closeRedisConnection, createRedisConnection } from '../src/connection.js'

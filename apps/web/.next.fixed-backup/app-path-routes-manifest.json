@@ -1,0 +1,10 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/events/[slug]/checkout/page": "/events/[slug]/checkout",
+  "/events/[slug]/page": "/events/[slug]",
+  "/events/page": "/events",
+  "/organizers/[slug]/page": "/organizers/[slug]",
+  "/page": "/",
+  "/sitemap.xml/route": "/sitemap.xml"
+}
