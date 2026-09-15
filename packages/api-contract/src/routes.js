@@ -11,6 +11,8 @@
 
 import { z } from 'zod'
 import {
+  acceptInvitationRequestSchema,
+  acceptedInvitationResponseSchema,
   acceptedResponseSchema,
   changePasswordRequestSchema,
   checkInRequestSchema,
@@ -20,7 +22,11 @@ import {
   disableMfaRequestSchema,
   enrollTotpRequestSchema,
   forgotPasswordRequestSchema,
+  inviteMemberRequestSchema,
+  invitationResponseSchema,
+  memberListResponseSchema,
   mfaFactorListResponseSchema,
+  removeMemberRequestSchema,
   registerAccountRequestSchema,
   resendVerificationRequestSchema,
   resetPasswordRequestSchema,
@@ -32,6 +38,7 @@ import {
   stepUpRequestSchema,
   totpConfirmedResponseSchema,
   totpEnrollmentResponseSchema,
+  updateMemberRequestSchema,
   verifyEmailRequestSchema,
   checkInResponseSchema,
   createEventRequestSchema,
@@ -96,6 +103,11 @@ export const HTTP_METHODS = Object.freeze(['GET', 'POST', 'PATCH', 'PUT', 'DELET
 export const API_TAGS = Object.freeze([
   { name: 'health', description: 'Liveness and readiness probes.' },
   { name: 'auth', description: 'Registration, sign-in and the current session.' },
+  {
+    name: 'teams',
+    description:
+      'Organisation membership: who belongs, what they may do, and how they were invited.',
+  },
   { name: 'events', description: 'Public event discovery and organiser event management.' },
   { name: 'ticket-types', description: 'Ticket tiers belonging to an event.' },
   { name: 'holds', description: 'Short-lived inventory reservations taken during checkout.' },
@@ -183,6 +195,12 @@ export const API_ERRORS = Object.freeze({
   }),
 })
 
+/** Path parameters for the routes nested under an organisation id. */
+const organizationIdParamSchema = z.object({ id: cuidSchema })
+
+/** Path parameters for the routes naming one membership or invitation within an organisation. */
+const memberParamSchema = z.object({ id: cuidSchema, memberId: cuidSchema })
+
 /** Path parameters for the routes nested under an event id. */
 const eventIdParamSchema = z.object({ eventId: cuidSchema })
 
@@ -216,6 +234,7 @@ const waitlistResponseSchema = z.object({ data: waitlistEntrySchema })
  * @property {string[]} tags Tag names grouping this operation.
  * @property {'none'|'bearer'|'optional'|'session'} auth Which credential the route requires.
  * @property {string|null} [capability] The capability the guard asserts before the handler runs. Null for a route whose authorization is about the caller's own records rather than a granted power.
+ * @property {string} [capabilityScope] Where the guard finds the organisation the capability is asserted in, as `params.x`, `query.x` or `body.x`. Defaults to an `organizationId` in any of the three. A capability asserted with no scope is a platform-level check, which is almost never what an organisation route means.
  * @property {boolean} [stepUp] Whether the caller must have authenticated again recently. For actions whose damage is not undoable.
  * @property {ZodType|null} params Schema for the path parameters.
  * @property {ZodType|null} query Schema for the query string.
@@ -562,6 +581,136 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.validation,
         API_ERRORS.unauthorized,
         API_ERRORS.stepUpRequired,
+        API_ERRORS.notFound,
+        API_ERRORS.unprocessable,
+      ],
+    },
+    {
+      id: 'teams.list',
+      method: 'GET',
+      path: '/v1/organizations/:id/members',
+      summary: 'List the team',
+      description:
+        "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and address and nothing else about their account: managing a team is not the same as reading a colleague's profile.",
+      tags: ['teams'],
+      auth: 'session',
+      capability: 'organization:view_members',
+      capabilityScope: 'params.id',
+      params: organizationIdParamSchema,
+      query: null,
+      body: null,
+      response: memberListResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized, API_ERRORS.forbidden, API_ERRORS.notFound],
+    },
+    {
+      id: 'teams.invite',
+      method: 'POST',
+      path: '/v1/organizations/:id/invitations',
+      summary: 'Invite somebody to the team',
+      description:
+        'Issue a single-use invitation to an email address, for a role bounded by what the caller holds: a member cannot invite somebody to a role that carries powers they lack, and OWNER cannot be invited at all. An address that already belongs to the organisation answers 409, and a second invitation to the same address supersedes the first rather than leaving two live links.',
+      tags: ['teams'],
+      auth: 'session',
+      capability: 'team:invite',
+      capabilityScope: 'params.id',
+      params: organizationIdParamSchema,
+      query: null,
+      body: inviteMemberRequestSchema,
+      response: invitationResponseSchema,
+      successStatus: 201,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.forbidden,
+        API_ERRORS.notFound,
+        API_ERRORS.conflict,
+      ],
+    },
+    {
+      id: 'teams.accept',
+      method: 'POST',
+      path: '/v1/invitations/accept',
+      summary: 'Accept an invitation',
+      description:
+        'Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.',
+      tags: ['teams'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: acceptInvitationRequestSchema,
+      response: acceptedInvitationResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.forbidden,
+        API_ERRORS.conflict,
+      ],
+    },
+    {
+      id: 'teams.revokeInvitation',
+      method: 'POST',
+      path: '/v1/organizations/:id/invitations/:memberId/revoke',
+      summary: 'Withdraw an invitation',
+      description:
+        'Stop an outstanding invitation from being accepted. Idempotent, and an invitation belonging to another organisation answers 404 rather than 403.',
+      tags: ['teams'],
+      auth: 'session',
+      capability: 'team:invite',
+      capabilityScope: 'params.id',
+      params: memberParamSchema,
+      query: null,
+      body: null,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized, API_ERRORS.forbidden, API_ERRORS.notFound],
+    },
+    {
+      id: 'teams.updateMember',
+      method: 'PATCH',
+      path: '/v1/organizations/:id/members/:memberId',
+      summary: "Change a member's role",
+      description:
+        'Bounded three ways. The caller must be able to grant the new role and must already hold power over the old one, so nobody can promote somebody past themselves or demote somebody above them. Nobody may change their own role, which is what stops a MANAGER making themselves an ADMIN. And the last OWNER cannot be demoted: an organisation with no owner is one nobody can fix.',
+      tags: ['teams'],
+      auth: 'session',
+      capability: 'team:role_manage',
+      capabilityScope: 'params.id',
+      params: memberParamSchema,
+      query: null,
+      body: updateMemberRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.forbidden,
+        API_ERRORS.notFound,
+        API_ERRORS.unprocessable,
+      ],
+    },
+    {
+      id: 'teams.removeMember',
+      method: 'POST',
+      path: '/v1/organizations/:id/members/:memberId/remove',
+      summary: 'Remove somebody from the team',
+      description:
+        'Bounded like a role change, and with the same last-owner rule. Removing somebody revokes their scanner scopes with them. A membership in another organisation answers 404.',
+      tags: ['teams'],
+      auth: 'session',
+      capability: 'team:remove',
+      capabilityScope: 'params.id',
+      params: memberParamSchema,
+      query: null,
+      body: removeMemberRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.forbidden,
         API_ERRORS.notFound,
         API_ERRORS.unprocessable,
       ],

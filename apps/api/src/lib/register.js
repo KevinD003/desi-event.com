@@ -57,7 +57,8 @@ export function defineRoute(app, id, options) {
 
   /** @type {Array<Function>} */
   const declared = []
-  if (route.capability) declared.push(app.requireCapability(route.capability))
+  if (route.capability)
+    declared.push(app.requireCapability(route.capability, route.capabilityScope))
   if (route.stepUp) declared.push(app.requireStepUp)
 
   // The contract's requirements come first: a route's own preHandlers are for

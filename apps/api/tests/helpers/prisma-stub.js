@@ -40,10 +40,16 @@ const RELATIONS = {
   },
   membership: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+    user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
+    scannerScopes: { kind: 'many', model: 'scannerScope', from: 'id', to: 'membershipId' },
   },
   session: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
     device: { kind: 'one', model: 'device', from: 'deviceId', to: 'id' },
+  },
+  invitation: {
+    organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+    invitedBy: { kind: 'one', model: 'user', from: 'invitedById', to: 'id' },
   },
   device: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
@@ -148,11 +154,19 @@ const DEFAULTS = {
   },
   authToken: { userId: null, subjectId: null, usedAt: null, revokedAt: null },
   loginAttempt: { succeeded: false },
+  invitation: {
+    status: 'PENDING',
+    acceptedAt: null,
+    acceptedByUserId: null,
+    revokedAt: null,
+  },
+  scannerScope: {},
 }
 
 /** Unique constraints the API relies on the database to enforce. */
 const UNIQUE_FIELDS = {
   user: ['email'],
+  invitation: ['tokenHash'],
   event: ['slug'],
   order: ['reference'],
   ticket: ['code'],
@@ -172,6 +186,8 @@ const UNIQUE_FIELDS = {
  */
 const COMPOUND_UNIQUE = {
   device: [['userId', 'fingerprintHash']],
+  membership: [['userId', 'organizationId']],
+  scannerScope: [['membershipId', 'eventId']],
 }
 
 /** Models that carry `createdAt`/`updatedAt`. */
@@ -198,7 +214,15 @@ const TIMESTAMPED = new Set([
  *
  * @type {Set<string>}
  */
-const CREATED_ONLY = new Set(['session', 'device', 'mfaFactor', 'authToken', 'loginAttempt'])
+const CREATED_ONLY = new Set([
+  'session',
+  'device',
+  'mfaFactor',
+  'authToken',
+  'loginAttempt',
+  'invitation',
+  'scannerScope',
+])
 
 let idCounter = 0
 
@@ -623,6 +647,27 @@ export function createPrismaStub(seed = {}) {
         if (index < 0) throw new Error(`No ${model} found`)
         const [row] = tables[model].splice(index, 1)
         return row
+      },
+      /**
+       * Remove every matching row.
+       *
+       * Spliced in reverse so that removing one row does not shift the index of
+       * the next one still to be removed.
+       *
+       * @param {object} args Prisma `deleteMany` arguments.
+       * @returns {Promise<{count: number}>} How many rows went.
+       */
+      deleteMany: async (args = {}) => {
+        const rows = tables[model] ?? []
+        let count = 0
+
+        for (let index = rows.length - 1; index >= 0; index -= 1) {
+          if (!matches(model, rows[index], args.where)) continue
+          rows.splice(index, 1)
+          count += 1
+        }
+
+        return { count }
       },
       /**
        * `groupBy`, supporting the one shape the API uses: group by columns and

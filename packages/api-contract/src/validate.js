@@ -121,6 +121,32 @@ function checkRoute(route, index) {
     }
   }
 
+  if ('capabilityScope' in route) {
+    const match = /^(params|query|body)\.([A-Za-z][A-Za-z0-9_]*)$/.exec(route.capabilityScope ?? '')
+
+    if (!match) {
+      fail(
+        'BAD_CAPABILITY_SCOPE',
+        `Route ${routeId} capabilityScope must look like "params.id", not "${route.capabilityScope}"`,
+      )
+    } else if (!route[match[1]]) {
+      // The scope names a request part the route does not have, so the guard
+      // would silently assert with no organisation — which is a platform-level
+      // check wearing an organisation route's clothes.
+      fail(
+        'CAPABILITY_SCOPE_MISSING_PART',
+        `Route ${routeId} capabilityScope reads ${match[1]}.${match[2]} but declares no ${match[1]} schema`,
+      )
+    }
+
+    if (!route.capability) {
+      fail(
+        'CAPABILITY_SCOPE_WITHOUT_CAPABILITY',
+        `Route ${routeId} declares a capabilityScope but no capability`,
+      )
+    }
+  }
+
   if ('stepUp' in route) {
     if (typeof route.stepUp !== 'boolean') {
       fail('BAD_STEP_UP', `Route ${routeId} stepUp must be a boolean`)

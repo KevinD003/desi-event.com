@@ -46,6 +46,7 @@ const REQUIRED_CAPABILITIES = [
   // Team
   'team:invite',
   'team:remove',
+  'team:role_manage',
   'organization:manage',
   'organization:view_members',
   // Promotions and reporting

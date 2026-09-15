@@ -118,6 +118,14 @@ export const CAPABILITIES = deepFreeze({
   // --- Team -----------------------------------------------------------------
   TEAM_INVITE: 'team:invite',
   TEAM_REMOVE: 'team:remove',
+  /**
+   * Change somebody else's role.
+   *
+   * Separate from removal because they are different mistakes. Removing somebody
+   * is visible to them immediately; quietly making them a `FINANCE` member is
+   * not, and the person who notices is whoever reconciles the payouts.
+   */
+  TEAM_ROLE_MANAGE: 'team:role_manage',
   ORGANIZATION_MANAGE: 'organization:manage',
   ORGANIZATION_VIEW_MEMBERS: 'organization:view_members',
 
@@ -277,6 +285,7 @@ const ORG_ROLE_GRANTS = {
     CAPABILITIES.ORDER_REFUND_APPROVE,
     CAPABILITIES.HOLD_RELEASE_ANY,
     CAPABILITIES.TEAM_REMOVE,
+    CAPABILITIES.TEAM_ROLE_MANAGE,
   ],
   // Owns the organisation record itself, including its membership list.
   OWNER: [CAPABILITIES.ORGANIZATION_MANAGE],

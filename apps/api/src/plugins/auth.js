@@ -401,21 +401,36 @@ export async function registerAuth(app, { prisma, env }) {
   /**
    * A preHandler asserting the capability a route declares.
    *
-   * The scope comes from the request: an `organizationId` in the body, the query
-   * or the params. Which one is not this function's guess — a route that needs a
-   * scope the caller does not supply directly (the organisation that owns an
-   * event, say) asserts it in its handler, where the resource has been loaded.
+   * The scope is where the contract says it is. That explicitness matters: a
+   * capability asserted with *no* organisation is a platform-level check, and an
+   * organisation route whose scope is not found silently becomes one — refusing
+   * every organiser and passing every super-admin. So `capabilityScope` names the
+   * request part, the contract checker verifies that part exists, and a route
+   * that declares neither falls back to an `organizationId` anywhere in the
+   * request.
+   *
+   * A route whose scope is not in the request at all (the organisation that owns
+   * an event, say) declares no capability and asserts in its handler, where the
+   * resource has been loaded.
    *
    * @param {string} capability The capability from the contract descriptor.
+   * @param {string} [scope] Where to read the organisation, as `params.id`.
    * @returns {Function} A Fastify preHandler.
    */
-  function requireCapability(capability) {
+  function requireCapability(capability, scope) {
     return async function assertCapability(request) {
-      const organizationId =
-        request.body?.organizationId ??
-        request.query?.organizationId ??
-        request.params?.organizationId ??
-        null
+      let organizationId = null
+
+      if (scope) {
+        const [part, key] = scope.split('.')
+        organizationId = request[part]?.[key] ?? null
+      } else {
+        organizationId =
+          request.body?.organizationId ??
+          request.query?.organizationId ??
+          request.params?.organizationId ??
+          null
+      }
 
       assertCan(request.actor, capability, organizationId ? { organizationId } : {})
     }
