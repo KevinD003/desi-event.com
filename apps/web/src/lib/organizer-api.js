@@ -103,3 +103,108 @@ export async function listMaps(venueId) {
 export async function getMapVersion(versionId) {
   return (await callApi(`/v1/venue-map-versions/${encodeURIComponent(versionId)}`)).data
 }
+
+/**
+ * The events this caller may author.
+ *
+ * Asks for the drafts explicitly. `GET /events` shows an anonymous caller only
+ * what is public; a member of an organisation additionally sees that
+ * organisation's private events, and the organiser's own list is the one place
+ * that matters. Sorted newest first: the thing somebody just created is the
+ * thing they came back for.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.organizationId] Restrict to one organisation.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<{events: object[], pagination: object}>} The events and their page counters.
+ */
+export async function listOrganizerEvents(options = {}) {
+  const query = new URLSearchParams({
+    sort: 'createdAt:desc',
+    perPage: String(options.perPage ?? 50),
+  })
+
+  if (options.organizationId) query.set('organizationId', options.organizationId)
+
+  const body = await callApi(`/v1/events?${query.toString()}`)
+
+  return { events: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * One event, by id.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object>} The event with its venue, organisation and tiers.
+ */
+export async function getOrganizerEvent(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}`)).data
+}
+
+/**
+ * An event's sessions.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<{data: object[], meta: object}>} The sessions and the event's revision.
+ */
+export async function getEventSessions(id) {
+  return callApi(`/v1/events/${encodeURIComponent(id)}/sessions`)
+}
+
+/**
+ * Whether an event is ready to be published, and every reason it is not.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object>} The readiness result.
+ */
+export async function getEventReadiness(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/readiness`)).data
+}
+
+/**
+ * The lifecycle moves available out of an event's current state.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object>} The current status and its transitions.
+ */
+export async function getEventTransitions(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/transitions`)).data
+}
+
+/**
+ * An event's moderation history, newest first.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object[]>} The decisions taken on this event.
+ */
+export async function getModerationHistory(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/moderation-history`)).data ?? []
+}
+
+/**
+ * What each tier costs a buyer all in.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object[]>} One breakdown per tier.
+ */
+export async function getPricePreview(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/price-preview`)).data ?? []
+}
+
+/**
+ * The events waiting for a moderator.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.status] Restrict to one status.
+ * @returns {Promise<{events: object[], pagination: object|null}>} The queue.
+ */
+export async function getModerationQueue(options = {}) {
+  const query = new URLSearchParams()
+
+  if (options.status) query.set('status', options.status)
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/moderation/events${suffix}`)
+
+  return { events: body.data ?? [], pagination: body.pagination ?? null }
+}

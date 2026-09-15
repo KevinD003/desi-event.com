@@ -37,7 +37,7 @@ import { EDITABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import { computeOrderTotals } from '@desi-event/pricing'
 
 import { recordAudit } from './audit.js'
-import { conflict, notFound, unprocessable } from './errors.js'
+import { conflict, httpError, notFound, unprocessable } from './errors.js'
 
 /**
  * Load an event for authoring, with everything the coherence rules read.
@@ -121,7 +121,13 @@ export async function authorChange(prisma, options) {
         select: { revision: true, status: true },
       })
 
-      throw conflict(
+      // `STALE_REVISION` rather than a bare `CONFLICT`, and it is the `code`
+      // rather than a detail: an editor recovering from this has to be able to
+      // tell "somebody saved over you, re-read and merge" apart from "that slug
+      // is taken", and it cannot do that by matching on prose.
+      throw httpError(
+        409,
+        'STALE_REVISION',
         current?.status !== event.status
           ? `This event is no longer ${event.status}; it is ${current?.status ?? 'gone'}. Reload before editing.`
           : 'Somebody else saved a change to this event while you were editing. Reload to take their version, or copy your changes somewhere before you do.',
@@ -129,7 +135,6 @@ export async function authorChange(prisma, options) {
           expectedRevision: revision,
           currentRevision: current?.revision ?? null,
           currentStatus: current?.status ?? null,
-          code: 'STALE_REVISION',
         },
       )
     }

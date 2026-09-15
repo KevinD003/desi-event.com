@@ -10746,7 +10746,7 @@
       "get": {
         "operationId": "events.get",
         "summary": "Get an event by slug",
-        "description": "Full event detail including venue, organisation and ticket types. A draft event answers 404 unless the caller holds `event:view_draft` for its organisation.",
+        "description": "Full event detail including venue, organisation and ticket types. The path segment is the slug, or the event id for callers whose own screens are keyed by it; the slug is tried first. A draft event answers 404 unless the caller holds `event:view_draft` for its organisation.",
         "tags": [
           "events"
         ],
@@ -12430,6 +12430,19 @@
                         ]
                       }
                     }
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "confirmMaterialChange": {
+                    "type": "boolean"
+                  },
+                  "changeReason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
                   }
                 }
               }

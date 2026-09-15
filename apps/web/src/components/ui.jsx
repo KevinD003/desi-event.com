@@ -34,4 +34,6 @@ export {
   FormField,
   Input,
   Select,
+  Textarea,
+  VisuallyHidden,
 } from '@desi-event/ui'

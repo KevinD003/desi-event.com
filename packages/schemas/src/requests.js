@@ -160,8 +160,34 @@ export const createEventRequestSchema = createEventObject.superRefine(checkEvent
 export const updateEventRequestSchema = eventWritableObject
   .partial()
   .omit({ organizationId: true, status: true })
+  .extend({
+    /**
+     * The revision the caller read.
+     *
+     * Optional on the wire and mandatory in practice for an editor: without it
+     * the last writer silently wins, which for a form that autosaves means one
+     * organiser's afternoon quietly overwriting another's. Omitting it is for a
+     * script making a single deliberate change.
+     */
+    revision: z.int().min(0).optional(),
+    /**
+     * "I know this changes what somebody bought."
+     *
+     * Required before a live event's date, venue, time zone, age limit, online
+     * status or policies may move. Not a default and not inferred from the
+     * fields: the point is that a person said it. The refusal names every field
+     * that made the change material, so the confirmation asked for is specific.
+     */
+    confirmMaterialChange: z.boolean().optional(),
+    /** Why. Sent to everybody holding a ticket, so it is prose, not a code. */
+    changeReason: z.string().trim().min(1).max(2000).optional(),
+  })
   .superRefine((value, ctx) => {
-    if (Object.keys(value).length === 0) {
+    // The three control fields are not content: a body carrying only a
+    // revision is not an update, it is a no-op with a precondition.
+    const { revision: _r, confirmMaterialChange: _c, changeReason: _n, ...fields } = value
+
+    if (Object.keys(fields).length === 0) {
       ctx.addIssue({ code: 'custom', path: [], message: 'Provide at least one field to update' })
     }
     checkEventWindow(value, ctx)

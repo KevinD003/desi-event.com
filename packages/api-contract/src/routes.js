@@ -1151,7 +1151,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:slug',
       summary: 'Get an event by slug',
       description:
-        'Full event detail including venue, organisation and ticket types. A draft event answers 404 unless the caller holds `event:view_draft` for its organisation.',
+        'Full event detail including venue, organisation and ticket types. The path segment is the slug, or the event id for callers whose own screens are keyed by it; the slug is tried first. A draft event answers 404 unless the caller holds `event:view_draft` for its organisation.',
       tags: ['events'],
       auth: 'optional',
       params: slugParamSchema,

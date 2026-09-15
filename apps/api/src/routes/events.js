@@ -6,11 +6,23 @@
 
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
-import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
+import {
+  EDITABLE_STATUSES,
+  INDEXABLE_STATUSES,
+  PUBLICLY_VISIBLE_STATUSES,
+} from '@desi-event/schemas/lifecycle'
 
 import { organizationsWhere } from '../lib/actor.js'
 import { availableTransitions, loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
+import { authorChange } from '../lib/event-authoring.js'
 import { cancellationWork } from '../lib/event-cancellation.js'
+import {
+  LIVE_STATUSES,
+  classifyChanges,
+  materialChangeWork,
+  refuseUnconfirmed,
+} from '../lib/event-material-change.js'
+import { recordAudit } from '../lib/audit.js'
 import { conflict, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
 import { toEventDetail, toEventSummary } from '../lib/presenters.js'
@@ -245,10 +257,17 @@ export function registerEventRoutes(app, { prisma }) {
 
   defineRoute(app, 'events.get', {
     handler: async (request) => {
-      const event = await prisma.event.findUnique({
-        where: { slug: request.params.slug },
-        include: EVENT_INCLUDE,
-      })
+      const key = request.params.slug
+
+      // Slug first, then id. An organiser's editor is keyed by id — the slug
+      // is one of the things being edited, so a URL built from it breaks the
+      // moment somebody renames their event — but a slug that happens to look
+      // like a cuid must still resolve to the event that owns it. Trying the
+      // slug first makes that deterministic rather than a race between two
+      // interpretations of the same string.
+      const event =
+        (await prisma.event.findUnique({ where: { slug: key }, include: EVENT_INCLUDE })) ??
+        (await prisma.event.findUnique({ where: { id: key }, include: EVENT_INCLUDE }))
 
       if (!event) throw notFound('No such event.')
 
@@ -301,7 +320,7 @@ export function registerEventRoutes(app, { prisma }) {
         organizationId: existing.organizationId,
       })
 
-      const body = request.body
+      const { revision, confirmMaterialChange = false, changeReason = null, ...body } = request.body
 
       if (body.slug && body.slug !== existing.slug) {
         const taken = await prisma.event.findUnique({ where: { slug: body.slug } })
@@ -319,9 +338,90 @@ export function registerEventRoutes(app, { prisma }) {
 
       await assertVenueExists(prisma, body.venueId)
 
-      const event = await prisma.event.update({
-        where: { id: existing.id },
-        data: withEventDates(body),
+      const data = withEventDates(body)
+      const { material, before, after } = classifyChanges(existing, data)
+      const live = LIVE_STATUSES.has(existing.status)
+
+      // Three worlds, and they are genuinely different rather than three
+      // branches of one rule.
+      //
+      //   - A draft is somebody's private working copy: edit it.
+      //   - A live event has an audience, so a material change is a change to
+      //     the deal and needs confirming, a reason, and people told.
+      //   - Anything else — under review, approved, cancelled, rejected,
+      //     archived, finished — is not the organiser's to edit at all. Editing
+      //     a version a moderator is holding invalidates the decision rather
+      //     than amending it.
+      if (!EDITABLE_STATUSES.has(existing.status) && !live) {
+        throw conflict(
+          `This event is ${existing.status} and its content cannot be edited. ` +
+            (existing.status === 'REVIEW_PENDING'
+              ? 'Withdraw it from review first.'
+              : 'A moderator holds this version; it cannot be changed from here.'),
+          { status: existing.status, code: 'NOT_EDITABLE' },
+        )
+      }
+
+      if (live && material.length > 0 && !confirmMaterialChange) {
+        refuseUnconfirmed(material, existing.status)
+      }
+
+      if (live && material.length > 0 && !changeReason) {
+        throw unprocessable(
+          'A confirmed material change needs a reason, because it is sent to everybody holding a ticket.',
+          { problems: ['Give a reason for the change.'], fields: material },
+        )
+      }
+
+      // The revision precondition is optional on this route and mandatory in
+      // practice for the editor, which always sends one. Omitting it is for a
+      // script making a single deliberate change; an editor that autosaves
+      // without one is an editor where the last writer silently wins.
+      const expected = Number.isInteger(revision) ? revision : existing.revision
+
+      const updated = await authorChange(prisma, {
+        event: existing,
+        revision: expected,
+        actor: request.actor,
+        action: material.length > 0 ? 'event.material_change' : 'event.updated',
+        write: async (tx) => {
+          await tx.event.update({ where: { id: existing.id }, data })
+
+          if (!live || material.length === 0) return
+
+          const work = await materialChangeWork(tx, {
+            event: existing,
+            revision: expected + 1,
+            material,
+            before,
+            after,
+            reason: changeReason,
+          })
+
+          // Recorded separately from the audit row `authorChange` writes, so
+          // the before/after of a change to the deal is a first-class record
+          // rather than a line item. Historical snapshots on the orders
+          // themselves are never touched: that is what makes them snapshots.
+          await recordAudit(tx, {
+            action: 'event.material_change.notified',
+            entityType: 'Event',
+            entityId: existing.id,
+            actorId: request.actor?.id ?? null,
+            metadata: {
+              fields: material,
+              before,
+              after,
+              reason: changeReason,
+              ordersAffected: work.orders,
+              // Created, not delivered. No outbox worker exists yet.
+              notificationsQueued: work.notifications,
+            },
+          })
+        },
+      })
+
+      const event = await prisma.event.findUnique({
+        where: { id: updated.id },
         include: EVENT_INCLUDE,
       })
 

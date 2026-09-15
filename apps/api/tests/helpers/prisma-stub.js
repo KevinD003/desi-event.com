@@ -455,6 +455,10 @@ const CREATED_ONLY = new Set([
   'ledgerEntry',
   'organizationVerificationEvent',
   'eventModerationAction',
+  // An audit row with no timestamp is not an audit row. The column is
+  // `@default(now())` in the schema and was missing here, so every test that
+  // read one back saw `createdAt: undefined` and none of them looked.
+  'auditLog',
 ])
 
 let idCounter = 0
@@ -866,6 +870,41 @@ export function createPrismaStub(seed = {}) {
         }
 
         return hydrate(model, row, args.include)
+      },
+      /**
+       * Write several rows, optionally skipping the ones a unique constraint
+       * would refuse.
+       *
+       * Built on `create` rather than beside it, so the defaults, the
+       * timestamps and both uniqueness checks are the ones a single write gets.
+       * A second implementation is how a stub starts disagreeing with itself.
+       *
+       * `skipDuplicates` is the whole reason three call sites use this rather
+       * than a loop: it is how the cancellation, material-change and inventory
+       * paths are idempotent. A retry writes nothing and reports zero, which is
+       * exactly what those callers count on to tell "created" from "already
+       * there". Without it here they were untested — the stub had no
+       * `createMany` at all, and the paths that call it were only ever reached
+       * with an empty work list.
+       *
+       * @param {object} args Prisma `createMany` arguments.
+       * @returns {Promise<{count: number}>} How many rows were actually written.
+       */
+      createMany: async (args = {}) => {
+        const rows = Array.isArray(args.data) ? args.data : [args.data]
+        let count = 0
+
+        for (const data of rows) {
+          try {
+            await client[model].create({ data })
+            count += 1
+          } catch (error) {
+            if (args.skipDuplicates && error?.code === 'P2002') continue
+            throw error
+          }
+        }
+
+        return { count }
       },
       update: async (args) => {
         const row = tables[model].find((candidate) => matches(model, candidate, args.where))
