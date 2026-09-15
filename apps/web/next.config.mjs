@@ -10,6 +10,7 @@
 /** Workspace packages whose sources Next must transform rather than treat as pre-built. */
 const workspacePackages = [
   '@desi-event/ui',
+  '@desi-event/inventory',
   '@desi-event/api-contract',
   '@desi-event/schemas',
   '@desi-event/pricing',

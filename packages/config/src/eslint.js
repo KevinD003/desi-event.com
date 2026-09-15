@@ -162,6 +162,17 @@ export function createConfig(options = {}) {
         'no-restricted-imports': [
           'error',
           {
+            // `paths` matches a specifier exactly. `patterns` uses gitignore
+            // semantics, where a bare package name also swallows every subpath
+            // under it — which would block the one safe entry point along with
+            // the barrel it exists to replace.
+            paths: [
+              {
+                name: '@desi-event/inventory',
+                message:
+                  'The inventory barrel re-exports ownership.js, which uses node:crypto. The whole-layout validator is at @desi-event/inventory/layout and imports nothing — use that.',
+              },
+            ],
             patterns: [
               {
                 group: ['@desi-event/auth', '@desi-event/auth/*'],

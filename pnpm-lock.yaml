@@ -139,6 +139,9 @@ importers:
       '@desi-event/api-contract':
         specifier: workspace:*
         version: link:../../packages/api-contract
+      '@desi-event/inventory':
+        specifier: workspace:*
+        version: link:../../packages/inventory
       '@desi-event/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
