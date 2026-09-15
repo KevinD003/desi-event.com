@@ -22,6 +22,7 @@ import {
   disableMfaRequestSchema,
   enrollTotpRequestSchema,
   forgotPasswordRequestSchema,
+  holdSeatsRequestSchema,
   inviteMemberRequestSchema,
   invitationResponseSchema,
   memberListResponseSchema,
@@ -29,6 +30,8 @@ import {
   removeMemberRequestSchema,
   registerAccountRequestSchema,
   resendVerificationRequestSchema,
+  seatHoldResponseSchema,
+  seatMapResponseSchema,
   resetPasswordRequestSchema,
   revokeRequestSchema,
   sessionListResponseSchema,
@@ -110,6 +113,10 @@ export const API_TAGS = Object.freeze([
   },
   { name: 'events', description: 'Public event discovery and organiser event management.' },
   { name: 'ticket-types', description: 'Ticket tiers belonging to an event.' },
+  {
+    name: 'sessions',
+    description: 'Performances of an event, and the seats on sale at each one.',
+  },
   { name: 'holds', description: 'Short-lived inventory reservations taken during checkout.' },
   { name: 'orders', description: 'Checkout and order retrieval.' },
   {
@@ -200,6 +207,9 @@ const organizationIdParamSchema = z.object({ id: cuidSchema })
 
 /** Path parameters for the routes naming one membership or invitation within an organisation. */
 const memberParamSchema = z.object({ id: cuidSchema, memberId: cuidSchema })
+
+/** Path parameters for the routes keyed by a session id. */
+const sessionIdParamSchema = z.object({ id: cuidSchema })
 
 /** Path parameters for the routes nested under an event id. */
 const eventIdParamSchema = z.object({ eventId: cuidSchema })
@@ -903,6 +913,46 @@ export const apiRoutes = Object.freeze(
       response: okResponseSchema,
       successStatus: 200,
       errors: [API_ERRORS.validation, API_ERRORS.notFound, API_ERRORS.conflict, API_ERRORS.gone],
+    },
+    {
+      id: 'sessions.seats',
+      method: 'GET',
+      path: '/v1/sessions/:id/seats',
+      summary: 'Seat map for a session',
+      description:
+        'Every seat on sale at this session, grouped into sections and rows in the order somebody reading a ticket expects. A seat carries whether it is available and never why it is not: "held by another buyer" teaches a buyer to refresh, and "blocked" says something about the production. Accessibility attributes are published to everybody, because somebody who needs an accessible seat has to be able to find one; they describe the seat and never the person in it. A caller who may see drafts for this organisation additionally gets each seat\'s real status.',
+      tags: ['sessions'],
+      auth: 'optional',
+      capability: null,
+      params: sessionIdParamSchema,
+      query: null,
+      body: null,
+      response: seatMapResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.notFound],
+    },
+    {
+      id: 'sessions.hold',
+      method: 'POST',
+      path: '/v1/sessions/:id/holds',
+      summary: 'Reserve seats',
+      description:
+        'Take a set of seats for a bounded time. The request names seats and nothing else: the price, the ticket type, the hold duration and whether the buyer may have these seats are all decided server-side. Choosing an accessible seat also takes its companion seat, and choosing a companion also takes the accessible seat — in both directions, because selling either alone strands the other. All or nothing: if somebody takes one of the seats first, none of them is reserved, and the response says which seat went. The hold is owned by the signed-in buyer, or by a one-time guest token returned once and never again.',
+      tags: ['sessions', 'holds'],
+      auth: 'optional',
+      capability: null,
+      params: sessionIdParamSchema,
+      query: null,
+      body: holdSeatsRequestSchema,
+      response: seatHoldResponseSchema,
+      successStatus: 201,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.notFound,
+        API_ERRORS.conflict,
+        API_ERRORS.unprocessable,
+        API_ERRORS.rateLimited,
+      ],
     },
     {
       id: 'orders.create',

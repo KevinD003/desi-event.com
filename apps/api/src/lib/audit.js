@@ -11,6 +11,8 @@
 
 /** Actions the audit trail records. */
 export const AUDIT_ACTIONS = Object.freeze({
+  HOLD_CREATED: 'hold.created',
+  SEATS_HELD: 'hold.seats_held',
   HOLD_RELEASED: 'hold.released',
   HOLD_RELEASE_DENIED: 'hold.release_denied',
   ORDER_PAID: 'order.paid',

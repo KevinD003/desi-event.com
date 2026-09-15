@@ -57,6 +57,12 @@ const STATUS_BY_CODE = Object.freeze({
   [INVENTORY_ERROR_CODES.INVALID_STATUS]: 400,
   [INVENTORY_ERROR_CODES.INVALID_DATE]: 400,
   [INVENTORY_ERROR_CODES.INVALID_TTL]: 400,
+  [INVENTORY_ERROR_CODES.NOT_FOUND]: 404,
+  // 422 rather than 409: the request is well formed and the seat is simply not
+  // for sale. A 409 would invite a client to retry the same request, which is
+  // exactly the wrong reflex — the remedy is to choose a different seat.
+  [INVENTORY_ERROR_CODES.SEAT_UNAVAILABLE]: 422,
+  [INVENTORY_ERROR_CODES.INVALID_TRANSITION]: 409,
 })
 
 /**

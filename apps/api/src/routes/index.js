@@ -9,6 +9,7 @@
  */
 
 import { registerAuthRoutes } from './auth.js'
+import { registerSessionRoutes } from './sessions.js'
 import { registerTeamRoutes } from './teams.js'
 import { registerEventRoutes } from './events.js'
 import { registerHealthRoutes } from './health.js'
@@ -40,6 +41,7 @@ export function registerRoutes(app, deps) {
   registerTeamRoutes(app, deps)
   registerEventRoutes(app, deps)
   registerTicketTypeRoutes(app, deps)
+  registerSessionRoutes(app, deps)
   registerHoldRoutes(app, deps)
   registerOrderRoutes(app, deps)
   registerPaymentRoutes(app, deps)

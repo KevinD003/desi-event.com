@@ -51,6 +51,19 @@ const RELATIONS = {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     invitedBy: { kind: 'one', model: 'user', from: 'invitedById', to: 'id' },
   },
+  eventSeat: {
+    seat: { kind: 'one', model: 'seat', from: 'seatId', to: 'id' },
+    eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
+    hold: { kind: 'one', model: 'ticketHold', from: 'holdId', to: 'id' },
+  },
+  eventSession: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    eventSeats: { kind: 'many', model: 'eventSeat', from: 'id', to: 'eventSessionId' },
+  },
+  seat: {
+    section: { kind: 'one', model: 'section', from: 'sectionId', to: 'id' },
+    row: { kind: 'one', model: 'seatRow', from: 'rowId', to: 'id' },
+  },
   device: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
     sessions: { kind: 'many', model: 'session', from: 'id', to: 'deviceId' },
@@ -161,6 +174,40 @@ const DEFAULTS = {
     revokedAt: null,
   },
   scannerScope: {},
+  venueMap: { notes: null, archivedAt: null },
+  venueMapVersion: { publishedAt: null, seatCount: 0 },
+  section: { kind: 'SEATED', sortOrder: 0, standingCapacity: null },
+  seatRow: { sortOrder: 0 },
+  priceZone: { colourToken: 'zone-default', sortOrder: 0 },
+  seat: {
+    rowId: null,
+    sortOrder: 0,
+    priceZoneId: null,
+    accessible: false,
+    companionOfSeatId: null,
+    obstructedView: false,
+    restricted: false,
+    restrictionNote: null,
+  },
+  eventSession: {
+    doorsOpenAt: null,
+    timezone: 'Asia/Kolkata',
+    salesStartAt: null,
+    salesEndAt: null,
+    status: 'SCHEDULED',
+    venueMapVersionId: null,
+    capacity: null,
+    sortOrder: 0,
+  },
+  eventSeat: {
+    ticketTypeId: null,
+    status: 'AVAILABLE',
+    holdId: null,
+    orderItemId: null,
+    priceCentsOverride: null,
+    blockedReason: null,
+  },
+  holdItem: { quantity: 1, eventSeatId: null },
 }
 
 /** Unique constraints the API relies on the database to enforce. */
@@ -186,6 +233,9 @@ const UNIQUE_FIELDS = {
  */
 const COMPOUND_UNIQUE = {
   device: [['userId', 'fingerprintHash']],
+  seat: [['venueMapVersionId', 'label']],
+  eventSeat: [['eventSessionId', 'seatId']],
+  venueMapVersion: [['venueMapId', 'version']],
   membership: [['userId', 'organizationId']],
   scannerScope: [['membershipId', 'eventId']],
 }
@@ -222,6 +272,9 @@ const CREATED_ONLY = new Set([
   'loginAttempt',
   'invitation',
   'scannerScope',
+  'venueMap',
+  'venueMapVersion',
+  'eventSession',
 ])
 
 let idCounter = 0
