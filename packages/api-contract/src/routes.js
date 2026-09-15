@@ -11,8 +11,28 @@
 
 import { z } from 'zod'
 import {
-  authResponseSchema,
+  acceptedResponseSchema,
+  changePasswordRequestSchema,
   checkInRequestSchema,
+  confirmTotpRequestSchema,
+  currentSessionResponseSchema,
+  deviceListResponseSchema,
+  disableMfaRequestSchema,
+  enrollTotpRequestSchema,
+  forgotPasswordRequestSchema,
+  mfaFactorListResponseSchema,
+  registerAccountRequestSchema,
+  resendVerificationRequestSchema,
+  resetPasswordRequestSchema,
+  revokeRequestSchema,
+  sessionListResponseSchema,
+  signInRequestSchema,
+  signInResponseSchema,
+  signOutRequestSchema,
+  stepUpRequestSchema,
+  totpConfirmedResponseSchema,
+  totpEnrollmentResponseSchema,
+  verifyEmailRequestSchema,
   checkInResponseSchema,
   createEventRequestSchema,
   createHoldRequestSchema,
@@ -30,15 +50,12 @@ import {
   paymentWebhookRequestSchema,
   listEventsQuerySchema,
   listQuerySchema,
-  loginRequestSchema,
   okResponseSchema,
   orderReferenceSchema,
   orderResponseSchema,
   orderWithItemsSchema,
   paginationMetaSchema,
-  publicUserSchema,
   publishEventRequestSchema,
-  registerRequestSchema,
   slugParamSchema,
   ticketTypeListResponseSchema,
   ticketTypeSchema,
@@ -52,8 +69,25 @@ import { pathParamNames } from './path.js'
 /** Version prefix every business endpoint sits behind. */
 export const API_VERSION_PREFIX = '/v1'
 
-/** Authentication modes a route may declare. */
-export const AUTH_MODES = Object.freeze(['none', 'bearer', 'optional'])
+/**
+ * Authentication modes a route may declare.
+ *
+ *   - `none` — no credential is read. A public route.
+ *   - `optional` — a credential is read if present, and a malformed one is still
+ *     refused. Used where the response differs for a signed-in caller.
+ *   - `session` — a credential is required, and either a session cookie or a
+ *     bearer token satisfies it. This is what almost every authenticated route
+ *     uses: the browser sends a cookie, a script sends a bearer token.
+ *   - `bearer` — a bearer token is required and a cookie will not do. Reserved
+ *     for routes that must not be reachable by a browser carrying an ambient
+ *     session, whatever the origin says.
+ *
+ * @type {string[]}
+ */
+export const AUTH_MODES = Object.freeze(['none', 'bearer', 'optional', 'session'])
+
+/** Modes under which a route requires a credential. */
+export const AUTHENTICATED_MODES = Object.freeze(['bearer', 'session'])
 
 /** HTTP methods the contract is allowed to use. */
 export const HTTP_METHODS = Object.freeze(['GET', 'POST', 'PATCH', 'PUT', 'DELETE'])
@@ -105,6 +139,17 @@ export const API_ERRORS = Object.freeze({
     code: 'FORBIDDEN',
     description: 'The caller is authenticated but lacks the required capability.',
   }),
+  /**
+   * Used *instead of* `forbidden` on a route that requires step-up
+   * authentication, because a route may document each status only once. The
+   * description covers both reasons a 403 can arrive there.
+   */
+  stepUpRequired: Object.freeze({
+    status: 403,
+    code: 'STEP_UP_REQUIRED',
+    description:
+      'The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.',
+  }),
   notFound: Object.freeze({
     status: 404,
     code: 'NOT_FOUND',
@@ -144,9 +189,6 @@ const eventIdParamSchema = z.object({ eventId: cuidSchema })
 /** Path parameters for the customer-facing order lookup. */
 const orderReferenceParamSchema = z.object({ reference: orderReferenceSchema })
 
-/** `GET /v1/auth/me`. */
-const currentUserResponseSchema = z.object({ data: publicUserSchema })
-
 /** `POST /v1/events/:eventId/ticket-types`. */
 const ticketTypeResponseSchema = z.object({ data: ticketTypeSchema })
 
@@ -172,7 +214,9 @@ const waitlistResponseSchema = z.object({ data: waitlistEntrySchema })
  * @property {string} summary One-line description shown in the operation list.
  * @property {string} description Longer prose explaining semantics and side effects.
  * @property {string[]} tags Tag names grouping this operation.
- * @property {'none'|'bearer'|'optional'} auth Whether a bearer token is required, optional or unused.
+ * @property {'none'|'bearer'|'optional'|'session'} auth Which credential the route requires.
+ * @property {string|null} [capability] The capability the guard asserts before the handler runs. Null for a route whose authorization is about the caller's own records rather than a granted power.
+ * @property {boolean} [stepUp] Whether the caller must have authenticated again recently. For actions whose damage is not undoable.
  * @property {ZodType|null} params Schema for the path parameters.
  * @property {ZodType|null} query Schema for the query string.
  * @property {ZodType|null} body Schema for the request body.
@@ -210,13 +254,14 @@ export const apiRoutes = Object.freeze(
       path: '/v1/auth/register',
       summary: 'Create an account',
       description:
-        'Self-service sign-up. Only the ATTENDEE and ORGANIZER roles may be requested; ADMIN is granted out of band. Returns a bearer token so the caller is signed in immediately.',
+        'Self-service sign-up. Only the ATTENDEE and ORGANIZER roles may be requested; every other role is granted out of band, and a request naming one is refused by schema. A session is established immediately, but `emailVerificationRequired` is true until the address is confirmed, and the routes that need a verified address say so.',
       tags: ['auth'],
       auth: 'none',
+      capability: null,
       params: null,
       query: null,
-      body: registerRequestSchema,
-      response: authResponseSchema,
+      body: registerAccountRequestSchema,
+      response: signInResponseSchema,
       successStatus: 201,
       errors: [API_ERRORS.validation, API_ERRORS.conflict, API_ERRORS.rateLimited],
     },
@@ -226,30 +271,300 @@ export const apiRoutes = Object.freeze(
       path: '/v1/auth/login',
       summary: 'Sign in',
       description:
-        'Exchange email and password for a bearer token. A wrong password and an unknown email both answer 401 so the endpoint cannot be used to enumerate accounts.',
+        'Exchange email and password for a session, returned both as a cookie and as a bearer token carrying the same secret. A wrong password and an unknown email answer identically, and both pay the same hashing cost, so neither the body nor the response time enumerates accounts. An account with a second factor and no code supplied answers 200 with `mfaRequired` rather than an error — an error would have to distinguish "wrong password" from "right password, now show a code", which tells an attacker which passwords are correct. Failures are counted per address and per source, and a caller past either threshold gets 429 with no indication of which counter tripped.',
       tags: ['auth'],
       auth: 'none',
+      capability: null,
       params: null,
       query: null,
-      body: loginRequestSchema,
-      response: authResponseSchema,
+      body: signInRequestSchema,
+      response: signInResponseSchema,
       successStatus: 200,
       errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.logout',
+      method: 'POST',
+      path: '/v1/auth/logout',
+      summary: 'Sign out',
+      description:
+        'Revoke the session behind this request and clear its cookies. With `everywhere`, revoke every other session this account holds as well. Idempotent: signing out of an already-revoked session succeeds.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: signOutRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized],
     },
     {
       id: 'auth.me',
       method: 'GET',
       path: '/v1/auth/me',
-      summary: 'Current user',
-      description: 'Resolve the bearer token to its user record. Never includes the password hash.',
+      summary: 'Current session',
+      description:
+        'Who the caller is, what they may do, and the state of their session. Capabilities are resolved on every request rather than baked into a token, so a role revoked at 09:00 stops working at 09:00. Never includes the password hash, the session token, or any credential.',
       tags: ['auth'],
-      auth: 'bearer',
+      auth: 'session',
+      capability: null,
       params: null,
       query: null,
       body: null,
-      response: currentUserResponseSchema,
+      response: currentSessionResponseSchema,
       successStatus: 200,
       errors: [API_ERRORS.unauthorized],
+    },
+    {
+      id: 'auth.verifyEmail',
+      method: 'POST',
+      path: '/v1/auth/verify-email',
+      summary: 'Confirm an email address',
+      description:
+        'Redeem a verification link. The token is single-use, enforced by a conditional update rather than by a read-then-write, so two simultaneous redemptions cannot both succeed. A token issued for any other purpose is refused even if it is otherwise valid.',
+      tags: ['auth'],
+      auth: 'none',
+      capability: null,
+      params: null,
+      query: null,
+      body: verifyEmailRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.resendVerification',
+      method: 'POST',
+      path: '/v1/auth/resend-verification',
+      summary: 'Send the verification email again',
+      description:
+        'Answers identically whether the address has an account, has already been verified, or has never been seen. Rate-limited, because an endpoint that sends mail on demand is an endpoint that sends mail to somebody else on demand.',
+      tags: ['auth'],
+      auth: 'none',
+      capability: null,
+      params: null,
+      query: null,
+      body: resendVerificationRequestSchema,
+      response: acceptedResponseSchema,
+      successStatus: 202,
+      errors: [API_ERRORS.validation, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.forgotPassword',
+      method: 'POST',
+      path: '/v1/auth/forgot-password',
+      summary: 'Request a password reset',
+      description:
+        'Issue a single-use reset link with a short lifetime. Answers identically for a known and an unknown address. Any reset token already outstanding for the account is revoked, so a link requested twice leaves exactly one usable link.',
+      tags: ['auth'],
+      auth: 'none',
+      capability: null,
+      params: null,
+      query: null,
+      body: forgotPasswordRequestSchema,
+      response: acceptedResponseSchema,
+      successStatus: 202,
+      errors: [API_ERRORS.validation, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.resetPassword',
+      method: 'POST',
+      path: '/v1/auth/reset-password',
+      summary: 'Set a new password from a reset link',
+      description:
+        'Redeem a reset token and replace the password. The token is single-use. Every session the account holds is revoked, including the one that may be making this request: a session established with the old password must stop working, or resetting the password because somebody else knows it accomplishes nothing.',
+      tags: ['auth'],
+      auth: 'none',
+      capability: null,
+      params: null,
+      query: null,
+      body: resetPasswordRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.changePassword',
+      method: 'POST',
+      path: '/v1/auth/change-password',
+      summary: 'Change the password',
+      description:
+        'Requires the current password even though the caller is already authenticated: a session is evidence of who they were when they signed in, not evidence that the person at the keyboard now knows the password. On success every other session is revoked and this one is rotated.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: changePasswordRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.stepUp',
+      method: 'POST',
+      path: '/v1/auth/step-up',
+      summary: 'Authenticate again for a sensitive action',
+      description:
+        'Prove possession of the password or a second factor, marking the session as recently authenticated for a bounded window. Required by routes whose damage is not undoable. An account whose roles require a second factor must supply a code here; a password alone will not do.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: stepUpRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.listSessions',
+      method: 'GET',
+      path: '/v1/auth/sessions',
+      summary: 'List active sessions',
+      description:
+        'Every session this account currently holds, with the current one flagged. Carries no token digests and no raw IP addresses — enough to recognise a session as yours or not, and nothing more.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: null,
+      response: sessionListResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized],
+    },
+    {
+      id: 'auth.revokeSession',
+      method: 'POST',
+      path: '/v1/auth/sessions/:id/revoke',
+      summary: 'End a session',
+      description:
+        "End one session, which may be the caller's own. A session belonging to another account answers 404 rather than 403, so the endpoint cannot be used to discover whether a session id exists. Idempotent.",
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: idParamSchema,
+      query: null,
+      body: revokeRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.notFound],
+    },
+    {
+      id: 'auth.listDevices',
+      method: 'GET',
+      path: '/v1/auth/devices',
+      summary: 'List known devices',
+      description:
+        'Browsers and apps this account has signed in from, with how many live sessions each currently has. The stored fingerprint digest is never returned.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: null,
+      response: deviceListResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized],
+    },
+    {
+      id: 'auth.revokeDevice',
+      method: 'POST',
+      path: '/v1/auth/devices/:id/revoke',
+      summary: 'Revoke a device',
+      description:
+        'Revoke a device and every session established from it. A device belonging to another account answers 404. Idempotent.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: idParamSchema,
+      query: null,
+      body: revokeRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.notFound],
+    },
+    {
+      id: 'auth.listFactors',
+      method: 'GET',
+      path: '/v1/auth/mfa',
+      summary: 'List second factors',
+      description:
+        "This account's enrolled factors, whether its roles require one, and whether that requirement is satisfied. Never returns a secret or a recovery code.",
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: null,
+      response: mfaFactorListResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized],
+    },
+    {
+      id: 'auth.enrollTotp',
+      method: 'POST',
+      path: '/v1/auth/mfa/totp',
+      summary: 'Begin TOTP enrolment',
+      description:
+        'Generate a TOTP secret and return it once, with the provisioning URI an authenticator app scans. The factor is unusable until confirmed, so an abandoned enrolment leaves an unconfirmed row rather than a second factor nobody can produce a code for. The secret is sealed at rest and never returned again.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: enrollTotpRequestSchema,
+      response: totpEnrollmentResponseSchema,
+      successStatus: 201,
+      errors: [API_ERRORS.validation, API_ERRORS.unauthorized, API_ERRORS.rateLimited],
+    },
+    {
+      id: 'auth.confirmTotp',
+      method: 'POST',
+      path: '/v1/auth/mfa/totp/confirm',
+      summary: 'Confirm TOTP enrolment',
+      description:
+        'Prove the authenticator holds the secret, activating the factor and returning a set of single-use recovery codes. The codes appear once: they are stored as digests, so losing them means generating a new set. Every other session is revoked, because adding a factor is a privilege change.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      params: null,
+      query: null,
+      body: confirmTotpRequestSchema,
+      response: totpConfirmedResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.notFound,
+        API_ERRORS.rateLimited,
+      ],
+    },
+    {
+      id: 'auth.disableFactor',
+      method: 'POST',
+      path: '/v1/auth/mfa/:id/disable',
+      summary: 'Remove a second factor',
+      description:
+        'Disable a factor. Gated on the current password and on a recent step-up, because removing a factor is the action an attacker who has stolen a session would most like to perform. Removing the last confirmed factor from an account whose roles require one is refused: the account would keep its authority and lose its second factor.',
+      tags: ['auth'],
+      auth: 'session',
+      capability: null,
+      stepUp: true,
+      params: idParamSchema,
+      query: null,
+      body: disableMfaRequestSchema,
+      response: okResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.stepUpRequired,
+        API_ERRORS.notFound,
+        API_ERRORS.unprocessable,
+      ],
     },
     {
       id: 'events.list',
@@ -307,7 +622,7 @@ export const apiRoutes = Object.freeze(
       description:
         'Creates an event in DRAFT status. Requires `event:create` for the target organisation. The slug must be unique across the platform.',
       tags: ['events'],
-      auth: 'bearer',
+      auth: 'session',
       params: null,
       query: null,
       body: createEventRequestSchema,
@@ -328,7 +643,7 @@ export const apiRoutes = Object.freeze(
       description:
         'Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` cannot be changed here — use `POST /v1/events/:id/publish`, which requires `event:publish`. Requires `event:update`.',
       tags: ['events'],
-      auth: 'bearer',
+      auth: 'session',
       params: idParamSchema,
       query: null,
       body: updateEventRequestSchema,
@@ -350,7 +665,7 @@ export const apiRoutes = Object.freeze(
       description:
         'Moves an event between DRAFT, PUBLISHED, CANCELLED and COMPLETED. Publishing an event with no on-sale ticket type answers 422. Requires `event:publish`.',
       tags: ['events'],
-      auth: 'bearer',
+      auth: 'session',
       params: idParamSchema,
       query: null,
       body: publishEventRequestSchema,
@@ -389,7 +704,7 @@ export const apiRoutes = Object.freeze(
       description:
         'Adds a tier to an event. Prices are integer minor units (cents/paise). Requires `ticketType:manage`.',
       tags: ['ticket-types'],
-      auth: 'bearer',
+      auth: 'session',
       params: eventIdParamSchema,
       query: null,
       body: createTicketTypeRequestSchema,
@@ -470,7 +785,7 @@ export const apiRoutes = Object.freeze(
       description:
         'Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`.',
       tags: ['orders'],
-      auth: 'bearer',
+      auth: 'session',
       params: orderReferenceParamSchema,
       query: null,
       body: null,
@@ -490,7 +805,7 @@ export const apiRoutes = Object.freeze(
       summary: 'List my orders',
       description: 'Orders belonging to the authenticated user, newest first.',
       tags: ['orders'],
-      auth: 'bearer',
+      auth: 'session',
       params: null,
       query: listQuerySchema,
       body: null,
@@ -522,7 +837,7 @@ export const apiRoutes = Object.freeze(
       description:
         'Scans a ticket at the door. Re-scanning an already-admitted ticket answers 200 with `alreadyCheckedIn: true` rather than an error, so a flaky scanner never blocks the queue. Requires `ticket:check_in`.',
       tags: ['tickets'],
-      auth: 'bearer',
+      auth: 'session',
       params: null,
       query: null,
       body: checkInRequestSchema,

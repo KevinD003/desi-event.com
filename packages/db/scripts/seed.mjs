@@ -29,7 +29,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import path from 'node:path'
 
 import { config as loadDotenv } from 'dotenv'
-import { hashSync } from 'bcryptjs'
+import { hashPasswordSync } from '@desi-event/auth'
 
 import { createPrismaClient } from '../src/index.js'
 
@@ -87,11 +87,18 @@ const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 
 /**
- * Cost factor for seeded password hashes. Deliberately far below the value a
- * real deployment uses: seeding hashes nothing that guards production data and
- * a cost of 12 would add minutes to every run.
+ * scrypt parameters for seeded password hashes.
+ *
+ * Deliberately far below what a deployment uses. The seed hashes one password
+ * for fifteen accounts and guards nothing: at the real cost this would add a
+ * second and a half of CPU and 32 MiB of working set to every run, for a
+ * credential printed at the end of the same script.
+ *
+ * The *format* is the real one, which is the part that matters — a fresh
+ * database is seeded with hashes in the current encoding rather than in Phase
+ * 1's bcrypt, so nothing arrives already needing migration.
  */
-const SEED_BCRYPT_ROUNDS = 4
+const SEED_SCRYPT = Object.freeze({ N: 1024, r: 8, p: 1, keyLength: 32, saltLength: 16 })
 
 /** Shared password for every seeded account. Development only. */
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? 'DesiEvent!2026'
@@ -1510,7 +1517,7 @@ const WAITLIST = [
  */
 export function buildSeedData(now = new Date()) {
   const anchor = startOfUtcDay(now)
-  const passwordHash = hashSync(SEED_PASSWORD, SEED_BCRYPT_ROUNDS)
+  const passwordHash = hashPasswordSync(SEED_PASSWORD, SEED_SCRYPT)
 
   const users = USERS.map((user) => ({
     key: user.key,

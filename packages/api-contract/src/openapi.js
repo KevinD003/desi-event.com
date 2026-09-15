@@ -20,6 +20,9 @@ export const OPENAPI_VERSION = '3.1.0'
 /** Name of the bearer security scheme in `components.securitySchemes`. */
 export const BEARER_SCHEME_NAME = 'bearerAuth'
 
+/** Name of the session-cookie security scheme in `components.securitySchemes`. */
+export const SESSION_SCHEME_NAME = 'sessionCookie'
+
 /**
  * OpenAPI 3.1 embeds JSON Schema 2020-12 verbatim, so that is the target we
  * ask Zod for. `unrepresentable: 'any'` keeps constructs like `z.date()` from
@@ -255,9 +258,24 @@ export function buildOperation(route, components) {
 
   if (route.auth === 'bearer') {
     operation.security = [{ [BEARER_SCHEME_NAME]: [] }]
+  } else if (route.auth === 'session') {
+    // Two alternatives rather than two requirements: either satisfies the route,
+    // and they carry the same secret.
+    operation.security = [{ [SESSION_SCHEME_NAME]: [] }, { [BEARER_SCHEME_NAME]: [] }]
   } else if (route.auth === 'optional') {
     // An empty requirement object means "no credentials also works".
-    operation.security = [{}, { [BEARER_SCHEME_NAME]: [] }]
+    operation.security = [{}, { [SESSION_SCHEME_NAME]: [] }, { [BEARER_SCHEME_NAME]: [] }]
+  }
+
+  if (route.capability) {
+    // Documented in the description rather than as an OpenAPI construct, because
+    // OpenAPI's scopes belong to OAuth flows and this is not one. A reader needs
+    // to know which power the route asks for; a generator does not.
+    operation.description = `${operation.description}\n\nRequires the \`${route.capability}\` capability.`
+  }
+
+  if (route.stepUp) {
+    operation.description = `${operation.description}\n\nRequires a recent step-up authentication: see \`POST /v1/auth/step-up\`.`
   }
 
   return operation
@@ -325,11 +343,18 @@ export function buildOpenApiDocument(options = {}) {
     components: {
       schemas: componentSchemas,
       securitySchemes: {
+        [SESSION_SCHEME_NAME]: {
+          type: 'apiKey',
+          in: 'cookie',
+          name: '__Host-desi_session',
+          description:
+            'The session cookie set by `POST /v1/auth/login`. A state-changing request must also echo the `__Host-desi_csrf` cookie in the `x-desi-csrf` header and arrive from an expected origin. On a deployment served over plain HTTP the cookies lose their `__Host-` prefix.',
+        },
         [BEARER_SCHEME_NAME]: {
           type: 'http',
           scheme: 'bearer',
-          bearerFormat: 'JWT',
-          description: 'A JWT issued by `POST /v1/auth/login` or `POST /v1/auth/register`.',
+          description:
+            'The same session secret `POST /v1/auth/login` returns as `token`, presented as a bearer token instead of a cookie. Opaque, not a JWT: it is the key to a session row, so revoking the session revokes the token.',
         },
       },
     },

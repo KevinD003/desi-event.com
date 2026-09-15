@@ -5,12 +5,14 @@ import { ApiContractError } from './errors.js'
 import {
   BEARER_SCHEME_NAME,
   OPENAPI_VERSION,
+  SESSION_SCHEME_NAME,
   buildOpenApiDocument,
   buildOperation,
   documentedErrorStatuses,
   hoistDefinitions,
   toJsonSchema,
 } from './openapi.js'
+import { toOpenApiPath } from './path.js'
 import { API_ERRORS, apiRoutes, routeById } from './routes.js'
 
 const document = buildOpenApiDocument()
@@ -119,8 +121,12 @@ describe('buildOpenApiDocument', () => {
     expect(document.components.securitySchemes[BEARER_SCHEME_NAME]).toMatchObject({
       type: 'http',
       scheme: 'bearer',
-      bearerFormat: 'JWT',
     })
+    // No `bearerFormat`: the token is opaque, not a JWT. Advertising a format
+    // would invite a client to decode it, and there is nothing inside.
+    expect(document.components.securitySchemes[BEARER_SCHEME_NAME]).not.toHaveProperty(
+      'bearerFormat',
+    )
   })
 
   it('emits one operation per route, keyed by the OpenAPI path form', () => {
@@ -203,13 +209,47 @@ describe('buildOpenApiDocument', () => {
     }
   })
 
-  it('requires the bearer scheme on protected routes only', () => {
-    expect(document.paths['/v1/auth/me'].get.security).toEqual([{ [BEARER_SCHEME_NAME]: [] }])
+  it('offers both ways of presenting a session on a protected route', () => {
+    // Two alternatives, not two requirements: a browser sends the cookie and a
+    // script sends the header, and they carry the same secret.
+    expect(document.paths['/v1/auth/me'].get.security).toEqual([
+      { [SESSION_SCHEME_NAME]: [] },
+      { [BEARER_SCHEME_NAME]: [] },
+    ])
     expect(document.paths['/health'].get).not.toHaveProperty('security')
   })
 
   it('lets an optional-auth route be called with or without credentials', () => {
-    expect(document.paths['/v1/events'].get.security).toEqual([{}, { [BEARER_SCHEME_NAME]: [] }])
+    expect(document.paths['/v1/events'].get.security).toEqual([
+      {},
+      { [SESSION_SCHEME_NAME]: [] },
+      { [BEARER_SCHEME_NAME]: [] },
+    ])
+  })
+
+  it('describes the session cookie, and what a state-changing request must add', () => {
+    const scheme = document.components.securitySchemes[SESSION_SCHEME_NAME]
+
+    expect(scheme).toMatchObject({ type: 'apiKey', in: 'cookie' })
+    expect(scheme.description).toContain('x-desi-csrf')
+  })
+
+  it('names the capability a route requires, where it requires one', () => {
+    for (const route of apiRoutes.filter((candidate) => candidate.capability)) {
+      const path = toOpenApiPath(route.path)
+      const operation = document.paths[path][route.method.toLowerCase()]
+
+      expect(operation.description, route.id).toContain(route.capability)
+    }
+  })
+
+  it('says when a route needs a step-up', () => {
+    for (const route of apiRoutes.filter((candidate) => candidate.stepUp)) {
+      const path = toOpenApiPath(route.path)
+      const operation = document.paths[path][route.method.toLowerCase()]
+
+      expect(operation.description, route.id).toContain('step-up')
+    }
   })
 
   it('resolves the ErrorResponse component it references', () => {

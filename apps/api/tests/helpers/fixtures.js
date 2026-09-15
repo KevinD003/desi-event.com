@@ -10,6 +10,7 @@
  */
 
 import bcrypt from 'bcryptjs'
+import { SCRYPT_PARAMETERS, hashPassword } from '@desi-event/auth'
 
 import { cuid } from './prisma-stub.js'
 
@@ -17,22 +18,50 @@ import { cuid } from './prisma-stub.js'
 export const PASSWORD = 'correct-horse-battery'
 
 /**
- * Hashed once. bcrypt at cost 10 is deliberately slow and every suite seeds
- * six users, so the *promise* is cached rather than the value: two callers
+ * scrypt parameters weak enough for a test suite.
+ *
+ * The production parameters cost ~100ms and 32 MiB per derivation, which is the
+ * point of them and also several minutes across a suite that signs in on nearly
+ * every test. The cost is the only thing turned down; the format, the salting and
+ * the verification path are the real ones. `packages/auth` has the tests that pay
+ * the real cost.
+ *
+ * @type {object}
+ */
+export const TEST_SCRYPT = Object.freeze({ ...SCRYPT_PARAMETERS, N: 1024 })
+
+/**
+ * Hashed once. The *promise* is cached rather than the value, so two callers
  * racing before the first resolves share one hash instead of computing two.
  *
  * @type {Promise<string>|null}
  */
 let cachedHash = null
 
+/** @type {Promise<string>|null} */
+let cachedLegacyHash = null
+
 /**
- * The bcrypt hash of {@link PASSWORD}.
+ * The stored hash of {@link PASSWORD}, in the current format.
  *
  * @returns {Promise<string>} The hash.
  */
 export function passwordHash() {
-  cachedHash ??= bcrypt.hash(PASSWORD, 10)
+  cachedHash ??= hashPassword(PASSWORD, TEST_SCRYPT)
   return cachedHash
+}
+
+/**
+ * The same password in Phase 1's bcrypt format.
+ *
+ * Kept so the migration path has something real to migrate: a suite in which
+ * every fixture is already scrypt would never execute the legacy branch.
+ *
+ * @returns {Promise<string>} A bcrypt hash of {@link PASSWORD}.
+ */
+export function legacyPasswordHash() {
+  cachedLegacyHash ??= bcrypt.hash(PASSWORD, 10)
+  return cachedLegacyHash
 }
 
 /**

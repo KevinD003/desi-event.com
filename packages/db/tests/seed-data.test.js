@@ -132,11 +132,30 @@ describe('buildSeedData shape', () => {
     expect(data.organizations.map((org) => org.payoutCurrency).sort()).toEqual(['CAD', 'INR'])
   })
 
-  it('never stores a plaintext password', () => {
+  it('never stores a plaintext password, and stores it in the current format', () => {
     for (const user of data.users) {
-      expect(user.passwordHash).toMatch(/^\$2[aby]\$\d{2}\$/)
+      // scrypt, not bcrypt: a fresh database should not be seeded with hashes
+      // that already need migrating.
+      expect(user.passwordHash).toMatch(/^scrypt\$1\$\d+\$\d+\$\d+\$/)
       expect(user.passwordHash).not.toContain('DesiEvent')
     }
+  })
+
+  it('gives every seeded account the same hash, computed once', () => {
+    // Fifteen accounts share one password, so hashing per account would be
+    // fifteen derivations for one credential printed at the end of the run.
+    expect(new Set(data.users.map((user) => user.passwordHash)).size).toBe(1)
+  })
+
+  it('seeds a hash the password verifier accepts', async () => {
+    const { verifyPassword } = await import('@desi-event/auth')
+
+    await expect(
+      verifyPassword('DesiEvent!2026', data.users[0].passwordHash),
+    ).resolves.toMatchObject({ valid: true })
+    await expect(verifyPassword('wrong', data.users[0].passwordHash)).resolves.toMatchObject({
+      valid: false,
+    })
   })
 
   it('uses unique emails and includes attendees, organisers and an admin', () => {

@@ -58,6 +58,7 @@ export async function buildApp(options) {
     docs = true,
     rateLimit = {},
     processEnv = process.env,
+    deliver,
   } = options
 
   if (!prisma) throw new TypeError('buildApp requires a prisma client')
@@ -107,6 +108,7 @@ export async function buildApp(options) {
     version,
     payments,
     authLimit: rateLimit.auth,
+    deliver,
   })
 
   return app

@@ -117,9 +117,21 @@ describe('apiRoutes', () => {
   })
 
   it('never documents 401 on a route that takes no credentials', () => {
+    // `auth: 'none'` means "no session is required", not "no secret is
+    // presented". These four take one in the body — a password, or a single-use
+    // link — so 401 is the honest answer when it does not check out. Every other
+    // anonymous route is a read, and a read that can 401 is a read somebody has
+    // put a credential check into by mistake.
+    const carriesCredentialInBody = new Set([
+      'auth.login',
+      'auth.verifyEmail',
+      'auth.resetPassword',
+    ])
+
     for (const route of apiRoutes.filter((r) => r.auth === 'none')) {
+      if (carriesCredentialInBody.has(route.id)) continue
+
       const statuses = route.errors.map((error) => error.status)
-      if (route.id === 'auth.login') continue
       expect(statuses, route.id).not.toContain(401)
     }
   })

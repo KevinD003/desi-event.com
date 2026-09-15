@@ -46,10 +46,17 @@ describe('apiEnvSchema', () => {
       DATABASE_URL: DB_URL,
       REDIS_URL: REDIS,
       JWT_SECRET: STRONG_SECRET,
+      // Filled from JWT_SECRET rather than defaulted, so a deployment with one
+      // strong secret is not refused for not having two.
+      AUTH_SECRET: STRONG_SECRET,
       JWT_EXPIRES_IN: '7d',
       API_PORT: 4000,
       API_HOST: '0.0.0.0',
       CORS_ORIGIN: '*',
+      // On by default. Assuming HTTPS on a plain-HTTP deployment produces a
+      // cookie the browser refuses, which is loud; assuming the reverse produces
+      // a session cookie sent in the clear, which is not.
+      SECURE_COOKIES: true,
       PLATFORM_FEE_BPS: 590,
       PLATFORM_FEE_FLAT_CENTS: 99,
       TICKET_HOLD_TTL_SECONDS: 600,
@@ -57,6 +64,34 @@ describe('apiEnvSchema', () => {
       // be a deliberate decision somebody owns.
       ALLOW_DEMO_TAX_IN_PRODUCTION: false,
     })
+  })
+
+  it('takes an explicitly supplied AUTH_SECRET over JWT_SECRET', () => {
+    const distinct = 'a-separate-auth-secret-long-enough-to-be-one'
+    const parsed = apiEnvSchema.parse(apiEnv({ AUTH_SECRET: distinct }))
+
+    expect(parsed.AUTH_SECRET).toBe(distinct)
+    expect(parsed.JWT_SECRET).toBe(STRONG_SECRET)
+  })
+
+  it('treats a blank AUTH_SECRET as unset rather than as an empty secret', () => {
+    expect(apiEnvSchema.parse(apiEnv({ AUTH_SECRET: '   ' })).AUTH_SECRET).toBe(STRONG_SECRET)
+  })
+
+  it('reports only JWT_SECRET when AUTH_SECRET was never supplied', () => {
+    // Otherwise a deployment that forgot one secret is told to fix two, and one
+    // of them is a variable nobody set.
+    const result = apiEnvSchema.safeParse(apiEnv({ JWT_SECRET: 'short' }))
+
+    expect(result.success).toBe(false)
+    expect(result.error.issues.map((issue) => issue.path.join('.'))).toEqual(['JWT_SECRET'])
+  })
+
+  it('reports AUTH_SECRET when it was supplied and is too short', () => {
+    const result = apiEnvSchema.safeParse(apiEnv({ AUTH_SECRET: 'short' }))
+
+    expect(result.success).toBe(false)
+    expect(result.error.issues.map((issue) => issue.path.join('.'))).toEqual(['AUTH_SECRET'])
   })
 
   it('coerces the numeric variables, which arrive as strings', () => {

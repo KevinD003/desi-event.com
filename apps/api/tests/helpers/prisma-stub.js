@@ -41,6 +41,20 @@ const RELATIONS = {
   membership: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
   },
+  session: {
+    user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
+    device: { kind: 'one', model: 'device', from: 'deviceId', to: 'id' },
+  },
+  device: {
+    user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
+    sessions: { kind: 'many', model: 'session', from: 'id', to: 'deviceId' },
+  },
+  mfaFactor: {
+    user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
+  },
+  authToken: {
+    user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
+  },
 }
 
 /** Columns the database fills in, mirrored so rows look like real rows. */
@@ -115,6 +129,25 @@ const DEFAULTS = {
     endsAt: null,
   },
   waitlistEntry: { quantity: 1, notified: false, userId: null },
+  session: {
+    deviceId: null,
+    userAgent: null,
+    ipHash: null,
+    revokedAt: null,
+    revokedReason: null,
+    mfaSatisfiedAt: null,
+    rotatedAt: null,
+  },
+  device: { label: null, trustedAt: null, revokedAt: null },
+  mfaFactor: {
+    label: null,
+    confirmedAt: null,
+    lastUsedAt: null,
+    usedAt: null,
+    disabledAt: null,
+  },
+  authToken: { userId: null, subjectId: null, usedAt: null, revokedAt: null },
+  loginAttempt: { succeeded: false },
 }
 
 /** Unique constraints the API relies on the database to enforce. */
@@ -123,6 +156,22 @@ const UNIQUE_FIELDS = {
   event: ['slug'],
   order: ['reference'],
   ticket: ['code'],
+  session: ['tokenHash'],
+  authToken: ['tokenHash'],
+}
+
+/**
+ * Compound unique constraints, as `[fields]` per model.
+ *
+ * Separate from {@link UNIQUE_FIELDS} because a compound key is only violated
+ * when *every* field matches, and the auth code depends on one:
+ * `Device(userId, fingerprintHash)` is what makes two simultaneous sign-ins from
+ * the same browser produce one device row rather than two.
+ *
+ * @type {Record<string, string[][]>}
+ */
+const COMPOUND_UNIQUE = {
+  device: [['userId', 'fingerprintHash']],
 }
 
 /** Models that carry `createdAt`/`updatedAt`. */
@@ -137,7 +186,19 @@ const TIMESTAMPED = new Set([
   'ticket',
   'payment',
   'promoCode',
+  'membership',
 ])
+
+/**
+ * Models whose rows carry only `createdAt`.
+ *
+ * Sessions, devices and tokens have their own more specific timestamps and no
+ * `updatedAt`; adding one would put a column on the stub's rows that the real
+ * schema does not have, which is how a stub starts lying.
+ *
+ * @type {Set<string>}
+ */
+const CREATED_ONLY = new Set(['session', 'device', 'mfaFactor', 'authToken', 'loginAttempt'])
 
 let idCounter = 0
 
@@ -493,6 +554,9 @@ export function createPrismaStub(seed = {}) {
           id: cuid(),
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
+          ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
+          ...(model === 'session' ? { lastSeenAt: now } : {}),
+          ...(model === 'device' ? { firstSeenAt: now, lastSeenAt: now } : {}),
           ...args.data,
         }
 
@@ -500,6 +564,14 @@ export function createPrismaStub(seed = {}) {
           if (tables[model].some((existing) => existing[field] === row[field])) {
             throw uniqueViolation(model, field)
           }
+        }
+
+        for (const fields of COMPOUND_UNIQUE[model] ?? []) {
+          const clash = tables[model].some((existing) =>
+            fields.every((field) => existing[field] === row[field]),
+          )
+
+          if (clash) throw uniqueViolation(model, fields.join('_'))
         }
 
         tables[model].push(row)
@@ -539,6 +611,7 @@ export function createPrismaStub(seed = {}) {
           id: cuid(),
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
+          ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
           ...args.create,
         }
 
@@ -550,6 +623,46 @@ export function createPrismaStub(seed = {}) {
         if (index < 0) throw new Error(`No ${model} found`)
         const [row] = tables[model].splice(index, 1)
         return row
+      },
+      /**
+       * `groupBy`, supporting the one shape the API uses: group by columns and
+       * count. Enough to exercise the query the device list depends on, and
+       * deliberately not a general implementation — a stub that pretends to
+       * support more of the query language than it does is worse than one that
+       * throws.
+       *
+       * @param {object} args Prisma `groupBy` arguments.
+       * @returns {Promise<object[]>} One row per distinct combination.
+       */
+      groupBy: async (args = {}) => {
+        const by = toArray(args.by)
+
+        if (by.length === 0) throw new Error('groupBy needs at least one column')
+        if (!args._count) throw new Error('the stub only implements groupBy with _count')
+
+        const rows = (tables[model] ?? []).filter((row) => matches(model, row, args.where))
+        /** @type {Map<string, {row: object, count: number}>} */
+        const groups = new Map()
+
+        for (const row of rows) {
+          const key = JSON.stringify(by.map((column) => row[column] ?? null))
+          const existing = groups.get(key)
+
+          if (existing) {
+            existing.count += 1
+            continue
+          }
+
+          groups.set(key, {
+            row: Object.fromEntries(by.map((column) => [column, row[column] ?? null])),
+            count: 1,
+          })
+        }
+
+        return [...groups.values()].map((group) => ({
+          ...group.row,
+          _count: { _all: group.count },
+        }))
       },
     }
   }
@@ -578,10 +691,18 @@ export function createPrismaStub(seed = {}) {
      * restores every table to its pre-transaction contents, so a failed payment
      * genuinely leaves nothing behind.
      *
-     * @param {function(object): Promise<*>} fn The transaction body.
+     * Both of Prisma's forms are supported. The callback form is what the
+     * checkout paths use. The array form — `$transaction([a, b])` — is what a
+     * caller uses when the writes do not depend on each other; Prisma's client
+     * builds those promises eagerly, so by the time this sees them they have
+     * already been prepared, and awaiting them in order inside the snapshot is
+     * the same all-or-nothing guarantee.
+     *
+     * @param {function(object): Promise<*>|Array<Promise<*>>} fn The transaction body, or an array of operations.
      * @returns {Promise<unknown>} Whatever the body resolved with.
      */
     $transaction: (fn) => {
+      const body = Array.isArray(fn) ? async () => Promise.all(fn) : fn
       const run = async () => {
         const snapshot = {}
         for (const [model, rows] of Object.entries(tables)) {
@@ -589,7 +710,7 @@ export function createPrismaStub(seed = {}) {
         }
 
         try {
-          return await fn(client)
+          return await body(client)
         } catch (error) {
           // Restored in place so that `_store.someModel` references held by a
           // test stay valid across a rollback.

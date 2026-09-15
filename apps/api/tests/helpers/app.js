@@ -40,6 +40,7 @@ export function testEnv(overrides = {}) {
     API_PORT: 4000,
     API_HOST: '127.0.0.1',
     CORS_ORIGIN: '*',
+    WEB_ORIGIN: 'https://desi-event.test',
     PLATFORM_FEE_BPS: 590,
     PLATFORM_FEE_FLAT_CENTS: 99,
     TICKET_HOLD_TTL_SECONDS: 600,
@@ -59,6 +60,7 @@ export function testEnv(overrides = {}) {
  * @param {boolean} [options.docs] Whether to mount the documentation routes.
  * @param {object} [options.logger] A pino logger; omitted (silent) by default.
  * @param {object} [options.rateLimit] Rate-limit overrides.
+ * @param {function(object): Promise<void>} [options.deliver] Captures the single-use links the auth routes issue, which is the only way a test can see one: the database holds a digest.
  * @param {Record<string, string|undefined>} [options.processEnv] Environment the payment kill switch inspects. Empty by default, so a stray variable on the machine running the suite cannot change the result.
  * @returns {Promise<{app: object, prisma: object, providers: object, ids: object}>} The harness.
  */
@@ -77,6 +79,7 @@ export async function createTestApp(options = {}) {
     docs: options.docs ?? false,
     rateLimit: options.rateLimit ?? { global: { max: 10_000, timeWindow: '1 minute' } },
     processEnv: options.processEnv ?? {},
+    deliver: options.deliver,
   })
 
   await app.ready()

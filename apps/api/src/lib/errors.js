@@ -285,3 +285,36 @@ export function unprocessable(message, details) {
 export function unauthorized(message = 'A valid bearer token is required.') {
   return httpError(401, 'UNAUTHORIZED', message)
 }
+
+/**
+ * Shorthand for a 403: authenticated, and still not allowed.
+ *
+ * The code is a parameter rather than fixed because a 403 arrives for two
+ * genuinely different reasons — the caller lacks a capability, or holds it and
+ * has not authenticated again recently — and a client that wants to offer a
+ * "confirm your identity" prompt has to be able to tell them apart.
+ *
+ * @param {string} message Message to send.
+ * @param {string} [code] Machine-readable code.
+ * @returns {Error} A 403 error.
+ */
+export function forbidden(message, code = 'FORBIDDEN') {
+  return httpError(403, code, message)
+}
+
+/**
+ * Shorthand for a 429, carrying the interval the caller should wait.
+ *
+ * @param {string} message Message to send.
+ * @param {number} [retryAfterSeconds] Seconds to put in `Retry-After`.
+ * @returns {Error} A 429 error.
+ */
+export function tooManyRequests(message, retryAfterSeconds) {
+  const error = httpError(429, 'RATE_LIMITED', message)
+
+  if (Number.isFinite(retryAfterSeconds)) {
+    Object.assign(error, { retryAfterSeconds: Math.max(1, Math.ceil(retryAfterSeconds)) })
+  }
+
+  return error
+}

@@ -22,7 +22,7 @@
  * @module @desi-event/auth/password
  */
 
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scrypt as scryptCallback, scryptSync, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
 
 const scrypt = promisify(scryptCallback)
@@ -150,6 +150,39 @@ export async function hashPassword(password, parameters = SCRYPT_PARAMETERS) {
 
   const salt = randomBytes(parameters.saltLength ?? SCRYPT_PARAMETERS.saltLength)
   const derived = await scrypt(password, salt, parameters.keyLength ?? 32, {
+    N: parameters.N,
+    r: parameters.r,
+    p: parameters.p,
+    maxmem: parameters.maxmem ?? SCRYPT_PARAMETERS.maxmem,
+  })
+
+  return encode(salt, derived, parameters)
+}
+
+/**
+ * Hash a password without yielding.
+ *
+ * The asynchronous form is what a request path uses: a hundred milliseconds of
+ * CPU on the event loop is a hundred milliseconds nobody else's request moves.
+ * This exists for the two places that are not a request path — the seed script
+ * and a data migration — where the alternative is an `await` threaded through a
+ * synchronous data builder for no benefit.
+ *
+ * The output format is identical, so a hash written by either verifies against
+ * {@link verifyPassword}.
+ *
+ * @param {string} password The plaintext password.
+ * @param {object} [parameters] Override the scrypt parameters.
+ * @returns {string} The encoded hash.
+ * @throws {TypeError} When the password is not a non-empty string.
+ */
+export function hashPasswordSync(password, parameters = SCRYPT_PARAMETERS) {
+  if (typeof password !== 'string' || password === '') {
+    throw new TypeError('A password must be a non-empty string.')
+  }
+
+  const salt = randomBytes(parameters.saltLength ?? SCRYPT_PARAMETERS.saltLength)
+  const derived = scryptSync(password, salt, parameters.keyLength ?? 32, {
     N: parameters.N,
     r: parameters.r,
     p: parameters.p,

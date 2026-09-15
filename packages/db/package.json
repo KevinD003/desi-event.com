@@ -30,6 +30,7 @@
     "verify:upgrade": "node scripts/verify-populated-upgrade.mjs"
   },
   "dependencies": {
+    "@desi-event/auth": "workspace:*",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0"
   },

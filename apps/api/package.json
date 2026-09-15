@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event REST API — Fastify on Node.js, validated with Zod, documented with OpenAPI.",
+  "description": "Desi-Event REST API \u2014 Fastify on Node.js, validated with Zod, documented with OpenAPI.",
   "main": "./src/server.js",
   "scripts": {
     "dev": "node --watch src/server.js",
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",
+    "@desi-event/auth": "workspace:*",
     "@desi-event/db": "workspace:*",
     "@desi-event/inventory": "workspace:*",
     "@desi-event/logger": "workspace:*",
@@ -24,6 +25,7 @@
     "@desi-event/pricing": "workspace:*",
     "@desi-event/providers": "workspace:*",
     "@desi-event/schemas": "workspace:*",
+    "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.1.1",
     "@fastify/jwt": "^10.2.2",

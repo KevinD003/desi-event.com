@@ -140,43 +140,125 @@ const holdTtlField = {
 }
 
 /** `process.env` for the Fastify API. */
-export const apiEnvSchema = z
-  .object({
-    ...commonEnvFields,
-    DATABASE_URL: postgresUrlSchema,
-    REDIS_URL: redisUrlSchema,
-    JWT_SECRET: z.string().min(MIN_JWT_SECRET_LENGTH, {
-      message: `JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters`,
+export const apiEnvSchema = z.preprocess(
+  /**
+   * Fill `AUTH_SECRET` from `JWT_SECRET` before anything is validated.
+   *
+   * A `z.default()` cannot read another field and a trailing `.transform()`
+   * cannot be rendered to JSON Schema — which the package's own guard checks for
+   * every exported schema. Preprocessing is the house convention for exactly
+   * this: normalise on the way in, so the schema stays representable.
+   *
+   * Idempotent, because `server.js` parses the environment and `app.js` parses
+   * that result again: on the second pass `AUTH_SECRET` is already set and this
+   * leaves it alone.
+   *
+   * @param {unknown} value The raw environment.
+   * @returns {unknown} The environment with `AUTH_SECRET` resolved.
+   */
+  (value) => {
+    if (!value || typeof value !== 'object') return value
+
+    const env = /** @type {Record<string, unknown>} */ (value)
+    const supplied = typeof env.AUTH_SECRET === 'string' ? env.AUTH_SECRET.trim() : ''
+
+    return supplied === '' ? { ...env, AUTH_SECRET: env.JWT_SECRET } : env
+  },
+  z
+    .object({
+      ...commonEnvFields,
+      DATABASE_URL: postgresUrlSchema,
+      REDIS_URL: redisUrlSchema,
+      JWT_SECRET: z.string().min(MIN_JWT_SECRET_LENGTH, {
+        message: `JWT_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters`,
+      }),
+      JWT_EXPIRES_IN: z
+        .string()
+        .regex(/^\d+[smhdw]$/, 'JWT_EXPIRES_IN must look like 30m, 12h or 7d')
+        .default('7d'),
+      /**
+       * The key behind everything Phase 2 seals or pseudonymises.
+       *
+       * One secret rather than four, because four secrets is four things to
+       * rotate and three of them will be the development placeholder. Every use
+       * derives its own key from this through HKDF with a distinct purpose label,
+       * so a value sealed for one use cannot be opened by code that seals another.
+       *
+       * Defaults to `JWT_SECRET` when unset: a deployment that has one strong
+       * secret should not be refused for not having two. That fallback is applied
+       * in the refinement below rather than here, because a default cannot read
+       * another field.
+       */
+      AUTH_SECRET: z.string().optional(),
+      API_PORT: portSchema.default(4000),
+      API_HOST: z.string().min(1).default('0.0.0.0'),
+      CORS_ORIGIN: z.string().min(1).default('*'),
+      /**
+       * Whether this deployment is reached over HTTPS.
+       *
+       * Decides the `Secure` flag and the `__Host-` cookie prefix. It cannot be
+       * inferred from the request: behind a proxy every request arrives as plain
+       * HTTP, and trusting `X-Forwarded-Proto` means trusting whatever a caller
+       * sends when the proxy is misconfigured. So it is configuration, and it
+       * defaults to true — the failure mode of assuming HTTPS on a plain-HTTP
+       * deployment is a cookie the browser refuses, which is loud; the failure
+       * mode of the reverse is a session cookie sent in the clear, which is not.
+       */
+      SECURE_COOKIES: envBoolean(true).describe(
+        'Set Secure and the __Host- prefix on session cookies. Only turn this off for local HTTP.',
+      ),
+      /** Where the browser app is served from, for the CSRF origin check. */
+      WEB_ORIGIN: z.string().min(1).optional(),
+      ...feeEnvFields,
+      ...holdTtlField,
+      /**
+       * Deliberate opt-in to illustrative tax rates in production.
+       *
+       * Absent, production refuses to price an order under a DEMO tax policy.
+       * Setting this is a decision somebody has to make on purpose and own.
+       */
+      ALLOW_DEMO_TAX_IN_PRODUCTION: envBoolean(false).describe(
+        'Charge illustrative tax rates in production. Requires a deliberate decision.',
+      ),
+    })
+    .superRefine((env, ctx) => {
+      // Only when it was supplied on purpose. When it was filled from JWT_SECRET
+      // the two are the same string, and JWT_SECRET's own rules below already
+      // report the problem — telling somebody to fix a variable they never set is
+      // how a validation message stops being read.
+      const suppliedOnPurpose = env.AUTH_SECRET !== env.JWT_SECRET
+
+      if (suppliedOnPurpose && (env.AUTH_SECRET?.length ?? 0) < MIN_JWT_SECRET_LENGTH) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUTH_SECRET'],
+          message: `AUTH_SECRET must be at least ${MIN_JWT_SECRET_LENGTH} characters`,
+        })
+      }
+
+      if (
+        suppliedOnPurpose &&
+        env.NODE_ENV === 'production' &&
+        isInsecureJwtSecret(env.AUTH_SECRET)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUTH_SECRET'],
+          message:
+            'AUTH_SECRET is the development placeholder. Generate a real secret before deploying to production.',
+        })
+      }
+
+      if (env.NODE_ENV === 'production' && isInsecureJwtSecret(env.JWT_SECRET)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['JWT_SECRET'],
+          message:
+            'JWT_SECRET is the development placeholder. Generate a real secret before deploying to production.',
+        })
+      }
     }),
-    JWT_EXPIRES_IN: z
-      .string()
-      .regex(/^\d+[smhdw]$/, 'JWT_EXPIRES_IN must look like 30m, 12h or 7d')
-      .default('7d'),
-    API_PORT: portSchema.default(4000),
-    API_HOST: z.string().min(1).default('0.0.0.0'),
-    CORS_ORIGIN: z.string().min(1).default('*'),
-    ...feeEnvFields,
-    ...holdTtlField,
-    /**
-     * Deliberate opt-in to illustrative tax rates in production.
-     *
-     * Absent, production refuses to price an order under a DEMO tax policy.
-     * Setting this is a decision somebody has to make on purpose and own.
-     */
-    ALLOW_DEMO_TAX_IN_PRODUCTION: envBoolean(false).describe(
-      'Charge illustrative tax rates in production. Requires a deliberate decision.',
-    ),
-  })
-  .superRefine((env, ctx) => {
-    if (env.NODE_ENV === 'production' && isInsecureJwtSecret(env.JWT_SECRET)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['JWT_SECRET'],
-        message:
-          'JWT_SECRET is the development placeholder. Generate a real secret before deploying to production.',
-      })
-    }
-  })
+)
 
 /** `process.env` for the BullMQ worker. */
 export const workerEnvSchema = z.object({

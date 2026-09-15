@@ -30,6 +30,7 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {string} [deps.version] Version string reported by the health endpoint.
  * @param {object} [deps.payments] The resolved payment mode, reported by the health endpoint.
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the credential-endpoint rate limit.
+ * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
  * @returns {void} Nothing.
  */
 export function registerRoutes(app, deps) {

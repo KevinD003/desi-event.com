@@ -8,9 +8,11 @@
  * @module @desi-event/api-contract/validate
  */
 
+import { isCapability } from '@desi-event/permissions'
+
 import { buildOpenApiDocument, OPENAPI_VERSION } from './openapi.js'
 import { pathParamNames, routeShape } from './path.js'
-import { AUTH_MODES, HTTP_METHODS, apiRoutes, routeKey } from './routes.js'
+import { AUTH_MODES, AUTHENTICATED_MODES, HTTP_METHODS, apiRoutes, routeKey } from './routes.js'
 
 /** Fields every descriptor must define, even if only as `null`. */
 const REQUIRED_FIELDS = Object.freeze([
@@ -98,6 +100,36 @@ function checkRoute(route, index) {
 
   if (!AUTH_MODES.includes(route.auth)) {
     fail('BAD_AUTH', `Route ${routeId} has unknown auth mode "${route.auth}"`)
+  }
+
+  // A capability is a power the caller was granted, so asserting one only means
+  // anything once the caller has been identified. A capability on an anonymous
+  // route would read as protection and provide none.
+  if ('capability' in route && route.capability !== null) {
+    if (typeof route.capability !== 'string' || !isCapability(route.capability)) {
+      fail(
+        'BAD_CAPABILITY',
+        `Route ${routeId} declares capability "${route.capability}", which is not in @desi-event/permissions`,
+      )
+    }
+
+    if (!AUTHENTICATED_MODES.includes(route.auth)) {
+      fail(
+        'CAPABILITY_WITHOUT_AUTH',
+        `Route ${routeId} requires a capability but its auth mode is "${route.auth}", so no caller is identified`,
+      )
+    }
+  }
+
+  if ('stepUp' in route) {
+    if (typeof route.stepUp !== 'boolean') {
+      fail('BAD_STEP_UP', `Route ${routeId} stepUp must be a boolean`)
+    } else if (route.stepUp && !AUTHENTICATED_MODES.includes(route.auth)) {
+      fail(
+        'STEP_UP_WITHOUT_AUTH',
+        `Route ${routeId} requires step-up authentication but does not require a credential`,
+      )
+    }
   }
 
   if (!Array.isArray(route.tags) || route.tags.length === 0) {
