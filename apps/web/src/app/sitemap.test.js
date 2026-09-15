@@ -35,25 +35,100 @@ describe('the sitemap', () => {
     expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/events'])
   })
 
-  it('asks the API for published events only', async () => {
-    const client = clientReturning([[{ slug: 'one' }]])
+  it("asks for the server's public set rather than naming one status", async () => {
+    // It used to send `status: 'PUBLISHED'`, which is a literal standing in for
+    // a set — the same shape as finding NF-19. Anonymous callers already get
+    // exactly the indexable statuses, so naming one here could only ever
+    // narrow that and lose events nobody meant to hide.
+    const client = clientReturning([[{ slug: 'one', status: 'PUBLISHED' }]])
     getApiClient.mockReturnValue(client)
 
     await sitemap()
 
-    expect(client.events.list).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'PUBLISHED' }),
-      expect.anything(),
+    const [query] = client.events.list.mock.calls[0]
+
+    expect(query).not.toHaveProperty('status')
+  })
+
+  it('lists an event that has opened sales, which the old filter dropped', async () => {
+    // The regression the filter caused: an event anybody could actually buy a
+    // ticket to is `ON_SALE`, not `PUBLISHED`, so every sellable event in the
+    // catalogue was missing from the sitemap.
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [
+          { slug: 'on-sale', status: 'ON_SALE' },
+          { slug: 'paused', status: 'SALES_PAUSED' },
+          { slug: 'gone', status: 'SOLD_OUT' },
+        ],
+      ]),
     )
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths).toEqual(['/', '/events', '/events/on-sale', '/events/paused', '/events/gone'])
+  })
+
+  it('omits a finished, postponed or cancelled event: a sitemap says what is on', async () => {
+    // Their pages still resolve — somebody holding a ticket needs them — but a
+    // sitemap is an answer to "what is on", and these are not on.
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [
+          { slug: 'live', status: 'ON_SALE' },
+          { slug: 'done', status: 'COMPLETED' },
+          { slug: 'moved', status: 'POSTPONED' },
+          { slug: 'off', status: 'CANCELLED' },
+        ],
+      ]),
+    )
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths).toEqual(['/', '/events', '/events/live'])
+  })
+
+  it('omits a private event even if the API hands one back', async () => {
+    // Defence in depth. The client is anonymous, so the API should never send
+    // these. If a token leaks into the server-side client, or the listing
+    // endpoint's default widens, the sitemap must not be what publishes an
+    // organiser's unannounced event to a crawler.
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [
+          { slug: 'live', status: 'ON_SALE', organizationSlug: 'real' },
+          { slug: 'secret', status: 'DRAFT', organizationSlug: 'leaky' },
+          { slug: 'waiting', status: 'REVIEW_PENDING', organizationSlug: 'leaky' },
+          { slug: 'rework', status: 'CHANGES_REQUIRED', organizationSlug: 'leaky' },
+          { slug: 'greenlit', status: 'APPROVED', organizationSlug: 'leaky' },
+          { slug: 'refused', status: 'REJECTED', organizationSlug: 'leaky' },
+          { slug: 'shelved', status: 'ARCHIVED', organizationSlug: 'leaky' },
+        ],
+      ]),
+    )
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths).toEqual(['/', '/events', '/events/live', '/organizers/real'])
+  })
+
+  it('omits an event with no status at all rather than assuming it is public', async () => {
+    getApiClient.mockReturnValue(
+      clientReturning([[{ slug: 'one' }, { slug: 'two', status: null }]]),
+    )
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(paths).toEqual(['/', '/events'])
   })
 
   it('lists an organiser page once, however many events they have', async () => {
     getApiClient.mockReturnValue(
       clientReturning([
         [
-          { slug: 'one', organizationSlug: 'rangmanch-collective' },
-          { slug: 'two', organizationSlug: 'rangmanch-collective' },
-          { slug: 'three', organizationSlug: 'navrang-utsav-samiti' },
+          { slug: 'one', status: 'PUBLISHED', organizationSlug: 'rangmanch-collective' },
+          { slug: 'two', status: 'ON_SALE', organizationSlug: 'rangmanch-collective' },
+          { slug: 'three', status: 'SOLD_OUT', organizationSlug: 'navrang-utsav-samiti' },
         ],
       ]),
     )
@@ -70,9 +145,9 @@ describe('the sitemap', () => {
     getApiClient.mockReturnValue(
       clientReturning([
         [
-          { slug: 'one', venueSlug: 'jio-world-garden' },
-          { slug: 'two', venueSlug: 'jio-world-garden' },
-          { slug: 'three', venueSlug: 'nehru-centre' },
+          { slug: 'one', status: 'PUBLISHED', venueSlug: 'jio-world-garden' },
+          { slug: 'two', status: 'ON_SALE', venueSlug: 'jio-world-garden' },
+          { slug: 'three', status: 'SALES_PAUSED', venueSlug: 'nehru-centre' },
         ],
       ]),
     )
@@ -86,7 +161,9 @@ describe('the sitemap', () => {
   })
 
   it('omits an organiser whose events carry no slug rather than guessing one', async () => {
-    getApiClient.mockReturnValue(clientReturning([[{ slug: 'one', organizationName: 'Someone' }]]))
+    getApiClient.mockReturnValue(
+      clientReturning([[{ slug: 'one', status: 'PUBLISHED', organizationName: 'Someone' }]]),
+    )
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
@@ -94,7 +171,12 @@ describe('the sitemap', () => {
   })
 
   it('walks every page of the catalogue', async () => {
-    getApiClient.mockReturnValue(clientReturning([[{ slug: 'one' }], [{ slug: 'two' }]]))
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [{ slug: 'one', status: 'PUBLISHED' }],
+        [{ slug: 'two', status: 'PUBLISHED' }],
+      ]),
+    )
 
     const entries = await sitemap()
 
@@ -107,7 +189,7 @@ describe('the sitemap', () => {
   })
 
   it('never advertises a checkout step', async () => {
-    getApiClient.mockReturnValue(clientReturning([[{ slug: 'one' }]]))
+    getApiClient.mockReturnValue(clientReturning([[{ slug: 'one', status: 'PUBLISHED' }]]))
 
     const entries = await sitemap()
 
@@ -132,7 +214,11 @@ describe('the sitemap', () => {
   })
 
   it('skips a row with no slug rather than emitting a broken URL', async () => {
-    getApiClient.mockReturnValue(clientReturning([[{ slug: 'one' }, {}, { slug: null }]]))
+    getApiClient.mockReturnValue(
+      clientReturning([
+        [{ slug: 'one', status: 'PUBLISHED' }, {}, { slug: null, status: 'PUBLISHED' }],
+      ]),
+    )
 
     const entries = await sitemap()
 

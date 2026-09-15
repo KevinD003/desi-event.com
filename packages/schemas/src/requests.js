@@ -39,6 +39,8 @@ import {
   promoTypeSchema,
   ticketTypeStatusSchema,
 } from './enums.js'
+import { eventPoliciesSchema } from './entities.js'
+import { venueAccessibilitySchema } from './venues.js'
 
 /** Sort orders accepted by the event listing endpoint. */
 export const EVENT_SORT_OPTIONS = Object.freeze([
@@ -87,6 +89,18 @@ const eventWritableFields = {
   isOnline: z.boolean(),
   onlineUrl: urlSchema.nullish(),
   languages: z.array(nonEmptyStringSchema).max(12),
+  /** Named performers, in billing order. Free text: this is a listing, not a licensed artist database. */
+  artists: z.array(nonEmptyStringSchema).max(64),
+  /** Minimum age at the door. Null clears the restriction. */
+  ageRestriction: z.int().min(0).max(120).nullish(),
+  /**
+   * Accessibility claims and policies are JSON columns, and both are
+   * `.optional()` rather than `.nullish()` on purpose: Prisma will not take a
+   * bare `null` for a nullable JSON column, so accepting one here would turn an
+   * organiser clearing a field into a 500. An empty object clears them.
+   */
+  accessibility: venueAccessibilitySchema.optional(),
+  policies: eventPoliciesSchema.optional(),
 }
 
 const eventWritableObject = z.object(eventWritableFields)
@@ -99,6 +113,7 @@ const createEventObject = eventWritableObject.extend({
   timezone: timezoneSchema.default('Asia/Kolkata'),
   isOnline: z.boolean().default(false),
   languages: z.array(nonEmptyStringSchema).max(12).default([]),
+  artists: z.array(nonEmptyStringSchema).max(64).default([]),
 })
 
 /**

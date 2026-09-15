@@ -93,14 +93,57 @@ export function toPublicOrganizer(organization) {
 /**
  * The full event payload returned by the detail endpoint.
  *
+ * Every field is named. This used to spread the row — `...rest` — and rely on
+ * the response schema to strip what should not be public, which works right up
+ * until somebody adds a response field for the organiser's own screens and
+ * quietly widens the anonymous payload with it. `Event` carries `contactEmail`,
+ * `moderationNote`, `reviewSubmittedAt`, `cancellationReason` and
+ * `salesOpenedAt`; a stranger gets none of them, and the way to change that is
+ * to write a line here and argue for it in review.
+ *
+ * So there are two allow lists, deliberately: this one, and
+ * `eventWithRelationsSchema`. Either alone would hold. Both have to be widened
+ * for a leak to ship.
+ *
+ * `venue` is the row, and that is safe because `venueSchema` is itself an
+ * allow list that stops at the address: `provenance`, `organizationId` and
+ * `mergedIntoVenueId` are not in it.
+ *
  * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
 export function toEventDetail(event) {
-  const { venue = null, organization = null, ticketTypes = [], ...rest } = event
+  const { venue = null, organization = null, ticketTypes = [] } = event
 
   return {
-    ...rest,
+    id: event.id,
+    organizationId: event.organizationId,
+    venueId: event.venueId ?? null,
+    title: event.title,
+    slug: event.slug,
+    summary: event.summary,
+    description: event.description,
+    category: event.category,
+    status: event.status,
+    startsAt: event.startsAt,
+    endsAt: event.endsAt,
+    timezone: event.timezone,
+    coverImageUrl: event.coverImageUrl ?? null,
+    isOnline: event.isOnline,
+    onlineUrl: event.onlineUrl ?? null,
+    languages: event.languages ?? [],
+    publishedAt: event.publishedAt ?? null,
+    createdAt: event.createdAt,
+    updatedAt: event.updatedAt,
+    revision: event.revision ?? 0,
+    ageRestriction: event.ageRestriction ?? null,
+    accessibility: event.accessibility ?? null,
+    artists: event.artists ?? [],
+    policies: event.policies ?? null,
+    // Only meaningful once something has moved, and then it is the whole point:
+    // "postponed" alone does not tell somebody the date in their calendar is
+    // dead.
+    previousStartsAt: event.previousStartsAt ?? null,
     venue,
     organization: toPublicOrganizer(organization),
     ticketTypes: [...ticketTypes].sort(

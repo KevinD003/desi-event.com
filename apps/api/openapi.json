@@ -10088,6 +10088,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -10104,7 +10253,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -10291,6 +10442,117 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 500
+                    }
+                  },
+                  "artists": {
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    }
+                  },
+                  "ageRestriction": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 120
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "accessibility": {
+                    "type": "object",
+                    "properties": {
+                      "features": {
+                        "default": [],
+                        "maxItems": 15,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "STEP_FREE_ENTRANCE",
+                            "STEP_FREE_TO_SEATING",
+                            "ACCESSIBLE_TOILET",
+                            "ACCESSIBLE_PARKING",
+                            "WHEELCHAIR_SPACES",
+                            "COMPANION_SEATING",
+                            "HEARING_LOOP",
+                            "AUDIO_DESCRIPTION",
+                            "SIGN_LANGUAGE",
+                            "CAPTIONING",
+                            "QUIET_SPACE",
+                            "ASSISTANCE_DOGS_WELCOME",
+                            "LIFT_ACCESS",
+                            "SEATED_ONLY",
+                            "STANDING_ONLY"
+                          ]
+                        }
+                      },
+                      "note": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 2000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "policies": {
+                    "type": "object",
+                    "properties": {
+                      "entry": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "refund": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conduct": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "ageNote": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
                     }
                   }
                 },
@@ -10980,6 +11242,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -10996,7 +11407,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -11554,6 +11967,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -11570,7 +12132,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -11754,6 +12318,117 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 500
+                    }
+                  },
+                  "artists": {
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 500
+                    }
+                  },
+                  "ageRestriction": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 120
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "accessibility": {
+                    "type": "object",
+                    "properties": {
+                      "features": {
+                        "default": [],
+                        "maxItems": 15,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "STEP_FREE_ENTRANCE",
+                            "STEP_FREE_TO_SEATING",
+                            "ACCESSIBLE_TOILET",
+                            "ACCESSIBLE_PARKING",
+                            "WHEELCHAIR_SPACES",
+                            "COMPANION_SEATING",
+                            "HEARING_LOOP",
+                            "AUDIO_DESCRIPTION",
+                            "SIGN_LANGUAGE",
+                            "CAPTIONING",
+                            "QUIET_SPACE",
+                            "ASSISTANCE_DOGS_WELCOME",
+                            "LIFT_ACCESS",
+                            "SEATED_ONLY",
+                            "STANDING_ONLY"
+                          ]
+                        }
+                      },
+                      "note": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 2000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "policies": {
+                    "type": "object",
+                    "properties": {
+                      "entry": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "refund": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "conduct": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 4000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "ageNote": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "maxLength": 1000
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
                     }
                   }
                 }
@@ -12531,6 +13206,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -12547,7 +13371,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -13159,6 +13985,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -13175,7 +14150,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -13751,6 +14728,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -13767,7 +14893,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -14374,6 +15502,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -14390,7 +15667,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -14997,6 +16276,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -15013,7 +16441,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -15616,6 +17046,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -15632,7 +17211,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -16269,6 +17850,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -16285,7 +18015,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }
@@ -17265,6 +18997,155 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "ageRestriction": {
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 120
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "accessibility": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "features": {
+                                  "default": [],
+                                  "maxItems": 15,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "STEP_FREE_ENTRANCE",
+                                      "STEP_FREE_TO_SEATING",
+                                      "ACCESSIBLE_TOILET",
+                                      "ACCESSIBLE_PARKING",
+                                      "WHEELCHAIR_SPACES",
+                                      "COMPANION_SEATING",
+                                      "HEARING_LOOP",
+                                      "AUDIO_DESCRIPTION",
+                                      "SIGN_LANGUAGE",
+                                      "CAPTIONING",
+                                      "QUIET_SPACE",
+                                      "ASSISTANCE_DOGS_WELCOME",
+                                      "LIFT_ACCESS",
+                                      "SEATED_ONLY",
+                                      "STANDING_ONLY"
+                                    ]
+                                  }
+                                },
+                                "note": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "features"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "artists": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 500
+                          }
+                        },
+                        "policies": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "entry": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "refund": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "conduct": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 4000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "ageNote": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 1000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previousStartsAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "revision": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
                         }
                       },
                       "required": [
@@ -17281,7 +19162,9 @@
                         "timezone",
                         "isOnline",
                         "languages",
-                        "ticketTypes"
+                        "ticketTypes",
+                        "artists",
+                        "revision"
                       ],
                       "additionalProperties": false
                     }

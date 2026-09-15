@@ -45,6 +45,93 @@ describe('what a public event page says about its organiser, finding NF-14', () 
     await app.close()
   })
 
+  it('carries only the fields somebody has decided are public', async () => {
+    // Two allow lists, deliberately: the presenter names every field, and the
+    // response schema drops anything not in it. This asserts the intersection,
+    // so widening either one alone still fails here.
+    const { app } = await createTestApp()
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+
+    expect(Object.keys(response.json().data).sort()).toEqual([
+      'accessibility',
+      'ageRestriction',
+      'artists',
+      'category',
+      'coverImageUrl',
+      'createdAt',
+      'description',
+      'endsAt',
+      'id',
+      'isOnline',
+      'languages',
+      'onlineUrl',
+      'organization',
+      'organizationId',
+      'policies',
+      'previousStartsAt',
+      'publishedAt',
+      'revision',
+      'slug',
+      'startsAt',
+      'status',
+      'summary',
+      'ticketTypes',
+      'timezone',
+      'title',
+      'updatedAt',
+      'venue',
+      'venueId',
+    ])
+
+    await app.close()
+  })
+
+  it('leaks nothing when the row itself carries a moderator note or a contact', async () => {
+    // The columns exist and are populated in ordinary operation: a moderator
+    // asking for changes writes `moderationNote`, and an organiser gives a
+    // contact address for the event. Neither is a stranger's business.
+    const { app, prisma } = await createTestApp()
+    const row = prisma._store.event.find((event) => event.slug === 'navratri-garba-night')
+
+    row.moderationNote = 'Chase them about the fire licence.'
+    row.contactEmail = 'box-office@rangoli.example'
+    row.reviewSubmittedAt = new Date('2025-01-20T00:00:00.000Z')
+    row.cancellationReason = 'Not cancelled, but the column is here.'
+    row.salesOpenedAt = new Date('2025-01-25T00:00:00.000Z')
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toMatch(/fire licence/i)
+    expect(response.body).not.toMatch(/box-office@rangoli/)
+    expect(response.body).not.toMatch(
+      /moderationNote|contactEmail|reviewSubmittedAt|cancellationReason|salesOpenedAt/,
+    )
+
+    await app.close()
+  })
+
+  it('publishes the facts a person needs before they commit money', async () => {
+    const { app, prisma } = await createTestApp()
+    const row = prisma._store.event.find((event) => event.slug === 'navratri-garba-night')
+
+    row.ageRestriction = 18
+    row.artists = ['Falguni Pathak']
+    row.accessibility = { features: ['STEP_FREE_ENTRANCE'], note: 'Gate 3.' }
+
+    const { data } = (
+      await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+    ).json()
+
+    expect(data.ageRestriction).toBe(18)
+    expect(data.artists).toEqual(['Falguni Pathak'])
+    expect(data.accessibility).toEqual({ features: ['STEP_FREE_ENTRANCE'], note: 'Gate 3.' })
+    expect(data.policies.refund).toBe('Refundable up to 48 hours before.')
+
+    await app.close()
+  })
+
   it('shows no badge when the column and the verification state disagree', async () => {
     const { app, prisma, ids } = await createTestApp()
     const organization = prisma._store.organization.find((row) => row.id === ids.organization.id)

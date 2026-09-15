@@ -38,6 +38,7 @@ import {
   timezoneSchema,
   urlSchema,
 } from './primitives.js'
+import { venueAccessibilitySchema } from './venues.js'
 import {
   eventCategorySchema,
   eventStatusSchema,
@@ -325,11 +326,63 @@ export const auditLogSchema = z.object({
   createdAt: timestampSchema.optional(),
 })
 
-/** An event with the relations the detail page needs, all in one payload. */
+/**
+ * An event's entry, refund and conduct rules.
+ *
+ * Named sections rather than one blob because the refund rule is the one a
+ * buyer has to be able to find, and a page that renders a single paragraph of
+ * everything buries it. The column is JSON so that the vocabulary can grow
+ * without a migration; this schema is what stops it growing by accident.
+ *
+ * The same object is snapshotted onto an order at purchase, so a later edit
+ * cannot change what somebody agreed to.
+ */
+export const eventPoliciesSchema = z.object({
+  entry: z.string().max(4000).nullish(),
+  refund: z.string().max(4000).nullish(),
+  conduct: z.string().max(4000).nullish(),
+  ageNote: z.string().max(1000).nullish(),
+})
+
+/**
+ * An event with the relations the detail page needs, all in one payload.
+ *
+ * This is an allow list, and it is the *only* allow list protecting the public
+ * event payload: the serialiser parses every response through it and drops
+ * whatever is not named here. `Event` carries `contactEmail`, `moderationNote`,
+ * `reviewSubmittedAt` and `cancellationReason`, and none of them appears below
+ * — an organiser's address and a moderator's private note are not part of a
+ * listing. Adding a column to the Prisma model must not add it here; somebody
+ * has to decide it is public and write the line.
+ *
+ * The fields beyond `eventSchema` are the ones the public page is required to
+ * show: who is playing, who may come in, what the rules are, and — after a
+ * postponement — what the date used to be.
+ */
 export const eventWithRelationsSchema = eventSchema.extend({
   venue: venueSchema.nullish(),
   organization: publicOrganizerSummarySchema.nullish(),
   ticketTypes: z.array(ticketTypeSchema).default([]),
+  /** Minimum age at the door. Null means there is no restriction. */
+  ageRestriction: z.int().min(0).max(120).nullish(),
+  /** Event-level accessibility claims, layered over the venue's. */
+  accessibility: venueAccessibilitySchema.nullish(),
+  /** Named performers, in billing order. */
+  artists: z.array(nonEmptyStringSchema).max(64).default([]),
+  policies: eventPoliciesSchema.nullish(),
+  /**
+   * The start time before a postponement.
+   *
+   * Public on purpose: it is what turns "this moved" into "this moved from the
+   * date in your calendar", and `schema.org` has a field for exactly that.
+   */
+  previousStartsAt: timestampSchema.nullish(),
+  /**
+   * Optimistic-concurrency counter, echoed so the organiser's editor can send
+   * it back as a precondition. Not sensitive — it counts edits, and an edit
+   * count says nothing a visitor could not infer from the page changing.
+   */
+  revision: z.int().min(0).default(0),
 })
 
 /** An order with its line items and, once paid, its issued tickets. */

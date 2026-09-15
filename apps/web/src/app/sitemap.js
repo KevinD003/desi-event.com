@@ -1,17 +1,38 @@
 /**
  * The XML sitemap.
  *
- * Only events the API reports as `PUBLISHED` are listed. A draft, a private
- * listing, one withdrawn by moderation, a cancelled-and-removed night and a
- * deleted row are all simply absent from that response, so none of them can
- * reach the sitemap — and the fallback catalogue is deliberately *not*
- * consulted here. Everywhere else on the site a dead API is answered with the
- * sample catalogue so a visitor still sees a page; a sitemap built the same way
- * would be publishing URLs that do not exist, which is the one place that
- * trade-off is wrong.
+ * A draft, a submission awaiting review, a rejected listing, an approved but
+ * unpublished event, an archived one and a deleted row are all simply absent
+ * from what the API serves an anonymous caller, so none of them can reach the
+ * sitemap. The fallback catalogue is deliberately *not* consulted: everywhere
+ * else on the site a dead API is answered with the sample catalogue so a
+ * visitor still sees a page, but a sitemap built that way would be publishing
+ * URLs that do not exist, which is the one place that trade-off is wrong.
+ *
+ * ## Which statuses belong here
+ *
+ * This used to send `status: 'PUBLISHED'`, which is the same mistake as finding
+ * NF-19 in the other direction: a literal standing in for a set. An event that
+ * has opened sales is `ON_SALE`, not `PUBLISHED`, so every event anybody could
+ * actually buy a ticket to was *missing* from the sitemap.
+ *
+ * The filter is gone rather than corrected to a list. `GET /events` already
+ * answers an anonymous caller with exactly {@link INDEXABLE_STATUSES} — that is
+ * the server's own decision about what is public, enforced in the database
+ * `where` clause — and asking for a narrower set here can only ever
+ * re-introduce the same bug. `INDEXABLE_STATUSES` is still imported, and
+ * asserted against what comes back: if the server ever widens what it serves,
+ * this notices instead of publishing it.
+ *
+ * `COMPLETED`, `POSTPONED` and `CANCELLED` events are publicly visible — their
+ * pages resolve, because somebody holding a ticket needs them — but they are
+ * not listed here. A sitemap is an answer to "what is on", and a show that has
+ * finished or been called off is not on.
  *
  * @module app/sitemap
  */
+
+import { INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { getApiClient } from '../lib/api-client.js'
 
@@ -64,7 +85,7 @@ async function publishedEvents() {
   try {
     for (let page = 1; page <= MAX_PAGES; page += 1) {
       const response = await client.events.list(
-        { page, perPage: PAGE_SIZE, sort: 'startsAt:asc', status: 'PUBLISHED' },
+        { page, perPage: PAGE_SIZE, sort: 'startsAt:asc' },
         { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
       )
 
@@ -74,6 +95,13 @@ async function publishedEvents() {
 
       for (const event of response.data) {
         if (!event?.slug) continue
+
+        // The client is anonymous, so this should be redundant. It is here
+        // because "should be" is not a guarantee an unauthenticated crawler's
+        // reading list can rest on: a token leaking into the server-side client,
+        // or a widened default on the listing endpoint, would otherwise publish
+        // an organiser's unannounced event to Google.
+        if (!INDEXABLE_STATUSES.has(event.status)) continue
 
         entries.push({
           url: `${siteUrl}/events/${event.slug}`,

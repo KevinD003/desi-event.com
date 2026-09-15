@@ -28,6 +28,7 @@ import { Badge, Card, CardBody } from '../../../components/ui.jsx'
 import { FadeIn, RevealOnScroll } from '../../../components/motion.jsx'
 import { NotFoundView } from '../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../components/sample-data-notice.jsx'
+import { accessibilityLabel } from '../../../lib/accessibility.js'
 import { loadVenueBySlug } from '../../../lib/api.js'
 import {
   formatEventDate,
@@ -38,32 +39,6 @@ import {
 } from '../../../lib/format.js'
 
 export const dynamic = 'force-dynamic'
-
-/**
- * How each accessibility claim reads to a person.
- *
- * Written as statements of fact rather than labels, so the list reads as a set
- * of promises the venue is making and can be held to.
- *
- * @type {Readonly<Record<string, string>>}
- */
-const ACCESSIBILITY_LABELS = Object.freeze({
-  STEP_FREE_ENTRANCE: 'Step-free entrance',
-  STEP_FREE_TO_SEATING: 'Step-free route to the seating',
-  ACCESSIBLE_TOILET: 'Accessible toilet',
-  ACCESSIBLE_PARKING: 'Accessible parking',
-  WHEELCHAIR_SPACES: 'Wheelchair spaces',
-  COMPANION_SEATING: 'Companion seating',
-  HEARING_LOOP: 'Hearing loop',
-  AUDIO_DESCRIPTION: 'Audio description',
-  SIGN_LANGUAGE: 'Sign language interpretation',
-  CAPTIONING: 'Captioning',
-  QUIET_SPACE: 'Quiet space',
-  ASSISTANCE_DOGS_WELCOME: 'Assistance dogs welcome',
-  LIFT_ACCESS: 'Lift access',
-  SEATED_ONLY: 'Seated only',
-  STANDING_ONLY: 'Standing only',
-})
 
 /**
  * Per-venue metadata.
@@ -133,7 +108,7 @@ function placeStructuredData(venue) {
   if (features.length > 0) {
     // The vocabulary is ours, so it is published as a human-readable summary
     // rather than as codes a consumer would have to guess the meaning of.
-    data.accessibilityFeature = features.map((code) => ACCESSIBILITY_LABELS[code] ?? code)
+    data.accessibilityFeature = features.map((code) => accessibilityLabel(code))
   }
 
   return data
@@ -291,7 +266,7 @@ export default async function VenuePage({ params }) {
                       {/* Text, not an icon: a pictogram with no label is invisible
                           to a screen reader, and colour alone carries nothing. */}
                       <Badge variant="success" srLabel="This venue has:">
-                        {ACCESSIBILITY_LABELS[code] ?? code}
+                        {accessibilityLabel(code)}
                       </Badge>
                     </li>
                   ))}
