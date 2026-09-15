@@ -59,7 +59,9 @@ export function defineRoute(app, id, options) {
   const declared = []
   if (route.capability)
     declared.push(app.requireCapability(route.capability, route.capabilityScope))
-  if (route.stepUp) declared.push(app.requireStepUp)
+  // The window comes from the contract's named policy, not from the request and
+  // not from a module default — finding NF-11.
+  if (route.stepUp) declared.push(app.requireStepUp(route.stepUp))
 
   // The contract's requirements come first: a route's own preHandlers are for
   // loading resources, and they should not run for a caller who is about to be

@@ -5,6 +5,7 @@ import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { STEP_UP_POLICY_NAMES } from '@desi-event/auth'
 import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 
 import { API_ERRORS, apiRoutes, routeById } from './routes.js'
@@ -347,5 +348,48 @@ describe('scripts/validate-contract.mjs', () => {
     } finally {
       await rm(target, { force: true })
     }
+  })
+})
+
+describe('step-up policy, finding NF-11', () => {
+  // `stepUp` used to be a boolean and every sensitive action shared one
+  // fifteen-minute window. It is now a named policy, chosen by the contract —
+  // which is what stops a browser from selecting or widening its own window.
+
+  it('accepts a known policy name', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: 'FINANCE_ACTION' }
+
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
+  it('refuses a boolean, which is what it used to be', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: true }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('BAD_STEP_UP')
+  })
+
+  it('refuses a policy nobody defined', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: 'WHENEVER' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('BAD_STEP_UP')
+  })
+
+  it('refuses step-up on a route that identifies nobody', () => {
+    const route = { ...routeById('auth.disableFactor'), auth: 'none' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('STEP_UP_WITHOUT_AUTH')
+  })
+
+  it('every step-up route in the real contract names a policy', () => {
+    const offenders = apiRoutes
+      .filter((route) => route.stepUp)
+      .filter((route) => !STEP_UP_POLICY_NAMES.includes(route.stepUp))
+      .map((route) => route.id)
+
+    expect(offenders).toEqual([])
+  })
+
+  it('removing a second factor uses the tightest window, not the finance one', () => {
+    expect(routeById('auth.disableFactor').stepUp).toBe('CREDENTIAL')
   })
 })

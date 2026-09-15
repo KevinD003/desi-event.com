@@ -58,6 +58,66 @@ export const SESSION_LIFETIMES = Object.freeze({
 export const STEP_UP_WINDOW_MS = 15 * 60 * 1000
 
 /**
+ * How recently a second factor must have been presented, per kind of action.
+ *
+ * Finding NF-11: `requireStepUp` took no arguments and always used the fifteen
+ * minutes above, so every sensitive action shared one window. Approving a batch
+ * of refunds and removing somebody's second factor are not equally reversible,
+ * and treating them as equally recent is a choice nobody made on purpose.
+ *
+ * Each route declares which of these applies, in the contract. The value is
+ * therefore chosen by the server before a request arrives — **a browser can
+ * neither send a window nor widen one**, which is the property that matters: an
+ * attacker holding a session is exactly the party who would ask for a longer
+ * one.
+ *
+ * The scale is deliberate. Fifteen minutes to *read* finance. Five to move
+ * money, because that is roughly one interruption. Two to change the credentials
+ * that protect everything else, because that is the action an attacker performs
+ * first and the one a legitimate user performs while looking at the screen.
+ *
+ * @type {Readonly<Record<string, number>>}
+ */
+export const STEP_UP_POLICIES = Object.freeze({
+  /** Reading the finance view: gross, fees, refunds, net. */
+  FINANCE_VIEW: 15 * 60 * 1000,
+  /** Acting on money: a refund, or resolving a reconciliation task. */
+  FINANCE_ACTION: 5 * 60 * 1000,
+  /** A payout, or a change to a connected account's payout destination. */
+  PAYOUT: 5 * 60 * 1000,
+  /** Removing a factor, or regenerating recovery codes. */
+  CREDENTIAL: 2 * 60 * 1000,
+  /** Granting or removing a privileged role. */
+  SECURITY_ROLE: 2 * 60 * 1000,
+})
+
+/** Every policy name, for contract validation. */
+export const STEP_UP_POLICY_NAMES = Object.freeze(Object.keys(STEP_UP_POLICIES))
+
+/**
+ * The window a named policy allows.
+ *
+ * Throws rather than falling back to a default. A typo'd policy name that
+ * silently became fifteen minutes would be a security control that stopped
+ * working without telling anybody.
+ *
+ * @param {string} policy One of {@link STEP_UP_POLICY_NAMES}.
+ * @returns {number} The maximum age in milliseconds.
+ * @throws {TypeError} When the name is not a policy.
+ */
+export function stepUpWindowFor(policy) {
+  const windowMs = STEP_UP_POLICIES[policy]
+
+  if (typeof windowMs !== 'number') {
+    throw new TypeError(
+      `No step-up policy is called "${policy}". Use one of: ${STEP_UP_POLICY_NAMES.join(', ')}`,
+    )
+  }
+
+  return windowMs
+}
+
+/**
  * Platform roles whose sessions get the short lifetime and require a second
  * factor.
  *

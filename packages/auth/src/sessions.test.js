@@ -5,12 +5,15 @@ import {
   PRIVILEGED_PLATFORM_ROLES,
   REVOCATION_REASONS,
   SESSION_LIFETIMES,
+  STEP_UP_POLICIES,
+  STEP_UP_POLICY_NAMES,
   STEP_UP_WINDOW_MS,
   revokesSiblings,
   sessionPolicyFor,
   sessionUsable,
   shouldRotate,
   stepUpSatisfied,
+  stepUpWindowFor,
 } from './sessions.js'
 
 const NOW = new Date('2026-09-15T12:00:00.000Z')
@@ -304,5 +307,48 @@ describe('revokesSiblings', () => {
       expect(typeof reason).toBe('string')
       expect(reason).toMatch(/^[a-z_]+$/)
     }
+  })
+})
+
+describe('step-up policies', () => {
+  // Finding NF-11. One fixed window meant reading a revenue figure and removing
+  // somebody's second factor were treated as equally recent.
+
+  it('gives a tighter window to changing credentials than to reading finance', () => {
+    expect(STEP_UP_POLICIES.CREDENTIAL).toBeLessThan(STEP_UP_POLICIES.FINANCE_ACTION)
+    expect(STEP_UP_POLICIES.FINANCE_ACTION).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
+  })
+
+  it('matches the windows the security review asked for', () => {
+    expect(STEP_UP_POLICIES.FINANCE_VIEW).toBe(15 * 60 * 1000)
+    expect(STEP_UP_POLICIES.FINANCE_ACTION).toBe(5 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PAYOUT).toBe(5 * 60 * 1000)
+    expect(STEP_UP_POLICIES.CREDENTIAL).toBe(2 * 60 * 1000)
+    expect(STEP_UP_POLICIES.SECURITY_ROLE).toBe(2 * 60 * 1000)
+  })
+
+  it('throws on an unknown policy rather than falling back to a default', () => {
+    // A typo that silently became fifteen minutes would be a control that
+    // stopped working without saying so.
+    expect(() => stepUpWindowFor('FINANCE_VEIW')).toThrow(/No step-up policy/)
+    expect(() => stepUpWindowFor(undefined)).toThrow(/No step-up policy/)
+  })
+
+  it('resolves each named policy to its window', () => {
+    for (const name of STEP_UP_POLICY_NAMES) {
+      expect(stepUpWindowFor(name)).toBe(STEP_UP_POLICIES[name])
+    }
+  })
+
+  it('accepts a factor presented inside the window and refuses one outside it', () => {
+    const now = new Date('2026-03-01T12:00:00Z')
+    const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000)
+    const session = { mfaSatisfiedAt: threeMinutesAgo }
+
+    // Three minutes is fine for a refund, and too old for removing a factor.
+    expect(stepUpSatisfied(session, { now, windowMs: stepUpWindowFor('FINANCE_ACTION') })).toBe(
+      true,
+    )
+    expect(stepUpSatisfied(session, { now, windowMs: stepUpWindowFor('CREDENTIAL') })).toBe(false)
   })
 })

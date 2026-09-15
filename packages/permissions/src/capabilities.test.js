@@ -9,7 +9,9 @@ import {
   PLATFORM_ONLY_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   PLATFORM_ROLE_ORDER,
+  assertAcyclic,
   canAssignOrgRole,
+  findRoleCycle,
   isCapability,
   orgRoleRank,
 } from './capabilities.js'
@@ -141,14 +143,21 @@ describe('ORG_ROLE_CAPABILITIES', () => {
     }
   })
 
-  it('has an acyclic inheritance graph naming only known roles', () => {
+  it('has an inheritance graph naming only known roles', () => {
     for (const [role, parents] of Object.entries(ORG_ROLE_INHERITS)) {
       expect(Object.keys(ORG_ROLE_CAPABILITIES)).toContain(role)
       for (const parent of parents) {
         expect(Object.keys(ORG_ROLE_CAPABILITIES)).toContain(parent)
-        expect(ORG_ROLE_INHERITS[parent]).not.toContain(role)
       }
     }
+  })
+
+  it('has an acyclic inheritance graph', () => {
+    // The previous version of this test only rejected directly reciprocal
+    // edges, so a three-role cycle would have passed it — while still failing at
+    // import time, which is a confusing way to find out. `findRoleCycle` is the
+    // check, and the cases below prove the check itself works.
+    expect(findRoleCycle(ORG_ROLE_INHERITS)).toBeNull()
   })
 
   it('keeps event management and finance apart', () => {
@@ -320,5 +329,86 @@ describe('canAssignOrgRole', () => {
         }
       }
     }
+  })
+})
+
+describe('findRoleCycle', () => {
+  // Finding NF-13. The resolver already refused a cyclic graph — it walks with a
+  // per-path `seen` set — but the refusal was not reusable and the test that
+  // claimed to prove acyclicity only rejected directly reciprocal edges. These
+  // cases prove the check itself, so that the production assertion above means
+  // something.
+
+  it('finds a self-cycle', () => {
+    expect(findRoleCycle({ A: ['A'] })).toEqual(['A', 'A'])
+  })
+
+  it('finds a two-role cycle', () => {
+    expect(findRoleCycle({ A: ['B'], B: ['A'] })).toEqual(['A', 'B', 'A'])
+  })
+
+  it('finds a three-role cycle, which the old check missed', () => {
+    // The specific gap: no pair of these roles points directly at each other, so
+    // a reciprocal-edge test sees nothing wrong.
+    expect(findRoleCycle({ A: ['B'], B: ['C'], C: ['A'] })).toEqual(['A', 'B', 'C', 'A'])
+  })
+
+  it('finds a longer cycle', () => {
+    const cycle = findRoleCycle({ A: ['B'], B: ['C'], C: ['D'], D: ['E'], E: ['B'] })
+
+    expect(cycle).toEqual(['B', 'C', 'D', 'E', 'B'])
+  })
+
+  it('finds a cycle that only exists in a disconnected component', () => {
+    // Nothing reaches X from A, so a walk that started only from the roles a
+    // caller happened to ask about would never see it.
+    const cycle = findRoleCycle({ A: ['B'], B: [], X: ['Y'], Y: ['X'] })
+
+    expect(cycle).toEqual(['X', 'Y', 'X'])
+  })
+
+  it('accepts a diamond, which is inheritance rather than a loop', () => {
+    // The false positive worth guarding against: D is reached twice, by two
+    // different routes, and that is exactly what the production graph does with
+    // VIEWER under ADMIN.
+    expect(findRoleCycle({ A: ['B', 'C'], B: ['D'], C: ['D'], D: [] })).toBeNull()
+  })
+
+  it('accepts a deep chain', () => {
+    expect(findRoleCycle({ A: ['B'], B: ['C'], C: ['D'], D: ['E'], E: [] })).toBeNull()
+  })
+
+  it('accepts an empty graph and a graph of isolated roles', () => {
+    expect(findRoleCycle({})).toBeNull()
+    expect(findRoleCycle({ A: [], B: [], C: [] })).toBeNull()
+  })
+
+  it('tolerates an edge to a role with no entry of its own', () => {
+    // Not this function's job to complain about — `resolveRole` reports an
+    // unknown parent with a better message — but it must not crash or invent a
+    // cycle.
+    expect(findRoleCycle({ A: ['B'] })).toBeNull()
+  })
+
+  it('proves the production graph is acyclic', () => {
+    expect(findRoleCycle(ORG_ROLE_INHERITS)).toBeNull()
+  })
+})
+
+describe('assertAcyclic', () => {
+  it('names the whole cycle rather than one role on it', () => {
+    expect(() => assertAcyclic({ A: ['B'], B: ['C'], C: ['A'] })).toThrow(
+      /Role inheritance cycle: A -> B -> C -> A/,
+    )
+  })
+
+  it('returns the graph unchanged when it is acyclic', () => {
+    const graph = { A: ['B'], B: [] }
+
+    expect(assertAcyclic(graph)).toBe(graph)
+  })
+
+  it('passes the production graph', () => {
+    expect(() => assertAcyclic(ORG_ROLE_INHERITS)).not.toThrow()
   })
 })

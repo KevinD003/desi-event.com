@@ -21,6 +21,7 @@
     "validate": "node scripts/validate-contract.mjs"
   },
   "dependencies": {
+    "@desi-event/auth": "workspace:*",
     "@desi-event/permissions": "workspace:*",
     "@desi-event/schemas": "workspace:*",
     "zod": "^4.6.5"

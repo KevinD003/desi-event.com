@@ -587,7 +587,7 @@ export const apiRoutes = Object.freeze(
       tags: ['auth'],
       auth: 'session',
       capability: null,
-      stepUp: true,
+      stepUp: 'CREDENTIAL',
       params: idParamSchema,
       query: null,
       body: disableMfaRequestSchema,

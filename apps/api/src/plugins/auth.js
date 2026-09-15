@@ -41,6 +41,7 @@ import {
   needsRehash,
   sessionCookieOptions,
   stepUpSatisfied,
+  stepUpWindowFor,
   verifyPassword,
 } from '@desi-event/auth'
 import { assertCan, PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
@@ -479,12 +480,36 @@ export async function registerAuth(app, { prisma, env }) {
 
   app.decorate('requireCapability', requireCapability)
 
-  app.decorate('requireStepUp', async function requireStepUp(request) {
-    if (stepUpSatisfied(request.session)) return
+  /**
+   * A preHandler demanding a recent second factor, under a named policy.
+   *
+   * Finding NF-11: this used to be a single decorator with no arguments and a
+   * fixed fifteen-minute window, so removing somebody's second factor was
+   * treated as no more sensitive than reading a revenue figure. The window is
+   * now chosen by the route's contract entry and resolved here. The browser
+   * never sees it and cannot influence it, which is the property that matters —
+   * an attacker holding a session is precisely the party who would ask for a
+   * longer one.
+   *
+   * `stepUpWindowFor` throws on an unknown policy rather than defaulting. A
+   * typo'd name that quietly became fifteen minutes would be a security control
+   * that stopped working without saying so.
+   *
+   * @param {string} policy One of `STEP_UP_POLICY_NAMES`.
+   * @returns {Function} A Fastify preHandler.
+   */
+  function requireStepUp(policy) {
+    const windowMs = stepUpWindowFor(policy)
 
-    throw forbidden(
-      'This action needs you to confirm your identity again. Authenticate at /v1/auth/step-up and retry.',
-      'STEP_UP_REQUIRED',
-    )
-  })
+    return async function assertStepUp(request) {
+      if (stepUpSatisfied(request.session, { windowMs })) return
+
+      throw forbidden(
+        'This action needs you to confirm your identity again. Authenticate at /v1/auth/step-up and retry.',
+        'STEP_UP_REQUIRED',
+      )
+    }
+  }
+
+  app.decorate('requireStepUp', requireStepUp)
 }

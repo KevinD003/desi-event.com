@@ -292,6 +292,86 @@ const ORG_ROLE_GRANTS = {
 }
 
 /**
+ * Find a cycle in an inheritance graph, or prove there is none.
+ *
+ * Finding NF-13 recorded the acyclicity check as inadequate. That was half
+ * right, and the half that was wrong is worth stating: `resolveRole` below
+ * already refuses a cycle, on a per-path basis, so a cyclic graph could never
+ * have loaded. What did not exist was a check that could be *reused* — by a
+ * test, by a future role editor, by anything that wants to know before trying —
+ * and the test that claimed to prove acyclicity only rejected directly
+ * reciprocal edges, so a three-role cycle would have passed it while failing at
+ * import time, which is a confusing way to learn about a mistake.
+ *
+ * Depth-first with an explicit path, so a diamond is not mistaken for a cycle:
+ * `ADMIN` inherits `MANAGER` and `FINANCE`, both of which reach `VIEWER`, and
+ * visiting `VIEWER` twice by different routes is correct inheritance rather than
+ * a loop. Only a role that appears *on the current path* is a cycle.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} inherits Inheritance edges.
+ * @returns {string[]|null} The cycle as a path that starts and ends at the same role, or null.
+ */
+export function findRoleCycle(inherits) {
+  /** Roles fully explored, with no cycle beneath them. */
+  const settled = new Set()
+
+  /**
+   * Walk one role.
+   *
+   * @param {string} role Where to start.
+   * @param {string[]} path The roles on the current path, in order.
+   * @returns {string[]|null} The cycle, or null.
+   */
+  function walk(role, path) {
+    const at = path.indexOf(role)
+
+    // On the path already: everything from that point back to here is the cycle,
+    // and returning the slice rather than a boolean is what makes the error
+    // message name the loop instead of one arbitrary member of it.
+    if (at !== -1) return [...path.slice(at), role]
+
+    if (settled.has(role)) return null
+
+    const next = [...path, role]
+
+    for (const parent of inherits[role] ?? []) {
+      const cycle = walk(parent, next)
+
+      if (cycle) return cycle
+    }
+
+    settled.add(role)
+
+    return null
+  }
+
+  for (const role of Object.keys(inherits)) {
+    const cycle = walk(role, [])
+
+    if (cycle) return cycle
+  }
+
+  return null
+}
+
+/**
+ * Throw when an inheritance graph has a cycle.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} inherits Inheritance edges.
+ * @returns {Record<string, ReadonlyArray<string>>} The same graph, when it is acyclic.
+ * @throws {Error} Naming the whole cycle, not one role on it.
+ */
+export function assertAcyclic(inherits) {
+  const cycle = findRoleCycle(inherits)
+
+  if (cycle) {
+    throw new Error(`Role inheritance cycle: ${cycle.join(' -> ')}`)
+  }
+
+  return inherits
+}
+
+/**
  * Resolve a role's full capability set by walking its inheritance graph.
  *
  * @param {string} role The role to resolve.
@@ -328,6 +408,11 @@ function resolveRole(role, grants, inherits, seen = new Set()) {
  * @returns {Record<string, string[]>} Role to full, sorted capability list.
  */
 function resolveAll(grants, inherits) {
+  // Before walking anything. `resolveRole` would also catch a cycle, but only
+  // the first one it happened to reach and only by the role it re-entered;
+  // checking the whole graph first means the error names the loop.
+  assertAcyclic(inherits)
+
   const table = {}
 
   for (const role of Object.keys(grants)) {

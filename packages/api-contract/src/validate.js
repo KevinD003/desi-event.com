@@ -8,6 +8,7 @@
  * @module @desi-event/api-contract/validate
  */
 
+import { STEP_UP_POLICY_NAMES } from '@desi-event/auth'
 import { isCapability, PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 
 import { buildOpenApiDocument, OPENAPI_VERSION } from './openapi.js'
@@ -272,10 +273,19 @@ function checkRoute(route, index) {
     }
   }
 
-  if ('stepUp' in route) {
-    if (typeof route.stepUp !== 'boolean') {
-      fail('BAD_STEP_UP', `Route ${routeId} stepUp must be a boolean`)
-    } else if (route.stepUp && !AUTHENTICATED_MODES.includes(route.auth)) {
+  // Finding NF-11. `stepUp` used to be a boolean, so every sensitive action
+  // shared one fifteen-minute window: approving a refund and removing somebody's
+  // second factor were treated as equally recent. It is now a named policy, and
+  // naming it here rather than in the handler is the point — the window is
+  // decided by the contract, before a request arrives, so a browser can neither
+  // send one nor widen one.
+  if ('stepUp' in route && route.stepUp !== null && route.stepUp !== false) {
+    if (typeof route.stepUp !== 'string' || !STEP_UP_POLICY_NAMES.includes(route.stepUp)) {
+      fail(
+        'BAD_STEP_UP',
+        `Route ${routeId} stepUp must name a policy — one of ${STEP_UP_POLICY_NAMES.join(', ')} — not ${JSON.stringify(route.stepUp)}`,
+      )
+    } else if (!AUTHENTICATED_MODES.includes(route.auth)) {
       fail(
         'STEP_UP_WITHOUT_AUTH',
         `Route ${routeId} requires step-up authentication but does not require a credential`,

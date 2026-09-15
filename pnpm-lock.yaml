@@ -258,6 +258,9 @@ importers:
 
   packages/api-contract:
     dependencies:
+      '@desi-event/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@desi-event/permissions':
         specifier: workspace:*
         version: link:../permissions
