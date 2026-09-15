@@ -273,6 +273,29 @@ function checkRoute(route, index) {
     }
   }
 
+  // Finding NF-12: which routes an un-enrolled privileged account may still
+  // reach is declared here rather than matched by path in the guard, so the
+  // exemption list is reviewable in one place.
+  if ('mfaExempt' in route && typeof route.mfaExempt !== 'boolean' && route.mfaExempt !== null) {
+    fail('BAD_MFA_EXEMPT', `Route ${routeId} mfaExempt must be a boolean`)
+  }
+
+  if (route.mfaExempt === true && !AUTHENTICATED_MODES.includes(route.auth)) {
+    fail(
+      'MFA_EXEMPT_WITHOUT_AUTH',
+      `Route ${routeId} is marked mfaExempt but identifies no caller, so the exemption means nothing`,
+    )
+  }
+
+  if (route.mfaExempt === true && route.capability) {
+    // An exemption exists so somebody can reach the door to enrol. A route that
+    // also asserts a capability is behind the door.
+    fail(
+      'MFA_EXEMPT_WITH_CAPABILITY',
+      `Route ${routeId} is marked mfaExempt and asserts "${route.capability}" — an exemption is for account management, not for privileged work`,
+    )
+  }
+
   // Finding NF-11. `stepUp` used to be a boolean, so every sensitive action
   // shared one fifteen-minute window: approving a refund and removing somebody's
   // second factor were treated as equally recent. It is now a named policy, and

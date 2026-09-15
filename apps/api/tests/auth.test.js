@@ -17,7 +17,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { PASSWORD, legacyPasswordHash, makeWorld } from './helpers/fixtures.js'
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, createTestApp, mfaCodeFor, signIn } from './helpers/app.js'
 
 /** A valid registration payload. */
 const registration = {
@@ -76,11 +76,17 @@ function followCookies(headers, response) {
 }
 
 async function signInAsBrowser(app, email, { password = PASSWORD, code } = {}) {
+  // A privileged fixture account holds a confirmed factor — finding NF-12
+  // requires one — so sign-in asks for a code unless the caller has supplied its
+  // own. Tests that are *about* the MFA prompt pass `code` explicitly and are
+  // unaffected.
+  const second = code ?? mfaCodeFor(app, email)
+
   const response = await app.inject({
     method: 'POST',
     url: '/v1/auth/login',
     headers: { origin: ORIGIN },
-    payload: { email, password, ...(code ? { code } : {}) },
+    payload: { email, password, ...(second ? { code: second } : {}) },
   })
 
   const body = response.json()
@@ -1850,6 +1856,111 @@ describe('rotation on a privilege change, finding NF-10', () => {
 
     expect(other.statusCode).toBe(401)
     expect(prisma._store.session.filter((s) => s.revokedAt === null)).toHaveLength(1)
+
+    await app.close()
+  })
+})
+
+describe('recovery codes are stored as digests, finding NF-12', () => {
+  /**
+   * Enrol a TOTP factor and return its recovery codes.
+   *
+   * @param {object} app The instance.
+   * @param {object} headers Signed-in headers.
+   * @returns {Promise<object>} The codes and the post-rotation headers.
+   */
+  async function enrol(app, headers) {
+    const { totp } = await import('@desi-event/auth')
+    const started = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp',
+      headers,
+      payload: {},
+    })
+    const { factorId, secret } = started.json().data
+
+    const confirmed = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp/confirm',
+      headers,
+      payload: { factorId, code: totp(secret) },
+    })
+
+    expect(confirmed.statusCode).toBe(200)
+
+    return {
+      recoveryCodes: confirmed.json().data.recoveryCodes,
+      headers: followCookies(headers, confirmed),
+    }
+  }
+
+  it('stores a digest, not a reversible seal', async () => {
+    // A seal can be opened with the server key, so anybody holding the database
+    // and the key could print somebody's codes. A digest cannot be reversed.
+    const { app, prisma } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+
+    await enrol(app, signedIn.headers)
+
+    const stored = prisma._store.mfaFactor.filter((factor) => factor.type === 'RECOVERY_CODE')
+
+    expect(stored.length).toBeGreaterThan(0)
+
+    for (const factor of stored) {
+      // 64 lower-case hex characters, and nothing that looks like a seal.
+      expect(factor.secretSealed).toMatch(/^[0-9a-f]{64}$/)
+      expect(factor.secretSealed.startsWith('seal')).toBe(false)
+    }
+
+    await app.close()
+  })
+
+  it('still accepts a recovery code at sign-in, and consumes it', async () => {
+    const { app, prisma } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+    const { recoveryCodes } = await enrol(app, signedIn.headers)
+    const [code] = recoveryCodes
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { origin: ORIGIN },
+      payload: { email: 'priya@example.com', password: PASSWORD, code },
+    })
+
+    expect(first.statusCode).toBe(200)
+    expect(first.json().token).toBeTruthy()
+
+    // Single use: the same code does not work twice.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { origin: ORIGIN },
+      payload: { email: 'priya@example.com', password: PASSWORD, code },
+    })
+
+    expect(second.statusCode).toBe(401)
+    expect(
+      prisma._store.mfaFactor.filter((f) => f.type === 'RECOVERY_CODE' && f.usedAt !== null),
+    ).toHaveLength(1)
+
+    await app.close()
+  })
+
+  it('refuses a code that was never issued', async () => {
+    const { app } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+
+    await enrol(app, signedIn.headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { origin: ORIGIN },
+      payload: { email: 'priya@example.com', password: PASSWORD, code: 'ABCD-EFGH-IJKL' },
+    })
+
+    expect(response.statusCode).toBe(401)
 
     await app.close()
   })

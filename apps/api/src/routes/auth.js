@@ -33,9 +33,9 @@ import {
   issueToken,
   normalizeRecoveryCode,
   seal,
-  sealsMatch,
   sessionPolicyFor,
   stepUpSatisfied,
+  tokensMatch,
   tokenExpiry,
   tokenUsable,
   totpUri,
@@ -109,7 +109,6 @@ function accepted(message) {
 export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
   const limit = { rateLimit: authRateLimit(authLimit) }
   const sealing = { secret: app.authKeys.sealingSecret, purpose: KEY_PURPOSES.mfa }
-  const recoverySealing = { secret: app.authKeys.sealingSecret, purpose: KEY_PURPOSES.recovery }
 
   /**
    * Rotate the caller's own session after a privilege change, and deliver it.
@@ -308,10 +307,16 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         where: { userId, type: 'RECOVERY_CODE', usedAt: null, disabledAt: null },
       })
 
+      // Compared by digest, not by opening a seal — finding NF-12, and what the
+      // schema said all along ("For a recovery code, a SHA-256 of the code").
+      // A sealed value is reversible with the server key: anybody who could read
+      // the database *and* the key could print somebody's recovery codes. A
+      // digest cannot be reversed, and a recovery code never needs to be read
+      // back, only recognised.
+      const digest = hashToken(normalised)
+
       for (const factor of candidates) {
-        if (!sealsMatch(factor.secretSealed, seal(normalised, recoverySealing), recoverySealing)) {
-          continue
-        }
+        if (!tokensMatch(factor.secretSealed, digest)) continue
 
         const { count } = await prisma.mfaFactor.updateMany({
           where: { id: factor.id, usedAt: null },
@@ -748,10 +753,22 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
         satisfied = (await checkSecondFactor({ userId: request.actor.id, code })).ok
       } else if (password) {
         // A password alone will not do for an account whose roles require a
-        // second factor: the whole point of the requirement is that the password
-        // is not sufficient.
-        if (policy.mfaRequired && factors.length > 0) {
-          throw unauthorized('This account needs a one-time code to confirm a sensitive action.')
+        // second factor. Finding NF-12: this used to be conditional on the
+        // account *having* a factor — `policy.mfaRequired && factors.length > 0`
+        // — so a finance administrator with none enrolled satisfied step-up by
+        // retyping the password the session was already opened with. Step-up on
+        // exactly the account most in need of a second factor was a re-typed
+        // first one.
+        //
+        // With no factor there is nothing to step up *to*, so the answer is to
+        // enrol, not to fall back.
+        if (policy.mfaRequired) {
+          throw unauthorized(
+            factors.length > 0
+              ? 'This account needs a one-time code to confirm a sensitive action.'
+              : 'This account holds privileged roles and has no second factor. Enrol one at /v1/auth/mfa/totp before performing sensitive actions.',
+            factors.length > 0 ? 'UNAUTHORIZED' : 'MFA_ENROLMENT_REQUIRED',
+          )
         }
 
         satisfied = await app.verifyUserPassword(request.currentUser, password)
@@ -970,15 +987,18 @@ export function registerAuthRoutes(app, { prisma, env, authLimit, deliver }) {
             lastUsedAt: new Date(result.counter * TOTP_PARAMETERS.stepSeconds * 1000),
           },
         }),
-        // Recovery codes are stored sealed rather than hashed because they are
-        // compared by opening them: a digest would be cheaper, and `sealsMatch`
-        // keeps one mechanism for both kinds of stored factor secret.
+        // Recovery codes are stored as digests, not sealed — finding NF-12, and
+        // what the schema always said. A seal is reversible with the server key,
+        // so anybody holding both the database and the key could print
+        // somebody's codes. A digest cannot be reversed, and a recovery code
+        // only ever needs to be recognised, never read back. The TOTP secret is
+        // different: verification has to *use* it, so it stays sealed.
         ...codes.map((code) =>
           prisma.mfaFactor.create({
             data: {
               userId: request.actor.id,
               type: 'RECOVERY_CODE',
-              secretSealed: seal(normalizeRecoveryCode(code), recoverySealing),
+              secretSealed: hashToken(normalizeRecoveryCode(code)),
               confirmedAt: now,
             },
           }),

@@ -280,10 +280,13 @@ export function unprocessable(message, details) {
  * Shorthand for a 401.
  *
  * @param {string} [message] Message to send.
+ * @param {string} [code] Machine-readable code. Defaults to `UNAUTHORIZED`; a
+ *   caller names its own when the remedy differs — `MFA_ENROLMENT_REQUIRED`
+ *   means "enrol a factor", which is a different action from "sign in again".
  * @returns {Error} A 401 error.
  */
-export function unauthorized(message = 'A valid bearer token is required.') {
-  return httpError(401, 'UNAUTHORIZED', message)
+export function unauthorized(message = 'A valid bearer token is required.', code = 'UNAUTHORIZED') {
+  return httpError(401, code, message)
 }
 
 /**

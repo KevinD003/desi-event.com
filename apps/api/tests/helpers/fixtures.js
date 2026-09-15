@@ -10,7 +10,13 @@
  */
 
 import bcrypt from 'bcryptjs'
-import { SCRYPT_PARAMETERS, hashPassword } from '@desi-event/auth'
+import {
+  PRIVILEGED_ORG_ROLES,
+  PRIVILEGED_PLATFORM_ROLES,
+  SCRYPT_PARAMETERS,
+  hashPassword,
+  seal,
+} from '@desi-event/auth'
 
 import { cuid } from './prisma-stub.js'
 
@@ -24,6 +30,110 @@ import { cuid } from './prisma-stub.js'
  *
  * @type {ReadonlyArray<{id: string, code: string, name: string, type: string}>}
  */
+/**
+ * The TOTP secret every enrolled fixture account shares.
+ *
+ * One secret for all of them because the tests only ever need *a* valid code;
+ * distinct secrets would add bookkeeping and prove nothing extra.
+ *
+ * @type {string}
+ */
+export const MFA_TEST_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
+
+/**
+ * The sealing secret the test environment resolves to.
+ *
+ * `apiEnvSchema` fills `AUTH_SECRET` from `JWT_SECRET` when it is not supplied,
+ * and the harness supplies only `JWT_SECRET`. Defined here rather than imported
+ * from the app helper because that helper imports *this* module.
+ *
+ * @type {string}
+ */
+export const TEST_AUTH_SECRET = 'test-only-secret-that-is-long-enough-32'
+
+/**
+ * Give every privileged account in a seed a confirmed second factor.
+ *
+ * Derived from the seed rather than listed by hand, because finding NF-12 makes
+ * enrolment a property of *holding a privileged role* — and tests create such
+ * roles freely. A hardcoded list would be right until the next test added a
+ * FINANCE member, and then it would be wrong in a way that looks like a
+ * product bug.
+ *
+ * Accounts that already have a factor are left alone, so a test that enrols one
+ * itself is not given a second.
+ *
+ * @param {object} seed The seed tables.
+ * @returns {{seed: object, enrolled: Set<string>}} The seed, and the emails now holding a factor.
+ */
+export function enrolPrivilegedUsers(seed) {
+  const users = seed.user ?? []
+  const byId = new Map(users.map((row) => [row.id, row]))
+  const privileged = new Set()
+
+  for (const row of users) {
+    if (PRIVILEGED_PLATFORM_ROLES.has(row.role)) privileged.add(row.id)
+  }
+
+  for (const membership of seed.membership ?? []) {
+    if (PRIVILEGED_ORG_ROLES.has(membership.role)) privileged.add(membership.userId)
+  }
+
+  const existing = new Set(
+    (seed.mfaFactor ?? [])
+      .filter(
+        (factor) => factor.type !== 'RECOVERY_CODE' && factor.confirmedAt && !factor.disabledAt,
+      )
+      .map((factor) => factor.userId),
+  )
+
+  const added = []
+  const enrolled = new Set()
+
+  for (const userId of privileged) {
+    const user = byId.get(userId)
+
+    if (!user) continue
+
+    enrolled.add(user.email)
+
+    if (existing.has(userId)) continue
+
+    added.push({
+      id: cuid(),
+      userId,
+      type: 'TOTP',
+      label: 'Test authenticator',
+      // A real sealed secret, not a placeholder: the suite has to produce a
+      // working code, because a privileged account needs one at sign-in as well
+      // as for step-up.
+      secretSealed: sealTotpSecret(MFA_TEST_SECRET),
+      confirmedAt: new Date(),
+      lastUsedAt: null,
+      usedAt: null,
+      disabledAt: null,
+      createdAt: new Date(),
+    })
+  }
+
+  seed.mfaFactor = [...(seed.mfaFactor ?? []), ...added]
+
+  return { seed, enrolled }
+}
+
+/**
+ * Seal a TOTP secret the way the API does.
+ *
+ * Same key derivation and same purpose label, so a factor written by a fixture
+ * is indistinguishable from one written by the enrolment route.
+ *
+ * @param {string} secret The base32 TOTP secret.
+ * @returns {string} The sealed value.
+ */
+function sealTotpSecret(secret) {
+  return seal(secret, { secret: TEST_AUTH_SECRET, purpose: 'mfa-totp' })
+}
+
 const LEDGER_ACCOUNTS = Object.freeze([
   {
     id: 'ledacc0000000processorclear',

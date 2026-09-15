@@ -40,6 +40,7 @@ import {
   issueCsrfToken,
   needsRehash,
   sessionCookieOptions,
+  sessionPolicyFor,
   stepUpSatisfied,
   stepUpWindowFor,
   verifyPassword,
@@ -512,4 +513,56 @@ export async function registerAuth(app, { prisma, env }) {
   }
 
   app.decorate('requireStepUp', requireStepUp)
+
+  /**
+   * Refuse a privileged actor who has not enrolled a second factor.
+   *
+   * Finding NF-12. `sessionPolicyFor` has always returned `mfaRequired` for
+   * anybody who can moderate, refund, pay out or publish, and its own docstring
+   * said such an account "cannot reach a privileged route until it has" enrolled.
+   * Nothing implemented that. A finance administrator with no factor held every
+   * capability their role grants.
+   *
+   * The exemptions are declared in the contract rather than matched by path here,
+   * so the list of what an un-enrolled privileged user may still reach is
+   * reviewable in one place: enrolling a factor, reading their own profile,
+   * managing their sessions and devices, changing their password, and signing
+   * out. Everything else waits.
+   *
+   * Recovery codes do not count as enrolment. They are a way back in after losing
+   * the authenticator, not a second factor to rely on — an account whose only
+   * factor is a printed list has a second factor in name only.
+   *
+   * @param {object} request The request, with an actor already attached.
+   * @returns {Promise<void>} Resolves when the actor may proceed.
+   */
+  async function requireMfaEnrolment(request) {
+    const actor = request.actor
+
+    if (!actor) return
+    if (!sessionPolicyFor(actor).mfaRequired) return
+
+    const enrolled = await prisma.mfaFactor.count({
+      where: {
+        userId: actor.id,
+        type: { not: 'RECOVERY_CODE' },
+        confirmedAt: { not: null },
+        disabledAt: null,
+      },
+    })
+
+    if (enrolled > 0) return
+
+    request.log.warn(
+      { userId: actor.id },
+      'a privileged account reached a guarded route with no second factor enrolled',
+    )
+
+    throw forbidden(
+      'This account holds privileged roles and needs a second factor. Enrol one at /v1/auth/mfa/totp, then try again.',
+      'MFA_ENROLMENT_REQUIRED',
+    )
+  }
+
+  app.decorate('requireMfaEnrolment', requireMfaEnrolment)
 }

@@ -21,7 +21,7 @@ import { registerAuth } from '../src/plugins/auth.js'
 import { registerErrorHandler } from '../src/plugins/error-handler.js'
 import { createPrismaStub } from './helpers/prisma-stub.js'
 import { makeWorld } from './helpers/fixtures.js'
-import { testEnv } from './helpers/app.js'
+import { bearer, createTestApp, signIn, testEnv } from './helpers/app.js'
 
 /**
  * A Fastify instance with the auth decorators and nothing else.
@@ -202,6 +202,190 @@ describe('a platform-only capability', () => {
 
     expect(response.statusCode).toBe(403)
     expect(response.json().error.code).not.toBe('CAPABILITY_SCOPE_MISSING')
+
+    await app.close()
+  })
+})
+
+describe('the MFA enrolment gate, finding NF-12', () => {
+  // `sessionPolicyFor` has always returned `mfaRequired` for anybody who can
+  // moderate, refund, pay out or publish, and its docstring said such an account
+  // "cannot reach a privileged route until it has" enrolled. Nothing implemented
+  // that, so a finance administrator with no factor held every capability their
+  // role granted.
+
+  /**
+   * Build a world whose organiser deliberately has no second factor.
+   *
+   * @returns {Promise<object>} The harness.
+   */
+  async function unenrolledOrganiser() {
+    const world = await makeWorld()
+
+    // Built, then stripped: `createTestApp` enrols every privileged account, so
+    // the only way to test the gate is to take the factor away again.
+    const harness = await createTestApp({ seed: world.seed, ids: world.ids })
+
+    harness.prisma._store.mfaFactor = harness.prisma._store.mfaFactor.filter(
+      (factor) => factor.type === 'RECOVERY_CODE',
+    )
+
+    return harness
+  }
+
+  it('refuses a privileged caller who has enrolled nothing', async () => {
+    const { app, ids } = await unenrolledOrganiser()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/organizations/${ids.organization.id}/members`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('MFA_ENROLMENT_REQUIRED')
+
+    await app.close()
+  })
+
+  it('lets the same caller through once a factor is confirmed', async () => {
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/organizations/${ids.organization.id}/members`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    await app.close()
+  })
+
+  it('leaves the enrolment route itself reachable', async () => {
+    // Otherwise a privileged user could never enrol, which would be a lockout
+    // rather than a control.
+    const { app } = await unenrolledOrganiser()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const started = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/mfa/totp',
+      headers: bearer(token),
+      payload: {},
+    })
+
+    expect(started.statusCode).toBe(201)
+
+    await app.close()
+  })
+
+  it('leaves profile, session management and sign-out reachable', async () => {
+    const { app } = await unenrolledOrganiser()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    for (const url of ['/v1/auth/me', '/v1/auth/sessions', '/v1/auth/devices', '/v1/auth/mfa']) {
+      const response = await app.inject({ method: 'GET', url, headers: bearer(token) })
+
+      expect(response.statusCode, url).toBe(200)
+    }
+
+    await app.close()
+  })
+
+  it('does not fire for an attendee, who holds no privileged role', async () => {
+    const { app } = await unenrolledOrganiser()
+    const token = await signIn(app, 'priya@example.com')
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/orders',
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    await app.close()
+  })
+
+  it('does not count recovery codes as enrolment', async () => {
+    // A printed list is a way back in after losing the authenticator, not a
+    // second factor to rely on.
+    const { app, ids, prisma } = await createTestApp()
+
+    // Signed in while the authenticator still existed, then it is removed and
+    // only recovery codes remain — which is what happens when somebody loses a
+    // phone. The gate is evaluated per request, so the session continues to exist
+    // and stops being able to do privileged work.
+    const token = await signIn(app, 'arun@rangoli.example')
+    const organiser = prisma._store.user.find((row) => row.email === 'arun@rangoli.example')
+
+    prisma._store.mfaFactor = prisma._store.mfaFactor.filter(
+      (factor) => factor.userId !== organiser.id,
+    )
+    prisma._store.mfaFactor.push({
+      id: 'recovery-only',
+      userId: organiser.id,
+      type: 'RECOVERY_CODE',
+      secretSealed: 'fake-sealed-recovery-code',
+      confirmedAt: new Date(),
+      disabledAt: null,
+      usedAt: null,
+      lastUsedAt: null,
+      createdAt: new Date(),
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/organizations/${ids.organization.id}/members`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('MFA_ENROLMENT_REQUIRED')
+
+    await app.close()
+  })
+})
+
+describe('step-up without an enrolled factor, finding NF-12', () => {
+  it('refuses a password for a privileged account with no factor', async () => {
+    // The sharp end of the finding: step-up used to accept a password whenever
+    // the account had no factor, so the challenge on the account most in need of
+    // a second factor was a re-typed first one.
+    const world = await makeWorld()
+    const { app, prisma } = await createTestApp({ seed: world.seed, ids: world.ids })
+
+    prisma._store.mfaFactor = []
+
+    const token = await signIn(app, 'arun@rangoli.example')
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/step-up',
+      headers: bearer(token),
+      payload: { password: 'correct-horse-battery' },
+    })
+
+    expect(response.statusCode).toBe(401)
+    expect(response.json().error.code).toBe('MFA_ENROLMENT_REQUIRED')
+
+    await app.close()
+  })
+
+  it('still accepts a password for an attendee, who needs no second factor', async () => {
+    const { app } = await createTestApp()
+    const token = await signIn(app, 'priya@example.com')
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/step-up',
+      headers: bearer(token),
+      payload: { password: 'correct-horse-battery' },
+    })
+
+    expect(response.statusCode).toBe(200)
 
     await app.close()
   })

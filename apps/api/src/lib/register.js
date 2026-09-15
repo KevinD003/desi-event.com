@@ -10,7 +10,7 @@
  * @module @desi-event/api/lib/register
  */
 
-import { routeById } from '@desi-event/api-contract'
+import { AUTHENTICATED_MODES, routeById } from '@desi-event/api-contract'
 
 import { routeSchema } from './validation.js'
 
@@ -57,6 +57,17 @@ export function defineRoute(app, id, options) {
 
   /** @type {Array<Function>} */
   const declared = []
+
+  // Finding NF-12, and first in the list: a privileged account with no second
+  // factor is refused before any capability is even consulted. The exemptions —
+  // enrolling, reading your own profile, managing sessions, changing your
+  // password, signing out — are declared in the contract, so what an un-enrolled
+  // privileged user may still reach is reviewable in one place rather than
+  // inferred from a path match.
+  if (AUTHENTICATED_MODES.includes(route.auth) && !route.mfaExempt) {
+    declared.push(app.requireMfaEnrolment)
+  }
+
   if (route.capability)
     declared.push(app.requireCapability(route.capability, route.capabilityScope))
   // The window comes from the contract's named policy, not from the request and

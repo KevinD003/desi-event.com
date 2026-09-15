@@ -10,11 +10,12 @@
  * @module @desi-event/api/tests/helpers/app
  */
 
+import { totp } from '@desi-event/auth'
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
 
 import { buildApp } from '../../src/app.js'
 import { createPrismaStub } from './prisma-stub.js'
-import { makeWorld } from './fixtures.js'
+import { MFA_TEST_SECRET, enrolPrivilegedUsers, makeWorld } from './fixtures.js'
 
 /** A JWT secret long enough for `apiEnvSchema`, and obviously not a real one. */
 import { resolveTaxPolicy } from '@desi-event/pricing'
@@ -69,6 +70,12 @@ export function testEnv(overrides = {}) {
 export async function createTestApp(options = {}) {
   const world = options.seed ? { seed: options.seed, ids: options.ids ?? {} } : await makeWorld()
 
+  // Finding NF-12: a privileged account cannot reach a guarded route without a
+  // confirmed second factor, so the seed's privileged accounts get one. Derived
+  // rather than listed, because a test that adds a FINANCE member should not have
+  // to know it has also created an enrolment requirement.
+  const { enrolled } = enrolPrivilegedUsers(world.seed)
+
   const prisma = createPrismaStub(world.seed)
   const providers = options.providers ?? createInMemoryProviderRegistry()
 
@@ -88,7 +95,12 @@ export async function createTestApp(options = {}) {
 
   await app.ready()
 
-  return { app, prisma, providers, ids: world.ids }
+  // Plain properties rather than `app.decorate`, which Fastify refuses once the
+  // instance has started. Only the test helpers read them.
+  app.testEnrolledEmails = enrolled
+  app.testPrisma = prisma
+
+  return { app, prisma, providers, enrolled, ids: world.ids }
 }
 
 /**
@@ -100,18 +112,62 @@ export async function createTestApp(options = {}) {
  * @returns {Promise<string>} A bearer token.
  * @throws {Error} When sign-in fails, so a broken fixture surfaces immediately.
  */
+/**
+ * A valid one-time code for an enrolled fixture account, or undefined.
+ *
+ * @param {object} app The test instance, carrying the enrolled set and the store.
+ * @param {string} email The account's email address.
+ * @returns {string|undefined} A code, when the account holds a factor.
+ */
+export function mfaCodeFor(app, email) {
+  if (!app.testEnrolledEmails?.has(email)) return undefined
+
+  // TOTP refuses a code whose counter it has already seen, so two sign-ins in
+  // the same thirty-second window would fail the second one — correctly. A real
+  // user waits; a test cannot. Clearing `lastUsedAt` on the account's factor is
+  // this suite's way of saying thirty seconds have passed, and it touches only
+  // the replay bookkeeping, never the verification itself.
+  const user = (app.testPrisma?._store?.user ?? []).find((row) => row.email === email)
+
+  for (const factor of app.testPrisma?._store?.mfaFactor ?? []) {
+    if (factor.userId === user?.id && factor.type === 'TOTP') factor.lastUsedAt = null
+  }
+
+  return totp(MFA_TEST_SECRET)
+}
+
+/**
+ * Sign in and return the bearer token.
+ *
+ * @param {object} app The Fastify instance.
+ * @param {string} email The account's email address.
+ * @param {string} [password] The password.
+ * @returns {Promise<string>} The session secret.
+ */
 export async function signIn(app, email, password = 'correct-horse-battery') {
+  // A privileged fixture account holds a confirmed second factor — finding
+  // NF-12 requires one — so sign-in asks for a code. Supplying it here rather
+  // than in every caller keeps the tests about what they are testing, and keeps
+  // the flow the same shape a real privileged sign-in has.
+  const code = mfaCodeFor(app, email)
+
   const response = await app.inject({
     method: 'POST',
     url: '/v1/auth/login',
-    payload: { email, password },
+    payload: { email, password, ...(code ? { code } : {}) },
   })
 
   if (response.statusCode !== 200) {
     throw new Error(`Sign-in failed for ${email}: ${response.statusCode} ${response.body}`)
   }
 
-  return response.json().token
+  const body = response.json()
+
+  if (!body.token) {
+    throw new Error(`Sign-in for ${email} returned no token: ${response.body}`)
+  }
+
+  return body.token
 }
 
 /**
