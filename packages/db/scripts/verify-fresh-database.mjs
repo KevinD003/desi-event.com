@@ -45,6 +45,7 @@ import {
   resolveDisposableTarget,
   withDatabase,
 } from './disposable-database.mjs'
+import { runPhase2Probes } from './phase2-probes.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = path.resolve(HERE, '..')
@@ -512,6 +513,12 @@ async function main() {
       }) && ok
 
     ok = (await probeConstraints(prisma)) && ok
+
+    // The Phase 2 invariants: cross-table triggers, the frozen seat map, and
+    // the ledger's balance-at-posting and posted-immutability guarantees. These
+    // probes commit a posted ledger batch, so they run after the seed
+    // comparison above — nothing downstream counts rows.
+    ok = (await runPhase2Probes(prisma, { probe, record })) && ok
 
     await prisma.$disconnect()
     prisma = null

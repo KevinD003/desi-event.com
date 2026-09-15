@@ -26,7 +26,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "verify:fresh": "node scripts/verify-fresh-database.mjs"
+    "verify:fresh": "node scripts/verify-fresh-database.mjs",
+    "verify:upgrade": "node scripts/verify-populated-upgrade.mjs"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",

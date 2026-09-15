@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event — event discovery and ticketing platform for the South Asian community. JavaScript-only monorepo.",
+  "description": "Desi-Event \u2014 event discovery and ticketing platform for the South Asian community. JavaScript-only monorepo.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -36,7 +36,8 @@
     "clean": "node scripts/clean.mjs",
     "secrets:scan": "node scripts/scan-secrets.mjs",
     "test:e2e:prod": "pnpm --filter @desi-event/web test:e2e:prod",
-    "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh"
+    "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh",
+    "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade"
   },
   "devDependencies": {
     "@desi-event/config": "workspace:*",
