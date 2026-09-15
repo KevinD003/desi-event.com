@@ -4,12 +4,8 @@ import { join } from 'node:path'
 
 import { afterAll, describe, expect, it } from 'vitest'
 
-import {
-  apiRoutes,
-  buildOpenApiDocument,
-  objectKeysOf,
-  validateContract,
-} from '@desi-event/api-contract'
+import { apiRoutes, buildOpenApiDocument } from '@desi-event/api-contract'
+import { objectKeysOf, validateContract } from '@desi-event/api-contract/validate'
 
 import { emitOpenApi } from '../scripts/emit-openapi.mjs'
 import { routeSchema } from '../src/lib/validation.js'

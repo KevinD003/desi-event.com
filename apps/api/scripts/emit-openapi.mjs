@@ -24,7 +24,7 @@
 import { writeFile } from 'node:fs/promises'
 import process from 'node:process'
 
-import { assertContractValid } from '@desi-event/api-contract'
+import { assertContractValid } from '@desi-event/api-contract/validate'
 
 import {
   ARTIFACT_PATH,

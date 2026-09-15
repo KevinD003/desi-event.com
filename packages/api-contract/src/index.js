@@ -14,4 +14,9 @@ export * from './path.js'
 export * from './routes.js'
 export * from './openapi.js'
 export * from './client.js'
-export * from './validate.js'
+
+// `validate.js` is deliberately NOT re-exported here. It is a build- and
+// CI-time check over the whole contract, it is the only module in this package
+// that reaches outside it, and anything importing this barrel is very often a
+// browser. It lives at `@desi-event/api-contract/validate` so that reaching for
+// it is a decision rather than a side effect of importing the client.

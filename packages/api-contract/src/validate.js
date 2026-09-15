@@ -8,7 +8,11 @@
  * @module @desi-event/api-contract/validate
  */
 
-import { STEP_UP_POLICY_NAMES } from '@desi-event/auth'
+// The specific module, never the package barrel — finding NF-15. The barrel
+// re-exports `password.js`, which calls `promisify(node:crypto.scrypt)` at
+// module scope; one import of one frozen array of strings was enough to compile
+// the platform's password hashing into a chunk served to every browser.
+import { STEP_UP_POLICY_NAMES } from '@desi-event/auth/sessions'
 import { isCapability, PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 
 import { buildOpenApiDocument, OPENAPI_VERSION } from './openapi.js'

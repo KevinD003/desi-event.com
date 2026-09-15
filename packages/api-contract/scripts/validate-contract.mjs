@@ -52,7 +52,10 @@ export async function main(argv = process.argv.slice(2)) {
 
   try {
     const contract = await import('../src/index.js')
-    validateContract = contract.validateContract
+    // The validator sits outside the barrel — finding NF-15 — so it is loaded
+    // from its own module rather than from the package's public surface.
+    const validator = await import('../src/validate.js')
+    validateContract = validator.validateContract
     apiRoutes = contract.apiRoutes
   } catch (error) {
     console.error('Could not load @desi-event/api-contract:')

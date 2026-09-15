@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.js",
     "./client": "./src/client.js",
+    "./validate": "./src/validate.js",
     "./package.json": "./package.json"
   },
   "files": [
