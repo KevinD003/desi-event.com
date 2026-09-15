@@ -8,6 +8,10 @@
  * a database exists.
  */
 
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { randomUUID } from 'node:crypto'
 
 import { afterAll, describe, expect, it } from 'vitest'
@@ -284,16 +288,67 @@ describe('schema access through the wrapper', () => {
 })
 
 describe('exported enums', () => {
-  it('mirror the enum values declared in schema.prisma', () => {
-    expect(Object.values(UserRole)).toEqual(['ATTENDEE', 'ORGANIZER', 'ADMIN'])
-    expect(Object.values(OrgRole)).toEqual(['OWNER', 'ADMIN', 'MANAGER', 'STAFF', 'VIEWER'])
-    expect(Object.values(OrderStatus)).toEqual([
-      'PENDING',
-      'PAID',
-      'CANCELLED',
-      'REFUNDED',
-      'EXPIRED',
-    ])
-    expect(Object.values(PromoType)).toEqual(['PERCENTAGE', 'FIXED_AMOUNT'])
+  // Read from schema.prisma rather than restated here. The previous version of
+  // this test listed the values by hand, which meant it could only catch the
+  // generated client disagreeing with a third copy — not with the schema. The
+  // same shape of mistake in packages/schemas hid a real defect for a whole
+  // cycle (NF-03).
+  const schemaSource = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'prisma', 'schema.prisma'),
+    'utf8',
+  )
+
+  /**
+   * Parse the enums out of a Prisma schema.
+   *
+   * @param {string} source Schema contents.
+   * @returns {Record<string, string[]>} Enum name to members, in declaration order.
+   */
+  function prismaEnums(source) {
+    /** @type {Record<string, string[]>} */
+    const found = {}
+    const pattern = /^enum\s+(\w+)\s*\{([^}]*)\}/gm
+    let match
+
+    while ((match = pattern.exec(source))) {
+      found[match[1]] = match[2]
+        .split('\n')
+        .map((line) => line.replace(/\/\/.*$/, '').trim())
+        .filter((line) => /^[A-Z][A-Z0-9_]*$/.test(line))
+    }
+
+    return found
+  }
+
+  const declared = prismaEnums(schemaSource)
+
+  it('found the enums to compare against', () => {
+    expect(Object.keys(declared).length).toBeGreaterThan(20)
+  })
+
+  it.each([
+    ['UserRole', UserRole],
+    ['OrgRole', OrgRole],
+    ['OrderStatus', OrderStatus],
+    ['PromoType', PromoType],
+  ])('%s matches the schema exactly', (name, exported) => {
+    expect(Object.values(exported).sort()).toEqual([...declared[name]].sort())
+  })
+
+  it('no longer names a platform role the schema dropped', () => {
+    // Phase 1's catch-all ADMIN became SUPER_ADMIN, and the narrower staff
+    // roles exist so the ordinary platform jobs do not need it.
+    expect(Object.values(UserRole)).not.toContain('ADMIN')
+    expect(Object.values(UserRole)).toContain('SUPER_ADMIN')
+    expect(Object.values(UserRole)).toContain('MODERATOR')
+    expect(Object.values(UserRole)).toContain('FINANCE_ADMIN')
+    expect(Object.values(UserRole)).toContain('SUPPORT')
+  })
+
+  it('keeps ADMIN as an organisation role, which is a different thing', () => {
+    expect(Object.values(OrgRole)).toContain('ADMIN')
+    expect(Object.values(OrgRole)).toContain('EVENT_MANAGER')
+    expect(Object.values(OrgRole)).toContain('FINANCE')
+    expect(Object.values(OrgRole)).toContain('SCANNER')
   })
 })

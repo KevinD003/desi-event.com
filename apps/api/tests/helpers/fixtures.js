@@ -113,7 +113,7 @@ export async function makeWorld(overrides = {}) {
   const staff = user('door@rangoli.example', 'Door Staff', 'ORGANIZER')
   const viewer = user('finance@rangoli.example', 'Finance', 'ORGANIZER')
   const outsider = user('rival@dhol.example', 'Rival Organiser', 'ORGANIZER')
-  const platformAdmin = user('ops@desi-event.example', 'Platform Ops', 'ADMIN')
+  const platformAdmin = user('ops@desi-event.example', 'Platform Ops', 'SUPER_ADMIN')
 
   /**
    * Build a membership row.

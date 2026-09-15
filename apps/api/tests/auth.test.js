@@ -51,7 +51,7 @@ describe('POST /v1/auth/register', () => {
     const admin = await app.inject({
       method: 'POST',
       url: '/v1/auth/register',
-      payload: { ...registration, email: 'sneaky@example.com', role: 'ADMIN' },
+      payload: { ...registration, email: 'sneaky@example.com', role: 'SUPER_ADMIN' },
     })
     expect(admin.statusCode).toBe(400)
     expect(admin.json().error.code).toBe('VALIDATION_ERROR')

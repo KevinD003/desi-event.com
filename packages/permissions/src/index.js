@@ -12,13 +12,25 @@ export {
   CAPABILITIES,
   ALL_CAPABILITIES,
   ORG_ROLE_CAPABILITIES,
+  ORG_ROLE_INHERITS,
   ORG_ROLE_ORDER,
+  PLATFORM_ONLY_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   PLATFORM_ROLE_ORDER,
+  canAssignOrgRole,
   isCapability,
   orgRoleRank,
+  platformRoleRank,
 } from './capabilities.js'
 
-export { can, assertCan, capabilitiesFor, orgRoleFor } from './can.js'
+export {
+  can,
+  assertCan,
+  assertCanGrantOrgRole,
+  canGrantOrgRole,
+  capabilitiesFor,
+  orgCapabilitiesFor,
+  orgRoleFor,
+} from './can.js'
 
 export { PermissionError } from './errors.js'

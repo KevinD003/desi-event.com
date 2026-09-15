@@ -1,7 +1,22 @@
 import { describe, it, expect } from 'vitest'
 
-import { ALL_CAPABILITIES, ORG_ROLE_ORDER } from './capabilities.js'
-import { can, assertCan, capabilitiesFor, orgRoleFor } from './can.js'
+import {
+  ALL_CAPABILITIES,
+  ORG_ROLE_CAPABILITIES,
+  ORG_ROLE_INHERITS,
+  ORG_ROLE_ORDER,
+  PLATFORM_ROLE_ORDER,
+  canAssignOrgRole,
+} from './capabilities.js'
+import {
+  can,
+  assertCan,
+  assertCanGrantOrgRole,
+  canGrantOrgRole,
+  capabilitiesFor,
+  orgCapabilitiesFor,
+  orgRoleFor,
+} from './can.js'
 import { PermissionError } from './errors.js'
 
 const ORG_A = 'org_aaaaaaaaaaaaaaaaaaaaaaaa'
@@ -12,7 +27,12 @@ const ORG_B = 'org_bbbbbbbbbbbbbbbbbbbbbbbb'
  * the implementation: what a member of ORG_A may do in ORG_A.
  */
 const EXPECTED_ORG_MATRIX = {
+  // Read-only.
   VIEWER: ['event:view_draft', 'order:view', 'organization:view_members', 'report:view'],
+  // A door device and nothing else. Deliberately cannot read the order list:
+  // a scanner credential is the one most likely to be shared or lost.
+  SCANNER: ['ticket:check_in'],
+  // Venue staff: scans, and can see what they are scanning against.
   STAFF: [
     'event:view_draft',
     'order:view',
@@ -20,49 +40,143 @@ const EXPECTED_ORG_MATRIX = {
     'report:view',
     'ticket:check_in',
   ],
+  // Runs the event. No money, and no door: an event manager is not on shift.
+  EVENT_MANAGER: [
+    'attendee:export',
+    'event:create',
+    'event:pause_sales',
+    'event:publish',
+    'event:submit_review',
+    'event:update',
+    'event:view_draft',
+    'inventory:manage',
+    'order:view',
+    'organization:view_members',
+    'promo:manage',
+    'report:view',
+    'ticketType:manage',
+    'venue:manage',
+    'venueMap:manage',
+  ],
+  // Handles money. Cannot publish, cannot edit, cannot approve its own refund
+  // request — that is what order:refund_approve is for and FINANCE lacks it.
+  FINANCE: [
+    'connect:manage',
+    'event:view_draft',
+    'finance:view',
+    'order:refund_request',
+    'order:view',
+    'organization:view_members',
+    'payout:manage',
+    'report:view',
+  ],
+  // Operations: the door and the event, plus inviting people. Still no money.
   MANAGER: [
+    'attendee:export',
     'event:create',
+    'event:pause_sales',
     'event:publish',
+    'event:submit_review',
     'event:update',
     'event:view_draft',
+    'inventory:manage',
     'order:view',
     'organization:view_members',
     'promo:manage',
     'report:view',
-    'ticketType:manage',
+    'team:invite',
     'ticket:check_in',
+    'ticketType:manage',
+    'venue:manage',
+    'venueMap:manage',
   ],
+  // Operations and money, plus the destructive actions.
   ADMIN: [
+    'attendee:export',
+    'connect:manage',
+    'event:cancel',
     'event:create',
     'event:delete',
+    'event:pause_sales',
     'event:publish',
+    'event:submit_review',
     'event:update',
     'event:view_draft',
+    'finance:view',
     'hold:release_any',
+    'inventory:manage',
     'order:refund',
+    'order:refund_approve',
+    'order:refund_request',
     'order:view',
     'organization:view_members',
+    'payout:manage',
     'promo:manage',
     'report:view',
-    'ticketType:manage',
+    'team:invite',
+    'team:remove',
     'ticket:check_in',
+    'ticketType:manage',
+    'venue:manage',
+    'venueMap:manage',
   ],
+  // Everything ADMIN has, plus the organisation record itself.
   OWNER: [
+    'attendee:export',
+    'connect:manage',
+    'event:cancel',
     'event:create',
     'event:delete',
+    'event:pause_sales',
     'event:publish',
+    'event:submit_review',
     'event:update',
     'event:view_draft',
+    'finance:view',
     'hold:release_any',
+    'inventory:manage',
     'order:refund',
+    'order:refund_approve',
+    'order:refund_request',
     'order:view',
     'organization:manage',
     'organization:view_members',
+    'payout:manage',
     'promo:manage',
     'report:view',
-    'ticketType:manage',
+    'team:invite',
+    'team:remove',
     'ticket:check_in',
+    'ticketType:manage',
+    'venue:manage',
+    'venueMap:manage',
   ],
+}
+
+/**
+ * The same double entry for the platform-wide roles: what somebody with this
+ * `UserRole` and no membership anywhere may do.
+ *
+ * The narrow staff roles exist so that the common platform jobs do not need
+ * SUPER_ADMIN, and the interesting assertions are the absences — a moderator
+ * cannot refund, a finance administrator cannot approve an event.
+ */
+const EXPECTED_PLATFORM_MATRIX = {
+  ATTENDEE: [],
+  ORGANIZER: [],
+  SUPPORT: ['order:view', 'support:view_order'],
+  MODERATOR: ['event:view_draft', 'moderation:review', 'venue:manage'],
+  FINANCE_ADMIN: [
+    'finance:view',
+    'ledger:manage',
+    'order:refund',
+    'order:refund_approve',
+    'order:view',
+    'payout:manage',
+    'reconciliation:manage',
+    'support:view_order',
+  ],
+  SUPER_ADMIN: null, // everything; asserted separately
 }
 
 /**
@@ -169,7 +283,7 @@ describe('can — cross-organisation isolation', () => {
 })
 
 describe('can — platform admin override', () => {
-  const platformAdmin = { id: 'usr_admin', role: 'ADMIN', memberships: [] }
+  const platformAdmin = { id: 'usr_admin', role: 'SUPER_ADMIN', memberships: [] }
 
   it('grants every known capability in any organisation, with no membership', () => {
     for (const capability of ALL_CAPABILITIES) {
@@ -274,23 +388,41 @@ describe('capabilitiesFor', () => {
 
   it('returns only platform capabilities when no organisation is given', () => {
     expect(capabilitiesFor(memberOfA('OWNER'))).toEqual([])
-    expect(capabilitiesFor({ id: 'a', role: 'ADMIN', memberships: [] })).toEqual([
+    expect(capabilitiesFor({ id: 'a', role: 'SUPER_ADMIN', memberships: [] })).toEqual([
       ...ALL_CAPABILITIES,
     ])
   })
 
   it('reflects the platform admin override in every organisation', () => {
-    const admin = { id: 'usr_admin', role: 'ADMIN', memberships: [] }
+    const admin = { id: 'usr_admin', role: 'SUPER_ADMIN', memberships: [] }
     expect(capabilitiesFor(admin, ORG_B)).toEqual([...ALL_CAPABILITIES])
   })
 
   it('unions platform and membership capabilities without duplicates', () => {
-    const admin = {
-      id: 'usr_admin',
-      role: 'ADMIN',
+    // A finance administrator who is also an event manager somewhere holds both
+    // sets at once, and the union is strictly larger than either — which is the
+    // property that would break if the two sources were read one instead of both.
+    const actor = {
+      id: 'usr_both_hats',
+      role: 'FINANCE_ADMIN',
+      memberships: [{ organizationId: ORG_A, role: 'EVENT_MANAGER' }],
+    }
+    const result = capabilitiesFor(actor, ORG_A)
+
+    expect(result).toContain('reconciliation:manage')
+    expect(result).toContain('event:publish')
+    expect(result.length).toBeGreaterThan(ORG_ROLE_CAPABILITIES.EVENT_MANAGER.length)
+    expect(new Set(result).size).toBe(result.length)
+    expect([...result]).toEqual([...result].sort())
+  })
+
+  it('gives a super administrator with a membership exactly everything, once', () => {
+    const root = {
+      id: 'usr_root',
+      role: 'SUPER_ADMIN',
       memberships: [{ organizationId: ORG_A, role: 'OWNER' }],
     }
-    const result = capabilitiesFor(admin, ORG_A)
+    const result = capabilitiesFor(root, ORG_A)
 
     expect(result).toEqual([...ALL_CAPABILITIES])
     expect(new Set(result).size).toBe(result.length)
@@ -409,9 +541,203 @@ describe('assertCan', () => {
   })
 
   it('does not throw for a platform admin on any known capability', () => {
-    const admin = { id: 'usr_admin', role: 'ADMIN', memberships: [] }
+    const admin = { id: 'usr_admin', role: 'SUPER_ADMIN', memberships: [] }
     for (const capability of ALL_CAPABILITIES) {
       expect(() => assertCan(admin, capability, { organizationId: ORG_B })).not.toThrow()
     }
+  })
+})
+
+describe('the platform role matrix', () => {
+  for (const platformRole of PLATFORM_ROLE_ORDER) {
+    const expectedList = EXPECTED_PLATFORM_MATRIX[platformRole]
+    if (expectedList === null) continue
+
+    for (const capability of ALL_CAPABILITIES) {
+      const expected = expectedList.includes(capability)
+
+      it(`${platformRole} ${expected ? 'may' : 'may not'} ${capability} with no membership`, () => {
+        const actor = { id: 'usr_staff', role: platformRole, memberships: [] }
+        expect(can(actor, capability, { organizationId: ORG_A })).toBe(expected)
+      })
+    }
+  }
+
+  it('gives SUPER_ADMIN every capability, everywhere', () => {
+    const actor = { id: 'usr_root', role: 'SUPER_ADMIN', memberships: [] }
+    for (const capability of ALL_CAPABILITIES) {
+      expect(can(actor, capability, { organizationId: ORG_B })).toBe(true)
+    }
+  })
+})
+
+describe('separation of duties', () => {
+  it('does not let whoever can publish an event also move money', () => {
+    const manager = memberOfA('EVENT_MANAGER')
+
+    expect(can(manager, 'event:publish', { organizationId: ORG_A })).toBe(true)
+    expect(can(manager, 'order:refund', { organizationId: ORG_A })).toBe(false)
+    expect(can(manager, 'order:refund_approve', { organizationId: ORG_A })).toBe(false)
+    expect(can(manager, 'payout:manage', { organizationId: ORG_A })).toBe(false)
+    expect(can(manager, 'finance:view', { organizationId: ORG_A })).toBe(false)
+  })
+
+  it('does not let whoever moves money also publish an event', () => {
+    const finance = memberOfA('FINANCE')
+
+    expect(can(finance, 'payout:manage', { organizationId: ORG_A })).toBe(true)
+    expect(can(finance, 'event:publish', { organizationId: ORG_A })).toBe(false)
+    expect(can(finance, 'event:update', { organizationId: ORG_A })).toBe(false)
+    expect(can(finance, 'event:cancel', { organizationId: ORG_A })).toBe(false)
+  })
+
+  it('does not let the person who requested a refund approve it', () => {
+    const finance = memberOfA('FINANCE')
+
+    expect(can(finance, 'order:refund_request', { organizationId: ORG_A })).toBe(true)
+    expect(can(finance, 'order:refund_approve', { organizationId: ORG_A })).toBe(false)
+  })
+
+  it('keeps a door scanner away from the attendee list and the order list', () => {
+    const scanner = memberOfA('SCANNER')
+
+    expect(can(scanner, 'ticket:check_in', { organizationId: ORG_A })).toBe(true)
+    expect(can(scanner, 'order:view', { organizationId: ORG_A })).toBe(false)
+    expect(can(scanner, 'attendee:export', { organizationId: ORG_A })).toBe(false)
+    expect(can(scanner, 'report:view', { organizationId: ORG_A })).toBe(false)
+  })
+
+  it('does not let a moderator refund or a finance administrator approve events', () => {
+    const moderator = { id: 'usr_mod', role: 'MODERATOR', memberships: [] }
+    const financeAdmin = { id: 'usr_fin', role: 'FINANCE_ADMIN', memberships: [] }
+
+    expect(can(moderator, 'moderation:review', { organizationId: ORG_A })).toBe(true)
+    expect(can(moderator, 'order:refund', { organizationId: ORG_A })).toBe(false)
+
+    expect(can(financeAdmin, 'order:refund', { organizationId: ORG_A })).toBe(true)
+    expect(can(financeAdmin, 'moderation:review', { organizationId: ORG_A })).toBe(false)
+    expect(can(financeAdmin, 'event:publish', { organizationId: ORG_A })).toBe(false)
+  })
+
+  it('never grants a platform-only capability through a membership', () => {
+    for (const orgRole of ORG_ROLE_ORDER) {
+      const actor = memberOfA(orgRole, 'ATTENDEE')
+      for (const capability of [
+        'platform:admin',
+        'moderation:review',
+        'reconciliation:manage',
+        'ledger:manage',
+        'support:view_order',
+      ]) {
+        expect(
+          can(actor, capability, { organizationId: ORG_A }),
+          `${orgRole} must not hold ${capability}`,
+        ).toBe(false)
+      }
+    }
+  })
+})
+
+describe('role inheritance is a graph, and it holds', () => {
+  it('makes every role a superset of the roles it inherits from', () => {
+    for (const [role, parents] of Object.entries(ORG_ROLE_INHERITS)) {
+      for (const parent of parents) {
+        for (const capability of ORG_ROLE_CAPABILITIES[parent]) {
+          expect(
+            ORG_ROLE_CAPABILITIES[role],
+            `${role} inherits ${parent} but is missing ${capability}`,
+          ).toContain(capability)
+        }
+      }
+    }
+  })
+
+  it('does not make unrelated roles supersets of each other', () => {
+    // The point of the graph: neither of these contains the other, so neither
+    // can stand in for it.
+    const eventManager = ORG_ROLE_CAPABILITIES.EVENT_MANAGER
+    const finance = ORG_ROLE_CAPABILITIES.FINANCE
+
+    expect(finance.every((c) => eventManager.includes(c))).toBe(false)
+    expect(eventManager.every((c) => finance.includes(c))).toBe(false)
+  })
+})
+
+describe('granting a role', () => {
+  it('lets an owner grant anything, including another owner', () => {
+    const owner = memberOfA('OWNER')
+    for (const role of ORG_ROLE_ORDER) {
+      expect(canGrantOrgRole(owner, role, { organizationId: ORG_A })).toBe(true)
+    }
+  })
+
+  it('does not let an admin mint an owner', () => {
+    expect(canGrantOrgRole(memberOfA('ADMIN'), 'OWNER', { organizationId: ORG_A })).toBe(false)
+    expect(canAssignOrgRole('ADMIN', 'OWNER')).toBe(false)
+  })
+
+  it('does not let an event manager mint a finance user', () => {
+    // Self-escalation by the side door: FINANCE holds capabilities
+    // EVENT_MANAGER does not, so granting it would be granting authority the
+    // granter never had.
+    expect(canGrantOrgRole(memberOfA('EVENT_MANAGER'), 'FINANCE', { organizationId: ORG_A })).toBe(
+      false,
+    )
+  })
+
+  it('does not let a viewer grant anything at all', () => {
+    for (const role of ORG_ROLE_ORDER) {
+      expect(canGrantOrgRole(memberOfA('VIEWER'), role, { organizationId: ORG_A })).toBe(false)
+    }
+  })
+
+  it('does not let a manager grant a role into another organisation', () => {
+    expect(canGrantOrgRole(memberOfA('MANAGER'), 'VIEWER', { organizationId: ORG_B })).toBe(false)
+  })
+
+  it('lets a platform administrator grant anything', () => {
+    const root = { id: 'usr_root', role: 'SUPER_ADMIN', memberships: [] }
+    expect(canGrantOrgRole(root, 'OWNER', { organizationId: ORG_B })).toBe(true)
+  })
+
+  it('throws a PermissionError naming the escalation', () => {
+    expect(() =>
+      assertCanGrantOrgRole(memberOfA('EVENT_MANAGER'), 'OWNER', { organizationId: ORG_A }),
+    ).toThrow(PermissionError)
+
+    try {
+      assertCanGrantOrgRole(memberOfA('EVENT_MANAGER'), 'OWNER', { organizationId: ORG_A })
+    } catch (error) {
+      expect(error.details?.reason ?? error.reason).toBe('role_escalation')
+    }
+  })
+})
+
+describe('orgCapabilitiesFor', () => {
+  it('unions every membership naming the organisation', () => {
+    // Defensive: a unique constraint means one membership per organisation, but
+    // with roles that no longer nest, picking "the most senior" could drop a
+    // capability the actor really holds.
+    const actor = {
+      id: 'usr_two_hats',
+      role: 'ORGANIZER',
+      memberships: [
+        { organizationId: ORG_A, role: 'EVENT_MANAGER' },
+        { organizationId: ORG_A, role: 'FINANCE' },
+      ],
+    }
+
+    const capabilities = orgCapabilitiesFor(actor, ORG_A)
+
+    expect(capabilities).toContain('event:publish')
+    expect(capabilities).toContain('payout:manage')
+  })
+
+  it('returns nothing for an organisation the actor is not in', () => {
+    expect(orgCapabilitiesFor(memberOfA('OWNER'), ORG_B)).toEqual([])
+  })
+
+  it('returns nothing without an organisation', () => {
+    expect(orgCapabilitiesFor(memberOfA('OWNER'), undefined)).toEqual([])
   })
 })

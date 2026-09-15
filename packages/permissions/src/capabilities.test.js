@@ -4,29 +4,58 @@ import {
   ALL_CAPABILITIES,
   CAPABILITIES,
   ORG_ROLE_CAPABILITIES,
+  ORG_ROLE_INHERITS,
   ORG_ROLE_ORDER,
+  PLATFORM_ONLY_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   PLATFORM_ROLE_ORDER,
+  canAssignOrgRole,
   isCapability,
   orgRoleRank,
 } from './capabilities.js'
 
 /** The capability vocabulary the cross-package contract requires. */
 const REQUIRED_CAPABILITIES = [
+  // Event content and lifecycle
   'event:create',
   'event:update',
+  'event:submit_review',
   'event:publish',
+  'event:pause_sales',
+  'event:cancel',
   'event:delete',
   'event:view_draft',
+  // Venues and seating
+  'venue:manage',
+  'venueMap:manage',
+  // Inventory
   'ticketType:manage',
-  'order:view',
-  'order:refund',
-  'ticket:check_in',
+  'inventory:manage',
   'hold:release_any',
+  // Orders, attendees and the door
+  'order:view',
+  'attendee:export',
+  'ticket:check_in',
+  // Money
+  'order:refund_request',
+  'order:refund_approve',
+  'order:refund',
+  'finance:view',
+  'connect:manage',
+  'payout:manage',
+  // Team
+  'team:invite',
+  'team:remove',
   'organization:manage',
   'organization:view_members',
+  // Promotions and reporting
   'promo:manage',
   'report:view',
+  // Platform scope
+  'support:view_order',
+  'moderation:review',
+  'reconciliation:manage',
+  'ledger:manage',
   'platform:admin',
 ]
 
@@ -65,21 +94,72 @@ describe('CAPABILITIES', () => {
 })
 
 describe('ORG_ROLE_CAPABILITIES', () => {
-  it('covers exactly the five OrgRole values', () => {
-    expect(Object.keys(ORG_ROLE_CAPABILITIES).sort()).toEqual(
-      ['ADMIN', 'MANAGER', 'OWNER', 'STAFF', 'VIEWER'].sort(),
-    )
-    expect([...ORG_ROLE_ORDER]).toEqual(['VIEWER', 'STAFF', 'MANAGER', 'ADMIN', 'OWNER'])
+  it('covers exactly the eight OrgRole values', () => {
+    const expected = [
+      'ADMIN',
+      'EVENT_MANAGER',
+      'FINANCE',
+      'MANAGER',
+      'OWNER',
+      'SCANNER',
+      'STAFF',
+      'VIEWER',
+    ]
+
+    expect(Object.keys(ORG_ROLE_CAPABILITIES).sort()).toEqual(expected)
+    expect([...ORG_ROLE_ORDER].sort()).toEqual(expected)
+    expect([...ORG_ROLE_ORDER]).toEqual([
+      'VIEWER',
+      'SCANNER',
+      'STAFF',
+      'EVENT_MANAGER',
+      'FINANCE',
+      'MANAGER',
+      'ADMIN',
+      'OWNER',
+    ])
   })
 
-  it('makes each role a strict superset of the role below it', () => {
-    for (let index = 1; index < ORG_ROLE_ORDER.length; index += 1) {
-      const lower = ORG_ROLE_CAPABILITIES[ORG_ROLE_ORDER[index - 1]]
-      const higher = ORG_ROLE_CAPABILITIES[ORG_ROLE_ORDER[index]]
-
-      for (const capability of lower) expect(higher).toContain(capability)
-      expect(higher.length).toBeGreaterThan(lower.length)
+  it('makes each role a superset of every role it inherits from', () => {
+    // Phase 1's roles nested in one chain, so this was "a superset of the role
+    // below". Phase 2's do not — finance and event management are siblings —
+    // so the property is stated against the inheritance graph instead. Asserting
+    // it against ORG_ROLE_ORDER would be asserting something untrue.
+    for (const [role, parents] of Object.entries(ORG_ROLE_INHERITS)) {
+      for (const parent of parents) {
+        for (const capability of ORG_ROLE_CAPABILITIES[parent]) {
+          expect(
+            ORG_ROLE_CAPABILITIES[role],
+            `${role} inherits ${parent} but lacks ${capability}`,
+          ).toContain(capability)
+        }
+        expect(ORG_ROLE_CAPABILITIES[role].length).toBeGreaterThanOrEqual(
+          ORG_ROLE_CAPABILITIES[parent].length,
+        )
+      }
     }
+  })
+
+  it('has an acyclic inheritance graph naming only known roles', () => {
+    for (const [role, parents] of Object.entries(ORG_ROLE_INHERITS)) {
+      expect(Object.keys(ORG_ROLE_CAPABILITIES)).toContain(role)
+      for (const parent of parents) {
+        expect(Object.keys(ORG_ROLE_CAPABILITIES)).toContain(parent)
+        expect(ORG_ROLE_INHERITS[parent]).not.toContain(role)
+      }
+    }
+  })
+
+  it('keeps event management and finance apart', () => {
+    expect(ORG_ROLE_CAPABILITIES.EVENT_MANAGER).not.toContain('order:refund')
+    expect(ORG_ROLE_CAPABILITIES.EVENT_MANAGER).not.toContain('payout:manage')
+    expect(ORG_ROLE_CAPABILITIES.EVENT_MANAGER).not.toContain('finance:view')
+    expect(ORG_ROLE_CAPABILITIES.FINANCE).not.toContain('event:publish')
+    expect(ORG_ROLE_CAPABILITIES.FINANCE).not.toContain('event:update')
+  })
+
+  it('gives a scanner exactly one capability', () => {
+    expect([...ORG_ROLE_CAPABILITIES.SCANNER]).toEqual(['ticket:check_in'])
   })
 
   it('gives STAFF check-in but not event editing', () => {
@@ -117,15 +197,37 @@ describe('ORG_ROLE_CAPABILITIES', () => {
 })
 
 describe('PLATFORM_ROLE_CAPABILITIES', () => {
-  it('covers exactly the three UserRole values', () => {
-    expect(Object.keys(PLATFORM_ROLE_CAPABILITIES).sort()).toEqual(
-      ['ADMIN', 'ATTENDEE', 'ORGANIZER'].sort(),
-    )
-    expect([...PLATFORM_ROLE_ORDER]).toEqual(['ATTENDEE', 'ORGANIZER', 'ADMIN'])
+  it('covers exactly the six UserRole values', () => {
+    const expected = [
+      'ATTENDEE',
+      'FINANCE_ADMIN',
+      'MODERATOR',
+      'ORGANIZER',
+      'SUPER_ADMIN',
+      'SUPPORT',
+    ]
+
+    expect(Object.keys(PLATFORM_ROLE_CAPABILITIES).sort()).toEqual(expected)
+    expect([...PLATFORM_ROLE_ORDER].sort()).toEqual(expected)
   })
 
-  it('grants platform ADMIN every capability', () => {
-    expect([...PLATFORM_ROLE_CAPABILITIES.ADMIN]).toEqual([...ALL_CAPABILITIES])
+  it('grants SUPER_ADMIN every capability', () => {
+    expect([...PLATFORM_ROLE_CAPABILITIES.SUPER_ADMIN]).toEqual([...ALL_CAPABILITIES])
+  })
+
+  it('keeps the narrow staff roles narrow', () => {
+    // The reason they exist: the ordinary platform jobs must not need the key
+    // to everything.
+    expect(PLATFORM_ROLE_CAPABILITIES.SUPPORT).not.toContain('order:refund')
+    expect(PLATFORM_ROLE_CAPABILITIES.SUPPORT).not.toContain('moderation:review')
+    expect(PLATFORM_ROLE_CAPABILITIES.MODERATOR).not.toContain('order:refund')
+    expect(PLATFORM_ROLE_CAPABILITIES.MODERATOR).not.toContain('finance:view')
+    expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).not.toContain('moderation:review')
+    expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).not.toContain('event:publish')
+
+    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN']) {
+      expect(PLATFORM_ROLE_CAPABILITIES[role]).not.toContain('platform:admin')
+    }
   })
 
   it('grants ATTENDEE and ORGANIZER nothing platform-wide', () => {
@@ -170,5 +272,52 @@ describe('orgRoleRank', () => {
     expect(orgRoleRank(null)).toBe(-1)
     expect(orgRoleRank(undefined)).toBe(-1)
     expect(orgRoleRank(3)).toBe(-1)
+  })
+})
+
+describe('PLATFORM_ONLY_CAPABILITIES', () => {
+  it('names capabilities that exist', () => {
+    for (const capability of PLATFORM_ONLY_CAPABILITIES) {
+      expect(ALL_CAPABILITIES).toContain(capability)
+    }
+  })
+
+  it('is never granted by an organisation role', () => {
+    // Also asserted at module load, so a bad edit fails the import rather than
+    // only this suite. Kept here so the intent is visible in the tests too.
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      for (const capability of PLATFORM_ONLY_CAPABILITIES) {
+        expect(ORG_ROLE_CAPABILITIES[role]).not.toContain(capability)
+      }
+    }
+  })
+})
+
+describe('canAssignOrgRole', () => {
+  it('is reflexive except for OWNER, which only an OWNER may grant', () => {
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(canAssignOrgRole(role, role)).toBe(true)
+    }
+  })
+
+  it('refuses unknown roles in either position', () => {
+    expect(canAssignOrgRole('OWNER', 'NOT_A_ROLE')).toBe(false)
+    expect(canAssignOrgRole('NOT_A_ROLE', 'VIEWER')).toBe(false)
+    expect(canAssignOrgRole(undefined, 'VIEWER')).toBe(false)
+  })
+
+  it('never lets a role grant authority it does not hold', () => {
+    for (const assigner of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      for (const target of Object.keys(ORG_ROLE_CAPABILITIES)) {
+        if (!canAssignOrgRole(assigner, target)) continue
+
+        for (const capability of ORG_ROLE_CAPABILITIES[target]) {
+          expect(
+            ORG_ROLE_CAPABILITIES[assigner],
+            `${assigner} may grant ${target} but lacks ${capability}`,
+          ).toContain(capability)
+        }
+      }
+    }
   })
 })

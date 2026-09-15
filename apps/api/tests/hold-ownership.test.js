@@ -140,7 +140,7 @@ describe('hold release authorization', () => {
     const forged = await app.inject({
       method: 'DELETE',
       url: `/v1/holds/${taken.id}`,
-      payload: { userId: ids.attendee.id, ownerId: ids.attendee.id, role: 'ADMIN' },
+      payload: { userId: ids.attendee.id, ownerId: ids.attendee.id, role: 'SUPER_ADMIN' },
       headers: { 'content-type': 'application/json' },
     })
 

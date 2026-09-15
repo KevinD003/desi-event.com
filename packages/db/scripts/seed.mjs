@@ -222,7 +222,7 @@ const USERS = [
     key: 'admin',
     email: 'admin@desi-event.com',
     displayName: 'Desi-Event Platform Admin',
-    role: 'ADMIN',
+    role: 'SUPER_ADMIN',
     locale: 'en-IN',
     phone: '+91 22 6100 4000',
     emailVerified: true,

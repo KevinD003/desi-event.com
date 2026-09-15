@@ -52,6 +52,18 @@ const REPO_ROOT = path.resolve(PACKAGE_ROOT, '..', '..')
 
 loadDotenv({ path: path.join(REPO_ROOT, '.env'), override: false, quiet: true })
 
+/**
+ * Tables a migration populates, and how many rows each should hold before the
+ * seed runs.
+ *
+ * The chart of accounts is structure rather than sample data: without it a
+ * payment cannot be recorded at all, so it is created by the migration that
+ * creates the ledger. Every other table must be empty on a fresh database.
+ *
+ * @type {Readonly<Record<string, number>>}
+ */
+const STRUCTURAL_ROWS = Object.freeze({ LedgerAccount: 10 })
+
 /** Sentinel used to roll a probe's transaction back once it has proved its point. */
 const ROLLBACK = Symbol('rollback')
 
@@ -437,13 +449,29 @@ async function main() {
 
     const tables = await applicationTables(prisma)
     const empty = await countRows(prisma, tables)
-    const residual = Object.entries(empty).filter(([, count]) => count > 0)
+
+    // Structural rows, created by a migration rather than by the seed, because
+    // a payment cannot be recorded at all without a chart of accounts. Anything
+    // else holding rows before the seed runs would be residue from an earlier
+    // schema, which is what this check exists to catch.
+    const residual = Object.entries(empty).filter(
+      ([table, count]) => count > 0 && !(table in STRUCTURAL_ROWS),
+    )
+    const structuralWrong = Object.entries(STRUCTURAL_ROWS).filter(
+      ([table, expected]) => empty[table] !== expected,
+    )
+
     ok =
-      record('the database carries no rows from any earlier schema', residual.length === 0, {
-        tables: tables.length,
-        note: `${tables.length} tables, all empty before seeding`,
-        residual,
-      }) && ok
+      record(
+        'the database carries no rows beyond the structure a migration creates',
+        residual.length === 0 && structuralWrong.length === 0,
+        {
+          tables: tables.length,
+          note: `${tables.length} tables; only ${Object.keys(STRUCTURAL_ROWS).join(', ')} populated`,
+          residual,
+          structuralWrong,
+        },
+      ) && ok
 
     // Columns and tables that did not exist before the corrective cycle. Their
     // presence is what makes "this is the current schema" a statement rather

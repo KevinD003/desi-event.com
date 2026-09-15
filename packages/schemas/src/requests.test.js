@@ -72,7 +72,7 @@ describe('registerRequestSchema', () => {
 
   it('allows an organizer to self-register but not an admin', () => {
     expect(registerRequestSchema.parse({ ...base(), role: 'ORGANIZER' }).role).toBe('ORGANIZER')
-    expect(registerRequestSchema.safeParse({ ...base(), role: 'ADMIN' }).success).toBe(false)
+    expect(registerRequestSchema.safeParse({ ...base(), role: 'SUPER_ADMIN' }).success).toBe(false)
   })
 
   it('rejects a short password and a malformed email', () => {

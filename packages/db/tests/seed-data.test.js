@@ -144,7 +144,7 @@ describe('buildSeedData shape', () => {
     expect(new Set(emails).size).toBe(emails.length)
 
     const roles = new Set(data.users.map((user) => user.role))
-    expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'ADMIN']))
+    expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'SUPER_ADMIN']))
   })
 
   it('gives every venue a full postal address', () => {
