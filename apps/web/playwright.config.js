@@ -18,9 +18,16 @@ const executablePath = preinstalledChromium()
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.js',
+  // Two suites belong to other configs and must not run here.
+  //
   // The not-found specs assert compiled-build behaviour and run under
   // playwright.production.config.js against `next start`, not the dev server.
-  testIgnore: '**/not-found.spec.js',
+  //
+  // The organiser journeys need a live API and a real database — this config
+  // deliberately leaves the API down, because the public site is built to
+  // survive that. They run under playwright.organizer.config.js, which starts
+  // both.
+  testIgnore: ['**/not-found.spec.js', '**/organizer-venue-maps.spec.js'],
   timeout: 45_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,
