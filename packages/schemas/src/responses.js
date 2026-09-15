@@ -173,8 +173,10 @@ export const healthResponseSchema = z.object({
    */
   payments: z
     .object({
-      mode: z.literal(PAYMENT_MODES.MOCK),
+      mode: z.enum([PAYMENT_MODES.MOCK, PAYMENT_MODES.STRIPE_TEST]),
       demo: z.literal(true),
+      live: z.literal(false).optional(),
+      label: z.string().min(1).max(16).optional(),
       message: z.string().min(1).max(200),
     })
     .optional(),

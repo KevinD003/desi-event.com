@@ -13,7 +13,7 @@
 
 import Fastify from 'fastify'
 import { apiEnvSchema, parseOrThrow } from '@desi-event/schemas'
-import { assertMockPaymentsOnly } from '@desi-event/providers'
+import { assertPaymentModeAllowed } from '@desi-event/providers'
 
 import { registerAuth } from './plugins/auth.js'
 import { registerDocs } from './plugins/docs.js'
@@ -65,11 +65,14 @@ export async function buildApp(options) {
 
   const env = parseOrThrow(apiEnvSchema, rawEnv ?? {}, 'Invalid API environment')
 
-  // Before anything is built: refuse a deployment that believes it has card
-  // payments. The schema above strips unknown variables, so the kill switch
-  // reads the unparsed environment — a stray STRIPE_SECRET_KEY has to be
-  // visible to it.
-  const payments = assertMockPaymentsOnly({
+  // Before anything is built: decide the payment mode, or refuse to start.
+  // Two modes are permitted and neither moves real money; a live credential, a
+  // request for production, an incomplete sandbox configuration or a secret in a
+  // browser-readable variable all stop the boot here rather than at a buyer.
+  //
+  // The schema above strips unknown variables, so the gate reads the unparsed
+  // environment — a stray STRIPE_SECRET_KEY has to be visible to it.
+  const payments = assertPaymentModeAllowed({
     env: { ...processEnv, ...(rawEnv ?? {}) },
     logger,
   })

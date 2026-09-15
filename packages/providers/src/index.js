@@ -57,16 +57,30 @@ export {
 
 export {
   assertMockPaymentsOnly,
+  assertPaymentModeAllowed,
   classifyPaymentCredential,
   DEMO_LABEL,
   DEMO_PAYMENT_NOTICE,
   DEMO_TICKET_NOTICE,
+  findClientExposedViolations,
+  findModeRequests,
   findPaymentCredentials,
-  findProductionModeRequests,
+  labelFor,
+  LIVE_CREDENTIAL_PATTERNS,
+  MODE_AGNOSTIC_CREDENTIAL_PATTERNS,
   PAYMENT_MODES,
+  PAYMENT_MODE_KEY,
   PAYMENT_MODE_REQUEST_KEYS,
+  paymentNoticeFor,
+  PLACEHOLDER_PATTERNS,
   PRODUCTION_PAYMENTS_DISABLED_MESSAGE,
+  readStripeCredentials,
   resolvePaymentMode,
+  SANDBOX_LABEL,
+  STRIPE_API_VERSION,
+  stripeEnabled,
+  TEST_CREDENTIAL_PATTERNS,
+  ticketNoticeFor,
 } from './payment-mode.js'
 
 export { createInMemoryEmailProvider, EMAIL_BOUNCE_ADDRESS, DEFAULT_EMAIL_FROM } from './email.js'

@@ -84,6 +84,8 @@ export function registerHealthRoutes(app, { prisma, redis, env, payments, versio
         payments: {
           mode: payments?.mode ?? PAYMENT_MODES.MOCK,
           demo: true,
+          live: false,
+          label: payments?.label ?? 'DEMO',
           message: payments?.message ?? PRODUCTION_PAYMENTS_DISABLED_MESSAGE,
         },
       }

@@ -116,11 +116,23 @@
                       "properties": {
                         "mode": {
                           "type": "string",
-                          "const": "MOCK"
+                          "enum": [
+                            "MOCK",
+                            "STRIPE_TEST"
+                          ]
                         },
                         "demo": {
                           "type": "boolean",
                           "const": true
+                        },
+                        "live": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 16
                         },
                         "message": {
                           "type": "string",
@@ -231,7 +243,10 @@
                           "enum": [
                             "ATTENDEE",
                             "ORGANIZER",
-                            "ADMIN"
+                            "SUPPORT",
+                            "MODERATOR",
+                            "FINANCE_ADMIN",
+                            "SUPER_ADMIN"
                           ]
                         },
                         "emailVerified": {
@@ -423,7 +438,10 @@
                           "enum": [
                             "ATTENDEE",
                             "ORGANIZER",
-                            "ADMIN"
+                            "SUPPORT",
+                            "MODERATOR",
+                            "FINANCE_ADMIN",
+                            "SUPER_ADMIN"
                           ]
                         },
                         "emailVerified": {
@@ -577,7 +595,10 @@
                           "enum": [
                             "ATTENDEE",
                             "ORGANIZER",
-                            "ADMIN"
+                            "SUPPORT",
+                            "MODERATOR",
+                            "FINANCE_ADMIN",
+                            "SUPER_ADMIN"
                           ]
                         },
                         "emailVerified": {
@@ -697,9 +718,18 @@
                             "type": "string",
                             "enum": [
                               "DRAFT",
+                              "REVIEW_PENDING",
+                              "CHANGES_REQUIRED",
+                              "APPROVED",
                               "PUBLISHED",
+                              "ON_SALE",
+                              "SALES_PAUSED",
+                              "SOLD_OUT",
+                              "COMPLETED",
+                              "POSTPONED",
                               "CANCELLED",
-                              "COMPLETED"
+                              "REJECTED",
+                              "ARCHIVED"
                             ]
                           },
                           "startsAt": {
@@ -929,9 +959,18 @@
               "type": "string",
               "enum": [
                 "DRAFT",
+                "REVIEW_PENDING",
+                "CHANGES_REQUIRED",
+                "APPROVED",
                 "PUBLISHED",
+                "ON_SALE",
+                "SALES_PAUSED",
+                "SOLD_OUT",
+                "COMPLETED",
+                "POSTPONED",
                 "CANCELLED",
-                "COMPLETED"
+                "REJECTED",
+                "ARCHIVED"
               ]
             }
           },
@@ -1101,9 +1140,18 @@
                           "type": "string",
                           "enum": [
                             "DRAFT",
+                            "REVIEW_PENDING",
+                            "CHANGES_REQUIRED",
+                            "APPROVED",
                             "PUBLISHED",
+                            "ON_SALE",
+                            "SALES_PAUSED",
+                            "SOLD_OUT",
+                            "COMPLETED",
+                            "POSTPONED",
                             "CANCELLED",
-                            "COMPLETED"
+                            "REJECTED",
+                            "ARCHIVED"
                           ]
                         },
                         "startsAt": {
@@ -1655,9 +1703,18 @@
                     "type": "string",
                     "enum": [
                       "DRAFT",
+                      "REVIEW_PENDING",
+                      "CHANGES_REQUIRED",
+                      "APPROVED",
                       "PUBLISHED",
+                      "ON_SALE",
+                      "SALES_PAUSED",
+                      "SOLD_OUT",
+                      "COMPLETED",
+                      "POSTPONED",
                       "CANCELLED",
-                      "COMPLETED"
+                      "REJECTED",
+                      "ARCHIVED"
                     ]
                   },
                   "startsAt": {
@@ -1982,9 +2039,18 @@
                           "type": "string",
                           "enum": [
                             "DRAFT",
+                            "REVIEW_PENDING",
+                            "CHANGES_REQUIRED",
+                            "APPROVED",
                             "PUBLISHED",
+                            "ON_SALE",
+                            "SALES_PAUSED",
+                            "SOLD_OUT",
+                            "COMPLETED",
+                            "POSTPONED",
                             "CANCELLED",
-                            "COMPLETED"
+                            "REJECTED",
+                            "ARCHIVED"
                           ]
                         },
                         "startsAt": {
@@ -2554,9 +2620,18 @@
                           "type": "string",
                           "enum": [
                             "DRAFT",
+                            "REVIEW_PENDING",
+                            "CHANGES_REQUIRED",
+                            "APPROVED",
                             "PUBLISHED",
+                            "ON_SALE",
+                            "SALES_PAUSED",
+                            "SOLD_OUT",
+                            "COMPLETED",
+                            "POSTPONED",
                             "CANCELLED",
-                            "COMPLETED"
+                            "REJECTED",
+                            "ARCHIVED"
                           ]
                         },
                         "startsAt": {
@@ -3269,9 +3344,18 @@
                           "type": "string",
                           "enum": [
                             "DRAFT",
+                            "REVIEW_PENDING",
+                            "CHANGES_REQUIRED",
+                            "APPROVED",
                             "PUBLISHED",
+                            "ON_SALE",
+                            "SALES_PAUSED",
+                            "SOLD_OUT",
+                            "COMPLETED",
+                            "POSTPONED",
                             "CANCELLED",
-                            "COMPLETED"
+                            "REJECTED",
+                            "ARCHIVED"
                           ]
                         },
                         "startsAt": {
@@ -3797,9 +3881,18 @@
                     "type": "string",
                     "enum": [
                       "DRAFT",
+                      "REVIEW_PENDING",
+                      "CHANGES_REQUIRED",
+                      "APPROVED",
                       "PUBLISHED",
+                      "ON_SALE",
+                      "SALES_PAUSED",
+                      "SOLD_OUT",
+                      "COMPLETED",
+                      "POSTPONED",
                       "CANCELLED",
-                      "COMPLETED"
+                      "REJECTED",
+                      "ARCHIVED"
                     ]
                   },
                   "publishedAt": {
@@ -4843,7 +4936,10 @@
                                   "VALID",
                                   "CHECKED_IN",
                                   "VOID",
-                                  "REFUNDED"
+                                  "REFUNDED",
+                                  "TRANSFERRED",
+                                  "SUPERSEDED",
+                                  "CANCELLED"
                                 ]
                               },
                               "checkedInAt": {
@@ -4932,9 +5028,18 @@
                                   "type": "string",
                                   "enum": [
                                     "DRAFT",
+                                    "REVIEW_PENDING",
+                                    "CHANGES_REQUIRED",
+                                    "APPROVED",
                                     "PUBLISHED",
+                                    "ON_SALE",
+                                    "SALES_PAUSED",
+                                    "SOLD_OUT",
+                                    "COMPLETED",
+                                    "POSTPONED",
                                     "CANCELLED",
-                                    "COMPLETED"
+                                    "REJECTED",
+                                    "ARCHIVED"
                                   ]
                                 },
                                 "startsAt": {
@@ -5471,7 +5576,10 @@
                                     "VALID",
                                     "CHECKED_IN",
                                     "VOID",
-                                    "REFUNDED"
+                                    "REFUNDED",
+                                    "TRANSFERRED",
+                                    "SUPERSEDED",
+                                    "CANCELLED"
                                   ]
                                 },
                                 "checkedInAt": {
@@ -5560,9 +5668,18 @@
                                     "type": "string",
                                     "enum": [
                                       "DRAFT",
+                                      "REVIEW_PENDING",
+                                      "CHANGES_REQUIRED",
+                                      "APPROVED",
                                       "PUBLISHED",
+                                      "ON_SALE",
+                                      "SALES_PAUSED",
+                                      "SOLD_OUT",
+                                      "COMPLETED",
+                                      "POSTPONED",
                                       "CANCELLED",
-                                      "COMPLETED"
+                                      "REJECTED",
+                                      "ARCHIVED"
                                     ]
                                   },
                                   "startsAt": {
@@ -6049,7 +6166,10 @@
                                   "VALID",
                                   "CHECKED_IN",
                                   "VOID",
-                                  "REFUNDED"
+                                  "REFUNDED",
+                                  "TRANSFERRED",
+                                  "SUPERSEDED",
+                                  "CANCELLED"
                                 ]
                               },
                               "checkedInAt": {
@@ -6138,9 +6258,18 @@
                                   "type": "string",
                                   "enum": [
                                     "DRAFT",
+                                    "REVIEW_PENDING",
+                                    "CHANGES_REQUIRED",
+                                    "APPROVED",
                                     "PUBLISHED",
+                                    "ON_SALE",
+                                    "SALES_PAUSED",
+                                    "SOLD_OUT",
+                                    "COMPLETED",
+                                    "POSTPONED",
                                     "CANCELLED",
-                                    "COMPLETED"
+                                    "REJECTED",
+                                    "ARCHIVED"
                                   ]
                                 },
                                 "startsAt": {
@@ -6515,7 +6644,10 @@
                                 "VALID",
                                 "CHECKED_IN",
                                 "VOID",
-                                "REFUNDED"
+                                "REFUNDED",
+                                "TRANSFERRED",
+                                "SUPERSEDED",
+                                "CANCELLED"
                               ]
                             },
                             "checkedInAt": {

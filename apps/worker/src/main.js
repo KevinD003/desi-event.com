@@ -16,7 +16,7 @@
 import dotenv from 'dotenv'
 import { createLogger } from '@desi-event/logger'
 import { createPrismaClient } from '@desi-event/db'
-import { assertMockPaymentsOnly, createInMemoryProviderRegistry } from '@desi-event/providers'
+import { assertPaymentModeAllowed, createInMemoryProviderRegistry } from '@desi-event/providers'
 
 import { describeEnvError, loadEnv } from './env.js'
 import { closeRedisConnection, createRedisConnection } from './connection.js'
@@ -66,7 +66,7 @@ export async function start(options = {}) {
   // The worker fulfils orders and would be the process issuing refunds, so it
   // refuses to start for the same reasons the API does: a deployment that
   // believes it has card payments must be told it does not.
-  assertMockPaymentsOnly({ env: options.processEnv ?? process.env, logger })
+  assertPaymentModeAllowed({ env: options.processEnv ?? process.env, logger })
 
   const prisma = options.prisma ?? createPrismaClient({ connectionString: env.DATABASE_URL })
 

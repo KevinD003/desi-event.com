@@ -105,6 +105,8 @@ describe('what the API says about itself', () => {
     expect(response.json().payments).toEqual({
       mode: 'MOCK',
       demo: true,
+      live: false,
+      label: 'DEMO',
       message: PRODUCTION_PAYMENTS_DISABLED_MESSAGE,
     })
 
