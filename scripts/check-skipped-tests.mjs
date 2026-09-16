@@ -76,6 +76,34 @@ function readAllowlist() {
 }
 
 /**
+ * How many cases actually ran in one report.
+ *
+ * Zero is a failure, not a pass.
+ *
+ * A test command that runs nothing prints a green summary and exits zero, and
+ * a required check that can pass by running nothing is a required check that
+ * will one day pass by running nothing — a renamed directory, a `testMatch`
+ * that stopped matching, a filter left on the command line. Counting is the
+ * only thing that notices.
+ *
+ * @param {string} file Path to the report.
+ * @returns {number} Cases that passed, failed or were skipped.
+ */
+function casesIn(file) {
+  const report = JSON.parse(readFileSync(file, 'utf8'))
+
+  if (typeof report.numTotalTests === 'number') return report.numTotalTests
+
+  let counted = 0
+
+  for (const suite of report.testResults ?? []) {
+    counted += (suite.assertionResults ?? []).length
+  }
+
+  return counted
+}
+
+/**
  * Every skipped or todo case in one Vitest JSON report.
  *
  * @param {string} file Path to the report.
@@ -125,13 +153,21 @@ function main() {
 
   const undeclared = []
   const declared = []
+  const empty = []
   let total = 0
+  let ran = 0
 
   for (const report of reports) {
     let skipped
 
     try {
       skipped = skippedIn(report)
+
+      const cases = casesIn(report)
+
+      ran += cases
+
+      if (cases === 0) empty.push(report)
     } catch (error) {
       console.error(`✗ could not read ${report}: ${error.message}`)
 
@@ -154,6 +190,20 @@ function main() {
     console.log(`           ${entry.reason}`)
   }
 
+  if (empty.length > 0) {
+    console.error(`\n✗ ${empty.length} report(s) contain no tests at all:\n`)
+
+    for (const report of empty) console.error(`  ${path.relative(process.cwd(), report)}`)
+
+    console.error(
+      `\nA suite that runs nothing prints a green summary and exits zero. Either the` +
+        `\nfiles moved, a pattern stopped matching, or a filter was left on the command` +
+        `\nline — and none of those is a passing build.`,
+    )
+
+    return 1
+  }
+
   if (undeclared.length > 0) {
     console.error(`\n✗ ${undeclared.length} test(s) were skipped and not allow-listed:\n`)
 
@@ -171,7 +221,8 @@ function main() {
   }
 
   console.log(
-    `\nSkipped-test check: OK — ${total} skipped, ${declared.length} allow-listed, 0 undeclared.`,
+    `\nSkipped-test check: OK — ${ran} case(s) ran across ${reports.length} report(s); ` +
+      `${total} skipped, ${declared.length} allow-listed, 0 undeclared.`,
   )
 
   return 0

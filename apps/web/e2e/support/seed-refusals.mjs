@@ -250,6 +250,7 @@ export async function seedRefusals(tag) {
     alphaOwnerEmail: alpha.owner.email,
     alphaOwnerId: alpha.owner.id,
     alphaOrganizationId: alpha.organization.id,
+    betaOrganizationId: beta.organization.id,
     betaOwnerEmail: beta.owner.email,
     unverifiedOwnerEmail: unverified.owner.email,
     alphaEventId: alphaEvent.id,

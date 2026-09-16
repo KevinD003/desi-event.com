@@ -47,7 +47,12 @@
     "test:e2e:refusals": "pnpm --filter @desi-event/web run test:e2e:refusals",
     "test:report": "turbo run test -- --reporter=json --outputFile=vitest-report.json",
     "skips:check": "node scripts/check-skipped-tests.mjs",
-    "test:e2e:sweep": "pnpm --filter @desi-event/web run test:e2e:sweep"
+    "test:e2e:sweep": "pnpm --filter @desi-event/web run test:e2e:sweep",
+    "test:e2e:detail": "pnpm --filter @desi-event/web run test:e2e:detail",
+    "test:e2e:analytics": "pnpm --filter @desi-event/web run test:e2e:analytics",
+    "test:e2e:reconciliation": "pnpm --filter @desi-event/web run test:e2e:reconciliation",
+    "test:e2e:refunds": "pnpm --filter @desi-event/web run test:e2e:refunds",
+    "test:e2e:transfers": "pnpm --filter @desi-event/web run test:e2e:transfers"
   },
   "devDependencies": {
     "@desi-event/auth": "workspace:*",

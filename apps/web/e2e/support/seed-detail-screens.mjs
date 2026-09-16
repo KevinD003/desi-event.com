@@ -21,7 +21,9 @@
 
 import { createPrismaClient } from '@desi-event/db'
 
-import { CONNECTION } from './seed-refusals.mjs'
+import { hashPassword } from '@desi-event/auth'
+
+import { CONNECTION, PASSWORD } from './seed-refusals.mjs'
 
 /** What the fictional order was for, in minor units. */
 const UNIT_CENTS = 100_000
@@ -61,6 +63,27 @@ export async function seedDetailScreens({ tag, organizationId, eventId, ownerUse
   const prisma = createPrismaClient({ connectionString: CONNECTION })
 
   const ticketType = await prisma.ticketType.findFirst({ where: { eventId } })
+
+  // A VIEWER, deliberately without a second factor.
+  //
+  // VIEWER is not a privileged role, so nothing compels enrolment — and that is
+  // exactly the account the analytics count tier has to work for. A route-level
+  // step-up would lock this person out of an attendance figure in order to
+  // protect a ledger total they were never going to be sent, which is the
+  // defect this cycle found and fixed.
+  const viewer = await prisma.user.create({
+    data: {
+      email: `viewer-${tag}@organiser.test`,
+      passwordHash: await hashPassword(PASSWORD),
+      displayName: 'Listings Assistant',
+      role: 'ORGANIZER',
+      emailVerified: true,
+    },
+  })
+
+  await prisma.membership.create({
+    data: { userId: viewer.id, organizationId, role: 'VIEWER' },
+  })
 
   const order = await prisma.order.create({
     data: {
@@ -205,6 +228,7 @@ export async function seedDetailScreens({ tag, organizationId, eventId, ownerUse
   await prisma.$disconnect()
 
   return {
+    viewerEmail: viewer.email,
     orderId: order.id,
     orderReference: order.reference,
     orderItemId: orderItem.id,

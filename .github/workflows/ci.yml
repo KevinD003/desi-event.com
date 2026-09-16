@@ -243,6 +243,16 @@ jobs:
             script: test:e2e:refusals
           - name: accessibility sweep
             script: test:e2e:sweep
+          # The four surfaces this cycle added, exercised as behaviour rather
+          # than as markup: figures that came out of the ledger, evidence with
+          # both sides and no provider payload, a refund screen that offers only
+          # the step its state allows, and a transfer whose invitation never
+          # reaches a web address. One job rather than four, because four would
+          # be four API processes and four Next servers on a two-core runner;
+          # each is separately runnable locally as `test:e2e:analytics` and its
+          # three siblings.
+          - name: commerce and operations detail
+            script: test:e2e:detail
 
     services:
       postgres:

@@ -29,7 +29,7 @@
 
 import Link from 'next/link'
 
-import { AsOf, Breadcrumbs, Empty, Failure } from '../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../components/page-state.jsx'
 import { Figure, ModeBanner, ScrollableTable } from '../../components/money-figure.jsx'
 import { formatPrice } from '../../lib/pricing.js'
 import { getAnalytics } from '../../lib/organizer-api.js'
@@ -129,7 +129,21 @@ export default async function AnalyticsPage({ searchParams }) {
       name: membership.organizationName ?? membership.organizationId,
     }))
 
-  const chosen = organizations.find((organization) => organization.id === query?.organizationId)
+  const asked = query?.organizationId ?? null
+  const chosen = organizations.find((organization) => organization.id === asked)
+
+  // An organisation asked for and not available is refused, not substituted.
+  //
+  // Falling back to the first membership was the first draft, and it is a quiet
+  // lie on a money screen: the address says one organisation and the page shows
+  // another's figures, with nothing on it saying so. Somebody who bookmarks,
+  // shares or screenshots that URL is handing on a number attributed to the
+  // wrong organisation. The refusal reads the same whether the identifier
+  // belongs to somebody else or to nobody, so it is not an oracle either.
+  if (asked && !chosen) {
+    return <Forbidden area="Analytics for that organisation" />
+  }
+
   const organizationId = chosen?.id ?? organizations[0]?.id
 
   let view = null

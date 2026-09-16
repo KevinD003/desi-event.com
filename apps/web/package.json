@@ -18,7 +18,12 @@
     "test:e2e:organizer": "ORGANIZER_E2E_TAG=e2e$(date +%s) playwright test --config playwright.organizer.config.js",
     "test:e2e:events": "EVENTS_E2E_TAG=e2e$(date +%s) playwright test --config playwright.events.config.js",
     "test:e2e:refusals": "playwright test --config playwright.refusals.config.js",
-    "test:e2e:sweep": "playwright test --config playwright.sweep.config.js"
+    "test:e2e:sweep": "playwright test --config playwright.sweep.config.js",
+    "test:e2e:detail": "playwright test --config playwright.detail.config.js",
+    "test:e2e:analytics": "DETAIL_E2E_SPEC=**/detail-analytics.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:reconciliation": "DETAIL_E2E_SPEC=**/detail-reconciliation.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:refunds": "DETAIL_E2E_SPEC=**/detail-refunds.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:transfers": "DETAIL_E2E_SPEC=**/detail-transfers.spec.js playwright test --config playwright.detail.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",
