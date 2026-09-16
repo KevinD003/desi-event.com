@@ -196,6 +196,46 @@ export const ticketTransferResponseSchema = z.object({
 })
 
 /**
+ * `GET /tickets/:id` — one ticket and everything that has happened to it.
+ *
+ * Read by two different people with two different questions. The holder asks
+ * "can I still get in, and where has this been"; the organiser asks "should
+ * this still admit anybody". The payload is the same for both, because a
+ * payload that varied by role is a payload somebody eventually widens by
+ * mistake — what differs is which commands the API will accept afterwards.
+ *
+ * `organizationId` is here so that the screen can ask an organisation
+ * capability *with* an organisation. Asked without one, an organisation
+ * capability becomes a platform check.
+ *
+ * The pass is not here. It is derived when a ticket is issued or accepted,
+ * handed over once, and never stored; reading a ticket back returns everything
+ * except that. Neither is any transfer token, for the same reason and one
+ * more: a token in a response is a bearer secret in a browser cache, a proxy
+ * log and a screenshot.
+ *
+ * @type {object}
+ */
+export const ticketDetailResponseSchema = z.object({
+  data: z.object({
+    ticket: ticketSchema,
+    event: z.object({
+      id: cuidSchema,
+      slug: z.string(),
+      title: z.string(),
+      startsAt: timestampSchema,
+      timezone: z.string(),
+      status: z.string(),
+    }),
+    organizationId: cuidSchema,
+    /** Whether the caller is the person holding it, rather than the organiser. */
+    holder: z.boolean(),
+    /** Every transfer this ticket has been through, oldest first. */
+    transfers: z.array(ticketTransferSchema),
+  }),
+})
+
+/**
  * The accepted ticket, with its pass.
  *
  * `credential` appears exactly here and nowhere else: it is derived at the

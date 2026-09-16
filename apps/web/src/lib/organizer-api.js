@@ -367,3 +367,26 @@ export async function getRefund(id) {
 
   return body.data
 }
+
+/**
+ * The tickets the signed-in caller holds.
+ *
+ * @returns {Promise<{tickets: object[], pagination: object|null}>} Their tickets.
+ */
+export async function getMyTickets() {
+  const body = await callApi('/v1/tickets')
+
+  return { tickets: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * One ticket, its event, and every transfer it has been through.
+ *
+ * @param {string} id Which ticket.
+ * @returns {Promise<object>} The detail payload.
+ */
+export async function getTicket(id) {
+  const body = await callApi(`/v1/tickets/${encodeURIComponent(id)}`)
+
+  return body.data
+}

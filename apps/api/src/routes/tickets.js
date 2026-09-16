@@ -259,6 +259,55 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
     },
   })
 
+  defineRoute(app, 'tickets.get', {
+    handler: async (request) => {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: request.params.id },
+        include: TICKET_INCLUDE,
+      })
+
+      if (!ticket) throw notFound('No such ticket.')
+
+      const event = ticket.orderItem?.order?.event
+
+      if (!event) throw notFound('No such ticket.')
+
+      // Two readers, two questions, one branch. The person holding it asks
+      // whether it still admits them; the organiser asks whether it still
+      // should. Anybody else is told what somebody guessing identifiers is
+      // told, which is nothing.
+      const holder = Boolean(ticket.ownerUserId) && ticket.ownerUserId === request.actor.id
+
+      if (!holder) {
+        assertCan(request.actor, CAPABILITIES.TICKET_REVOKE, {
+          organizationId: event.organizationId,
+        })
+      }
+
+      const transfers = await prisma.ticketTransfer.findMany({
+        where: { ticketId: ticket.id },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      })
+
+      return {
+        data: {
+          ticket: stripRelations(ticket),
+          event: {
+            id: event.id,
+            slug: event.slug,
+            title: event.title,
+            startsAt: event.startsAt,
+            timezone: event.timezone,
+            status: event.status,
+          },
+          organizationId: event.organizationId,
+          holder,
+          transfers: transfers.map(toTicketTransfer),
+        },
+      }
+    },
+  })
+
   defineRoute(app, 'tickets.startTransfer', {
     handler: async (request, reply) => {
       const now = new Date()

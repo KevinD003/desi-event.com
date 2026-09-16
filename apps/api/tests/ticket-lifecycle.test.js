@@ -663,6 +663,127 @@ describe('POST /v1/tickets/:id/revoke', () => {
   })
 })
 
+describe('GET /v1/tickets/:id', () => {
+  it('gives the holder the ticket, its event and its history', async () => {
+    const { app, tickets, ids } = await withOwnedTickets()
+    const token = await signIn(app, BUYER)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${tickets[0].id}`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const { data } = response.json()
+
+    expect(data.ticket.id).toBe(tickets[0].id)
+    expect(data.holder).toBe(true)
+    expect(data.organizationId).toBe(ids.organization.id)
+    expect(data.event.title).toBe(ids.publishedEvent.title)
+    expect(data.transfers).toEqual([])
+
+    await app.close()
+  })
+
+  it('gives the organiser the same ticket, and says they are not the holder', async () => {
+    const { app, tickets } = await withOwnedTickets()
+    const token = await signIn(app, MANAGER)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${tickets[0].id}`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.holder).toBe(false)
+
+    await app.close()
+  })
+
+  it('refuses somebody who neither holds it nor runs the event', async () => {
+    const { app, tickets } = await withOwnedTickets()
+    const token = await signIn(app, RECIPIENT)
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${tickets[0].id}`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(403)
+    // Nothing about the ticket, the buyer or the event comes back with the
+    // refusal, or guessing identifiers becomes a way of reading them.
+    expect(response.body).not.toMatch(/priya|Diwali|VALID/iu)
+
+    await app.close()
+  })
+
+  it('carries no pass, no token and no digest, however many transfers there have been', async () => {
+    const delivered = []
+    const harness = await createTestApp({
+      deliver: async (message) => {
+        delivered.push(message)
+      },
+    })
+    const { app, prisma, ids } = harness
+
+    const order = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+
+    const [ticket] = order.json().data.tickets
+
+    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
+
+    const token = await signIn(app, BUYER)
+
+    await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(token),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    const invitation = delivered.at(-1).token
+
+    expect(invitation).toBeTruthy()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${ticket.id}`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const { data } = response.json()
+
+    expect(data.transfers).toHaveLength(1)
+    expect(data.transfers[0].status).toBe('PENDING')
+    // Masked, not omitted: the sender typed the address and should recognise
+    // it, and nobody should be able to harvest it from here.
+    expect(data.transfers[0].toEmailMasked).toMatch(/\*/u)
+    expect(data.transfers[0].toEmailMasked).not.toBe(RECIPIENT)
+
+    // The three things that must never come back.
+    expect(response.body).not.toContain(invitation)
+    expect(response.body).not.toContain('credentialHash')
+    expect(response.body).not.toContain('tokenHash')
+
+    await app.close()
+  })
+})
+
 describe('GET /v1/tickets', () => {
   it('lists the tickets I hold, without their passes', async () => {
     const { app, tickets } = await withOwnedTickets()

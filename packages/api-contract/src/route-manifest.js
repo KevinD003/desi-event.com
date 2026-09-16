@@ -904,6 +904,14 @@ export const apiRouteManifest = Object.freeze([
     query: true,
   },
   {
+    id: 'tickets.get',
+    method: 'GET',
+    path: '/v1/tickets/:id',
+    auth: 'session',
+    body: false,
+    query: false,
+  },
+  {
     id: 'tickets.startTransfer',
     method: 'POST',
     path: '/v1/tickets/:id/transfers',
