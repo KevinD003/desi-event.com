@@ -501,9 +501,17 @@ export const postponeEventRequestSchema = z.object({
  * A moderator's decision on a submitted event.
  *
  * One route rather than three, because the three outcomes share every
- * precondition and differ only in what they write. A reason is required for
- * anything other than an approval: telling somebody no without saying why is
- * the part of moderation that wastes everybody's time.
+ * precondition and differ only in what they write.
+ *
+ * A refusal has to be actionable. That was originally spelled "a reason is
+ * required", which is not quite the same thing: a set of notes against named
+ * fields — "description: name the language" — is *more* actionable than a
+ * paragraph, and demanding prose as well meant a moderator who had written the
+ * useful version was refused for not also writing the vague one.
+ *
+ * So the rule is what it was always for: say something the organiser can act
+ * on. Prose, or field notes, or both. A rejection needs prose, because there is
+ * no field to attach a note to when the answer is no.
  */
 export const moderationDecisionRequestSchema = z
   .object({
@@ -513,11 +521,25 @@ export const moderationDecisionRequestSchema = z
     requestedChanges: z.record(z.string(), z.string().max(1000)).optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.decision !== 'approve' && !value.reason) {
+    if (value.decision === 'approve') return
+
+    const notes = Object.keys(value.requestedChanges ?? {}).length
+
+    if (value.decision === 'reject' && !value.reason) {
       ctx.addIssue({
         code: 'custom',
         path: ['reason'],
-        message: 'Say why. A refusal with no reason cannot be acted on.',
+        message: 'Say why. A rejection with no reason cannot be acted on.',
+      })
+      return
+    }
+
+    if (!value.reason && notes === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reason'],
+        message:
+          'Say what needs changing, either as a reason or as a note against a field. A refusal with neither cannot be acted on.',
       })
     }
   })
@@ -586,6 +608,21 @@ export const authorTicketTypeRequestSchema = z.object({
   reserved: z.boolean().optional(),
   complimentary: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(1000).optional(),
+  /**
+   * Whether this tier is selling.
+   *
+   * Three of the five `TicketTypeStatus` values, and the two that are missing
+   * are missing on purpose. `SOLD_OUT` is derived from inventory — a tier that
+   * says it is sold out while stock remains is a lie a caller should not be
+   * able to tell — and `CLOSED` is reached by the sales window ending, not by
+   * asking.
+   *
+   * A tier had no way to leave `DRAFT` at all until this existed, which meant
+   * `openSales` could never pass its gate: it counts `ON_SALE` tiers, and the
+   * authoring API could only ever create drafts. An organiser could build a
+   * complete event and had no way to sell a ticket to it.
+   */
+  status: z.enum(['DRAFT', 'ON_SALE', 'PAUSED']).optional(),
 })
 
 /** Update a ticket type. */

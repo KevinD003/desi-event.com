@@ -133,6 +133,16 @@ export const venueSchema = z.object({
   latitude: latitudeSchema.nullish(),
   longitude: longitudeSchema.nullish(),
   capacity: countSchema.nullish(),
+  /**
+   * The venue's accessibility claims.
+   *
+   * Public, and public here as well as on the venue's own page: somebody
+   * deciding whether they can get into a show is reading the event page, and
+   * sending them to a second page to find out whether there is a step-free
+   * entrance is how that fact stops being read. The event's own claims are
+   * layered over these.
+   */
+  accessibility: venueAccessibilitySchema.nullish(),
   ...auditColumns,
 })
 

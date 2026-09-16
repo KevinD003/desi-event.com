@@ -127,8 +127,20 @@ export function publishabilityProblems(event) {
     problems.push('An online event needs a joining link.')
   }
 
-  if (!event.policies) {
+  // Presence is not content. An editor that always sends the policies object,
+  // with every field empty, satisfies `!event.policies` while the buyer has
+  // still agreed to nothing — which is precisely what this gate exists to stop.
+  const policies = event.policies ?? {}
+  const written = Object.values(policies).filter(
+    (value) => typeof value === 'string' && value.trim().length > 0,
+  )
+
+  if (written.length === 0) {
     problems.push('The event needs entry, refund and conduct policies.')
+  } else if (typeof policies.refund !== 'string' || !policies.refund.trim()) {
+    // Named separately because it is the one a person goes looking for when
+    // something has gone wrong, and "see the entry policy" is not an answer.
+    problems.push('The event needs a refund policy.')
   }
 
   if (event.endsAt && event.startsAt && event.endsAt <= event.startsAt) {

@@ -18,7 +18,7 @@ const event = {
   title: 'Qawwali Under the Banyan',
   summary: 'An evening of qawwali.',
   description: 'One paragraph.',
-  category: 'LIVE_MUSIC',
+  category: 'MUSIC_CONCERT',
   status: 'ON_SALE',
   timezone: 'Asia/Kolkata',
   startsAt: '2026-11-01T14:30:00.000Z',

@@ -40,7 +40,7 @@
  */
 
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -99,11 +99,34 @@ function ChecklistItem({ ready, title, blockers }) {
 }
 
 /**
+ * A readiness result with its lists present.
+ *
+ * The checklist reads four arrays off this and a payload missing one would
+ * take the whole panel down — which is a poor trade for a field the server
+ * might one day rename. An absent list reads as "nothing outstanding here",
+ * and the API is still the thing that refuses the transition.
+ *
+ * @param {object|null} result A readiness payload, or null.
+ * @returns {object} The same result with every list present.
+ */
+function withLists(result) {
+  return {
+    ready: Boolean(result?.ready),
+    status: result?.status ?? '',
+    publishable: result?.publishable ?? [],
+    sellable: result?.sellable ?? [],
+    inventory: result?.inventory ?? [],
+    organizerVerified: Boolean(result?.organizerVerified),
+  }
+}
+
+/**
  * @typedef {object} EventLifecyclePanelProps
  * @property {object} event The event.
  * @property {object} readiness The server's readiness result.
  * @property {object} transitions The server's available transitions.
  * @property {object[]} history The moderation history, newest first.
+ * @property {number} [revision] The event's revision, so the checklist can re-read when other steps save.
  */
 
 /**
@@ -112,8 +135,16 @@ function ChecklistItem({ ready, title, blockers }) {
  * @param {EventLifecyclePanelProps} props Component props.
  * @returns {JSX.Element} The panel.
  */
-export function EventLifecyclePanel({ event, readiness, transitions, history = [] }) {
+export function EventLifecyclePanel({
+  event,
+  readiness: initialReadiness,
+  transitions: initialTransitions,
+  history = [],
+  revision = 0,
+}) {
   const router = useRouter()
+  const [readiness, setReadiness] = useState(() => withLists(initialReadiness))
+  const [transitions, setTransitions] = useState(initialTransitions)
   const [status, setStatus] = useState(event.status)
   const [pending, setPending] = useState(null)
   const [reasonCode, setReasonCode] = useState(REASON_CODES[0][0])
@@ -127,6 +158,42 @@ export function EventLifecyclePanel({ event, readiness, transitions, history = [
 
   const reading = statusReading(status)
   const offered = OFFERED[status] ?? []
+
+  /**
+   * Re-read the server's answer about whether this event is ready.
+   *
+   * A checklist that does not refresh is a checklist that lies. The organiser
+   * writes the refund policy on one step and comes here to submit; if this
+   * panel still holds the readiness result from the page load, it shows a
+   * blocker they have already cleared and a submit button that is disabled for
+   * a reason that is no longer true.
+   *
+   * @returns {Promise<void>} Resolves when both answers are in.
+   */
+  const refresh = useCallback(async () => {
+    const [readinessResponse, transitionsResponse] = await Promise.all([
+      apiFetch(`/v1/events/${encodeURIComponent(event.id)}/readiness`),
+      apiFetch(`/v1/events/${encodeURIComponent(event.id)}/transitions`),
+    ])
+
+    const readinessBody = await readinessResponse.json().catch(() => null)
+    const transitionsBody = await transitionsResponse.json().catch(() => null)
+
+    if (readinessResponse.ok && readinessBody?.data) setReadiness(withLists(readinessBody.data))
+    if (transitionsResponse.ok && transitionsBody?.data) {
+      setTransitions(transitionsBody.data)
+      setStatus(transitionsBody.data.status)
+    }
+  }, [event.id])
+
+  // On open, and again whenever another step has saved.
+  useEffect(() => {
+    refresh().catch(() => {
+      // A failed re-read leaves the last answer on screen rather than blanking
+      // the checklist. It is stale, and stale is better than absent — the
+      // commands are all authorised again by the API regardless.
+    })
+  }, [refresh, revision])
 
   /**
    * Whether the server says this actor may make this move.
@@ -215,6 +282,8 @@ export function EventLifecyclePanel({ event, readiness, transitions, history = [
 
       setStatus(next)
       setPending(null)
+      // The move changes what is available next, so ask rather than infer.
+      await refresh().catch(() => {})
       // Announced rather than merely drawn: a lifecycle change is the most
       // consequential thing on this screen and a screen reader user must not
       // have to go looking for it.

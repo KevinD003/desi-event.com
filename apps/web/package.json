@@ -15,7 +15,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:prod": "pnpm run build && playwright test --config playwright.production.config.js",
-    "test:e2e:organizer": "ORGANIZER_E2E_TAG=e2e$(date +%s) playwright test --config playwright.organizer.config.js"
+    "test:e2e:organizer": "ORGANIZER_E2E_TAG=e2e$(date +%s) playwright test --config playwright.organizer.config.js",
+    "test:e2e:events": "EVENTS_E2E_TAG=e2e$(date +%s) playwright test --config playwright.events.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",

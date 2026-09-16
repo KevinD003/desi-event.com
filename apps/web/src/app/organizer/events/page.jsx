@@ -18,7 +18,7 @@
 
 import Link from 'next/link'
 
-import { Badge, Button, EmptyState } from '../../../components/ui.jsx'
+import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { listOrganizerEvents } from '../../../lib/organizer-api.js'
 import { statusReading } from '../../../lib/event-status.js'
 import { formatEventDate } from '../../../lib/format.js'
@@ -77,9 +77,19 @@ export default async function OrganizerEventsPage() {
             title="No events yet"
             description="An event starts as a draft that only your team can see. Nothing is public until a moderator has approved it and you have chosen to publish."
           >
-            <Button as={Link} href="/organizer/events/new">
+            {/*
+              A link, styled like a button, rather than `Button as={Link}`.
+              `Button` renders a real `<button>` and always has; handing it a
+              component through an `as` prop passes a *function* from a Server
+              Component to a Client Component, which React refuses outright —
+              and the refusal is the whole page, not the button.
+            */}
+            <Link
+              href="/organizer/events/new"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
               Create your first event
-            </Button>
+            </Link>
           </EmptyState>
         </div>
       ) : null}

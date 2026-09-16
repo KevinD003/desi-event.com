@@ -46,6 +46,44 @@ function answer(status, body) {
   return { ok: status >= 200 && status < 300, status, json: async () => body }
 }
 
+/**
+ * The call the panel made to one path, if it made one.
+ *
+ * Looked up rather than indexed: the panel re-reads readiness and transitions
+ * whenever it opens, so the command is not the first request and asserting on
+ * `calls[0]` would be asserting on the refresh.
+ *
+ * @param {string} path The path to find.
+ * @returns {Array|null} The call arguments, or null.
+ */
+function callTo(path) {
+  return apiFetch.mock.calls.find(([called]) => called === path) ?? null
+}
+
+/**
+ * Answer each request the panel makes for what it is.
+ *
+ * The panel re-reads readiness and transitions whenever it opens, so a single
+ * `mockResolvedValue` hands the *command's* answer back as the transitions
+ * answer too — and a transitions payload saying the event is already
+ * REVIEW_PENDING makes the panel redraw with the buttons for that state, which
+ * is correct behaviour and a useless test.
+ *
+ * @param {object} [options] What to answer with.
+ * @param {object} [options.readiness] The readiness payload.
+ * @param {object} [options.moves] The transitions payload.
+ * @param {object} [options.command] The answer to the command itself.
+ * @returns {void}
+ */
+function routeFetch({ readiness = ready, moves = transitions([]), command = null } = {}) {
+  apiFetch.mockImplementation(async (path) => {
+    if (path.endsWith('/readiness')) return answer(200, { data: readiness })
+    if (path.endsWith('/transitions')) return answer(200, { data: moves })
+
+    return command ?? answer(500, { error: { message: 'No command answer was set up.' } })
+  })
+}
+
 beforeEach(() => {
   apiFetch.mockReset()
 })
@@ -145,45 +183,34 @@ describe('sending an event for review', () => {
   it('asks for an optional note, then sends it', async () => {
     const user = userEvent.setup()
 
-    apiFetch.mockResolvedValue(answer(200, { data: { status: 'REVIEW_PENDING' } }))
+    const moves = transitions([
+      { to: 'REVIEW_PENDING', actor: 'organizer', entitled: true, blockers: [] },
+    ])
 
-    render(
-      <EventLifecyclePanel
-        event={event}
-        readiness={ready}
-        transitions={transitions([
-          { to: 'REVIEW_PENDING', actor: 'organizer', entitled: true, blockers: [] },
-        ])}
-        history={[]}
-      />,
-    )
+    routeFetch({ moves, command: answer(200, { data: { status: 'REVIEW_PENDING' } }) })
+
+    render(<EventLifecyclePanel event={event} readiness={ready} transitions={moves} history={[]} />)
 
     await user.click(screen.getByRole('button', { name: /send for review/i }))
     await user.click(screen.getByRole('button', { name: /yes, send for review/i }))
 
-    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    await waitFor(() => expect(callTo('/v1/events/evtqawwalibanyan/submit-review')).toBeTruthy())
 
-    const [path, options] = apiFetch.mock.calls[0]
+    const [, options] = callTo('/v1/events/evtqawwalibanyan/submit-review')
 
-    expect(path).toBe('/v1/events/evtqawwalibanyan/submit-review')
     expect(options.method).toBe('POST')
   })
 
   it('announces the new state rather than only drawing it', async () => {
     const user = userEvent.setup()
 
-    apiFetch.mockResolvedValue(answer(200, { data: { status: 'REVIEW_PENDING' } }))
+    const moves = transitions([
+      { to: 'REVIEW_PENDING', actor: 'organizer', entitled: true, blockers: [] },
+    ])
 
-    render(
-      <EventLifecyclePanel
-        event={event}
-        readiness={ready}
-        transitions={transitions([
-          { to: 'REVIEW_PENDING', actor: 'organizer', entitled: true, blockers: [] },
-        ])}
-        history={[]}
-      />,
-    )
+    routeFetch({ moves, command: answer(200, { data: { status: 'REVIEW_PENDING' } }) })
+
+    render(<EventLifecyclePanel event={event} readiness={ready} transitions={moves} history={[]} />)
 
     await user.click(screen.getByRole('button', { name: /send for review/i }))
     await user.click(screen.getByRole('button', { name: /yes, send for review/i }))
@@ -272,16 +299,22 @@ describe('cancelling an event', () => {
   it('sends the reason code with the command', async () => {
     const user = userEvent.setup()
 
-    apiFetch.mockResolvedValue(answer(200, { data: { status: 'CANCELLED' } }))
+    const moves = {
+      status: 'ON_SALE',
+      transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+
+    routeFetch({
+      readiness: { ...ready, status: 'ON_SALE' },
+      moves,
+      command: answer(200, { data: { status: 'CANCELLED' } }),
+    })
 
     render(
       <EventLifecyclePanel
         event={onSale}
         readiness={{ ...ready, status: 'ON_SALE' }}
-        transitions={{
-          status: 'ON_SALE',
-          transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
-        }}
+        transitions={moves}
         history={[]}
       />,
     )
@@ -291,11 +324,10 @@ describe('cancelling an event', () => {
     await user.type(screen.getByLabelText(/what to tell ticket holders/i), 'The ground flooded.')
     await user.click(screen.getByRole('button', { name: /yes, cancel this event/i }))
 
-    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    await waitFor(() => expect(callTo('/v1/events/evtqawwalibanyan/cancel')).toBeTruthy())
 
-    const [path, options] = apiFetch.mock.calls[0]
+    const [, options] = callTo('/v1/events/evtqawwalibanyan/cancel')
 
-    expect(path).toBe('/v1/events/evtqawwalibanyan/cancel')
     expect(JSON.parse(options.body)).toEqual({
       reason: 'The ground flooded.',
       reasonCode: 'WEATHER',
@@ -305,20 +337,24 @@ describe('cancelling an event', () => {
   it("shows the API's refusal rather than a shrug", async () => {
     const user = userEvent.setup()
 
-    apiFetch.mockResolvedValue(
-      answer(422, {
+    const moves = {
+      status: 'ON_SALE',
+      transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+
+    routeFetch({
+      readiness: { ...ready, status: 'ON_SALE' },
+      moves,
+      command: answer(422, {
         error: { message: 'This event is not ready.', problems: ['Confirm your identity first.'] },
       }),
-    )
+    })
 
     render(
       <EventLifecyclePanel
         event={onSale}
         readiness={{ ...ready, status: 'ON_SALE' }}
-        transitions={{
-          status: 'ON_SALE',
-          transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
-        }}
+        transitions={moves}
         history={[]}
       />,
     )

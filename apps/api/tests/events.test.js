@@ -132,6 +132,84 @@ describe('what a public event page says about its organiser, finding NF-14', () 
     await app.close()
   })
 
+  it('does not advertise a ticket type the organiser is still holding back', async () => {
+    // A tier is DRAFT until somebody puts it on sale. Showing one publicly
+    // announces an early-bird price, or a tier half-built, on the organiser's
+    // behalf and without being asked.
+    const { app, prisma, ids } = await createTestApp()
+
+    await prisma.ticketType.create({
+      data: {
+        eventId: ids.publishedEvent.id,
+        name: 'Early bird, not announced yet',
+        priceCents: 99_900,
+        currency: 'INR',
+        quantityTotal: 50,
+        status: 'DRAFT',
+      },
+    })
+
+    const { data } = (
+      await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+    ).json()
+
+    expect(data.ticketTypes.map((tier) => tier.name)).not.toContain('Early bird, not announced yet')
+    expect(data.ticketTypes.every((tier) => tier.status !== 'DRAFT')).toBe(true)
+
+    await app.close()
+  })
+
+  it('shows it to the organiser, whose editor is the reason it exists', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    await prisma.ticketType.create({
+      data: {
+        eventId: ids.publishedEvent.id,
+        name: 'Early bird, not announced yet',
+        priceCents: 99_900,
+        currency: 'INR',
+        quantityTotal: 50,
+        status: 'DRAFT',
+      },
+    })
+
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const { data } = (
+      await app.inject({
+        method: 'GET',
+        url: '/v1/events/navratri-garba-night',
+        headers: bearer(token),
+      })
+    ).json()
+
+    expect(data.ticketTypes.map((tier) => tier.name)).toContain('Early bird, not announced yet')
+
+    await app.close()
+  })
+
+  it("carries the venue's accessibility claims, where somebody will read them", async () => {
+    // On the event page as well as the venue's own. Somebody deciding whether
+    // they can get into a show is reading the event page; sending them to a
+    // second page to find out whether there is a step-free entrance is how
+    // that fact stops being read.
+    const { app, prisma, ids } = await createTestApp()
+    const venue = prisma._store.venue.find((row) => row.id === ids.venue.id)
+
+    venue.accessibility = { features: ['STEP_FREE_ENTRANCE'], note: 'The ramp is at Gate 3.' }
+
+    const { data } = (
+      await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+    ).json()
+
+    expect(data.venue.accessibility).toEqual({
+      features: ['STEP_FREE_ENTRANCE'],
+      note: 'The ramp is at Gate 3.',
+    })
+
+    await app.close()
+  })
+
   it('shows no badge when the column and the verification state disagree', async () => {
     const { app, prisma, ids } = await createTestApp()
     const organization = prisma._store.organization.find((row) => row.id === ids.organization.id)

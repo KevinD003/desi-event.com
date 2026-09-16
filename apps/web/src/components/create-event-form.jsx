@@ -24,23 +24,12 @@ import { useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+// The one list of categories this application has. A second copy is how a
+// select ends up offering a value the API has never heard of — which is
+// exactly what it did: `LIVE_MUSIC` is not in `eventCategorySchema`, and every
+// create was answered "Invalid request body".
+import { EVENT_CATEGORIES } from '../lib/catalog.js'
 import { COMMON_ZONES, fromLocalInputValue, toLocalInputValue } from '../lib/zoned-time.js'
-
-/** Categories, mirroring `eventCategorySchema`. */
-const CATEGORIES = Object.freeze([
-  ['GARBA_DANDIYA', 'Garba / dandiya'],
-  ['BOLLYWOOD_NIGHT', 'Bollywood night'],
-  ['LIVE_MUSIC', 'Live music'],
-  ['CLASSICAL', 'Classical'],
-  ['COMEDY', 'Comedy'],
-  ['THEATRE', 'Theatre'],
-  ['DANCE', 'Dance'],
-  ['FESTIVAL', 'Festival'],
-  ['FOOD', 'Food'],
-  ['WORKSHOP', 'Workshop'],
-  ['COMMUNITY', 'Community'],
-  ['OTHER', 'Other'],
-])
 
 /**
  * @typedef {object} CreateEventFormProps
@@ -62,6 +51,7 @@ export function CreateEventForm({ organizations = [] }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [problems, setProblems] = useState([])
+  const [issues, setIssues] = useState([])
   const errorRef = useRef(null)
 
   /**
@@ -75,6 +65,7 @@ export function CreateEventForm({ organizations = [] }) {
     setBusy(true)
     setError(null)
     setProblems([])
+    setIssues([])
 
     const form = new FormData(submitted.currentTarget)
 
@@ -102,6 +93,9 @@ export function CreateEventForm({ organizations = [] }) {
 
       setError(body?.error?.message ?? 'The event could not be created.')
       setProblems(body?.error?.problems ?? [])
+      // The field-level issues too. "Invalid request body" on its own is a
+      // message nobody can act on — including whoever is debugging it.
+      setIssues(body?.error?.issues ?? [])
       queueMicrotask(() => errorRef.current?.focus())
     } catch {
       setError('The ticketing service is not responding. Nothing has been saved.')
@@ -121,6 +115,16 @@ export function CreateEventForm({ organizations = [] }) {
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {problems.map((problem) => (
                   <li key={problem}>{problem}</li>
+                ))}
+              </ul>
+            ) : null}
+            {issues.length > 0 ? (
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {issues.map((issue) => (
+                  <li key={`${issue.path}:${issue.code}`}>
+                    <span className="font-medium">{issue.path || 'the request'}:</span>{' '}
+                    {issue.message}
+                  </li>
                 ))}
               </ul>
             ) : null}
@@ -162,9 +166,9 @@ export function CreateEventForm({ organizations = [] }) {
 
       <FormField label="Category" id="create-category" required>
         <Select name="category" defaultValue="LIVE_MUSIC">
-          {CATEGORIES.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
+          {EVENT_CATEGORIES.map((category) => (
+            <option key={category.value} value={category.value}>
+              {category.label}
             </option>
           ))}
         </Select>

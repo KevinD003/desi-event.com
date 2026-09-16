@@ -39,7 +39,7 @@ import { apiFetch } from '../lib/api-fetch.js'
  * @param {SignInFormProps} props Component props.
  * @returns {JSX.Element} The rendered form.
  */
-export function SignInForm({ next = '/organizer/venues' }) {
+export function SignInForm({ next = '/organizer/events' }) {
   const [error, setError] = useState(null)
   const [needsCode, setNeedsCode] = useState(false)
   const [busy, setBusy] = useState(false)

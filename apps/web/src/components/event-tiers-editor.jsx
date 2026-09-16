@@ -40,6 +40,7 @@ const BLANK = Object.freeze({
   maxPerOrder: '10',
   eventSessionId: '',
   reserved: false,
+  status: 'DRAFT',
 })
 
 /**
@@ -47,7 +48,8 @@ const BLANK = Object.freeze({
  * @property {object} event The event.
  * @property {object[]} sessions The event's sessions, for the session select.
  * @property {object[]} preview The all-in breakdown per tier, from the server.
- * @property {number} revision The event's revision as loaded.
+ * @property {number} revision The event's current revision, owned by the editor shell.
+ * @property {Function} onRevision Called with the new revision after every write.
  * @property {boolean} editable Whether the event's state allows changes.
  */
 
@@ -61,12 +63,12 @@ export function EventTiersEditor({
   event,
   sessions = [],
   preview: initialPreview = [],
-  revision: initialRevision = 0,
+  revision = 0,
+  onRevision = () => {},
   editable = true,
 }) {
   const [tiers, setTiers] = useState(event.ticketTypes ?? [])
   const [preview, setPreview] = useState(initialPreview)
-  const [revision, setRevision] = useState(initialRevision)
   const [draft, setDraft] = useState(BLANK)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -91,7 +93,7 @@ export function EventTiersEditor({
 
     if (eventResponse.ok && eventBody?.data) {
       setTiers(eventBody.data.ticketTypes ?? [])
-      setRevision(eventBody.data.revision)
+      onRevision(eventBody.data.revision)
     }
 
     if (previewResponse.ok && previewBody) setPreview(previewBody.data ?? [])
@@ -123,6 +125,7 @@ export function EventTiersEditor({
           maxPerOrder: Number(draft.maxPerOrder),
           eventSessionId: draft.eventSessionId || null,
           reserved: draft.reserved,
+          status: draft.status,
         }),
       })
 
@@ -138,6 +141,40 @@ export function EventTiersEditor({
       await reload()
     } catch {
       setError('The service is not responding. Nothing has been saved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * Put a tier on sale, or hold it back.
+   *
+   * @param {object} tier The tier.
+   * @param {string} status The status to set.
+   * @returns {Promise<void>} Resolves when the attempt is over.
+   */
+  async function setTierStatus(tier, status) {
+    setBusy(true)
+    setError(null)
+    setProblems([])
+
+    try {
+      const response = await apiFetch(
+        `/v1/events/${encodeURIComponent(event.id)}/tiers/${encodeURIComponent(tier.id)}`,
+        { method: 'PATCH', body: JSON.stringify({ revision, status }) },
+      )
+
+      const body = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        setError(body?.error?.message ?? 'The ticket type could not be changed.')
+        setProblems(body?.error?.problems ?? [])
+        return
+      }
+
+      await reload()
+    } catch {
+      setError('The service is not responding.')
     } finally {
       setBusy(false)
     }
@@ -258,15 +295,33 @@ export function EventTiersEditor({
                       </div>
 
                       {editable ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy || tier.quantitySold > 0}
-                          onClick={() => removeTier(tier)}
-                        >
-                          {tier.quantitySold > 0 ? 'Sold — cannot remove' : 'Remove'}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          {/*
+                            The control `openSales` actually counts. A tier is
+                            a draft until somebody says it sells, and an event
+                            with no tier on sale cannot open sales at all.
+                          */}
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() =>
+                              setTierStatus(tier, tier.status === 'ON_SALE' ? 'PAUSED' : 'ON_SALE')
+                            }
+                          >
+                            {tier.status === 'ON_SALE' ? 'Hold this tier back' : 'Put on sale'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy || tier.quantitySold > 0}
+                            onClick={() => removeTier(tier)}
+                          >
+                            {tier.quantitySold > 0 ? 'Sold — cannot remove' : 'Remove'}
+                          </Button>
+                        </div>
                       ) : null}
                     </div>
                   </CardBody>
@@ -377,6 +432,18 @@ export function EventTiersEditor({
               className="size-4 rounded border-slate-300"
             />
             Reserved seating — buyers choose a specific seat
+          </label>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={draft.status === 'ON_SALE'}
+              onChange={(change) =>
+                setDraft({ ...draft, status: change.target.checked ? 'ON_SALE' : 'DRAFT' })
+              }
+              className="size-4 rounded border-slate-300"
+            />
+            Put this tier on sale straight away
           </label>
 
           <Button type="submit" disabled={busy}>

@@ -45,7 +45,16 @@ export async function start() {
   // for real adapters here — the one place that knows they are not real.
   const providers = createInMemoryProviderRegistry()
 
-  const app = await buildApp({ prisma, providers, env, logger })
+  const app = await buildApp({
+    prisma,
+    providers,
+    env,
+    logger,
+    // The budget is the deployment's to set: behind a shared egress address a
+    // hundred real visitors arrive as one caller, and the default would
+    // throttle them. The default itself is unchanged.
+    rateLimit: { global: { max: env.RATE_LIMIT_MAX, timeWindow: env.RATE_LIMIT_WINDOW } },
+  })
 
   await app.listen({ port: env.API_PORT, host: env.API_HOST })
 

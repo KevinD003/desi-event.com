@@ -3,9 +3,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+// The review panel asks the router to refresh after a lifecycle command. There
+// is no app router in a unit test, and there does not need to be: what is under
+// test here is the editor shell, not navigation.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { EventEditor, formProblems } = await import('./event-editor.jsx')
+const { EventEditor, formGaps, formProblems } = await import('./event-editor.jsx')
 
 /** A draft with everything the form needs. */
 const event = {
@@ -14,7 +18,7 @@ const event = {
   title: 'Qawwali Under the Banyan',
   summary: 'An evening of qawwali.',
   description: 'One paragraph about the night.',
-  category: 'LIVE_MUSIC',
+  category: 'MUSIC_CONCERT',
   status: 'DRAFT',
   revision: 3,
   timezone: 'Asia/Kolkata',
@@ -289,6 +293,25 @@ describe('what the editor refuses to send', () => {
     )
   })
 
+  it('stops complaining once the change is undone', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={event} venues={venues} />)
+
+    const title = screen.getByLabelText(/^Title/)
+
+    await user.clear(title)
+    expect(await screen.findByTestId('validation-summary')).toBeInTheDocument()
+
+    await user.type(title, event.title)
+
+    // The boxes match what is stored again, so there is nothing wrong and
+    // nothing to save. A stale "not saved: 1 thing needs fixing" is a message
+    // about a state that no longer exists, and it is the one somebody acts on.
+    await waitFor(() => expect(screen.queryByTestId('validation-summary')).not.toBeInTheDocument())
+    expect(screen.getByTestId('save-status')).toHaveTextContent(/no unsaved changes/i)
+  })
+
   it('moves focus to the summary when a press is refused', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
@@ -298,6 +321,29 @@ describe('what the editor refuses to send', () => {
     await user.click(screen.getByRole('button', { name: /save now/i }))
 
     await waitFor(() => expect(screen.getByTestId('validation-summary')).toHaveFocus())
+  })
+})
+
+describe('an incomplete draft', () => {
+  it('says what is still to do without calling it an error', async () => {
+    render(<EventEditor event={{ ...event, venueId: null }} venues={venues} />)
+
+    expect(screen.getByTestId('readiness-gaps')).toHaveTextContent(/still to do before/i)
+    expect(screen.getByText(/none of this stops the draft saving/i)).toBeInTheDocument()
+    expect(screen.queryByTestId('validation-summary')).not.toBeInTheDocument()
+  })
+
+  it('still saves', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(answer(200, { data: { ...event, venueId: null, revision: 4 } }))
+
+    render(<EventEditor event={{ ...event, venueId: null }} venues={venues} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
   })
 })
 
@@ -321,26 +367,56 @@ describe('the steps', () => {
     expect(screen.getByRole('button', { name: /details/i })).toHaveAttribute('aria-current', 'step')
   })
 
-  it('render the panels the server prepared', async () => {
+  it('render the sessions, tickets and review panels', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
     render(
       <EventEditor
         event={event}
         venues={venues}
-        steps={{
-          sessions: <p>Sessions panel</p>,
-          tickets: <p>Tickets panel</p>,
-          review: <p>Review panel</p>,
+        readiness={{
+          ready: false,
+          status: 'DRAFT',
+          publishable: [],
+          sellable: [],
+          inventory: [],
+          organizerVerified: true,
         }}
+        transitions={{ status: 'DRAFT', transitions: [] }}
       />,
     )
 
-    await user.click(screen.getByRole('button', { name: /sessions/i }))
-    expect(screen.getByText('Sessions panel')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /step 3/i }))
+    expect(screen.getByRole('heading', { name: 'Sessions', level: 2 })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /review/i }))
-    expect(screen.getByText('Review panel')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /step 4/i }))
+    expect(screen.getByRole('heading', { name: 'Tickets', level: 2 })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /step 7/i }))
+    expect(screen.getByRole('heading', { name: /review and publish/i })).toBeInTheDocument()
+  })
+
+  it('hands one revision to every step, so they cannot drift apart', async () => {
+    // Each panel used to hold its own copy, taken from the server render. That
+    // is stale the moment any other step saves — and choosing a venue on one
+    // step then adding a session on the next is the ordinary way through this
+    // form, not a rare race.
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(answer(200, { data: { ...event, revision: 9 } }))
+
+    render(<EventEditor event={event} venues={venues} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+    await waitFor(() => expect(screen.getByText('Revision 9')).toBeInTheDocument())
+
+    // The sessions step now opens against revision 9, not the 3 it was rendered
+    // with. Its own writes carry whatever the shell holds.
+    await user.click(screen.getByRole('button', { name: /step 3/i }))
+
+    expect(screen.getByRole('heading', { name: 'Sessions', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('Revision 9')).toBeInTheDocument()
   })
 })
 
@@ -413,14 +489,12 @@ describe('the problems the form finds for itself', () => {
     ])
   })
 
-  it('refuses an event with neither a venue nor an online address', () => {
-    expect(formProblems({ ...base, venueId: '' })).toEqual([
-      { field: 'venueId', message: 'Choose a venue, or mark the event as online.' },
-    ])
-
-    expect(formProblems({ ...base, isOnline: true, venueId: '' })).toEqual([
-      { field: 'onlineUrl', message: 'An online event needs an address to join it at.' },
-    ])
+  it('does not refuse a draft for being incomplete', () => {
+    // A draft is allowed to be incomplete — being incomplete is what a draft
+    // is. Blocking the save on a venue nobody has chosen yet means an organiser
+    // cannot keep the sentence they have just typed, which is backwards.
+    expect(formProblems({ ...base, venueId: '' })).toEqual([])
+    expect(formProblems({ ...base, isOnline: true, venueId: '', onlineUrl: '' })).toEqual([])
   })
 
   it('refuses a fractional age', () => {
@@ -431,5 +505,41 @@ describe('the problems the form finds for itself', () => {
 
   it('accepts an empty age, which means no restriction', () => {
     expect(formProblems({ ...base, ageRestriction: '' })).toEqual([])
+  })
+})
+
+describe('what the form knows is still missing', () => {
+  const base = {
+    title: 'A title',
+    summary: 'A summary',
+    description: 'A description',
+    startsAt: '2026-11-01T14:30:00.000Z',
+    endsAt: '2026-11-01T17:30:00.000Z',
+    isOnline: false,
+    onlineUrl: '',
+    venueId: 'vnbanyancourtyard',
+    ageRestriction: '',
+  }
+
+  it('finds nothing missing from a complete form', () => {
+    expect(formGaps(base)).toEqual([])
+  })
+
+  it('notes a missing venue without standing in the way of saving', () => {
+    expect(formGaps({ ...base, venueId: '' })).toEqual([
+      {
+        field: 'venueId',
+        message: 'Choose a venue, or mark the event as online, before publishing.',
+      },
+    ])
+  })
+
+  it('notes a missing joining address for an online event', () => {
+    expect(formGaps({ ...base, isOnline: true, venueId: '', onlineUrl: '' })).toEqual([
+      {
+        field: 'onlineUrl',
+        message: 'An online event needs an address to join it at before it can be published.',
+      },
+    ])
   })
 })

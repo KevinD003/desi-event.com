@@ -170,13 +170,29 @@ async function loadVisibleEvent(prisma, where, actor) {
  */
 function assertVisibleTo(event, actor) {
   if (PUBLICLY_VISIBLE_STATUSES.has(event.status)) return
+  if (maySeeDrafts(event, actor)) return
 
-  const permitted =
+  throw notFound('No such event.')
+}
+
+/**
+ * Whether this caller may see what the organiser has not announced.
+ *
+ * The same question twice over: whether an unpublished *event* resolves at all,
+ * and whether an unpublished *ticket type* appears in the payload of one that
+ * does. Both are "is this person on the inside", so both ask it here rather
+ * than each growing its own version of the answer.
+ *
+ * @param {object} event The event row.
+ * @param {object|null} actor The request actor.
+ * @returns {boolean} True when the caller is staff or a member of the organisation.
+ */
+function maySeeDrafts(event, actor) {
+  return (
     can(actor, CAPABILITIES.MODERATION_REVIEW) ||
     can(actor, CAPABILITIES.PLATFORM_ADMIN) ||
     can(actor, CAPABILITIES.EVENT_VIEW_DRAFT, { organizationId: event.organizationId })
-
-  if (!permitted) throw notFound('No such event.')
+  )
 }
 
 /**
@@ -273,7 +289,9 @@ export function registerEventRoutes(app, { prisma }) {
 
       assertVisibleTo(event, request.actor)
 
-      return { data: toEventDetail(event) }
+      return {
+        data: toEventDetail(event, { includeDraftTiers: maySeeDrafts(event, request.actor) }),
+      }
     },
   })
 
@@ -307,7 +325,12 @@ export function registerEventRoutes(app, { prisma }) {
 
       request.log.info({ eventId: event.id, actorId: request.actor.id }, 'event created')
 
-      return { data: toEventDetail(event) }
+      // Every route below `events.get` is already gated on holding something
+      // in this organisation, so the caller is on the inside and sees the
+      // tiers they are still holding back. Said explicitly rather than left to
+      // the default: an organiser's own editor going blank after a save is not
+      // a bug anybody would guess at.
+      return { data: toEventDetail(event, { includeDraftTiers: true }) }
     },
   })
 
@@ -425,7 +448,7 @@ export function registerEventRoutes(app, { prisma }) {
         include: EVENT_INCLUDE,
       })
 
-      return { data: toEventDetail(event) }
+      return { data: toEventDetail(event, { includeDraftTiers: true }) }
     },
   })
 
@@ -461,7 +484,7 @@ export function registerEventRoutes(app, { prisma }) {
       include: EVENT_INCLUDE,
     })
 
-    return { data: toEventDetail(full) }
+    return { data: toEventDetail(full, { includeDraftTiers: true }) }
   }
 
   defineRoute(app, 'events.transitions', {

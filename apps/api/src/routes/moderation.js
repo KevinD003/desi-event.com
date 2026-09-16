@@ -64,9 +64,15 @@ export function registerModerationRoutes(app, { prisma }) {
         prisma.event.count({ where }),
       ])
 
+      // `pagination`, not `meta`: this route answers with
+      // `eventListResponseSchema`, the same envelope `GET /events` uses, and
+      // that schema names the field. Under `meta` the counters were simply
+      // absent from the payload and the response serialiser refused the whole
+      // thing — which is the contract working, and it went unnoticed because
+      // nothing had called this route yet.
       return {
         data: rows.map(toEventSummary),
-        meta: buildPaginationMeta({ page, perPage, total }),
+        pagination: buildPaginationMeta({ page, perPage, total }),
       }
     },
   })
@@ -100,7 +106,9 @@ export function registerModerationRoutes(app, { prisma }) {
         include: EVENT_INCLUDE,
       })
 
-      return { data: toEventDetail(full) }
+      // A moderator sees everything, including the tiers not on sale yet:
+      // deciding whether a listing is fit to be public means seeing all of it.
+      return { data: toEventDetail(full, { includeDraftTiers: true }) }
     },
   })
 }

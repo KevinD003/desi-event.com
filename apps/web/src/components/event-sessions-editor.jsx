@@ -55,7 +55,8 @@ function blankSession(event) {
  * @typedef {object} EventSessionsEditorProps
  * @property {object} event The event.
  * @property {object[]} sessions The sessions as loaded.
- * @property {number} revision The event's revision as loaded.
+ * @property {number} revision The event's current revision, owned by the editor shell.
+ * @property {Function} onRevision Called with the new revision after every write.
  * @property {object[]} mapVersions Published map versions for the event's venue.
  * @property {boolean} editable Whether the event's state allows changes.
  */
@@ -69,12 +70,12 @@ function blankSession(event) {
 export function EventSessionsEditor({
   event,
   sessions: initial = [],
-  revision: initialRevision = 0,
+  revision = 0,
+  onRevision = () => {},
   mapVersions = [],
   editable = true,
 }) {
   const [sessions, setSessions] = useState(initial)
-  const [revision, setRevision] = useState(initialRevision)
   const [draft, setDraft] = useState(() => blankSession(event))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -103,7 +104,7 @@ export function EventSessionsEditor({
       const parsed = await response.json().catch(() => null)
 
       if (response.ok) {
-        if (Number.isInteger(parsed?.meta?.revision)) setRevision(parsed.meta.revision)
+        if (Number.isInteger(parsed?.meta?.revision)) onRevision(parsed.meta.revision)
         return parsed
       }
 
@@ -129,7 +130,7 @@ export function EventSessionsEditor({
 
     if (response.ok && body) {
       setSessions(body.data ?? [])
-      if (Number.isInteger(body.meta?.revision)) setRevision(body.meta.revision)
+      if (Number.isInteger(body.meta?.revision)) onRevision(body.meta.revision)
     }
   }
 
@@ -204,12 +205,22 @@ export function EventSessionsEditor({
 
       // `created` and `prepared` are separate in the response precisely so that
       // a second run can say "already done" rather than claiming work.
-      const { created, prepared, expected } = body.data
+      const { kind, created, prepared, expected } = body.data
+
+      if (kind === 'general_admission') {
+        // Nothing to prepare, and saying "already prepared: 0 of 0" would read
+        // as a failure. A general-admission session counts a quantity; there
+        // are no seat rows, and inventing some would create rows nothing reads.
+        setNotice(
+          'This session is general admission, so there are no seats to prepare — its capacity is its inventory. Give it a published seating map to sell reserved seats.',
+        )
+        return
+      }
 
       setNotice(
         created === 0
-          ? `Already prepared: ${prepared} of ${expected} places exist. Nothing new was created.`
-          : `Prepared ${created} new place${created === 1 ? '' : 's'}; ${prepared} of ${expected} now exist.`,
+          ? `Already prepared: ${prepared} of ${expected} seats exist. Nothing new was created.`
+          : `Prepared ${created} new seat${created === 1 ? '' : 's'}; ${prepared} of ${expected} now exist.`,
       )
     } catch {
       setError('The service is not responding.')

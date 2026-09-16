@@ -9865,6 +9865,58 @@
                                     }
                                   ]
                                 },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "createdAt": {
                                   "type": "string",
                                   "format": "date-time",
@@ -11019,6 +11071,58 @@
                                     }
                                   ]
                                 },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "createdAt": {
                                   "type": "string",
                                   "format": "date-time",
@@ -11738,6 +11842,58 @@
                                       "type": "integer",
                                       "minimum": 0,
                                       "maximum": 10000000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     {
                                       "type": "null"
@@ -12996,6 +13152,58 @@
                                     }
                                   ]
                                 },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "createdAt": {
                                   "type": "string",
                                   "format": "date-time",
@@ -13775,6 +13983,58 @@
                                     }
                                   ]
                                 },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "createdAt": {
                                   "type": "string",
                                   "format": "date-time",
@@ -14512,6 +14772,58 @@
                                       "type": "integer",
                                       "minimum": 0,
                                       "maximum": 10000000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     {
                                       "type": "null"
@@ -15292,6 +15604,58 @@
                                     }
                                   ]
                                 },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "createdAt": {
                                   "type": "string",
                                   "format": "date-time",
@@ -16066,6 +16430,58 @@
                                     }
                                   ]
                                 },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
                                 "createdAt": {
                                   "type": "string",
                                   "format": "date-time",
@@ -16830,6 +17246,58 @@
                                       "type": "integer",
                                       "minimum": 0,
                                       "maximum": 10000000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     {
                                       "type": "null"
@@ -17634,6 +18102,58 @@
                                       "type": "integer",
                                       "minimum": 0,
                                       "maximum": 10000000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     {
                                       "type": "null"
@@ -18781,6 +19301,58 @@
                                       "type": "integer",
                                       "minimum": 0,
                                       "maximum": 10000000
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "accessibility": {
+                                  "anyOf": [
+                                    {
+                                      "type": "object",
+                                      "properties": {
+                                        "features": {
+                                          "default": [],
+                                          "maxItems": 15,
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string",
+                                            "enum": [
+                                              "STEP_FREE_ENTRANCE",
+                                              "STEP_FREE_TO_SEATING",
+                                              "ACCESSIBLE_TOILET",
+                                              "ACCESSIBLE_PARKING",
+                                              "WHEELCHAIR_SPACES",
+                                              "COMPANION_SEATING",
+                                              "HEARING_LOOP",
+                                              "AUDIO_DESCRIPTION",
+                                              "SIGN_LANGUAGE",
+                                              "CAPTIONING",
+                                              "QUIET_SPACE",
+                                              "ASSISTANCE_DOGS_WELCOME",
+                                              "LIFT_ACCESS",
+                                              "SEATED_ONLY",
+                                              "STANDING_ONLY"
+                                            ]
+                                          }
+                                        },
+                                        "note": {
+                                          "anyOf": [
+                                            {
+                                              "type": "string",
+                                              "maxLength": 2000
+                                            },
+                                            {
+                                              "type": "null"
+                                            }
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "features"
+                                      ],
+                                      "additionalProperties": false
                                     },
                                     {
                                       "type": "null"
@@ -20531,6 +21103,14 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 1000
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "DRAFT",
+                      "ON_SALE",
+                      "PAUSED"
+                    ]
                   }
                 },
                 "required": [
@@ -20913,6 +21493,14 @@
                     "type": "integer",
                     "minimum": 0,
                     "maximum": 1000
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "DRAFT",
+                      "ON_SALE",
+                      "PAUSED"
+                    ]
                   }
                 },
                 "required": [

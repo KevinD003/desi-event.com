@@ -306,6 +306,9 @@ export function registerEventAuthoringRoutes(app, { prisma }) {
               reserved: proposed.reserved ?? false,
               complimentary: proposed.complimentary ?? false,
               sortOrder: proposed.sortOrder ?? 0,
+              // Drafts by default: a tier appears on the public page when the
+              // organiser says so, not the moment it is typed.
+              status: proposed.status ?? 'DRAFT',
             },
           })
         },
@@ -571,6 +574,10 @@ function toTierPatch(patch) {
     'reserved',
     'complimentary',
     'sortOrder',
+    // Only DRAFT, ON_SALE and PAUSED reach here: the request schema does not
+    // accept SOLD_OUT, which is derived from inventory, or CLOSED, which is
+    // what the sales window ending means.
+    'status',
   ]) {
     if (patch[key] !== undefined) data[key] = patch[key]
   }

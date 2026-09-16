@@ -40,6 +40,7 @@
     "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh",
     "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade",
     "test:e2e:organizer": "pnpm --filter @desi-event/web run test:e2e:organizer",
+    "test:e2e:events": "pnpm --filter @desi-event/web run test:e2e:events",
     "bundle:scan": "node scripts/scan-browser-bundle.mjs"
   },
   "devDependencies": {

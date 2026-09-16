@@ -34,7 +34,7 @@ export const metadata = {
 export function safeNext(value) {
   const candidate = typeof value === 'string' ? value : ''
 
-  return candidate.startsWith('/') && !candidate.startsWith('//') ? candidate : '/organizer/venues'
+  return candidate.startsWith('/') && !candidate.startsWith('//') ? candidate : '/organizer/events'
 }
 
 /**

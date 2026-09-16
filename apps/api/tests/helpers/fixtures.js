@@ -360,6 +360,11 @@ export async function makeWorld(overrides = {}) {
   // but may not call off something people have paid for. The world needs an
   // owner to exercise that half of the lifecycle.
   const owner = user('owner@rangoli.example', 'Meera Owner', 'ORGANIZER')
+  // A platform moderator, with no membership anywhere. Moderation is authority
+  // over the platform's listings and not over any one organisation's, and an
+  // account that holds both would prove nothing about which one was doing the
+  // work.
+  const moderator = user('maya@desi-event.example', 'Maya Moderator', 'MODERATOR')
 
   /**
    * Build a membership row.
@@ -572,7 +577,7 @@ export async function makeWorld(overrides = {}) {
   }
 
   const seed = {
-    user: [attendee, owner, manager, staff, viewer, outsider, platformAdmin],
+    user: [attendee, owner, manager, staff, viewer, outsider, platformAdmin, moderator],
     membership: [
       membership(owner, organization, 'OWNER'),
       membership(manager, organization, 'MANAGER'),
@@ -625,6 +630,7 @@ export async function makeWorld(overrides = {}) {
       viewer,
       outsider,
       platformAdmin,
+      moderator,
       publishedEvent,
       draftEvent,
       reviewPendingEvent,

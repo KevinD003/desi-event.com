@@ -60,6 +60,11 @@ describe('apiEnvSchema', () => {
       PLATFORM_FEE_BPS: 590,
       PLATFORM_FEE_FLAT_CENTS: 99,
       TICKET_HOLD_TTL_SECONDS: 600,
+      // A knob with a default, not a constant: behind a shared egress address
+      // a hundred real visitors arrive as one caller and the same number
+      // throttles them.
+      RATE_LIMIT_MAX: 300,
+      RATE_LIMIT_WINDOW: '1 minute',
       // Off by default: charging illustrative tax rates in production has to
       // be a deliberate decision somebody owns.
       ALLOW_DEMO_TAX_IN_PRODUCTION: false,

@@ -139,6 +139,27 @@ const holdTtlField = {
   ),
 }
 
+/**
+ * The global request budget, per address.
+ *
+ * A knob rather than a constant because the right number is a property of the
+ * deployment, not of the software. The default blunts scraping from the open
+ * internet; behind a corporate NAT or a shared egress address, a hundred real
+ * people arrive as one caller and the same number throttles them. An operator
+ * has to be able to say so without editing source.
+ *
+ * Bounded on both sides: too low and the site throttles its own visitors, too
+ * high and the control is decorative. Zero is not accepted, because "off" is
+ * not a rate limit and somebody would reach for it.
+ */
+const rateLimitFields = {
+  RATE_LIMIT_MAX: z.preprocess(
+    blankAsAbsent,
+    z.coerce.number().int().min(30).max(100_000).default(300),
+  ),
+  RATE_LIMIT_WINDOW: z.string().trim().min(2).max(32).default('1 minute'),
+}
+
 /** `process.env` for the Fastify API. */
 export const apiEnvSchema = z.preprocess(
   /**
@@ -211,6 +232,7 @@ export const apiEnvSchema = z.preprocess(
       WEB_ORIGIN: z.string().min(1).optional(),
       ...feeEnvFields,
       ...holdTtlField,
+      ...rateLimitFields,
       /**
        * Deliberate opt-in to illustrative tax rates in production.
        *

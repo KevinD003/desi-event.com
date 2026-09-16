@@ -109,11 +109,29 @@ export function toPublicOrganizer(organization) {
  * allow list that stops at the address: `provenance`, `organizationId` and
  * `mergedIntoVenueId` are not in it.
  *
+ * ## Draft ticket types
+ *
+ * A tier is `DRAFT` until the organiser puts it on sale, and a draft tier is
+ * the organiser holding something back — an early-bird price not announced yet,
+ * a tier being built. Advertising it on the public page would announce it for
+ * them. So drafts are dropped unless the caller is somebody who may see the
+ * event's drafts at all, which is the same question the route already answers
+ * to decide whether the page resolves.
+ *
+ * The flag is a parameter rather than a lookup here on purpose: a presenter
+ * that decided authorisation for itself would be a second place authorisation
+ * lives, and the two would disagree eventually.
+ *
  * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.includeDraftTiers] Whether the caller may see tiers not on sale.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
-export function toEventDetail(event) {
+export function toEventDetail(event, { includeDraftTiers = false } = {}) {
   const { venue = null, organization = null, ticketTypes = [] } = event
+  const visibleTiers = includeDraftTiers
+    ? ticketTypes
+    : ticketTypes.filter((tier) => tier.status !== 'DRAFT')
 
   return {
     id: event.id,
@@ -146,7 +164,7 @@ export function toEventDetail(event) {
     previousStartsAt: event.previousStartsAt ?? null,
     venue,
     organization: toPublicOrganizer(organization),
-    ticketTypes: [...ticketTypes].sort(
+    ticketTypes: [...visibleTiers].sort(
       (left, right) => left.sortOrder - right.sortOrder || left.priceCents - right.priceCents,
     ),
   }

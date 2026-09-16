@@ -25,9 +25,13 @@ export default defineConfig({
   //
   // The organiser journeys need a live API and a real database — this config
   // deliberately leaves the API down, because the public site is built to
-  // survive that. They run under playwright.organizer.config.js, which starts
-  // both.
-  testIgnore: ['**/not-found.spec.js', '**/organizer-venue-maps.spec.js'],
+  // survive that. They run under playwright.organizer.config.js and
+  // playwright.events.config.js, which start both.
+  testIgnore: [
+    '**/not-found.spec.js',
+    '**/organizer-venue-maps.spec.js',
+    '**/event-lifecycle.spec.js',
+  ],
   timeout: 45_000,
   expect: { timeout: 10_000 },
   fullyParallel: true,

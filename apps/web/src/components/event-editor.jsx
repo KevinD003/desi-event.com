@@ -47,8 +47,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Alert, Badge, Button, FormField, Input, Select, Textarea } from './ui.jsx'
+import { EventLifecyclePanel } from './event-lifecycle-panel.jsx'
+import { EventSessionsEditor } from './event-sessions-editor.jsx'
+import { EventTiersEditor } from './event-tiers-editor.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { ACCESSIBILITY_LABELS } from '../lib/accessibility.js'
+// The one list of categories this application has. Duplicating it here is how
+// a select ends up offering a value the API has never heard of.
+import { EVENT_CATEGORIES } from '../lib/catalog.js'
 import { EDITABLE, statusReading } from '../lib/event-status.js'
 import {
   COMMON_ZONES,
@@ -69,22 +75,6 @@ const STEPS = Object.freeze([
   { id: 'policies', title: 'Policies and access' },
   { id: 'media', title: 'Media' },
   { id: 'review', title: 'Review' },
-])
-
-/** The event categories, mirroring `eventCategorySchema`. */
-const CATEGORIES = Object.freeze([
-  ['GARBA_DANDIYA', 'Garba / dandiya'],
-  ['BOLLYWOOD_NIGHT', 'Bollywood night'],
-  ['LIVE_MUSIC', 'Live music'],
-  ['CLASSICAL', 'Classical'],
-  ['COMEDY', 'Comedy'],
-  ['THEATRE', 'Theatre'],
-  ['DANCE', 'Dance'],
-  ['FESTIVAL', 'Festival'],
-  ['FOOD', 'Food'],
-  ['WORKSHOP', 'Workshop'],
-  ['COMMUNITY', 'Community'],
-  ['OTHER', 'Other'],
 ])
 
 /**
@@ -141,7 +131,7 @@ function toPatch(values) {
       .map((entry) => entry.trim())
       .filter(Boolean)
 
-  return {
+  const patch = {
     title: values.title.trim(),
     summary: values.summary.trim(),
     description: values.description.trim(),
@@ -157,23 +147,46 @@ function toPatch(values) {
     onlineUrl: values.isOnline ? values.onlineUrl.trim() || null : null,
     ageRestriction: values.ageRestriction === '' ? null : Number(values.ageRestriction),
     coverImageUrl: values.coverImageUrl.trim() || null,
-    policies: {
-      entry: values.policyEntry.trim() || null,
-      refund: values.policyRefund.trim() || null,
-      conduct: values.policyConduct.trim() || null,
-      ageNote: values.policyAgeNote.trim() || null,
-    },
-    accessibility: { features: values.accessFeatures, note: values.accessNote.trim() || null },
   }
+
+  // Omitted rather than sent empty. A `policies` object whose every field is
+  // null is not "no policies"; it is a policies object, and a publication gate
+  // that asks whether one exists would wave it through while the buyer has
+  // agreed to nothing. The same for accessibility: an empty claim list is a
+  // claim of nothing, and writing it would be indistinguishable from an
+  // organiser who considered the question and answered no.
+  const policies = {
+    entry: values.policyEntry.trim() || null,
+    refund: values.policyRefund.trim() || null,
+    conduct: values.policyConduct.trim() || null,
+    ageNote: values.policyAgeNote.trim() || null,
+  }
+
+  if (Object.values(policies).some(Boolean)) patch.policies = policies
+
+  const note = values.accessNote.trim() || null
+
+  if (values.accessFeatures.length > 0 || note) {
+    patch.accessibility = { features: values.accessFeatures, note }
+  }
+
+  return patch
 }
 
 /**
- * Everything wrong with the form, as a person would say it.
+ * What would make the save itself fail.
  *
- * Checked here as well as on the server, and the server's answer is the one
- * that counts. This exists so that a save is not attempted with a title
- * somebody has just emptied — a round trip to be told what the box already
- * knows is a slower way to be told the same thing.
+ * Deliberately *only* that. A draft is allowed to be incomplete — being
+ * incomplete is what a draft is — so "you have not chosen a venue yet" belongs
+ * in the readiness checklist, not in the way of saving the sentence somebody
+ * has just typed. Blocking autosave on incompleteness means an organiser
+ * cannot keep any of their work until the whole thing is finished, which is
+ * exactly backwards and is what this used to do.
+ *
+ * Every rule here mirrors one the API's schema enforces, so a save that passes
+ * this and then fails is a bug rather than a normal outcome. The server's
+ * answer is still the one that counts; this exists so that a title somebody
+ * has just emptied does not cost a round trip to be told the same thing.
  *
  * @param {object} values The form's values.
  * @returns {Array<{field: string, message: string}>} One entry per problem.
@@ -196,17 +209,6 @@ export function formProblems(values) {
     problems.push({ field: 'endsAt', message: 'The event has to end after it starts.' })
   }
 
-  if (values.isOnline && !values.onlineUrl.trim()) {
-    problems.push({
-      field: 'onlineUrl',
-      message: 'An online event needs an address to join it at.',
-    })
-  }
-
-  if (!values.isOnline && !values.venueId) {
-    problems.push({ field: 'venueId', message: 'Choose a venue, or mark the event as online.' })
-  }
-
   if (values.ageRestriction !== '' && !Number.isInteger(Number(values.ageRestriction))) {
     problems.push({ field: 'ageRestriction', message: 'An age restriction is a whole number.' })
   }
@@ -215,10 +217,49 @@ export function formProblems(values) {
 }
 
 /**
+ * What is missing, which is a different question from what is wrong.
+ *
+ * These save perfectly well and will stop the event being published. They are
+ * shown as a note rather than as an error, because an organiser halfway
+ * through filling a form has not made a mistake.
+ *
+ * The authoritative version of this list is the server's readiness result, on
+ * the review step. This is the subset the form can see for itself, so somebody
+ * on the schedule step finds out there before walking to the end.
+ *
+ * @param {object} values The form's values.
+ * @returns {Array<{field: string, message: string}>} One entry per gap.
+ */
+export function formGaps(values) {
+  const gaps = []
+
+  if (values.isOnline && !values.onlineUrl.trim()) {
+    gaps.push({
+      field: 'onlineUrl',
+      message: 'An online event needs an address to join it at before it can be published.',
+    })
+  }
+
+  if (!values.isOnline && !values.venueId) {
+    gaps.push({
+      field: 'venueId',
+      message: 'Choose a venue, or mark the event as online, before publishing.',
+    })
+  }
+
+  return gaps
+}
+
+/**
  * @typedef {object} EventEditorProps
  * @property {object} event The event as loaded.
  * @property {object[]} venues Venues this organisation may use.
- * @property {object} steps Step content the server rendered, keyed by step id: sessions, tickets and review.
+ * @property {object[]} sessions The event's sessions, as loaded.
+ * @property {object[]} mapVersions Published seating map versions for the event's venue.
+ * @property {object[]} preview The server's all-in price breakdown per tier.
+ * @property {object} readiness The server's readiness result.
+ * @property {object} transitions The server's available transitions.
+ * @property {object[]} history The moderation history, newest first.
  */
 
 /**
@@ -227,7 +268,16 @@ export function formProblems(values) {
  * @param {EventEditorProps} props Component props.
  * @returns {JSX.Element} The rendered editor.
  */
-export function EventEditor({ event, venues = [], steps = {} }) {
+export function EventEditor({
+  event,
+  venues = [],
+  sessions = [],
+  mapVersions = [],
+  preview = [],
+  readiness = null,
+  transitions = null,
+  history = [],
+}) {
   const [values, setValues] = useState(() => toFormValues(event))
   const [baseline, setBaseline] = useState(() => toFormValues(event))
   const [revision, setRevision] = useState(event.revision ?? 0)
@@ -247,6 +297,7 @@ export function EventEditor({ event, venues = [], steps = {} }) {
     [values, baseline],
   )
   const problems = useMemo(() => formProblems(values), [values])
+  const gaps = useMemo(() => formGaps(values), [values])
 
   /**
    * Change one field.
@@ -329,7 +380,25 @@ export function EventEditor({ event, venues = [], steps = {} }) {
   // Autosave. Deliberately not on an interval: a timer that fires while
   // somebody is mid-sentence saves half a word and announces it.
   useEffect(() => {
-    if (!editable || !dirty || conflict) return undefined
+    if (!editable || conflict) return undefined
+
+    if (!dirty) {
+      // The boxes match what was saved, so whatever went wrong a moment ago is
+      // no longer true. Leaving "not saved: 1 thing needs fixing" up after
+      // somebody has undone the thing is a message about a state that does not
+      // exist — and it is the message they will act on.
+      //
+      // A successful save's own "Saved at 19:04" is left alone: that is a fact,
+      // and it is more useful than "no unsaved changes".
+      setSave((current) =>
+        current.kind === 'error' || current.kind === 'unsaved'
+          ? { kind: 'idle', message: 'No unsaved changes.' }
+          : current,
+      )
+
+      return undefined
+    }
+
     if (problems.length > 0) {
       setSave({ kind: 'unsaved', message: 'Not saved yet — some fields need attention.' })
       return undefined
@@ -450,6 +519,29 @@ export function EventEditor({ event, venues = [], steps = {} }) {
         </div>
       ) : null}
 
+      {gaps.length > 0 && editable ? (
+        <div
+          data-testid="readiness-gaps"
+          className="mt-4 rounded-card border border-amber-200 bg-amber-50 p-4"
+        >
+          <h2 className="text-sm font-semibold text-amber-900">
+            Still to do before this can be published
+          </h2>
+          <p className="mt-1 text-sm text-amber-900">
+            None of this stops the draft saving. The review step has the full list.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+            {gaps.map((gap) => (
+              <li key={gap.field}>
+                <a className="underline underline-offset-4" href={`#event-${gap.field}`}>
+                  {gap.message}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {!editable ? (
         <Alert variant="info" title="This event is not open for editing" className="mt-4">
           <p>{reading.next}</p>
@@ -488,15 +580,49 @@ export function EventEditor({ event, venues = [], steps = {} }) {
           {step === 'schedule' ? (
             <ScheduleStep values={values} setField={setField} editable={editable} venues={venues} />
           ) : null}
-          {step === 'sessions' ? steps.sessions : null}
-          {step === 'tickets' ? steps.tickets : null}
+          {/*
+            Rendered here rather than handed down pre-rendered from the server,
+            because all three steps write to the same event and every authoring
+            write carries a revision precondition. A panel holding its own copy
+            of the revision is stale the moment any other step saves — which is
+            not a rare race: choosing a venue on one step and adding a session
+            on the next is the ordinary way through this form.
+          */}
+          {step === 'sessions' ? (
+            <EventSessionsEditor
+              event={event}
+              sessions={sessions}
+              mapVersions={mapVersions}
+              editable={editable}
+              revision={revision}
+              onRevision={setRevision}
+            />
+          ) : null}
+          {step === 'tickets' ? (
+            <EventTiersEditor
+              event={event}
+              sessions={sessions}
+              preview={preview}
+              editable={editable}
+              revision={revision}
+              onRevision={setRevision}
+            />
+          ) : null}
           {step === 'policies' ? (
             <PoliciesStep values={values} setField={setField} editable={editable} />
           ) : null}
           {step === 'media' ? (
             <MediaStep values={values} setField={setField} editable={editable} />
           ) : null}
-          {step === 'review' ? steps.review : null}
+          {step === 'review' && readiness ? (
+            <EventLifecyclePanel
+              event={{ ...event, status }}
+              readiness={readiness}
+              transitions={transitions}
+              history={history}
+              revision={revision}
+            />
+          ) : null}
 
           {editable && step !== 'sessions' && step !== 'tickets' && step !== 'review' ? (
             <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -572,9 +698,9 @@ function DetailsStep({ values, setField, editable }) {
           disabled={!editable}
           onChange={(change) => setField('category', change.target.value)}
         >
-          {CATEGORIES.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
+          {EVENT_CATEGORIES.map((category) => (
+            <option key={category.value} value={category.value}>
+              {category.label}
             </option>
           ))}
         </Select>

@@ -20,10 +20,6 @@
 import Link from 'next/link'
 
 import { EventEditor } from '../../../../components/event-editor.jsx'
-import { EventLifecyclePanel } from '../../../../components/event-lifecycle-panel.jsx'
-import { EventSessionsEditor } from '../../../../components/event-sessions-editor.jsx'
-import { EventTiersEditor } from '../../../../components/event-tiers-editor.jsx'
-import { EDITABLE } from '../../../../lib/event-status.js'
 import {
   getEventReadiness,
   getEventSessions,
@@ -134,7 +130,6 @@ export default async function EditEventPage({ params }) {
   ])
 
   const preview = await getPricePreview(id).catch(() => [])
-  const editable = EDITABLE.has(event.status)
 
   return (
     <div>
@@ -161,34 +156,12 @@ export default async function EditEventPage({ params }) {
         <EventEditor
           event={event}
           venues={venues}
-          steps={{
-            sessions: (
-              <EventSessionsEditor
-                event={event}
-                sessions={sessions.data ?? []}
-                revision={sessions.meta?.revision ?? event.revision}
-                mapVersions={mapVersions}
-                editable={editable}
-              />
-            ),
-            tickets: (
-              <EventTiersEditor
-                event={event}
-                sessions={sessions.data ?? []}
-                preview={preview}
-                revision={event.revision}
-                editable={editable}
-              />
-            ),
-            review: (
-              <EventLifecyclePanel
-                event={event}
-                readiness={readiness}
-                transitions={transitions}
-                history={history}
-              />
-            ),
-          }}
+          sessions={sessions.data ?? []}
+          mapVersions={mapVersions}
+          preview={preview}
+          readiness={readiness}
+          transitions={transitions}
+          history={history}
         />
       </div>
     </div>
