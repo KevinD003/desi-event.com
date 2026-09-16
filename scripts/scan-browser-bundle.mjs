@@ -179,6 +179,40 @@ const FORBIDDEN = [
       ['Stripe webhook secret prefix', new RegExp(['whsec', ''].join('_'))],
     ],
   },
+  {
+    group: 'commerce service internals (Phase 2 cycle 4)',
+    markers: [
+      // State tables. The browser renders a status it was given; it has no
+      // business knowing which transitions exist, because a client that knows
+      // the machine is a client somebody will try to drive it from.
+      ['refund transition table', 'REFUND_TRANSITIONS'],
+      ['payout transition table', 'PAYOUT_TRANSITIONS'],
+      ['transfer transition table', 'TRANSFER_TRANSITIONS'],
+      ['dispute transition table', 'DISPUTE_TRANSITIONS'],
+      ['ticket transition table', 'TICKET_TRANSITIONS'],
+      ['outbox transition table', 'OUTBOX_TRANSITIONS'],
+      ['reconciliation transition table', 'TASK_TRANSITIONS'],
+      // The reconciliation verdict vocabulary is a server decision. A client
+      // that could name a verdict is a client that could propose one.
+      ['reconciliation verdicts', 'SETTLED_FROM_PROVIDER'],
+      // Credential derivation. The pass is derived from AUTH_SECRET; the
+      // purpose string is half of what a forger would need to know.
+      ['ticket credential purpose', 'ticket-pass-v1'],
+      ['ticket credential deriver', 'mintTicketCredential'],
+      ['transfer token digest', 'transferTokenDigest'],
+      // Operational metadata. Lease ownership, retry maths and dedupe keys are
+      // how the worker coordinates with itself.
+      ['outbox lease claim', 'claimableWhere'],
+      ['outbox retry schedule', 'BASE_RETRY_DELAY_MS'],
+      ['outbox dedupe key shape', 'dedupeKeyFor'],
+      // Balance arithmetic. What is held against an organiser's payable is a
+      // server judgement, and the function that makes it is server-only.
+      ['organiser balance derivation', 'availableBalance'],
+      ['ledger imbalance scan', 'findImbalances'],
+      // The load suite's own internals, which are not part of the product.
+      ['load thresholds', 'HEALTH_LIMITS'],
+    ],
+  },
 ]
 
 /**
@@ -210,6 +244,12 @@ const REQUIRED = [
   ['route path /v1/venue-map-versions', '/v1/venue-map-versions'],
   ['CSRF double-submit header', 'x-desi-csrf'],
   ['accessibility vocabulary', 'STEP_FREE_ENTRANCE'],
+  // The finance and operations screens are server-rendered, so their route
+  // paths reach the browser only through the client's API base. What must be
+  // present is the export link the finance page renders, because a build that
+  // dropped it would pass every forbidden check above by shipping a screen with
+  // no way to get the data out.
+  ['finance export path', '/v1/finance/export.csv'],
 ]
 
 /**
