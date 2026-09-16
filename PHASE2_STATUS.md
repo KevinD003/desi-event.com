@@ -2,8 +2,12 @@
 
 **Status: `PARTIAL`.** Phase 3 has not been started.
 
-**As of `9be3c79`.** §1 is measured at that commit and nowhere else; §13
+**As of `910538b`.** §1 is measured at that commit and nowhere else; §13
 records the final pushed HEAD, which no file can contain its own hash of.
+
+**Seventeen of the twenty gates are `MET`. Three are `PARTIAL`. None is
+`NOT MET`.** Phase 2 stays `PARTIAL` because the exit rule requires all twenty,
+and §5 names exactly what each of the three is missing.
 
 This document is the single current-status record for Phase 2. Where it
 disagrees with any other file in this repository, this one is right and the
@@ -23,13 +27,14 @@ rewrites what it said last time is not a record.
 | `PHASE2_COMPLETION_REPORT.md`         | Account of the `e93d4e9`…`b37b242` cycle, plus the gate scoring |
 | `PHASE2_REQUIREMENTS_TRACEABILITY.md` | Requirement → implementation → evidence matrix, kept current    |
 | `PHASE2_FINAL_VERIFICATION_REPORT.md` | Account of the `3f5add0`…`e1b2069` cycle and its verification   |
+| `PHASE2_COMMERCE_CYCLE_REPORT.md`     | Account of the `cfb654c`…`910538b` cycle and its verification   |
 | `docs/ADVERSARIAL_REVIEW_FINDINGS.md` | The 34-finding review and the 19-agent browser-exposure audit   |
 
 ---
 
 ## 1. Repository state
 
-Measured, not recalled, **at `9be3c79`** — one commit, every row. Each value is
+Measured, not recalled, **at `910538b`** — one commit, every row. Each value is
 the output of the command named beside it.
 
 A file cannot contain the hash of the commit that edits it, so §13 records the
@@ -39,27 +44,56 @@ always re-measured at the commit named in this paragraph.
 | Fact                        | Value                                                | Command                                |
 | --------------------------- | ---------------------------------------------------- | -------------------------------------- |
 | Branch                      | `claude/desi-event-js-stack-gb4uqe`                  | `git rev-parse --abbrev-ref HEAD`      |
-| Local HEAD                  | `9be3c79e966757062c347a9d333cbd7b6c2760f3`           | `git rev-parse HEAD`                   |
+| Local HEAD                  | `910538bb41a03af949a1efe0b298b4c537a69c4c`           | `git rev-parse HEAD`                   |
 | Upstream ref                | `origin/claude/desi-event-js-stack-gb4uqe`           | `git rev-parse --abbrev-ref @{u}`      |
-| Upstream HEAD               | `9be3c79e966757062c347a9d333cbd7b6c2760f3`           | `git rev-parse @{u}` after `git fetch` |
+| Upstream HEAD               | `910538bb41a03af949a1efe0b298b4c537a69c4c`           | `git rev-parse @{u}` after `git fetch` |
 | Local equals upstream       | **yes**                                              | the two hashes above                   |
 | Working tree                | **clean** — `git status --porcelain` printed nothing | `git status --porcelain`               |
 | Worktrees                   | one, the repository itself                           | `git worktree list`                    |
-| Last executable-code commit | `9be3c79`                                            | see below                              |
+| Last executable-code commit | `910538b`                                            | see below                              |
 
-**Last executable-code commit.** `9be3c79` is HEAD and it changes `.js` files,
-so the two coincide this time. The seven commits of this cycle are, newest
-first:
+**The commerce cycle.** Twenty commits from `cfb654c` to `910538b`, 164 files
+changed, 74 files added, +42,106 / −3,323 lines. Newest first:
 
-| Commit    | What it changed                                                     | Code? |
-| --------- | ------------------------------------------------------------------- | ----- |
-| `9be3c79` | The route manifest, the bundle scan, the subpath imports            | yes   |
-| `dda07e1` | Twenty browser journeys and the eight defects they found            | yes   |
-| `2ef2172` | The moderation queue and decision screens                           | yes   |
-| `1b5e9b9` | The organiser event editor and the screens around it                | yes   |
-| `0e5d9d3` | The material-change workflow and revision preconditions             | yes   |
-| `8271563` | The public event page, JSON-LD, sitemap and the payload allow lists | yes   |
-| `d1a2acf` | The authoring domain — sessions, tiers, inventory, readiness, price | yes   |
+| Commit    | What it changed                                                       | Code? |
+| --------- | --------------------------------------------------------------------- | ----- |
+| `910538b` | One catalogue snapshot, because another suite published mid-assertion | yes   |
+| `7d73fd1` | The suppressibility list, the writers that ignored it, coverage in CI | yes   |
+| `a02eb2f` | The fifteen named documents                                           | no    |
+| `8e84654` | NF-05, NF-11, NF-12 and NF-23 re-checked across every new surface     | yes   |
+| `11b0c11` | CI asserts correctness under contention on every push                 | yes   |
+| `9d95eea` | The load suite, and the three defects it found                        | yes   |
+| `b33682e` | The dashboard shell's capability check, and two WCAG failures         | yes   |
+| `e1f19ae` | The finance view, the operations board, the CSV export                | yes   |
+| `962385e` | Ticket transfer, revocation, and admission exactly once               | yes   |
+| `97d6918` | Payouts, transfers and disputes, and a balance nobody can overdraw    | yes   |
+| `351baae` | The reconciliation queue and its six operator actions                 | yes   |
+| `b53c8ad` | Refunds: four steps, five refusals, twelve races                      | yes   |
+| `cb735e6` | A handler may choose a status the contract does not declare           | yes   |
+| `e202ced` | Partial refunds in the mock, receipts stamped as a demonstration      | yes   |
+| `192c694` | The accessibility scanner, and four contrast failures                 | yes   |
+| `38f839c` | A build that skips a test stops reading as a build that passed        | yes   |
+| `e840102` | The four refusals, walked in a browser                                | yes   |
+| `a47e19d` | The notification outbox worker                                        | yes   |
+| `54b13b6` | A reserved seat is priced by the seat, not by the tier                | yes   |
+| `cfb654c` | The lifecycle enums the commerce services stand on                    | yes   |
+
+**Last executable-code commit.** `910538b` is HEAD and it changes a `.js` file,
+so the two coincide. `a02eb2f` is the only documentation-only commit of the
+cycle.
+
+**Scale at this commit:**
+
+| Thing                       | Count |
+| --------------------------- | ----: |
+| API routes in the contract  |   115 |
+| Prisma models               |    49 |
+| Enums                       |    36 |
+| plpgsql triggers            |    20 |
+| CHECK constraints           |    34 |
+| Migrations                  |    12 |
+| Unit and integration tests  | 4,536 |
+| Browser cases (six configs) |   196 |
 
 **Services and toolchain**, as the verification ran against them:
 
@@ -323,82 +357,99 @@ server.
 
 ## 5. The twenty completion gates
 
-| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                                                                                                   |
-| --- | -------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                                                                                                                                                                                              |
-| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                                                            |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; public event page `8271563`; material changes `0e5d9d3`; organiser UI `1b5e9b9`; moderation UI `2ef2172`. Twenty browser cases walk the lifecycle.                                  |
-| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`; `apps/api/tests/event-authoring-integration.test.js`                                                                                                                                                                                     |
-| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end                                                                                                                                                                                |
-| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                                                                                                                                                                                                  |
-| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                                                                                                                                                                                                      |
-| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; cancellation now _requests_ refunds; no refund service moves one                                                                                                                                                                                                  |
-| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                                                                                                                                                                                                     |
-| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                                                                                                                                                                                              |
-| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                                                       |
-| 12  | Notifications use an idempotent outbox                                     | **PARTIAL** | Cancellation, postponement and material changes write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers; **no worker sends them**                                                                                                                                 |
-| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser: event list, seven-step editor, review panel, venues and maps. Moderation: queue and decision. No finance, reconciliation or analytics surface.                                                                                                                                  |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | §6.2 — every Phase 2 screen that exists is swept at three widths, at 200% zoom, with motion reduced and by keyboard, with axe-core and no rule disabled. The finance, operations, reconciliation, refund and ticket surfaces the gate also names are not swept because they are not built. |
-| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** | §6 — nineteen of twenty walked in a browser across three suites. Journey 16's sweep now passes for the screens that exist; the gate stays PARTIAL while gate 14 does.                                                                                                                      |
-| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                                                          |
-| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                                                                |
-| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                                                            |
-| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                                                                                                                                                                                                    |
-| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9; §1                                                                                                                                                                                                                                                                                     |
+| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                         |
+| --- | -------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`; the drift check is command 13 of §9                                                                                                                               |
+| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                  |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; organiser UI `1b5e9b9`; moderation UI `2ef2172`                                                           |
+| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | 15 reserved-seat races (`reserved-seat-concurrency.test.js`); probes in `db:verify:fresh`; two load scenarios asserting against the database                                                                     |
+| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **MET**     | GA in `checkout-ledger.test.js`; **a reserved seat end to end** in `reserved-seat-checkout.test.js` — 17 properties of one purchase, across two price zones                                                      |
+| 6   | Provider calls outside database transactions                               | **MET**     | The three-phase boundary in checkout, refunds, payouts and reconciliation; `docs/PAYMENTS.md`                                                                                                                    |
+| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **MET**     | `apps/api/src/lib/reconciliation.js`, 31 tests; a verdict is applied through the same domain commands, and `CONFLICT`/`UNKNOWN` resolve nothing                                                                  |
+| 8   | Full and partial refunds, no over-refund                                   | **MET**     | `apps/api/src/lib/refunds.js`; 19 route tests, 28 arithmetic tests, **12 races against real PostgreSQL**; the ceiling is a CHECK                                                                                 |
+| 9   | Dispute, transfer, payout state machines in mock mode                      | **MET**     | `apps/api/src/lib/payouts.js`; 27 finance tests and 17 covering the four webhook-path functions no route calls                                                                                                   |
+| 10  | Every completed commerce action posts balanced protected ledger entries    | **MET**     | Nine batch kinds; `desi_ledger_batch_balance` and the two immutability triggers; `findImbalances` runs above the totals and after every load scenario                                                            |
+| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **MET**     | `apps/api/src/lib/tickets.js`; 34 lifecycle tests, **11 races**, a load scenario at sixteen concurrent scanners                                                                                                  |
+| 12  | Notifications use an idempotent outbox                                     | **MET**     | `apps/worker/src/outbox/dispatcher.js` claims under a lease and sends; dedupe is a unique index; a load scenario asserts the outbox drains faster than it fills                                                  |
+| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser events, moderation, **finance** and **operations** all exist and are swept. Missing: organiser analytics (WI14, nothing), and detail screens for a reconciliation item, a refund and a ticket transfer |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | §6.2 — 22 browser cases, WCAG 2.1 AA, no rule disabled, five screens × three viewports. The reconciliation-detail, refund and ticket surfaces the gate also names are not swept **because they are not built**   |
+| 15  | All 20 required E2E journeys pass                                          | **MET**     | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`             |
+| 16  | Load and reliability tests exist                                           | **MET**     | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                       |
+| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL** | `.github/workflows/ci.yml` is written and complete — 7 jobs, every gate. **It has never run.** See below                                                                                                         |
+| 18  | All required documentation complete                                        | **MET**     | §7 — every named document exists and describes implemented behaviour                                                                                                                                             |
+| 19  | Production payments technically disabled                                   | **MET**     | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                |
+| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                      |
 
-**Eight met, six partial, six not met.** The previous revision of this document
-said nine, five and six. The difference is gate 15, corrected below.
+**Seventeen met, three partial, none not met.** The previous revision said
+eight, six and six.
 
-Gate 3 moved in the previous cycle; gates 12, 13 and 14 moved from `NOT MET` to
-`PARTIAL` there. What each partial is still missing is named in the row rather
-than left to inference.
+### Why gate 17 is `PARTIAL` and not `MET`
 
-Gate 14 stays `PARTIAL` deliberately. The event screens are built to the
-accessibility requirements and unit tests assert the behaviours — keyboard
-reachable steps with `aria-current`, a counted validation summary whose entries
-link to their fields, focus restored when a dialogue closes, save state and
-lifecycle changes announced in live regions, status never carried by colour
-alone. What has not been run is the three-viewport and 200%-zoom sweep the venue
-screens have. Asserting the behaviours is not the same as asserting the reflow,
-and the gate asks for both.
+The workflow file exists, is complete, and would enforce every gate. It has
+**never executed**, and that was established by asking GitHub rather than by
+assuming:
 
-### 5.1 Why gate 15 went back to `PARTIAL`
+```
+GET /repos/KevinD003/desi-event.com/actions/workflows   → {"total_count": 0}
+```
 
-The previous revision moved gate 15 to `MET` on the strength of
-`pnpm run test:e2e:events` reporting twenty passed. That was an overstatement,
-and this is the correction.
+GitHub registers a workflow the first time it runs. The workflow triggers on
+`push` to `main` and on `pull_request`; this branch has had neither, and no pull
+request has been opened. So the correct claim is _"a workflow is written"_, not
+_"CI enforces"_, and the gate stays `PARTIAL` until a run exists.
+
+**Branch protection is not enabled either**, and that is now externally
+verified rather than pending: the API reports `protected: false` for both
+`main` and `claude/desi-event-js-stack-gb4uqe`. `docs/BRANCH_PROTECTION.md`
+records the measurement and says in its own words that nothing it describes is
+configured.
+
+### 5.1 Gate 15, and why it returned to `MET`
+
+The revision before last moved gate 15 to `MET` on the strength of
+`pnpm run test:e2e:events` reporting twenty passed. That was an overstatement
+and was corrected:
 
 > Passing 20 Playwright cases is not automatically the same as passing the 20
 > specifically required journeys.
 
-The twenty cases in `apps/web/e2e/event-lifecycle.spec.js` are real browser
-journeys and they do pass. But the twenty _required_ journeys are a different
-list, and the mapping between the two was not one to one. Five rows in §6 were
-scored `AUTOMATICALLY TESTED` on evidence that was an API test, a database
-probe, or a browser assertion about something adjacent to the requirement:
+Five rows in §6 had been scored on evidence that was an API test, a database
+probe, or a browser assertion about something adjacent. The correction named the
+exact condition for each returning:
 
-| Required journey                                              | What was actually proven                                                   | Why that is not the journey                                                     |
-| ------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| 5 — unauthorized organization member cannot submit for review | An API test refuses the call; a browser case shows the queue is not linked | No browser ever attempted the submission as that member and saw it refused      |
-| 10 — unverified organizer cannot publish                      | A readiness checklist rendered a line; an API test refuses the call        | No browser ever pressed publish as an unverified organizer and read the refusal |
-| 11 — reserved event cannot publish with a draft map           | A service gate and a database trigger both refuse it                       | No browser ever selected or referenced a draft map and read the refusal         |
-| 16 — three viewports, zoom, reduced motion                    | The screens are built to it; unit tests assert the behaviours              | The sweep has not been run — this one was already scored `IMPLEMENTED`          |
-| 20 — cross-organization edit and publication denied           | An API test refuses both calls                                             | No browser ever attempted them as a user of another organization                |
+| Required journey                                              | Condition stated at the time                                  | Now                                |
+| ------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------- |
+| 5 — unauthorized organization member cannot submit for review | A browser must attempt the submission as that member          | **refusals journey A**             |
+| 10 — unverified organizer cannot publish                      | A browser must press publish as an unverified organizer       | **refusals journey B**             |
+| 11 — reserved event cannot publish with a draft map           | A browser must select or reference a draft map and be refused | **refusals journey C** — see below |
+| 16 — three viewports, zoom, reduced motion                    | The sweep must run                                            | **22 cases, and they pass** (§6.2) |
+| 20 — cross-organization edit and publication denied           | A browser must attempt both as a user of another organization | **refusals journey D**             |
 
-Gate 15 may return to `MET` when those exact cases are walked in a browser.
-Until then the required-journey count is fifteen of twenty, whatever the
-Playwright summary line says.
+Journey 16 was the last of the five, and it is what moved gate 15. The sweep now
+covers the finance and operations screens as well as the event screens.
 
-**Four of the five have since been built** — `apps/web/e2e/refusals.spec.js`,
-a fifth browser suite, four cases, all passing. §6.1 says what each one does.
-Journey 16 is the one that remains, and it is gate 14's viewport sweep rather
-than a refusal; gate 15 stays `PARTIAL` until that sweep runs.
+**Journey 11 stays `DB-ENFORCED`, and gate 15 is scored `MET` with that stated
+rather than hidden.** The gate names a state — a reserved event with a draft
+map, at the point of publication — that this product cannot reach, because
+`desi_event_session_map_frozen` refuses a session referencing an unpublished map
+version on insert _and_ on update. The browser proves the refusal at the point
+of reference, which is strictly earlier and strictly stronger. What no test can
+show is a publication refusal, because there is no way to arrive at one, and
+describing a test that could not have run is the thing this document exists to
+stop.
+
+**Gate 14 is deliberately not dragged along by gate 15.** Journey 16 names the
+event screens, and those are swept. Gate 14 names the whole Phase 2 UI including
+surfaces that do not exist, so it stays `PARTIAL` until they do.
+
 ---
 
 ## 6. The twenty required end-to-end journeys
 
-Twenty Playwright cases pass. Fifteen of the twenty _required_ journeys are
-proven by them. The other five are named in §5.1 and scored honestly below.
+**All twenty required journeys are now covered.** Nineteen are walked in a
+browser; journey 11's required end state is unreachable by construction and its
+refusal is proven earlier — §5.1 and §6.1 say why, at length, rather than
+letting the count imply something simpler.
 
 `apps/web/e2e/event-lifecycle.spec.js`, run by
 `pnpm run test:e2e:events` against a real API, a real browser and a disposable
@@ -427,14 +478,14 @@ performs the act the journey names, so it does not count toward gate 15.
 | 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` | journeys 2 and 15                                                                                  |
 | 14  | Public page works without JavaScript                            | `AUTOMATICALLY TESTED` | journeys 16–18 read server-rendered HTML and its JSON-LD                                           |
 | 15  | Event editor works by keyboard                                  | `AUTOMATICALLY TESTED` | journey 4 (summary, links, focus); unit tests for the rest                                         |
-| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `AUTOMATICALLY TESTED` | sweep suite — 320/768/1280, 200% zoom, reduced motion, keyboard; see §6.2                          |
+| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `AUTOMATICALLY TESTED` | sweep suite — 22 cases: five screens × 320/768/1280, 200% zoom, reduced motion, keyboard; see §6.2 |
 | 17  | Material post-publication change requires confirmation          | `AUTOMATICALLY TESTED` | journey 19                                                                                         |
 | 18  | Sales can be paused and resumed                                 | `AUTOMATICALLY TESTED` | journeys 17 and 18                                                                                 |
 | 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` | journey 20; concurrency in `event-authoring-integration.test.js`                                   |
 | 20  | Cross-organization edit and publication attempts are denied     | `AUTOMATICALLY TESTED` | refusals journey D — Beta's owner attempts both against Alpha's event, from a signed-in session    |
 
-**Eighteen proven in a browser. One `DB-ENFORCED` and browser-refused. One
-`IMPLEMENTED`.**
+**Nineteen proven in a browser. One `DB-ENFORCED` and browser-refused at the
+point of reference.** Nothing is left `IMPLEMENTED`.
 
 ### 6.1 The four that were corrected, and what was built for them
 
@@ -471,10 +522,18 @@ stop.
 ### 6.2 The responsive and accessibility sweep
 
 `apps/web/e2e/accessibility-sweep.spec.js`, run by `pnpm run test:e2e:sweep`.
-Fifteen cases: the organiser event list, the seven-step editor and the public
-event page at 320, 768 and 1280 CSS pixels; the editor at 200% zoom; the screens
-with `prefers-reduced-motion`; keyboard-only operation; focus visibility on every
-focusable control; the moderation screen; and touch-target size.
+**Twenty-two cases**, all passing at `910538b`:
+
+- **Fifteen clean scans** — five screens at three widths each. The organiser
+  event list, the seven-step editor, the public event page, **the finance
+  overview** and **the operations board**, at 320, 768 and 1280 CSS pixels.
+- The editor at **200% zoom**, with no sideways scrolling.
+- Nothing left permanently invisible under `prefers-reduced-motion`.
+- The editor reachable and operable **by keyboard alone**.
+- A visible focus indicator on **every** focusable control.
+- The moderation queue and decision screen.
+- Touch targets large enough to hit.
+- The finance screen stating what produced its figures **before** any of them.
 
 320 rather than 360, because WCAG 1.4.10 names 320 as the reflow width and a
 layout that only works at 360 fails the criterion for anybody on a small phone
@@ -494,11 +553,17 @@ components rather than by silencing the rule:
 | Secondary text on the page background    | 4.43 : 1 | 7.05 : 1 | `slate-500` → `slate-600`, 16 files |
 | The editor's step numbers at 70% opacity | 4.14 : 1 | 6.92 : 1 | dropped the opacity                 |
 
-**What is not swept, and why it is not swept quietly.** The gate also names the
-finance, operations, reconciliation, refund, ticket and notification surfaces.
-Those are not in the suite because they are not built. A sweep that skipped them
-silently would report a coverage it does not have, so gate 14 stays `PARTIAL`
-until they exist and are swept too.
+Two structural failures came out of the Phase 2 dashboard markup on its first
+run, both fixed in the components: a definition list whose hint sat outside its
+`<dd>`, and a scrollable region that could not be reached by keyboard
+(`scrollable-region-focusable`), fixed with `tabIndex={0}` and a named
+`role="region"`.
+
+**What is not swept, and why it is not swept quietly.** The gate also names
+reconciliation-detail, refund and ticket surfaces. Those are not in the suite
+because **they are not built** — they are API-only in this cycle. A sweep that
+skipped them silently would report a coverage it does not have, so gate 14 stays
+`PARTIAL` until they exist and are swept too.
 
 ---
 
@@ -512,47 +577,59 @@ its own spec files, so no test is counted twice:
 | `pnpm run test:e2e:organizer` | `playwright.organizer.config.js`  | The twelve venue and venue-map journeys                              |      13 |
 | `pnpm run test:e2e:events`    | `playwright.events.config.js`     | Twenty event-lifecycle cases                                         |      20 |
 | `pnpm run test:e2e:refusals`  | `playwright.refusals.config.js`   | The four refusals the previous scoring overstated                    |       4 |
-| `pnpm run test:e2e:sweep`     | `playwright.sweep.config.js`      | The responsive and accessibility sweep                               |      15 |
-| **Total**                     |                                   |                                                                      | **189** |
+| `pnpm run test:e2e:sweep`     | `playwright.sweep.config.js`      | The responsive and accessibility sweep                               |      22 |
+| **Total**                     |                                   |                                                                      | **196** |
 
 That total is Playwright cases, not required journeys. The two numbers are
 counted separately everywhere in this document and never added together.
 ---
 
-## 7. The sixteen required documents
+## 7. The required documents
 
-| Document                                       | Status                                                                                                              |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `apps/api/openapi.json` (the OpenAPI source)   | **CURRENT** — generated from the route table and drift-checked                                                      |
-| `docs/adr/0003-stripe-connect-charge-model.md` | **WRITTEN**                                                                                                         |
-| `docs/adr/0004-plpgsql-in-migrations.md`       | **WRITTEN**                                                                                                         |
-| `docs/language-policy.md`                      | **UPDATED** for Phase 2 (§6)                                                                                        |
-| `.env.example`                                 | **UPDATED** for Phase 2                                                                                             |
-| `README.md`                                    | **NOT UPDATED** — last touched in `9b3dab1` (Phase 1); zero mentions of venue, ledger, verification, MFA or step-up |
-| `docs/architecture.md`                         | **NOT UPDATED** — same commit; one incidental mention of "venue"                                                    |
-| `docs/api.md`                                  | **NOT UPDATED** — same commit; no venue-map, ledger or MFA content                                                  |
-| `docs/DATA_MODEL.md`                           | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/SECURITY.md`                             | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/UX.md`                                   | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/PROVIDERS.md`                            | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/DECISIONS.md`                            | `NOT IMPLEMENTED` — ADRs live in `docs/adr/` instead                                                                |
-| `docs/PAYMENTS.md`                             | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/STRIPE_CONNECT.md`                       | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/FINANCIAL_LEDGER.md`                     | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/REFUNDS_DISPUTES.md`                     | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/RECONCILIATION_RUNBOOK.md`               | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/CHECK_IN.md`                             | `NOT IMPLEMENTED`                                                                                                   |
-| `docs/PHASE2_THREAT_MODEL.md`                  | `NOT IMPLEMENTED`                                                                                                   |
+Every one exists. Verified by `test -f` on each path and by reading each for
+Phase 2 content rather than by trusting the filename.
 
-Verified by `test -f` on each path, and by grepping the three existing-but-stale
-files for Phase 2 vocabulary.
+| Document                                  | Status                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `README.md`                               | **UPDATED** — payments-unreachable notice first, thirteen packages, every script, a documentation index |
+| `docs/architecture.md`                    | **UPDATED** — the money subsystems, the concurrency primitive, the ledger package                       |
+| `docs/api.md`                             | **UPDATED** — 115 operations, the Phase 2 groups, the four properties every route has                   |
+| `docs/DATA_MODEL.md`                      | **WRITTEN** — where the schema encodes a decision; retention, and erasure marked NOT IMPLEMENTED        |
+| `docs/SECURITY.md`                        | **WRITTEN** — auth, MFA, ten step-up policies, authorization, audit, rotation, incident response        |
+| `docs/UX.md`                              | **WRITTEN** — screens, the sweep, browser journeys counted separately                                   |
+| `docs/PROVIDERS.md`                       | **WRITTEN** — the four adapters, mock mode, webhook intake and dispatch                                 |
+| `docs/DECISIONS.md`                       | **WRITTEN** — the authoritative index, plus decisions that live in code and three that were reversed    |
+| `docs/PAYMENTS.md`                        | **WRITTEN** — unreachability, the PCI boundary, the two-phase boundary, timeout                         |
+| `docs/STRIPE_CONNECT.md`                  | **WRITTEN** — the charge model, and a status table whose first rows say what is not built               |
+| `docs/FINANCIAL_LEDGER.md`                | **WRITTEN** — ten accounts, nine batch kinds, why reversal never edits history                          |
+| `docs/REFUNDS_DISPUTES.md`                | **WRITTEN** — four steps, seat policy, and the twelve named races                                       |
+| `docs/RECONCILIATION_RUNBOOK.md`          | **WRITTEN** — written as a runbook, because its reader is having a bad day                              |
+| `docs/CHECK_IN.md`                        | **WRITTEN** — three mechanisms for admitted-once, and the ordering that matters                         |
+| `docs/PHASE2_THREAT_MODEL.md`             | **WRITTEN** — assets, actors, thirteen attacks, and what is out of scope                                |
+| `apps/api/openapi.json`                   | **CURRENT** — generated from the route table and drift-checked in CI and in §9                          |
+| `docs/adr/0001`…`0004`                    | **WRITTEN** — indexed by `docs/DECISIONS.md`                                                            |
+| `docs/language-policy.md`, `.env.example` | **CURRENT**                                                                                             |
+| `docs/LOAD_AND_CAPACITY.md`               | **WRITTEN** — and says in its first paragraph what it does not measure                                  |
+| `docs/BRANCH_PROTECTION.md`               | **WRITTEN** — and now records the measured state: nothing is configured                                 |
 
-**Four written or updated, three present but carrying no Phase 2 content, twelve
-absent, one current by construction.** The brief names sixteen documents and
-this table has twenty rows, because the matrix also tracks the two ADRs, the
-language policy and `.env.example`, which the brief counted differently. That
-mismatch is recorded rather than smoothed over; the twelve absent documents are
-the number that matters.
+### What the documents are not allowed to do, and were checked against
+
+Each was written against the code rather than against the plan, and writing them
+corrected six claims that turned out to be wrong:
+
+| Claim that was assumed                       | What the code says                                                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Argon2id passwords                           | **scrypt**, and `password.js` says why bcrypt was dropped                                                                     |
+| 35 capabilities                              | **36**, five of them platform-only                                                                                            |
+| Connect onboarding works                     | Adapter methods exist; **no route and no screen**                                                                             |
+| Personal data is redactable                  | **No erasure mechanism exists.** The retention table says what each row is for; a separate heading says enforcement is absent |
+| Reconciliation lives at `/v1/reconciliation` | `/v1/operations/reconciliation`, under `FINANCE_ACTION` not `OPERATIONS`                                                      |
+| CSP is strict                                | `script-src` and `style-src` permit `'unsafe-inline'`; recorded as a gap                                                      |
+
+Mock-only operations, the externally pending Stripe verification, the disabled
+production path, the provider calls outside transactions, the PCI boundary and
+the card data that must never enter are each labelled in the document that owns
+them, not in a footnote.
 
 ---
 
@@ -598,7 +675,94 @@ answered.
 
 ---
 
-## 9. Verification at `9be3c79`
+## 9. Verification at `910538b`
+
+Twenty-eight commands, in order, nothing cached. `.turbo`, every package's
+`.turbo`, `apps/web/.next` and `apps/web/test-results` were deleted first, so
+`test`, `test:coverage` and `build` all report **0 cached**.
+
+PostgreSQL 16.13 and Redis 7.0.15 on the same machine, both up throughout.
+
+| #   | Command                               | Exit | Seconds | Result                                                                   |
+| --- | ------------------------------------- | ---: | ------: | ------------------------------------------------------------------------ |
+| 1   | `pnpm run policy:check`               |    0 |     0.4 | 575 files scanned via git, no violations                                 |
+| 2   | `pnpm run secrets:scan`               |    0 |     0.7 | 574 tracked files, nothing credential-shaped                             |
+| 3   | `pnpm run format:check`               |    0 |     9.9 | every matched file Prettier-clean                                        |
+| 4   | `pnpm run lint`                       |    0 |     9.8 | no problems                                                              |
+| 5   | contract validate                     |    0 |     0.6 | **115 routes, 115 OpenAPI operations, 103 paths**                        |
+| 6   | `db:migrate:deploy` (test database)   |    0 |     2.0 | 12 migrations applied                                                    |
+| 7   | `pnpm run test`                       |    0 |    76.5 | **4,536 passed, 0 failed, 0 skipped**, 167 files, 17 tasks, **0 cached** |
+| 8   | `check-skipped-tests.mjs`             |    0 |     0.2 | no undeclared skip                                                       |
+| 9   | `pnpm run test:coverage`              |    0 |    84.4 | every threshold met, 16 tasks, **0 cached**                              |
+| 10  | `pnpm run db:verify:fresh`            |    0 |    13.7 | **81/81**, disposable database destroyed                                 |
+| 11  | `pnpm run db:verify:upgrade`          |    0 |     4.1 | **23/23**, 20 triggers, 12 migrations, both databases destroyed          |
+| 12  | `pnpm run build`                      |    0 |    12.0 | 3 tasks, **0 of 3 cached**                                               |
+| 13  | `pnpm run openapi:check`              |    0 |     1.0 | artefact current with the route table                                    |
+| 14  | `pnpm run manifest:emit`              |    0 |     0.9 | regenerated                                                              |
+| 15  | manifest and OpenAPI drift            |    0 |     0.0 | no difference                                                            |
+| 16  | `pnpm run bundle:scan`                |    0 |     0.5 | **240 browser-deliverable files**, nothing server-only present           |
+| 17  | `pnpm audit --audit-level moderate`   |    0 |     0.6 | no known vulnerabilities                                                 |
+| 18  | payment kill switch, on its own       |    0 |     2.6 | **12 passed**                                                            |
+| 19  | `pnpm run test:e2e`                   |    0 |    85.1 | **118 passed**                                                           |
+| 20  | `pnpm run test:e2e:events`            |    0 |    53.0 | **20 passed**                                                            |
+| 21  | `pnpm run test:e2e:sweep`             |    0 |    35.7 | **22 passed**                                                            |
+| 22  | `pnpm run test:e2e:organizer`         |    0 |    29.6 | **13 passed**                                                            |
+| 23  | `pnpm run test:e2e:refusals`          |    0 |    16.5 | **4 passed**                                                             |
+| 24  | `pnpm run test:e2e:prod`              |    0 |     9.9 | **19 passed**                                                            |
+| 25  | load — GA hold contention, ramp       |    0 |    12.1 | 1/1 scenario, every invariant held                                       |
+| 26  | load — reserved-seat contention, ramp |    0 |    12.1 | 1/1 scenario                                                             |
+| 27  | load — check-in concurrency, ramp     |    0 |    13.4 | 1/1 scenario                                                             |
+| 28  | load — every scenario, steady         |    0 |   125.9 | **11/11 scenarios**                                                      |
+
+**Twenty-eight of twenty-eight at exit 0.**
+
+### 9.1 Unit and integration totals, by package
+
+**4,536 across 167 files**, summed from what the run printed:
+
+| Package                   | Tests | Package                     |     Tests |
+| ------------------------- | ----: | --------------------------- | --------: |
+| `@desi-event/api`         |   940 | `@desi-event/worker`        |       216 |
+| `@desi-event/schemas`     |   580 | `@desi-event/api-contract`  |       191 |
+| `@desi-event/permissions` |   570 | `@desi-event/pricing`       |       116 |
+| `@desi-event/providers`   |   494 | `@desi-event/db`            |       102 |
+| `@desi-event/web`         |   423 | `@desi-event/ui`            |        97 |
+| `@desi-event/auth`        |   353 | `@desi-event/logger`        |        63 |
+| `@desi-event/inventory`   |   291 | `@desi-event/notifications` |        56 |
+|                           |       | `@desi-event/ledger`        |        33 |
+|                           |       | `@desi-event/config`        |        11 |
+| **Total**                 |       |                             | **4,536** |
+
+Turbo reports seventeen tasks and sixteen packages print a total; the
+seventeenth produces no test output of its own. Recorded rather than smoothed.
+
+**196 browser cases across six configurations** are counted in §6 and are never
+added to the figure above.
+
+### 9.2 The three failures in earlier runs of this sequence
+
+The sequence was run three times. Each failure was diagnosed and corrected
+rather than re-run until it passed.
+
+| Run | Command                       | Failure                                          | Root cause                                                                                                                                                                                                                                                                                                                                                                                                              | Fixed in          |
+| --- | ----------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| 1   | `test:coverage`               | `@desi-event/notifications` 75% functions vs 80% | Two exported functions nothing called — and they disagreed with every call site that should have called them                                                                                                                                                                                                                                                                                                            | `7d73fd1`         |
+| 1   | `db:migrate:deploy` (**dev**) | `P3009`, a migration left unfinished             | **Local development database only.** An interrupted run earlier in the container left `20260916000000_event_draft_revision` recorded as started while its statements had already run. Not a product defect: a fresh database applies all twelve (`db:verify:fresh`, 81/81) and a populated one accepts them too (`db:verify:upgrade`, 23/23). The final sequence migrates the **test** database, which every suite uses | not a code change |
+| 2   | `test`                        | `facets-integration` expected 1186 to be 1185    | Two catalogue reads differenced across a concurrent publish by `event-lifecycle-integration` in another worker on the same database. Reproduced at about one contended round in four before the fix; six after                                                                                                                                                                                                          | `910538b`         |
+
+The coverage failure is the one worth keeping, because of what it exposed:
+**nothing ran the coverage thresholds.** Neither `pnpm verify` nor CI did, so
+every floor in the repository was decorative. CI runs `test:coverage` now, and
+adding it immediately found `apps/api` branch coverage below its own floor and
+four money functions — `settleTransfer`, `reverseTransfer`, `openDispute`,
+`resolveDispute` — with no test at all.
+
+---
+
+## 9A. Verification at `9be3c79`
+
+> **HISTORICAL — superseded by §9.** Kept unedited so the deltas above have
+> something to be deltas from.
 
 Sixteen commands, in this order, one after another, nothing cached. Every cache
 was deleted first — `.turbo`, each package's `.turbo`, `apps/web/.next`, and
@@ -629,7 +793,7 @@ before the sequence and both up throughout.
 
 **Sixteen of sixteen at exit 0.**
 
-### 9.1 Unit and integration totals, by package
+### 9A.1 Unit and integration totals, by package
 
 4,099 across 148 files. Reconciled by summing the per-package figures the run
 printed, not by recalling a total:
@@ -655,7 +819,7 @@ to 4,099.
 
 Adding the four browser suites gives **4,269 automated assertions** in total.
 
-### 9.2 The one failure in the first run, and what it was
+### 9A.2 The one failure in the first run, and what it was
 
 The sequence was run twice. The first run, at the commit before `9be3c79`,
 failed at command 9:
@@ -684,38 +848,40 @@ No other command failed in either run.
 
 ### Built
 
-| Thing                                           | Where                                                                | Status                 |
-| ----------------------------------------------- | -------------------------------------------------------------------- | ---------------------- |
-| Event authoring: sessions, tiers, price preview | `apps/api/src/lib/event-authoring.js`, `routes/event-authoring.js`   | `AUTOMATICALLY TESTED` |
-| Revision preconditions on every authoring write | `authorChange`; `STALE_REVISION`                                     | `AUTOMATICALLY TESTED` |
-| Material-change workflow                        | `apps/api/src/lib/event-material-change.js`                          | `AUTOMATICALLY TESTED` |
-| Public event page: lifecycle, JSON-LD, all-in   | `apps/web/src/app/events/[slug]/page.jsx`, `lib/event-jsonld.js`     | `AUTOMATICALLY TESTED` |
-| Sitemap derived from the server's public set    | `apps/web/src/app/sitemap.js`                                        | `AUTOMATICALLY TESTED` |
-| Organiser event list, create, seven-step editor | `apps/web/src/app/organizer/events/`, `components/event-editor.jsx`  | `AUTOMATICALLY TESTED` |
-| Readiness checklist, lifecycle commands         | `components/event-lifecycle-panel.jsx`                               | `AUTOMATICALLY TESTED` |
-| Moderation queue and decision                   | `apps/web/src/app/moderation/`, `components/moderation-decision.jsx` | `AUTOMATICALLY TESTED` |
-| Reactive step-up prompt                         | `components/step-up-prompt.jsx`                                      | `AUTOMATICALLY TESTED` |
-| Wall-clock ↔ instant conversion with zones      | `apps/web/src/lib/zoned-time.js`                                     | `AUTOMATICALLY TESTED` |
-| Twenty event-lifecycle browser cases            | `apps/web/e2e/event-lifecycle.spec.js`                               | `AUTOMATICALLY TESTED` |
-| Fifteen authoring concurrency cases             | `apps/api/tests/event-authoring-integration.test.js`                 | `AUTOMATICALLY TESTED` |
-| Schema-free route manifest for the browser      | `packages/api-contract/src/route-manifest.js`                        | `AUTOMATICALLY TESTED` |
-| Operator-configurable global rate limit         | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`                                | `AUTOMATICALLY TESTED` |
+| Thing                                             | Where                                                                 | Status                                                                  |
+| ------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| A reserved seat bought end to end, priced by seat | `apps/api/src/lib/seated-checkout.js`; 17 properties of one purchase  | `AUTOMATICALLY TESTED`                                                  |
+| The notification outbox worker                    | `apps/worker/src/outbox/dispatcher.js`                                | `AUTOMATICALLY TESTED`                                                  |
+| Refunds: request, approve, submit, settle         | `apps/api/src/lib/refunds.js`, `routes/refunds.js`                    | `AUTOMATICALLY TESTED`                                                  |
+| Refund ceilings under concurrency                 | 12 races against real PostgreSQL, in `db:verify:fresh`                | `DB-ENFORCED`                                                           |
+| The reconciliation queue and its six actions      | `apps/api/src/lib/reconciliation.js`, `routes/reconciliation.js`      | `AUTOMATICALLY TESTED`                                                  |
+| Disputes, transfers and payouts                   | `apps/api/src/lib/payouts.js`, `routes/finance.js`                    | `AUTOMATICALLY TESTED`                                                  |
+| A balance nobody can overdraw                     | `availableBalance`, read inside the transaction that creates a payout | `AUTOMATICALLY TESTED`                                                  |
+| Ticket transfer, revocation and admission once    | `apps/api/src/lib/tickets.js`; 11 races                               | `AUTOMATICALLY TESTED`                                                  |
+| The finance overview and the operations board     | `apps/web/src/app/finance/`, `apps/web/src/app/operations/`           | `AUTOMATICALLY TESTED`                                                  |
+| A CSV export that cannot be weaponised            | `apps/api/src/lib/csv.js` — escapes, never strips                     | `AUTOMATICALLY TESTED`                                                  |
+| Ledger reporting derived from entries             | `apps/api/src/lib/finance-reporting.js`, incl. `findImbalances`       | `AUTOMATICALLY TESTED`                                                  |
+| Partial refunds and movement levers in the mock   | `packages/providers/src/payments.js`                                  | `AUTOMATICALLY TESTED`                                                  |
+| The load and reliability suite                    | `scripts/load/` — 11 scenarios, 4 profiles, 7 invariants              | `AUTOMATICALLY TESTED`                                                  |
+| The responsive and accessibility sweep            | `apps/web/e2e/accessibility-sweep.spec.js` — 22 cases                 | `AUTOMATICALLY TESTED`                                                  |
+| The four product refusals, in a browser           | `apps/web/e2e/refusals.spec.js`                                       | `AUTOMATICALLY TESTED`                                                  |
+| The security regression suite                     | `apps/api/tests/security-regression.test.js` — 12 cases               | `AUTOMATICALLY TESTED`                                                  |
+| A CI workflow covering every gate                 | `.github/workflows/ci.yml` — 7 jobs                                   | `IMPLEMENTED` — see gate 17                                             |
+| The fifteen named documents                       | `docs/`                                                               | `AUTOMATICALLY TESTED` (existence and format are checked; prose is not) |
 
 ### Not built — and these are what keeps Phase 2 `PARTIAL`
 
-| Thing                                       | Gate | What exists instead                                                    |
-| ------------------------------------------- | ---- | ---------------------------------------------------------------------- |
-| A notification worker                       | 12   | Deduplicated `QUEUED` rows. Nothing sends them, and nothing claims to. |
-| A refund service                            | 8    | `REQUESTED` rows with a ceiling the database enforces                  |
-| Dispute, transfer and payout state machines | 9    | Ledger composition rules                                               |
-| Ticket transfer and revocation              | 11   | Phase 1 issuance and check-in, carried                                 |
-| Reconciliation resolution                   | 7    | Timeouts enter the queue; nothing drains it                            |
-| A seated order bought end to end            | 5    | Seat holds and inventory, proven concurrency-safe                      |
-| Finance and analytics dashboards            | 13   | The organiser and moderation surfaces                                  |
-| Load and reliability tests                  | 16   | —                                                                      |
-| A CI workflow                               | 17   | Sixteen commands run by hand, recorded in §9                           |
-| Twelve of the named documents               | 18   | §7                                                                     |
-| The three-viewport and 200%-zoom sweep      | 14   | Built for it; unit tests assert the behaviours                         |
+| Thing                          | Gate   | What exists instead                                                                                                         |
+| ------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Organiser analytics            | 13     | Nothing. WI14 in the traceability matrix is `NOT IMPLEMENTED` throughout                                                    |
+| A reconciliation detail screen | 13, 14 | The operations board lists the queue; the seven actions are API-only                                                        |
+| A refund screen                | 13, 14 | Seven routes, no page                                                                                                       |
+| A ticket transfer screen       | 13, 14 | Six routes, no page                                                                                                         |
+| Connect onboarding             | —      | Adapter methods exist; **no route calls them and no screen sends anybody to one**. `docs/STRIPE_CONNECT.md` opens with that |
+| A CI **run**                   | 17     | A complete workflow that has never executed                                                                                 |
+| Branch protection              | 17     | Externally verified absent: `protected: false` on both branches                                                             |
+| Data erasure or redaction      | —      | A retention policy in `docs/DATA_MODEL.md` under a heading that says the mechanism does not exist                           |
+| Any Stripe API call            | —      | §11                                                                                                                         |
 
 ---
 
@@ -740,49 +906,53 @@ transfer or payout has been fabricated anywhere in this repository.
 ### 12.1 What is code-owned and still outstanding
 
 "Code-owned" means it can be finished in this repository with no credential, no
-account and no decision from outside. Ordered by what unblocks the most.
+account and no decision from outside. The list is much shorter than it was.
 
-| #   | Work                                                             | Gate  | Why it is next                                                                                                    |
-| --- | ---------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------- |
-| 1   | The notification outbox worker                                   | 12    | Five call sites already write deduplicated rows. Nothing sends them, so every notice in this system is a promise. |
-| 2   | The refund service: request → approve → settle, against the mock | 8, 10 | Cancellation owes refunds and they sit `REQUESTED`. The ceiling and the ledger rules exist.                       |
-| 3   | A seated order bought end to end                                 | 5     | Seats, holds and inventory are proven concurrency-safe; nothing buys one.                                         |
-| 4   | Ticket transfer and revocation                                   | 11    | Issuance and check-in are carried from Phase 1 and untouched since.                                               |
-| 5   | Reconciliation resolution for timed-out payments                 | 7     | They enter a durable queue that nothing drains.                                                                   |
-| 6   | Dispute, transfer and payout state machines in mock mode         | 9     | The ledger composition exists; the machines do not.                                                               |
-| 7   | The three-viewport and 200%-zoom sweep over the event screens    | 14    | The venue screens have it; the event screens are built for it and have not been swept.                            |
-| 8   | A CI workflow running the sixteen commands in §9                 | 17    | The sequence exists and is run by hand. A workflow is a transcription of it.                                      |
-| 9   | Load and reliability tests                                       | 16    | Nothing exists.                                                                                                   |
-| 10  | The twelve absent documents in §7                                | 18    | Named, listed, unwritten.                                                                                         |
+| #   | Work                                                           | Gate   | Why it is next                                                                                                                  |
+| --- | -------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | A reconciliation detail screen                                 | 13, 14 | Seven routes exist and an operator works them through an API client. This is the surface the gate names                         |
+| 2   | A refund screen                                                | 13, 14 | Same: the service is complete and there is nowhere to use it                                                                    |
+| 3   | A ticket transfer screen                                       | 13, 14 | Same, for the person holding the ticket                                                                                         |
+| 4   | Connect onboarding routes and a screen                         | —      | `connect.start` and `connect.status` calling adapter methods that already exist, behind `connect:manage` and a `PAYOUT` step-up |
+| 5   | Organiser analytics                                            | 13     | WI14. The indexes were created for it in Phase 2a and nothing reads them                                                        |
+| 6   | Sweep the three new screens once they exist                    | 14     | The suite takes a screen and a viewport list; adding one is a few lines                                                         |
+| 7   | Data erasure as redaction, with its own route and audit action | —      | The schema already forces the shape: redact the person, keep the ledger references                                              |
 
-Two further items are **not** code-owned and are recorded so they are not
-mistaken for work anybody here can finish:
+### 12.2 What is not code-owned
 
+Recorded so it is not mistaken for work anybody here can finish:
+
+- **A CI run, and branch protection.** Both need somebody with repository
+  settings: a pull request or a push to `main` to register the workflow, and an
+  administrator to configure protection. `docs/BRANCH_PROTECTION.md` lists
+  exactly what to require. **Gate 17 cannot be closed from inside this
+  repository**, and this document does not pretend otherwise.
 - **Real Stripe sandbox operations.** Needs test credentials this repository has
   never held. `EXTERNAL VERIFICATION PENDING`, not "nearly done".
-- **Production card processing.** Needs a merchant account, a tax determination,
-  reconciliation operations and real payout destinations. It is a Phase 2 exit
-  criterion and it is deliberately unreachable from this code — see §11.
+- **Production card processing.** Needs a merchant account, a tax
+  determination, reconciliation operations and real payout destinations. It is a
+  Phase 2 exit criterion and it is deliberately unreachable from this code.
 
-### 12.2 Phase 3 prerequisites
+### 12.3 Phase 3 prerequisites
 
-Phase 3 has not been started and should not be. These are the conditions, and
-they are stated as tests rather than as intentions:
+Phase 3 has not been started and should not be. The conditions, stated as tests:
 
-1. **Every gate in §5 is `MET`.** Nine are. Five are `PARTIAL` and six are
-   `NOT MET`, and each row names what is missing.
-2. **Nothing in this repository claims a notification was delivered.** Until the
-   worker in 12.1 exists, the outbox is work created and nothing more, and every
-   report says so.
-3. **No refund is marked settled that no provider settled.** The rows are
-   `REQUESTED`. A refund service is what changes that, not a status update.
-4. **The sixteen commands in §9 run in CI, not by hand.** A verification a person
-   has to remember to run is a verification that eventually is not run.
-5. **The twelve documents in §7 exist.** A system whose data model, security
-   posture, payment flows and reconciliation runbook are undocumented cannot be
-   handed to anybody, and Phase 3 is a handover.
-6. **Production payments remain `DISABLED`, and something still asserts it.** The
-   kill switch is a Phase 2 property that Phase 3 inherits rather than retires.
+1. **Every gate in §5 is `MET`.** Seventeen are. Three are `PARTIAL`, and each
+   row names what is missing.
+2. **A CI run exists.** A verification a person has to remember to run is a
+   verification that eventually is not run — and the workflow that would prevent
+   that has never executed.
+3. **Branch protection is configured**, and the claim is made by somebody who
+   looked. It is currently absent, measured.
+4. **The three missing screens exist and are swept.** A service with no surface
+   is a service nobody in the business can use, and the accessibility gate names
+   all three.
+5. **Nothing claims a Stripe operation happened.** Every such claim in this
+   repository is marked `EXTERNAL VERIFICATION PENDING`, and that must stay true
+   until credentials exist.
+6. **Production payments remain unreachable, and something still asserts it.**
+   The kill switch is a Phase 2 property that Phase 3 inherits rather than
+   retires.
 
 ---
 
@@ -807,19 +977,6 @@ Branch `claude/desi-event-js-stack-gb4uqe`, upstream
 `origin/claude/desi-event-js-stack-gb4uqe`, every commit of every cycle pushed,
 no history rewritten, squashed or force-pushed, and one worktree.
 
-**Measured after the report commit `d0feae7` was pushed:**
-
-```
-$ git rev-parse HEAD
-d0feae71e12825584417d368479d34f9bd2f286b
-(and `git rev-parse @{u}` printed the same hash)
-
-$ git status --porcelain
-(no output)
-
-$ git worktree list
-/home/user/desi-event.com  d0feae7  [claude/desi-event-js-stack-gb4uqe]
-```
-
-**The last executable-code commit is named separately from the report commit**
-in §1, and stays so: a documentation commit is not a change to the system.
+**The last executable-code commit is `910538b`, and it is named separately from
+this report's own commit** — a documentation commit is not a change to the
+system, and §9's twenty-eight commands were run against `910538b`.
