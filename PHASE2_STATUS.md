@@ -2,17 +2,36 @@
 
 **Status: `PARTIAL`.** Phase 3 has not been started.
 
-**As of `6eb6030`.** §1 is measured at that commit and nowhere else; §13
-records the final pushed HEAD, which no file can contain its own hash of.
+### Four different "current" facts, kept apart on purpose
+
+They are not the same commit and never have been. Treating them as one is
+exactly how the run tally in this file came to be wrong twice, so they are now
+stated separately and each says what it is a fact _about_.
+
+| What                                         | Value                                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                              |
+| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                            |
+| Latest corrective commit                     | **`354e66f`** — documentation only; the executable-code fix preceding it is **`79ff795`**                     |
+| Latest GitHub Actions run                    | **`35127103320`**, testing exactly `354e66f` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped      |
+| Repository protection state                  | **UNPROTECTED.** `GET /rulesets` → `200 []`; `GET /branches/main/protection` → `403`. Re-queried at `354e66f` |
+
+`79ff795..354e66f` changes four Markdown files and nothing else, so the coverage
+figures measured at `79ff795` describe the executable code at the current HEAD.
+
+> **`HISTORICAL STATUS — SUPERSEDED`** — an earlier revision of this header said
+> only "As of `6eb6030`" and named run `35115541656` as the current run. Both
+> statements were true when written and are left standing above in the table,
+> reattributed to the commit each is actually a fact about, rather than deleted.
 
 **Nineteen of the twenty gates are `MET`. One is `PARTIAL`. None is
 `NOT MET`.** Gates 13 and 14 closed in the closeout cycle; gate 17 did not, and
 the reason is not code. A real workflow run exists and all eight of its jobs
-pass — run `35115541656`, on this exact commit — and **nothing on GitHub
-requires them before a merge.** Configuring that needs write access to the
-repository's protection settings, which this session's outbound proxy refuses
-regardless of the token's permissions. See §5 and `docs/BRANCH_PROTECTION.md`,
-which carries the exact JSON to apply.
+pass — and **nothing on GitHub requires them before a merge.** Configuring that
+needs write access to the repository's protection settings, which this session's
+outbound proxy refuses regardless of the token's permissions. See §5,
+`docs/BRANCH_PROTECTION.md` for the exact JSON, and
+`PHASE2_POST_CLOSEOUT_VERIFICATION.md` for the API responses recorded verbatim.
 
 Phase 2 therefore stays `PARTIAL`, the exit rule requires all twenty, and the
 one remaining item is an external configuration action rather than work in the
@@ -62,7 +81,7 @@ always re-measured at the commit named in this paragraph.
 | Worktrees                   | one, the repository itself                           | `git worktree list`                    |
 | Last executable-code commit | `6eb6030`                                            | see below                              |
 | Pull request                | #1, open against `main`                              | GitHub API                             |
-| Latest workflow run         | `35115541656` — 8 jobs, all `success`                | GitHub API                             |
+| Latest workflow run         | `35115541656` — 8 jobs, all `success` (at `6eb6030`) | GitHub API                             |
 
 **The closeout cycle.** Fourteen code commits from `66495c0` to `6eb6030`.
 Newest first:
@@ -420,7 +439,7 @@ server.
 | 14  | Phase 2 UI passes accessibility and responsive tests                       | **MET**                                       | §6.2 — **42** browser cases, WCAG 2.1 A and AA, no rule disabled, ten screens × three viewports plus 200% zoom, reduced motion and keyboard-only. The scanner found one serious defect on the new screens and it is recorded before its fix                                                                  |
 | 15  | All 20 required E2E journeys pass                                          | **MET**                                       | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`                                                                                                         |
 | 16  | Load and reliability tests exist                                           | **MET**                                       | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                                                                                                                   |
-| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL — EXTERNAL CONFIGURATION REQUIRED** | **8 jobs, all green, on this exact commit**: run `35115541656`, event `pull_request`, PR #1. Nothing on GitHub _requires_ them before a merge, and applying that is refused by this session’s proxy. See below                                                                                               |
+| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL — EXTERNAL CONFIGURATION REQUIRED** | **8 jobs, all green**: run `35115541656` on `6eb6030`, and again run `35127103320` on the current HEAD `354e66f`, event `pull_request`, PR #1. Nothing on GitHub _requires_ them before a merge, and applying that is refused by this session’s proxy. See below                                             |
 | 18  | All required documentation complete                                        | **MET**                                       | §7 — every named document exists and describes implemented behaviour                                                                                                                                                                                                                                         |
 | 19  | Production payments technically disabled                                   | **MET**                                       | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                                                                                                            |
 | 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**                                       | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                                                                                                                  |
@@ -1079,9 +1098,12 @@ Phase 3 has not been started and should not be. The conditions, stated as tests:
 1. **Every gate in §5 is `MET`.** Nineteen are. One is `PARTIAL`, and its row
    names what is missing and who can supply it.
 2. **A CI run exists.** ✅ Run `35115541656`, eight jobs, all green, on the
-   commit §1 measures. Twelve runs on pull request #1 altogether — seven green,
-   three failed, two cancelled by the concurrency group. All three failures are
-   fixed at the root rather than re-run; the third only after this file had
+   commit §1 measures, and run `35127103320`, eight jobs, all green, on the
+   current HEAD `354e66f`. **As of run `35117010156` there had been twelve runs
+   on pull request #1 — seven green, three failed, two cancelled** by the
+   concurrency group; a cancelled run is not a failed one, and neither
+   cancellation hid a job that concluded `failure`. All three failures are fixed
+   at the root rather than re-run; the third only after this file had
    misattributed it to a coverage threshold for several commits.
 3. **Branch protection is configured**, and the claim is made by somebody who
    looked. **Still absent, measured.** This is the remaining prerequisite.
