@@ -61,7 +61,14 @@ import { defineRoute } from '../lib/register.js'
 /** Everything a refund decision needs, loaded in one query. */
 const REFUND_INCLUDE = Object.freeze({
   items: true,
-  order: { select: { reference: true } },
+  // The organisation comes with the row rather than being worked out by
+  // whoever reads it. A refund payload that did not say whose it was forced
+  // every caller to ask an organisation capability with no organisation, and
+  // an organisation capability asked unscoped becomes a platform check — which
+  // refuses every organiser and passes every platform admin. That is NF-05,
+  // and it is cheaper to carry one field than to re-find it correctly at four
+  // call sites.
+  order: { select: { reference: true, event: { select: { organizationId: true } } } },
 })
 
 /** The order, its lines, and the organisation that owns its event. */

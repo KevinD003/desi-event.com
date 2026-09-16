@@ -19915,6 +19915,18 @@
                                   }
                                 ]
                               },
+                              "organizationId": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "paymentId": {
                                 "type": "string",
                                 "maxLength": 64,
@@ -20113,6 +20125,7 @@
                             "required": [
                               "id",
                               "orderId",
+                              "organizationId",
                               "paymentId",
                               "provider",
                               "providerRefundId",
@@ -20257,6 +20270,18 @@
                               "minLength": 4,
                               "maxLength": 32,
                               "pattern": "^[A-Z0-9-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "organizationId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
                             },
                             {
                               "type": "null"
@@ -20461,6 +20486,7 @@
                       "required": [
                         "id",
                         "orderId",
+                        "organizationId",
                         "paymentId",
                         "provider",
                         "providerRefundId",
@@ -20694,6 +20720,18 @@
                               }
                             ]
                           },
+                          "organizationId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "paymentId": {
                             "type": "string",
                             "maxLength": 64,
@@ -20892,6 +20930,7 @@
                         "required": [
                           "id",
                           "orderId",
+                          "organizationId",
                           "paymentId",
                           "provider",
                           "providerRefundId",
@@ -21114,6 +21153,18 @@
                             }
                           ]
                         },
+                        "organizationId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "paymentId": {
                           "type": "string",
                           "maxLength": 64,
@@ -21312,6 +21363,7 @@
                       "required": [
                         "id",
                         "orderId",
+                        "organizationId",
                         "paymentId",
                         "provider",
                         "providerRefundId",
@@ -21448,6 +21500,18 @@
                             }
                           ]
                         },
+                        "organizationId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "paymentId": {
                           "type": "string",
                           "maxLength": 64,
@@ -21646,6 +21710,7 @@
                       "required": [
                         "id",
                         "orderId",
+                        "organizationId",
                         "paymentId",
                         "provider",
                         "providerRefundId",
@@ -21819,6 +21884,18 @@
                             }
                           ]
                         },
+                        "organizationId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "paymentId": {
                           "type": "string",
                           "maxLength": 64,
@@ -22017,6 +22094,7 @@
                       "required": [
                         "id",
                         "orderId",
+                        "organizationId",
                         "paymentId",
                         "provider",
                         "providerRefundId",
@@ -22190,6 +22268,18 @@
                             }
                           ]
                         },
+                        "organizationId": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "paymentId": {
                           "type": "string",
                           "maxLength": 64,
@@ -22388,6 +22478,7 @@
                       "required": [
                         "id",
                         "orderId",
+                        "organizationId",
                         "paymentId",
                         "provider",
                         "providerRefundId",

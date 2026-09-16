@@ -465,6 +465,16 @@ export const refundSchema = z.object({
   id: cuidSchema,
   orderId: cuidSchema,
   orderReference: orderReferenceSchema.nullish(),
+  /**
+   * Whose refund this is: the organisation owning the order's event.
+   *
+   * Carried rather than derived, because every caller needs it to ask an
+   * organisation capability *with an organisation*. Asked without one, an
+   * organisation capability becomes a platform check — it refuses every
+   * organiser and passes every platform admin — and a screen that has to
+   * re-find the organisation itself is a screen that will one day forget.
+   */
+  organizationId: cuidSchema.nullable(),
   paymentId: cuidSchema,
   provider: z.string(),
   providerRefundId: z.string().nullable(),

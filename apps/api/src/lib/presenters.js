@@ -312,6 +312,7 @@ export function toRefund(row) {
     id: row.id,
     orderId: row.orderId,
     orderReference: row.order?.reference ?? null,
+    organizationId: row.order?.event?.organizationId ?? null,
     paymentId: row.paymentId,
     provider: row.provider,
     providerRefundId: row.providerRefundId ?? null,

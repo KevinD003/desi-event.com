@@ -539,6 +539,83 @@ describe('POST /v1/refunds/:id/cancel', () => {
   })
 })
 
+describe('GET /v1/refunds/:id', () => {
+  it('says whose refund it is, so a screen can ask a scoped question', async () => {
+    const refundId = cuid()
+    const { app, ids } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [{ id: refundId, status: 'REQUESTED', idempotencyKey: 'scoped' }],
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/refunds/${refundId}`,
+      headers: await asUser(app, OWNER),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    // Without this field a caller has to ask `order:refund_approve` with no
+    // organisation, and an organisation capability asked unscoped becomes a
+    // platform check: it refuses every organiser and passes every platform
+    // admin. That is NF-05, and it arrives silently.
+    expect(response.json().data.organizationId).toBe(ids.organization.id)
+
+    await app.close()
+  })
+
+  it('answers for another organisation the same way as for nothing at all', async () => {
+    const refundId = cuid()
+    const { app } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [{ id: refundId, status: 'REQUESTED', idempotencyKey: 'not-theirs' }],
+    })
+    const headers = await asUser(app, OUTSIDER)
+
+    const theirs = await app.inject({
+      method: 'GET',
+      url: `/v1/refunds/${refundId}`,
+      headers,
+    })
+
+    const imaginary = await app.inject({
+      method: 'GET',
+      url: `/v1/refunds/${cuid()}`,
+      headers,
+    })
+
+    expect([403, 404]).toContain(theirs.statusCode)
+    expect([403, 404]).toContain(imaginary.statusCode)
+    expect(theirs.body).not.toMatch(/Rangoli|REQUESTED/u)
+
+    await app.close()
+  })
+
+  it('names no card, no token and no buyer', async () => {
+    const refundId = cuid()
+    const { app } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [{ id: refundId, status: 'SUBMITTED', idempotencyKey: 'no-card' }],
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/refunds/${refundId}`,
+      headers: await asUser(app, OWNER),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const scanned = response.body.replace(/\b[a-z0-9]{20,32}\b/gu, '').toLowerCase()
+
+    for (const needle of ['card', 'cvc', 'last4', 'exp_month', 'priya', 'buyeremail', 'pan']) {
+      expect(scanned, `the payload carries ${needle}`).not.toContain(needle)
+    }
+
+    await app.close()
+  })
+})
+
 describe('GET /v1/refunds', () => {
   it('lists one organisation’s refunds', async () => {
     const refundId = cuid()

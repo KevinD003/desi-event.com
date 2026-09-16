@@ -248,7 +248,12 @@ export default async function OperationsPage() {
                 <li key={refund.id} className="rounded-card border border-slate-200 bg-white p-4">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-medium text-indigo-night-900">
-                      {formatPrice(refund.amountCents, refund.currency)}
+                      <Link
+                        href={`/finance/refunds/${refund.id}`}
+                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      >
+                        {formatPrice(refund.amountCents, refund.currency)}
+                      </Link>
                       {refund.orderReference ? (
                         <span className="ml-2 font-mono text-sm text-slate-600">
                           {refund.orderReference}

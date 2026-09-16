@@ -355,3 +355,15 @@ export async function getReconciliationTask(id) {
 
   return body.data
 }
+
+/**
+ * One refund, with its lines and its attempt count.
+ *
+ * @param {string} id Which refund.
+ * @returns {Promise<object>} The refund.
+ */
+export async function getRefund(id) {
+  const body = await callApi(`/v1/refunds/${encodeURIComponent(id)}`)
+
+  return body.data
+}
