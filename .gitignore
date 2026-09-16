@@ -40,3 +40,7 @@ Thumbs.db
 
 # Redis writes this into whatever directory it was started in.
 dump.rdb
+
+# Vitest JSON reports, written by CI so the skipped-test check has something to
+# read. Never committed: they are a record of one run on one machine.
+vitest-report.json

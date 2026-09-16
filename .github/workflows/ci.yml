@@ -15,11 +15,27 @@ concurrency:
 permissions:
   contents: read
 
+# Shared by every job. No secret is read from the repository and none is needed:
+# payments run in mock mode, which is the only mode this application has, and a
+# job that could reach a real provider would be a job that could take money.
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  NEXT_TELEMETRY_DISABLED: '1'
+  # PostgreSQL is not optional in CI. Set here rather than per-step so a suite
+  # added later inherits it: an unreachable database becomes a failure instead
+  # of a skip, and a skip reads exactly like success in a summary line.
+  REQUIRE_DATABASE: '1'
+
 jobs:
+  # ---------------------------------------------------------------------------
+  # Everything that needs no browser. Ordered cheapest-first so a pull request
+  # that breaks the one rule this repository exists to enforce is told so in a
+  # second rather than after a runner has compiled it.
+  # ---------------------------------------------------------------------------
   verify:
-    name: Policy, lint, tests, build
+    name: Policy, lint, contract, tests, build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     services:
       postgres:
@@ -60,7 +76,6 @@ jobs:
       PLATFORM_FEE_BPS: '590'
       PLATFORM_FEE_FLAT_CENTS: '99'
       TICKET_HOLD_TTL_SECONDS: '600'
-      TURBO_TELEMETRY_DISABLED: '1'
 
     steps:
       - name: Check out
@@ -82,22 +97,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # First, and on purpose. It needs no database, no build and no
-      # dependencies beyond Node itself, it runs in about a second, and it
-      # enforces the single rule this repository exists to enforce. A pull
-      # request that introduces TypeScript should be told so before a runner
-      # spends five minutes compiling it.
+      # The dependency cache is for node_modules and nothing else. Turborepo's
+      # task cache is deliberately not restored: a cached `build` would hide
+      # exactly the drift the OpenAPI and route-manifest checks exist to catch,
+      # and a cached `test` would report a pass for code this run never ran.
+      - name: Refuse a stale task cache
+        run: rm -rf .turbo */.turbo */*/.turbo
+
       - name: Language policy
         run: pnpm run policy:check
+
+      - name: Secret scan
+        run: pnpm run secrets:scan
+
+      - name: Format check
+        run: pnpm run format:check
 
       - name: Lint
         run: pnpm run lint
 
-      # The OpenAPI contract is structurally validated before anything is
-      # generated from it: a duplicate route id or a colliding path fails here
-      # rather than in the published document.
+      # Structural validation before anything is generated from the contract: a
+      # duplicate route id or a colliding path fails here rather than in the
+      # published document.
       - name: Validate API contract
-        run: pnpm run contract:check
+        run: pnpm --filter @desi-event/api-contract run validate
 
       - name: Create the test database
         run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_test'
@@ -107,35 +130,125 @@ jobs:
           pnpm run db:migrate:deploy
           DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
 
-      # Unit and integration tests. The suites that need PostgreSQL or Redis
-      # skip themselves when neither is reachable; both are reachable here, so
-      # they run for real.
+      # Unit and integration tests, with a JSON report per package so the
+      # skipped-test check below has something to read.
       - name: Test
-        run: pnpm run test
+        run: pnpm run test -- --reporter=default --reporter=json --outputFile.json=vitest-report.json
+
+      # A skipped test is neither a pass nor a failure, and "0 failed" is read
+      # as success by everybody who does not count the other column.
+      - name: Refuse an undeclared skipped test
+        run: node scripts/check-skipped-tests.mjs $(find . -name vitest-report.json -not -path '*/node_modules/*')
+
+      - name: Fresh-database verification
+        run: pnpm run db:verify:fresh
+
+      - name: Upgrade-database verification
+        run: pnpm run db:verify:upgrade
 
       - name: Build
         run: pnpm run build
 
-      # openapi.json is committed so that a change to the API surface shows up
-      # as a reviewable diff. `pnpm build` regenerates it, so if the working
-      # tree is dirty here somebody changed a route without regenerating the
-      # document, and the published contract no longer matches the server.
-      - name: Check the OpenAPI document is current
-        run: git diff --exit-code -- apps/api/openapi.json
+      - name: OpenAPI drift
+        run: pnpm run openapi:check
 
-  e2e:
-    name: Playwright end-to-end
+      # The generated route manifest is what the browser client places requests
+      # from. It is schema-free on purpose (finding NF-23), and a regenerated
+      # one that differs means a route changed without the manifest following.
+      - name: Route-manifest drift
+        run: |
+          pnpm run manifest:emit
+          git diff --exit-code -- packages/api-contract/src/route-manifest.js apps/api/openapi.json
+
+      - name: Browser bundle scan
+        run: pnpm run bundle:scan
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
+
+      # Not a formality. The kill switch is what makes production payments
+      # unreachable rather than merely unconfigured, and a CI run that could
+      # reach a real provider would be a CI run that could take money.
+      - name: Production payments are unreachable
+        run: pnpm --filter @desi-event/api exec vitest run tests/payment-kill-switch.test.js
+
+      - name: Upload failure artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-artefacts
+          path: |
+            **/vitest-report.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # The browser suites, one job per suite.
+  #
+  # A matrix rather than one job, because each suite starts its own API and its
+  # own Next server on its own ports, and running two in one job means two pairs
+  # of servers contending for one runner's CPU. The documented server-start
+  # failures came from exactly that.
+  # ---------------------------------------------------------------------------
+  browser:
+    name: Browser — ${{ matrix.suite.name }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     # Independent of `verify` on purpose: the two report different classes of
-    # failure and a developer wants both answers from one push, not the second
-    # only after the first goes green.
+    # failure, and a developer wants both answers from one push rather than the
+    # second only after the first goes green.
+    strategy:
+      fail-fast: false
+      # Two at a time. The runner has two cores; a third concurrent suite would
+      # be three Next servers and three API processes on them.
+      max-parallel: 2
+      matrix:
+        suite:
+          - name: public catalogue
+            script: test:e2e
+          - name: production build
+            script: test:e2e:prod
+          - name: organiser venue maps
+            script: test:e2e:organizer
+          - name: event lifecycle
+            script: test:e2e:events
+          - name: refusals
+            script: test:e2e:refusals
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: desi
+          POSTGRES_PASSWORD: desi
+          POSTGRES_DB: desi_event
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U desi -d desi_event"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     env:
+      DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event?schema=public
+      TEST_DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_SECRET: ci-only-jwt-secret-not-used-outside-github-runner
       NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
       NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
       WEB_E2E_PORT: '3210'
-      TURBO_TELEMETRY_DISABLED: '1'
 
     steps:
       - name: Check out
@@ -158,19 +271,20 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @desi-event/web exec playwright install --with-deps chromium
 
-      # The suite starts `next dev` itself on WEB_E2E_PORT and deliberately
-      # runs with no API process: it exercises the site in the degraded state
-      # the fallback catalogue exists for. The HTML reporter is added on the
-      # command line so there is an artefact to upload; the checked-in config
-      # uses the list reporter, which is the right default locally.
-      - name: Run end-to-end tests
-        run: pnpm --filter @desi-event/web exec playwright test --reporter=list,html
+      - name: Create the test database
+        run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_test'
 
-      - name: Upload Playwright report
+      - name: Apply migrations
+        run: DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
+
+      - name: Run ${{ matrix.suite.name }}
+        run: pnpm run ${{ matrix.suite.script }}
+
+      - name: Upload Playwright artefacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-${{ matrix.suite.script }}
           path: |
             apps/web/playwright-report
             apps/web/test-results
