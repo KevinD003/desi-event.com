@@ -215,6 +215,8 @@ jobs:
             script: test:e2e:events
           - name: refusals
             script: test:e2e:refusals
+          - name: accessibility sweep
+            script: test:e2e:sweep
 
     services:
       postgres:

@@ -209,7 +209,7 @@ export function Modal({
               <button
                 type="button"
                 onClick={onClose}
-                className="-mr-1 -mt-1 rounded p-1 leading-none text-slate-500 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+                className="-mr-1 -mt-1 rounded p-1 leading-none text-slate-600 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
               >
                 <span aria-hidden="true">×</span>
                 <span className="sr-only">{closeLabel}</span>

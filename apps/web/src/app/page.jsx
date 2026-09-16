@@ -59,13 +59,13 @@ export default async function HomePage() {
         <FadeIn delay={0.12} className="mt-8 flex flex-wrap gap-3">
           <Link
             href="/events"
-            className="inline-flex h-12 items-center justify-center rounded-lg bg-marigold-600 px-6 text-base font-medium text-white shadow-sm transition-colors hover:bg-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+            className="inline-flex h-12 items-center justify-center rounded-lg bg-marigold-700 px-6 text-base font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
           >
             Browse every event
           </Link>
           <Link
             href={buildEventsHref({ category: 'GARBA_DANDIYA' })}
-            className="inline-flex h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-6 text-base font-medium text-slate-900 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+            className="inline-flex h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-6 text-base font-medium text-slate-900 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
           >
             Garba &amp; dandiya nights
           </Link>
@@ -86,7 +86,7 @@ export default async function HomePage() {
           </div>
           <Link
             href="/events"
-            className="rounded-sm text-sm font-medium text-marigold-700 underline underline-offset-4 hover:text-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+            className="rounded-sm text-sm font-medium text-marigold-700 underline underline-offset-4 hover:text-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
           >
             See all {events.length} events
           </Link>
@@ -128,7 +128,7 @@ export default async function HomePage() {
             <RevealOnScroll as="li" key={city} index={index}>
               <Link
                 href={buildEventsHref({ city })}
-                className="inline-flex items-center rounded-full border border-indigo-night-100 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 transition-colors hover:border-marigold-300 hover:bg-marigold-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+                className="inline-flex items-center rounded-full border border-indigo-night-100 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 transition-colors hover:border-marigold-300 hover:bg-marigold-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
               >
                 {city}
               </Link>

@@ -119,7 +119,7 @@ export default async function EventsPage({ searchParams }) {
             action={
               <Link
                 href="/events"
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-600 px-4 text-sm font-medium text-white transition-colors hover:bg-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
               >
                 Clear all filters
               </Link>
@@ -135,7 +135,7 @@ export default async function EventsPage({ searchParams }) {
           {pagination.hasPreviousPage ? (
             <Link
               href={buildEventsHref({ ...filters, page: pagination.page - 1 })}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
             >
               ← Previous
             </Link>
@@ -150,7 +150,7 @@ export default async function EventsPage({ searchParams }) {
           {pagination.hasNextPage ? (
             <Link
               href={buildEventsHref({ ...filters, page: pagination.page + 1 })}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
             >
               Next →
             </Link>

@@ -161,7 +161,7 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
                   {tier.description ? (
                     <p className="mt-1 text-sm text-slate-600">{tier.description}</p>
                   ) : null}
-                  <p id={availabilityId} className="mt-1 text-sm text-slate-500">
+                  <p id={availabilityId} className="mt-1 text-sm text-slate-600">
                     {tier.isSoldOut
                       ? 'Sold out'
                       : `${formatPrice(tier.priceCents, tier.currency)} each · up to ${max} per order`}
@@ -198,7 +198,7 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
           >
             Order summary
           </h2>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-600">
             {ticketCount === 0
               ? 'No tickets selected yet'
               : `${ticketCount} ${ticketCount === 1 ? 'ticket' : 'tickets'} for ${event.title}`}
@@ -210,7 +210,7 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
             {totals.lineItems.map((line) => (
               <div key={line.ticketTypeId} className="flex justify-between gap-3">
                 <dt className="min-w-0 text-slate-700">
-                  {line.name} <span className="text-slate-500">× {line.quantity}</span>
+                  {line.name} <span className="text-slate-600">× {line.quantity}</span>
                 </dt>
                 <dd className="shrink-0 tabular-nums text-slate-900">
                   {formatAmount(line.subtotalCents, totals.currency)}
@@ -271,7 +271,7 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
           >
             {ticketCount === 0 ? 'Select tickets to continue' : 'Reserve tickets'}
           </Button>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-600">
             Totals are confirmed by our ticketing service before any payment is taken.{' '}
             <Link
               href={`/events/${event.slug}`}

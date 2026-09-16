@@ -88,7 +88,9 @@ export function SiteFooter() {
       </div>
 
       <div className="border-t border-white/10">
-        <p className="mx-auto max-w-6xl px-4 py-5 text-xs text-slate-500">
+        {/* slate-400, not 500: on the indigo-night footer, 500 is 3.74:1 and
+            AA asks for 4.5:1 at this size. 400 is 6.78:1. */}
+        <p className="mx-auto max-w-6xl px-4 py-5 text-xs text-slate-400">
           A demonstration project. Every event, organiser and price on this site is fictional.
         </p>
       </div>

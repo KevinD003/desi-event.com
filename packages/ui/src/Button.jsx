@@ -1,10 +1,18 @@
 import { cn } from './cn.js'
 import { Spinner } from './Spinner.jsx'
 
-/** Tailwind classes per button variant. */
+/**
+ * Tailwind classes per button variant.
+ *
+ * `primary` sits on marigold-**700**, not 600. White on marigold-600 is 3.12:1,
+ * and WCAG AA asks for 4.5:1 at this text size; 700 is 4.70:1. The brand colour
+ * is unchanged everywhere it is a surface rather than a background for small
+ * white text — this is a contrast decision about one component, not a repaint.
+ * The scanner in `accessibility-sweep.spec.js` is what found it.
+ */
 const BUTTON_VARIANTS = {
   primary:
-    'bg-marigold-600 text-white shadow-sm hover:bg-marigold-700 focus-visible:ring-marigold-500',
+    'bg-marigold-700 text-white shadow-sm hover:bg-marigold-800 focus-visible:ring-marigold-600',
   secondary:
     'bg-indigo-night-700 text-white shadow-sm hover:bg-indigo-night-900 focus-visible:ring-indigo-night-500',
   outline:

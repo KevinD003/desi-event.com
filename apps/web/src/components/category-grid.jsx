@@ -46,7 +46,7 @@ export function CategoryGrid({ categories }) {
                 {category.label}
               </span>
               <span className="text-sm text-slate-600">{category.blurb}</span>
-              <span className="text-xs font-medium text-slate-500">
+              <span className="text-xs font-medium text-slate-600">
                 {category.count} {category.count === 1 ? 'event' : 'events'}
               </span>
             </span>

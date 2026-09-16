@@ -17,7 +17,8 @@
     "test:e2e:prod": "pnpm run build && playwright test --config playwright.production.config.js",
     "test:e2e:organizer": "ORGANIZER_E2E_TAG=e2e$(date +%s) playwright test --config playwright.organizer.config.js",
     "test:e2e:events": "EVENTS_E2E_TAG=e2e$(date +%s) playwright test --config playwright.events.config.js",
-    "test:e2e:refusals": "playwright test --config playwright.refusals.config.js"
+    "test:e2e:refusals": "playwright test --config playwright.refusals.config.js",
+    "test:e2e:sweep": "playwright test --config playwright.sweep.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",
@@ -33,6 +34,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@desi-event/auth": "workspace:*",
     "@desi-event/config": "workspace:*",
     "@desi-event/db": "workspace:*",
@@ -44,6 +46,7 @@
     "@testing-library/user-event": "^14.6.7",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^5.0.0",
+    "axe-core": "^4.13.0",
     "jsdom": "^30.0.1",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",

@@ -55,7 +55,7 @@ export default async function OrganizerEventsPage() {
         <h1 className="text-2xl font-bold text-indigo-night-900">Your events</h1>
         <Link
           href="/organizer/events/new"
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-800 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Create an event
         </Link>
@@ -86,7 +86,7 @@ export default async function OrganizerEventsPage() {
             */}
             <Link
               href="/organizer/events/new"
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-800 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               Create your first event
             </Link>

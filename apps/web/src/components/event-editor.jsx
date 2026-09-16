@@ -565,7 +565,11 @@ export function EventEditor({
                       : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
-                  <span className="text-xs text-current/70">Step {index + 1}</span>
+                  {/* Full opacity, not 70%. Dimming inherited text to 70% on
+                      the slate-100 step background lands at 4.14:1, and AA asks
+                      for 4.5:1 at 12px. The step number is small enough already
+                      without also being faint. */}
+                  <span className="text-xs">Step {index + 1}</span>
                   <span className="block">{entry.title}</span>
                 </button>
               </li>

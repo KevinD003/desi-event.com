@@ -323,28 +323,28 @@ server.
 
 ## 5. The twenty completion gates
 
-| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                                                                  |
-| --- | -------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                                                                                                                                                             |
-| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                           |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; public event page `8271563`; material changes `0e5d9d3`; organiser UI `1b5e9b9`; moderation UI `2ef2172`. Twenty browser cases walk the lifecycle. |
-| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`; `apps/api/tests/event-authoring-integration.test.js`                                                                                                                                                    |
-| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end                                                                                                                                               |
-| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                                                                                                                                                                 |
-| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                                                                                                                                                                     |
-| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; cancellation now _requests_ refunds; no refund service moves one                                                                                                                                                                 |
-| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                                                                                                                                                                    |
-| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                                                                                                                                                             |
-| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                      |
-| 12  | Notifications use an idempotent outbox                                     | **PARTIAL** | Cancellation, postponement and material changes write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers; **no worker sends them**                                                                                                |
-| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser: event list, seven-step editor, review panel, venues and maps. Moderation: queue and decision. No finance, reconciliation or analytics surface.                                                                                                 |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | Venue and map screens at phone, tablet and desktop with reduced motion; the event editor is keyboard-navigable with a linked validation summary, focus restoration and live-region save state, asserted in unit tests but not yet at three viewports      |
-| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** | §6 — nineteen of twenty are now walked in a browser, across two suites. Journey 16 waits on the viewport sweep, which is gate 14. See §5.1 and §6.1.                                                                                                      |
-| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                         |
-| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                               |
-| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                           |
-| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                                                                                                                                                                   |
-| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9; §1                                                                                                                                                                                                                                                    |
+| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                                                                                                   |
+| --- | -------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                                                                                                                                                                                              |
+| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                                                            |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; public event page `8271563`; material changes `0e5d9d3`; organiser UI `1b5e9b9`; moderation UI `2ef2172`. Twenty browser cases walk the lifecycle.                                  |
+| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`; `apps/api/tests/event-authoring-integration.test.js`                                                                                                                                                                                     |
+| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end                                                                                                                                                                                |
+| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                                                                                                                                                                                                  |
+| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                                                                                                                                                                                                      |
+| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; cancellation now _requests_ refunds; no refund service moves one                                                                                                                                                                                                  |
+| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                                                                                                                                                                                                     |
+| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                                                                                                                                                                                              |
+| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                                                       |
+| 12  | Notifications use an idempotent outbox                                     | **PARTIAL** | Cancellation, postponement and material changes write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers; **no worker sends them**                                                                                                                                 |
+| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser: event list, seven-step editor, review panel, venues and maps. Moderation: queue and decision. No finance, reconciliation or analytics surface.                                                                                                                                  |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | §6.2 — every Phase 2 screen that exists is swept at three widths, at 200% zoom, with motion reduced and by keyboard, with axe-core and no rule disabled. The finance, operations, reconciliation, refund and ticket surfaces the gate also names are not swept because they are not built. |
+| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** | §6 — nineteen of twenty walked in a browser across three suites. Journey 16's sweep now passes for the screens that exist; the gate stays PARTIAL while gate 14 does.                                                                                                                      |
+| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                                                          |
+| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                                                                |
+| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                                                            |
+| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                                                                                                                                                                                                    |
+| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9; §1                                                                                                                                                                                                                                                                                     |
 
 **Eight met, six partial, six not met.** The previous revision of this document
 said nine, five and six. The difference is gate 15, corrected below.
@@ -427,7 +427,7 @@ performs the act the journey names, so it does not count toward gate 15.
 | 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` | journeys 2 and 15                                                                                  |
 | 14  | Public page works without JavaScript                            | `AUTOMATICALLY TESTED` | journeys 16–18 read server-rendered HTML and its JSON-LD                                           |
 | 15  | Event editor works by keyboard                                  | `AUTOMATICALLY TESTED` | journey 4 (summary, links, focus); unit tests for the rest                                         |
-| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `IMPLEMENTED`          | built for it; the viewport sweep has not been run — gate 14                                        |
+| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `AUTOMATICALLY TESTED` | sweep suite — 320/768/1280, 200% zoom, reduced motion, keyboard; see §6.2                          |
 | 17  | Material post-publication change requires confirmation          | `AUTOMATICALLY TESTED` | journey 19                                                                                         |
 | 18  | Sales can be paused and resumed                                 | `AUTOMATICALLY TESTED` | journeys 17 and 18                                                                                 |
 | 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` | journey 20; concurrency in `event-authoring-integration.test.js`                                   |
@@ -468,7 +468,41 @@ is a publication refusal, because there is no way to arrive at one — and
 describing a test that could not have run is the thing this document exists to
 stop.
 
-**Browser coverage by suite**, and these four are disjoint — each config names
+### 6.2 The responsive and accessibility sweep
+
+`apps/web/e2e/accessibility-sweep.spec.js`, run by `pnpm run test:e2e:sweep`.
+Fifteen cases: the organiser event list, the seven-step editor and the public
+event page at 320, 768 and 1280 CSS pixels; the editor at 200% zoom; the screens
+with `prefers-reduced-motion`; keyboard-only operation; focus visibility on every
+focusable control; the moderation screen; and touch-target size.
+
+320 rather than 360, because WCAG 1.4.10 names 320 as the reflow width and a
+layout that only works at 360 fails the criterion for anybody on a small phone
+or a zoomed desktop.
+
+**axe-core runs on every page, with the WCAG 2.1 A and AA rule sets and no rule
+disabled.** The only exclusion is Next's development overlay, which the
+framework injects and no deployment ships.
+
+It found four contrast failures on its first run, all real, and all fixed in the
+components rather than by silencing the rule:
+
+| What                                     | Was      | Now      | Fix                                 |
+| ---------------------------------------- | -------- | -------- | ----------------------------------- |
+| White on the primary button              | 3.12 : 1 | 4.70 : 1 | `marigold-600` → `marigold-700`     |
+| Footer note on the indigo-night footer   | 3.74 : 1 | 6.78 : 1 | `slate-500` → `slate-400`           |
+| Secondary text on the page background    | 4.43 : 1 | 7.05 : 1 | `slate-500` → `slate-600`, 16 files |
+| The editor's step numbers at 70% opacity | 4.14 : 1 | 6.92 : 1 | dropped the opacity                 |
+
+**What is not swept, and why it is not swept quietly.** The gate also names the
+finance, operations, reconciliation, refund, ticket and notification surfaces.
+Those are not in the suite because they are not built. A sweep that skipped them
+silently would report a coverage it does not have, so gate 14 stays `PARTIAL`
+until they exist and are swept too.
+
+---
+
+**Browser coverage by suite**, and these five are disjoint — each config names
 its own spec files, so no test is counted twice:
 
 | Suite                         | Config                            | Covers                                                               |   Tests |
@@ -478,7 +512,8 @@ its own spec files, so no test is counted twice:
 | `pnpm run test:e2e:organizer` | `playwright.organizer.config.js`  | The twelve venue and venue-map journeys                              |      13 |
 | `pnpm run test:e2e:events`    | `playwright.events.config.js`     | Twenty event-lifecycle cases                                         |      20 |
 | `pnpm run test:e2e:refusals`  | `playwright.refusals.config.js`   | The four refusals the previous scoring overstated                    |       4 |
-| **Total**                     |                                   |                                                                      | **174** |
+| `pnpm run test:e2e:sweep`     | `playwright.sweep.config.js`      | The responsive and accessibility sweep                               |      15 |
+| **Total**                     |                                   |                                                                      | **189** |
 
 That total is Playwright cases, not required journeys. The two numbers are
 counted separately everywhere in this document and never added together.

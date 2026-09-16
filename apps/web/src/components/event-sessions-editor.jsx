@@ -291,7 +291,7 @@ export function EventSessionsEditor({
                       <p className="mt-1 text-sm text-slate-700">
                         {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')} —{' '}
                         {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
-                        <span className="text-slate-500">
+                        <span className="text-slate-600">
                           ({session.timezone} {zoneAbbreviation(session.timezone)})
                         </span>
                       </p>

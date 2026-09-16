@@ -83,7 +83,7 @@ export function FormField({
         {label}
       </Label>
       {description ? (
-        <p id={descriptionId} className="text-sm text-slate-500">
+        <p id={descriptionId} className="text-sm text-slate-600">
           {description}
         </p>
       ) : null}

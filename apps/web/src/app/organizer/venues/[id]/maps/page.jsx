@@ -113,7 +113,7 @@ export default async function VenueMapsPage({ params }) {
                   </h2>
                   {map.notes ? <p className="mt-1 text-sm text-slate-600">{map.notes}</p> : null}
 
-                  <h3 className="mt-5 text-sm font-medium text-slate-500">Version history</h3>
+                  <h3 className="mt-5 text-sm font-medium text-slate-600">Version history</h3>
                   <ul className="mt-2 divide-y divide-slate-200">
                     {map.versions.map((version) => {
                       const state = versionState(version)

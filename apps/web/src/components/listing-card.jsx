@@ -95,7 +95,7 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
 
           <CardFooter className="justify-between bg-marigold-50/60">
             <p className="text-sm text-slate-700">
-              <span className="text-slate-500">From </span>
+              <span className="text-slate-600">From </span>
               <span className="font-semibold text-indigo-night-900">{priceLabel}</span>
             </p>
             <span aria-hidden="true" className="text-sm font-medium text-marigold-700">

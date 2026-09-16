@@ -52,7 +52,7 @@ export default async function OrganizerVenuesPage() {
         <h1 className="text-3xl font-bold text-indigo-night-900">Your venues</h1>
         <Link
           href="/organizer/venues/new"
-          className="inline-flex h-11 items-center justify-center rounded-lg bg-marigold-600 px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex h-11 items-center justify-center rounded-lg bg-marigold-700 px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Add a venue
         </Link>
@@ -90,7 +90,7 @@ export default async function OrganizerVenuesPage() {
                     <h2 className="font-display text-lg font-semibold text-indigo-night-900">
                       <Link
                         href={`/organizer/venues/${venue.id}/maps`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
                       >
                         {venue.name}
                       </Link>
@@ -106,20 +106,20 @@ export default async function OrganizerVenuesPage() {
                     {venue.region ? `, ${venue.region}` : ''}
                   </p>
                   {venue.capacity ? (
-                    <p className="mt-2 text-sm text-slate-500">
+                    <p className="mt-2 text-sm text-slate-600">
                       Capacity {venue.capacity.toLocaleString('en-IN')}
                     </p>
                   ) : null}
                   <p className="mt-4 flex flex-wrap gap-3 text-sm">
                     <Link
                       href={`/organizer/venues/${venue.id}/maps`}
-                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
                     >
                       Seating maps
                     </Link>
                     <Link
                       href={`/organizer/venues/${venue.id}/edit`}
-                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
                     >
                       Edit details
                     </Link>

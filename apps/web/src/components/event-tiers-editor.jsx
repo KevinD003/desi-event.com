@@ -288,7 +288,7 @@ export function EventTiersEditor({
                             </span>
                           </p>
                         ) : (
-                          <p className="mt-1 text-sm text-slate-500">
+                          <p className="mt-1 text-sm text-slate-600">
                             The all-in price has not been worked out for this tier yet.
                           </p>
                         )}

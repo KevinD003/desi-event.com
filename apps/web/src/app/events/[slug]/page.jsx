@@ -231,7 +231,7 @@ export default async function EventDetailPage({ params }) {
           <li>
             <Link
               href="/"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
             >
               Home
             </Link>
@@ -240,13 +240,13 @@ export default async function EventDetailPage({ params }) {
           <li>
             <Link
               href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
             >
               Events
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-500">
+          <li aria-current="page" className="text-slate-600">
             {event.title}
           </li>
         </ol>
@@ -348,7 +348,7 @@ export default async function EventDetailPage({ params }) {
             </h2>
             <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="rounded-card border border-slate-200 bg-white p-4">
-                <dt className="text-sm font-medium text-slate-500">Doors / start</dt>
+                <dt className="text-sm font-medium text-slate-600">Doors / start</dt>
                 <dd className="mt-1 text-slate-900">
                   <time dateTime={toDateTimeAttribute(event.startsAt)}>
                     {formatEventDate(event.startsAt, event.timezone)} ·{' '}
@@ -357,7 +357,7 @@ export default async function EventDetailPage({ params }) {
                 </dd>
               </div>
               <div className="rounded-card border border-slate-200 bg-white p-4">
-                <dt className="text-sm font-medium text-slate-500">Ends</dt>
+                <dt className="text-sm font-medium text-slate-600">Ends</dt>
                 <dd className="mt-1 text-slate-900">
                   <time dateTime={toDateTimeAttribute(event.endsAt)}>
                     {formatEventDate(event.endsAt, event.timezone)} ·{' '}
@@ -366,7 +366,7 @@ export default async function EventDetailPage({ params }) {
                 </dd>
               </div>
               <div className="rounded-card border border-slate-200 bg-white p-4 sm:col-span-2">
-                <dt className="text-sm font-medium text-slate-500">Local time</dt>
+                <dt className="text-sm font-medium text-slate-600">Local time</dt>
                 <dd className="mt-1 text-slate-900">
                   All times are {zoneLabel ? `${zoneLabel} — ` : ''}the local time at the venue (
                   {event.timezone}), not your own.
@@ -388,7 +388,7 @@ export default async function EventDetailPage({ params }) {
                     {event.venue.slug ? (
                       <Link
                         href={`/venues/${event.venue.slug}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
                       >
                         {event.venue.name}
                       </Link>
@@ -404,7 +404,7 @@ export default async function EventDetailPage({ params }) {
                     ))}
                   </address>
                   {event.venue.capacity ? (
-                    <p className="mt-3 text-sm text-slate-500">
+                    <p className="mt-3 text-sm text-slate-600">
                       Capacity {event.venue.capacity.toLocaleString('en-IN')}
                     </p>
                   ) : null}
@@ -433,7 +433,7 @@ export default async function EventDetailPage({ params }) {
                     {event.organization.slug ? (
                       <Link
                         href={`/organizers/${event.organization.slug}`}
-                        className="rounded-sm font-display text-lg font-semibold text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+                        className="rounded-sm font-display text-lg font-semibold text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
                       >
                         {event.organization.name}
                       </Link>
@@ -594,7 +594,7 @@ export default async function EventDetailPage({ params }) {
                   {buyable ? (
                     <Link
                       href={`/events/${event.slug}/checkout`}
-                      className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-lg bg-marigold-600 px-6 text-base font-medium text-white shadow-sm transition-colors hover:bg-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+                      className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-lg bg-marigold-700 px-6 text-base font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
                     >
                       Choose tickets
                     </Link>

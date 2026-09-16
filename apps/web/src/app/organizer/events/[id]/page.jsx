@@ -144,7 +144,7 @@ export default async function EditEventPage({ params }) {
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-500">
+          <li aria-current="page" className="text-slate-600">
             {event.title}
           </li>
         </ol>

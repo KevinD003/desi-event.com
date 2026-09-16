@@ -45,7 +45,8 @@
     "manifest:emit": "pnpm --filter @desi-event/api-contract run manifest:emit",
     "test:e2e:refusals": "pnpm --filter @desi-event/web run test:e2e:refusals",
     "test:report": "turbo run test -- --reporter=json --outputFile=vitest-report.json",
-    "skips:check": "node scripts/check-skipped-tests.mjs"
+    "skips:check": "node scripts/check-skipped-tests.mjs",
+    "test:e2e:sweep": "pnpm --filter @desi-event/web run test:e2e:sweep"
   },
   "devDependencies": {
     "@desi-event/config": "workspace:*",

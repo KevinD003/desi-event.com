@@ -68,7 +68,7 @@ export default async function CheckoutPage({ params }) {
           <li>
             <Link
               href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
             >
               Events
             </Link>
@@ -77,13 +77,13 @@ export default async function CheckoutPage({ params }) {
           <li>
             <Link
               href={`/events/${event.slug}`}
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
             >
               {event.title}
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-500">
+          <li aria-current="page" className="text-slate-600">
             Tickets
           </li>
         </ol>
@@ -109,7 +109,7 @@ export default async function CheckoutPage({ params }) {
             action={
               <Link
                 href={`/events/${event.slug}`}
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-600 px-4 text-sm font-medium text-white transition-colors hover:bg-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
               >
                 Back to the event
               </Link>

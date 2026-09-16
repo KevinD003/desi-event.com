@@ -656,7 +656,7 @@ function PreviewSeat({ seat, zoneName }) {
       className={[
         'inline-flex h-9 min-w-9 items-center justify-center rounded border px-1 text-xs font-medium',
         seat.restricted
-          ? 'border-slate-200 bg-slate-100 text-slate-500 line-through'
+          ? 'border-slate-200 bg-slate-100 text-slate-600 line-through'
           : 'border-slate-300 bg-white text-slate-700',
       ].join(' ')}
     >

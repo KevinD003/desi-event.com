@@ -167,7 +167,7 @@ export default async function VenuePage({ params }) {
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-500">
+          <li aria-current="page" className="text-slate-600">
             {venue.name}
           </li>
         </ol>
@@ -227,7 +227,7 @@ export default async function VenuePage({ params }) {
                 yours.
               </p>
               {venue.capacity ? (
-                <p className="mt-2 text-sm text-slate-500">
+                <p className="mt-2 text-sm text-slate-600">
                   Capacity {venue.capacity.toLocaleString('en-IN')}
                 </p>
               ) : null}

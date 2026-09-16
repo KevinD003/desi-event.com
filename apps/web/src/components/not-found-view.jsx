@@ -22,16 +22,16 @@ import Link from 'next/link'
 
 /** Shared link styling for the primary action. */
 const primaryLink =
-  'inline-flex h-12 items-center justify-center rounded-lg bg-marigold-600 px-6 text-base ' +
-  'font-medium text-white shadow-sm transition-colors hover:bg-marigold-700 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 ' +
+  'inline-flex h-12 items-center justify-center rounded-lg bg-marigold-700 px-6 text-base ' +
+  'font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 ' +
   'focus-visible:ring-offset-2'
 
 /** Shared link styling for the secondary actions. */
 const secondaryLink =
   'inline-flex h-12 items-center justify-center rounded-lg border border-slate-300 bg-white ' +
   'px-6 text-base font-medium text-slate-900 transition-colors hover:bg-slate-50 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 ' +
   'focus-visible:ring-offset-2'
 
 /**
