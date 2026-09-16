@@ -18,6 +18,8 @@
  * @module @desi-event/api/tests/reserved-seat-concurrency
  */
 
+import { createHash } from 'node:crypto'
+
 import { afterAll, expect, it } from 'vitest'
 
 import { sellSeats } from '../src/lib/seating.js'
@@ -37,15 +39,27 @@ const SECRET = 'test-only-fake-value-for-deriving-passes-0123456789'
 let sequence = 0
 
 /**
- * A unique identifier for this run.
+ * A unique identifier for this run, shaped like one Prisma would generate.
  *
- * @param {string} kind What it names, for readability in a failed assertion.
- * @returns {string} An id.
+ * Hashed rather than readable, and the reason is the same one `seed.mjs` gives:
+ * `cuidSchema` refuses anything that is not cuid-shaped, so a row seeded with a
+ * readable id is a row the API cannot serialise. This suite deliberately leaves
+ * its rows behind — the ledger is append-only and so is this database between
+ * runs — so a wrongly shaped id here breaks the next suite that lists events
+ * against the same database, which is exactly what it did.
+ *
+ * @param {string} kind What it names, folded into the hash so two kinds differ.
+ * @returns {string} A 25-character CUID-shaped identifier.
  */
 function id(kind) {
   sequence += 1
 
-  return `seatrace-${RUN}-${kind}-${sequence}`
+  const digest = createHash('sha256').update(`seatrace-${RUN}-${kind}-${sequence}`).digest('hex')
+  const body = BigInt(`0x${digest}`)
+    .toString(36)
+    .replace(/[^a-z0-9]/g, '')
+
+  return `c${body.padEnd(24, '0').slice(0, 24)}`
 }
 
 /**
@@ -61,7 +75,7 @@ async function buildWorld({ seats = 4, frontRowPriceCents = 250_000 } = {}) {
     data: {
       id: id('org'),
       name: `Race Collective ${RUN}`,
-      slug: id('org-slug'),
+      slug: `seatrace-${RUN}-org-${(sequence += 1).toString(36)}`,
       contactEmail: `race-${RUN}@desi-event.example`,
     },
   })
@@ -71,7 +85,7 @@ async function buildWorld({ seats = 4, frontRowPriceCents = 250_000 } = {}) {
       id: id('venue'),
       organizationId: organization.id,
       name: 'Race Hall',
-      slug: id('venue-slug'),
+      slug: `seatrace-${RUN}-venue-${(sequence += 1).toString(36)}`,
       addressLine1: '1 Test Road',
       city: 'Chennai',
       region: 'TN',
@@ -87,7 +101,7 @@ async function buildWorld({ seats = 4, frontRowPriceCents = 250_000 } = {}) {
       organizationId: organization.id,
       venueId: venue.id,
       title: `Race Night ${RUN}`,
-      slug: id('event-slug'),
+      slug: `seatrace-${RUN}-event-${(sequence += 1).toString(36)}`,
       category: 'MUSIC_CONCERT',
       summary: 'A race between two buyers for one seat.',
       description: 'Built by the reserved-seat concurrency suite.',
@@ -199,7 +213,9 @@ async function takeHold(world, eventSeats) {
         quantity: eventSeats.length,
         status: 'ACTIVE',
         expiresAt: new Date(Date.now() + 600_000),
-        guestTokenHash: id('token').padEnd(64, '0').slice(0, 64),
+        guestTokenHash: createHash('sha256')
+          .update(`token-${RUN}-${(sequence += 1)}`)
+          .digest('hex'),
       },
     })
 

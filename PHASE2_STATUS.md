@@ -339,7 +339,7 @@ server.
 | 12  | Notifications use an idempotent outbox                                     | **PARTIAL** | Cancellation, postponement and material changes write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers; **no worker sends them**                                                                                                |
 | 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser: event list, seven-step editor, review panel, venues and maps. Moderation: queue and decision. No finance, reconciliation or analytics surface.                                                                                                 |
 | 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | Venue and map screens at phone, tablet and desktop with reduced motion; the event editor is keyboard-navigable with a linked validation summary, focus restoration and live-region save state, asserted in unit tests but not yet at three viewports      |
-| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** | §6 — twenty Playwright cases pass, but five of the twenty _required_ journeys are not what those cases walk. Corrected in `C4-0`; see §5.1.                                                                                                               |
+| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** | §6 — nineteen of twenty are now walked in a browser, across two suites. Journey 16 waits on the viewport sweep, which is gate 14. See §5.1 and §6.1.                                                                                                      |
 | 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                         |
 | 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                               |
 | 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                           |
@@ -388,6 +388,11 @@ probe, or a browser assertion about something adjacent to the requirement:
 Gate 15 may return to `MET` when those exact cases are walked in a browser.
 Until then the required-journey count is fifteen of twenty, whatever the
 Playwright summary line says.
+
+**Four of the five have since been built** — `apps/web/e2e/refusals.spec.js`,
+a fifth browser suite, four cases, all passing. §6.1 says what each one does.
+Journey 16 is the one that remains, and it is gate 14's viewport sweep rather
+than a refusal; gate 15 stays `PARTIAL` until that sweep runs.
 ---
 
 ## 6. The twenty required end-to-end journeys
@@ -405,34 +410,63 @@ required journey?** A row scored `API-TESTED ONLY` is implemented and defended �
 an API test, a database trigger, or both, fail if it regresses — but no browser
 performs the act the journey names, so it does not count toward gate 15.
 
-| #   | Journey                                                         | Status                 | Browser journey                                                                                 |
-| --- | --------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------- |
-| 1   | Verified organizer creates a draft event                        | `AUTOMATICALLY TESTED` | journey 1 — create from an empty list                                                           |
-| 2   | Organizer configures sessions and GA inventory                  | `AUTOMATICALLY TESTED` | journeys 7 and 9                                                                                |
-| 3   | Organizer selects a published reserved-seat map version         | `AUTOMATICALLY TESTED` | journey 7 — the select lists published versions only                                            |
-| 4   | Organizer submits event for review                              | `AUTOMATICALLY TESTED` | journey 11                                                                                      |
-| 5   | Unauthorized organization member cannot submit it               | `API-TESTED ONLY`      | refused in `event-lifecycle.test.js`; no browser attempts the submission as that member         |
-| 6   | Moderator requests changes                                      | `AUTOMATICALLY TESTED` | journey 13                                                                                      |
-| 7   | Organizer updates and resubmits                                 | `AUTOMATICALLY TESTED` | journey 14                                                                                      |
-| 8   | Moderator approves                                              | `AUTOMATICALLY TESTED` | journey 14                                                                                      |
-| 9   | Authorized organizer publishes                                  | `AUTOMATICALLY TESTED` | journey 16                                                                                      |
-| 10  | Unverified organizer cannot publish                             | `API-TESTED ONLY`      | API gate asserted; no browser presses publish as an unverified organizer                        |
-| 11  | Reserved event cannot publish with a draft map                  | `API-TESTED ONLY`      | service gate and `DB-ENFORCED` refusal; no browser references a draft map and reads the refusal |
-| 12  | Published event appears publicly                                | `AUTOMATICALLY TESTED` | journey 16                                                                                      |
-| 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` | journeys 2 and 15                                                                               |
-| 14  | Public page works without JavaScript                            | `AUTOMATICALLY TESTED` | journeys 16–18 read server-rendered HTML and its JSON-LD                                        |
-| 15  | Event editor works by keyboard                                  | `AUTOMATICALLY TESTED` | journey 4 (summary, links, focus); unit tests for the rest                                      |
-| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `IMPLEMENTED`          | built for it; the viewport sweep has not been run — gate 14                                     |
-| 17  | Material post-publication change requires confirmation          | `AUTOMATICALLY TESTED` | journey 19                                                                                      |
-| 18  | Sales can be paused and resumed                                 | `AUTOMATICALLY TESTED` | journeys 17 and 18                                                                              |
-| 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` | journey 20; concurrency in `event-authoring-integration.test.js`                                |
-| 20  | Cross-organization edit and publication attempts are denied     | `API-TESTED ONLY`      | refused in `event-lifecycle.test.js`; no browser attempts either as another organization's user |
+| #   | Journey                                                         | Status                 | Browser journey                                                                                    |
+| --- | --------------------------------------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------- |
+| 1   | Verified organizer creates a draft event                        | `AUTOMATICALLY TESTED` | journey 1 — create from an empty list                                                              |
+| 2   | Organizer configures sessions and GA inventory                  | `AUTOMATICALLY TESTED` | journeys 7 and 9                                                                                   |
+| 3   | Organizer selects a published reserved-seat map version         | `AUTOMATICALLY TESTED` | journey 7 — the select lists published versions only                                               |
+| 4   | Organizer submits event for review                              | `AUTOMATICALLY TESTED` | journey 11                                                                                         |
+| 5   | Unauthorized organization member cannot submit it               | `AUTOMATICALLY TESTED` | refusals journey A — Beta's owner navigates to Alpha's draft and attempts the submission           |
+| 6   | Moderator requests changes                                      | `AUTOMATICALLY TESTED` | journey 13                                                                                         |
+| 7   | Organizer updates and resubmits                                 | `AUTOMATICALLY TESTED` | journey 14                                                                                         |
+| 8   | Moderator approves                                              | `AUTOMATICALLY TESTED` | journey 14                                                                                         |
+| 9   | Authorized organizer publishes                                  | `AUTOMATICALLY TESTED` | journey 16                                                                                         |
+| 10  | Unverified organizer cannot publish                             | `AUTOMATICALLY TESTED` | refusals journey B — the control is disabled, and the command is refused when issued anyway        |
+| 11  | Reserved event cannot publish with a draft map                  | `DB-ENFORCED`          | refusals journey C — the browser references one and is refused; see §6.1, the state is unreachable |
+| 12  | Published event appears publicly                                | `AUTOMATICALLY TESTED` | journey 16                                                                                         |
+| 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` | journeys 2 and 15                                                                                  |
+| 14  | Public page works without JavaScript                            | `AUTOMATICALLY TESTED` | journeys 16–18 read server-rendered HTML and its JSON-LD                                           |
+| 15  | Event editor works by keyboard                                  | `AUTOMATICALLY TESTED` | journey 4 (summary, links, focus); unit tests for the rest                                         |
+| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `IMPLEMENTED`          | built for it; the viewport sweep has not been run — gate 14                                        |
+| 17  | Material post-publication change requires confirmation          | `AUTOMATICALLY TESTED` | journey 19                                                                                         |
+| 18  | Sales can be paused and resumed                                 | `AUTOMATICALLY TESTED` | journeys 17 and 18                                                                                 |
+| 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` | journey 20; concurrency in `event-authoring-integration.test.js`                                   |
+| 20  | Cross-organization edit and publication attempts are denied     | `AUTOMATICALLY TESTED` | refusals journey D — Beta's owner attempts both against Alpha's event, from a signed-in session    |
 
-**Fifteen proven in a browser. Four `API-TESTED ONLY`. One `IMPLEMENTED`.**
+**Eighteen proven in a browser. One `DB-ENFORCED` and browser-refused. One
+`IMPLEMENTED`.**
 
-The four `API-TESTED ONLY` rows are not gaps in the product — every one of them
-is refused by the server, and three are refused by the database as well. They
-are gaps in the _evidence_ for gate 15, which asks for browser journeys.
+### 6.1 The four that were corrected, and what was built for them
+
+`apps/web/e2e/refusals.spec.js`, run by `pnpm run test:e2e:refusals` against a
+real API, a real browser and a disposable database, with a cast the lifecycle
+suite deliberately does not have: two verified organisations, an unverified one
+holding a publication-ready event, and a venue map that was never published.
+
+Each journey attempts the act with a real signed-in session and then checks that
+nothing was written. Two of them issue a command the interface correctly does
+not offer to that person, using `page.request` — which carries the browser's own
+session cookies. That is a determined user opening the developer console, not an
+API test with a forged token: there is no credential there the browser did not
+earn by signing in.
+
+| Journey | What the browser does                                                          | What it observes                                                                                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A       | Beta's owner opens Alpha's draft, then submits it for review                   | The editor refuses to open it **in the same words it uses for an id that does not exist**, so the refusal cannot be used to enumerate other organisations' drafts. The command is refused. The draft is still a draft. |
+| B       | An unverified organiser opens a complete, approved event and presses publish   | The control is **disabled** and the reason is on screen — the refusal arrives before the press. Issuing the command anyway is refused. The event has no public page.                                                   |
+| C       | The organiser references a draft venue map on a session                        | The select never offers it, and naming it anyway is refused.                                                                                                                                                           |
+| D       | Beta's owner opens Alpha's published event and attempts to edit and publish it | No lifecycle command is rendered for them at all. Both commands are refused. The title the owner sees is unchanged.                                                                                                    |
+
+Journey 11 is scored `DB-ENFORCED` rather than `AUTOMATICALLY TESTED`, and the
+distinction is deliberate. The gate names a state — a reserved event with a
+draft map, at the point of publication — that this product cannot reach.
+`desi_event_session_map_frozen` refuses a session referencing an unpublished map
+version, on insert _and_ on update, so an event can never get into the state the
+gate describes. The browser journey proves the refusal happens at the point of
+reference, which is strictly earlier and strictly stronger. What it cannot show
+is a publication refusal, because there is no way to arrive at one — and
+describing a test that could not have run is the thing this document exists to
+stop.
 
 **Browser coverage by suite**, and these four are disjoint — each config names
 its own spec files, so no test is counted twice:
@@ -443,7 +477,8 @@ its own spec files, so no test is counted twice:
 | `pnpm run test:e2e:prod`      | `playwright.production.config.js` | Not-found behaviour against a compiled build                         |      19 |
 | `pnpm run test:e2e:organizer` | `playwright.organizer.config.js`  | The twelve venue and venue-map journeys                              |      13 |
 | `pnpm run test:e2e:events`    | `playwright.events.config.js`     | Twenty event-lifecycle cases                                         |      20 |
-| **Total**                     |                                   |                                                                      | **170** |
+| `pnpm run test:e2e:refusals`  | `playwright.refusals.config.js`   | The four refusals the previous scoring overstated                    |       4 |
+| **Total**                     |                                   |                                                                      | **174** |
 
 That total is Playwright cases, not required journeys. The two numbers are
 counted separately everywhere in this document and never added together.
