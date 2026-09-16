@@ -257,6 +257,11 @@ export function createInMemoryPaymentProvider(options = {}) {
     idPrefix = 'pi',
     declineAmountCents = PAYMENT_DECLINE_AMOUNT_CENTS,
     timeoutAmountCents = PAYMENT_TIMEOUT_AMOUNT_CENTS,
+    // Separate levers from the capture ones. A test that wants a refund to be
+    // refused should not have to arrange for the original capture to be refused
+    // too, and reusing one amount for both would make that unavoidable.
+    refundDeclineAmountCents = null,
+    refundTimeoutAmountCents = null,
     now,
   } = options
 
@@ -270,6 +275,8 @@ export function createInMemoryPaymentProvider(options = {}) {
 
   const clock = createClock(now)
   const nextId = createIdFactory(idPrefix)
+  /** Refunds get their own identifier space, as they do at a real processor. */
+  const nextRefundId = createIdFactory(`re_${idPrefix}`)
   /** @type {Map<string, Record<string, unknown>>} */
   const intents = new Map()
 
@@ -488,16 +495,27 @@ export function createInMemoryPaymentProvider(options = {}) {
   }
 
   /**
-   * Refund a captured intent in full.
+   * Refund a captured intent, in whole or in part.
    *
-   * Partial refunds are deliberately not modelled: orders are refunded whole in
-   * this system, and a half-implemented partial refund would invite callers to
-   * depend on behaviour a real adapter may not share.
+   * Partial refunds *are* modelled, and the cumulative total is tracked, because
+   * a refund service that cannot be tested against partials is a refund service
+   * whose ceiling arithmetic has never been exercised. An intent is only
+   * `REFUNDED` once everything captured has been given back; before that it stays
+   * `SUCCEEDED` with a running total, which is what a real processor reports.
+   *
+   * The returned object is a *refund*, not the intent: it carries the
+   * provider's own identifier for this particular refund, which is what a
+   * caller stores and what a webhook later refers to. Nothing invents one on the
+   * caller's behalf.
+   *
+   * Failures are triggered the same way a declined capture is — by amount —
+   * because that is the only lever a caller has over a provider it does not
+   * control, and it keeps the mock's behaviour predictable rather than random.
    *
    * @param {(string|object)} reference Intent id, or an object carrying one.
-   * @param {object} [settings] Optional `amountCents` (must equal the captured amount) and `reason`.
-   * @returns {PaymentIntent} The intent, now `REFUNDED`.
-   * @throws {ProviderError} `INTENT_NOT_FOUND`, `NOT_CAPTURED` when the intent was never captured, `ALREADY_REFUNDED`, `INTENT_FAILED`, `AMOUNT_MISMATCH`, or `CURRENCY_MISMATCH`.
+   * @param {object} [settings] Optional `amountCents` (defaults to everything left) and `reason`.
+   * @returns {object} `{ refundId, intentId, status, amountCents, currency, createdAt, remainingRefundableCents }`, marked as a demonstration.
+   * @throws {ProviderError} `INTENT_NOT_FOUND`, `NOT_CAPTURED`, `ALREADY_REFUNDED`, `INTENT_FAILED`, `AMOUNT_MISMATCH`, `CURRENCY_MISMATCH`, `PAYMENT_DECLINED` or `PAYMENT_TIMEOUT`.
    */
   function refund(reference, settings) {
     const record = requireRecord(reference)
@@ -525,7 +543,29 @@ export function createInMemoryPaymentProvider(options = {}) {
       )
     }
 
-    assertMatchesIntent(record, effective, 'refund')
+    if (effective.currency !== undefined) {
+      assertMatchesIntent(record, { currency: effective.currency }, 'refund')
+    }
+
+    const alreadyRefunded = record.refundedAmountCents ?? 0
+    const remaining = record.amountCents - alreadyRefunded
+    const amountCents =
+      effective.amountCents === undefined ? remaining : parseAmount(effective.amountCents, name)
+
+    if (amountCents > remaining) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.AMOUNT_MISMATCH,
+        `Cannot refund ${amountCents} cents against an intent with ${remaining} left`,
+        {
+          provider: name,
+          details: {
+            intentId: record.id,
+            remainingCents: remaining,
+            receivedAmountCents: amountCents,
+          },
+        },
+      )
+    }
 
     const reason =
       effective.reason === undefined || effective.reason === null
@@ -536,11 +576,57 @@ export function createInMemoryPaymentProvider(options = {}) {
             maxLength: 500,
           })
 
-    record.status = PAYMENT_INTENT_STATUS.REFUNDED
-    record.refundedAt = clock().toISOString()
-    record.refundedAmountCents = record.amountCents
+    if (amountCents === refundTimeoutAmountCents) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_TIMEOUT,
+        `Refund of ${amountCents} cents against ${record.id} timed out`,
+        { provider: name, details: { intentId: record.id, amountCents } },
+      )
+    }
+
+    if (amountCents === refundDeclineAmountCents) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_DECLINED,
+        `Refund of ${amountCents} cents against ${record.id} was refused`,
+        {
+          provider: name,
+          details: { intentId: record.id, failureCode: DEFAULT_DECLINE_CODE, amountCents },
+        },
+      )
+    }
+
+    const createdAt = clock().toISOString()
+    const refundId = nextRefundId()
+
+    record.refundedAmountCents = alreadyRefunded + amountCents
     record.refundReason = reason
-    return toIntent(record)
+    record.refunds = [
+      ...(record.refunds ?? []),
+      { refundId, amountCents, currency: record.currency, createdAt, reason },
+    ]
+
+    if (record.refundedAmountCents >= record.amountCents) {
+      record.status = PAYMENT_INTENT_STATUS.REFUNDED
+      record.refundedAt = createdAt
+    }
+
+    return Object.freeze({
+      refundId,
+      intentId: record.id,
+      // The refund's own status, not the intent's. A partial refund succeeds
+      // against an intent that is still SUCCEEDED, and conflating the two is
+      // how a caller ends up believing a whole payment came back.
+      status: 'SUCCEEDED',
+      amountCents,
+      currency: record.currency,
+      createdAt,
+      remainingRefundableCents: record.amountCents - record.refundedAmountCents,
+      // Stamped for the same reason an intent is: a refund receipt is the one
+      // artefact a buyer is most likely to be shown as proof money came back.
+      mode: PAYMENT_MODES.MOCK,
+      demo: true,
+      demoNotice: DEMO_PAYMENT_NOTICE,
+    })
   }
 
   /**

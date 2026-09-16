@@ -169,7 +169,10 @@ describe('createInMemoryProviderRegistry', () => {
     expect(registry.email.sent[0].text).toBe('Paid 150000 cents')
     expect(registry.sms.sent).toHaveLength(1)
     expect(registry.storage.getUrl('tickets/ord_1.pdf')).toBe(asset.url)
-    expect(registry.payments.refund(intent.id).status).toBe('REFUNDED')
+    // The refund reports its own success; whether the intent came back whole is
+    // read from the intent.
+    expect(registry.payments.refund(intent.id).status).toBe('SUCCEEDED')
+    expect(registry.payments.getStatus(intent.id).status).toBe('REFUNDED')
   })
 
   it('shares the clock across all four providers', () => {

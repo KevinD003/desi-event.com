@@ -77,7 +77,12 @@ describe('createIntent', () => {
 
     expect(intent.paymentStatus).toBe('INITIATED')
     expect(provider.capture(intent.id).paymentStatus).toBe('SUCCEEDED')
-    expect(provider.refund(intent.id).paymentStatus).toBe('REFUNDED')
+
+    provider.refund(intent.id)
+
+    // Read back rather than taken from the refund's own return value: a refund
+    // is not an intent, and it reports its own status rather than the intent's.
+    expect(provider.getStatus(intent.id).paymentStatus).toBe('REFUNDED')
   })
 
   it('hands back a frozen snapshot that cannot rewrite stored state', () => {
@@ -399,11 +404,24 @@ describe('capture', () => {
 })
 
 describe('refund', () => {
-  it('moves a captured intent to REFUNDED', () => {
+  it('moves a captured intent to REFUNDED once everything is given back', () => {
     const provider = makeProvider()
     const intent = provider.createIntent({ amountCents: 7500, currency: 'INR' })
     provider.capture(intent.id)
-    const refunded = provider.refund(intent.id, { reason: 'Event cancelled' })
+    const receipt = provider.refund(intent.id, { reason: 'Event cancelled' })
+
+    // The refund is its own object, with the provider's own identifier for it.
+    // A caller stores that, and a later webhook refers to it.
+    expect(receipt).toMatchObject({
+      status: 'SUCCEEDED',
+      amountCents: 7500,
+      currency: 'INR',
+      intentId: intent.id,
+      remainingRefundableCents: 0,
+    })
+    expect(receipt.refundId).toMatch(/^re_/)
+
+    const refunded = provider.getStatus(intent.id)
 
     expect(refunded).toMatchObject({
       status: PAYMENT_INTENT_STATUS.REFUNDED,
@@ -419,7 +437,82 @@ describe('refund', () => {
     const intent = provider.createIntent({ amountCents: 100, currency: 'INR' })
     provider.capture(intent.id)
 
-    expect(provider.refund(intent.id).refundReason).toBeNull()
+    provider.refund(intent.id)
+
+    expect(provider.getStatus(intent.id).refundReason).toBeNull()
+  })
+
+  it('refunds part of a capture and keeps a running total', () => {
+    // The behaviour this mock used to refuse to model. A refund service whose
+    // ceiling arithmetic has never met a partial refund is a refund service
+    // whose ceiling arithmetic has never been tested.
+    const provider = makeProvider()
+    const intent = provider.createIntent({ amountCents: 5000, currency: 'INR' })
+    provider.capture(intent.id)
+
+    const first = provider.refund(intent.id, { amountCents: 2000 })
+
+    expect(first).toMatchObject({ amountCents: 2000, remainingRefundableCents: 3000 })
+    // Still SUCCEEDED: part of the money is back, not all of it, and a real
+    // processor says so rather than rounding up to REFUNDED.
+    expect(provider.getStatus(intent.id).status).toBe(PAYMENT_INTENT_STATUS.SUCCEEDED)
+    expect(provider.getStatus(intent.id).refundedAmountCents).toBe(2000)
+
+    const second = provider.refund(intent.id, { amountCents: 3000 })
+
+    expect(second).toMatchObject({ amountCents: 3000, remainingRefundableCents: 0 })
+    expect(second.refundId).not.toBe(first.refundId)
+    expect(provider.getStatus(intent.id).status).toBe(PAYMENT_INTENT_STATUS.REFUNDED)
+  })
+
+  it('refuses to give back more than is left', () => {
+    const provider = makeProvider()
+    const intent = provider.createIntent({ amountCents: 5000, currency: 'INR' })
+    provider.capture(intent.id)
+    provider.refund(intent.id, { amountCents: 4000 })
+
+    try {
+      provider.refund(intent.id, { amountCents: 2000 })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe('AMOUNT_MISMATCH')
+      expect(error.message).toMatch(/1000 left/)
+    }
+  })
+
+  it('can be made to refuse a refund without refusing the capture', () => {
+    const provider = createInMemoryPaymentProvider({
+      now: () => new Date(NOW),
+      refundDeclineAmountCents: 1234,
+    })
+    const intent = provider.createIntent({ amountCents: 5000, currency: 'INR' })
+    provider.capture(intent.id)
+
+    try {
+      provider.refund(intent.id, { amountCents: 1234 })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe('PAYMENT_DECLINED')
+    }
+
+    // And nothing was given back.
+    expect(provider.getStatus(intent.id).refundedAmountCents ?? 0).toBe(0)
+  })
+
+  it('can be made to leave a refund unanswered', () => {
+    const provider = createInMemoryPaymentProvider({
+      now: () => new Date(NOW),
+      refundTimeoutAmountCents: 4321,
+    })
+    const intent = provider.createIntent({ amountCents: 5000, currency: 'INR' })
+    provider.capture(intent.id)
+
+    try {
+      provider.refund(intent.id, { amountCents: 4321 })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe('PAYMENT_TIMEOUT')
+    }
   })
 
   it('rejects an empty refund reason', () => {
@@ -480,17 +573,17 @@ describe('refund', () => {
     expect(() => makeProvider().refund('pi_404')).toThrowError(/No payment intent/)
   })
 
-  it('throws AMOUNT_MISMATCH for a partial refund', () => {
+  it('throws CURRENCY_MISMATCH for a refund in the wrong currency', () => {
     const provider = makeProvider()
     const intent = provider.createIntent({ amountCents: 5000, currency: 'INR' })
     provider.capture(intent.id)
 
     try {
-      provider.refund(intent.id, { amountCents: 2500 })
+      provider.refund(intent.id, { amountCents: 2500, currency: 'USD' })
       expect.unreachable('should have thrown')
     } catch (error) {
-      expect(error.code).toBe('AMOUNT_MISMATCH')
-      expect(error.message).toMatch(/refund 2500 cents/)
+      expect(error.code).toBe('CURRENCY_MISMATCH')
+      expect(error.message).toMatch(/USD/)
     }
 
     expect(provider.getStatus(intent.id).status).toBe(PAYMENT_INTENT_STATUS.SUCCEEDED)
@@ -501,9 +594,11 @@ describe('refund', () => {
     const intent = provider.createIntent({ amountCents: 5000, currency: 'INR' })
     provider.capture(intent.id)
 
-    expect(provider.refund(intent.id, { amountCents: 5000, currency: 'INR' }).status).toBe(
-      PAYMENT_INTENT_STATUS.REFUNDED,
-    )
+    expect(provider.refund(intent.id, { amountCents: 5000, currency: 'INR' })).toMatchObject({
+      status: 'SUCCEEDED',
+      amountCents: 5000,
+      remainingRefundableCents: 0,
+    })
   })
 })
 
@@ -562,11 +657,15 @@ describe('an advancing clock', () => {
 
     const intent = provider.createIntent({ amountCents: 100, currency: 'INR' })
     const captured = provider.capture(intent.id)
-    const refunded = provider.refund(intent.id)
+    const receipt = provider.refund(intent.id)
 
     expect(intent.createdAt).toBe('2026-09-14T10:00:00.000Z')
     expect(captured.capturedAt).toBe('2026-09-14T10:01:00.000Z')
-    expect(refunded.refundedAt).toBe('2026-09-14T10:02:00.000Z')
+    // The refund stamps its own receipt, and the intent records when it was
+    // finally made whole. Both are read where they live: a refund is not an
+    // intent, and `refundedAt` belongs to the intent it settled.
+    expect(receipt.createdAt).toBe('2026-09-14T10:02:00.000Z')
+    expect(provider.getStatus(intent.id).refundedAt).toBe('2026-09-14T10:02:00.000Z')
   })
 })
 
@@ -608,15 +707,32 @@ describe('every intent is marked as a demonstration', () => {
     expect(captured.demoNotice).toMatch(/no money moved/i)
   })
 
-  it('stamps a refund, which could be mistaken for money going back', () => {
+  it('stamps a refund receipt, which could be mistaken for money going back', () => {
     const payments = createInMemoryPaymentProvider()
     const intent = payments.createIntent({ amountCents: 2500, currency: 'INR' })
     payments.capture(intent.id)
-    const refunded = payments.refund(intent.id)
+    const receipt = payments.refund(intent.id)
 
-    expect(refunded.status).toBe(PAYMENT_INTENT_STATUS.REFUNDED)
-    expect(refunded.demo).toBe(true)
-    expect(refunded.demoNotice).toMatch(/not a valid receipt/i)
+    // The receipt reports the refund's own outcome. Whether the *intent* is
+    // now whole is a separate question, answered by reading it back — a
+    // partial refund succeeds against an intent that is still SUCCEEDED.
+    expect(receipt.status).toBe('SUCCEEDED')
+    expect(receipt.mode).toBe(PAYMENT_MODES.MOCK)
+    expect(receipt.demo).toBe(true)
+    expect(receipt.demoNotice).toMatch(/not a valid receipt/i)
+    expect(payments.getStatus(intent.id).status).toBe(PAYMENT_INTENT_STATUS.REFUNDED)
+  })
+
+  it('stamps a partial refund receipt too, while the intent is still owed money', () => {
+    const payments = createInMemoryPaymentProvider()
+    const intent = payments.createIntent({ amountCents: 2500, currency: 'INR' })
+    payments.capture(intent.id)
+    const receipt = payments.refund(intent.id, { amountCents: 1000 })
+
+    expect(receipt.demo).toBe(true)
+    expect(receipt.demoNotice).toMatch(/no money moved/i)
+    expect(receipt.remainingRefundableCents).toBe(1500)
+    expect(payments.getStatus(intent.id).status).toBe(PAYMENT_INTENT_STATUS.SUCCEEDED)
   })
 
   it('stamps what a later status read returns', () => {
