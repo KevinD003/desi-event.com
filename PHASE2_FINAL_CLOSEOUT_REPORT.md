@@ -326,16 +326,16 @@ CHECK constraints, 12 migrations — re-measured, not restated.
 
 ### The run
 
-| Fact          | Value                                                                             |
-| ------------- | --------------------------------------------------------------------------------- |
-| Workflow      | `CI`, id `359635192`, `.github/workflows/ci.yml`                                  |
-| Run           | **`35115541656`**                                                                 |
-| URL           | `https://github.com/KevinD003/desi-event.com/actions/runs/35115541656`            |
-| Trigger       | `pull_request`                                                                    |
-| Pull request  | **#1**, `https://github.com/KevinD003/desi-event.com/pull/1`, open against `main` |
-| Commit tested | `6eb6030b2895078ee64c720e1552a5420e7970b9` — the commit §1 measures               |
-| Jobs          | **8, every one `success`**                                                        |
-| Coverage step | `success` — the step that failed on `33eeea9`, green again after §9A              |
+| Fact          | Value                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------- |
+| Workflow      | `CI`, id `359635192`, `.github/workflows/ci.yml`                                                        |
+| Run           | **`35115541656`**                                                                                       |
+| URL           | `https://github.com/KevinD003/desi-event.com/actions/runs/35115541656`                                  |
+| Trigger       | `pull_request`                                                                                          |
+| Pull request  | **#1**, `https://github.com/KevinD003/desi-event.com/pull/1`, open against `main`                       |
+| Commit tested | `6eb6030b2895078ee64c720e1552a5420e7970b9` — the commit §1 measures                                     |
+| Jobs          | **8, every one `success`**                                                                              |
+| Coverage step | `success` — the step that failed on `33eeea9`; §9A says why it was green here before anything was fixed |
 
 | Job                                        | Conclusion | Duration |
 | ------------------------------------------ | ---------- | -------- |
@@ -356,28 +356,40 @@ durations above were read from run `35108476624` on `c5e98da`; run
 
 ### The three failures, and what was done about them
 
-**Ten runs happened on this pull request. Three failed and two were cancelled**
-by the workflow's own `concurrency` group when a later push superseded them —
-`fc3f15a` and `3966770`, both superseded within minutes and both covered by a
-green run on the following commit. None of the three failures was re-run until
-it passed.
+**As of run `35117010156`, twelve runs had happened on this pull request: seven
+succeeded, three failed and two were cancelled** by the workflow's own
+`concurrency` group when a later push superseded them — `fc3f15a` and `3966770`, both superseded within minutes and
+both covered by a green run on the following commit. None of the three failures
+was re-run until it passed.
 
-An earlier revision of this section said "nine runs, two failed". That was
-wrong: it was written from the runs this session had watched while working, and
-the third failure had been superseded by a green run on a later commit before
-anybody looked at it. It is set out below, because a record that quietly omits
-the failure nobody noticed is worth less than one that names it.
+A cancelled run is not a failed run, and the distinction is load-bearing here:
+`GET /actions/runs/35104266352/jobs` and `.../35112134005/jobs` show no job in
+either run concluding `failure` — six cancelled and one `success` in the first,
+eight cancelled in the second. Neither hid anything.
 
-| Run           | Commit    | What failed                                                                           | Root cause                                                                                                                                                                                  | Fixed by  |
-| ------------- | --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `35097650069` | `66495c0` | `@desi-event/api-contract#test` — "tags every route with a tag the document declares" | The new `analytics` tag was on two routes and absent from `API_TAGS`                                                                                                                        | `d71d60f` |
-| `35103232838` | `33eeea9` | **`Coverage thresholds`** — the `Test` step itself passed                             | `apps/api` branch coverage fell under its 75% floor. `33eeea9` added the `tickets.get` handler and three screens; the branches arrived in that commit and the tests exercising them did not | see below |
-| `35106712692` | `bdefff9` | `Browser — public catalogue`                                                          | Four new `detail-*` specs joined the public suite, which runs with the API deliberately down                                                                                                | `c5e98da` |
+This paragraph has now been wrong twice, and both errors are left on the record
+rather than quietly replaced. The first revision said "nine runs, two failed":
+written from the runs this session had watched while working, it missed the
+failure that a later green commit had already superseded. The second said "ten
+runs, three failed", which was true at the minute it was typed into `6eb6030`
+and false fifteen seconds later, when pushing that very commit started run
+eleven — while the same section had already been updated to name run
+`35115541656`, so the section counted ten runs and cited the eleventh. The
+lesson both times is the same one: a count of runs is a fact about a moment, and
+writing it down inside the thing that creates the next run needs saying as
+such.
 
-The middle one went green again on the very next commit, `cd1544a`, which added
-twenty security-regression cases — **incidentally**, not because anybody was
-fixing coverage. That is the part worth recording, and §9A says what was done
-about it once it was noticed.
+| Run           | Commit    | What failed                                                                           | Root cause                                                                                                                                                                                                                | Fixed by  |
+| ------------- | --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `35097650069` | `66495c0` | `@desi-event/api-contract#test` — "tags every route with a tag the document declares" | The new `analytics` tag was on two routes and absent from `API_TAGS`                                                                                                                                                      | `d71d60f` |
+| `35103232838` | `33eeea9` | **`Coverage thresholds`** — the `Test` step itself passed                             | **Not a coverage failure at all.** `@desi-event/db#test:coverage` crashed importing a Prisma client that `prisma generate` was rewriting underneath it. The step's name is the whole of the earlier misdiagnosis; see §9A | `79ff795` |
+| `35106712692` | `bdefff9` | `Browser — public catalogue`                                                          | Four new `detail-*` specs joined the public suite, which runs with the API deliberately down                                                                                                                              | `c5e98da` |
+
+The middle one is the one this record got wrong, and §9A sets out what it
+actually was. Two details of the sentence that used to stand here were wrong
+besides its cause: the next commit was not `cd1544a` but `fc3f15a`, whose run
+was cancelled, and the step did not go green because anything had been fixed —
+it went green because the race that broke it does not lose every time.
 
 The third is worth its own sentence. `playwright.config.js` excludes other
 configurations' specs by name, and its own comment calls that list "a
@@ -484,6 +496,112 @@ payload projected through `toEvidence` comes out as `{status}`; and a presented
 refund names its organisation.
 
 `security-regression.test.js` is now **20 cases**, all passing.
+
+---
+
+## 9A. The failure this report misdiagnosed, and the real coverage margin
+
+This section was referenced five times before it existed. The references were
+written; the section was not. What follows replaces the explanation they pointed
+at, because that explanation was wrong.
+
+### What run `35103232838` actually was
+
+Job `104817695297`, step 17, `Coverage thresholds`, which runs
+`pnpm run test:coverage`. The step name is the whole of the misdiagnosis. Nothing
+breached a threshold:
+
+- The string `threshold` does not appear anywhere in that job's **2,813-line
+  log**.
+- The task that failed is `@desi-event/db#test:coverage`, and `packages/db`
+  enforces **no coverage thresholds at all** — `vitest.config.js` passes
+  `coverageThresholds: {}` deliberately, with a comment saying why. The step
+  named for thresholds was failed by the one package that has none.
+- `@desi-event/api:test:coverage` printed only `cache miss, executing` before
+  turbo aborted the run at `Tasks: 7 successful, 16 total`. **`apps/api`
+  coverage never produced a number in that run**, so it cannot have been the
+  thing that fell under a floor.
+
+What failed was an import:
+
+```
+FAIL  tests/seed-data.test.js [ tests/seed-data.test.js ]
+Error: Invalid package config .../node_modules/.prisma/client/package.json
+ ❯ Object.<anonymous> .../@prisma/client/default.js:2:6
+```
+
+`test` and `test:coverage` declared `dependsOn: ["^build"]` — the
+_dependencies'_ builds, not the package's own — so `@desi-event/db#build`, which
+is `prisma generate`, was never ordered against `@desi-event/db#test:coverage`.
+The log timestamps show them overlapping: the vitest run started at `13:43:59`
+and the generate landed at `13:44:08.5`, rewriting the client the suite was in
+the middle of importing.
+
+### What the misdiagnosis cost
+
+**Sixty-two assertions that nobody noticed had stopped running.** The import
+failed, so `tests/seed-data.test.js` contributed `(0 test)` and vitest printed
+`Tests 40 passed (40)`. That file holds 62 tests — measured by running it alone
+at this commit: `Test Files 1 passed (1)`, `Tests 62 passed (62)`, against a
+whole-package total of 102. The summary line looked like success. Only the
+file-level `FAIL` gave it away, and only because the import error happened to be
+fatal rather than merely empty.
+
+The repository's own CI comment says an unreachable database must be "a failure
+instead of a skip, and a skip reads exactly like success in a summary line".
+This was that hazard, arriving through a door nobody had checked.
+
+### The real margins, measured
+
+Run cold at `79ff795` — `.turbo`, every `*/.turbo` and every previous `coverage/`
+directory deleted first, then `pnpm run test:coverage`, `Tasks: 18 successful,
+18 total`, exit 0. Floors are `packages/config/src/vitest-node.js`: lines 80,
+functions 80, **branches 75**, statements 80.
+
+| Package                  | Lines  | Functions | Branches  | Statements | Floors                |
+| ------------------------ | ------ | --------- | --------- | ---------- | --------------------- |
+| `apps/api`               | 89.43  | 91.83     | **75.83** | 86.94      | strict                |
+| `apps/worker`            | 97.53  | 98.24     | 84.34     | 96.68      | strict                |
+| `packages/api-contract`  | 95.08  | 100.00    | 90.00     | 94.27      | strict                |
+| `packages/auth`          | 99.60  | 100.00    | 95.61     | 99.65      | strict                |
+| `packages/inventory`     | 92.23  | 89.79     | 84.79     | 91.96      | strict                |
+| `packages/ledger`        | 100.00 | 100.00    | 91.17     | 100.00     | strict                |
+| `packages/logger`        | 100.00 | 100.00    | 100.00    | 100.00     | strict                |
+| `packages/notifications` | 100.00 | 100.00    | 100.00    | 100.00     | strict                |
+| `packages/permissions`   | 96.36  | 95.83     | 90.47     | 95.71      | strict                |
+| `packages/pricing`       | 94.17  | 92.30     | 90.17     | 93.97      | strict                |
+| `packages/providers`     | 98.28  | 97.76     | 94.19     | 98.03      | strict                |
+| `packages/schemas`       | 95.80  | 83.87     | 79.24     | 95.57      | strict                |
+| `packages/db`            | —      | —         | —         | —          | none, deliberately    |
+| `apps/web`               | 47.63  | 41.59     | 42.99     | 47.87      | not the shared helper |
+| `packages/ui`            | 99.42  | 100.00    | 93.89     | 97.58      | not the shared helper |
+
+**The thinnest margin in the repository is `apps/api` branch coverage: 75.83%
+against a 75% floor, `+0.83` points.** The next thinnest is `packages/schemas`
+functions at `+3.87`. So the floor genuinely is close, and a single new
+uncovered branch in `apps/api` can turn the step red — which is a real standing
+risk, just not the one that produced run `35103232838`.
+
+### What stands and what does not
+
+The nine cases `6eb6030` added to `apps/api` are real and are kept: `refunds.submit`
+had no route tests at all and a screen calls it. The **75.58% → 75.83%** figures in
+that commit message are genuine local measurements — `75.83%` is reproduced exactly
+by the cold run above. What was false was the causal claim wrapped around them: that
+those numbers explain run `35103232838`. They do not. The commits are left as they
+were written; this section is the correction, not a rewrite of them.
+
+The real defect is fixed at the root in `79ff795`: `"build"` added to the
+`dependsOn` of both test tasks, so a package's tests wait for its own generate.
+`turbo run test:coverage --filter=@desi-event/db --dry=json` now lists
+`@desi-event/db#build` among the dependencies, where before it listed only
+`auth`, `config` and `logger`. `scripts/check-ci-invariants.mjs` fails if that
+ordering is ever removed, and was itself checked by removing it.
+
+**Residual risk, stated rather than closed.** `test:e2e` still declares only
+`["^build"]`. No failure has been traced to it, and it is left alone rather than
+changed speculatively — recorded here so the next person reading a strange
+import error in a browser job starts closer to the answer than this cycle did.
 
 ---
 

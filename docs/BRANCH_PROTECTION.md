@@ -27,7 +27,7 @@ belongs where it is checked.
 | Thing                       | State                                   |
 | --------------------------- | --------------------------------------- |
 | Workflow registered         | **yes** — `CI`, workflow id `359635192` |
-| Runs of it                  | **yes** — seven, on pull request #1     |
+| Runs of it                  | **yes** — twelve, on pull request #1    |
 | Branch protection on `main` | **none**                                |
 | Repository rulesets         | **none** — `GET /rulesets` returns `[]` |
 
@@ -126,8 +126,13 @@ gh api --method POST /repos/KevinD003/desi-event.com/rulesets \
 ```
 
 The eight context strings are the job names GitHub itself reported for run
-`35106712692`, read back from `GET /actions/runs/<id>/jobs` rather than guessed
-from the workflow file. The dash in the browser jobs is an em dash (U+2014),
+**`35117010156`**, read back from `GET /actions/runs/<id>/jobs` rather than
+guessed from the workflow file. That run **succeeded**, which matters: an
+earlier revision of this line sourced the same eight names from run
+`35106712692`, and that run failed. The strings were right — compared byte for
+byte, the two runs' job-name sets are identical, em dashes included — but a
+required check must be named from a run that passed, or the list is only as
+trustworthy as the run it came from. The dash in the browser jobs is an em dash (U+2014),
 because that is what the workflow's `name:` produces; a hyphen there silently
 matches nothing and a required check that matches nothing blocks every merge
 forever.

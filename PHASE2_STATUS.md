@@ -420,7 +420,7 @@ server.
 | 14  | Phase 2 UI passes accessibility and responsive tests                       | **MET**                                       | §6.2 — **42** browser cases, WCAG 2.1 A and AA, no rule disabled, ten screens × three viewports plus 200% zoom, reduced motion and keyboard-only. The scanner found one serious defect on the new screens and it is recorded before its fix                                                                  |
 | 15  | All 20 required E2E journeys pass                                          | **MET**                                       | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`                                                                                                         |
 | 16  | Load and reliability tests exist                                           | **MET**                                       | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                                                                                                                   |
-| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL — EXTERNAL CONFIGURATION REQUIRED** | **8 jobs, all green, on this exact commit**: run `35108476624`, event `pull_request`, PR #1. Nothing on GitHub _requires_ them before a merge, and applying that is refused by this session’s proxy. See below                                                                                               |
+| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL — EXTERNAL CONFIGURATION REQUIRED** | **8 jobs, all green, on this exact commit**: run `35115541656`, event `pull_request`, PR #1. Nothing on GitHub _requires_ them before a merge, and applying that is refused by this session’s proxy. See below                                                                                               |
 | 18  | All required documentation complete                                        | **MET**                                       | §7 — every named document exists and describes implemented behaviour                                                                                                                                                                                                                                         |
 | 19  | Production payments technically disabled                                   | **MET**                                       | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                                                                                                            |
 | 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**                                       | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                                                                                                                  |
@@ -442,11 +442,20 @@ than by reading the workflow file.
 | Jobs          | 8, every one `success`                                              |
 | Skipped steps | one per job, each an `if: failure()` artefact upload                |
 
-Eight runs preceded it on this pull request. Two failed, and both were fixed at
-the root rather than re-run: run 1 on a contract tag the new routes carried and
-the document did not declare, and run 7 on four new browser specs that had
-joined the public suite because nobody had excluded them. Neither was retried
-until it passed.
+Ten runs preceded it on this pull request: five succeeded, three failed and two
+were cancelled by the workflow's own `concurrency` group when a later push
+superseded them. No failure was retried until it passed.
+
+Two of the three were fixed at the root: run 1 on a contract tag the new routes
+carried and the document did not declare, and run 7 on four new browser specs
+that had joined the public suite because nobody had excluded them. **The third
+was misdiagnosed**, and this file said so for several commits. Run 4 failed in
+the step named `Coverage thresholds`, and that name was the whole of the error:
+nothing breached a threshold. `@desi-event/db#test:coverage` crashed importing a
+Prisma client while `prisma generate` rewrote it, because a package's tests were
+not ordered against that package's own build. It is fixed at the root in
+`79ff795`; the closeout report's §9A sets out the evidence and what the
+misdiagnosis cost.
 
 **What is missing is enforcement, and it is not code.** Nothing on GitHub
 requires those eight checks before a merge:
@@ -997,7 +1006,7 @@ No other command failed in either run.
 | The responsive and accessibility sweep            | `apps/web/e2e/accessibility-sweep.spec.js` — 22 cases                 | `AUTOMATICALLY TESTED`                                                  |
 | The four product refusals, in a browser           | `apps/web/e2e/refusals.spec.js`                                       | `AUTOMATICALLY TESTED`                                                  |
 | The security regression suite                     | `apps/api/tests/security-regression.test.js` — 12 cases               | `AUTOMATICALLY TESTED`                                                  |
-| A CI workflow covering every gate                 | `.github/workflows/ci.yml` — 7 jobs                                   | `IMPLEMENTED` — see gate 17                                             |
+| A CI workflow covering every gate                 | `.github/workflows/ci.yml` — 8 jobs                                   | `IMPLEMENTED` — see gate 17                                             |
 | The fifteen named documents                       | `docs/`                                                               | `AUTOMATICALLY TESTED` (existence and format are checked; prose is not) |
 
 ### Still not built — and one of them is what keeps Phase 2 `PARTIAL`
@@ -1070,8 +1079,10 @@ Phase 3 has not been started and should not be. The conditions, stated as tests:
 1. **Every gate in §5 is `MET`.** Nineteen are. One is `PARTIAL`, and its row
    names what is missing and who can supply it.
 2. **A CI run exists.** ✅ Run `35115541656`, eight jobs, all green, on the
-   commit §1 measures. Nine runs on pull request #1 altogether; the two that
-   failed were fixed at the root rather than re-run.
+   commit §1 measures. Twelve runs on pull request #1 altogether — seven green,
+   three failed, two cancelled by the concurrency group. All three failures are
+   fixed at the root rather than re-run; the third only after this file had
+   misattributed it to a coverage threshold for several commits.
 3. **Branch protection is configured**, and the claim is made by somebody who
    looked. **Still absent, measured.** This is the remaining prerequisite.
 4. **The four missing screens exist and are swept.** ✅ All four, plus the

@@ -454,6 +454,45 @@ the temptation in both cases was the same one this document exists to refuse:
   have restored a green result in thirty seconds, which is the move recorded two
   sections above as the one this project does not make.
 
+## The CI forensics cycle: three the record had wrong
+
+Prompted by a reader asking why five commits showed a non-green run. Two of the
+five were `cancelled`, not failed, and neither hid anything — but reading the
+logs of the three that did fail turned up two live defects and one bad
+explanation.
+
+| ID    | Finding                                                                                                                              | Evidence                                          | Fixed in  |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------- |
+| C6-D1 | A package's tests were never ordered against that package's own `prisma generate`, so a generate could rewrite the client mid-import | CI run `35103232838`, job `104817695297`          | `79ff795` |
+| C6-D2 | Every Playwright artefact name interpolated a pnpm task name containing colons, which `upload-artifact` rejects                      | CI run `35106712692`, job `104829717332`, step 11 | `79ff795` |
+| C6-D3 | This project's own record explained run `35103232838` as a coverage-threshold breach. It was not one                                 | The job log: 2,813 lines, no `threshold`          | §9A       |
+
+Each is worth a sentence on **why it survived**, because in all three cases
+something that looked like evidence was not.
+
+- **C6-D1 hid behind a step name.** The failing step is called
+  `Coverage thresholds`, so the failure was filed as a coverage problem and a
+  thin margin was produced to explain it. The margin was real — `apps/api`
+  branch coverage genuinely sits `+0.83` points over its floor — which made the
+  wrong story fit. What actually failed was an import, in the one package that
+  deliberately enforces no thresholds at all. The cost was not the red run: it
+  was that `tests/seed-data.test.js` reported `(0 test)` and vitest printed
+  `Tests 40 passed (40)` while **62 assertions did not run**.
+- **C6-D2 could only ever be seen by failing.** The upload step is
+  `if: failure()`. On every green run it is skipped, so no amount of green
+  proves anything about it; on the one run that needed it, it discarded the
+  sixty report files that would have explained the failure. A guard that only
+  runs when something is already broken needs testing when nothing is.
+- **C6-D3 is the one worth keeping.** Three separate documents carried the wrong
+  cause, and two commit messages asserted it with figures attached. Numbers
+  lend an explanation weight it has not earned: the percentages were measured,
+  the conclusion drawn from them was invented. Both live defects above were
+  found only by reading the log instead of the report.
+
+`scripts/check-ci-invariants.mjs` now asserts the two mechanical properties on
+every run, and was itself verified by reintroducing each defect and watching it
+fail.
+
 ## Provenance
 
 - Raw findings: `wf_6b34ffef-3e2/journal.jsonl`, 6 records of type `result`
