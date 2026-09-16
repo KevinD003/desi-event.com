@@ -219,7 +219,44 @@ rather than per cluster.
 
 ## Endpoints
 
-Eighteen operations. `Auth` is the mode described above.
+**115 operations across 17 tags.** This page describes the ones whose behaviour
+needs prose; the **generated OpenAPI document is authoritative** for the full
+list, its schemas and its error catalogue, and it cannot drift because
+`pnpm openapi:emit` regenerates it from the same descriptors the server
+validates with, and CI fails on a difference.
+
+| Tag            | Ops | Tag          | Ops |
+| -------------- | --- | ------------ | --- |
+| `events`       | 23  | `finance`    | 10  |
+| `auth`         | 18  | `refunds`    | 7   |
+| `venues`       | 12  | `tickets`    | 7   |
+| `operations`   | 11  | `teams`      | 6   |
+| `ticket-types` | 5   | `organizers` | 4   |
+| `orders`       | 3   | `holds`      | 2   |
+| `sessions`     | 2   | `webhooks`   | 2   |
+| `payments`     | 1   | `waitlist`   | 1   |
+| `health`       | 1   |              |     |
+
+`Auth` is the mode described above.
+
+### Four properties that hold across every route
+
+**A route cannot exist without being in the contract.** `defineRoute` takes a
+descriptor and refuses an id that is not published, so there is no
+hand-registered endpoint and no route the OpenAPI document does not know about.
+
+**The response schema is an allow list.** `zodSerializerCompiler` strips unknown
+keys, so a field is emitted only if the schema names it. That is the second of
+two allow lists; the first is the presenter.
+
+**An organisation capability names its scope.** A route asserting an
+organisation capability must declare the request field carrying the organisation
+id. A contract test walks every route and fails one that does not — unscoped,
+the check inverts into a platform check (see `docs/SECURITY.md`, NF-05).
+
+**A step-up window is a named server policy.** A route names
+`FINANCE_ACTION`, never a number of minutes. A test asserts every named policy
+exists and that every route tagged `finance` or `refunds` has one.
 
 ### Health
 
@@ -331,13 +368,114 @@ placed under.
 
 ### Tickets
 
-| Method | Path                   | Auth   | Purpose                                               |
-| ------ | ---------------------- | ------ | ----------------------------------------------------- |
-| POST   | `/v1/tickets/check-in` | bearer | Scan a ticket at the door. Requires `ticket:check_in` |
+| Method | Path                               | Auth   | Purpose                                                                                   |
+| ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| POST   | `/v1/tickets/check-in`             | bearer | Scan a ticket at the door. Requires `ticket:check_in`                                     |
+| GET    | `/v1/tickets`                      | bearer | The caller's own tickets                                                                  |
+| POST   | `/v1/tickets/:id/transfers`        | bearer | Offer a ticket to an email address                                                        |
+| POST   | `/v1/ticket-transfers/accept`      | bearer | Accept an offer, by its one-time token                                                    |
+| POST   | `/v1/ticket-transfers/decline`     | bearer | Decline an offer                                                                          |
+| POST   | `/v1/tickets/:id/transfers/cancel` | bearer | Withdraw an offer you made                                                                |
+| POST   | `/v1/tickets/:id/revoke`           | bearer | Withdraw a ticket, with a reason. Requires `ticket:revoke`, under an `OPERATIONS` step-up |
+
+**Scanning takes `credential` or `code`.** `credential` is the bearer secret from
+the QR: the server hashes it and looks up the digest, so a scanner never
+transmits a guessable identifier. `code` is the printed reference and is the
+deliberate fallback — it admits nobody by itself, and is accepted only from
+somebody who already holds `ticket:check_in` in the owning organisation.
 
 Re-scanning an already-admitted ticket answers **200 with
-`data.alreadyCheckedIn: true`**, not an error, so a flaky scanner never blocks
-the queue.
+`data.alreadyCheckedIn: true`** and the **original** `checkedInAt`, not an
+error, so a flaky scanner never blocks the queue. A refunded, revoked,
+transferred or cancelled ticket answers **409** — that one is wrong rather than
+redundant.
+
+**A transfer is an invitation, not a handover.** Offering does not move the
+ticket; the current holder can still walk in. Offers lapse after 72 hours. The
+one-time token appears in the invitation link and **never in a response**.
+
+Full reasoning: `docs/CHECK_IN.md`.
+
+### Refunds
+
+Seven operations. Every one requires MFA. Reads need a `FINANCE_VIEW` step-up
+(fifteen minutes); anything that moves a refund along needs `FINANCE_ACTION`
+(five minutes).
+
+| Method | Path                            | Step-up          | Purpose                                            |
+| ------ | ------------------------------- | ---------------- | -------------------------------------------------- |
+| GET    | `/v1/orders/:reference/refunds` | `FINANCE_VIEW`   | What is refundable, and what is already spoken for |
+| POST   | `/v1/orders/:reference/refunds` | `FINANCE_ACTION` | Request a refund. Reserves the amount. 201         |
+| GET    | `/v1/refunds`                   | `FINANCE_VIEW`   | The queue                                          |
+| GET    | `/v1/refunds/:id`               | `FINANCE_VIEW`   | One refund                                         |
+| POST   | `/v1/refunds/:id/approve`       | `FINANCE_ACTION` | Approve somebody else's request                    |
+| POST   | `/v1/refunds/:id/submit`        | `FINANCE_ACTION` | Send it to the provider                            |
+| POST   | `/v1/refunds/:id/cancel`        | `FINANCE_ACTION` | Withdraw it before it goes                         |
+
+**A request may name an amount, or name order items and quantities — never a
+price.** The money is derived from the order's own unit prices. A caller who
+could name what a ticket cost could refund more than was paid.
+
+**Separation of duties:** an approver holding only `order:refund_approve` may not
+wave through their own request. Somebody holding `order:refund` may, because
+that capability is what says one person may do both.
+
+Full reasoning: `docs/REFUNDS_DISPUTES.md`.
+
+### Finance, payouts, transfers and disputes
+
+Ten operations. Reading needs `finance:view` and a `FINANCE_VIEW` step-up
+(fifteen minutes); moving money needs `payout:manage` and a `PAYOUT` step-up
+(five minutes).
+
+| Method | Path                              | Step-up        | Purpose                                      |
+| ------ | --------------------------------- | -------------- | -------------------------------------------- |
+| GET    | `/v1/finance/summary`             | `FINANCE_VIEW` | Ledger-derived totals, integrity check first |
+| GET    | `/v1/finance/balance`             | `FINANCE_VIEW` | What an organiser may actually be paid       |
+| GET    | `/v1/finance/export.csv`          | `FINANCE_VIEW` | CSV, escaped against spreadsheet injection   |
+| GET    | `/v1/finance/payouts`             | `FINANCE_VIEW` | The payout list                              |
+| POST   | `/v1/finance/payouts`             | `PAYOUT`       | Schedule one. 201                            |
+| GET    | `/v1/finance/payouts/:id`         | `FINANCE_VIEW` | One payout                                   |
+| POST   | `/v1/finance/payouts/:id/send`    | `PAYOUT`       | Send it to the provider                      |
+| POST   | `/v1/finance/payouts/:id/reverse` | `PAYOUT`       | Record a reversal                            |
+| GET    | `/v1/finance/transfers`           | `FINANCE_VIEW` | Transfers to connected accounts              |
+| GET    | `/v1/finance/disputes`            | `FINANCE_VIEW` | Open and resolved disputes                   |
+
+**No route accepts a payout destination.** Where an organiser's money goes is a
+property of their connected account. The field does not exist, so no
+authorization bug can expose it.
+
+Scheduling against a balance that cannot support it produces a `HELD` payout
+with the reason stored — _"only 300000 of 700000 is available"_ — rather than an
+error, because a payout that did not go and cannot say why is the complaint the
+surface exists to prevent.
+
+Full reasoning: `docs/FINANCIAL_LEDGER.md` and `docs/STRIPE_CONNECT.md`.
+
+### Reconciliation
+
+Seven operations under `/v1/operations/reconciliation`, inside the `operations`
+tag. Reading is scoped: with an `organizationId` the caller needs `finance:view`
+in it; without one they need `reconciliation:manage`, which is platform-only.
+The five actions require `reconciliation:manage` and are platform-only
+throughout.
+
+| Method | Path                                         | Step-up          | Purpose                                          |
+| ------ | -------------------------------------------- | ---------------- | ------------------------------------------------ |
+| GET    | `/v1/operations/reconciliation`              | `FINANCE_VIEW`   | The queue: unresolved first, then oldest         |
+| GET    | `/v1/operations/reconciliation/:id`          | `FINANCE_VIEW`   | One item, with the evidence recorded at the time |
+| POST   | `/v1/operations/reconciliation/:id/claim`    | `FINANCE_ACTION` | Take it off the queue                            |
+| POST   | `/v1/operations/reconciliation/:id/requery`  | `FINANCE_ACTION` | Ask the provider again. Writes no status         |
+| POST   | `/v1/operations/reconciliation/:id/resolve`  | `FINANCE_ACTION` | Apply the verdict through a domain command       |
+| POST   | `/v1/operations/reconciliation/:id/escalate` | `FINANCE_ACTION` | Say you cannot decide it alone                   |
+| POST   | `/v1/operations/reconciliation/:id/notes`    | `FINANCE_ACTION` | Append a note. Never replaces one                |
+
+**There is no route that takes a status.** An operator establishes what the
+provider says and the system draws the consequence, exactly once, through the
+same commands the ordinary path uses. A resolution the provider's answer does
+not support is refused: `CONFLICT` and `UNKNOWN` permit none.
+
+Full reasoning: `docs/RECONCILIATION_RUNBOOK.md`.
 
 ### Waitlist
 

@@ -310,7 +310,7 @@ duplicate-webhook, delayed-webhook and retry scenarios. Before a live gateway is
 connected, the webhook endpoint needs provider signature verification, which the
 mock does not model.
 
-### The hold state machine### The hold state machine
+### The hold state machine
 
 ```mermaid
 stateDiagram-v2
@@ -368,6 +368,9 @@ flowchart TD
   permissions["@desi-event/permissions"]
   pricing["@desi-event/pricing"]
   inventory["@desi-event/inventory"]
+  ledger["@desi-event/ledger"]
+  auth["@desi-event/auth"]
+  notifications["@desi-event/notifications"]
   logger["@desi-event/logger"]
   db["@desi-event/db"]
   ui["@desi-event/ui"]
@@ -392,6 +395,10 @@ flowchart TD
   pricing --> web
   inventory --> api
   inventory --> worker
+  ledger --> api
+  auth --> api
+  notifications --> api
+  notifications --> worker
   logger --> api
   logger --> worker
   db --> api
@@ -404,10 +411,15 @@ flowchart TD
 ```
 
 The graph is deliberately shallow. `schemas` depends on nothing but Zod;
-`permissions`, `pricing` and `inventory` depend on nothing at all. That is what
-lets the expensive logic — money, availability, authorization — be tested as
-pure functions with no database, no clock and no network, and it is why those
-three packages carry coverage thresholds.
+`permissions`, `pricing`, `inventory` and `ledger` depend on nothing at all.
+That is what lets the expensive logic — money, availability, authorization,
+double-entry accounting — be tested as pure functions with no database, no clock
+and no network, and it is why those packages carry coverage thresholds.
+
+`@desi-event/ledger` is a late addition and follows the same rule: it knows the
+chart of accounts and what each event posts, and it knows nothing about Prisma.
+Writing a batch is `apps/api/src/lib/ledger.js`; deciding what the batch _is_
+is a pure function.
 
 Two rules keep it that way:
 
@@ -417,6 +429,89 @@ Two rules keep it that way:
 - **Nothing hard-codes a URL.** `apps/web` calls `createApiClient()` from
   `@desi-event/api-contract`, so a renamed path is a compile-free but
   test-visible change in exactly one file.
+
+## The money subsystems
+
+Phase 2 added five subsystems that all share one shape, and the shape is the
+architecture: **a state machine whose every transition is a conditional
+`UPDATE`, a provider call that happens with no transaction open, and a ledger
+batch posted in a short transaction afterwards.**
+
+```mermaid
+flowchart TD
+  order["Order / Payment"] --> refund["Refund"]
+  order --> dispute["Dispute"]
+  order --> ledgerb["LedgerBatch"]
+  refund --> ledgerb
+  dispute --> ledgerb
+  ledgerb --> payable["organizer_payable"]
+  payable --> transfer["Transfer"]
+  transfer --> payout["Payout"]
+  payout --> ledgerb
+
+  refund -. "provider silent" .-> recon["ReconciliationTask"]
+  order -. "provider silent" .-> recon
+  transfer -. "provider silent" .-> recon
+  payout -. "provider silent" .-> recon
+  recon --> order
+  recon --> refund
+```
+
+Three properties hold across all five, and each is the answer to a specific way
+this goes wrong:
+
+**A provider is never called inside a database transaction.** A network call
+inside a transaction is a row lock held for as long as somebody else's server
+takes to answer. Every one of these is written as reserve-and-commit → call →
+record, and the middle step holds nothing.
+
+**Every dotted edge goes to reconciliation, never to failure.** A provider that
+does not answer has not said no. Silence becomes its own state and a work item,
+because reading it as failure cancels things people paid for and reading it as
+success gives away things nobody paid for.
+
+**Money is derived from the ledger.** `Order.totalCents` is written once at
+checkout and never corrected; summing it produces a number that looks like
+revenue and is not one. Every figure on the finance surface comes from
+`LedgerEntry`, and the finance screen shows the ledger's own integrity check
+_above_ the totals.
+
+The individual documents are `docs/PAYMENTS.md`, `docs/FINANCIAL_LEDGER.md`,
+`docs/REFUNDS_DISPUTES.md`, `docs/STRIPE_CONNECT.md` and
+`docs/RECONCILIATION_RUNBOOK.md`.
+
+### The universal concurrency primitive
+
+Nothing in this codebase reads a count and then writes one. Every contended
+mutation is:
+
+```js
+const { count } = await tx.thing.updateMany({
+  where: { id, status: theStatusItWasReadIn },
+  data: { status: theNewStatus },
+})
+if (count !== 1) {
+  /* somebody else got there first */
+}
+```
+
+The affected-row count _is_ the race resolution. It is how inventory is taken,
+how a refund is submitted, how a task is claimed, how a ticket is admitted, and
+how a payout is sent — one primitive, so there is one thing to get right and one
+thing to review.
+
+### Where a trigger is used instead
+
+When the invariant must hold for code that has not been written yet. 20 plpgsql
+triggers, all in migrations under ADR 0004: ledger immutability and balance,
+ticket status transitions, check-in admissibility, map version freezing, and the
+cross-entity coherence rules that refuse a row whose foreign keys point at
+different events.
+
+`apps/api/src/lib/errors.js` exports `databaseErrorCode()` because **Prisma
+nests a trigger's error**: the outer code is `P2039` and the real `P0001` is at
+`error.meta.driverAdapterError.cause.originalCode`. Not unwrapping it turned a
+trigger refusal into a 500 at a door.
 
 ## Trust boundaries
 

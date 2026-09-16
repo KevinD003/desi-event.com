@@ -7,8 +7,22 @@ forward and a Google Form. Desi-Event gives organisers a real ticketing system
 and gives attendees one place to find what is on near them.
 
 The platform is three deployable applications — a Fastify REST API, a Next.js
-storefront and a BullMQ worker — sitting on ten shared packages, PostgreSQL and
-Redis, in one pnpm workspace.
+storefront and a BullMQ worker — sitting on thirteen shared packages,
+PostgreSQL and Redis, in one pnpm workspace.
+
+## Payments are in mock mode, and production payments are unreachable
+
+Read this before anything else. **No money can move through this repository.**
+`PAYMENT_MODE=live`, or a live-looking credential anywhere in the environment,
+**refuses the boot** — it is not a disabled feature, it is an unreachable one.
+With no credentials at all the in-memory provider runs, and every artefact it
+produces carries `demo: true` and says so.
+
+No Stripe API call has ever been made from this code. That status is recorded as
+**EXTERNAL VERIFICATION PENDING** wherever it applies, and there is no
+fabricated Stripe identifier, receipt or transcript anywhere in the repository.
+
+[docs/PAYMENTS.md](docs/PAYMENTS.md) has the rules and the reasoning.
 
 ## JavaScript only
 
@@ -40,15 +54,18 @@ desi-event.com
 │   ├── api-contract   Route descriptors, OpenAPI generator and the browser client
 │   ├── config         Shared ESLint, Vitest and Tailwind presets
 │   ├── db             Prisma schema, migrations, seed data and the shared client
+│   ├── auth           Sessions, passwords, TOTP, sealing and step-up policies
 │   ├── inventory      Availability maths and the checkout hold lifecycle
+│   ├── ledger         Double-entry accounts and the batches each event posts
 │   ├── logger         Structured Pino logger
+│   ├── notifications  Outbox message kinds and rendering
 │   ├── permissions    Roles, capabilities and authorization checks
 │   ├── pricing        Integer-cent fees, taxes, promo codes and order totals
 │   ├── providers      Payment/email/SMS/storage interfaces with in-memory adapters
 │   ├── schemas        Zod schemas: the single source of truth for validation
 │   └── ui             Accessible React component primitives (JSX, Tailwind)
-├── docs               Architecture, development, API and policy documents
-└── scripts            Repository tooling (language policy check, clean)
+├── docs               Architecture, security, payments, operations and policy documents
+└── scripts            Repository tooling (policy, secret and bundle scans, load suite)
 ```
 
 ## Tech stack
@@ -131,30 +148,45 @@ it reads the root `.env` itself — but the rest need the export.
 
 Run from the repository root.
 
-| Script                   | What it does                                                       |
-| ------------------------ | ------------------------------------------------------------------ |
-| `pnpm dev`               | Start api, web and worker in watch mode (`turbo run dev`)          |
-| `pnpm build`             | Build every workspace: Prisma client, `openapi.json`, `next build` |
-| `pnpm start`             | Run the built applications                                         |
-| `pnpm lint`              | ESLint across the whole repository                                 |
-| `pnpm lint:fix`          | The same, with `--fix`                                             |
-| `pnpm format`            | Prettier over js/jsx/json/md/css/yaml                              |
-| `pnpm format:check`      | Prettier in check mode                                             |
-| `pnpm test`              | Vitest in every workspace                                          |
-| `pnpm test:watch`        | Vitest in watch mode                                               |
-| `pnpm test:coverage`     | Vitest with coverage and thresholds                                |
-| `pnpm test:e2e`          | Playwright end-to-end suite (`@desi-event/web`)                    |
-| `pnpm policy:check`      | Enforce the JavaScript-only language policy                        |
-| `pnpm contract:check`    | Structurally validate the API contract and OpenAPI document        |
-| `pnpm verify`            | `policy:check` → `lint` → `test` → `build`. The pre-push gate      |
-| `pnpm db:generate`       | `prisma generate`                                                  |
-| `pnpm db:migrate`        | `prisma migrate dev` — create and apply a migration                |
-| `pnpm db:migrate:deploy` | `prisma migrate deploy` — apply existing migrations                |
-| `pnpm db:reset`          | Drop, recreate, migrate and re-seed the database                   |
-| `pnpm db:seed`           | Idempotent development seed                                        |
-| `pnpm db:studio`         | Prisma Studio                                                      |
-| `pnpm openapi:emit`      | Regenerate `apps/api/openapi.json` from the contract               |
-| `pnpm clean`             | Remove node_modules, .next, .turbo, dist, coverage and test output |
+| Script                   | What it does                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `pnpm dev`               | Start api, web and worker in watch mode (`turbo run dev`)                                       |
+| `pnpm build`             | Build every workspace: Prisma client, `openapi.json`, `next build`                              |
+| `pnpm start`             | Run the built applications                                                                      |
+| `pnpm lint`              | ESLint across the whole repository                                                              |
+| `pnpm lint:fix`          | The same, with `--fix`                                                                          |
+| `pnpm format`            | Prettier over js/jsx/json/md/css/yaml                                                           |
+| `pnpm format:check`      | Prettier in check mode                                                                          |
+| `pnpm test`              | Vitest in every workspace                                                                       |
+| `pnpm test:watch`        | Vitest in watch mode                                                                            |
+| `pnpm test:coverage`     | Vitest with coverage and thresholds                                                             |
+| `pnpm test:e2e`          | Playwright end-to-end suite (`@desi-event/web`)                                                 |
+| `pnpm policy:check`      | Enforce the JavaScript-only language policy                                                     |
+| `pnpm secrets:scan`      | Scan every tracked file for credentials                                                         |
+| `pnpm bundle:scan`       | Refuse server contract that leaked into a browser artefact                                      |
+| `pnpm skips:check`       | Fail an undeclared skipped test                                                                 |
+| `pnpm contract:check`    | Structurally validate the API contract and OpenAPI document                                     |
+| `pnpm verify`            | `policy:check` → `secrets:scan` → `format:check` → `lint` → `test` → `build`. The pre-push gate |
+| `pnpm db:generate`       | `prisma generate`                                                                               |
+| `pnpm db:migrate`        | `prisma migrate dev` — create and apply a migration                                             |
+| `pnpm db:migrate:deploy` | `prisma migrate deploy` — apply existing migrations                                             |
+| `pnpm db:reset`          | Drop, recreate, migrate and re-seed the database                                                |
+| `pnpm db:seed`           | Idempotent development seed                                                                     |
+| `pnpm db:studio`         | Prisma Studio                                                                                   |
+| `pnpm db:verify:fresh`   | Migrate a disposable database and run every concurrency suite                                   |
+| `pnpm db:verify:upgrade` | Apply migrations onto a populated database                                                      |
+| `pnpm openapi:emit`      | Regenerate `apps/api/openapi.json` from the contract                                            |
+| `pnpm manifest:emit`     | Regenerate the browser route manifest from the contract                                         |
+| `pnpm load`              | The load and reliability suite (see the caveats it carries)                                     |
+| `pnpm clean`             | Remove node_modules, .next, .turbo, dist, coverage and test output                              |
+
+The end-to-end suites need their own Playwright configurations, because they
+need different fixtures and different servers: `pnpm test:e2e`,
+`test:e2e:events`, `test:e2e:organizer`, `test:e2e:refusals`,
+`test:e2e:sweep` and `test:e2e:prod`.
+
+After changing the API contract, run `pnpm openapi:emit` **and**
+`pnpm manifest:emit`; both artefacts are committed and both are drift-checked.
 
 `pnpm clean --dry-run` lists what it would delete without touching anything.
 
@@ -165,10 +197,9 @@ exported, which it is if you sourced `.env`. `next build` refuses a
 non-standard `NODE_ENV` and dies prerendering the global error page. Run
 `NODE_ENV=production pnpm build`, or `env -u NODE_ENV pnpm build`.
 
-`pnpm format` currently runs Prettier with no configuration file, so it applies
-Prettier's defaults — double quotes and semicolons — which contradict the style
-the rest of the repository is written in. Leave it alone until a `.prettierrc`
-matching the house style exists; ESLint is the enforced gate either way.
+`pnpm format` reads `.prettierrc.json`, which matches the house style. It is in
+`pnpm verify` as `format:check`, so formatting is an enforced gate rather than a
+suggestion.
 
 To run one workspace on its own, filter it:
 
@@ -212,13 +243,56 @@ and `apps/worker/tests/redis-integration.test.js` — probe for the service and
 skip themselves when it is not reachable, so `pnpm test` passes on a laptop
 with nothing running and still tests the real wiring where it exists.
 
+## Tests, counted separately
+
+Unit and integration tests and browser journeys are **different evidence**, and
+this repository never totals them under one label. `pnpm test` reports the
+first; the Playwright configurations report the second.
+
+Concurrency is proved rather than asserted: `pnpm db:verify:fresh` migrates a
+disposable database and runs every race suite against real PostgreSQL, and CI
+runs a reliability smoke test on every push.
+
 ## Documentation
 
-| Document                                           | Contents                                                                       |
-| -------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [docs/architecture.md](docs/architecture.md)       | Request flow, the checkout and hold lifecycle, package graph, trust boundaries |
-| [docs/development.md](docs/development.md)         | Day-to-day workflow: services, env vars, migrations, debugging, testing        |
-| [docs/api.md](docs/api.md)                         | REST reference: auth, errors, pagination, every endpoint                       |
-| [docs/language-policy.md](docs/language-policy.md) | The JavaScript-only policy and the exception process                           |
-| [docs/adr/](docs/adr/)                             | Architecture decision records                                                  |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                 | Branches, commits, the verify gate, definition of done                         |
+Start with the one that matches what you are doing.
+
+### The system
+
+| Document                                     | Contents                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------ |
+| [docs/architecture.md](docs/architecture.md) | Request flow, the checkout and hold lifecycle, package graph, trust boundaries |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md)     | Where the schema encodes a decision: tenancy, money, seating, retention        |
+| [docs/api.md](docs/api.md)                   | REST reference: auth, errors, pagination, every endpoint                       |
+| [docs/PROVIDERS.md](docs/PROVIDERS.md)       | The four adapters, mock mode, webhook intake and dispatch                      |
+| [docs/DECISIONS.md](docs/DECISIONS.md)       | The authoritative decision index, including decisions that live in code        |
+| [docs/adr/](docs/adr/)                       | Architecture decision records                                                  |
+
+### Money
+
+| Document                                                         | Contents                                                                |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| [docs/PAYMENTS.md](docs/PAYMENTS.md)                             | Why production is unreachable, the PCI boundary, the two-phase boundary |
+| [docs/FINANCIAL_LEDGER.md](docs/FINANCIAL_LEDGER.md)             | Chart of accounts, batches, why reversal never edits history            |
+| [docs/REFUNDS_DISPUTES.md](docs/REFUNDS_DISPUTES.md)             | Refunds, disputes, transfers, payouts and the races each survives       |
+| [docs/STRIPE_CONNECT.md](docs/STRIPE_CONNECT.md)                 | The charge model, and what is not built                                 |
+| [docs/RECONCILIATION_RUNBOOK.md](docs/RECONCILIATION_RUNBOOK.md) | Working the queue for money in an unknown state                         |
+
+### Operations and safety
+
+| Document                                                   | Contents                                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------------------- |
+| [docs/SECURITY.md](docs/SECURITY.md)                       | Auth, MFA, step-up, authorization, audit, rotation, incident response |
+| [docs/PHASE2_THREAT_MODEL.md](docs/PHASE2_THREAT_MODEL.md) | Assets, actors, thirteen attacks, and what is out of scope            |
+| [docs/CHECK_IN.md](docs/CHECK_IN.md)                       | The door: credentials, idempotence, transfers                         |
+| [docs/UX.md](docs/UX.md)                                   | Screens, accessibility sweep, browser journeys counted honestly       |
+| [docs/LOAD_AND_CAPACITY.md](docs/LOAD_AND_CAPACITY.md)     | What the load suite measures, and why it is not capacity              |
+
+### Working here
+
+| Document                                               | Contents                                                                |
+| ------------------------------------------------------ | ----------------------------------------------------------------------- |
+| [docs/development.md](docs/development.md)             | Day-to-day workflow: services, env vars, migrations, debugging, testing |
+| [docs/language-policy.md](docs/language-policy.md)     | The JavaScript-only policy and the exception process                    |
+| [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | What CI enforces, and what needs external verification                  |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                     | Branches, commits, the verify gate, definition of done                  |
