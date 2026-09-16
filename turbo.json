@@ -1,0 +1,58 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalDependencies": [".env", ".nvmrc"],
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "JWT_SECRET",
+    "API_PORT",
+    "API_HOST",
+    "WEB_PORT",
+    "NEXT_PUBLIC_API_URL",
+    "NEXT_PUBLIC_SITE_URL",
+    "LOG_LEVEL",
+    "PLATFORM_FEE_BPS",
+    "PLATFORM_FEE_FLAT_CENTS"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "generated/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "start": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"]
+    },
+    "test:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "test:coverage": {
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"]
+    },
+    "test:e2e": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "outputs": ["playwright-report/**", "test-results/**"]
+    },
+    "generate": {
+      "cache": false,
+      "outputs": ["generated/**"]
+    }
+  }
+}

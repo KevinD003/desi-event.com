@@ -1,0 +1,11 @@
+-- Add REVOKED to VerificationStatus.
+--
+-- Distinct from the two states it could be confused with. REJECTED was never
+-- granted; SUSPENDED is a temporary hold that a moderator expects to lift.
+-- REVOKED is verification that was granted and then withdrawn, which is a
+-- different conversation with the organiser and a different row in a report.
+--
+-- `ADD VALUE` cannot run inside a transaction block in PostgreSQL before 12, and
+-- Prisma wraps migrations in one. `IF NOT EXISTS` makes the statement safe to
+-- re-run, which is what matters on a retry.
+ALTER TYPE "VerificationStatus" ADD VALUE IF NOT EXISTS 'REVOKED';

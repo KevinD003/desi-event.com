@@ -1,0 +1,395 @@
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
+
+import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
+
+import { STEP_UP_POLICY_NAMES } from '@desi-event/auth'
+import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
+
+import { API_ERRORS, apiRoutes, routeById } from './routes.js'
+import { assertContractValid, objectKeysOf, validateContract } from './validate.js'
+
+const run = promisify(execFile)
+const SCRIPT = fileURLToPath(new URL('../scripts/validate-contract.mjs', import.meta.url))
+
+/**
+ * Collect the issue codes a validation run produced.
+ *
+ * @param {{issues: Array<{code: string}>}} result A validation result.
+ * @returns {string[]} The codes, in order.
+ */
+function codes(result) {
+  return result.issues.map((issue) => issue.code)
+}
+
+describe('validateContract', () => {
+  it('passes for the real contract', () => {
+    const result = validateContract()
+
+    expect(result.issues).toEqual([])
+    expect(result.ok).toBe(true)
+    expect(result.routeCount).toBe(apiRoutes.length)
+    expect(result.document.openapi).toBe('3.1.0')
+  })
+
+  it('rejects an empty table', () => {
+    expect(codes(validateContract({ routes: [] }))).toContain('EMPTY_CONTRACT')
+  })
+
+  it('catches a missing required field', () => {
+    const { summary: _summary, ...broken } = routeById('events.list')
+    const result = validateContract({ routes: [broken] })
+
+    expect(codes(result)).toContain('MISSING_FIELD')
+    expect(result.ok).toBe(false)
+  })
+
+  it('catches an empty summary or description', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), summary: '  ' }] })),
+    ).toContain('MISSING_SUMMARY')
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), description: '' }] })),
+    ).toContain('MISSING_DESCRIPTION')
+  })
+
+  it('catches a duplicated route id', () => {
+    const route = routeById('events.list')
+    const result = validateContract({ routes: [route, { ...route, path: '/v1/elsewhere' }] })
+
+    expect(codes(result)).toContain('DUPLICATE_ID')
+  })
+
+  it('catches two routes colliding on method and path', () => {
+    const route = routeById('events.list')
+    const result = validateContract({ routes: [route, { ...route, id: 'events.other' }] })
+
+    expect(codes(result)).toContain('DUPLICATE_ROUTE')
+  })
+
+  it('catches a collision that differs only in the parameter name', () => {
+    const result = validateContract({
+      routes: [
+        routeById('events.get'),
+        { ...routeById('events.get'), id: 'events.byId', path: '/v1/events/:id' },
+      ],
+    })
+
+    expect(codes(result)).toContain('DUPLICATE_ROUTE')
+  })
+
+  it('catches an unsupported method and an unknown auth mode', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), method: 'TRACE' }] })),
+    ).toContain('BAD_METHOD')
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), auth: 'cookie' }] })),
+    ).toContain('BAD_AUTH')
+  })
+
+  it('catches a path that does not start with a slash', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), path: 'v1/events' }] })),
+    ).toContain('BAD_PATH')
+  })
+
+  it('catches an id that is not a dotted namespace pair', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), id: 'eventsList' }] })),
+    ).toContain('BAD_ID')
+  })
+
+  it('catches a schema slot holding something that is not a Zod schema', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), query: { shape: {} } }] })),
+    ).toContain('BAD_SCHEMA')
+  })
+
+  it('catches a missing response schema', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), response: null }] })),
+    ).toContain('MISSING_RESPONSE')
+  })
+
+  it('catches a non-2xx success status', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), successStatus: 302 }] })),
+    ).toContain('BAD_SUCCESS_STATUS')
+  })
+
+  it('catches a path parameter with no params schema', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.get'), params: null }] })),
+    ).toContain('MISSING_PARAMS_SCHEMA')
+  })
+
+  it('catches a params schema on a path with no parameters', () => {
+    expect(
+      codes(
+        validateContract({
+          routes: [{ ...routeById('events.list'), params: z.object({ id: z.string() }) }],
+        }),
+      ),
+    ).toContain('UNUSED_PARAMS_SCHEMA')
+  })
+
+  it('catches a body declared on a GET', () => {
+    expect(
+      codes(
+        validateContract({
+          routes: [{ ...routeById('events.list'), body: z.object({ a: z.string() }) }],
+        }),
+      ),
+    ).toContain('BODY_ON_BODYLESS_METHOD')
+  })
+
+  it('catches a malformed error catalogue entry', () => {
+    expect(
+      codes(
+        validateContract({ routes: [{ ...routeById('events.list'), errors: [{ status: 400 }] }] }),
+      ),
+    ).toContain('BAD_ERROR_ENTRY')
+  })
+
+  it('catches the same error status documented twice', () => {
+    expect(
+      codes(
+        validateContract({
+          routes: [
+            {
+              ...routeById('events.list'),
+              errors: [API_ERRORS.validation, { ...API_ERRORS.validation }],
+            },
+          ],
+        }),
+      ),
+    ).toContain('DUPLICATE_ERROR_STATUS')
+  })
+
+  it('catches a route with no tags', () => {
+    expect(
+      codes(validateContract({ routes: [{ ...routeById('events.list'), tags: [] }] })),
+    ).toContain('MISSING_TAGS')
+  })
+
+  it('reports generation failure rather than letting it escape', () => {
+    const result = validateContract({ routes: [{ ...routeById('events.list'), response: {} }] })
+
+    expect(codes(result)).toContain('GENERATION_FAILED')
+    expect(result.document).toBeNull()
+  })
+
+  it('handles a table entry that is not an object at all', () => {
+    expect(codes(validateContract({ routes: [null] }))).toContain('NOT_AN_OBJECT')
+  })
+})
+
+describe('capability scope, the other half of NF-05', () => {
+  // NF-05 was a capability guard that asserted with no organisation whenever it
+  // could not find one — which refuses every organiser and passes every platform
+  // admin. The first fix let a route *declare* where the organisation is. These
+  // tests cover the ways a route could still avoid declaring it, or declare it
+  // wrongly, and end up back at the inverted check.
+
+  it('refuses an organisation-scoped capability with no scope at all', () => {
+    const { capabilityScope: _scope, ...route } = routeById('teams.list')
+    const result = validateContract({ routes: [route] })
+
+    expect(codes(result)).toContain('CAPABILITY_SCOPE_REQUIRED')
+    expect(result.ok).toBe(false)
+  })
+
+  it('refuses a scope naming a key the schema does not declare', () => {
+    // The exact NF-05 shape: the path spells it `id`, somebody writes
+    // `organizationId`, and at runtime the value is undefined.
+    const route = { ...routeById('teams.list'), capabilityScope: 'params.organizationId' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('CAPABILITY_SCOPE_UNKNOWN_KEY')
+  })
+
+  it('refuses a scope naming an optional field', () => {
+    const route = {
+      ...routeById('teams.list'),
+      params: z.object({ id: z.string().optional() }),
+    }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('CAPABILITY_SCOPE_OPTIONAL')
+  })
+
+  it('refuses a scope whose request part the route does not have', () => {
+    const route = { ...routeById('teams.list'), capabilityScope: 'body.organizationId' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('CAPABILITY_SCOPE_MISSING_PART')
+  })
+
+  it('refuses a scope that is not a part-and-key pair', () => {
+    const route = { ...routeById('teams.list'), capabilityScope: 'organizationId' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('BAD_CAPABILITY_SCOPE')
+  })
+
+  it('refuses a scope on a platform-only capability, where it would be ignored', () => {
+    const route = {
+      ...routeById('teams.list'),
+      capability: 'platform:admin',
+      capabilityScope: 'params.id',
+    }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('PLATFORM_CAPABILITY_WITH_SCOPE')
+  })
+
+  it('accepts a platform-only capability with no scope', () => {
+    const { capabilityScope: _scope, ...base } = routeById('teams.list')
+    const route = { ...base, capability: 'platform:admin' }
+
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
+  it('accepts no capability at all, for a route that asserts in its handler', () => {
+    const { capability: _capability, capabilityScope: _scope, ...route } = routeById('teams.list')
+
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
+  it('still refuses a scope with no capability beside it', () => {
+    const { capability: _capability, ...route } = routeById('teams.list')
+
+    expect(codes(validateContract({ routes: [route] }))).toContain(
+      'CAPABILITY_SCOPE_WITHOUT_CAPABILITY',
+    )
+  })
+
+  it('requires every organisation-scoped capability in the real contract to name its scope', () => {
+    // A standing assertion rather than a one-off: it fails the moment somebody
+    // adds a route that declares an organisation capability and forgets the scope.
+    const offenders = apiRoutes
+      .filter((route) => route.capability && !PLATFORM_ONLY_CAPABILITIES.includes(route.capability))
+      .filter((route) => !route.capabilityScope)
+      .map((route) => route.id)
+
+    expect(offenders).toEqual([])
+  })
+})
+
+describe('objectKeysOf', () => {
+  it('reads a plain object schema', () => {
+    const shape = objectKeysOf(z.object({ id: z.string(), note: z.string().optional() }))
+
+    expect([...shape.keys]).toEqual(['id', 'note'])
+    expect([...shape.required]).toEqual(['id'])
+  })
+
+  it('reads through a preprocess pipe, which is how this repository coerces', () => {
+    const schema = z.preprocess((value) => value, z.object({ id: z.string() }))
+    const shape = objectKeysOf(schema)
+
+    expect([...shape.keys]).toEqual(['id'])
+    expect([...shape.required]).toEqual(['id'])
+  })
+
+  it('treats a defaulted field as optional, because the request may omit it', () => {
+    const shape = objectKeysOf(z.object({ page: z.number().default(1) }))
+
+    expect([...shape.required]).toEqual([])
+  })
+
+  it('returns null for something that is not an object schema', () => {
+    expect(objectKeysOf(z.string())).toBeNull()
+    expect(objectKeysOf(null)).toBeNull()
+  })
+})
+
+describe('assertContractValid', () => {
+  it('returns the document for a valid contract', () => {
+    expect(assertContractValid().openapi).toBe('3.1.0')
+  })
+
+  it('throws with every issue listed', () => {
+    const route = routeById('events.list')
+
+    expect(() =>
+      assertContractValid({ routes: [route, { ...route, id: 'events.other' }] }),
+    ).toThrow(/Invalid API contract/)
+    expect(() =>
+      assertContractValid({ routes: [route, { ...route, id: 'events.other' }] }),
+    ).toThrow(/DUPLICATE_ROUTE/)
+  })
+})
+
+describe('scripts/validate-contract.mjs', () => {
+  it('exits 0 and reports the route count for the real contract', async () => {
+    const { stdout } = await run(process.execPath, [SCRIPT])
+
+    expect(stdout).toContain('API contract is valid')
+    expect(stdout).toContain(`${apiRoutes.length} routes`)
+  })
+
+  it('emits machine-readable output with --json', async () => {
+    const { stdout } = await run(process.execPath, [SCRIPT, '--json'])
+    const parsed = JSON.parse(stdout)
+
+    expect(parsed).toMatchObject({ ok: true, routeCount: apiRoutes.length, issues: [] })
+  })
+
+  it('writes the document when asked', async () => {
+    const { readFile, rm } = await import('node:fs/promises')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const target = join(tmpdir(), `desi-openapi-${process.pid}.json`)
+
+    try {
+      await run(process.execPath, [SCRIPT, '--out', target])
+      const written = JSON.parse(await readFile(target, 'utf8'))
+
+      expect(written.openapi).toBe('3.1.0')
+      expect(Object.keys(written.paths).length).toBeGreaterThan(0)
+    } finally {
+      await rm(target, { force: true })
+    }
+  })
+})
+
+describe('step-up policy, finding NF-11', () => {
+  // `stepUp` used to be a boolean and every sensitive action shared one
+  // fifteen-minute window. It is now a named policy, chosen by the contract —
+  // which is what stops a browser from selecting or widening its own window.
+
+  it('accepts a known policy name', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: 'FINANCE_ACTION' }
+
+    expect(codes(validateContract({ routes: [route] }))).toEqual([])
+  })
+
+  it('refuses a boolean, which is what it used to be', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: true }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('BAD_STEP_UP')
+  })
+
+  it('refuses a policy nobody defined', () => {
+    const route = { ...routeById('auth.disableFactor'), stepUp: 'WHENEVER' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('BAD_STEP_UP')
+  })
+
+  it('refuses step-up on a route that identifies nobody', () => {
+    const route = { ...routeById('auth.disableFactor'), auth: 'none' }
+
+    expect(codes(validateContract({ routes: [route] }))).toContain('STEP_UP_WITHOUT_AUTH')
+  })
+
+  it('every step-up route in the real contract names a policy', () => {
+    const offenders = apiRoutes
+      .filter((route) => route.stepUp)
+      .filter((route) => !STEP_UP_POLICY_NAMES.includes(route.stepUp))
+      .map((route) => route.id)
+
+    expect(offenders).toEqual([])
+  })
+
+  it('removing a second factor uses the tightest window, not the finance one', () => {
+    expect(routeById('auth.disableFactor').stepUp).toBe('CREDENTIAL')
+  })
+})

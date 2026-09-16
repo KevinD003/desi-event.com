@@ -1,0 +1,21 @@
+# Dependency and build output: not ours to format.
+node_modules/
+.next/
+.turbo/
+dist/
+build/
+coverage/
+generated/
+playwright-report/
+test-results/
+
+# Machine-generated. Reformatting a lockfile is noise at best and a merge
+# conflict at worst.
+pnpm-lock.yaml
+
+# Prisma owns this format, and its own tooling writes it.
+packages/db/prisma/migrations/
+*.prisma
+
+# Generated from the route contract by `pnpm openapi:emit`.
+apps/api/openapi.json

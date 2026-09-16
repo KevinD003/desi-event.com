@@ -1,0 +1,83 @@
+/*
+ * Global stylesheet for the Desi-Event web app.
+ *
+ * The design tokens — the marigold and indigo-night ramps, the display and
+ * body font stacks, the card radius — come from the shared theme, so the app
+ * and `@desi-event/ui` cannot drift apart. Importing the library's stylesheet
+ * pulls in that theme *and* registers the library's own JSX as a Tailwind
+ * source, which it has to be: Tailwind v4 only emits the utilities it can see
+ * used, and the library ships source rather than compiled CSS.
+ */
+
+@import '@desi-event/ui/styles.css';
+
+/* This app's own sources, relative to this file (src/app → src). */
+@source '../';
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-marigold-50);
+    color: var(--color-slate-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Headings are the one place the serif display face is used. The body face
+   * stays a system stack: no webfont request means no flash of invisible text
+   * and no third-party dependency on first paint.
+   */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /*
+   * A visible focus ring for anything that has not styled its own. Never
+   * `outline: none` without a replacement — keyboard users navigate by it.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-marigold-600);
+    outline-offset: 2px;
+  }
+
+  /* The skip link's target should not draw a ring when moved to programmatically. */
+  main:focus {
+    outline: none;
+  }
+}
+
+@layer components {
+  /*
+   * The skip link sits off-screen until focused, then pins itself to the top
+   * left. It is the first thing in the tab order on every page.
+   */
+  .skip-link {
+    position: absolute;
+    left: 0.75rem;
+    top: -4rem;
+    z-index: 100;
+    border-radius: 0.5rem;
+    background-color: var(--color-indigo-night-900);
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: white;
+    transition: top 150ms ease;
+  }
+
+  .skip-link:focus {
+    top: 0.75rem;
+  }
+}

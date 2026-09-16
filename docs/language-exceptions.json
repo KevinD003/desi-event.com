@@ -1,0 +1,4 @@
+{
+  "$comment": "Registry of approved non-JavaScript components. Empty by design: Phase 1 is implemented entirely in JavaScript. See docs/language-policy.md section 6 for the fields every entry must carry before any non-JavaScript source may be merged.",
+  "exceptions": []
+}

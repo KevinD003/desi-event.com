@@ -1,0 +1,27 @@
+{
+  "name": "@desi-event/permissions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Role based access control: roles, capabilities and authorization checks.",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@desi-event/config": "workspace:*",
+    "@vitest/coverage-v8": "^5.0.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

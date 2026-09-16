@@ -1,0 +1,27 @@
+{
+  "name": "@desi-event/notifications",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The outbox state machine: what a message may become, when it is tried again, and what a lease means.",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@desi-event/config": "workspace:*",
+    "@vitest/coverage-v8": "^5.0.0",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

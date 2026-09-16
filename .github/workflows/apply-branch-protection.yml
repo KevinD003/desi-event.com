@@ -1,0 +1,80 @@
+name: Apply branch protection
+
+# Manual only, and deliberately so. This is the one workflow in this repository
+# that changes repository settings rather than checking code, so it must never
+# be reachable from a pull request — least of all from a fork's. `workflow_dispatch`
+# is the whole trigger list: no `push`, no `pull_request`, no schedule.
+#
+# Note for whoever runs it: GitHub only offers the "Run workflow" button for
+# workflows present on the **default branch**. Until this file reaches `main`,
+# it cannot be dispatched from a feature branch.
+on:
+  workflow_dispatch:
+    inputs:
+      verify_only:
+        description: 'Report what main enforces without writing anything'
+        type: boolean
+        default: false
+
+# The job authenticates as the GitHub App, not as GITHUB_TOKEN, so the default
+# token needs nothing beyond reading this repository's own code.
+permissions:
+  contents: read
+
+concurrency:
+  group: apply-branch-protection
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Apply branch protection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      # Mints an installation token that expires in an hour, from secrets this
+      # job never reads itself. Actions masks the minted token in logs, and
+      # nothing below echoes it: it is passed to the script through the
+      # environment and used only as a request header.
+      - name: Mint a short-lived App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      # The mode goes through the environment rather than being interpolated
+      # into the shell line. `verify_only` is a boolean and so cannot carry
+      # arbitrary text, but a workflow that writes repository settings is the
+      # wrong place to rely on that.
+      - name: Apply the approved ruleset
+        env:
+          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          MODE: ${{ inputs.verify_only && '--verify-only' || '' }}
+        run: node scripts/apply-branch-protection.mjs $MODE
+
+      # Revoking is not strictly required — the token expires within the hour —
+      # but a credential that is dead the moment it is no longer needed is one
+      # fewer thing to reason about if a log is ever shared.
+      - name: Revoke the token
+        if: always()
+        env:
+          GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          curl --silent --show-error --output /dev/null \
+            --write-out 'token revocation: HTTP %{http_code}\n' \
+            --request DELETE \
+            --header "Authorization: Bearer $GITHUB_APP_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            https://api.github.com/installation/token

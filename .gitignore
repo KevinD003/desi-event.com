@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# Test output
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Prisma generated client
+packages/db/generated/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Redis writes this into whatever directory it was started in.
+dump.rdb
+
+# Vitest JSON reports, written by CI so the skipped-test check has something to
+# read. Never committed: they are a record of one run on one machine.
+vitest-report.json
+
+# Load-run records. Written per run, machine-specific, and not evidence anybody
+# else can use — the numbers belong in a report somebody wrote, not in the tree.
+load-results/

@@ -1,0 +1,344 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the run it supersedes. Nothing here
+# deploys, so an interrupted run leaves nothing half-done.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Shared by every job. No secret is read from the repository and none is needed:
+# payments run in mock mode, which is the only mode this application has, and a
+# job that could reach a real provider would be a job that could take money.
+env:
+  TURBO_TELEMETRY_DISABLED: '1'
+  NEXT_TELEMETRY_DISABLED: '1'
+  # PostgreSQL is not optional in CI. Set here rather than per-step so a suite
+  # added later inherits it: an unreachable database becomes a failure instead
+  # of a skip, and a skip reads exactly like success in a summary line.
+  REQUIRE_DATABASE: '1'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Everything that needs no browser. Ordered cheapest-first so a pull request
+  # that breaks the one rule this repository exists to enforce is told so in a
+  # second rather than after a runner has compiled it.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Policy, lint, contract, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: desi
+          POSTGRES_PASSWORD: desi
+          POSTGRES_DB: desi_event
+        ports:
+          - 5432:5432
+        # Without the health check the job races the container: the port is
+        # bound before PostgreSQL is ready to answer, and migrate deploy fails.
+        options: >-
+          --health-cmd "pg_isready -U desi -d desi_event"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event?schema=public
+      TEST_DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      # 48 characters, CI-only. `apiEnvSchema` requires at least 32 and rejects
+      # obvious placeholders when NODE_ENV=production, which CI never sets.
+      JWT_SECRET: ci-only-jwt-secret-not-used-outside-github-runner
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      PLATFORM_FEE_BPS: '590'
+      PLATFORM_FEE_FLAT_CENTS: '99'
+      TICKET_HOLD_TTL_SECONDS: '600'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # pnpm must be installed before setup-node, otherwise `cache: pnpm` has
+      # no store path to cache.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The dependency cache is for node_modules and nothing else. Turborepo's
+      # task cache is deliberately not restored: a cached `build` would hide
+      # exactly the drift the OpenAPI and route-manifest checks exist to catch,
+      # and a cached `test` would report a pass for code this run never ran.
+      - name: Refuse a stale task cache
+        run: rm -rf .turbo */.turbo */*/.turbo
+
+      - name: Language policy
+        run: pnpm run policy:check
+
+      # Cheap, and both properties it checks were broken on this pull request
+      # while every green run said nothing. See the script's own header.
+      - name: CI invariants
+        run: pnpm run ci:check
+
+      - name: Secret scan
+        run: pnpm run secrets:scan
+
+      - name: Format check
+        run: pnpm run format:check
+
+      - name: Lint
+        run: pnpm run lint
+
+      # Structural validation before anything is generated from the contract: a
+      # duplicate route id or a colliding path fails here rather than in the
+      # published document.
+      - name: Validate API contract
+        run: pnpm --filter @desi-event/api-contract run validate
+
+      - name: Create the test database
+        run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_test'
+
+      - name: Apply migrations
+        run: |
+          pnpm run db:migrate:deploy
+          DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
+
+      # Unit and integration tests, with a JSON report per package so the
+      # skipped-test check below has something to read.
+      - name: Test
+        run: pnpm run test -- --reporter=default --reporter=json --outputFile.json=vitest-report.json
+
+      # A skipped test is neither a pass nor a failure, and "0 failed" is read
+      # as success by everybody who does not count the other column.
+      - name: Refuse an undeclared skipped test
+        run: node scripts/check-skipped-tests.mjs $(find . -name vitest-report.json -not -path '*/node_modules/*')
+
+      # The pure-logic packages carry coverage thresholds, and a threshold
+      # nothing runs is a decoration. This step is here because the thresholds
+      # were not being enforced anywhere: `@desi-event/notifications` sat at 75%
+      # function coverage against its own 80% floor, and the two uncovered
+      # functions turned out to disagree with every call site that should have
+      # been calling them.
+      - name: Coverage thresholds
+        run: pnpm run test:coverage
+
+      - name: Fresh-database verification
+        run: pnpm run db:verify:fresh
+
+      - name: Upgrade-database verification
+        run: pnpm run db:verify:upgrade
+
+      - name: Build
+        run: pnpm run build
+
+      - name: OpenAPI drift
+        run: pnpm run openapi:check
+
+      # The generated route manifest is what the browser client places requests
+      # from. It is schema-free on purpose (finding NF-23), and a regenerated
+      # one that differs means a route changed without the manifest following.
+      - name: Route-manifest drift
+        run: |
+          pnpm run manifest:emit
+          git diff --exit-code -- packages/api-contract/src/route-manifest.js apps/api/openapi.json
+
+      - name: Browser bundle scan
+        run: pnpm run bundle:scan
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level moderate
+
+      # Not a formality. The kill switch is what makes production payments
+      # unreachable rather than merely unconfigured, and a CI run that could
+      # reach a real provider would be a CI run that could take money.
+      - name: Production payments are unreachable
+        run: pnpm --filter @desi-event/api exec vitest run tests/payment-kill-switch.test.js
+
+      # A reliability smoke test rather than the whole load suite. The three
+      # contention scenarios are the ones whose failure modes only appear under
+      # concurrency — overselling a tier, selling one seat twice, admitting one
+      # ticket at two doors — and each checks its correctness invariants against
+      # the database afterwards. A broken invariant fails this step whatever the
+      # latency did.
+      #
+      # The ramp profile, because a runner's cores are shared and unpredictable:
+      # what is being asserted here is correctness under contention, and holding
+      # a noisy-neighbour runner to a laptop's p95 would produce a flaky gate
+      # that people learn to re-run.
+      - name: Reliability smoke test
+        run: |
+          for scenario in ga-hold-contention seat-hold-contention check-in-concurrency; do
+            pnpm run load -- --profile ramp --scenario "$scenario" --no-write
+          done
+
+      - name: Upload failure artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-artefacts
+          path: |
+            **/vitest-report.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # The browser suites, one job per suite.
+  #
+  # A matrix rather than one job, because each suite starts its own API and its
+  # own Next server on its own ports, and running two in one job means two pairs
+  # of servers contending for one runner's CPU. The documented server-start
+  # failures came from exactly that.
+  # ---------------------------------------------------------------------------
+  browser:
+    name: Browser — ${{ matrix.suite.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    # Independent of `verify` on purpose: the two report different classes of
+    # failure, and a developer wants both answers from one push rather than the
+    # second only after the first goes green.
+    strategy:
+      fail-fast: false
+      # Two at a time. The runner has two cores; a third concurrent suite would
+      # be three Next servers and three API processes on them.
+      max-parallel: 2
+      matrix:
+        suite:
+          - name: public catalogue
+            script: test:e2e
+          - name: production build
+            script: test:e2e:prod
+          - name: organiser venue maps
+            script: test:e2e:organizer
+          - name: event lifecycle
+            script: test:e2e:events
+          - name: refusals
+            script: test:e2e:refusals
+          - name: accessibility sweep
+            script: test:e2e:sweep
+          # The four surfaces this cycle added, exercised as behaviour rather
+          # than as markup: figures that came out of the ledger, evidence with
+          # both sides and no provider payload, a refund screen that offers only
+          # the step its state allows, and a transfer whose invitation never
+          # reaches a web address. One job rather than four, because four would
+          # be four API processes and four Next servers on a two-core runner;
+          # each is separately runnable locally as `test:e2e:analytics` and its
+          # three siblings.
+          - name: commerce and operations detail
+            script: test:e2e:detail
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: desi
+          POSTGRES_PASSWORD: desi
+          POSTGRES_DB: desi_event
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U desi -d desi_event"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event?schema=public
+      TEST_DATABASE_URL: postgresql://desi:desi@127.0.0.1:5432/desi_event_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_SECRET: ci-only-jwt-secret-not-used-outside-github-runner
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000
+      NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      WEB_E2E_PORT: '3210'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @desi-event/web exec playwright install --with-deps chromium
+
+      - name: Create the test database
+        run: PGPASSWORD=desi psql -h 127.0.0.1 -U desi -d desi_event -c 'CREATE DATABASE desi_event_test'
+
+      - name: Apply migrations
+        run: DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
+
+      - name: Run ${{ matrix.suite.name }}
+        run: pnpm run ${{ matrix.suite.script }}
+
+      # The suite's name, not its script. Every script is a pnpm task of the
+      # form `test:e2e:detail`, and `actions/upload-artifact` rejects a colon
+      # in an artefact name — so this step failed on `bdefff9` with "The
+      # artifact name is not valid: playwright-test:e2e", discarding the sixty
+      # report files the failure had just produced. It runs only `if: failure()`,
+      # so no green run can ever expose it: the upload is skipped on every run
+      # that passes, and on the one run that needed it, it threw the evidence
+      # away. `name` carries spaces rather than colons and is already unique
+      # per matrix leg.
+      - name: Upload Playwright artefacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.suite.name }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+          if-no-files-found: ignore

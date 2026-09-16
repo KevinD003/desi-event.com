@@ -1,0 +1,582 @@
+# REST API
+
+The Desi-Event HTTP API, as it exists. Every endpoint below is declared in
+`packages/api-contract/src/routes.js`, registered from that same descriptor by
+`apps/api/src/routes/`, and published in the generated OpenAPI document. A route
+that is not in the contract does not exist.
+
+## Base URL and versioning
+
+| Environment       | Base URL                |
+| ----------------- | ----------------------- |
+| Local development | `http://127.0.0.1:4000` |
+
+Business endpoints sit behind `/v1`. `GET /health` is deliberately unversioned:
+a load balancer probing liveness should not have to know which version of the
+API is deployed.
+
+## Live documentation
+
+With the API running:
+
+- **http://127.0.0.1:4000/docs** — Swagger UI. Every operation is executable
+  against your local instance, including `Authorize` for a bearer token.
+- **http://127.0.0.1:4000/openapi.json** — the raw OpenAPI 3.1 document.
+
+The document is not inferred from whatever routes Fastify happens to have. It
+is built by `buildOpenApiDocument()` from the same descriptors the routes are
+registered with, and served verbatim, so the published contract and the
+enforced contract are one artefact. `pnpm build` also writes it to
+`apps/api/openapi.json`; `pnpm contract:check` fails the build if the contract
+is structurally incoherent.
+
+`/docs` is exempt from rate limiting — throttling documentation only makes the
+API look broken to somebody reading about it.
+
+## Authentication
+
+Bearer JWT. Obtain one by registering or signing in:
+
+```bash
+curl -s http://127.0.0.1:4000/v1/auth/register \
+  -H 'content-type: application/json' \
+  -d '{
+        "email": "priya@example.com",
+        "password": "correct-horse-battery-staple",
+        "displayName": "Priya Nair",
+        "role": "ORGANIZER"
+      }'
+```
+
+```bash
+curl -s http://127.0.0.1:4000/v1/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"email":"priya@example.com","password":"correct-horse-battery-staple"}'
+```
+
+Both answer with the same envelope:
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…",
+  "tokenType": "Bearer",
+  "expiresIn": "7d",
+  "user": {
+    "id": "clx…",
+    "email": "priya@example.com",
+    "displayName": "Priya Nair",
+    "role": "ORGANIZER"
+  }
+}
+```
+
+Send it on subsequent requests:
+
+```bash
+curl -s http://127.0.0.1:4000/v1/auth/me -H "authorization: Bearer $TOKEN"
+```
+
+Notes that matter:
+
+- Registration accepts only `ATTENDEE` and `ORGANIZER`. `ADMIN` is granted out
+  of band.
+- Token lifetime comes from `JWT_EXPIRES_IN` (default `7d`).
+- The token carries identity only — never memberships. Organisation roles are
+  re-read from the database on every request, so a revoked membership takes
+  effect immediately rather than when the token lapses.
+- Login answers 401 identically for a wrong password and an unknown email, and
+  takes the same time in both cases. The endpoint cannot be used to enumerate
+  accounts.
+- Against seeded data, every account's password is `DesiEvent!2026`.
+
+### Auth modes
+
+Each route declares one of three modes, and the declaration is what is
+enforced — the guard is selected from the descriptor, so a route cannot be left
+unprotected by forgetting to add one.
+
+| Mode       | Meaning                                                                                                                                                         |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `none`     | No credential is read                                                                                                                                           |
+| `bearer`   | A valid token is required; otherwise 401                                                                                                                        |
+| `optional` | Anonymous is allowed, but a token that _is_ present must be valid. A malformed or expired token still answers 401 rather than silently downgrading to anonymous |
+
+`optional` is what lets an organiser see their own draft events from the same
+endpoint the public uses, and what lets a guest check out without an account.
+
+### Authorization
+
+Authentication establishes who; authorization is separate. Once the actor is
+loaded, capability checks come from `@desi-event/permissions`
+(`assertCan(actor, capability, { organizationId })`) — no route compares a role
+itself. A failure is `403 FORBIDDEN`. Capabilities include `event:create`,
+`event:update`, `event:publish`, `event:view_draft`, `ticketType:manage`,
+`order:view`, `order:refund`, `ticket:check_in`, `organization:manage`,
+`promo:manage`, `report:view` and `platform:admin`.
+
+A resource you may not see answers `404`, not `403`, when telling the two apart
+would itself leak information — a draft event, for instance.
+
+## Error responses
+
+Every failure — validation, authorization, a lost inventory race, an outright
+bug — leaves through one handler in one shape:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "statusCode": 400,
+    "issues": [
+      { "path": "quantity", "code": "too_small", "message": "Too small: expected number to be >=1" }
+    ],
+    "requestId": "DE-8F3K2Q"
+  }
+}
+```
+
+| Field        | Always present           | Meaning                                                    |
+| ------------ | ------------------------ | ---------------------------------------------------------- |
+| `code`       | yes                      | Machine-readable. Branch on this, never on `message`       |
+| `message`    | yes                      | Human-readable. Safe to show a user                        |
+| `statusCode` | yes                      | Mirrors the HTTP status                                    |
+| `issues`     | validation failures only | One entry per offending field: `path`, `code`, `message`   |
+| `requestId`  | yes                      | Echoes the id in the server logs. Quote it in a bug report |
+
+### Codes
+
+| Status | Code                    | When                                                                                    |
+| ------ | ----------------------- | --------------------------------------------------------------------------------------- |
+| 400    | `VALIDATION_ERROR`      | The request failed schema validation; see `issues`                                      |
+| 401    | `UNAUTHORIZED`          | Bearer token missing, malformed or expired                                              |
+| 403    | `FORBIDDEN`             | Authenticated, but lacking the required capability                                      |
+| 404    | `NOT_FOUND`             | No such resource, or it is not visible to this caller                                   |
+| 409    | `CONFLICT`              | Collides with current state: a duplicate slug, a hold already spent                     |
+| 410    | `HOLD_EXPIRED`          | The hold the request depends on has lapsed                                              |
+| 422    | `UNPROCESSABLE`         | Well-formed but not actionable: sold out, outside the sales window, event not published |
+| 429    | `RATE_LIMITED`          | Too many attempts; the message says how long to wait                                    |
+| 500    | `INTERNAL_SERVER_ERROR` | A bug. In production the message is fixed and the detail stays in the logs              |
+| 503    | `SERVICE_UNAVAILABLE`   | The database is unreachable                                                             |
+
+Domain packages set these themselves — `InventoryError` carries
+`INSUFFICIENT_INVENTORY`, `BELOW_MINIMUM`, `ABOVE_MAXIMUM` and friends with
+their own statuses, and the handler reports what the package decided rather
+than re-deriving it.
+
+## Pagination
+
+Every list endpoint takes the same two query parameters and returns the same
+metadata block.
+
+| Parameter | Default | Bounds    |
+| --------- | ------- | --------- |
+| `page`    | `1`     | 1 – 10000 |
+| `perPage` | `20`    | 1 – 100   |
+
+```json
+{
+  "data": [ … ],
+  "pagination": {
+    "page": 2,
+    "perPage": 20,
+    "total": 137,
+    "totalPages": 7,
+    "hasNextPage": true,
+    "hasPreviousPage": true
+  }
+}
+```
+
+Offset pagination, ordered deterministically (a tie-break on `id`) so a row
+does not slip between pages. Values arrive from a URL as strings and are
+coerced, so `?page=2` and `?page=2&perPage=50` both work.
+
+## Response envelopes
+
+| Shape                                           | Used by                       |
+| ----------------------------------------------- | ----------------------------- |
+| `{ "data": … }`                                 | Every resource endpoint       |
+| `{ "data": [ … ], "pagination": { … } }`        | Every list endpoint           |
+| `{ "token", "tokenType", "expiresIn", "user" }` | `auth.register`, `auth.login` |
+| `{ "ok": true }`                                | `holds.release`               |
+| flat object                                     | `GET /health`                 |
+
+Responses are serialised _through_ their schema, so a handler cannot leak a
+field the contract does not declare — a password hash cannot escape by
+accident.
+
+## Rate limits
+
+| Scope                                           | Budget                             |
+| ----------------------------------------------- | ---------------------------------- |
+| Global                                          | 300 requests per minute per client |
+| `POST /v1/auth/register`, `POST /v1/auth/login` | 10 per minute                      |
+| `/docs`                                         | Exempt                             |
+
+The limiter currently uses an in-process store, so budgets are per API instance
+rather than per cluster.
+
+## Endpoints
+
+**118 operations across 18 tags.** This page describes the ones whose behaviour
+needs prose; the **generated OpenAPI document is authoritative** for the full
+list, its schemas and its error catalogue, and it cannot drift because
+`pnpm openapi:emit` regenerates it from the same descriptors the server
+validates with, and CI fails on a difference.
+
+| Tag            | Ops | Tag          | Ops |
+| -------------- | --- | ------------ | --- |
+| `events`       | 23  | `finance`    | 10  |
+| `auth`         | 18  | `tickets`    | 8   |
+| `venues`       | 12  | `refunds`    | 7   |
+| `operations`   | 11  | `teams`      | 6   |
+| `ticket-types` | 5   | `organizers` | 4   |
+| `orders`       | 3   | `holds`      | 2   |
+| `sessions`     | 2   | `webhooks`   | 2   |
+| `analytics`    | 2   | `payments`   | 1   |
+| `health`       | 1   | `waitlist`   | 1   |
+
+`Auth` is the mode described above.
+
+### Four properties that hold across every route
+
+**A route cannot exist without being in the contract.** `defineRoute` takes a
+descriptor and refuses an id that is not published, so there is no
+hand-registered endpoint and no route the OpenAPI document does not know about.
+
+**The response schema is an allow list.** `zodSerializerCompiler` strips unknown
+keys, so a field is emitted only if the schema names it. That is the second of
+two allow lists; the first is the presenter.
+
+**An organisation capability names its scope.** A route asserting an
+organisation capability must declare the request field carrying the organisation
+id. A contract test walks every route and fails one that does not — unscoped,
+the check inverts into a platform check (see `docs/SECURITY.md`, NF-05).
+
+**A step-up window is a named server policy.** A route names
+`FINANCE_ACTION`, never a number of minutes. A test asserts every named policy
+exists and that every route tagged `analytics`, `finance` or `refunds` has one —
+or, for the two analytics routes, that the _branch_ carrying money applies the
+same window from the same table. That exemption is on a list and the test beside
+it proves the branch is gated; an exemption without such a test would be a hole
+rather than a design.
+
+### Analytics
+
+| Method | Path                       | Auth    | Purpose                                                      |
+| ------ | -------------------------- | ------- | ------------------------------------------------------------ |
+| GET    | `/v1/analytics/summary`    | session | Money, inventory, attendance and operations, in one call     |
+| GET    | `/v1/analytics/export.csv` | session | The same figures as a spreadsheet, under a column allow list |
+
+**`organizationId` is required, not optional.** There is no platform-wide
+analytics view, and an optional organisation is how an organisation capability
+quietly becomes a platform one.
+
+**Two capabilities, one route.** `report:view` reaches every organisation role
+from VIEWER upward and gets the counts. The ledger figures are **omitted from
+the payload** unless the caller also holds `finance:view` _and_ has confirmed a
+second factor within the `FINANCE_VIEW` window. Not hidden by the screen: a page
+that rendered them behind a conditional would still have been sent them.
+`moneyWithheld` says which of the two was missing — `CAPABILITY` is permanent,
+`STEP_UP` is something the reader can fix — and the sales breakdowns lose their
+value columns along with the totals, because a table headed "sales by event" is
+the quiet way money escapes a permission check.
+
+**Money comes from the ledger**, through the same `financeSummary` the finance
+screen uses, so the two surfaces cannot disagree. Everything else is counted
+from the rows that are the fact. `lineValueCents` is called that rather than
+"revenue" because an order line's value is what it was priced at, and what the
+organisation keeps is a different figure computed a different way.
+
+**The conversion funnel is not invented.** Nothing here records a page view, so
+the step everybody means by "conversion" does not exist as data. Three real
+counts are reported — holds taken, orders created, orders paid — and
+`funnel.missing` names what cannot be counted.
+
+**The export's columns are an allow list**, written out rather than derived from
+the payload's keys: no buyer, no email, no address, no card, no provider
+reference. Counts go in `quantity` and money in `amountCents`, never the same
+column, so no spreadsheet sums two hundred tickets and two hundred rupees. Every
+cell that could begin `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed
+with an apostrophe.
+
+### Health
+
+| Method | Path      | Auth | Purpose                                                                                                                                                                                                             |
+| ------ | --------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/health` | none | Liveness and readiness. Reports the database check (and Redis when a client is wired in). A dead database answers 503 so a load balancer drains the instance; a dead Redis reports `degraded` and stays in rotation |
+
+### Auth
+
+| Method | Path                | Auth   | Purpose                                                         |
+| ------ | ------------------- | ------ | --------------------------------------------------------------- |
+| POST   | `/v1/auth/register` | none   | Create an account and return a token. 201                       |
+| POST   | `/v1/auth/login`    | none   | Exchange email and password for a token                         |
+| GET    | `/v1/auth/me`       | bearer | Resolve the token to its user. Never includes the password hash |
+
+### Events
+
+| Method | Path                     | Auth     | Purpose                                                                                                                                   |
+| ------ | ------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/events`             | optional | Paginated, filterable discovery. Anonymous callers see `PUBLISHED` events only; a token widens the set to drafts the caller may view      |
+| GET    | `/v1/events/:slug`       | optional | Full detail: venue, organisation and ticket types. A draft answers 404 without `event:view_draft`                                         |
+| POST   | `/v1/events`             | bearer   | Create an event in `DRAFT`. Requires `event:create`. The slug is unique platform-wide. 201                                                |
+| PATCH  | `/v1/events/:id`         | bearer   | Partial update; at least one field. The owning organisation is immutable. Requires `event:update`                                         |
+| POST   | `/v1/events/:id/publish` | bearer   | Move between `DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`. Publishing with no on-sale ticket type answers 422. Requires `event:publish` |
+
+`GET /v1/events` query parameters, beyond `page` and `perPage`:
+
+| Parameter                     | Values                                                                                                                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `q`                           | Free-text search, 1–120 characters                                                                                                                                                                                   |
+| `category`                    | `MUSIC_CONCERT`, `GARBA_DANDIYA`, `BOLLYWOOD_NIGHT`, `CLASSICAL_DANCE`, `COMEDY`, `FILM_SCREENING`, `CULTURAL_FESTIVAL`, `FOOD_FESTIVAL`, `WEDDING_EXPO`, `RELIGIOUS`, `THEATRE`, `WORKSHOP`, `NETWORKING`, `SPORTS` |
+| `status`                      | `DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`                                                                                                                                                                       |
+| `city`                        | Venue city                                                                                                                                                                                                           |
+| `organizationId`              | Restrict to one organiser                                                                                                                                                                                            |
+| `isOnline`                    | `true` / `false`                                                                                                                                                                                                     |
+| `startsAfter`, `startsBefore` | `YYYY-MM-DD` or a full ISO timestamp. `startsBefore` must be after `startsAfter`                                                                                                                                     |
+| `sort`                        | `startsAt:asc` (default), `startsAt:desc`, `createdAt:desc`, `title:asc`                                                                                                                                             |
+
+### Ticket types
+
+| Method | Path                               | Auth     | Purpose                                                                                                                                            |
+| ------ | ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/events/:eventId/ticket-types` | optional | Tiers with live availability folded in. `availableQuantity` already subtracts active holds, so it can be lower than `quantityTotal - quantitySold` |
+| POST   | `/v1/events/:eventId/ticket-types` | bearer   | Add a tier. Prices are integer minor units. Requires `ticketType:manage`. 201                                                                      |
+
+### Holds
+
+| Method | Path            | Auth     | Purpose                                             |
+| ------ | --------------- | -------- | --------------------------------------------------- |
+| POST   | `/v1/holds`     | optional | Reserve inventory for the length of a checkout. 201 |
+| DELETE | `/v1/holds/:id` | optional | Return held inventory to the pool                   |
+
+```bash
+curl -s http://127.0.0.1:4000/v1/holds \
+  -H 'content-type: application/json' \
+  -d '{"ticketTypeId":"clx…","quantity":2}'
+```
+
+```json
+{
+  "data": {
+    "id": "clx…",
+    "ticketTypeId": "clx…",
+    "quantity": 2,
+    "expiresAt": "2026-09-14T18:05:00.000Z"
+  }
+}
+```
+
+`ttlSeconds` may override the default `TICKET_HOLD_TTL_SECONDS` (600). The
+reservation is released automatically at `expiresAt`, so a client must be ready
+for a later order to still fail: 422 when the tier sold out in the meantime,
+410 when the hold itself lapsed.
+
+Releasing is idempotent — a hold that already expired or was already released
+reports success, because a checkout page unmounting twice must not raise an
+error. Only a hold already converted into a paid order answers 409.
+
+### Orders
+
+| Method | Path                    | Auth     | Purpose                                                                                                                                  |
+| ------ | ----------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/orders`            | optional | Convert holds into a paid order. 201                                                                                                     |
+| GET    | `/v1/orders/:reference` | bearer   | Look an order up by its customer-facing reference, e.g. `DE-8F3K2Q`. Visible to the buyer, and to organisation members with `order:view` |
+| GET    | `/v1/orders`            | bearer   | The authenticated user's own orders, newest first                                                                                        |
+
+```bash
+curl -s http://127.0.0.1:4000/v1/orders \
+  -H 'content-type: application/json' \
+  -d '{
+        "eventId": "clx…",
+        "buyerEmail": "priya@example.com",
+        "buyerName": "Priya Nair",
+        "items": [{ "ticketTypeId": "clx…", "quantity": 2 }],
+        "holdIds": ["clx…"],
+        "promoCode": "GARBA500"
+      }'
+```
+
+**Client-supplied prices are ignored.** Only `ticketTypeId` and `quantity` are
+trusted; every amount is recomputed server-side from the ticket type rows, in
+integer cents, by `@desi-event/pricing`. Order, items, tickets, the sold
+counters and the hold conversions are written in one transaction that the
+payment runs inside, so a decline leaves the database exactly as it was.
+
+Guest checkout is supported (`auth: optional`). The order becomes readable
+through `GET /v1/orders/:reference` once someone signs in with the email it was
+placed under.
+
+### Tickets
+
+| Method | Path                               | Auth   | Purpose                                                                                   |
+| ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| POST   | `/v1/tickets/check-in`             | bearer | Scan a ticket at the door. Requires `ticket:check_in`                                     |
+| GET    | `/v1/tickets`                      | bearer | The caller's own tickets                                                                  |
+| GET    | `/v1/tickets/:id`                  | bearer | One ticket, its event, and every transfer it has been through                             |
+| POST   | `/v1/tickets/:id/transfers`        | bearer | Offer a ticket to an email address                                                        |
+| POST   | `/v1/ticket-transfers/accept`      | bearer | Accept an offer, by its one-time token                                                    |
+| POST   | `/v1/ticket-transfers/decline`     | bearer | Decline an offer                                                                          |
+| POST   | `/v1/tickets/:id/transfers/cancel` | bearer | Withdraw an offer you made                                                                |
+| POST   | `/v1/tickets/:id/revoke`           | bearer | Withdraw a ticket, with a reason. Requires `ticket:revoke`, under an `OPERATIONS` step-up |
+
+**Scanning takes `credential` or `code`.** `credential` is the bearer secret from
+the QR: the server hashes it and looks up the digest, so a scanner never
+transmits a guessable identifier. `code` is the printed reference and is the
+deliberate fallback — it admits nobody by itself, and is accepted only from
+somebody who already holds `ticket:check_in` in the owning organisation.
+
+Re-scanning an already-admitted ticket answers **200 with
+`data.alreadyCheckedIn: true`** and the **original** `checkedInAt`, not an
+error, so a flaky scanner never blocks the queue. A refunded, revoked,
+transferred or cancelled ticket answers **409** — that one is wrong rather than
+redundant.
+
+**A transfer is an invitation, not a handover.** Offering does not move the
+ticket; the current holder can still walk in. Offers lapse after 72 hours. The
+one-time token is delivered out of band and **never appears in a response** —
+the database holds only its digest, and the screen that accepts it takes it as a
+pasted value in a request body rather than as a query parameter, because a
+secret in a URL survives in a history, a `Referer` and a proxy log long after it
+is spent.
+
+**`GET /v1/tickets/:id` has two readers and branches in the handler.** The
+person holding the ticket asks whether it still gets them in; the organiser asks
+whether it still should. So there is no single capability to declare: the holder
+may read it, and so may anybody holding `ticket:revoke` in the organisation
+whose event it is. Anybody else gets what somebody guessing identifiers gets.
+The payload carries no pass, no token and no credential digest, and recipient
+addresses come back masked to `p****a@example.com` — enough for the sender to
+recognise, not enough for anybody to harvest.
+
+Full reasoning: `docs/CHECK_IN.md`.
+
+### Refunds
+
+Seven operations. Every one requires MFA. Reads need a `FINANCE_VIEW` step-up
+(fifteen minutes); anything that moves a refund along needs `FINANCE_ACTION`
+(five minutes).
+
+| Method | Path                            | Step-up          | Purpose                                            |
+| ------ | ------------------------------- | ---------------- | -------------------------------------------------- |
+| GET    | `/v1/orders/:reference/refunds` | `FINANCE_VIEW`   | What is refundable, and what is already spoken for |
+| POST   | `/v1/orders/:reference/refunds` | `FINANCE_ACTION` | Request a refund. Reserves the amount. 201         |
+| GET    | `/v1/refunds`                   | `FINANCE_VIEW`   | The queue                                          |
+| GET    | `/v1/refunds/:id`               | `FINANCE_VIEW`   | One refund                                         |
+| POST   | `/v1/refunds/:id/approve`       | `FINANCE_ACTION` | Approve somebody else's request                    |
+| POST   | `/v1/refunds/:id/submit`        | `FINANCE_ACTION` | Send it to the provider                            |
+| POST   | `/v1/refunds/:id/cancel`        | `FINANCE_ACTION` | Withdraw it before it goes                         |
+
+**A request may name an amount, or name order items and quantities — never a
+price.** The money is derived from the order's own unit prices. A caller who
+could name what a ticket cost could refund more than was paid.
+
+**Separation of duties:** an approver holding only `order:refund_approve` may not
+wave through their own request. Somebody holding `order:refund` may, because
+that capability is what says one person may do both.
+
+Full reasoning: `docs/REFUNDS_DISPUTES.md`.
+
+### Finance, payouts, transfers and disputes
+
+Ten operations. Reading needs `finance:view` and a `FINANCE_VIEW` step-up
+(fifteen minutes); moving money needs `payout:manage` and a `PAYOUT` step-up
+(five minutes).
+
+| Method | Path                              | Step-up        | Purpose                                      |
+| ------ | --------------------------------- | -------------- | -------------------------------------------- |
+| GET    | `/v1/finance/summary`             | `FINANCE_VIEW` | Ledger-derived totals, integrity check first |
+| GET    | `/v1/finance/balance`             | `FINANCE_VIEW` | What an organiser may actually be paid       |
+| GET    | `/v1/finance/export.csv`          | `FINANCE_VIEW` | CSV, escaped against spreadsheet injection   |
+| GET    | `/v1/finance/payouts`             | `FINANCE_VIEW` | The payout list                              |
+| POST   | `/v1/finance/payouts`             | `PAYOUT`       | Schedule one. 201                            |
+| GET    | `/v1/finance/payouts/:id`         | `FINANCE_VIEW` | One payout                                   |
+| POST   | `/v1/finance/payouts/:id/send`    | `PAYOUT`       | Send it to the provider                      |
+| POST   | `/v1/finance/payouts/:id/reverse` | `PAYOUT`       | Record a reversal                            |
+| GET    | `/v1/finance/transfers`           | `FINANCE_VIEW` | Transfers to connected accounts              |
+| GET    | `/v1/finance/disputes`            | `FINANCE_VIEW` | Open and resolved disputes                   |
+
+**No route accepts a payout destination.** Where an organiser's money goes is a
+property of their connected account. The field does not exist, so no
+authorization bug can expose it.
+
+Scheduling against a balance that cannot support it produces a `HELD` payout
+with the reason stored — _"only 300000 of 700000 is available"_ — rather than an
+error, because a payout that did not go and cannot say why is the complaint the
+surface exists to prevent.
+
+Full reasoning: `docs/FINANCIAL_LEDGER.md` and `docs/STRIPE_CONNECT.md`.
+
+### Reconciliation
+
+Seven operations under `/v1/operations/reconciliation`, inside the `operations`
+tag. Reading is scoped: with an `organizationId` the caller needs `finance:view`
+in it; without one they need `reconciliation:manage`, which is platform-only.
+The five actions require `reconciliation:manage` and are platform-only
+throughout.
+
+| Method | Path                                         | Step-up          | Purpose                                          |
+| ------ | -------------------------------------------- | ---------------- | ------------------------------------------------ |
+| GET    | `/v1/operations/reconciliation`              | `FINANCE_VIEW`   | The queue: unresolved first, then oldest         |
+| GET    | `/v1/operations/reconciliation/:id`          | `FINANCE_VIEW`   | One item, with the evidence recorded at the time |
+| POST   | `/v1/operations/reconciliation/:id/claim`    | `FINANCE_ACTION` | Take it off the queue                            |
+| POST   | `/v1/operations/reconciliation/:id/requery`  | `FINANCE_ACTION` | Ask the provider again. Writes no status         |
+| POST   | `/v1/operations/reconciliation/:id/resolve`  | `FINANCE_ACTION` | Apply the verdict through a domain command       |
+| POST   | `/v1/operations/reconciliation/:id/escalate` | `FINANCE_ACTION` | Say you cannot decide it alone                   |
+| POST   | `/v1/operations/reconciliation/:id/notes`    | `FINANCE_ACTION` | Append a note. Never replaces one                |
+
+**There is no route that takes a status.** An operator establishes what the
+provider says and the system draws the consequence, exactly once, through the
+same commands the ordinary path uses. A resolution the provider's answer does
+not support is refused: `CONFLICT` and `UNKNOWN` permit none.
+
+Full reasoning: `docs/RECONCILIATION_RUNBOOK.md`.
+
+### Waitlist
+
+| Method | Path                           | Auth     | Purpose                                    |
+| ------ | ------------------------------ | -------- | ------------------------------------------ |
+| POST   | `/v1/events/:eventId/waitlist` | optional | Register interest in a sold-out event. 201 |
+
+The `eventId` in the path wins over any value in the body. Joining twice with
+the same email returns the existing entry rather than creating a duplicate.
+
+## Calling the API from JavaScript
+
+Do not hand-write URLs. `@desi-event/api-contract` generates a client from the
+same descriptors, with one method per route id:
+
+```js
+import { createApiClient, ApiClientError } from '@desi-event/api-contract'
+
+const client = createApiClient({ baseUrl: process.env.NEXT_PUBLIC_API_URL })
+
+const { data, pagination } = await client.events.list({ category: 'GARBA_DANDIYA', perPage: 12 })
+const event = await client.events.get({ slug: 'navratri-garba-dhamaal-mumbai' })
+
+const authed = client.withToken(token)
+const order = await authed.orders.get({ reference: 'DE-8F3K2Q' })
+
+try {
+  await client.holds.create({ ticketTypeId, quantity: 2 })
+} catch (error) {
+  if (error instanceof ApiClientError && error.status === 422) {
+    // Sold out, or outside the sales window. error.body.error.code says which.
+  }
+}
+```
+
+Path parameters, query parameters and body fields are separated from one flat
+input object by the route's own schemas, so `{ slug }` becomes a path segment
+and `{ perPage }` becomes a query string without the caller saying which is
+which. A non-2xx response throws `ApiClientError` carrying `status`, `code` and
+the parsed `body`; a transport failure throws the same error with `status: 0`
+and `code: 'NETWORK_ERROR'`.
+
+Adding an endpoint means adding a descriptor to
+`packages/api-contract/src/routes.js` and a handler registered with
+`defineRoute(app, '<id>', …)`. The server's contract test asserts the two lists
+match, so an endpoint added to one and forgotten in the other fails the suite
+rather than 404ing in production.

@@ -1,0 +1,21 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - '@tailwindcss/oxide'
+  - esbuild
+  - prisma
+  - sharp
+  - unrs-resolver
+
+# Transitive dependencies pulled in by the Prisma CLI, pinned past published
+# advisories. Neither is reachable from this application — Prisma bundles a
+# driver for every database it supports and we use PostgreSQL only — but an
+# unreachable vulnerable package still fails an audit, and an audit nobody can
+# make pass is an audit nobody reads.
+overrides:
+  mysql2: '>=3.23.1'
+  deepmerge-ts: '>=8.0.0'

@@ -1,0 +1,506 @@
+# Adversarial review findings — complete reconciliation
+
+The review run recorded in
+`subagents/workflows/wf_6b34ffef-3e2/journal.jsonl` produced **34 raw
+findings** across six dimensions. This document accounts for every one of them
+exactly once.
+
+## Correcting the record first
+
+An earlier summary of this review reported **"20 refuted, 14 surviving"**. That
+was wrong, and the way it was wrong matters.
+
+The workflow computed its refuted count as `total − confirmed`. Of the 34
+findings, only 17 verifier agents ever ran: the other 17 died partway through
+the run when the session hit its usage limit. Those 17 had no verdict at all,
+and the arithmetic silently filed them under "refuted".
+
+The journal is unambiguous:
+
+|                                         |  Count | Meaning                               |
+| --------------------------------------- | -----: | ------------------------------------- |
+| Verifier ran, returned `refuted: false` |     14 | Confirmed by an adversarial verifier  |
+| Verifier ran, returned `refuted: true`  |      3 | Genuinely refuted                     |
+| Verifier never ran (process died)       |     17 | **Unknown at the time — not refuted** |
+| **Total raw findings**                  | **34** |                                       |
+
+`{"launched":1,"started":40,"result":23,"failed":17}` — 6 review agents plus 34
+verifiers were started; 23 returned; 17 failed.
+
+So 17 findings were never examined by anything. Every one of them has since
+been reproduced or refuted by hand, and the results are in the table below.
+**Seventeen of the "20 refuted" were nothing of the sort**, and they included
+the single highest-severity finding in the whole run: reduced-motion visitors
+were served a permanently invisible page.
+
+The other correction: that summary said "six lower-severity items" remained and
+then named only four. The two it implied but never named were **F22**
+(money values could exceed the column holding them) and **F34** (the fallback
+catalogue was being shipped to the browser). Both are fixed. The honest count
+of unresolved items at `efda577` was larger than six in any case; the full list
+is below.
+
+## Totals
+
+| Disposition                           |  Count |
+| ------------------------------------- | -----: |
+| Fixed                                 |     32 |
+| Refuted — no defect, no action        |      1 |
+| Accepted risk — documented, not fixed |      1 |
+| **Total**                             | **34** |
+
+By original verifier verdict, for comparison:
+
+| Verifier verdict | Count | How many were fixed |
+| ---------------- | ----: | ------------------: |
+| Confirmed        |    14 |                  14 |
+| Refuted          |     3 |        2 (F12, F17) |
+| Never ran        |    17 |   16 (F28 accepted) |
+
+Of the 3 findings a verifier refuted, **2 were fixed anyway**: F12 because hold
+ownership was subsequently mandated as corrective work, and F17 because a
+security guard that depends on an environment variable being set is worth
+closing whether or not the current behaviour is defensible. Only F04 was
+refuted and left alone.
+
+Dimension is assigned by subject area rather than by which review agent
+happened to report it, because the agents' completion order does not match
+their dimension order in the journal.
+
+## Findings
+
+| ID  | Dimension  | Sev          | Claim                                                                                                                             | Location                                         | Verifier        | Disposition                                           | Evidence                                                                                                                                                                                                                                                                                                                                                                                | Regression test                                                                                                                                | Commit                          |
+| --- | ---------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | --------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| F01 | payments   | high         | Capture runs inside a Prisma transaction whose default timeout is 5s, so a slow provider takes the money and the order rolls back | `apps/api/src/routes/orders.js:198`              | CONFIRMED       | **Fixed**                                             | Capture now runs with no transaction open; a test counts open transactions at the moment the provider is called and asserts zero                                                                                                                                                                                                                                                        | `apps/api/tests/payment-flow.test.js` — "has no transaction open while capturing"                                                              | `f4f3b5b` (mitigated `efda577`) |
+| F02 | inventory  | high         | Anonymous callers choose their own hold TTL with no cap, so one caller can take a tier off sale                                   | `apps/api/src/routes/holds.js:89`                | CONFIRMED       | **Fixed**                                             | TTL clamped to the configured maximum; a caller may ask for shorter, never longer                                                                                                                                                                                                                                                                                                       | `apps/api/tests/holds.test.js`                                                                                                                 | `efda577`                       |
+| F03 | inventory  | medium       | `holds.release` does a non-atomic read-then-write and can overwrite a CONVERTED hold with RELEASED                                | `apps/api/src/routes/holds.js:121`               | CONFIRMED       | **Fixed**                                             | Conditional `updateMany` on `status: ACTIVE`; ownership check and transition in one transaction                                                                                                                                                                                                                                                                                         | `apps/api/tests/hold-ownership.test.js` — "makes only one business transition when two releases race"                                          | `efda577`, `8553214`            |
+| F04 | inventory  | low          | Both checkout paths capture `now` before opening the transaction, so expiry decisions use a pre-lock instant                      | `apps/api/src/routes/orders.js:195`              | REFUTED         | **Refuted**                                           | Verifier: the reading is accurate but every consequence is fail-safe or semantically arbitrary. A hold evaluated against an instant microseconds before the lock is at worst treated as marginally fresher; it cannot oversell                                                                                                                                                          | —                                                                                                                                              | —                               |
+| F05 | money      | high         | Promo redemption count is incremented, and `promoCodeId` stamped, for orders that received no discount                            | `apps/api/src/routes/orders.js:346`              | CONFIRMED       | **Fixed**                                             | Redemption consumed only when `discountCents > 0`; verifier reproduced the original burning a capped campaign to exhaustion                                                                                                                                                                                                                                                             | `apps/api/tests/orders.test.js` — "does not consume a redemption for a promo code that gave no discount" (fails against old code)              | `efda577`                       |
+| F06 | money      | high         | The API charges no tax at all, so the total charged never matches the total quoted                                                | `apps/api/src/routes/orders.js:258`              | CONFIRMED       | **Fixed**                                             | Tax applied from a jurisdictional policy; quote and charge read the same table                                                                                                                                                                                                                                                                                                          | `packages/pricing/src/tax.test.js`, `apps/api/tests/orders.test.js`                                                                            | `efda577`, redesigned `b12201d` |
+| F07 | money      | medium       | Checkout quotes platform fee terms the API does not use                                                                           | `apps/web/src/lib/pricing.js:65`                 | CONFIRMED       | **Fixed**                                             | Both sides now call `feeConfigForCurrency` from `@desi-event/pricing`                                                                                                                                                                                                                                                                                                                   | `apps/web/src/lib/pricing.test.js`                                                                                                             | `efda577`, `b12201d`            |
+| F08 | money      | medium       | `maxRedemptions` can be exceeded under concurrency: unlocked read-modify-write on `redemptionCount`                               | `apps/api/src/routes/orders.js:349`              | CONFIRMED       | **Fixed**                                             | Atomic `{ increment: 1 }` instead of read-modify-write                                                                                                                                                                                                                                                                                                                                  | `apps/api/tests/orders.test.js`; stub now models atomic operators                                                                              | `efda577`                       |
+| F09 | money      | medium       | `allocateProportionally` overflows and rejects legitimate large discounted orders                                                 | `packages/pricing/src/totals.js:108`             | CONFIRMED       | **Fixed**                                             | Reproduced: a ₹1,000,000 discount threw `AMOUNT_OUT_OF_RANGE`. Intermediates now computed in BigInt; exact at every supported size                                                                                                                                                                                                                                                      | `packages/pricing/src/totals.test.js` — "allocateProportionally at scale"                                                                      | `8553214`                       |
+| F10 | money      | low          | `FIXED_AMOUNT` promos have no currency, so an org-wide code discounts any currency at face value                                  | `apps/api/src/routes/orders.js:256`              | CONFIRMED       | **Fixed**                                             | `PromoCode.currency` added with a check constraint; a mismatch yields no discount rather than a silent conversion                                                                                                                                                                                                                                                                       | `packages/pricing/src/discount.test.js` — "FIXED_AMOUNT promos are denominated"                                                                | `8553214`, `b12201d`            |
+| F11 | authz      | high         | `orders.create` lets any caller assign an order to another user's account                                                         | `apps/api/src/routes/orders.js:275`              | CONFIRMED       | **Fixed**                                             | Ownership follows the verified actor; `body.userId` ignored                                                                                                                                                                                                                                                                                                                             | `apps/api/tests/orders.test.js` — "ignores a userId in the body" (fails against old code)                                                      | `efda577`                       |
+| F12 | authz      | medium       | `DELETE /v1/holds/:id` releases any hold with no ownership check                                                                  | `apps/api/src/routes/holds.js:105`               | REFUTED         | **Fixed anyway**                                      | The verifier argued anonymity was the documented design. That reasoning does not survive the follow-up requirement: a hold takes inventory out of circulation, so releasing one is privileged even though taking one is not                                                                                                                                                             | `apps/api/tests/hold-ownership.test.js` — 16 tests; 7 fail against the old code                                                                | `8553214`                       |
+| F13 | authz      | medium       | `waitlist.join` discloses another person's waitlist entry to anonymous callers                                                    | `apps/api/src/routes/waitlist.js:31`             | CONFIRMED       | **Fixed**                                             | Upsert; `userId` never echoed, so the endpoint cannot link an address to an account                                                                                                                                                                                                                                                                                                     | `apps/api/tests/ticket-types.test.js`                                                                                                          | `efda577`                       |
+| F14 | authz      | low          | `waitlist.join` trusts `body.userId`                                                                                              | `apps/api/src/routes/waitlist.js:41`             | CONFIRMED       | **Fixed**                                             | Same fix as F11, applied to the waitlist                                                                                                                                                                                                                                                                                                                                                | `apps/api/tests/ticket-types.test.js`                                                                                                          | `efda577`                       |
+| F15 | authz      | medium       | `PATCH /v1/events/:id` can publish an event, bypassing `event:publish`                                                            | `apps/api/src/routes/events.js:267`              | CONFIRMED       | **Fixed**                                             | `status` removed from `updateEventRequestSchema`, so the contract itself no longer offers it                                                                                                                                                                                                                                                                                            | `packages/schemas/src/requests.test.js`                                                                                                        | `efda577`                       |
+| F16 | authz      | high         | Anonymous callers can attribute an order or waitlist entry to any other user via `body.userId`                                    | `apps/api/src/routes/orders.js:275`              | CONFIRMED       | **Fixed** (duplicate of F11 and F14)                  | Same root cause, reported independently by two dimensions                                                                                                                                                                                                                                                                                                                               | As F11, F14                                                                                                                                    | `efda577`                       |
+| F17 | validation | high         | The placeholder-secret and error-detail guards are both disabled when `NODE_ENV` is unset                                         | `packages/schemas/src/env.js:102`                | REFUTED         | **Fixed anyway**                                      | The verifier called production-gating the documented design. It is — but the guard keyed off `NODE_ENV === 'production'` while `NODE_ENV` defaulted to development, so forgetting the variable disabled the guard. Server schemas now default to production: forgetting it is the _safe_ case                                                                                           | `packages/schemas/src/env.test.js` — "rejects the placeholder secret when NODE_ENV is not set at all"; `apps/api/tests/startup-safety.test.js` | `efda577`, `18983f7`            |
+| F18 | validation | medium       | An event title with no ASCII alphanumerics returns 500 instead of a validation error                                              | `apps/api/src/routes/events.js:155`              | _verifier died_ | **Fixed** — manually confirmed                        | Reproduced: `한국 축제 🎉` returned `500 INTERNAL_SERVER_ERROR` with an internal message. Now 422 naming the field                                                                                                                                                                                                                                                                      | `apps/api/tests/events.test.js` — "answers 422, not 500, for a title no slug can be derived from"                                              | `fd28c85`                       |
+| F19 | validation | medium       | `PATCH /v1/events/:id` bypasses the on-sale-ticket-type guard                                                                     | `apps/api/src/routes/events.js:267`              | _verifier died_ | **Fixed** (duplicate of F15)                          | Same root cause; removing `status` from the update schema closes both                                                                                                                                                                                                                                                                                                                   | As F15                                                                                                                                         | `efda577`                       |
+| F20 | validation | medium       | An empty `PLATFORM_FEE_BPS` / `PLATFORM_FEE_FLAT_CENTS` silently coerces to zero                                                  | `packages/schemas/src/env.js:73`                 | _verifier died_ | **Fixed** — manually confirmed                        | `z.coerce.number()` turns `''` into `0`, so a blank line in `.env` switched off the platform fee rather than using the default. Blank is treated as absent now                                                                                                                                                                                                                          | `packages/schemas/src/env.test.js` — "treats a blank numeric variable as absent rather than zero"                                              | `efda577`                       |
+| F21 | validation | medium       | Caller-supplied foreign keys reach the database unchecked and surface as 500                                                      | `apps/api/src/routes/holds.js:86`                | _verifier died_ | **Fixed** — manually confirmed                        | `orderId` removed from the hold request schema entirely; `venueId` resolved before the insert and answered 422                                                                                                                                                                                                                                                                          | `apps/api/tests/events.test.js` — "answers 422 for an unknown venueId"                                                                         | `8553214`, `fd28c85`            |
+| F22 | validation | low          | `centsSchema` permits per-line totals that overflow the 32-bit Int money columns                                                  | `packages/schemas/src/primitives.js:139`         | _verifier died_ | **Fixed** — manually confirmed                        | A single value was capped below `Int4` max, but a computed line total (quantity × price) reached ~2.1e10. The engine's ceiling is now the column's maximum                                                                                                                                                                                                                              | `packages/pricing/src/money.test.js` — "the money ceiling matches the database column"                                                         | `fd28c85`                       |
+| F23 | validation | low          | A duplicate waitlist join races the `(eventId, email)` unique index and answers 500                                               | `apps/api/src/routes/waitlist.js:34`             | _verifier died_ | **Fixed** — manually confirmed                        | Read-then-create replaced with an upsert, which also means a second join updates the quantity instead of discarding it                                                                                                                                                                                                                                                                  | `apps/api/tests/ticket-types.test.js`                                                                                                          | `efda577`                       |
+| F24 | policy     | high         | The checker skips any directory named build/dist/out/generated/coverage, letting TypeScript through                               | `scripts/check-language-policy.mjs:30`           | _verifier died_ | **Fixed** — manually confirmed                        | Reproduced: a committed `packages/pricing/build/sneaky.ts` passed. The checker now asks git what the repository contains instead of walking past a skip list                                                                                                                                                                                                                            | `packages/config/tests/language-policy.test.js` — "rejects a tracked build/sneaky.ts even though build/ is normally ignored"                   | `efda577`, `18983f7`            |
+| F25 | policy     | high         | `FORBIDDEN_DEPENDENCIES` misses `typescript-eslint`, the flat-config package                                                      | `scripts/check-language-policy.mjs:69`           | _verifier died_ | **Fixed** — manually confirmed                        | Reproduced: adding `typescript-eslint` to a manifest passed. Added, along with `@tsconfig/*`                                                                                                                                                                                                                                                                                            | `packages/config/tests/language-policy.test.js`                                                                                                | `efda577`, `18983f7`            |
+| F26 | policy     | medium       | TypeScript config detection is an exact-name list, so `tsconfig.app.json` passes                                                  | `scripts/check-language-policy.mjs:49`           | _verifier died_ | **Fixed** — manually confirmed                        | Reproduced. Replaced with a pattern covering the whole family                                                                                                                                                                                                                                                                                                                           | `packages/config/tests/language-policy.test.js`                                                                                                | `efda577`, `18983f7`            |
+| F27 | policy     | medium       | `walk()` silently drops symlinked files, so a committed symlink bypasses every check                                              | `scripts/check-language-policy.mjs:137`          | _verifier died_ | **Fixed** — manually confirmed                        | Largely moot once enumeration moved to git, which lists a symlink as a tracked entry. The filesystem fallback now records symlinks rather than skipping them                                                                                                                                                                                                                            | `packages/config/tests/language-policy.test.js` (git-enumeration assertion)                                                                    | `efda577`, `18983f7`            |
+| F28 | policy     | low          | Nothing inspects file contents, so the jQuery / DOM-as-architecture ban is enforced only through package names                    | `scripts/check-language-policy.mjs:71`           | _verifier died_ | **Accepted risk**                                     | Confirmed accurate. Content inspection is not implemented: a reliable check would have to distinguish `document.querySelector` used as application architecture from the same call inside a `ref` callback, which is legitimate React. Dependency-name detection catches the realistic route (installing jQuery); the judgement call stays with code review. See "Accepted risks" below | —                                                                                                                                              | —                               |
+| F29 | policy     | low          | The exception registry check does not require the `id` field the policy lists as mandatory                                        | `scripts/check-language-policy.mjs:98`           | _verifier died_ | **Fixed** — manually confirmed                        | `id` added to the required-field list                                                                                                                                                                                                                                                                                                                                                   | `packages/config/tests/language-policy.test.js`                                                                                                | `efda577`                       |
+| F30 | web        | **critical** | Reduced-motion visitors get permanently invisible content: SSR renders `opacity: 0` and hydration never clears it                 | `apps/web/src/components/motion.jsx:51`          | _verifier died_ | **Fixed** — manually confirmed in a real browser      | Reproduced with Playwright at `reducedMotion: 'reduce'`: **21 elements at opacity 0 permanently, the hero among them**. Forced to the final state in CSS, which cannot disagree with the server. After: 0                                                                                                                                                                               | `apps/web/e2e/accessibility.spec.js` — "renders no permanently invisible content" on every page                                                | `efda577`                       |
+| F31 | web        | high         | The checkout summary quotes a total the API's own pricing never produces                                                          | `apps/web/src/lib/pricing.js:175`                | _verifier died_ | **Fixed** — manually confirmed (duplicate of F06/F07) | Same divergence reported from the web side                                                                                                                                                                                                                                                                                                                                              | As F06, F07                                                                                                                                    | `efda577`, `b12201d`            |
+| F32 | web        | medium       | Filter selects and home-page counts are built from only the 48 soonest events                                                     | `apps/web/src/lib/api.js:247`                    | _verifier died_ | **Fixed** — manually confirmed                        | Facets are counted in the database over every published event. An integration test with 60 events proves the last five — in their own city, category and language — appear in the facets                                                                                                                                                                                                | `apps/api/tests/facets-integration.test.js`                                                                                                    | `d7c3695`                       |
+| F33 | web        | medium       | Every filter change destroys the focused control and dumps keyboard focus to `<body>`                                             | `apps/web/src/app/events/page.jsx:82`            | _verifier died_ | **Fixed** — manually confirmed in a real browser      | The parent passed a `key` derived from the filter values, remounting the form on every change. 6 of 10 focus tests fail with that key restored                                                                                                                                                                                                                                          | `apps/web/e2e/filter-focus.spec.js` — asserts `document.activeElement` at desktop and mobile widths and under reduced motion                   | `d7c3695`                       |
+| F34 | web        | low          | The whole server-side fallback catalogue is bundled into the browser JS                                                           | `apps/web/src/components/checkout-basket.jsx:23` | _verifier died_ | **Fixed** — manually confirmed                        | Inspected the built bundle: all 10 sample events were in a client chunk, because a client component imported `lib/api.js` for the API client. Client plumbing split into `lib/api-client.js`; a rebuild confirms 0                                                                                                                                                                      | Bundle assertion in the corrective report; `apps/web/src/lib/api.test.js` covers the split                                                     | `fd28c85`                       |
+
+## Accepted risks
+
+**F28 — file contents are not inspected for jQuery or DOM-as-architecture.**
+
+The policy prohibits jQuery and direct DOM manipulation as an architecture. The
+checker enforces this through dependency names only: it will catch `jquery` in
+a manifest, and it will not catch somebody hand-rolling
+`document.querySelector` loops in a React component.
+
+Not fixed, deliberately. A content check would have to tell application
+architecture apart from legitimate React — `ref` callbacks, focus management
+and measurement all touch the DOM directly and are correct. A regex that
+flagged them would be turned off within a week, which is worse than not having
+it. The realistic way jQuery enters a repository is by being installed, and
+that is caught. The rest is a code-review judgement, and
+`docs/language-policy.md` §4 says so.
+
+## New findings after original 34
+
+These were **not** part of the adversarial review. They were found afterwards —
+NF-01 by the reviewer who commissioned the final closure cycle, NF-02 by this
+author while writing tests for NF-01's cycle — and they are recorded separately
+so the original run's arithmetic stays exactly as reconciled above: **34 raw
+findings, 32 fixed, 1 refuted, 1 accepted risk.** Nothing in this section
+changes those numbers.
+
+| ID    | Dimension  | Sev          | Claim                                                                                                                    | Location                                     | Found by                                       | Disposition | Evidence                                                                                                                                                                                                                                                                           | Regression test                                                                                                                                          | Commit    |
+| ----- | ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- | ---------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| NF-01 | web        | high         | A URL that matches a route but not a resource answers with a document whose `<body>` is empty until the browser hydrates | `apps/web/src/app/events/[slug]/page.jsx:91` | Reviewer, closure cycle                        | **Fixed**   | Reproduced against a compiled build: `/events/<unknown>` returned 404, 18,418 bytes, `<html id="__next_error__">`, `<body><div hidden><!--$--><!--/$--></div>` and zero `<h1>` or `<main>`. Root cause is in Next.js 16.3.5, not this app — see below                              | `apps/web/e2e/not-found.spec.js` (19 cases, production build); 23 unit tests                                                                             | `a8baf43` |
+| NF-02 | validation | **critical** | The API could not start in any environment: `apiEnvSchema` rejects its own output, and the server parses twice           | `packages/schemas/src/env.js:144`            | This author, while writing NF-01's cycle tests | **Fixed**   | `loadApiEnv()` produces `ALLOW_DEMO_TAX_IN_PRODUCTION: false` (boolean) and `buildApp` re-parses it through `z.stringbool()`, which wants a string. Reproduced by running `node src/server.js` with a valid environment: `The API environment is invalid` and exit before `listen` | `apps/api/tests/startup-safety.test.js` — "binds the port with a valid environment"; `packages/schemas/src/env.test.js` — "parsing an environment twice" | `5c62ec3` |
+
+### NF-01 — the not-found body
+
+The defect is in the framework, and the experiment matrix says so. Every one of
+these produced the same empty `<html id="__next_error__">` document against a
+compiled production build:
+
+| Variant                                                     | Status | Body                               |
+| ----------------------------------------------------------- | -----: | ---------------------------------- |
+| `force-dynamic` page, awaits then calls `notFound()`        |    404 | empty                              |
+| Statically prerendered page, awaits then calls `notFound()` |    404 | empty                              |
+| `force-dynamic` page, `notFound()` with no await at all     |    404 | empty                              |
+| As above, plus a segment-local `not-found.jsx`              |    404 | empty                              |
+| Page made dynamic by `await connection()`                   |    404 | empty                              |
+| `notFound()` thrown from a Client Component during SSR      |    404 | empty                              |
+| The above, after the page already rendered the view         |    404 | empty                              |
+| `experimental.globalNotFound` + `app/global-not-found.jsx`  |    404 | empty                              |
+| `notFound()` inside a `<Suspense>` boundary                 |    200 | the fallback, not the not-found UI |
+| A pristine minimal app on the same installed Next.js        |    404 | empty                              |
+
+The status and the body are mutually exclusive in this version: the 404 exists
+_because_ the shell render failed, and a failed shell has no body. Only the
+`/_not-found` route — reached when a URL matches no route at all, and rendered
+through the router rather than the renderer — produces both.
+
+So the segments render the shared view themselves. `apps/web/e2e/not-found.spec.js`
+holds both halves: a missing resource answers 200 with the complete page and
+`noindex, nofollow`; an unmatched URL still answers a genuine 404 with the same
+page. `PHASE1_FINAL_CLOSURE_REPORT.md` records the trade-off in full.
+
+The existing end-to-end test for a missing event passed throughout, because
+Playwright runs JavaScript and the heading it asserted on appeared after
+hydration. That is why the defect survived the original review: the only test
+covering the case could not see it.
+
+### NF-02 — the API could not start
+
+`loadApiEnv()` parses `process.env` and `buildApp` parses the result again, so
+the schema is applied to its own output. `ALLOW_DEMO_TAX_IN_PRODUCTION` — added
+during the post-`efda577` corrective cycle — read a string and produced a
+boolean, and the second pass rejected the boolean. Because the field carries a
+default, it is present in the output whether or not anybody sets it, so this
+failed for every environment, including the one in `.env.example`.
+
+Eleven startup tests existed and all of them passed, because every one supplied
+a deliberately broken environment and failed earlier, on the secret. None
+covered the case where nothing is wrong. That case is now covered twice: once
+in a spawned process that must bind its port, and once as a property — parsing
+an environment twice must produce what parsing it once did.
+
+## The browser-exposure audit — 19 agents, reconciled
+
+A second, narrower run — workflow `wf_cd65607b-d6d` — audited one question:
+what server-only code reaches the browser. It is recorded here because its
+arithmetic was misread the same way the first run's was, and the correction is
+the same kind of correction.
+
+**Nineteen agents: four audit, fifteen verify.** An audit agent surveys a vector
+and emits claims; a verify agent takes one claim and tries to refute it.
+4 + 15 = 19. Nine verifiers returned `refuted: false`, six returned
+`refuted: true`. That nine-and-six split describes the fifteen verifiers and
+nothing else — the four audit agents are neither confirmed nor refuted, because
+they never returned a verdict to be either. There is no unclassified remainder
+and no twentieth agent.
+
+| Agent                                  | Kind   | Disposition                            |
+| -------------------------------------- | ------ | -------------------------------------- |
+| `audit:import-graph`                   | audit  | emitted 2 findings (1 severity `none`) |
+| `audit:built-chunks`                   | audit  | emitted 8 findings (1 severity `none`) |
+| `audit:secrets`                        | audit  | emitted 3 findings (1 severity `none`) |
+| `audit:guards`                         | audit  | emitted 5 findings                     |
+| `verify:import-graph:env.js`           | verify | **CONFIRMED**                          |
+| `verify:built-chunks:tokens.js`        | verify | **REFUTED**                            |
+| `verify:built-chunks:password.js`      | verify | **CONFIRMED**                          |
+| `verify:built-chunks:totp.js`          | verify | **REFUTED**                            |
+| `verify:built-chunks:sessions.js`      | verify | **REFUTED**                            |
+| `verify:built-chunks:throttle.js`      | verify | **CONFIRMED**                          |
+| `verify:built-chunks:env.js`           | verify | **CONFIRMED**                          |
+| `verify:built-chunks:capabilities.js`  | verify | **CONFIRMED**                          |
+| `verify:secrets:env.js`                | verify | **CONFIRMED**                          |
+| `verify:secrets:browser-bundle.js`     | verify | **CONFIRMED**                          |
+| `verify:guards:browser-bundle.test.js` | verify | **CONFIRMED**                          |
+| `verify:guards:browser-bundle.js`      | verify | **REFUTED**                            |
+| `verify:guards:eslint.js`              | verify | **CONFIRMED**                          |
+| `verify:guards:package.json`           | verify | **REFUTED**                            |
+| `verify:guards:next.config.mjs`        | verify | **REFUTED**                            |
+
+18 raw claims − 3 of severity `none` = 15 sent to verification. The three
+severity-`none` claims are an agent saying it looked and found nothing: the auth
+barrel (already fixed mid-session), `packages/db` / `packages/providers` /
+`apps/api` (verified absent from the client bundle in both builds), and the 17
+static files then present (no secret _value_ reached any of them).
+
+Two of the six refutations are worth naming, because they describe real leaks
+that the claimant measured against a stale build: `tokens.js` and `totp.js` had
+both been fixed by `3e9a327` before the claim was filed. The other four describe
+chains that do not exist — one of them manufactured by a verifier editing a
+tracked source file, which its own adversary caught.
+
+Every confirmed finding is closed, with its fixing commit, regression test and
+clean-build proof tabulated in `PHASE2_FINAL_VERIFICATION_REPORT.md` §2. The
+proof is not the guard's opinion: `scripts/scan-browser-bundle.mjs` reads the
+173 browser-deliverable files a clean production build emits — chunks,
+manifests, prerendered RSC payloads, static HTML, 16 source maps — and finds
+none of the forbidden markers and all of the required ones.
+
+## NF-17 to NF-21 — the event lifecycle
+
+Five findings from building the event lifecycle. Each was reproduced with a
+failing test before it was fixed, and each test stays as regression cover.
+
+| ID        | Severity     | Claim                                                                                     | Location                                                            | Found by                                                 | Status    |
+| --------- | ------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------- | --------- |
+| **NF-17** | **high**     | Creating an event could skip review entirely: `status` was accepted from the request body | `packages/schemas/src/requests.js`, `apps/api/src/routes/events.js` | This author, reading the create handler                  | **Fixed** |
+| **NF-18** | **critical** | The publish route was a status setter over the whole thirteen-member enum                 | `packages/schemas/src/requests.js:156`                              | This author, reading `publishEventRequestSchema`         | **Fixed** |
+| **NF-19** | **high**     | Every pre-publication state was served to anonymous callers, `moderationNote` included    | `apps/api/src/routes/events.js` `loadVisibleEvent`                  | A codebase survey, then reproduced                       | **Fixed** |
+| **NF-20** | **medium**   | A `TicketType` could name an `EventSession` belonging to a different event                | `packages/db/prisma/schema.prisma` `TicketType`                     | An integration test that expected a refusal and got none | **Fixed** |
+| **NF-21** | **low**      | An `Event` could end before it started; only `EventSession` carried the check             | `packages/db/prisma/schema.prisma` `Event`                          | The same survey                                          | **Fixed** |
+
+### NF-17 — a DRAFT default is not a DRAFT guarantee
+
+`createEventRequestSchema` extended the writable object with
+`status: eventStatusSchema.default('DRAFT')`. A default is what happens when the
+caller says nothing; it is not what happens when the caller says something else.
+A caller holding only `event:create` could post `status: 'PUBLISHED'` and have
+the row written that way — no moderator, no `event:publish` capability, and not
+even the on-sale-tier check the publish route performed, because that check
+lived in the publish route. `'APPROVED'` worked equally well, which is a forged
+moderator decision.
+
+The route's own contract description read "Creates an event in DRAFT status".
+That was the intent, and the intent was not the code.
+
+Reproduced by `apps/api/tests/event-lifecycle.test.js` — "ignores a status the
+caller supplies and always starts in DRAFT" returned `'PUBLISHED'` before the
+fix. The status is now ignored rather than rejected, so a client that still
+sends one keeps working and simply does not get its way.
+
+### NF-18 — one capability, thirteen destinations
+
+`publishEventRequestSchema` was `{ status: eventStatusSchema, publishedAt? }`
+and the handler wrote whatever arrived. There was no transition validation of
+any kind, so with `event:publish` a caller could move an event from DRAFT
+straight to PUBLISHED — skipping REVIEW_PENDING and APPROVED — or to ARCHIVED,
+or to CANCELLED, which is a claim that refunds are owed.
+
+The only thing standing in the way of DRAFT to PUBLISHED was an unrelated check
+that at least one ticket type was on sale, which a real organiser satisfies
+before publishing anyway.
+
+Closed by `packages/schemas/src/lifecycle.js`, a table naming every legal move,
+who may make it and what must be true first, and by
+`apps/api/src/lib/event-lifecycle.js`, which enforces it. Seven commands replace
+the one setter, and the destination is the route rather than a field.
+
+### NF-19 — DRAFT was the only state anybody had excluded
+
+Both the list filter and the detail handler asked one question: is this a draft?
+Everything between "submitted" and "published" answered no and was served in
+full to anonymous callers — a submission waiting on a moderator, an approval the
+organiser had not chosen to announce, an archived event, and a rejection.
+
+The rejection is the worst of the four. `Event.moderationNote` is what a
+moderator wrote to the organiser about why they were turned down, and it came
+back in the payload.
+
+Closed by deriving both filters from the lifecycle table rather than from a
+literal. The table distinguishes two questions that had been conflated:
+_appearing in a listing_ and _resolving at a URL_. A cancelled event must still
+resolve, because somebody holding a ticket needs the page to say what happened;
+it does not belong in "what is on" or in a sitemap.
+
+### NF-20 — the same mistake one level up from NF-04
+
+NF-04 closed the hole between an `OrderItem` and its `TicketType`: a line could
+sell a tier from a different event, and under the Connect charge model that
+attributes money to the wrong account. The tier-to-session pairing had the same
+shape and no guard: `TicketType.eventSessionId` referenced `EventSession(id)`
+and nothing more, so a tier sold for event A could be scoped to a session of
+event B. Inventory would count against B while the order, the ticket and the
+door list all said A.
+
+Found the way NF-07 was found — by writing the test and discovering there was
+nothing behind it. `desi_ticket_type_session_matches` closes it, and a null
+session stays legitimate: it means "every session of this event", which is how a
+Phase 1 single-session event migrates without inventing one.
+
+### NF-21 — the parent could hold a window its children were forbidden
+
+`EventSession` has carried `event_session_ends_after_start` since the Phase 2
+migration. `Event` never got the equivalent. The API validated it on create and
+on update, and a backfill, a console fix or a future route does not go through
+the API.
+
+Added `NOT VALID` then `VALIDATE`, so the check binds new and updated rows
+immediately and existing rows are verified under a weaker lock — a deployment
+holding a bad row is told which invariant it breaks rather than having the
+`ALTER` fail with nothing useful.
+
+### What this did not change
+
+Nothing in this cycle weakened a database constraint, a trigger or a
+client/server boundary. Two places where the database turned out to be stricter
+than a test expected were resolved by asserting the database's refusal:
+
+- A **draft** map version cannot be attached to a session at all — the service
+  gate that refuses to publish such an event is defence in depth, and the
+  database refuses one step earlier.
+- The populated-upgrade verifier's generic row filler gives every timestamp the
+  same value, which `event_ends_after_start` now refuses. The filler was given a
+  coherent window rather than the constraint being relaxed.
+
+## NF-22 and NF-23 — the public surface cycle
+
+Two more, found in the cycle that built the organiser and moderation screens and
+the twenty browser journeys. Both were found by looking rather than by luck: the
+brief asked for a search of every browser-deliverable artefact for private
+organiser data, and the search is what turned them up.
+
+| ID        | Severity   | Finding                                                                                             | Where                                                  | How it surfaced                                        | Status    |
+| --------- | ---------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------ | --------- |
+| **NF-22** | **medium** | The public event payload advertised ticket types the organiser had not put on sale                  | `apps/api/src/lib/presenters.js` `toEventDetail`       | Writing the tier-status control and asking who sees it | **Fixed** |
+| **NF-23** | **medium** | The browser carried the shape of every private column — `contactEmail`, `payoutCurrency` among them | `apps/web/src/lib/api-client.js` → the contract barrel | Extending `bundle:scan` with private-organiser needles | **Fixed** |
+
+### NF-22 — a draft tier is the organiser holding something back
+
+A `TicketType` is `DRAFT` until somebody puts it on sale. That is a real state
+with a real meaning: an early-bird price not announced yet, a tier half built, a
+price being argued about internally. `toEventDetail` returned every tier
+regardless, so the public page announced all of it on the organiser's behalf and
+without being asked.
+
+Fixed by making the presenter take `includeDraftTiers`, and by having
+`events.get` pass the answer to the same question it already asks to decide
+whether the page resolves at all — `maySeeDrafts(event, actor)`. The four routes
+that are reachable only by somebody inside the organisation pass `true`
+explicitly rather than relying on the default, because an organiser's own editor
+going blank after a save is not a bug anybody would guess at.
+
+### NF-23 — the description of a private column is not a credential, and still should not ship
+
+`createApiClient` reads five things about a route: its id, method, path, `auth`,
+and whether it takes a body or a query string. It reads `route.body` for
+truthiness and never parses with it.
+
+To learn that, the browser was importing `packages/api-contract/src/routes.js`,
+which holds every request and response schema in the contract — which is to say
+the column list of every entity in the system, including the two fields NF-14
+had removed from the public payload three cycles earlier.
+
+Two smaller paths fed the same leak: the web app imported the contract _barrel_,
+which re-exports `routes.js` whatever the caller uses, and a notice component
+pulled two strings from the schemas barrel, dragging `entities.js` behind them.
+
+The honest thing to record is the temptation. A field _name_ is not a
+credential, the OpenAPI document is published, and deleting the two needles from
+the scan would have restored a green result in thirty seconds. That is exactly
+the move this project does not make. The client reads a generated manifest now —
+five fields, emitted by a script, drift-checked by a test the way `openapi.json`
+already is — and the schemas stay on the server.
+
+`moderation:review` left the bundle with them, and moved from the scan's
+_required_ list to its _forbidden_ one. It had been in the browser because the
+route table carried each route's capability; no client component ever read it,
+and a browser holding the list knows which privileged routes exist and what
+authority each one wants. Requiring it would have been requiring the leak.
+
+### What these two did not change
+
+Nothing was relaxed. The one test-environment change in the cycle was the global
+rate limit becoming an operator knob with its default unchanged: twenty journeys
+driving a whole product lifecycle from one address in a minute is correctly read
+as a scraper, and so is a hundred real visitors behind one corporate NAT, which
+is the actual reason the budget belongs in the environment rather than in source.
+
+Two schema rules were _refined_ rather than loosened, and both refinements make
+the rule stricter about what it was actually for:
+
+- A publication gate asked whether an event's `policies` existed; it now asks
+  whether any were written, and names the refund policy separately. The editor
+  had been sending `{entry: null, refund: null, …}` on every autosave, which
+  satisfied "exists" while the buyer had agreed to nothing.
+- The moderation schema demanded prose for any refusal; it now accepts prose or
+  notes against named fields, and still refuses a refusal carrying neither. A
+  moderator who had written the useful version was being refused for not also
+  writing the vague one.
+
+## The closeout cycle: five more, found by the work rather than by an audit
+
+Recorded here because this document is where findings live, and because four of
+the five were found by writing the test before believing the code.
+
+| #      | What it was                                                                                                                                                                       | Found by                                 | Fixed in  |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | --------- |
+| C5-D1  | A route-level step-up gate made the analytics count tier unreachable for every VIEWER and door steward — roles nothing compels to enrol a factor                                  | the first route test                     | `759e00a` |
+| C5-D2  | Sales breakdowns carried `lineValueCents` outside the money branch, so a reader told the money was not for them still got what each event took                                    | the same test, structurally              | `759e00a` |
+| C5-D4  | `localState` and `providerState` were `z.unknown()`: nothing stripped, so a writer storing a raw provider object would have shipped a card suffix and a billing email to a screen | reading the presenter before trusting it | `d7435a7` |
+| C5-D6  | `refundSchema` never said whose refund it was, so every caller had to ask an organisation capability with no organisation — NF-05 by the back door                                | the refund screen's first draft          | `d48e18a` |
+| C5-D7  | A definition list with a third sibling `p`, which axe fails under WCAG 1.3.1 and a screen reader reads as three unassociated paragraphs                                           | the scanner, at 320 px                   | `fc3f15a` |
+| C5-D9  | The analytics screen substituted your own organisation for one the URL named and you could not view                                                                               | `detail-analytics.spec.js`               | `bdefff9` |
+| C5-D10 | The four new browser specs joined the public suite, which runs with the API deliberately down                                                                                     | CI run `35106712692`                     | `c5e98da` |
+
+Two more were about the _tests_ rather than the code, and are recorded because
+the temptation in both cases was the same one this document exists to refuse:
+
+- **A flaky assertion.** `expect(response.body).not.toContain('800000')` failed
+  once and passed on a re-run — a cuid is twenty-five random alphanumerics and
+  will contain any short digit run by chance. Replaced with structural
+  assertions rather than re-run until green.
+- **Two bundle-scan needles that could not express their property.**
+  `SETTLED_FROM_PROVIDER` and `toEmail` are both members of published _request_
+  schemas, which a screen issuing that command must name; a string scan cannot
+  tell that from the stored value coming back. Both were **retargeted** at names
+  that appear in no schema — `RESOLUTIONS_FOR_VERDICT`, `compareEvidence`,
+  `maskRecipient` — with the reasoning written beside them. Deleting them would
+  have restored a green result in thirty seconds, which is the move recorded two
+  sections above as the one this project does not make.
+
+## The CI forensics cycle: three the record had wrong
+
+Prompted by a reader asking why five commits showed a non-green run. Two of the
+five were `cancelled`, not failed, and neither hid anything — but reading the
+logs of the three that did fail turned up two live defects and one bad
+explanation.
+
+| ID    | Finding                                                                                                                              | Evidence                                          | Fixed in  |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- | --------- |
+| C6-D1 | A package's tests were never ordered against that package's own `prisma generate`, so a generate could rewrite the client mid-import | CI run `35103232838`, job `104817695297`          | `79ff795` |
+| C6-D2 | Every Playwright artefact name interpolated a pnpm task name containing colons, which `upload-artifact` rejects                      | CI run `35106712692`, job `104829717332`, step 11 | `79ff795` |
+| C6-D3 | This project's own record explained run `35103232838` as a coverage-threshold breach. It was not one                                 | The job log: 2,813 lines, no `threshold`          | §9A       |
+
+Each is worth a sentence on **why it survived**, because in all three cases
+something that looked like evidence was not.
+
+- **C6-D1 hid behind a step name.** The failing step is called
+  `Coverage thresholds`, so the failure was filed as a coverage problem and a
+  thin margin was produced to explain it. The margin was real — `apps/api`
+  branch coverage genuinely sits `+0.83` points over its floor — which made the
+  wrong story fit. What actually failed was an import, in the one package that
+  deliberately enforces no thresholds at all. The cost was not the red run: it
+  was that `tests/seed-data.test.js` reported `(0 test)` and vitest printed
+  `Tests 40 passed (40)` while **62 assertions did not run**.
+- **C6-D2 could only ever be seen by failing.** The upload step is
+  `if: failure()`. On every green run it is skipped, so no amount of green
+  proves anything about it; on the one run that needed it, it discarded the
+  sixty report files that would have explained the failure. A guard that only
+  runs when something is already broken needs testing when nothing is.
+- **C6-D3 is the one worth keeping.** Three separate documents carried the wrong
+  cause, and two commit messages asserted it with figures attached. Numbers
+  lend an explanation weight it has not earned: the percentages were measured,
+  the conclusion drawn from them was invented. Both live defects above were
+  found only by reading the log instead of the report.
+
+`scripts/check-ci-invariants.mjs` now asserts the two mechanical properties on
+every run, and was itself verified by reintroducing each defect and watching it
+fail.
+
+## Provenance
+
+- Raw findings: `wf_6b34ffef-3e2/journal.jsonl`, 6 records of type `result`
+  carrying a `findings` array — 34 entries total.
+- Verdicts: 17 records of type `result` carrying `refuted` — 14 false, 3 true.
+- Failures: 17 records of type `failed`, all
+  `"You've hit your session limit"`.
+- Every finding whose verifier died was reproduced or refuted by hand against
+  the code at `efda577`, with the method recorded in the Evidence column.
+- The browser-exposure audit: `wf_cd65607b-d6d/journal.jsonl`, 4 audit results
+  carrying 18 claims and 15 verify results carrying `refuted` — 9 false, 6 true.

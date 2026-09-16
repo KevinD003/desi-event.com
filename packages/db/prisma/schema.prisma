@@ -1,0 +1,2166 @@
+// Desi-Event data model.
+//
+// Conventions:
+//  * Money is always stored as integer cents in the smallest currency unit.
+//    Never use floating point for money.
+//  * Every timestamp is stored in UTC. Events additionally carry an IANA
+//    timezone so that local start times survive daylight-saving changes.
+//  * Soft business state lives in enums so the database rejects bad values.
+//
+// The datasource URL is supplied by prisma.config.mjs (Prisma 7 no longer
+// accepts `url` inside the schema).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Identity and access
+// ---------------------------------------------------------------------------
+
+/// A person's platform-wide role. Organisation-scoped authority lives on
+/// `Membership.role`; this enum is only for authority that spans the whole
+/// platform. `ADMIN` was Phase 1's single catch-all and is migrated to
+/// `SUPER_ADMIN`; the four narrower roles exist so that support, moderation
+/// and finance work does not require the key to everything.
+enum UserRole {
+  ATTENDEE
+  ORGANIZER
+  /// Reads customer-facing records to answer a support request. No money.
+  SUPPORT
+  /// Reviews and approves events and venues. No money.
+  MODERATOR
+  /// Refunds, reconciliation, transfers and payouts. No moderation.
+  FINANCE_ADMIN
+  SUPER_ADMIN
+}
+
+/// Authority inside one organisation. Capabilities are derived from this in
+/// `@desi-event/permissions`; the enum deliberately does not name capabilities
+/// so that a capability can be added without a migration.
+enum OrgRole {
+  OWNER
+  ADMIN
+  /// Creates and edits events, and manages inventory. Cannot touch money.
+  EVENT_MANAGER
+  /// Refunds, payouts and finance reporting. Cannot publish or edit events.
+  FINANCE
+  MANAGER
+  STAFF
+  /// Scans tickets at the door for events it is assigned to. Nothing else.
+  SCANNER
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  phone        String?
+  locale       String   @default("en-IN")
+  role         UserRole @default(ATTENDEE)
+  emailVerified Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  /// Set when the account is locked out administratively. A locked account can
+  /// still be read by support; it cannot authenticate.
+  suspendedAt  DateTime?
+  suspendedReason String?
+
+  memberships Membership[]
+  orders      Order[]
+  waitlist    WaitlistEntry[]
+  auditLogs   AuditLog[]
+  ticketHolds TicketHold[]
+  sessions    Session[]
+  devices     Device[]
+  mfaFactors  MfaFactor[]
+  authTokens  AuthToken[]
+  invitesSent Invitation[]     @relation("InvitationInvitedBy")
+  invitesAccepted Invitation[] @relation("InvitationAcceptedBy")
+  ticketsOwned Ticket[]        @relation("TicketOwner")
+  transfersSent TicketTransfer[] @relation("TicketTransferFrom")
+  transfersReceived TicketTransfer[] @relation("TicketTransferTo")
+  checkInsPerformed CheckIn[]
+  refundsRequested Refund[]    @relation("RefundRequestedBy")
+  refundsApproved  Refund[]    @relation("RefundApprovedBy")
+  ledgerBatches LedgerBatch[]
+  moderationActions EventModerationAction[]
+  notificationPreferences NotificationPreference[]
+  mediaUploaded MediaAsset[]
+  reconciliationTasks ReconciliationTask[]
+
+  @@index([role])
+  @@index([suspendedAt])
+}
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  contactEmail String
+  websiteUrl  String?
+  verified    Boolean  @default(false)
+  payoutCurrency String @default("INR")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Where the organisation is in the verification pipeline. `verified` above is
+  /// kept as the denormalised public badge and must always agree with this.
+  verificationStatus VerificationStatus @default(UNVERIFIED)
+  /// What a moderator asked for, when the status is REQUIRES_INFORMATION.
+  verificationNote   String?
+  verificationUpdatedAt DateTime?
+  /// Registered legal name, when it differs from the trading name. Never a tax
+  /// identifier or a bank detail: those live with the payment provider.
+  legalName          String?
+  /// IANA zone used to render this organisation's reports and sales windows.
+  timezone           String             @default("Asia/Kolkata")
+  /// Plain-language refund policy shown to buyers and snapshotted onto orders.
+  refundPolicy       String?
+  /// Set when the organisation is suspended: no publishing, no payouts.
+  suspendedAt        DateTime?
+  suspendedReason    String?
+
+  memberships Membership[]
+  events      Event[]
+  promoCodes  PromoCode[]
+  invitations Invitation[]
+  venues      Venue[]
+  connectedAccount ConnectedAccount?
+  transfers   Transfer[]
+  payouts     Payout[]
+  verificationHistory OrganizationVerificationEvent[]
+
+  @@index([verified])
+  @@index([verificationStatus])
+  @@index([suspendedAt])
+}
+
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           OrgRole  @default(VIEWER)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  /// Which invitation produced this membership, when one did.
+  invitationId   String?  @unique
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitation   Invitation?  @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+  scannerScopes ScannerScope[]
+
+  @@unique([userId, organizationId])
+  @@index([organizationId, role])
+}
+
+// ---------------------------------------------------------------------------
+// Events and venues
+// ---------------------------------------------------------------------------
+
+enum EventCategory {
+  MUSIC_CONCERT
+  GARBA_DANDIYA
+  BOLLYWOOD_NIGHT
+  CLASSICAL_DANCE
+  COMEDY
+  FILM_SCREENING
+  CULTURAL_FESTIVAL
+  FOOD_FESTIVAL
+  WEDDING_EXPO
+  RELIGIOUS
+  THEATRE
+  WORKSHOP
+  NETWORKING
+  SPORTS
+}
+
+/// The organiser event lifecycle.
+///
+/// `PUBLISHED` means publicly visible. `ON_SALE`, `SALES_PAUSED` and
+/// `SOLD_OUT` are also publicly visible and differ only in whether the buy
+/// button does anything — see `PUBLIC_EVENT_STATUSES` in
+/// `@desi-event/schemas`, which is the single list every public query reads.
+/// Everything else is invisible to the public, and that is enforced in queries
+/// rather than assumed.
+enum EventStatus {
+  DRAFT
+  /// Submitted by the organiser, waiting for a moderator.
+  REVIEW_PENDING
+  /// A moderator asked for changes; back in the organiser's hands.
+  CHANGES_REQUIRED
+  /// Approved but not yet public. Publishing is a separate, capability-gated act.
+  APPROVED
+  PUBLISHED
+  ON_SALE
+  SALES_PAUSED
+  SOLD_OUT
+  COMPLETED
+  /// Postponed with no new date yet; `previousStartsAt` keeps the old one.
+  POSTPONED
+  CANCELLED
+  REJECTED
+  ARCHIVED
+}
+
+model Venue {
+  id         String  @id @default(cuid())
+  name       String
+  addressLine1 String
+  addressLine2 String?
+  city       String
+  region     String
+  postalCode String
+  country    String  @default("IN")
+  latitude   Float?
+  longitude  Float?
+  capacity   Int?
+  /// URL slug for the public venue page. Nullable so Phase 1 rows migrate
+  /// without inventing one, and unique so two venues cannot claim a URL.
+  slug       String?  @unique
+  description String?
+  /// IANA zone. A venue's local time is a property of the place, not the event,
+  /// and daylight saving makes storing an offset wrong twice a year.
+  timezone   String   @default("Asia/Kolkata")
+  /// Free-text arrival notes: which gate, which metro stop, where to park.
+  directions String?
+  /// House rules shown before purchase and snapshotted onto orders.
+  policies   String?
+  /// Structured accessibility attributes, e.g. step-free entry, hearing loop,
+  /// accessible toilets. A JSON column because the vocabulary is still moving.
+  accessibility Json?
+  /// Who told us about this venue: an organiser, a moderator, an import.
+  /// Nothing here is scraped from a third-party site.
+  provenance String?
+  organizationId String?
+  /// Set when an administrator merges a duplicate into another row. The merged
+  /// row is kept, not deleted, because orders and tickets point at it.
+  mergedIntoVenueId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  events Event[]
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  mergedInto   Venue?  @relation("VenueMerge", fields: [mergedIntoVenueId], references: [id], onDelete: SetNull)
+  mergedFrom   Venue[] @relation("VenueMerge")
+  maps         VenueMap[]
+
+  @@index([city, region])
+  @@index([organizationId])
+  @@index([mergedIntoVenueId])
+}
+
+model Event {
+  id             String        @id @default(cuid())
+  organizationId String
+  venueId        String?
+  title          String
+  slug           String        @unique
+  summary        String
+  description    String
+  category       EventCategory
+  status         EventStatus   @default(DRAFT)
+  // Stored in UTC; render using `timezone`.
+  startsAt       DateTime
+  endsAt         DateTime
+  timezone       String        @default("Asia/Kolkata")
+  coverImageUrl  String?
+  isOnline       Boolean       @default(false)
+  onlineUrl      String?
+  languages      String[]      @default([])
+  publishedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  /// Optimistic-concurrency precondition for the draft editor. A client sends
+  /// the revision it read; a write whose precondition no longer holds is
+  /// reported rather than resolved by whoever saved last.
+  revision       Int           @default(0)
+
+  /// Minimum age at the door, when there is one. Null means no restriction.
+  ageRestriction Int?
+  /// Structured accessibility attributes for this event, layered over the
+  /// venue's. Same moving vocabulary, same reason for JSON.
+  accessibility  Json?
+  /// Named performers, in billing order. Free text: this is a listing, not a
+  /// licensed artist database.
+  artists        String[]      @default([])
+  /// Entry, refund and conduct rules, snapshotted onto every order at purchase
+  /// so a later edit cannot change what a buyer agreed to.
+  policies       Json?
+  contactEmail   String?
+  /// When the organiser submitted it for review.
+  reviewSubmittedAt DateTime?
+  /// Why a moderator rejected it or asked for changes. Cleared on resubmission.
+  moderationNote String?
+  cancelledAt    DateTime?
+  cancellationReason String?
+  postponedAt    DateTime?
+  /// The start time before a postponement, kept so attendees can be told what
+  /// changed rather than just that something did.
+  previousStartsAt DateTime?
+  /// Set the first time the event went ON_SALE. Once set, the venue map version
+  /// backing its sessions is frozen.
+  salesOpenedAt  DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venue        Venue?       @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTypes  TicketType[]
+  orders       Order[]
+  promoCodes   PromoCode[]
+  waitlist     WaitlistEntry[]
+  sessions     EventSession[]
+  moderationHistory EventModerationAction[]
+  media        MediaAsset[]
+
+  @@index([status, startsAt])
+  @@index([category, startsAt])
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Ticketing
+// ---------------------------------------------------------------------------
+
+enum TicketTypeStatus {
+  DRAFT
+  ON_SALE
+  PAUSED
+  SOLD_OUT
+  CLOSED
+}
+
+model TicketType {
+  id            String           @id @default(cuid())
+  eventId       String
+  name          String
+  description   String?
+  // Face value in integer cents of `currency`.
+  priceCents    Int
+  currency      String           @default("INR")
+  quantityTotal Int
+  // Denormalised counter kept in step with paid orders inside a transaction.
+  quantitySold  Int              @default(0)
+  minPerOrder   Int              @default(1)
+  maxPerOrder   Int              @default(10)
+  salesStartAt  DateTime?
+  salesEndAt    DateTime?
+  status        TicketTypeStatus @default(DRAFT)
+  sortOrder     Int              @default(0)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  /// Which session this tier sells for, when the event has more than one.
+  /// Null means "every session", which is how Phase 1's single-session events
+  /// migrate without inventing a session.
+  eventSessionId String?
+  /// For reserved seating: the price zone this tier prices. Null for general
+  /// admission, where the tier owns a quantity rather than a set of seats.
+  priceZoneId    String?
+  /// True when this tier is sold by seat rather than by quantity.
+  reserved       Boolean          @default(false)
+  /// Complimentary tiers never charge and never reach a payment provider.
+  complimentary  Boolean          @default(false)
+
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  holds      TicketHold[]
+  orderItems OrderItem[]
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  priceZone    PriceZone?    @relation(fields: [priceZoneId], references: [id], onDelete: SetNull)
+  eventSeats   EventSeat[]
+  holdItems    HoldItem[]
+
+  @@index([eventId, status])
+  @@index([eventSessionId])
+  @@index([priceZoneId])
+}
+
+enum HoldStatus {
+  ACTIVE
+  CONVERTED
+  RELEASED
+  EXPIRED
+}
+
+/// A short-lived reservation taken while a buyer completes checkout.
+/// Expired holds are swept back into availability by the worker.
+///
+/// Ownership: exactly one of `userId` (an authenticated buyer) or
+/// `guestTokenHash` (an anonymous one) is set. That invariant is enforced by
+/// the `ticket_hold_single_owner` check constraint in the migration, because an
+/// application-only rule is one bad code path away from a hold nobody can
+/// release — or one anybody can.
+///
+/// `guestTokenHash` stores a SHA-256 of a token that is returned to the buyer
+/// exactly once, at creation. The plaintext is never persisted, so a database
+/// leak does not let the reader release or claim other people's holds.
+model TicketHold {
+  id             String     @id @default(cuid())
+  ticketTypeId   String
+  orderId        String?
+  quantity       Int
+  status         HoldStatus @default(ACTIVE)
+  expiresAt      DateTime
+  /// Owning user when the hold was taken by an authenticated caller.
+  userId         String?
+  /// SHA-256 of the guest ownership token. Never the token itself.
+  guestTokenHash String?
+  /// Who released it and why, for the audit trail.
+  releasedAt     DateTime?
+  releasedBy     String?
+  releaseReason  String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  /// The session the hold reserves against, for reserved seating. Null for a
+  /// general-admission hold on a session-less tier.
+  eventSessionId String?
+
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Cascade)
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  items      HoldItem[]
+  seats      EventSeat[]
+
+  @@index([status, expiresAt])
+  @@index([ticketTypeId, status])
+  @@index([userId, status])
+  @@index([guestTokenHash])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  CANCELLED
+  REFUNDED
+  EXPIRED
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  reference     String      @unique
+  /// Caller-supplied key that makes a retried checkout return the original
+  /// order instead of creating and charging a second one.
+  idempotencyKey String?    @unique
+  eventId       String
+  userId        String?
+  buyerEmail    String
+  buyerName     String
+  status        OrderStatus @default(PENDING)
+  currency      String      @default("INR")
+  subtotalCents Int
+  discountCents Int         @default(0)
+  feesCents     Int         @default(0)
+  taxCents      Int         @default(0)
+  totalCents    Int
+  promoCodeId   String?
+  /// The fee terms and tax policy this order was priced under, captured at
+  /// checkout. The receipt, any refund and the ledger recompute from this
+  /// rather than from the live tables, which may have moved on since.
+  pricingSnapshot Json?
+  expiresAt     DateTime?
+  paidAt        DateTime?
+  cancelledAt   DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  /// The event, venue and organisation policies as they stood at purchase.
+  /// A later edit cannot change what this buyer agreed to, which is the whole
+  /// point of storing it here rather than reading it back through the event.
+  policySnapshot Json?
+  /// The session bought for, when the event has more than one.
+  eventSessionId String?
+  /// Running total of everything refunded against this order, in `currency`.
+  /// Denormalised so the refund ceiling is one read rather than an aggregate.
+  refundedCents  Int         @default(0)
+  /// Set when a refund has been requested but not yet settled, so a second
+  /// request cannot race the first into over-refunding.
+  refundPendingCents Int     @default(0)
+
+  event     Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  promoCode PromoCode?  @relation(fields: [promoCodeId], references: [id], onDelete: SetNull)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  refunds   Refund[]
+  transfers Transfer[]
+  ledgerBatches LedgerBatch[]
+  items     OrderItem[]
+  holds     TicketHold[]
+  payments  Payment[]
+
+  @@index([status, createdAt])
+  @@index([eventId, status])
+  @@index([buyerEmail])
+}
+
+model OrderItem {
+  id             String @id @default(cuid())
+  orderId        String
+  ticketTypeId   String
+  quantity       Int
+  unitPriceCents Int
+  subtotalCents  Int
+
+  /// Quantity already refunded from this line. The refund allocator reads this
+  /// to enforce "you cannot refund more of a line than was bought".
+  refundedQuantity Int   @default(0)
+  refundedCents    Int   @default(0)
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  tickets    Ticket[]
+  eventSeats EventSeat[]
+  refundItems RefundItem[]
+  holdItems  HoldItem[]
+
+  @@index([orderId])
+}
+
+enum TicketStatus {
+  /// Issued and admittable. The brief calls this state ACTIVE; this repository
+  /// has spelled it VALID since Phase 1 and the two are one state. One spelling,
+  /// so a reader never has to ask which of two names is authoritative.
+  VALID
+  /// A transfer invitation is outstanding. The ticket still admits its current
+  /// holder — an invitation is not a handover — but a second transfer cannot
+  /// start until this one resolves.
+  TRANSFER_PENDING
+  /// Withdrawn by the organiser, with a reason. Distinct from REFUNDED, which
+  /// is about money, and from CANCELLED, which is about the event.
+  REVOKED
+  CHECKED_IN
+  VOID
+  REFUNDED
+  /// Handed to somebody else. The row survives for the audit trail; the new
+  /// holder's ticket is a separate row, and this one's credential is dead.
+  TRANSFERRED
+  /// Replaced by a reissued ticket, e.g. after a credential rotation.
+  SUPERSEDED
+  /// The event was cancelled. Distinct from REFUNDED, which is about money.
+  CANCELLED
+}
+
+/// One admission.
+///
+/// Two identifiers, deliberately. `code` is the human-readable reference a
+/// buyer reads out at the box office; it is stable for the life of the ticket
+/// and it admits nobody on its own. `credentialHash` is a SHA-256 of the
+/// bearer credential encoded into the QR pass — the plaintext is shown to the
+/// holder and never stored, so a database leak cannot be walked through the
+/// door, and the credential can be rotated on transfer or suspected exposure
+/// without changing the reference the buyer already has.
+///
+/// The QR payload carries the credential and nothing else: no name, no price,
+/// no order reference, no authorisation claim. Everything the gate needs to
+/// decide is looked up server-side from the hash.
+model Ticket {
+  id           String       @id @default(cuid())
+  orderItemId  String
+  /// Human-readable reference. Admits nobody by itself.
+  code         String       @unique
+  /// SHA-256 of the bearer credential in the QR pass. Never the credential.
+  credentialHash String?    @unique
+  /// Bumped every time the credential is rotated, so an old pass is provably
+  /// stale rather than merely unrecognised.
+  credentialVersion Int     @default(1)
+  credentialIssuedAt DateTime?
+  attendeeName String?
+  /// Who holds it now. Null for a guest purchase that was never claimed.
+  ownerUserId  String?
+  /// The seat, for reserved seating. Null for general admission.
+  eventSeatId  String?      @unique
+  status       TicketStatus @default(VALID)
+  checkedInAt  DateTime?
+  revokedAt    DateTime?
+  revokedReason String?
+  /// The ticket this one replaced, when it was created by a transfer or a
+  /// reissue. Gives an unbroken chain from the original purchase.
+  supersedesTicketId String? @unique
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  owner     User?     @relation("TicketOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  eventSeat EventSeat? @relation(fields: [eventSeatId], references: [id], onDelete: SetNull)
+  supersedes Ticket?  @relation("TicketSupersession", fields: [supersedesTicketId], references: [id], onDelete: SetNull)
+  supersededBy Ticket? @relation("TicketSupersession")
+  transfers TicketTransfer[]
+  checkIn   CheckIn?
+  refundItems RefundItem[]
+
+  @@index([orderItemId])
+  @@index([status])
+  @@index([ownerUserId])
+}
+
+enum PaymentStatus {
+  /// Recorded before the provider is called, inside the first transaction.
+  INITIATED
+  /// The provider was called and has not yet given a final answer.
+  PENDING
+  SUCCEEDED
+  FAILED
+  /// The call timed out. The money may or may not have moved, so this is the
+  /// state a human or a reconciliation job has to resolve against the provider.
+  TIMEOUT
+  /// The provider needs the cardholder to authenticate (3-D Secure and friends).
+  /// Nothing has been captured and nothing is owed yet.
+  REQUIRES_ACTION
+  /// Abandoned before capture, deliberately. Distinct from FAILED: nobody was
+  /// declined.
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+/// One attempt to move money for an order.
+///
+/// A row is written and committed BEFORE the provider is called, so a process
+/// that dies mid-call still leaves evidence that a charge may exist. Nothing
+/// here is inferred from a browser redirect.
+model Payment {
+  id          String        @id @default(cuid())
+  orderId     String
+  provider    String
+  providerRef String?
+  status      PaymentStatus @default(INITIATED)
+  amountCents Int
+  currency    String        @default("INR")
+  failureCode String?
+  /// Caller-scoped key making retries of the same checkout idempotent.
+  idempotencyKey String?    @unique
+  attemptNumber  Int        @default(1)
+  /// Set when the provider's answer was ambiguous (a timeout). Money may have
+  /// moved; the row must not be reused and a human must reconcile it.
+  reconciliationRequired Boolean @default(false)
+  /// The provider's own status string, kept verbatim for reconciliation.
+  rawProviderStatus String?
+  settledAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  /// The connected account the charge was made on behalf of, when the provider
+  /// has that concept. Part of the webhook's identity: the same event id can
+  /// arrive for the platform and for a connected account.
+  providerAccountId String?
+  /// Safe display metadata only. Never a card number, never a CVC, never a
+  /// cryptogram — those never reach this system at all.
+  methodBrand    String?
+  methodLast4    String?
+  methodExpMonth Int?
+  methodExpYear  Int?
+  methodType     String?
+  /// When a client secret was issued to the browser. The secret itself is never
+  /// stored or logged; this is only so a stale checkout can be recognised.
+  clientSecretIssuedAt DateTime?
+  /// The pricing policy version the amount was computed under, so a later
+  /// pricing change cannot silently reinterpret an old charge.
+  pricingPolicyVersion String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
+  disputes Dispute[]
+  ledgerBatches LedgerBatch[]
+  reconciliationTasks ReconciliationTask[]
+
+  @@unique([provider, providerRef])
+  @@index([orderId, status])
+  @@index([reconciliationRequired])
+  @@index([providerAccountId])
+}
+
+/// A provider callback, recorded once.
+///
+/// The webhook is the authoritative signal that money moved — not the redirect
+/// the browser follows, which a buyer can close, replay or forge. The unique
+/// `(provider, providerEventId)` makes replays a no-op, and `processedAt`
+/// guarantees only one worker ever fulfils a given event.
+enum WebhookState {
+  /// Signature verified and stored. Nothing has been acted on yet.
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  /// Recognised, and deliberately without effect — an event type we do not act
+  /// on. Distinct from FAILED so "we ignored this" is not read as "this broke".
+  IGNORED
+  FAILED
+  /// Out of retries. Waits for a human to replay it.
+  DEAD_LETTER
+}
+
+/// One provider callback, recorded once.
+///
+/// The webhook is the authoritative signal that money moved — not the redirect
+/// the browser follows, which a buyer can close, replay or forge.
+///
+/// Identity is `(provider, accountContext, providerEventId)`, not just the
+/// event id: Stripe delivers the same event to the platform and to a connected
+/// account, and those are two different facts. `accountContext` is the empty
+/// string for platform events so the unique index covers every row.
+model WebhookEvent {
+  id              String    @id @default(cuid())
+  provider        String
+  /// The connected account the event belongs to, or '' for the platform.
+  accountContext  String    @default("")
+  providerEventId String
+  eventType       String
+  /// The provider's API version for this delivery. A payload's shape is only
+  /// interpretable against the version that produced it.
+  apiVersion      String?
+  /// When the provider says it created the event, as distinct from when we
+  /// received it. Out-of-order delivery is normal and this is how it is seen.
+  providerCreatedAt DateTime?
+  payload         Json
+  /// SHA-256 of the exact bytes whose signature was verified. Proof that what
+  /// was stored is what was signed.
+  payloadHash     String?
+  orderId         String?
+  paymentId       String?
+  state           WebhookState @default(RECEIVED)
+  attemptCount    Int       @default(0)
+  nextAttemptAt   DateTime?
+  receivedAt      DateTime  @default(now())
+  processedAt     DateTime?
+  processingError String?
+
+  @@unique([provider, accountContext, providerEventId])
+  @@index([processedAt])
+  @@index([orderId])
+  @@index([state, nextAttemptAt])
+  @@index([eventType])
+}
+
+// ---------------------------------------------------------------------------
+// Promotions and demand capture
+// ---------------------------------------------------------------------------
+
+enum PromoType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model PromoCode {
+  id              String    @id @default(cuid())
+  organizationId  String
+  eventId         String?
+  code            String
+  type            PromoType
+  /// Basis points for PERCENTAGE (1000 = 10%), integer cents for FIXED_AMOUNT.
+  value           Int
+  /// Required for FIXED_AMOUNT: a flat discount is denominated, and ₹500 is not
+  /// CA$500. Null for PERCENTAGE, which is currency-neutral. Enforced by the
+  /// `promo_code_fixed_amount_currency` check constraint.
+  currency        String?
+  maxRedemptions  Int?
+  redemptionCount Int       @default(0)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        Event?       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  orders       Order[]
+
+  @@unique([organizationId, code])
+  @@index([eventId, active])
+}
+
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String?
+  email     String
+  quantity  Int      @default(1)
+  notified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([eventId, email])
+  @@index([eventId, notified])
+}
+
+// ---------------------------------------------------------------------------
+// Operations
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Sessions, devices and second factors
+//
+// Phase 1 authenticated with a bearer JWT and nothing else: there was no way to
+// list a session, revoke one, or tell two browsers apart. Everything below
+// exists so that "sign out everywhere" is a real operation and a stolen token
+// has an end.
+//
+// No credential is stored in plaintext anywhere in this section. Session
+// tokens, reset tokens, recovery codes and TOTP secrets are all stored as
+// digests or sealed values, and the plaintext is returned to its owner exactly
+// once.
+// ---------------------------------------------------------------------------
+
+/// A browser or app sign-in that can be listed and revoked.
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  /// SHA-256 of the session token. The token itself is returned once, at
+  /// creation, and never persisted — a database leak must not be a login.
+  tokenHash    String    @unique
+  deviceId     String?
+  /// Truncated user agent, for the "which browser is this?" line in the UI.
+  userAgent    String?
+  /// SHA-256 of the client address plus a server-side pepper. Enough to spot a
+  /// session moving between networks; not enough to recover the address.
+  ipHash       String?
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+  expiresAt    DateTime
+  /// Set when the session ended. A revoked row is kept so the audit trail shows
+  /// that it existed and when it stopped.
+  revokedAt    DateTime?
+  revokedReason String?
+  /// When a second factor was last satisfied on this session. Step-up
+  /// authentication for finance and admin work reads this, so an hours-old
+  /// session cannot approve a refund on the strength of a password alone.
+  mfaSatisfiedAt DateTime?
+  /// Rotated on every privilege change, so a token captured before an
+  /// escalation cannot be replayed after it.
+  rotatedAt    DateTime?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@index([deviceId])
+}
+
+/// A browser or scanner the account has used before.
+model Device {
+  id              String   @id @default(cuid())
+  userId          String
+  /// What the person calls it, when they have named it.
+  label           String?
+  /// SHA-256 of a stable client-supplied fingerprint plus a server pepper.
+  fingerprintHash String
+  /// Set by the owner to skip a second factor on this device, where policy
+  /// allows it. Never set by the device itself.
+  trustedAt       DateTime?
+  firstSeenAt     DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  revokedAt       DateTime?
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions Session[]
+  checkIns CheckIn[]
+
+  @@unique([userId, fingerprintHash])
+  @@index([userId, revokedAt])
+}
+
+enum MfaFactorType {
+  /// Time-based one-time password from an authenticator app.
+  TOTP
+  /// A single-use printed code, for when the authenticator is lost.
+  RECOVERY_CODE
+  /// Reserved for a WebAuthn credential. The boundary exists; the
+  /// implementation does not, and nothing in this repository claims otherwise.
+  WEBAUTHN
+}
+
+/// One second factor belonging to one account.
+model MfaFactor {
+  id          String        @id @default(cuid())
+  userId      String
+  type        MfaFactorType
+  /// A label for the UI: "Phone", "Backup codes".
+  label       String?
+  /// For TOTP, the shared secret sealed with the server key. For a recovery
+  /// code, a SHA-256 of the code. Never a usable plaintext secret.
+  secretSealed String
+  /// Null until the enrolment was confirmed by a successful challenge. An
+  /// unconfirmed factor never satisfies a requirement.
+  confirmedAt DateTime?
+  lastUsedAt  DateTime?
+  /// Single-use factors (recovery codes) are spent, not deleted.
+  usedAt      DateTime?
+  disabledAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, secretSealed])
+  @@index([userId, type, confirmedAt])
+}
+
+enum AuthTokenPurpose {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+  /// Claiming a ticket that was bought as a guest.
+  TICKET_CLAIM
+  /// Accepting a ticket somebody transferred to you.
+  TICKET_TRANSFER
+  /// A single-use link into a provider's hosted onboarding.
+  CONNECT_ONBOARDING
+}
+
+/// A single-use, short-lived, hashed link token.
+///
+/// One model rather than four tables, because the rules are identical for all
+/// of them: hash it, expire it, spend it once, and never log it.
+model AuthToken {
+  id        String           @id @default(cuid())
+  userId    String?
+  purpose   AuthTokenPurpose
+  /// SHA-256 of the token. The plaintext goes in one email and is never stored.
+  tokenHash String           @unique
+  /// What the token is about, when it is about something other than the user:
+  /// a ticket id, an organisation id.
+  subjectId String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  /// Set when the token was invalidated before use, e.g. by a second reset
+  /// request superseding the first.
+  revokedAt DateTime?
+  createdAt DateTime         @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, usedAt])
+  @@index([expiresAt])
+  @@index([purpose, subjectId])
+}
+
+/// An authentication attempt, kept only long enough to throttle.
+///
+/// Neither the address nor the email is stored in the clear: throttling needs to
+/// know "the same actor again", not who the actor is.
+model LoginAttempt {
+  id         String   @id @default(cuid())
+  /// SHA-256 of the lower-cased email plus a server pepper.
+  emailHash  String
+  ipHash     String
+  succeeded  Boolean
+  /// Why it failed, in terms safe to store: BAD_PASSWORD, NO_SUCH_USER,
+  /// MFA_REQUIRED, LOCKED. Never the credential that was tried.
+  outcome    String
+  createdAt  DateTime @default(now())
+
+  @@index([emailHash, createdAt])
+  @@index([ipHash, createdAt])
+}
+
+/// Which events a scanner membership may scan.
+///
+/// A scanner with no scope scans nothing. This is the opposite of the usual
+/// default and is deliberate: a door device is the most likely credential to be
+/// lost, so its authority is enumerated rather than inherited.
+model ScannerScope {
+  id           String   @id @default(cuid())
+  membershipId String
+  eventId      String
+  createdAt    DateTime @default(now())
+
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, eventId])
+  @@index([eventId])
+}
+
+// ---------------------------------------------------------------------------
+// Organiser verification and team management
+// ---------------------------------------------------------------------------
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  /// A moderator needs something before deciding. The organiser can act.
+  REQUIRES_INFORMATION
+  VERIFIED
+  REJECTED
+  SUSPENDED
+  /// Verification was granted and then withdrawn — distinct from REJECTED, which
+  /// was never granted, and from SUSPENDED, which is a temporary hold. An
+  /// organiser who was verified and is no longer is a different conversation
+  /// from one who never was.
+  REVOKED
+}
+
+/// One transition in an organisation's verification history.
+///
+/// Append-only by convention and by the absence of any route that updates it:
+/// the current status lives on `Organization`, and this is how it got there.
+model OrganizationVerificationEvent {
+  id             String             @id @default(cuid())
+  organizationId String
+  fromStatus     VerificationStatus?
+  toStatus       VerificationStatus
+  /// The moderator, or null when the transition was automatic.
+  actorId        String?
+  reason         String?
+  createdAt      DateTime           @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+/// An invitation to join an organisation with a named role.
+///
+/// The token is hashed and single-use, and the role is fixed at issue. An
+/// invitation cannot be replayed to gain a second membership, and cannot be
+/// edited after issue to grant more than was offered — which is why `role` has
+/// no update path and acceptance is guarded by `Membership.invitationId` being
+/// unique.
+model Invitation {
+  id             String           @id @default(cuid())
+  organizationId String
+  /// Lower-cased address the invitation was sent to. The acceptor's own address
+  /// must match it, so a forwarded link does not admit the wrong person.
+  email          String
+  role           OrgRole
+  tokenHash      String           @unique
+  invitedById    String
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  acceptedByUserId String?
+  revokedAt      DateTime?
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy   User?        @relation("InvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  membership   Membership?
+
+  @@index([organizationId, status])
+  @@index([email, status])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Venue maps and reserved seating
+//
+// The central rule: a seat belongs to an immutable map *version*, and once an
+// event has sold anything its session is pinned to one version forever. A
+// venue can redraw its layout next season without rewriting what somebody
+// already bought.
+// ---------------------------------------------------------------------------
+
+/// A named seating layout belonging to a venue, e.g. "Main hall, end stage".
+model VenueMap {
+  id        String   @id @default(cuid())
+  venueId   String
+  name      String
+  /// Free text describing what this layout is for.
+  notes     String?
+  archivedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  venue    Venue             @relation(fields: [venueId], references: [id], onDelete: Cascade)
+  versions VenueMapVersion[]
+
+  @@unique([venueId, name])
+}
+
+/// One frozen revision of a seating layout.
+///
+/// `publishedAt` is the freeze. Before it, sections, rows, seats and zones may
+/// be edited; after it, they may not, and an event session may only reference a
+/// published version. Editing a layout means publishing a new version, which
+/// leaves every sold seat pointing at the geometry it was sold under.
+model VenueMapVersion {
+  id          String    @id @default(cuid())
+  venueMapId  String
+  /// Monotonic within the map, starting at 1.
+  version     Int
+  /// Null while editable. Set once, never cleared.
+  publishedAt DateTime?
+  /// Total seats, denormalised at publication so capacity is one read.
+  seatCount   Int       @default(0)
+  /// Bumped by every accepted whole-layout write. A client sends the revision
+  /// it read, and a write whose precondition no longer holds is refused rather
+  /// than silently overwriting an edit somebody else made in between.
+  revision    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  venueMap VenueMap       @relation(fields: [venueMapId], references: [id], onDelete: Cascade)
+  sections Section[]
+  rows     SeatRow[]
+  seats    Seat[]
+  zones    PriceZone[]
+  sessions EventSession[]
+
+  @@unique([venueMapId, version])
+  @@index([publishedAt])
+}
+
+enum SectionKind {
+  SEATED
+  STANDING
+  TABLE
+}
+
+model Section {
+  id                String      @id @default(cuid())
+  venueMapVersionId String
+  name              String
+  kind              SectionKind @default(SEATED)
+  sortOrder         Int         @default(0)
+  /// Capacity for a STANDING section, which has no seats to count.
+  standingCapacity  Int?
+
+  venueMapVersion VenueMapVersion @relation(fields: [venueMapVersionId], references: [id], onDelete: Cascade)
+  rows            SeatRow[]
+  seats           Seat[]
+
+  @@unique([venueMapVersionId, name])
+  @@index([venueMapVersionId, sortOrder])
+}
+
+model SeatRow {
+  id                String @id @default(cuid())
+  venueMapVersionId String
+  sectionId         String
+  label             String
+  sortOrder         Int    @default(0)
+
+  venueMapVersion VenueMapVersion @relation(fields: [venueMapVersionId], references: [id], onDelete: Cascade)
+  section         Section         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  seats           Seat[]
+
+  @@unique([sectionId, label])
+  @@index([venueMapVersionId])
+}
+
+model PriceZone {
+  id                String @id @default(cuid())
+  venueMapVersionId String
+  name              String
+  /// A design-system token rather than a colour literal, so the map stays
+  /// legible in both themes and status is never carried by colour alone.
+  colourToken       String @default("zone-default")
+  sortOrder         Int    @default(0)
+
+  venueMapVersion VenueMapVersion @relation(fields: [venueMapVersionId], references: [id], onDelete: Cascade)
+  seats           Seat[]
+  ticketTypes     TicketType[]
+
+  @@unique([venueMapVersionId, name])
+}
+
+/// One physical position in one map version.
+///
+/// `@@unique([venueMapVersionId, label])` is the constraint that makes seat
+/// identity real: two rows cannot both claim "Stalls A12" in the same layout,
+/// whatever the application believes. Uniqueness is scoped to the version
+/// rather than the venue on purpose — next season's A12 is a different seat.
+model Seat {
+  id                String  @id @default(cuid())
+  venueMapVersionId String
+  sectionId         String
+  rowId             String?
+  /// The label a person reads, e.g. "Stalls A12" or "Table 7 / Seat 3".
+  label             String
+  sortOrder         Int     @default(0)
+  priceZoneId       String?
+  /// A wheelchair space or similar. Never inferred from the label.
+  accessible        Boolean @default(false)
+  /// The seat a companion must take alongside an accessible space. Held and
+  /// released with it, so a wheelchair user is never separated from a carer by
+  /// a race in the basket.
+  companionOfSeatId String? @unique
+  obstructedView    Boolean @default(false)
+  /// Restricted for a reason other than sight lines: a house seat, a camera
+  /// platform, a fire lane.
+  restricted        Boolean @default(false)
+  restrictionNote   String?
+
+  venueMapVersion VenueMapVersion @relation(fields: [venueMapVersionId], references: [id], onDelete: Cascade)
+  section         Section         @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  row             SeatRow?        @relation(fields: [rowId], references: [id], onDelete: SetNull)
+  priceZone       PriceZone?      @relation(fields: [priceZoneId], references: [id], onDelete: SetNull)
+  companionOf     Seat?           @relation("SeatCompanion", fields: [companionOfSeatId], references: [id], onDelete: SetNull)
+  companion       Seat?           @relation("SeatCompanion")
+  eventSeats      EventSeat[]
+
+  @@unique([venueMapVersionId, label])
+  @@index([sectionId, sortOrder])
+  @@index([rowId, sortOrder])
+  @@index([priceZoneId])
+}
+
+enum EventSessionStatus {
+  SCHEDULED
+  ON_SALE
+  SALES_PAUSED
+  SOLD_OUT
+  CANCELLED
+  COMPLETED
+}
+
+/// One performance of an event: a date, a time, a door time, a sales window.
+///
+/// Phase 1 events carried a single start and end on the event itself. Those
+/// columns remain and stay authoritative for single-session events; a session
+/// row is what makes a run of nine Navratri nights one listing.
+model EventSession {
+  id            String             @id @default(cuid())
+  eventId       String
+  /// Stored UTC; render with `timezone`.
+  startsAt      DateTime
+  endsAt        DateTime
+  doorsOpenAt   DateTime?
+  timezone      String             @default("Asia/Kolkata")
+  salesStartAt  DateTime?
+  salesEndAt    DateTime?
+  status        EventSessionStatus @default(SCHEDULED)
+  /// The frozen layout this session sells. Null for a general-admission
+  /// session. Once anything is sold it may not change.
+  venueMapVersionId String?
+  /// General-admission capacity, for a session with no seat map.
+  capacity      Int?
+  sortOrder     Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venueMapVersion VenueMapVersion? @relation(fields: [venueMapVersionId], references: [id], onDelete: Restrict)
+  eventSeats      EventSeat[]
+  ticketTypes     TicketType[]
+  holds           TicketHold[]
+  orders          Order[]
+  checkIns        CheckIn[]
+
+  @@index([eventId, startsAt])
+  @@index([status, startsAt])
+  @@index([venueMapVersionId])
+}
+
+enum EventSeatStatus {
+  AVAILABLE
+  HELD
+  SOLD
+  /// Withheld by the organiser: production hold, house seat, sight-line kill.
+  BLOCKED
+  /// Given away rather than sold. Issues a ticket, moves no money.
+  COMPLIMENTARY
+  /// Permanently removed for this session — a seat the set covers.
+  KILLED
+}
+
+/// The saleable state of one seat at one session.
+///
+/// `@@unique([eventSessionId, seatId])` means a seat exists once per session,
+/// so two orders cannot both hold a row for it. The transition to HELD or SOLD
+/// is a conditional update guarded on the previous status, so the loser of a
+/// race gets zero rows updated and is told the seat is gone — rather than both
+/// buyers being told yes.
+model EventSeat {
+  id             String          @id @default(cuid())
+  eventSessionId String
+  seatId         String
+  ticketTypeId   String?
+  status         EventSeatStatus @default(AVAILABLE)
+  /// The hold currently reserving it, when status is HELD.
+  holdId         String?
+  /// The line it was sold on, when status is SOLD or COMPLIMENTARY.
+  orderItemId    String?
+  /// Price override for this seat at this session, in the tier's currency.
+  /// Null means the tier's price applies.
+  priceCentsOverride Int?
+  blockedReason  String?
+  updatedAt      DateTime        @updatedAt
+
+  eventSession EventSession @relation(fields: [eventSessionId], references: [id], onDelete: Cascade)
+  seat         Seat         @relation(fields: [seatId], references: [id], onDelete: Restrict)
+  ticketType   TicketType?  @relation(fields: [ticketTypeId], references: [id], onDelete: SetNull)
+  hold         TicketHold?  @relation(fields: [holdId], references: [id], onDelete: SetNull)
+  orderItem    OrderItem?   @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  ticket       Ticket?
+
+  @@unique([eventSessionId, seatId])
+  @@index([eventSessionId, status])
+  @@index([holdId])
+  @@index([orderItemId])
+  @@index([ticketTypeId, status])
+}
+
+/// One line of a hold: either a quantity of a general-admission tier, or one
+/// named seat.
+model HoldItem {
+  id           String  @id @default(cuid())
+  holdId       String
+  ticketTypeId String
+  /// Always 1 for a seated item.
+  quantity     Int     @default(1)
+  eventSeatId  String?
+  /// The order line that will pay for this seat, stamped when the hold is
+  /// attached to an order. Settlement reads it instead of re-deriving the line
+  /// from the ticket type, which cannot tell two lines of one tier apart when
+  /// seats in a single selection sit in different price zones.
+  orderItemId  String?
+  /// What this seat cost on that line, frozen when the order was priced, so a
+  /// later change to the zone override cannot alter what was charged.
+  unitPriceCents Int?
+
+  hold       TicketHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
+  ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  orderItem  OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
+  @@unique([holdId, eventSeatId])
+  @@index([holdId])
+  @@index([eventSeatId])
+  @@index([orderItemId])
+}
+
+// ---------------------------------------------------------------------------
+// Event moderation and media
+// ---------------------------------------------------------------------------
+
+/// One moderator or organiser action on an event's lifecycle.
+///
+/// Append-only: there is no route that updates or deletes a row here, because
+/// "who approved this, and why" is not a field that should be editable.
+model EventModerationAction {
+  id         String       @id @default(cuid())
+  eventId    String
+  actorId    String?
+  fromStatus EventStatus?
+  toStatus   EventStatus
+  reason     String?
+  /// What the moderator asked to be changed, for CHANGES_REQUIRED.
+  requestedChanges Json?
+  createdAt  DateTime     @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, createdAt])
+  @@index([actorId])
+}
+
+enum MediaModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MediaScanStatus {
+  /// Uploaded, not yet scanned. Never served publicly in this state.
+  PENDING
+  CLEAN
+  INFECTED
+  /// The scanner was unavailable. Treated as not-clean.
+  ERROR
+}
+
+/// An uploaded image or document.
+///
+/// The bytes live in object storage; this row is the metadata and the gate. A
+/// public surface may only render an asset that is both APPROVED and CLEAN, so
+/// an unscanned upload cannot appear on a listing.
+model MediaAsset {
+  id          String                @id @default(cuid())
+  /// What owns it: EVENT, VENUE, ORGANIZATION.
+  ownerType   String
+  ownerId     String
+  eventId     String?
+  kind        String
+  /// Key in object storage. Unique so two rows cannot claim the same object.
+  storageKey  String                @unique
+  contentType String
+  byteSize    Int
+  width       Int?
+  height      Int?
+  /// SHA-256 of the stored bytes, for de-duplication and tamper detection.
+  checksum    String?
+  /// Set once EXIF has been stripped. An asset with location metadata still in
+  /// it is not servable.
+  sanitisedAt DateTime?
+  moderationStatus MediaModerationStatus @default(PENDING)
+  scanStatus  MediaScanStatus       @default(PENDING)
+  scanNote    String?
+  uploadedById String?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  event      Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy User?  @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([ownerType, ownerId])
+  @@index([moderationStatus, scanStatus])
+}
+
+// ---------------------------------------------------------------------------
+// Connected accounts, refunds, disputes, transfers and payouts
+//
+// Nothing in this section stores a card number, a CVC, a bank account, a
+// national identifier or a document image. Those are collected by the payment
+// provider's own hosted onboarding and never traverse Desi-Event. What is
+// stored here is the provider's identifier for a thing, its status, and the
+// money we believe moved — so that belief can be reconciled against theirs.
+// ---------------------------------------------------------------------------
+
+enum ConnectOnboardingStatus {
+  NOT_STARTED
+  /// A hosted onboarding link has been issued and not yet completed.
+  IN_PROGRESS
+  /// The provider is asking for more information before it will enable charges.
+  REQUIREMENTS_DUE
+  COMPLETE
+  /// The provider has disabled the account. `disabledReason` says why.
+  DISABLED
+}
+
+/// An organisation's account with the payment provider.
+///
+/// `chargesEnabled` and `payoutsEnabled` are the provider's answers, refreshed
+/// from the provider — never from a browser redirect, which a buyer or an
+/// organiser can forge by visiting a URL.
+model ConnectedAccount {
+  id                String                  @id @default(cuid())
+  organizationId    String                  @unique
+  provider          String
+  /// The provider's account identifier. Unique per provider so two
+  /// organisations cannot claim one account.
+  providerAccountId String
+  /// Which credential mode created it. A test-mode account must never be read
+  /// as a live one, so the mode is recorded rather than inferred.
+  providerMode      String                  @default("test")
+  country           String?
+  defaultCurrency   String?
+  onboardingStatus  ConnectOnboardingStatus @default(NOT_STARTED)
+  chargesEnabled    Boolean                 @default(false)
+  payoutsEnabled    Boolean                 @default(false)
+  detailsSubmitted  Boolean                 @default(false)
+  disabledReason    String?
+  /// The provider's outstanding requirements, stored verbatim so an operator
+  /// can see exactly what is being asked for.
+  requirementsDue   Json?
+  /// When the state above was last read from the provider.
+  syncedAt          DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  transfers    Transfer[]
+  payouts      Payout[]
+
+  @@unique([provider, providerAccountId])
+  @@index([onboardingStatus])
+}
+
+enum RefundStatus {
+  /// The organiser asked; approval is still required by policy.
+  REQUESTED
+  APPROVED
+  /// Handed to the provider, no final answer yet.
+  SUBMITTED
+  /// Retained spelling, superseded by SUBMITTED. No code writes it.
+  PROCESSING
+  SUCCEEDED
+  /// The provider refused it outright. No money moved.
+  DECLINED
+  /// The attempt failed for a reason that is not a refusal.
+  FAILED
+  /// The provider did not answer. Money may or may not have moved, and this is
+  /// never read as a failure.
+  TIMEOUT
+  /// The provider's answer contradicted local evidence. A human decides.
+  RECONCILIATION_REQUIRED
+  /// Retained spelling, superseded by DECLINED. No code writes it.
+  REJECTED
+  /// Withdrawn before it was submitted.
+  CANCELLED
+}
+
+enum RefundReason {
+  EVENT_CANCELLED
+  EVENT_POSTPONED
+  DUPLICATE_ORDER
+  CUSTOMER_REQUEST
+  ORGANIZER_GOODWILL
+  FRAUDULENT
+  OTHER
+}
+
+/// One refund against one payment.
+///
+/// `idempotencyKey` is unique, so a retried request returns the original refund
+/// rather than issuing a second one. The amount is validated against the
+/// order's remaining refundable balance inside the same transaction that
+/// reserves it, so two concurrent requests cannot together exceed the total.
+model Refund {
+  id             String       @id @default(cuid())
+  orderId        String
+  paymentId      String
+  provider       String
+  /// The provider's refund identifier, once it has one.
+  providerRefundId String?
+  amountCents    Int
+  currency       String
+  reason         RefundReason @default(CUSTOMER_REQUEST)
+  reasonNote     String?
+  status         RefundStatus @default(REQUESTED)
+  /// How the amount breaks down across face value, fees, tax and discount,
+  /// computed under the order's pricing snapshot rather than live tables.
+  allocation     Json?
+  /// Whether the platform fee was refunded too, which is a policy decision and
+  /// not a provider default.
+  platformFeeRefundedCents Int @default(0)
+  /// Whether an organiser transfer had to be reversed to fund this.
+  transferReversedCents    Int @default(0)
+  requestedById  String?
+  approvedById   String?
+  idempotencyKey String       @unique
+  /// Whether the tickets on the refunded lines were revoked.
+  ticketsRevoked Boolean      @default(false)
+  /// Whether the seats or quantity went back on sale, which depends on the
+  /// event's state and how close it is.
+  inventoryReturned Boolean   @default(false)
+  failureCode    String?
+  rawProviderStatus String?
+  /// When it was handed to the provider. Written before the call, so a process
+  /// that dies during it still leaves evidence that a refund may exist.
+  submittedAt    DateTime?
+  /// How many times submission has been attempted.
+  attempts       Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  settledAt      DateTime?
+
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment     Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  requestedBy User?        @relation("RefundRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedBy  User?        @relation("RefundApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  items       RefundItem[]
+  ledgerBatches LedgerBatch[]
+
+  @@unique([provider, providerRefundId])
+  @@index([orderId, status])
+  @@index([status, createdAt])
+}
+
+/// What one refund took back from one order line.
+model RefundItem {
+  id          String @id @default(cuid())
+  refundId    String
+  orderItemId String
+  quantity    Int
+  amountCents Int
+  /// The specific ticket revoked, for a seated line where quantity is 1.
+  ticketId    String?
+
+  refund    Refund    @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  ticket    Ticket?   @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+
+  @@index([refundId])
+  @@index([orderItemId])
+}
+
+enum DisputeStatus {
+  /// Raised, not yet worked.
+  OPENED
+  NEEDS_RESPONSE
+  UNDER_REVIEW
+  /// The provider is holding the funds pending the outcome.
+  CHARGE_REFUNDED
+  WON
+  LOST
+  /// Terminal. The outcome is recorded and the funds question is settled.
+  CLOSED
+  WARNING_NEEDS_RESPONSE
+  WARNING_CLOSED
+}
+
+/// A chargeback or enquiry raised against a payment.
+///
+/// No evidence is stored here. Evidence submission is a provider-side flow that
+/// this repository does not implement, and nothing in it claims to.
+model Dispute {
+  id                String        @id @default(cuid())
+  paymentId         String
+  provider          String
+  providerDisputeId String
+  amountCents       Int
+  currency          String
+  reason            String?
+  status            DisputeStatus @default(NEEDS_RESPONSE)
+  evidenceDueAt     DateTime?
+  rawProviderStatus String?
+  /// Whether the disputed amount is currently withheld from organiser funds.
+  fundsWithheld     Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  closedAt          DateTime?
+
+  payment       Payment       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  ledgerBatches LedgerBatch[]
+
+  @@unique([provider, providerDisputeId])
+  @@index([status, evidenceDueAt])
+  @@index([paymentId])
+}
+
+enum TransferStatus {
+  /// Owed to the organiser, not yet sent.
+  PENDING
+  /// Handed to the provider, no final answer yet.
+  SUBMITTED
+  /// Retained spelling, superseded by SUBMITTED. No code writes it.
+  SENT
+  PAID
+  FAILED
+  REVERSED
+  PARTIALLY_REVERSED
+  RECONCILIATION_REQUIRED
+}
+
+/// Money moved from the platform to an organiser's connected account.
+model Transfer {
+  id                 String         @id @default(cuid())
+  organizationId     String
+  connectedAccountId String?
+  orderId            String?
+  provider           String
+  providerTransferId String?
+  amountCents        Int
+  currency           String
+  status             TransferStatus @default(PENDING)
+  reversedCents      Int            @default(0)
+  idempotencyKey     String         @unique
+  failureCode        String?
+  rawProviderStatus  String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  settledAt          DateTime?
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  connectedAccount ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: SetNull)
+  order            Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  ledgerBatches    LedgerBatch[]
+
+  @@unique([provider, providerTransferId])
+  @@index([organizationId, status])
+  @@index([orderId])
+}
+
+enum PayoutStatus {
+  /// Booked against an organiser balance, not yet sent.
+  SCHEDULED
+  /// Retained spellings from the Phase 2 schema. No code writes them.
+  PENDING
+  IN_TRANSIT
+  /// Handed to the provider, no final answer yet.
+  SUBMITTED
+  PAID
+  FAILED
+  /// Clawed back after payment. Posts compensating entries.
+  REVERSED
+  /// Withheld: a negative balance, open liabilities, or an operator hold.
+  HELD
+  /// The provider did not answer. Never read as a failure.
+  RECONCILIATION_REQUIRED
+  CANCELLED
+}
+
+/// Money moved from an organiser's connected account to their bank.
+///
+/// Desi-Event does not hold organiser funds and does not schedule these: the
+/// provider does. This row mirrors the provider's state so an organiser can see
+/// it without a second login.
+model Payout {
+  id                 String       @id @default(cuid())
+  organizationId     String
+  connectedAccountId String?
+  provider           String
+  /// Null until the provider names it. A payout exists locally first, because
+  /// the decision to pay is ours and the identifier is theirs.
+  providerPayoutId   String?
+  amountCents        Int
+  currency           String
+  status             PayoutStatus @default(SCHEDULED)
+  arrivalDate        DateTime?
+  failureCode        String?
+  rawProviderStatus  String?
+  /// Clawed back after payment. Compensating entries, never a rewritten one.
+  reversedCents      Int          @default(0)
+  /// Unique per logical payout, so a retried request returns the original.
+  idempotencyKey     String?      @unique
+  /// Why it is HELD, when it is.
+  holdReason         String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  connectedAccount ConnectedAccount? @relation(fields: [connectedAccountId], references: [id], onDelete: SetNull)
+  ledgerBatches    LedgerBatch[]
+
+  @@unique([provider, providerPayoutId])
+  @@index([organizationId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Double-entry ledger
+//
+// Every movement of money is recorded as a batch of entries whose debits equal
+// its credits. Reports derive from posted entries rather than from mutable
+// order totals, so a report and the money can never quietly disagree.
+//
+// Two properties are enforced by the database rather than by this application,
+// in the migration that creates these tables:
+//
+//   1. A batch cannot reach POSTED unless its entries balance, in one currency.
+//   2. A posted entry cannot be updated or deleted.
+//
+// A correction is therefore a new batch that references the one it compensates.
+// Nothing in the application is trusted to leave history alone.
+// ---------------------------------------------------------------------------
+
+enum LedgerAccountType {
+  ASSET
+  LIABILITY
+  REVENUE
+  EXPENSE
+  /// A deduction from revenue rather than a cost, e.g. a promotional discount.
+  CONTRA_REVENUE
+}
+
+/// One account in the chart of accounts.
+model LedgerAccount {
+  id       String            @id @default(cuid())
+  /// Stable machine code, e.g. `processor_clearing`. Referenced by name in
+  /// code rather than by id, so a fixture and a production row agree.
+  code     String            @unique
+  name     String
+  type     LedgerAccountType
+  currency String?
+  /// False for an account kept only for historical entries.
+  active   Boolean           @default(true)
+  createdAt DateTime         @default(now())
+
+  entries LedgerEntry[]
+
+  @@index([type, active])
+}
+
+enum LedgerBatchStatus {
+  /// Being composed. May be edited or discarded.
+  DRAFT
+  /// Balanced and final. Immutable.
+  POSTED
+  /// Discarded before posting. Never had effect.
+  VOID
+}
+
+enum LedgerBatchKind {
+  ORDER_PAID
+  REFUND
+  DISPUTE_OPENED
+  DISPUTE_RESOLVED
+  TRANSFER
+  TRANSFER_REVERSAL
+  PAYOUT
+  PLATFORM_FEE
+  /// A batch that reverses another, referenced by `compensatesBatchId`.
+  CORRECTION
+}
+
+/// A set of entries that balance, posted as one atomic act.
+model LedgerBatch {
+  id            String            @id @default(cuid())
+  /// Human-readable reference used in reports and support conversations.
+  reference     String            @unique
+  kind          LedgerBatchKind
+  status        LedgerBatchStatus @default(DRAFT)
+  currency      String
+  /// Sum of the debit entries, in minor units. Equal to `creditCents` once
+  /// posted; both are stored so the balance check is a column comparison
+  /// rather than an aggregate at write time.
+  debitCents    Int               @default(0)
+  creditCents   Int               @default(0)
+  /// What caused it: ORDER, REFUND, DISPUTE, TRANSFER, PAYOUT.
+  sourceType    String
+  sourceId      String
+  /// Unique, so the same source event cannot post twice however many times a
+  /// webhook is delivered.
+  idempotencyKey String           @unique
+  orderId       String?
+  paymentId     String?
+  refundId      String?
+  disputeId     String?
+  transferId    String?
+  payoutId      String?
+  /// The batch this one corrects. Set only on CORRECTION batches.
+  compensatesBatchId String?      @unique
+  /// Who or what posted it. Null means a system job.
+  actorId       String?
+  createdAt     DateTime          @default(now())
+  postedAt      DateTime?
+
+  entries  LedgerEntry[]
+  order    Order?       @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  payment  Payment?     @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  refund   Refund?      @relation(fields: [refundId], references: [id], onDelete: Restrict)
+  dispute  Dispute?     @relation(fields: [disputeId], references: [id], onDelete: Restrict)
+  transfer Transfer?    @relation(fields: [transferId], references: [id], onDelete: Restrict)
+  payout   Payout?      @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  actor    User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  compensates LedgerBatch? @relation("LedgerCompensation", fields: [compensatesBatchId], references: [id], onDelete: Restrict)
+  compensatedBy LedgerBatch? @relation("LedgerCompensation")
+
+  @@index([status, postedAt])
+  @@index([sourceType, sourceId])
+  @@index([orderId])
+  @@index([kind, postedAt])
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+/// One side of one movement. Amounts are always positive; `direction` carries
+/// the sign, because a negative debit is a credit somebody forgot to think
+/// about.
+model LedgerEntry {
+  id          String          @id @default(cuid())
+  batchId     String
+  accountId   String
+  direction   LedgerDirection
+  amountCents Int
+  currency    String
+  /// Free-text line description shown in reports.
+  memo        String?
+  /// Denormalised so a report can group without joining the batch.
+  organizationId String?
+  createdAt   DateTime        @default(now())
+
+  batch   LedgerBatch   @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  account LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([batchId])
+  @@index([accountId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Ticket transfer and check-in
+// ---------------------------------------------------------------------------
+
+enum TicketTransferStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+  EXPIRED
+}
+
+/// Handing a ticket to somebody else.
+///
+/// Accepting mints a new ticket and kills the old credential, so the sender's
+/// screenshot stops working the moment the recipient accepts.
+model TicketTransfer {
+  id           String               @id @default(cuid())
+  ticketId     String
+  fromUserId   String?
+  /// Lower-cased recipient address. The acceptor must match it.
+  toEmail      String
+  toUserId     String?
+  tokenHash    String               @unique
+  status       TicketTransferStatus @default(PENDING)
+  expiresAt    DateTime
+  acceptedAt   DateTime?
+  declinedAt   DateTime?
+  cancelledAt  DateTime?
+  /// The ticket minted for the recipient on acceptance.
+  resultTicketId String?            @unique
+  createdAt    DateTime             @default(now())
+
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  fromUser User?  @relation("TicketTransferFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser   User?  @relation("TicketTransferTo", fields: [toUserId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, status])
+  @@index([toEmail, status])
+  @@index([expiresAt])
+}
+
+enum CheckInMethod {
+  /// A camera read the QR pass.
+  QR_SCAN
+  /// A human typed the reference, because the camera could not.
+  MANUAL_LOOKUP
+  /// An accessible alternative: the code read aloud and entered by staff.
+  ASSISTED
+}
+
+/// One admission through the door.
+///
+/// `ticketId` is unique. One ticket, one attendance, enforced by the database —
+/// so two gates scanning the same pass at the same moment produce one row and
+/// one of them is told, truthfully, that it has already been used.
+model CheckIn {
+  id             String        @id @default(cuid())
+  ticketId       String        @unique
+  eventSessionId String?
+  scannedByUserId String?
+  deviceId       String?
+  method         CheckInMethod @default(QR_SCAN)
+  scannedAt      DateTime      @default(now())
+  /// The gate or door, when the venue distinguishes them.
+  gate           String?
+
+  ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+  scannedBy    User?         @relation(fields: [scannedByUserId], references: [id], onDelete: SetNull)
+  device       Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([eventSessionId, scannedAt])
+  @@index([scannedByUserId])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications, idempotency and reconciliation
+// ---------------------------------------------------------------------------
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  /// Reserved. No push implementation exists in this repository.
+  PUSH
+}
+
+enum NotificationStatus {
+  QUEUED
+  /// A worker holds a lease on it. Only the lease owner may finish it, and only
+  /// until the lease expires.
+  CLAIMED
+  /// Retained spelling, superseded by CLAIMED. No code writes it.
+  SENDING
+  SENT
+  /// A transient failure with attempts left. `scheduledFor` says when.
+  RETRY_SCHEDULED
+  /// Withdrawn before it was sent, by an operator or by the domain.
+  CANCELLED
+  FAILED
+  /// Out of retries; waits for a human.
+  DEAD_LETTER
+  /// Suppressed by the recipient's preferences. Security-critical messages are
+  /// never suppressible and never reach this state.
+  SUPPRESSED
+}
+
+/// One message waiting to be sent.
+///
+/// The outbox is written in the same transaction as the business change that
+/// justifies it, so a delivery can never describe something that did not
+/// happen. `dedupeKey` is unique, so a retried job or a replayed webhook
+/// produces one email.
+model NotificationOutbox {
+  id          String              @id @default(cuid())
+  template    String
+  channel     NotificationChannel @default(EMAIL)
+  /// Recipient address. Present because it must be sent to; never logged.
+  recipient   String
+  userId      String?
+  /// Template variables. Must contain no secret and no bearer token: action
+  /// links are minted as AuthTokens and referenced by id.
+  payload     Json
+  status      NotificationStatus  @default(QUEUED)
+  /// Unique per logical message, so at-least-once job delivery is
+  /// exactly-once email.
+  dedupeKey   String              @unique
+  attempts    Int                 @default(0)
+  maxAttempts Int                 @default(5)
+  scheduledFor DateTime           @default(now())
+  sentAt      DateTime?
+  /// The business event this message describes, e.g. `event.cancelled`. The
+  /// dedupe key is derived from it together with the recipient, the channel and
+  /// the template version, so two different messages about one event do not
+  /// collide and one message about it is never sent twice.
+  businessEvent String?
+  /// Bumped when a template's content changes enough that a recipient should
+  /// receive the new one even though they received the old.
+  templateVersion Int             @default(1)
+  /// The worker holding the lease. Null unless the row is CLAIMED.
+  leaseOwner  String?
+  /// When the lease lapses and another worker may take the row. A worker that
+  /// dies mid-send leaves this in the past, which is what makes the row
+  /// recoverable without anybody having to decide that it failed.
+  leaseExpiresAt DateTime?
+  lastAttemptAt DateTime?
+  /// PERMANENT or TRANSIENT. A permanent failure is not retried.
+  failureCategory String?
+  /// The provider's identifier for the delivery, when it gave one. Never the
+  /// message body.
+  providerMessageId String?
+  /// Whose message this is, for operator scoping. Null for platform messages.
+  organizationId String?
+  /// Provider error, sanitised. Never a payload dump.
+  lastError   String?
+  /// Whether this message may be suppressed by preferences. False for
+  /// verification, password reset and anything else a security flow needs.
+  suppressible Boolean            @default(true)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([status, scheduledFor])
+  @@index([userId])
+  @@index([template])
+  @@index([status, leaseExpiresAt])
+  @@index([organizationId, status])
+}
+
+/// What one person wants to be told about.
+model NotificationPreference {
+  id       String              @id @default(cuid())
+  userId   String
+  /// A category rather than a template, so adding a template does not silently
+  /// opt everybody in to a new kind of message.
+  category String
+  channel  NotificationChannel
+  enabled  Boolean             @default(true)
+  updatedAt DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, channel])
+}
+
+/// A recorded request, so a retry returns the first answer instead of doing the
+/// work twice.
+///
+/// Scoped, because "the same key" means different things for a checkout and a
+/// refund. The request hash is stored so a client reusing a key with a
+/// different body is told it conflicts rather than silently handed somebody
+/// else's answer.
+model IdempotencyRecord {
+  id           String    @id @default(cuid())
+  scope        String
+  key          String
+  /// SHA-256 of the canonicalised request body.
+  requestHash  String
+  /// Null while in flight. A second request arriving now waits or conflicts
+  /// rather than starting a duplicate.
+  lockedAt     DateTime?
+  completedAt  DateTime?
+  responseStatus Int?
+  /// The response to replay. Never contains a client secret.
+  responseBody Json?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+
+  @@unique([scope, key])
+  @@index([expiresAt])
+}
+
+enum ReconciliationState {
+  OPEN
+  IN_PROGRESS
+  /// A human decided; the resolution says what they decided.
+  RESOLVED
+  /// Escalated beyond the operator who picked it up.
+  ESCALATED
+}
+
+enum ReconciliationKind {
+  /// The provider call timed out. Money may or may not have moved.
+  PAYMENT_TIMEOUT
+  /// Our state and the provider's disagree.
+  PROVIDER_MISMATCH
+  /// A refund's outcome is unknown.
+  REFUND_UNKNOWN
+  /// A webhook could not be processed after its retries.
+  WEBHOOK_DEAD_LETTER
+  /// A transfer or payout is in a state nothing consumes.
+  TRANSFER_STUCK
+}
+
+/// One thing a human has to resolve.
+///
+/// Created by the system, never by a browser. Resolution requires a finance
+/// capability, a step-up authentication, an idempotency key and a reason, and
+/// the before and after state are both audited — because the whole point of
+/// this table is the cases where the machine must not decide alone.
+model ReconciliationTask {
+  id          String              @id @default(cuid())
+  kind        ReconciliationKind
+  state       ReconciliationState @default(OPEN)
+  paymentId   String?
+  orderId     String?
+  refundId    String?
+  webhookEventId String?
+  /// The provider's identifier for whatever is in doubt.
+  providerRef String?
+  /// What we believe, at creation. Kept verbatim so a later fix does not erase
+  /// what the problem looked like.
+  localState  Json?
+  /// What the provider said, the last time it was asked.
+  providerState Json?
+  attempts    Int                 @default(0)
+  lastError   String?
+  assignedToId String?
+  /// What the operator decided, in machine-readable terms.
+  resolution  String?
+  resolutionNote String?
+  resolvedAt  DateTime?
+  resolvedById String?
+  escalatedAt DateTime?
+  escalationReason String?
+  /// Whose work item this is, for operator scoping. Null means platform-level.
+  organizationId String?
+  /// Operator notes, appended and never replaced: `[{at, actorId, note}]`.
+  notes       Json?
+  /// The transfer, payout or dispute in doubt, when that is what this is about.
+  transferId  String?
+  payoutId    String?
+  disputeId   String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  payment    Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  assignedTo User?    @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  @@index([state, kind, createdAt])
+  @@index([paymentId])
+  @@index([providerRef])
+  @@index([organizationId, state])
+  @@index([refundId])
+}

@@ -1,0 +1,45 @@
+{
+  "name": "@desi-event/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared ESLint, Vitest and Tailwind presets. JavaScript-only, no TypeScript tooling.",
+  "exports": {
+    "./eslint": "./src/eslint.js",
+    "./vitest-node": "./src/vitest-node.js",
+    "./vitest-react": "./src/vitest-react.js",
+    "./tailwind": "./src/tailwind.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@eslint/js": "^9.39.0",
+    "eslint-plugin-jsdoc": "^64.4.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0"
+  },
+  "peerDependencies": {
+    "eslint": "^9.39.0",
+    "vitest": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "eslint": {
+      "optional": true
+    },
+    "vitest": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}
