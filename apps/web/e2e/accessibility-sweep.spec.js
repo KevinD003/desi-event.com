@@ -216,6 +216,17 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     test(`the public event page is clean at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await page.goto(`/events/alpha-event-${seeded.tag}`)
+      // Wait for the page to be rendered before asking axe what colour anything
+      // is. `goto` resolves on `load`, which is not the same thing: on run
+      // 35157268740 this was the only one of the thirteen scans in this file
+      // that scanned without waiting, and it was the one that failed — axe
+      // measured a 1.13:1 contrast between `text-marigold-900` and
+      // `bg-marigold-100`, two tokens that cannot produce that ratio once the
+      // stylesheet has applied. The route was on its first Turbopack compile
+      // (2.0s) in that job and is warm locally, which is why it passes here and
+      // failed there. Waiting cannot hide a real violation: the scan still runs
+      // over the finished page, so genuinely wrong colours still fail.
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 
       const violations = await scan(page)
 
@@ -455,6 +466,9 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     // unauthorised visitor is most likely to reach.
     await page.setViewportSize({ width: 320, height: 720 })
     await page.goto('/moderation/events')
+    // The same readiness wait, for the same reason. This scan had the same gap
+    // and simply had not been unlucky yet.
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 
     const violations = await scan(page)
 
