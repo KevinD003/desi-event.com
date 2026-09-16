@@ -73,10 +73,50 @@ export function Figure({ label, cents, currency = 'INR', hint }) {
   return (
     <div className="rounded-card border border-slate-200 bg-white p-4">
       <dt className="text-sm text-slate-600">{label}</dt>
-      <dd className="mt-1 font-display text-2xl font-semibold text-indigo-night-900 tabular-nums">
-        {formatPrice(cents, currency)}
+      {/*
+        The hint lives inside the `dd`, not beside it. A `div` wrapping a
+        definition-list group may contain only `dt` and `dd` — a `p` as a third
+        sibling breaks the list's structure, which is what a screen reader
+        navigates it by, and axe's `definition-list` rule says so under WCAG
+        1.3.1. Found by the sweep on this component's first run.
+      */}
+      <dd className="mt-1">
+        <span className="block font-display text-2xl font-semibold text-indigo-night-900 tabular-nums">
+          {formatPrice(cents, currency)}
+        </span>
+        {hint ? <span className="mt-1 block text-xs text-slate-600">{hint}</span> : null}
       </dd>
-      {hint ? <p className="mt-1 text-xs text-slate-600">{hint}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * @typedef {object} ScrollableTableProps
+ * @property {string} label What the table is, for the scroll region's name.
+ * @property {object} children The table.
+ */
+
+/**
+ * A table that scrolls sideways, reachable by keyboard.
+ *
+ * A `overflow-x-auto` container is scrollable by mouse and by touch and — in
+ * Safari especially — by nothing else: there is no focusable element inside a
+ * wide table's overflow, so a keyboard user cannot reach the columns off the
+ * right edge. `tabIndex={0}` with a `role="region"` and a name is the remedy
+ * axe's `scrollable-region-focusable` rule asks for, under WCAG 2.1.1.
+ *
+ * @param {ScrollableTableProps} props Component props.
+ * @returns {JSX.Element} The scrollable region.
+ */
+export function ScrollableTable({ label, children }) {
+  return (
+    <div
+      role="region"
+      aria-label={label}
+      tabIndex={0}
+      className="mt-3 overflow-x-auto focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+    >
+      {children}
     </div>
   )
 }

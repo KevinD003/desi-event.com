@@ -26,7 +26,7 @@
 
 import Link from 'next/link'
 
-import { Figure, ModeBanner } from '../../components/money-figure.jsx'
+import { Figure, ModeBanner, ScrollableTable } from '../../components/money-figure.jsx'
 import { formatPrice } from '../../lib/pricing.js'
 import { getFinanceSummary } from '../../lib/organizer-api.js'
 import { readSession, sessionCan } from '../../lib/session.js'
@@ -213,7 +213,7 @@ export default async function FinancePage({ searchParams }) {
             <h2 id="accounts-heading" className="text-lg font-semibold text-indigo-night-900">
               Clearing accounts
             </h2>
-            <div className="mt-3 overflow-x-auto">
+            <ScrollableTable label="Clearing accounts">
               <table className="w-full min-w-[32rem] border-collapse text-sm">
                 <caption className="sr-only">
                   Each account’s debits, credits and balance over the window
@@ -259,7 +259,7 @@ export default async function FinancePage({ searchParams }) {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollableTable>
           </section>
 
           <section aria-labelledby="activity-heading" className="mt-8">

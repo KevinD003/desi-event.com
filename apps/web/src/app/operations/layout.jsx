@@ -38,7 +38,18 @@ export default async function OperationsLayout({ children }) {
 
   if (!session) redirect('/sign-in?next=/operations')
 
-  if (!sessionCan(session, 'finance:view')) {
+  // Any membership will do, not the platform list. `sessionCan` with no
+  // organisation asks the *platform* capability list, and `finance:view` is an
+  // organisation capability — so the unscoped question is the one that refuses
+  // every organiser and passes every platform admin, which is exactly the
+  // inversion the API's own capability guard is written against.
+  const allowed =
+    sessionCan(session, 'finance:view') ||
+    (session.memberships ?? []).some((membership) =>
+      sessionCan(session, 'finance:view', membership.organizationId),
+    )
+
+  if (!allowed) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-12">
         <h1 className="text-2xl font-bold text-indigo-night-900">Not for you</h1>

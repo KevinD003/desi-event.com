@@ -28,11 +28,14 @@ import {
  *
  * ## What is and is not covered
  *
- * Covered: the organiser event list, the seven-step editor, the moderation
- * queue and decision screen, and the public event page — every Phase 2 screen
- * that exists. The finance, operations, reconciliation, refund and ticket
- * surfaces the brief also names are not here, because they are not built; a
- * sweep that silently skipped them would report a coverage it does not have.
+ * Covered: the organiser event list, the seven-step editor, the finance
+ * overview, the operations board, the moderation queue, and the public event
+ * page — every Phase 2 screen that exists.
+ *
+ * Not covered, because no such screen exists: a reconciliation detail page, a
+ * refund decision page and a ticket transfer page. Those surfaces are API-only
+ * in this cycle and are exercised by request-level suites; naming them here as
+ * swept would report a coverage this file does not have.
  *
  * @module e2e/accessibility-sweep
  */
@@ -200,7 +203,56 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
     })
+
+    test(`the finance overview is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/finance')
+      await expect(page.getByRole('heading', { name: 'Finance', level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      // The clearing-account table is the hardest thing on any of these screens
+      // to reflow, which is why it is scrolled in its own container rather than
+      // widening the page.
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the operations board is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/operations')
+      await expect(page.getByRole('heading', { name: 'Operations', level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
   }
+
+  test('the finance screen says what produced its figures, before any of them', async () => {
+    const page = organiser
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto('/finance')
+
+    // A standing condition rather than an interruption, and in the reading
+    // order before the totals: a mock-mode figure is not an accounting record,
+    // and a notice underneath the numbers is read after somebody believed them.
+    const banner = page.getByRole('status').first()
+
+    await expect(banner).toBeVisible()
+    await expect(banner).toContainText(/demonstration/i)
+
+    const bannerBox = await banner.boundingBox()
+    const totals = await page.getByRole('heading', { name: 'Totals' }).boundingBox()
+
+    expect(bannerBox.y).toBeLessThan(totals.y)
+  })
 
   test('the editor reflows at 200% zoom without sideways scrolling', async () => {
     const page = organiser
