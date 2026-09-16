@@ -26,8 +26,12 @@ import {
   notificationSummarySchema,
   orderWithItemsSchema,
   organizationSchema,
+  disputeSchema,
+  organizerBalanceSchema,
+  payoutSchema,
   publicUserSchema,
   reconciliationTaskSchema,
+  transferSchema,
   refundSchema,
   ticketSchema,
   ticketTypeSchema,
@@ -372,6 +376,30 @@ export const notificationListResponseSchema = z.object({
 /** `GET /operations/notifications/:id`, and the two actions on one. */
 export const notificationDetailResponseSchema = z.object({
   data: notificationSummarySchema,
+})
+
+/** `GET /finance/balance`. */
+export const balanceResponseSchema = z.object({ data: organizerBalanceSchema })
+
+/** `GET /finance/payouts`. */
+export const payoutListResponseSchema = z.object({
+  data: z.array(payoutSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /finance/payouts/:id`, and every action that returns one. */
+export const payoutResponseSchema = z.object({ data: payoutSchema })
+
+/** `GET /finance/transfers`. */
+export const transferListResponseSchema = z.object({
+  data: z.array(transferSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /finance/disputes`. */
+export const disputeListResponseSchema = z.object({
+  data: z.array(disputeSchema),
+  pagination: paginationMetaSchema,
 })
 
 /** `GET /operations/reconciliation`. */

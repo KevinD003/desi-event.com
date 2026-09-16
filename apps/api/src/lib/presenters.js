@@ -386,3 +386,85 @@ export function toReconciliationTask(row, { now, orderReference = null }) {
     updatedAt: row.updatedAt,
   }
 }
+
+/**
+ * One payout, as finance sees it.
+ *
+ * `holdReason` is prose rather than a code, and it is on the allow list on
+ * purpose: a payout that did not go and cannot say why is the complaint the
+ * whole surface exists to prevent.
+ *
+ * @param {object} row A `Payout` row.
+ * @returns {object} A payload satisfying `payoutSchema`.
+ */
+export function toPayout(row) {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    connectedAccountId: row.connectedAccountId ?? null,
+    provider: row.provider,
+    providerPayoutId: row.providerPayoutId ?? null,
+    amountCents: row.amountCents,
+    currency: row.currency,
+    status: row.status,
+    reversedCents: row.reversedCents ?? 0,
+    holdReason: row.holdReason ?? null,
+    failureCode: row.failureCode ?? null,
+    arrivalDate: row.arrivalDate ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+/**
+ * One transfer to a connected account.
+ *
+ * @param {object} row A `Transfer` row.
+ * @returns {object} A payload satisfying `transferSchema`.
+ */
+export function toTransfer(row) {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    connectedAccountId: row.connectedAccountId ?? null,
+    orderId: row.orderId ?? null,
+    provider: row.provider,
+    providerTransferId: row.providerTransferId ?? null,
+    amountCents: row.amountCents,
+    currency: row.currency,
+    status: row.status,
+    reversedCents: row.reversedCents ?? 0,
+    failureCode: row.failureCode ?? null,
+    settledAt: row.settledAt ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+/**
+ * One dispute.
+ *
+ * The provider's reason code passes through as written. Interpreting it here
+ * would mean a reason code nobody had seen before became a 500, and the
+ * vocabulary belongs to the provider rather than to this system.
+ *
+ * @param {object} row A `Dispute` row.
+ * @returns {object} A payload satisfying `disputeSchema`.
+ */
+export function toDispute(row) {
+  return {
+    id: row.id,
+    paymentId: row.paymentId,
+    provider: row.provider,
+    providerDisputeId: row.providerDisputeId,
+    amountCents: row.amountCents,
+    currency: row.currency,
+    reason: row.reason ?? null,
+    status: row.status,
+    fundsWithheld: row.fundsWithheld,
+    evidenceDueAt: row.evidenceDueAt ?? null,
+    closedAt: row.closedAt ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}

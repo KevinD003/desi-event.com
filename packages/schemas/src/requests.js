@@ -693,6 +693,100 @@ export const reconciliationNoteRequestSchema = z.object({
   note: z.string().trim().min(4).max(1000),
 })
 
+/**
+ * Scheduling a payout.
+ *
+ * No destination and no bank details. Where an organiser's money goes is a
+ * property of their connected account, changed through the onboarding flow with
+ * its own step-up — not a field on the request that asks for money to be sent.
+ * A request that could name a destination would be a request that could send
+ * somebody else's money somewhere new.
+ */
+export const schedulePayoutRequestSchema = z.object({
+  organizationId: cuidSchema,
+  amountCents: centsSchema,
+  currency: currencySchema.default('INR'),
+  idempotencyKey: z.string().trim().min(8).max(200),
+})
+
+/** Sending a scheduled payout, releasing a held one, or cancelling either. */
+export const payoutActionRequestSchema = z.object({
+  reason: z.string().trim().min(4).max(500),
+})
+
+/** Clawing back money that already went. */
+export const reversePayoutRequestSchema = z.object({
+  amountCents: centsSchema,
+  reason: z.string().trim().min(4).max(500),
+})
+
+/** The payout list for one organisation. */
+export const payoutQueryQuerySchema = paginationQuerySchema.extend({
+  organizationId: cuidSchema,
+  status: z
+    .enum([
+      'SCHEDULED',
+      'PENDING',
+      'IN_TRANSIT',
+      'SUBMITTED',
+      'PAID',
+      'FAILED',
+      'REVERSED',
+      'HELD',
+      'RECONCILIATION_REQUIRED',
+      'CANCELLED',
+    ])
+    .optional(),
+})
+
+/** The transfer list for one organisation. */
+export const transferQueryQuerySchema = paginationQuerySchema.extend({
+  organizationId: cuidSchema,
+  status: z
+    .enum([
+      'PENDING',
+      'SUBMITTED',
+      'SENT',
+      'PAID',
+      'FAILED',
+      'REVERSED',
+      'PARTIALLY_REVERSED',
+      'RECONCILIATION_REQUIRED',
+    ])
+    .optional(),
+})
+
+/**
+ * The dispute list for one organisation.
+ *
+ * Its own status enum rather than the payout one. Sharing a query schema across
+ * three lists whose statuses differ would mean a caller filtering disputes by
+ * `OPENED` got a validation error naming payout states, which is a puzzle
+ * rather than a message.
+ */
+export const disputeQueryQuerySchema = paginationQuerySchema.extend({
+  organizationId: cuidSchema,
+  status: z
+    .enum([
+      'OPENED',
+      'NEEDS_RESPONSE',
+      'UNDER_REVIEW',
+      'CHARGE_REFUNDED',
+      'WON',
+      'LOST',
+      'CLOSED',
+      'WARNING_NEEDS_RESPONSE',
+      'WARNING_CLOSED',
+    ])
+    .optional(),
+})
+
+/** Reading a balance. */
+export const balanceQuerySchema = z.object({
+  organizationId: cuidSchema,
+  currency: currencySchema.default('INR'),
+})
+
 /** Query string for the moderation queue. */
 export const moderationQueueQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED', 'REJECTED']).optional(),

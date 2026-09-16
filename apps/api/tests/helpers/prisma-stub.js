@@ -113,6 +113,17 @@ const RELATIONS = {
   },
   payment: {
     order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
+    disputes: { kind: 'many', model: 'dispute', from: 'id', to: 'paymentId' },
+  },
+  dispute: {
+    payment: { kind: 'one', model: 'payment', from: 'paymentId', to: 'id' },
+  },
+  payout: {
+    organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+  },
+  transfer: {
+    organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+    order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
   },
   device: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
@@ -907,6 +918,40 @@ export function createPrismaStub(seed = {}) {
       },
       count: async (args = {}) =>
         (tables[model] ?? []).filter((row) => matches(model, row, args.where)).length,
+      /**
+       * `_sum` and `_count` over matching rows.
+       *
+       * Only the two the application uses. `_avg`, `_min` and `_max` are
+       * deliberately absent rather than approximated: a stub that answers a
+       * question it has not implemented is worse than one that does not answer,
+       * because the wrong number looks exactly like the right one.
+       *
+       * @param {object} args Prisma aggregate arguments.
+       * @returns {Promise<object>} `{ _sum, _count }` over the matching rows.
+       */
+      aggregate: async (args = {}) => {
+        const rows = (tables[model] ?? []).filter((row) => matches(model, row, args.where))
+
+        for (const key of Object.keys(args)) {
+          if (key === 'where' || key === '_sum' || key === '_count') continue
+
+          throw new Error(`prisma-stub: aggregate does not implement ${key}`)
+        }
+
+        const sums = {}
+
+        for (const field of Object.keys(args._sum ?? {})) {
+          // Null rather than 0 for an empty set, which is what Prisma returns
+          // and what every caller's `?? 0` is written against.
+          sums[field] =
+            rows.length === 0 ? null : rows.reduce((total, row) => total + (row[field] ?? 0), 0)
+        }
+
+        return {
+          ...(args._sum ? { _sum: sums } : {}),
+          ...(args._count ? { _count: rows.length } : {}),
+        }
+      },
       create: async (args) => {
         const now = new Date()
 
@@ -940,13 +985,24 @@ export function createPrismaStub(seed = {}) {
           ...scalarData,
         }
 
+        // Null is distinct from null, which is PostgreSQL's default and what
+        // this schema relies on: `Payout.providerPayoutId` is nullable and
+        // unique with `provider`, so two payouts nobody has sent yet must not
+        // collide. A stub that treated two nulls as equal would refuse a row
+        // the database accepts, and the failure reads like a product bug.
+        const present = (value) => value !== null && value !== undefined
+
         for (const field of UNIQUE_FIELDS[model] ?? []) {
+          if (!present(row[field])) continue
+
           if (tables[model].some((existing) => existing[field] === row[field])) {
             throw uniqueViolation(model, field)
           }
         }
 
         for (const fields of COMPOUND_UNIQUE[model] ?? []) {
+          if (!fields.every((field) => present(row[field]))) continue
+
           const clash = tables[model].some((existing) =>
             fields.every((field) => existing[field] === row[field]),
           )

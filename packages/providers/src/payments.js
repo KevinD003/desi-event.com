@@ -193,6 +193,32 @@ function toIntent(record) {
 }
 
 /**
+ * Project a stored transfer or payout into its frozen public shape.
+ *
+ * Marked as a demonstration for the same reason an intent is, and with more
+ * reason: a payout receipt is what an organiser would be shown as evidence that
+ * money reached their bank.
+ *
+ * @param {Record<string, unknown>} record Internal movement record.
+ * @returns {object} A frozen snapshot.
+ */
+function toMovement(record) {
+  return freezeRecord({
+    id: record.id,
+    kind: record.kind,
+    status: record.status,
+    amountCents: record.amountCents,
+    currency: record.currency,
+    destination: record.destination,
+    reversedCents: record.reversedCents,
+    createdAt: record.createdAt,
+    mode: PAYMENT_MODES.MOCK,
+    demo: true,
+    demoNotice: DEMO_PAYMENT_NOTICE,
+  })
+}
+
+/**
  * Map an intent status onto the Prisma `PaymentStatus` enum.
  *
  * @param {string} intentStatus One of {@link PAYMENT_INTENT_STATUS}.
@@ -262,6 +288,12 @@ export function createInMemoryPaymentProvider(options = {}) {
     // too, and reusing one amount for both would make that unavoidable.
     refundDeclineAmountCents = null,
     refundTimeoutAmountCents = null,
+    // The payout levers, separate again for the same reason: a test about a
+    // failed payout should not have to arrange for a failed capture first.
+    transferFailAmountCents = null,
+    transferTimeoutAmountCents = null,
+    payoutFailAmountCents = null,
+    payoutTimeoutAmountCents = null,
     now,
   } = options
 
@@ -277,8 +309,15 @@ export function createInMemoryPaymentProvider(options = {}) {
   const nextId = createIdFactory(idPrefix)
   /** Refunds get their own identifier space, as they do at a real processor. */
   const nextRefundId = createIdFactory(`re_${idPrefix}`)
+  /** Transfers and payouts likewise: three spaces, as Stripe has. */
+  const nextTransferId = createIdFactory(`tr_${idPrefix}`)
+  const nextPayoutId = createIdFactory(`po_${idPrefix}`)
   /** @type {Map<string, Record<string, unknown>>} */
   const intents = new Map()
+  /** @type {Map<string, Record<string, unknown>>} */
+  const transfers = new Map()
+  /** @type {Map<string, Record<string, unknown>>} */
+  const payouts = new Map()
 
   /**
    * Fetch a stored intent or fail with a 404-shaped error.
@@ -657,6 +696,186 @@ export function createInMemoryPaymentProvider(options = {}) {
    */
   function reset() {
     intents.clear()
+    transfers.clear()
+    payouts.clear()
+  }
+
+  /**
+   * Move money to a connected account.
+   *
+   * Modelled because a marketplace that cannot test what happens when a
+   * transfer fails is a marketplace that finds out in production. Failure and
+   * timeout are provoked by amount, the same lever every other refusal here
+   * uses, so a test is reproducible rather than lucky.
+   *
+   * @param {object} input The transfer.
+   * @param {number} input.amountCents How much.
+   * @param {string} input.currency ISO 4217.
+   * @param {string} [input.destination] The connected account.
+   * @param {string} [input.idempotencyKey] Repeating one returns the first transfer.
+   * @returns {object} `{ id, status, amountCents, currency, destination, createdAt }`, marked as a demonstration.
+   * @throws {ProviderError} `PAYMENT_DECLINED` or `PAYMENT_TIMEOUT`.
+   */
+  function createTransfer(input) {
+    const settings = isPlainObject(input) ? input : {}
+    const amountCents = parseAmount(settings.amountCents, name)
+    const currency = parseCurrency(settings.currency, name)
+
+    if (settings.idempotencyKey) {
+      const existing = [...transfers.values()].find(
+        (record) => record.idempotencyKey === settings.idempotencyKey,
+      )
+
+      if (existing) return toMovement(existing)
+    }
+
+    if (amountCents === transferTimeoutAmountCents) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_TIMEOUT,
+        `Transfer of ${amountCents} timed out`,
+        { provider: name, details: { amountCents } },
+      )
+    }
+
+    if (amountCents === transferFailAmountCents) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_DECLINED,
+        `Transfer of ${amountCents} was refused`,
+        { provider: name, details: { amountCents, failureCode: 'insufficient_funds' } },
+      )
+    }
+
+    const record = {
+      id: nextTransferId(),
+      kind: 'transfer',
+      status: 'PAID',
+      amountCents,
+      currency,
+      destination: settings.destination ?? null,
+      reversedCents: 0,
+      idempotencyKey: settings.idempotencyKey ?? null,
+      createdAt: clock().toISOString(),
+    }
+
+    transfers.set(record.id, record)
+
+    return toMovement(record)
+  }
+
+  /**
+   * Claw a transfer back, in whole or in part.
+   *
+   * @param {(string|object)} reference The transfer id.
+   * @param {object} [settings] Optional `amountCents`, defaulting to everything left.
+   * @returns {object} The transfer as it now stands.
+   * @throws {ProviderError} `INTENT_NOT_FOUND` or `AMOUNT_MISMATCH`.
+   */
+  function reverseTransfer(reference, settings) {
+    const id = typeof reference === 'string' ? reference : reference?.id
+    const record = transfers.get(id)
+
+    if (!record) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.INTENT_NOT_FOUND,
+        `No transfer with id "${id}"`,
+        { provider: name, details: { transferId: id } },
+      )
+    }
+
+    const remaining = record.amountCents - record.reversedCents
+    const amountCents =
+      settings?.amountCents === undefined ? remaining : parseAmount(settings.amountCents, name)
+
+    if (amountCents > remaining) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.AMOUNT_MISMATCH,
+        `Cannot reverse ${amountCents} against a transfer with ${remaining} left`,
+        { provider: name, details: { transferId: id, remainingCents: remaining } },
+      )
+    }
+
+    record.reversedCents += amountCents
+    if (record.reversedCents >= record.amountCents) record.status = 'REVERSED'
+
+    return toMovement(record)
+  }
+
+  /**
+   * Send money to an organiser's bank.
+   *
+   * @param {object} input The payout.
+   * @param {number} input.amountCents How much.
+   * @param {string} input.currency ISO 4217.
+   * @param {string} [input.destination] The connected account.
+   * @param {string} [input.idempotencyKey] Repeating one returns the first payout.
+   * @returns {object} `{ id, status, amountCents, currency, destination, createdAt }`, marked as a demonstration.
+   * @throws {ProviderError} `PAYMENT_DECLINED` or `PAYMENT_TIMEOUT`.
+   */
+  function createPayout(input) {
+    const settings = isPlainObject(input) ? input : {}
+    const amountCents = parseAmount(settings.amountCents, name)
+    const currency = parseCurrency(settings.currency, name)
+
+    if (settings.idempotencyKey) {
+      const existing = [...payouts.values()].find(
+        (record) => record.idempotencyKey === settings.idempotencyKey,
+      )
+
+      if (existing) return toMovement(existing)
+    }
+
+    if (amountCents === payoutTimeoutAmountCents) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_TIMEOUT,
+        `Payout of ${amountCents} timed out`,
+        { provider: name, details: { amountCents } },
+      )
+    }
+
+    if (amountCents === payoutFailAmountCents) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.PAYMENT_DECLINED,
+        `Payout of ${amountCents} was refused`,
+        { provider: name, details: { amountCents, failureCode: 'account_closed' } },
+      )
+    }
+
+    const record = {
+      id: nextPayoutId(),
+      kind: 'payout',
+      status: 'PAID',
+      amountCents,
+      currency,
+      destination: settings.destination ?? null,
+      reversedCents: 0,
+      idempotencyKey: settings.idempotencyKey ?? null,
+      createdAt: clock().toISOString(),
+    }
+
+    payouts.set(record.id, record)
+
+    return toMovement(record)
+  }
+
+  /**
+   * Read a transfer or a payout back.
+   *
+   * @param {string} id Which one.
+   * @returns {object} The movement.
+   * @throws {ProviderError} `INTENT_NOT_FOUND`.
+   */
+  function getMovement(id) {
+    const record = transfers.get(id) ?? payouts.get(id)
+
+    if (!record) {
+      throw new ProviderError(
+        PROVIDER_ERROR_CODES.INTENT_NOT_FOUND,
+        `No transfer or payout with id "${id}"`,
+        { provider: name, details: { movementId: id } },
+      )
+    }
+
+    return toMovement(record)
   }
 
   return /** @type {PaymentProvider} */ ({
@@ -666,6 +885,10 @@ export function createInMemoryPaymentProvider(options = {}) {
     capture,
     refund,
     getStatus,
+    createTransfer,
+    reverseTransfer,
+    createPayout,
+    getMovement,
     listIntents,
     reset,
   })

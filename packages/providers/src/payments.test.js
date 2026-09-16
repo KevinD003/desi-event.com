@@ -7,6 +7,7 @@ import {
   DEFAULT_DECLINE_CODE,
   toPaymentStatus,
 } from './payments.js'
+import { PROVIDER_ERROR_CODES } from './errors.js'
 import { DEMO_PAYMENT_NOTICE, PAYMENT_MODES } from './payment-mode.js'
 import { assertPaymentProvider } from './interfaces.js'
 
@@ -744,5 +745,145 @@ describe('every intent is marked as a demonstration', () => {
 
   it('names itself something no payment service provider is called', () => {
     expect(createInMemoryPaymentProvider().name).toBe('in-memory-payments')
+  })
+})
+
+describe('moving money onward: transfers and payouts', () => {
+  it('pays a transfer to a connected account and reports its own identifier', () => {
+    const payments = createInMemoryPaymentProvider()
+    const transfer = payments.createTransfer({
+      amountCents: 250_000,
+      currency: 'INR',
+      destination: 'acct_demo',
+    })
+
+    expect(transfer).toMatchObject({
+      kind: 'transfer',
+      status: 'PAID',
+      amountCents: 250_000,
+      currency: 'INR',
+      destination: 'acct_demo',
+      reversedCents: 0,
+    })
+    // Its own identifier space, as at a real processor: a transfer id is not an
+    // intent id, and storing one where the other belongs is a support call
+    // nobody can resolve.
+    expect(transfer.id).toMatch(/^tr_pi_/)
+  })
+
+  it('marks a transfer receipt as a demonstration', () => {
+    const payments = createInMemoryPaymentProvider()
+    const transfer = payments.createTransfer({ amountCents: 1000, currency: 'INR' })
+
+    expect(transfer.mode).toBe(PAYMENT_MODES.MOCK)
+    expect(transfer.demo).toBe(true)
+    expect(transfer.demoNotice).toMatch(/no money moved/i)
+  })
+
+  it('returns the first transfer when an idempotency key repeats', () => {
+    const payments = createInMemoryPaymentProvider()
+    const first = payments.createTransfer({
+      amountCents: 1000,
+      currency: 'INR',
+      idempotencyKey: 'tr-once',
+    })
+    const second = payments.createTransfer({
+      amountCents: 1000,
+      currency: 'INR',
+      idempotencyKey: 'tr-once',
+    })
+
+    expect(second.id).toBe(first.id)
+  })
+
+  it('refuses a transfer of the amount it was told to refuse', () => {
+    const payments = createInMemoryPaymentProvider({ transferFailAmountCents: 4242 })
+
+    try {
+      payments.createTransfer({ amountCents: 4242, currency: 'INR' })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe(PROVIDER_ERROR_CODES.PAYMENT_DECLINED)
+      expect(error.details.failureCode).toBe('insufficient_funds')
+    }
+  })
+
+  it('times a transfer out without saying it failed', () => {
+    const payments = createInMemoryPaymentProvider({ transferTimeoutAmountCents: 9999 })
+
+    try {
+      payments.createTransfer({ amountCents: 9999, currency: 'INR' })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe(PROVIDER_ERROR_CODES.PAYMENT_TIMEOUT)
+    }
+  })
+
+  it('reverses a transfer in part, and then the rest', () => {
+    const payments = createInMemoryPaymentProvider()
+    const transfer = payments.createTransfer({ amountCents: 1000, currency: 'INR' })
+
+    const partial = payments.reverseTransfer(transfer.id, { amountCents: 400 })
+
+    expect(partial.reversedCents).toBe(400)
+    expect(partial.status).toBe('PAID')
+
+    const rest = payments.reverseTransfer(transfer.id)
+
+    expect(rest.reversedCents).toBe(1000)
+    expect(rest.status).toBe('REVERSED')
+  })
+
+  it('will not reverse more than was transferred', () => {
+    const payments = createInMemoryPaymentProvider()
+    const transfer = payments.createTransfer({ amountCents: 1000, currency: 'INR' })
+
+    try {
+      payments.reverseTransfer(transfer.id, { amountCents: 1001 })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe(PROVIDER_ERROR_CODES.AMOUNT_MISMATCH)
+    }
+  })
+
+  it('pays a payout and reads it back', () => {
+    const payments = createInMemoryPaymentProvider()
+    const payout = payments.createPayout({ amountCents: 500_000, currency: 'INR' })
+
+    expect(payout.kind).toBe('payout')
+    expect(payout.id).toMatch(/^po_pi_/)
+    expect(payments.getMovement(payout.id).amountCents).toBe(500_000)
+  })
+
+  it('refuses a payout of the amount it was told to refuse', () => {
+    const payments = createInMemoryPaymentProvider({ payoutFailAmountCents: 7777 })
+
+    try {
+      payments.createPayout({ amountCents: 7777, currency: 'INR' })
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe(PROVIDER_ERROR_CODES.PAYMENT_DECLINED)
+      expect(error.details.failureCode).toBe('account_closed')
+    }
+  })
+
+  it('does not recognise an identifier it never issued', () => {
+    const payments = createInMemoryPaymentProvider()
+
+    try {
+      payments.getMovement('tr_not_a_real_one')
+      expect.unreachable('should have thrown')
+    } catch (error) {
+      expect(error.code).toBe(PROVIDER_ERROR_CODES.INTENT_NOT_FOUND)
+    }
+  })
+
+  it('forgets transfers and payouts on reset', () => {
+    const payments = createInMemoryPaymentProvider()
+    const payout = payments.createPayout({ amountCents: 100, currency: 'INR' })
+
+    payments.reset()
+
+    expect(() => payments.getMovement(payout.id)).toThrowError(/No transfer or payout/)
   })
 })

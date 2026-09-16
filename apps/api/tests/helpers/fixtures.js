@@ -134,7 +134,7 @@ function sealTotpSecret(secret) {
   return seal(secret, { secret: TEST_AUTH_SECRET, purpose: 'mfa-totp' })
 }
 
-const LEDGER_ACCOUNTS = Object.freeze([
+export const LEDGER_ACCOUNTS = Object.freeze([
   {
     id: 'ledacc0000000processorclear',
     code: 'processor_clearing',

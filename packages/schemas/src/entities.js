@@ -543,3 +543,119 @@ export const reconciliationTaskSchema = z.object({
   createdAt: timestampSchema,
   updatedAt: timestampSchema.optional(),
 })
+
+/**
+ * An organiser's balance, broken down.
+ *
+ * Every component, not only the answer. "Why is my balance lower than my
+ * sales?" is the question an organiser asks, and a figure that cannot be broken
+ * down is a figure they cannot trust.
+ *
+ * @type {object}
+ */
+export const organizerBalanceSchema = z.object({
+  organizationId: cuidSchema,
+  currency: currencySchema,
+  /** What the ledger says is owed: `organizer_payable` credits less debits. */
+  payableCents: z.number().int(),
+  /** Transfers and payouts decided but not yet posted to the ledger. */
+  inFlightCents: z.number().int(),
+  /** Refunds promised to buyers and not yet settled. */
+  refundLiabilityCents: z.number().int(),
+  /** Every open dispute's amount. */
+  disputeLiabilityCents: z.number().int(),
+  /** What may actually be paid. Never below zero in practice, and may be. */
+  availableCents: z.number().int(),
+})
+
+/** A payout, as finance sees it. */
+export const payoutSchema = z.object({
+  id: cuidSchema,
+  organizationId: cuidSchema,
+  connectedAccountId: cuidSchema.nullable(),
+  provider: z.string(),
+  providerPayoutId: z.string().nullable(),
+  amountCents: centsSchema,
+  currency: currencySchema,
+  status: z.enum([
+    'SCHEDULED',
+    'PENDING',
+    'IN_TRANSIT',
+    'SUBMITTED',
+    'PAID',
+    'FAILED',
+    'REVERSED',
+    'HELD',
+    'RECONCILIATION_REQUIRED',
+    'CANCELLED',
+  ]),
+  reversedCents: z.number().int(),
+  /** Why it is held, when it is. Prose an organiser can act on. */
+  holdReason: z.string().nullable(),
+  failureCode: z.string().nullable(),
+  arrivalDate: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema.optional(),
+})
+
+/** A transfer to a connected account. */
+export const transferSchema = z.object({
+  id: cuidSchema,
+  organizationId: cuidSchema,
+  connectedAccountId: cuidSchema.nullable(),
+  orderId: cuidSchema.nullable(),
+  provider: z.string(),
+  providerTransferId: z.string().nullable(),
+  amountCents: centsSchema,
+  currency: currencySchema,
+  status: z.enum([
+    'PENDING',
+    'SUBMITTED',
+    'SENT',
+    'PAID',
+    'FAILED',
+    'REVERSED',
+    'PARTIALLY_REVERSED',
+    'RECONCILIATION_REQUIRED',
+  ]),
+  reversedCents: z.number().int(),
+  failureCode: z.string().nullable(),
+  settledAt: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema.optional(),
+})
+
+/**
+ * A dispute.
+ *
+ * The provider's reason code passes through as a string and is not interpreted:
+ * the vocabulary is theirs, it changes without notice, and mapping it onto an
+ * enum here would mean a new reason code became a 500.
+ *
+ * @type {object}
+ */
+export const disputeSchema = z.object({
+  id: cuidSchema,
+  paymentId: cuidSchema,
+  provider: z.string(),
+  providerDisputeId: z.string(),
+  amountCents: centsSchema,
+  currency: currencySchema,
+  reason: z.string().nullable(),
+  status: z.enum([
+    'OPENED',
+    'NEEDS_RESPONSE',
+    'UNDER_REVIEW',
+    'CHARGE_REFUNDED',
+    'WON',
+    'LOST',
+    'CLOSED',
+    'WARNING_NEEDS_RESPONSE',
+    'WARNING_CLOSED',
+  ]),
+  fundsWithheld: z.boolean(),
+  evidenceDueAt: timestampSchema.nullable(),
+  closedAt: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema.optional(),
+})
