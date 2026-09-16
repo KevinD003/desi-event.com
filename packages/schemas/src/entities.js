@@ -47,6 +47,8 @@ import {
   orgRoleSchema,
   paymentStatusSchema,
   promoTypeSchema,
+  notificationChannelSchema,
+  notificationStatusSchema,
   ticketStatusSchema,
   ticketTypeStatusSchema,
   userRoleSchema,
@@ -400,4 +402,34 @@ export const orderWithItemsSchema = orderSchema.extend({
   items: z.array(orderItemSchema).default([]),
   tickets: z.array(ticketSchema).optional(),
   event: eventSummarySchema.nullish(),
+})
+
+/**
+ * One outbox row, as an operator sees it.
+ *
+ * Not as it is stored. The recipient is reduced to a masked form and the
+ * payload is dropped entirely: an operations queue is read by people who need
+ * to know whether a message went, not who it was to or what it said. Everything
+ * here is a status, a count or an instant.
+ */
+export const notificationSummarySchema = z.object({
+  id: cuidSchema,
+  template: z.string(),
+  channel: notificationChannelSchema,
+  status: notificationStatusSchema,
+  /** `p****a@example.com`. Enough to recognise, not enough to contact. */
+  recipientMasked: z.string(),
+  businessEvent: z.string().nullable(),
+  templateVersion: z.number().int(),
+  attempts: z.number().int(),
+  maxAttempts: z.number().int(),
+  scheduledFor: timestampSchema,
+  sentAt: timestampSchema.nullable(),
+  lastAttemptAt: timestampSchema.nullable(),
+  failureCategory: z.enum(['PERMANENT', 'TRANSIENT']).nullable(),
+  /** Already redacted when it was written. Repeated here for the same reason. */
+  lastError: z.string().nullable(),
+  leaseExpiresAt: timestampSchema.nullable(),
+  suppressible: z.boolean(),
+  createdAt: timestampSchema,
 })

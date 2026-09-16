@@ -1,9 +1,16 @@
 /**
  * Repeatable jobs.
  *
- * Exactly one thing needs to happen on a clock rather than in response to an
- * event: the hold sweep. Everything else in this worker is enqueued by
- * something that just happened — an order was paid, an event was published.
+ * Two things happen on a clock rather than in response to an event: the hold
+ * sweep, and the notification outbox drain. Everything else in this worker is
+ * enqueued by something that just happened — an order was paid, an event was
+ * published.
+ *
+ * The outbox drain is on a clock for a specific reason. The rows it sends are
+ * written inside the transactions that justify them, so there is no moment at
+ * which anything could reliably enqueue a job for one: the only safe enqueue is
+ * after the commit, and a process that dies in between would lose the message.
+ * A clock that asks the outbox what is due needs nobody to remember anything.
  *
  * BullMQ 6 expresses this as a *job scheduler*: a named record that mints one
  * job per interval. Schedulers are upserted by id, so restarting the worker
@@ -41,6 +48,22 @@ export const DEFAULT_EXPIRE_HOLDS_INTERVAL_MS = 60_000
  */
 export const DEFAULT_SWEEP_BATCH_SIZE = 250
 
+/** Scheduler id for the outbox drain. Stable across deploys, like the sweep. */
+export const DRAIN_OUTBOX_SCHEDULER_ID = 'drain-outbox'
+
+/**
+ * How often the outbox is drained when the environment does not say.
+ *
+ * Ten seconds. A cancellation notice that arrives ten seconds late is fine; one
+ * that arrives a minute late is noticeable to somebody refreshing their inbox
+ * after being told the event is off. The drain costs one indexed query when the
+ * queue is empty, which is cheap enough to do often.
+ */
+export const DEFAULT_DRAIN_OUTBOX_INTERVAL_MS = 10_000
+
+/** Messages one drain pass may send. */
+export const DEFAULT_DRAIN_OUTBOX_LIMIT = 50
+
 /**
  * Register (or update) every repeatable job.
  *
@@ -54,21 +77,31 @@ export const DEFAULT_SWEEP_BATCH_SIZE = 250
  * @param {Record<string, object>} options.queues The queue map from `createQueues`.
  * @param {number} [options.intervalMs] How often to sweep. Defaults to {@link DEFAULT_EXPIRE_HOLDS_INTERVAL_MS}.
  * @param {number} [options.batchSize] Holds per sweep.
+ * @param {number} [options.drainIntervalMs] How often to drain the outbox.
+ * @param {number} [options.drainLimit] Messages per drain pass.
  * @param {object} [options.logger] Logger for the registration line.
  * @returns {Promise<Array<{id: string, queue: string, everyMs: number}>>} One entry per registered scheduler.
- * @throws {TypeError} When the holds queue is missing.
- * @throws {ValidationError} When the template payload does not satisfy the job schema.
+ * @throws {TypeError} When a required queue is missing.
+ * @throws {ValidationError} When a template payload does not satisfy its job schema.
  */
 export async function registerRepeatableJobs({
   queues,
   intervalMs = DEFAULT_EXPIRE_HOLDS_INTERVAL_MS,
   batchSize = DEFAULT_SWEEP_BATCH_SIZE,
+  drainIntervalMs = DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
+  drainLimit = DEFAULT_DRAIN_OUTBOX_LIMIT,
   logger,
 }) {
   const queue = queues?.[QUEUE_NAMES.HOLDS]
 
   if (!queue) {
     throw new TypeError(`registerRepeatableJobs requires the "${QUEUE_NAMES.HOLDS}" queue`)
+  }
+
+  const emailQueue = queues?.[QUEUE_NAMES.EMAIL]
+
+  if (!emailQueue) {
+    throw new TypeError(`registerRepeatableJobs requires the "${QUEUE_NAMES.EMAIL}" queue`)
   }
 
   // Validate the template the same way an ad-hoc enqueue would be, so a typo
@@ -93,7 +126,27 @@ export async function registerRepeatableJobs({
     'repeatable hold sweep registered',
   )
 
-  return [{ id: EXPIRE_HOLDS_SCHEDULER_ID, queue: QUEUE_NAMES.HOLDS, everyMs: intervalMs }]
+  const drainData = validateJobPayload(JOB_NAMES.DRAIN_OUTBOX, { limit: drainLimit })
+
+  await emailQueue.upsertJobScheduler(
+    DRAIN_OUTBOX_SCHEDULER_ID,
+    { every: drainIntervalMs },
+    {
+      name: JOB_NAMES.DRAIN_OUTBOX,
+      data: drainData,
+      opts: { removeOnComplete: { age: 3600, count: 120 }, removeOnFail: { count: 500 } },
+    },
+  )
+
+  logger?.info?.(
+    { scheduler: DRAIN_OUTBOX_SCHEDULER_ID, everyMs: drainIntervalMs, limit: drainLimit },
+    'repeatable outbox drain registered',
+  )
+
+  return [
+    { id: EXPIRE_HOLDS_SCHEDULER_ID, queue: QUEUE_NAMES.HOLDS, everyMs: intervalMs },
+    { id: DRAIN_OUTBOX_SCHEDULER_ID, queue: QUEUE_NAMES.EMAIL, everyMs: drainIntervalMs },
+  ]
 }
 
 /**
@@ -108,22 +161,41 @@ export async function registerRepeatableJobs({
  * @returns {Promise<string[]>} The scheduler ids that were actually removed.
  */
 export async function removeRepeatableJobs({ queues }) {
-  const queue = queues?.[QUEUE_NAMES.HOLDS]
-  if (!queue) return []
+  /** @type {string[]} */
+  const removed = []
 
-  const removed = await queue.removeJobScheduler(EXPIRE_HOLDS_SCHEDULER_ID)
-  return removed ? [EXPIRE_HOLDS_SCHEDULER_ID] : []
+  // Every scheduler this module owns, not just the first one it grew. A
+  // decommission that left the outbox drain running would be exactly the
+  // accumulation this function exists to prevent.
+  for (const [id, queueName] of [
+    [EXPIRE_HOLDS_SCHEDULER_ID, QUEUE_NAMES.HOLDS],
+    [DRAIN_OUTBOX_SCHEDULER_ID, QUEUE_NAMES.EMAIL],
+  ]) {
+    const queue = queues?.[queueName]
+    if (!queue) continue
+
+    if (await queue.removeJobScheduler(id)) removed.push(id)
+  }
+
+  return removed
 }
 
 /**
- * List the schedulers currently registered on the holds queue.
+ * List the schedulers currently registered on the queues this module owns.
  *
  * @param {object} options Options.
  * @param {Record<string, object>} options.queues The queue map.
  * @returns {Promise<Array<object>>} Scheduler records as BullMQ reports them.
  */
 export async function listRepeatableJobs({ queues }) {
-  const queue = queues?.[QUEUE_NAMES.HOLDS]
-  if (!queue) return []
-  return queue.getJobSchedulers()
+  const listed = []
+
+  for (const queueName of [QUEUE_NAMES.HOLDS, QUEUE_NAMES.EMAIL]) {
+    const queue = queues?.[queueName]
+    if (!queue) continue
+
+    listed.push(...(await queue.getJobSchedulers()))
+  }
+
+  return listed
 }

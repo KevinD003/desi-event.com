@@ -20,6 +20,7 @@ import { registerModerationRoutes } from './moderation.js'
 import { registerOrganizerRoutes } from './organizers.js'
 import { registerPublicVenueRoutes, registerVenueMapRoutes, registerVenueRoutes } from './venues.js'
 import { registerOrderRoutes } from './orders.js'
+import { registerOperationsRoutes } from './operations.js'
 import { registerPaymentRoutes } from './payments.js'
 import { registerTicketRoutes } from './tickets.js'
 import { registerTicketTypeRoutes } from './ticket-types.js'
@@ -55,6 +56,7 @@ export function registerRoutes(app, deps) {
   registerSessionRoutes(app, deps)
   registerHoldRoutes(app, deps)
   registerOrderRoutes(app, deps)
+  registerOperationsRoutes(app, deps)
   registerPaymentRoutes(app, deps)
 
   // Scoped, so the raw-body parser applies to the webhook routes and nowhere

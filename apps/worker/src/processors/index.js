@@ -17,11 +17,13 @@ import { createExpireHoldsProcessor } from './expire-holds.js'
 import { createIssueTicketsProcessor } from './issue-tickets.js'
 import { createSendEmailProcessor } from './send-email.js'
 import { createIndexEventProcessor } from './index-event.js'
+import { createDrainOutboxProcessor } from './drain-outbox.js'
 
 export { createExpireHoldsProcessor } from './expire-holds.js'
 export { createIssueTicketsProcessor } from './issue-tickets.js'
 export { createSendEmailProcessor } from './send-email.js'
 export { createIndexEventProcessor } from './index-event.js'
+export { createDrainOutboxProcessor } from './drain-outbox.js'
 
 /**
  * @typedef {object} ProcessorDeps
@@ -29,6 +31,7 @@ export { createIndexEventProcessor } from './index-event.js'
  * @property {object} providers A provider registry, or at least `{ email }`.
  * @property {object} [logger] Logger; each processor gets a child bound to its job name.
  * @property {object} [index] A search index implementation, when one exists.
+ * @property {string} [workerId] Who this process is, for the outbox leases it takes.
  */
 
 /**
@@ -43,7 +46,7 @@ export { createIndexEventProcessor } from './index-event.js'
  * @throws {TypeError} When `prisma` is missing.
  * @throws {ProviderError} When `providers.email` does not implement the email interface.
  */
-export function createProcessors({ prisma, providers, logger, index }) {
+export function createProcessors({ prisma, providers, logger, index, workerId }) {
   /**
    * Derive a logger bound to one job name.
    *
@@ -68,6 +71,14 @@ export function createProcessors({ prisma, providers, logger, index }) {
     [JOB_NAMES.INDEX_EVENT]: createIndexEventProcessor({
       index,
       logger: childFor(JOB_NAMES.INDEX_EVENT),
+    }),
+    [JOB_NAMES.DRAIN_OUTBOX]: createDrainOutboxProcessor({
+      prisma,
+      providers,
+      // Distinct per process, because it is the name on the lease: two
+      // processes sharing one would each think they held the other's claims.
+      workerId: workerId ?? `worker-${process.pid}`,
+      logger: childFor(JOB_NAMES.DRAIN_OUTBOX),
     }),
   }
 }

@@ -23,6 +23,8 @@ export const AUDIT_ACTIONS = Object.freeze({
   WEBHOOK_PROCESSED: 'webhook.processed',
   WEBHOOK_DEAD_LETTERED: 'webhook.dead_lettered',
   RECONCILIATION_OPENED: 'reconciliation.opened',
+  NOTIFICATION_REQUEUED: 'notification.requeued',
+  NOTIFICATION_CANCELLED: 'notification.cancelled',
   VERIFICATION_SUBMITTED: 'organization.verification_submitted',
   VENUE_CREATED: 'venue.created',
   VENUE_UPDATED: 'venue.updated',

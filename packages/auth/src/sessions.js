@@ -112,6 +112,15 @@ export const STEP_UP_POLICIES = Object.freeze({
    * which is the opposite of what the control is for.
    */
   MODERATION: 10 * 60 * 1000,
+  /**
+   * Acting on an operational work item: requeuing a dead letter, cancelling a
+   * message, resolving a reconciliation task.
+   *
+   * Five minutes, like moving money, because some of these do. Requeuing a
+   * dead-lettered cancellation notice sends real mail to real people, and
+   * cancelling one means somebody is never told something they were promised.
+   */
+  OPERATIONS: 5 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */

@@ -156,6 +156,36 @@ function totalLine(data) {
 }
 
 /**
+ * The date an event used to start, when a postponement moved it.
+ *
+ * Omitted entirely rather than rendered as "undefined" when the payload does
+ * not carry one, because a notice that names a wrong date is worse than one
+ * that names none.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} A line, or `''`.
+ */
+function previousDateLine(data) {
+  const previous = field(data, 'previousStartsAt', '')
+
+  return previous === '' ? '' : `It was due to start ${previous}.`
+}
+
+/**
+ * Which details changed, when a material change names them.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} A line, or `''`.
+ */
+function changedFieldsLine(data) {
+  const changed = data?.changed
+
+  if (!Array.isArray(changed) || changed.length === 0) return ''
+
+  return `What changed: ${changed.map((entry) => String(entry)).join(', ')}.`
+}
+
+/**
  * One renderer per template in `EMAIL_TEMPLATES`.
  *
  * @type {Readonly<Record<string, TemplateRenderer>>}
@@ -242,6 +272,113 @@ export const TEMPLATES = Object.freeze({
       'If you did not ask for this, nothing has changed and you can ignore this email.',
     ],
   }),
+
+  // ---------------------------------------------------------------------
+  // Outbox templates.
+  //
+  // The keys above are the SCREAMING_CASE members of the send-email job's
+  // enum. The keys below are the dotted names written into
+  // `NotificationOutbox.template` by the event lifecycle, and they keep that
+  // spelling on purpose: the column is what an operator reads in a database
+  // client, and renaming it here would mean two names for one message.
+  // ---------------------------------------------------------------------
+
+  'event.cancelled': (data) => ({
+    subject: `${field(data, 'eventTitle', 'An event you booked')} has been cancelled`,
+    heading: 'The event has been cancelled',
+    lines: [
+      'Hello,',
+      `${field(data, 'eventTitle', 'The event')} has been cancelled by the organiser.`,
+      field(data, 'reason', ''),
+      `This affects ${orderPhrase(data)}.`,
+      'A refund has been requested. Nothing further is needed from you.',
+    ],
+  }),
+
+  'event.postponed': (data) => ({
+    subject: `${field(data, 'eventTitle', 'An event you booked')} has been postponed`,
+    heading: 'The event has been postponed',
+    lines: [
+      'Hello,',
+      `${field(data, 'eventTitle', 'The event')} will no longer take place as planned.`,
+      field(data, 'reason', ''),
+      previousDateLine(data),
+      `Your tickets from ${orderPhrase(data)} remain valid for the new date.`,
+    ],
+  }),
+
+  'event.changed': (data) => ({
+    subject: `Something changed about ${field(data, 'eventTitle', 'an event you booked')}`,
+    heading: 'A detail of your event has changed',
+    lines: [
+      'Hello,',
+      `The organiser has changed something about ${field(data, 'eventTitle', 'your event')}.`,
+      changedFieldsLine(data),
+      field(data, 'reason', ''),
+      `Your tickets from ${orderPhrase(data)} are unaffected.`,
+    ],
+  }),
+
+  'ticket.issued': (data) => ({
+    subject: `Your ticket for ${field(data, 'eventTitle', 'your event')}`,
+    heading: 'Your ticket is ready',
+    lines: [
+      'Hello,',
+      `A ticket has been issued for ${orderPhrase(data)}.`,
+      eventLine(data),
+      'Open it in your account to show the pass at the door.',
+    ],
+  }),
+
+  'ticket.transfer.invited': (data) => ({
+    subject: `${field(data, 'fromName', 'Somebody')} wants to send you a ticket`,
+    heading: 'A ticket is waiting for you',
+    lines: [
+      'Hello,',
+      `${field(data, 'fromName', 'Somebody')} has offered you a ticket for ${field(data, 'eventTitle', 'an event')}.`,
+      'Open your account to accept it. The offer expires, and until you accept it the ticket stays with them.',
+    ],
+  }),
+
+  'ticket.transfer.completed': (data) => ({
+    subject: `Your ticket for ${field(data, 'eventTitle', 'your event')} has been handed on`,
+    heading: 'The transfer is complete',
+    lines: [
+      'Hello,',
+      `The ticket you offered for ${field(data, 'eventTitle', 'your event')} has been accepted.`,
+      'Your old pass no longer admits anybody. Nothing further is needed from you.',
+    ],
+  }),
+
+  'ticket.revoked': (data) => ({
+    subject: `Your ticket for ${field(data, 'eventTitle', 'your event')} has been withdrawn`,
+    heading: 'Your ticket has been withdrawn',
+    lines: [
+      'Hello,',
+      `The organiser has withdrawn a ticket issued for ${orderPhrase(data)}.`,
+      field(data, 'reason', 'Contact the organiser if you believe this is a mistake.'),
+    ],
+  }),
+
+  'refund.settled': (data) => ({
+    subject: `Your refund for ${orderPhrase(data)}`,
+    heading: 'Your refund has been settled',
+    lines: [
+      'Hello,',
+      `A refund of ${formatCents(data?.amountCents, field(data, 'currency', 'INR')) ?? 'the amount paid'} has been settled against ${orderPhrase(data)}.`,
+      'How long it takes to appear depends on your bank.',
+    ],
+  }),
+
+  'security.alert': (data) => ({
+    subject: `A security change on your ${BRAND_NAME} account`,
+    heading: 'Something changed on your account',
+    lines: [
+      'Hello,',
+      field(data, 'summary', 'A security-relevant change was made to your account.'),
+      'If this was not you, change your password and revoke your sessions now.',
+    ],
+  }),
 })
 
 /**
@@ -261,6 +398,12 @@ export const DEMO_NOTICE_BY_TEMPLATE = Object.freeze({
   ORDER_CONFIRMATION: DEMO_PAYMENT_NOTICE,
   TICKETS_ISSUED: DEMO_TICKET_NOTICE,
   ORDER_CANCELLED: DEMO_PAYMENT_NOTICE,
+  'event.cancelled': DEMO_PAYMENT_NOTICE,
+  'ticket.issued': DEMO_TICKET_NOTICE,
+  'ticket.transfer.invited': DEMO_TICKET_NOTICE,
+  'ticket.transfer.completed': DEMO_TICKET_NOTICE,
+  'ticket.revoked': DEMO_TICKET_NOTICE,
+  'refund.settled': DEMO_PAYMENT_NOTICE,
 })
 
 /**

@@ -36,6 +36,7 @@ import {
 import {
   eventCategorySchema,
   eventStatusSchema,
+  notificationStatusSchema,
   promoTypeSchema,
   ticketTypeStatusSchema,
 } from './enums.js'
@@ -543,6 +544,31 @@ export const moderationDecisionRequestSchema = z
       })
     }
   })
+
+/**
+ * Query string for the notification operations queue.
+ *
+ * `status` and `template` narrow it; `organizationId` is *not* a filter an
+ * operator supplies, because whose messages an operator may see is decided by
+ * their capability rather than by what they ask for.
+ */
+export const notificationQueueQuerySchema = paginationQuerySchema.extend({
+  status: notificationStatusSchema.optional(),
+  template: z.string().trim().min(1).max(64).optional(),
+  failureCategory: z.enum(['PERMANENT', 'TRANSIENT']).optional(),
+})
+
+/**
+ * Putting a failed message back in the queue, or withdrawing it.
+ *
+ * A reason is required for both. An operator who requeues a dead letter has
+ * decided that whatever caused it is fixed, and an operator who cancels one has
+ * decided it should never be sent; in six months neither decision is
+ * reconstructable from the row alone.
+ */
+export const notificationActionRequestSchema = z.object({
+  reason: z.string().trim().min(4).max(500),
+})
 
 /** Query string for the moderation queue. */
 export const moderationQueueQuerySchema = paginationQuerySchema.extend({

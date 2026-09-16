@@ -226,3 +226,66 @@ export function toHold(hold, ticketType) {
 
   return data
 }
+
+/**
+ * Mask an address so it can be recognised but not used.
+ *
+ * `priya.sharma@example.com` becomes `p**********a@example.com`. Enough for an
+ * operator to match a support ticket against a queue row, not enough to
+ * contact anybody — which is the line an operations tool has to stay on the
+ * right side of, because it is read on shared screens by whoever is on shift.
+ *
+ * @param {string|null|undefined} address The stored recipient.
+ * @returns {string} The masked form, or `'(none)'` when there is nothing to mask.
+ */
+export function maskRecipient(address) {
+  if (typeof address !== 'string' || address.trim() === '') return '(none)'
+
+  const at = address.lastIndexOf('@')
+
+  // A phone number, or anything else with no domain part: keep the last two
+  // characters, which is what an operator reads off a support ticket.
+  if (at < 1) {
+    const tail = address.slice(-2)
+    return `${'*'.repeat(Math.max(1, address.length - 2))}${tail}`
+  }
+
+  const local = address.slice(0, at)
+  const domain = address.slice(at)
+
+  if (local.length <= 2) return `${'*'.repeat(local.length)}${domain}`
+
+  return `${local[0]}${'*'.repeat(local.length - 2)}${local[local.length - 1]}${domain}`
+}
+
+/**
+ * One outbox row, as an operator sees it.
+ *
+ * The payload is not here, and neither is the full recipient. That is the
+ * point: the response schema is an allow list, and this is the function that
+ * decides what is on it.
+ *
+ * @param {object} row A `NotificationOutbox` row.
+ * @returns {object} A payload satisfying `notificationSummarySchema`.
+ */
+export function toOperatorNotification(row) {
+  return {
+    id: row.id,
+    template: row.template,
+    channel: row.channel,
+    status: row.status,
+    recipientMasked: maskRecipient(row.recipient),
+    businessEvent: row.businessEvent ?? null,
+    templateVersion: row.templateVersion ?? 1,
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+    scheduledFor: row.scheduledFor,
+    sentAt: row.sentAt ?? null,
+    lastAttemptAt: row.lastAttemptAt ?? null,
+    failureCategory: row.failureCategory ?? null,
+    lastError: row.lastError ?? null,
+    leaseExpiresAt: row.leaseExpiresAt ?? null,
+    suppressible: row.suppressible,
+    createdAt: row.createdAt,
+  }
+}

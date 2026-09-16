@@ -22,6 +22,7 @@ import { PAYMENT_MODES } from './payments.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
+  notificationSummarySchema,
   orderWithItemsSchema,
   organizationSchema,
   publicUserSchema,
@@ -357,4 +358,15 @@ export const pricePreviewResponseSchema = z.object({
       allInCents: z.number(),
     }),
   ),
+})
+
+/** `GET /operations/notifications`. */
+export const notificationListResponseSchema = z.object({
+  data: z.array(notificationSummarySchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /operations/notifications/:id`, and the two actions on one. */
+export const notificationDetailResponseSchema = z.object({
+  data: notificationSummarySchema,
 })

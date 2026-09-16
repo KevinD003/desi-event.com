@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { EMAIL_TEMPLATES } from '@desi-event/schemas/jobs'
+import { OUTBOX_TEMPLATES } from '@desi-event/notifications'
 
 import { TEMPLATES, escapeHtml, field, formatCents, renderEmail } from './templates.js'
 
@@ -54,7 +55,38 @@ describe('formatCents', () => {
 
 describe('renderEmail', () => {
   it('has a renderer for every template the job schema allows', () => {
-    expect(Object.keys(TEMPLATES).sort()).toEqual([...EMAIL_TEMPLATES].sort())
+    for (const template of EMAIL_TEMPLATES) {
+      expect(TEMPLATES, `no renderer for ${template}`).toHaveProperty(template)
+    }
+  })
+
+  it('has a renderer for every template the outbox may name', () => {
+    // The other half of the same guarantee. A template the domain writes but
+    // the worker cannot render is a row that queues, fails permanently, and
+    // surfaces as a dead letter hours after the event it was about.
+    for (const template of OUTBOX_TEMPLATES) {
+      expect(TEMPLATES, `no renderer for ${template}`).toHaveProperty(template)
+    }
+  })
+
+  it('has no renderer that belongs to neither list', () => {
+    // And the third direction, so a renderer cannot be added without being
+    // declared somewhere a writer would find it.
+    const declared = new Set([...EMAIL_TEMPLATES, ...OUTBOX_TEMPLATES])
+
+    for (const template of Object.keys(TEMPLATES)) {
+      expect(declared.has(template), `${template} is declared nowhere`).toBe(true)
+    }
+  })
+
+  it.each([...OUTBOX_TEMPLATES])('renders %s with a subject and both bodies', (template) => {
+    const rendered = renderEmail({ template, data: {} })
+
+    expect(rendered.subject.length).toBeGreaterThan(0)
+    expect(rendered.text.length).toBeGreaterThan(0)
+    expect(rendered.html).toContain('<div')
+    expect(rendered.text).not.toContain('undefined')
+    expect(rendered.html).not.toContain('undefined')
   })
 
   it.each([...EMAIL_TEMPLATES])('renders %s with a subject and both bodies', (template) => {

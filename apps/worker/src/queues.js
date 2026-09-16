@@ -29,6 +29,9 @@ export const QUEUE_FOR_JOB = Object.freeze({
   [JOB_NAMES.EXPIRE_HOLDS]: QUEUE_NAMES.HOLDS,
   [JOB_NAMES.ISSUE_TICKETS]: QUEUE_NAMES.TICKETS,
   [JOB_NAMES.INDEX_EVENT]: QUEUE_NAMES.SEARCH,
+  // The outbox drain rides the email queue: it is the same resource it
+  // contends for, so a backlog of one is visible as a backlog of the other.
+  [JOB_NAMES.DRAIN_OUTBOX]: QUEUE_NAMES.EMAIL,
 })
 
 /**

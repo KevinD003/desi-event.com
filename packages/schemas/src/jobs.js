@@ -27,6 +27,7 @@ export const JOB_NAMES = Object.freeze({
   EXPIRE_HOLDS: 'expire-holds',
   ISSUE_TICKETS: 'issue-tickets',
   INDEX_EVENT: 'index-event',
+  DRAIN_OUTBOX: 'drain-outbox',
 })
 
 /** Transactional email templates the worker knows how to render. */
@@ -61,6 +62,19 @@ export const expireHoldsJobSchema = z.object({
   ticketTypeId: cuidSchema.optional(),
 })
 
+/**
+ * Send whatever the notification outbox has waiting.
+ *
+ * No message id in the payload, deliberately. A job that named one row would
+ * have to be enqueued per message, which puts the queue between the domain and
+ * the outbox and gives two things the chance to disagree about what is due. The
+ * outbox is the queue; this job is only the clock that reads it.
+ */
+export const drainOutboxJobSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(500).default(50),
+  leaseMs: z.coerce.number().int().min(1000).max(600_000).default(60_000),
+})
+
 /** Materialise `Ticket` rows for every item of a paid order. */
 export const issueTicketsJobSchema = z.object({
   orderId: cuidSchema,
@@ -81,6 +95,7 @@ export const JOB_SCHEMAS = Object.freeze({
   [JOB_NAMES.EXPIRE_HOLDS]: expireHoldsJobSchema,
   [JOB_NAMES.ISSUE_TICKETS]: issueTicketsJobSchema,
   [JOB_NAMES.INDEX_EVENT]: indexEventJobSchema,
+  [JOB_NAMES.DRAIN_OUTBOX]: drainOutboxJobSchema,
 })
 
 /**

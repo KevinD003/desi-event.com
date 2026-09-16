@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { QUEUE_NAMES } from '@desi-event/schemas/jobs'
 
 import {
+  DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
   DEFAULT_EXPIRE_HOLDS_INTERVAL_MS,
+  DRAIN_OUTBOX_SCHEDULER_ID,
   EXPIRE_HOLDS_SCHEDULER_ID,
   listRepeatableJobs,
   registerRepeatableJobs,
@@ -11,7 +13,11 @@ import {
 import { createFakeLogger } from '../tests/helpers/fakes.js'
 
 /**
- * A holds queue that records scheduler upserts in memory.
+ * Queues that record scheduler upserts in memory.
+ *
+ * One shared store across both queues, because the assertions are about which
+ * scheduler exists rather than which queue holds it, and two stores would mean
+ * every lookup had to know the answer it was checking.
  *
  * @returns {{queues: Record<string, object>, schedulers: Map<string, object>}} The fake and its store.
  */
@@ -19,17 +25,29 @@ function createFakeQueues() {
   /** @type {Map<string, object>} */
   const schedulers = new Map()
 
-  const holds = {
-    name: QUEUE_NAMES.HOLDS,
+  /**
+   * One fake queue.
+   *
+   * @param {string} name The queue name.
+   * @returns {object} A queue with the three scheduler methods.
+   */
+  const queue = (name) => ({
+    name,
     upsertJobScheduler: async (id, repeat, template) => {
-      schedulers.set(id, { id, repeat, template })
+      schedulers.set(id, { id, repeat, template, queue: name })
       return { id: `${id}:1` }
     },
     removeJobScheduler: async (id) => schedulers.delete(id),
-    getJobSchedulers: async () => [...schedulers.values()],
-  }
+    getJobSchedulers: async () => [...schedulers.values()].filter((entry) => entry.queue === name),
+  })
 
-  return { queues: { [QUEUE_NAMES.HOLDS]: holds }, schedulers }
+  return {
+    queues: {
+      [QUEUE_NAMES.HOLDS]: queue(QUEUE_NAMES.HOLDS),
+      [QUEUE_NAMES.EMAIL]: queue(QUEUE_NAMES.EMAIL),
+    },
+    schedulers,
+  }
 }
 
 describe('registerRepeatableJobs', () => {
@@ -43,6 +61,11 @@ describe('registerRepeatableJobs', () => {
         id: EXPIRE_HOLDS_SCHEDULER_ID,
         queue: QUEUE_NAMES.HOLDS,
         everyMs: DEFAULT_EXPIRE_HOLDS_INTERVAL_MS,
+      },
+      {
+        id: DRAIN_OUTBOX_SCHEDULER_ID,
+        queue: QUEUE_NAMES.EMAIL,
+        everyMs: DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
       },
     ])
 
@@ -71,8 +94,11 @@ describe('registerRepeatableJobs', () => {
     await registerRepeatableJobs({ queues })
     await registerRepeatableJobs({ queues, intervalMs: 30_000 })
 
-    expect(schedulers.size).toBe(1)
+    expect(schedulers.size).toBe(2)
     expect(schedulers.get(EXPIRE_HOLDS_SCHEDULER_ID).repeat).toEqual({ every: 30_000 })
+    expect(schedulers.get(DRAIN_OUTBOX_SCHEDULER_ID).repeat).toEqual({
+      every: DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
+    })
   })
 
   it('honours a configured interval and batch size', async () => {
@@ -119,8 +145,11 @@ describe('removeRepeatableJobs and listRepeatableJobs', () => {
     const { queues, schedulers } = createFakeQueues()
     await registerRepeatableJobs({ queues })
 
-    await expect(listRepeatableJobs({ queues })).resolves.toHaveLength(1)
-    await expect(removeRepeatableJobs({ queues })).resolves.toEqual([EXPIRE_HOLDS_SCHEDULER_ID])
+    await expect(listRepeatableJobs({ queues })).resolves.toHaveLength(2)
+    await expect(removeRepeatableJobs({ queues })).resolves.toEqual([
+      EXPIRE_HOLDS_SCHEDULER_ID,
+      DRAIN_OUTBOX_SCHEDULER_ID,
+    ])
     expect(schedulers.size).toBe(0)
   })
 

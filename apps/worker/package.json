@@ -17,6 +17,7 @@
     "@desi-event/db": "workspace:*",
     "@desi-event/inventory": "workspace:*",
     "@desi-event/logger": "workspace:*",
+    "@desi-event/notifications": "workspace:*",
     "@desi-event/providers": "workspace:*",
     "@desi-event/schemas": "workspace:*",
     "bullmq": "^6.3.6",

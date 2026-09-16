@@ -97,6 +97,7 @@ describe('createProcessors', () => {
     })
 
     expect(Object.keys(processors).sort()).toEqual([
+      'drain-outbox',
       'expire-holds',
       'index-event',
       'issue-tickets',
