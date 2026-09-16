@@ -2,13 +2,13 @@
 
 **Status: `PARTIAL`.** Phase 3 has not been started.
 
-**As of `c5e98da`.** §1 is measured at that commit and nowhere else; §13
+**As of `6eb6030`.** §1 is measured at that commit and nowhere else; §13
 records the final pushed HEAD, which no file can contain its own hash of.
 
 **Nineteen of the twenty gates are `MET`. One is `PARTIAL`. None is
 `NOT MET`.** Gates 13 and 14 closed in the closeout cycle; gate 17 did not, and
 the reason is not code. A real workflow run exists and all eight of its jobs
-pass — run `35108476624`, on this exact commit — and **nothing on GitHub
+pass — run `35115541656`, on this exact commit — and **nothing on GitHub
 requires them before a merge.** Configuring that needs write access to the
 repository's protection settings, which this session's outbound proxy refuses
 regardless of the token's permissions. See §5 and `docs/BRANCH_PROTECTION.md`,
@@ -37,14 +37,14 @@ rewrites what it said last time is not a record.
 | `PHASE2_REQUIREMENTS_TRACEABILITY.md` | Requirement → implementation → evidence matrix, kept current        |
 | `PHASE2_FINAL_VERIFICATION_REPORT.md` | Account of the `3f5add0`…`e1b2069` cycle and its verification       |
 | `PHASE2_COMMERCE_CYCLE_REPORT.md`     | Account of the `cfb654c`…`910538b` cycle and its verification       |
-| `PHASE2_FINAL_CLOSEOUT_REPORT.md`     | Account of the `66495c0`…`c5e98da` closeout cycle, and its evidence |
+| `PHASE2_FINAL_CLOSEOUT_REPORT.md`     | Account of the `66495c0`…`6eb6030` closeout cycle, and its evidence |
 | `docs/ADVERSARIAL_REVIEW_FINDINGS.md` | The 34-finding review and the 19-agent browser-exposure audit       |
 
 ---
 
 ## 1. Repository state
 
-Measured, not recalled, **at `c5e98da`** — one commit, every row. Each value is
+Measured, not recalled, **at `6eb6030`** — one commit, every row. Each value is
 the output of the command named beside it.
 
 A file cannot contain the hash of the commit that edits it, so §13 records the
@@ -54,21 +54,22 @@ always re-measured at the commit named in this paragraph.
 | Fact                        | Value                                                | Command                                |
 | --------------------------- | ---------------------------------------------------- | -------------------------------------- |
 | Branch                      | `claude/desi-event-js-stack-gb4uqe`                  | `git rev-parse --abbrev-ref HEAD`      |
-| Local HEAD                  | `c5e98dae2b830646644169be045a88eb22ac0802`           | `git rev-parse HEAD`                   |
+| Local HEAD                  | `6eb6030b2895078ee64c720e1552a5420e7970b9`           | `git rev-parse HEAD`                   |
 | Upstream ref                | `origin/claude/desi-event-js-stack-gb4uqe`           | `git rev-parse --abbrev-ref @{u}`      |
-| Upstream HEAD               | `c5e98dae2b830646644169be045a88eb22ac0802`           | `git rev-parse @{u}` after `git fetch` |
+| Upstream HEAD               | `6eb6030b2895078ee64c720e1552a5420e7970b9`           | `git rev-parse @{u}` after `git fetch` |
 | Local equals upstream       | **yes**                                              | the two hashes above                   |
 | Working tree                | **clean** — `git status --porcelain` printed nothing | `git status --porcelain`               |
 | Worktrees                   | one, the repository itself                           | `git worktree list`                    |
-| Last executable-code commit | `c5e98da`                                            | see below                              |
+| Last executable-code commit | `6eb6030`                                            | see below                              |
 | Pull request                | #1, open against `main`                              | GitHub API                             |
-| Latest workflow run         | `35108476624` — 8 jobs, all `success`                | GitHub API                             |
+| Latest workflow run         | `35115541656` — 8 jobs, all `success`                | GitHub API                             |
 
-**The closeout cycle.** Thirteen commits from `66495c0` to `c5e98da`, 61 files
-changed, +13,710 / −860 lines. Newest first:
+**The closeout cycle.** Fourteen code commits from `66495c0` to `6eb6030`.
+Newest first:
 
 | Commit    | What it changed                                                             | Code? |
 | --------- | --------------------------------------------------------------------------- | ----- |
+| `6eb6030` | The four refund and transfer commands a screen calls and no test did        | yes   |
 | `c5e98da` | The four detail specs joined the public suite; the branch-protection record | yes   |
 | `bdefff9` | Four behaviour suites, a zero-test guard, a seventh browser job             | yes   |
 | `cd1544a` | Fourteen bundle needles and seven contract properties                       | yes   |
@@ -109,7 +110,7 @@ changed, 74 files added, +42,106 / −3,323 lines. Newest first:
 | `54b13b6` | A reserved seat is priced by the seat, not by the tier                | yes   |
 | `cfb654c` | The lifecycle enums the commerce services stand on                    | yes   |
 
-**Last executable-code commit.** `c5e98da` is HEAD and it changes a `.js` file,
+**Last executable-code commit.** `6eb6030` is HEAD and it changes a `.js` file,
 so the two coincide. The closeout cycle has no documentation-only commit before
 the one adding this revision; `a02eb2f` was the commerce cycle's.
 
@@ -435,9 +436,9 @@ than by reading the workflow file.
 | Fact          | Value                                                               |
 | ------------- | ------------------------------------------------------------------- |
 | Workflow      | `CI`, id `359635192`, `.github/workflows/ci.yml`                    |
-| Run           | `35108476624`                                                       |
+| Run           | `35115541656`                                                       |
 | Trigger       | `pull_request`, pull request #1                                     |
-| Commit tested | `c5e98dae2b830646644169be045a88eb22ac0802` — the commit §1 measures |
+| Commit tested | `6eb6030b2895078ee64c720e1552a5420e7970b9` — the commit §1 measures |
 | Jobs          | 8, every one `success`                                              |
 | Skipped steps | one per job, each an `if: failure()` artefact upload                |
 
@@ -626,7 +627,7 @@ stop.
 ### 6.2 The responsive and accessibility sweep
 
 `apps/web/e2e/accessibility-sweep.spec.js`, run by `pnpm run test:e2e:sweep`.
-**Forty-two cases**, all passing at `c5e98da` — twenty-two at `910538b`, plus
+**Forty-two cases**, all passing at `6eb6030` — twenty-two at `910538b`, plus
 twenty for the five surfaces the closeout cycle added:
 
 - **Thirty clean scans** — ten screens at three widths each, at 320, 768 and
@@ -1068,7 +1069,7 @@ Phase 3 has not been started and should not be. The conditions, stated as tests:
 
 1. **Every gate in §5 is `MET`.** Nineteen are. One is `PARTIAL`, and its row
    names what is missing and who can supply it.
-2. **A CI run exists.** ✅ Run `35108476624`, eight jobs, all green, on the
+2. **A CI run exists.** ✅ Run `35115541656`, eight jobs, all green, on the
    commit §1 measures. Nine runs on pull request #1 altogether; the two that
    failed were fixed at the root rather than re-run.
 3. **Branch protection is configured**, and the claim is made by somebody who
@@ -1106,8 +1107,9 @@ Branch `claude/desi-event-js-stack-gb4uqe`, upstream
 `origin/claude/desi-event-js-stack-gb4uqe`, every commit of every cycle pushed,
 no history rewritten, squashed or force-pushed, and one worktree.
 
-**The last executable-code commit is `c5e98da`, and it is named separately from
+**The last executable-code commit is `6eb6030`, and it is named separately from
 this report's own commit** — a documentation commit is not a change to the
-system, and the closeout cycle's thirty-two commands were run against `c5e98da`.
+system. The closeout cycle's thirty-two commands were run against `c5e98da`,
+one commit earlier.
 `PHASE2_FINAL_CLOSEOUT_REPORT.md` records all thirty-two with their exit codes
 and durations, and records the final pushed HEAD that no file can contain.

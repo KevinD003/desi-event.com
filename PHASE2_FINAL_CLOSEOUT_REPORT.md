@@ -1,4 +1,4 @@
-# Phase 2 final closeout report — an account of `66495c0`…`c5e98da`
+# Phase 2 final closeout report — an account of `66495c0`…`6eb6030`
 
 **This is a cycle report, not a status record.** `PHASE2_STATUS.md` is the
 authoritative current record of Phase 2, and where the two disagree that one is
@@ -34,31 +34,33 @@ eight exact check-context names.
 
 ## 1. Repository state, at one commit
 
-Measured at **`c5e98da`**, each value the output of the command beside it.
+Measured at **`6eb6030`**, each value the output of the command beside it.
 
 | Fact                        | Value                                                | Command                                |
 | --------------------------- | ---------------------------------------------------- | -------------------------------------- |
 | Branch                      | `claude/desi-event-js-stack-gb4uqe`                  | `git rev-parse --abbrev-ref HEAD`      |
-| Local HEAD                  | `c5e98dae2b830646644169be045a88eb22ac0802`           | `git rev-parse HEAD`                   |
+| Local HEAD                  | `6eb6030b2895078ee64c720e1552a5420e7970b9`           | `git rev-parse HEAD`                   |
 | Upstream ref                | `origin/claude/desi-event-js-stack-gb4uqe`           | `git rev-parse --abbrev-ref @{u}`      |
-| Upstream HEAD               | `c5e98dae2b830646644169be045a88eb22ac0802`           | `git rev-parse @{u}` after `git fetch` |
+| Upstream HEAD               | `6eb6030b2895078ee64c720e1552a5420e7970b9`           | `git rev-parse @{u}` after `git fetch` |
 | Local equals upstream       | **yes**                                              | the two hashes above                   |
 | Working tree                | **clean** — `git status --porcelain` printed nothing | `git status --porcelain`               |
 | Worktrees                   | one, the repository itself                           | `git worktree list`                    |
-| Last executable-code commit | **`c5e98da`**                                        | it changes `.js` files                 |
+| Last executable-code commit | **`6eb6030`**                                        | it changes `.js` files                 |
 
-**The final report commit is not `c5e98da`.** A file cannot contain the hash of
+**The final report commit is not `6eb6030`.** A file cannot contain the hash of
 the commit that introduces it, so §12 records the property rather than the
 number, and the final pushed HEAD is recorded there after this document's own
 commit is pushed.
 
-### The thirteen commits
+### The fourteen code commits
 
-Newest first. All thirteen change executable code; the documentation commit that
-adds this report is separate and is the fourteenth.
+Newest first. All fourteen change executable code. The documentation commits —
+the one that added this report, the one recording its hash, and the one adding
+this revision — are separate.
 
 | Commit    | What it changed                                                             |
 | --------- | --------------------------------------------------------------------------- |
+| `6eb6030` | The four refund and transfer commands a screen calls and no test did        |
 | `c5e98da` | The four detail specs joined the public suite; the branch-protection record |
 | `bdefff9` | Four behaviour suites, a zero-test guard, a seventh browser job             |
 | `cd1544a` | Fourteen bundle needles and seven contract properties                       |
@@ -73,8 +75,8 @@ adds this report is separate and is the fourteenth.
 | `d71d60f` | The `analytics` tag the new routes carry                                    |
 | `66495c0` | Organiser analytics, and the five-second clock that was failing two gates   |
 
-61 files changed, +13,710 / −860 lines. Every commit pushed as it was made; no
-history rewritten, squashed or force-pushed.
+Every commit pushed as it was made; no history rewritten, squashed or
+force-pushed.
 
 ---
 
@@ -327,12 +329,13 @@ CHECK constraints, 12 migrations — re-measured, not restated.
 | Fact          | Value                                                                             |
 | ------------- | --------------------------------------------------------------------------------- |
 | Workflow      | `CI`, id `359635192`, `.github/workflows/ci.yml`                                  |
-| Run           | **`35108476624`**                                                                 |
-| URL           | `https://github.com/KevinD003/desi-event.com/actions/runs/35108476624`            |
+| Run           | **`35115541656`**                                                                 |
+| URL           | `https://github.com/KevinD003/desi-event.com/actions/runs/35115541656`            |
 | Trigger       | `pull_request`                                                                    |
 | Pull request  | **#1**, `https://github.com/KevinD003/desi-event.com/pull/1`, open against `main` |
-| Commit tested | `c5e98dae2b830646644169be045a88eb22ac0802` — the commit §1 measures               |
+| Commit tested | `6eb6030b2895078ee64c720e1552a5420e7970b9` — the commit §1 measures               |
 | Jobs          | **8, every one `success`**                                                        |
+| Coverage step | `success` — the step that failed on `33eeea9`, green again after §9A              |
 
 | Job                                        | Conclusion | Duration |
 | ------------------------------------------ | ---------- | -------- |
@@ -347,7 +350,9 @@ CHECK constraints, 12 migrations — re-measured, not restated.
 
 **Skipped steps: one per job, each an `if: failure()` artefact upload.** No
 required step was skipped. The job names above are read back from
-`GET /actions/runs/35108476624/jobs`, not transcribed from the workflow file.
+`GET /actions/runs/<id>/jobs`, not transcribed from the workflow file. The
+durations above were read from run `35108476624` on `c5e98da`; run
+`35115541656` on `6eb6030` has the same eight jobs with the same conclusions.
 
 ### The three failures, and what was done about them
 
@@ -556,6 +561,10 @@ concurrent. **Thirty-two commands, all exit 0, first run, nothing retried.**
 work was being done and is in §9 with its fixing commit; none survived to the
 final sequence.
 
+The sequence was run at `c5e98da`. The nine cases §9A added afterwards raise
+`pnpm run test` to 4,642 and leave every other row unchanged; the table records
+what that run actually saw rather than what a later one would.
+
 ### The load profile, and what it does not measure
 
 Eleven scenarios, four profiles, seven database-side invariants checked after
@@ -591,9 +600,11 @@ Branch `claude/desi-event-js-stack-gb4uqe`, upstream
 `origin/claude/desi-event-js-stack-gb4uqe`, every commit of every cycle pushed,
 no history rewritten, squashed or force-pushed, and one worktree.
 
-**The last executable-code commit is `c5e98da`**, and it is named separately
+**The last executable-code commit is `6eb6030`**, and it is named separately
 from this report's own commit: a documentation commit is not a change to the
-system, and §11's thirty-two commands were run against `c5e98da`.
+system. §11's thirty-two commands were run against `c5e98da`, one commit
+earlier — §9A's nine cases came after them, and §11 records what that run saw
+rather than what a later one would.
 
 ### Recorded after the fact
 
@@ -667,7 +678,7 @@ external action required and stop.
 | Condition                                     | State                                                  |
 | --------------------------------------------- | ------------------------------------------------------ |
 | Every gate `MET`                              | ❌ 19 of 20                                            |
-| A CI run exists                               | ✅ `35108476624`, 8 jobs, all green, on `c5e98da`      |
+| A CI run exists                               | ✅ `35115541656`, 8 jobs, all green, on `6eb6030`      |
 | Branch protection configured                  | ❌ **the remaining item**                              |
 | The four missing screens exist and are swept  | ✅ all four, plus the invitation screen                |
 | Nothing claims a Stripe operation happened    | ✅ every such claim is `EXTERNAL VERIFICATION PENDING` |
