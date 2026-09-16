@@ -20,24 +20,139 @@ and it should match what follows.
 
 ## Measured state
 
-Checked against the GitHub API on **2026-09-16**, and recorded here because this
-document says the answer belongs where it is checked.
+Checked against the GitHub API on **2026-09-16**, from inside the session that
+wrote this cycle, and recorded here because this document says the answer
+belongs where it is checked.
 
-| Branch                              | `protected` |
-| ----------------------------------- | ----------- |
-| `main`                              | **false**   |
-| `claude/desi-event-js-stack-gb4uqe` | **false**   |
+| Thing                       | State                                   |
+| --------------------------- | --------------------------------------- |
+| Workflow registered         | **yes** — `CI`, workflow id `359635192` |
+| Runs of it                  | **yes** — seven, on pull request #1     |
+| Branch protection on `main` | **none**                                |
+| Repository rulesets         | **none** — `GET /rulesets` returns `[]` |
 
-**Nothing below is configured.** Not one required check, not the review rule,
-not the force-push rule. The list that follows is what to configure, not a
-description of what is in place, and no document in this repository may cite it
-as though it were.
+So the first half of gate 17 is now satisfied and the second half is not: the
+workflow exists, has executed against real commits, and its jobs pass — and
+nothing yet _requires_ them before a merge.
 
-The same check found **no workflow registered on the repository and no run of
-one**: `.github/workflows/ci.yml` exists on the working branch, and GitHub
-registers a workflow when it first runs. The workflow triggers on
-`push` to `main` and on `pull_request`, and this branch has had neither, so it
-has never executed. See `PHASE2_STATUS.md` gate 17.
+### Why it could not be configured from here, exactly
+
+Two different refusals, and they are worth telling apart because only one of
+them is about permissions.
+
+**Reading classic protection** — the GitHub App installation token is not
+granted `administration`:
+
+```
+GET /repos/KevinD003/desi-event.com/branches/main/protection
+→ 403 {"message": "Resource not accessible by integration"}
+```
+
+**Writing anything** — refused before it reaches GitHub, by the proxy this
+session's outbound traffic goes through:
+
+```
+PUT  /repos/KevinD003/desi-event.com/branches/main/protection
+POST /repos/KevinD003/desi-event.com/rulesets
+→ 403 {"message": "Write access to this GitHub API path is not permitted through this proxy."}
+```
+
+The repository token reports `{"admin": true, "maintain": true, "push": true}`
+on this repository, so the second refusal is **not** a missing GitHub
+permission and not a plan limitation. It is the execution environment declining
+to let an agent change a repository's protection settings, which is a defensible
+thing for it to decline. Either way the effect is the same and the honest
+statement is the same: **gate 17 is `PARTIAL` — external configuration
+required.**
+
+---
+
+## What the owner has to do, precisely
+
+Either of the two forms below is sufficient. A ruleset is the newer mechanism
+and the one GitHub is moving toward; classic protection is what the older
+documentation describes. Do not apply both to the same branch.
+
+### Option A — a repository ruleset (recommended)
+
+Save this as `ruleset.json` and apply it with a token that can administer the
+repository:
+
+```bash
+gh api --method POST /repos/KevinD003/desi-event.com/rulesets \
+  --input ruleset.json
+```
+
+```json
+{
+  "name": "Phase 2 required checks on main",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": true,
+        "automatic_copilot_code_review_enabled": false,
+        "allowed_merge_methods": ["merge", "squash", "rebase"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "Policy, lint, contract, tests, build" },
+          { "context": "Browser — public catalogue" },
+          { "context": "Browser — production build" },
+          { "context": "Browser — organiser venue maps" },
+          { "context": "Browser — event lifecycle" },
+          { "context": "Browser — refusals" },
+          { "context": "Browser — accessibility sweep" },
+          { "context": "Browser — commerce and operations detail" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+The eight context strings are the job names GitHub itself reported for run
+`35106712692`, read back from `GET /actions/runs/<id>/jobs` rather than guessed
+from the workflow file. The dash in the browser jobs is an em dash (U+2014),
+because that is what the workflow's `name:` produces; a hyphen there silently
+matches nothing and a required check that matches nothing blocks every merge
+forever.
+
+### Option B — classic branch protection
+
+```bash
+gh api --method PUT /repos/KevinD003/desi-event.com/branches/main/protection \
+  --input classic-protection.json
+```
+
+with the same eight contexts under
+`required_status_checks.contexts`, `"strict": true`, `"enforce_admins": true`,
+`"required_conversation_resolution": true`, `"allow_force_pushes": false` and
+`"allow_deletions": false`.
+
+### Afterwards, verify it rather than assuming it
+
+```bash
+gh api /repos/KevinD003/desi-event.com/rulesets
+gh api /repos/KevinD003/desi-event.com/branches/main/protection
+```
+
+and record what comes back in the table above. Until somebody does, this
+document says protection is not configured, because it is not.
 
 ---
 
