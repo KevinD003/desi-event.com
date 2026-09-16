@@ -9,6 +9,8 @@
  * @module @desi-event/api/lib/presenters
  */
 
+import { RECONCILIATION_EVIDENCE_KEYS } from '@desi-event/schemas'
+
 import { agingBand } from './reconciliation.js'
 import { BADGED_STATES } from './verification.js'
 
@@ -338,12 +340,48 @@ export function toRefund(row) {
 }
 
 /**
+ * One side of a reconciliation item's evidence, projected onto its allow list.
+ *
+ * Two rules, and the second is the one that is easy to forget. Keys not on
+ * {@link RECONCILIATION_EVIDENCE_KEYS} are dropped; and an allowed key whose
+ * value is an object or an array is dropped as well, because an allow list of
+ * key *names* is no protection at all when `status` can hold a whole Stripe
+ * charge. What survives is primitives.
+ *
+ * `null` in, `null` out. An object that survives with nothing in it is returned
+ * as an empty object rather than as `null`, because "evidence was recorded and
+ * none of it was showable" and "no evidence was ever recorded" are different
+ * facts and an operator deciding about somebody's money should be told which
+ * one this is.
+ *
+ * @param {unknown} value Whatever the row held.
+ * @returns {object|null} A payload satisfying `reconciliationEvidenceSchema`.
+ */
+export function toEvidence(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+
+  const projected = {}
+
+  for (const key of RECONCILIATION_EVIDENCE_KEYS) {
+    const held = value[key]
+
+    if (held === undefined) continue
+    if (held !== null && typeof held === 'object') continue
+
+    projected[key] = held
+  }
+
+  return projected
+}
+
+/**
  * One reconciliation task, as an operator sees it.
  *
  * Both sides of the evidence, because the decision is made by comparing them.
  * `localState` was written when the problem happened and is never edited;
  * `providerState` is the small summary a re-query records, never the provider's
- * raw object — an operations screen is not a place to print one.
+ * raw object — an operations screen is not a place to print one. Both go
+ * through {@link toEvidence}, so that holds whatever a future writer stores.
  *
  * The aging band is derived here rather than computed on the client, so a
  * queue screen and a detail screen cannot disagree about whether something is
@@ -368,8 +406,8 @@ export function toReconciliationTask(row, { now, orderReference = null }) {
     refundId: row.refundId ?? null,
     organizationId: row.organizationId ?? null,
     providerRef: row.providerRef ?? null,
-    localState: row.localState ?? null,
-    providerState: row.providerState ?? null,
+    localState: toEvidence(row.localState),
+    providerState: toEvidence(row.providerState),
     attempts: row.attempts,
     lastError: row.lastError ?? null,
     assignedToId: row.assignedToId ?? null,

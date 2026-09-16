@@ -26,6 +26,7 @@ import {
   canTransition,
   compareEvidence,
 } from '../src/lib/reconciliation.js'
+import { toEvidence } from '../src/lib/presenters.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
@@ -377,7 +378,91 @@ async function worldWithTimeout({ captured = 'capture', task: taskOverrides = {}
   return { ...harness, ids, providers, intent, orderId, paymentId, taskId }
 }
 
+describe('the evidence allow list', () => {
+  it('keeps the keys an operator decides on', () => {
+    expect(
+      toEvidence({
+        found: true,
+        status: 'succeeded',
+        amountCents: 240_000,
+        currency: 'INR',
+        refundedAmountCents: 0,
+        error: null,
+      }),
+    ).toEqual({
+      found: true,
+      status: 'succeeded',
+      amountCents: 240_000,
+      currency: 'INR',
+      refundedAmountCents: 0,
+      error: null,
+    })
+  })
+
+  it('drops a provider object a future writer might store whole', () => {
+    // Shaped like the real thing, because the real thing is what would arrive
+    // if somebody replaced the six-key summary with `await stripe.retrieve(id)`.
+    const projected = toEvidence({
+      id: 'pi_3PfakeFakeFake',
+      status: 'succeeded',
+      amount: 240_000,
+      currency: 'inr',
+      receipt_email: 'priya@example.com',
+      charges: {
+        data: [
+          {
+            billing_details: { email: 'priya@example.com', name: 'Priya Sharma' },
+            payment_method_details: { card: { last4: '4242', brand: 'visa', exp_year: 2030 } },
+          },
+        ],
+      },
+    })
+
+    expect(projected).toEqual({ status: 'succeeded', amount: 240_000, currency: 'inr' })
+    expect(JSON.stringify(projected)).not.toMatch(/4242|priya|visa|pi_3/iu)
+  })
+
+  it('drops an object hiding under an allowed key', () => {
+    // An allow list of key *names* is no protection when `status` can hold a
+    // whole charge, which on more than one provider it can.
+    expect(
+      toEvidence({ status: { code: 'succeeded', card: { last4: '4242' } }, found: true }),
+    ).toEqual({ found: true })
+  })
+
+  it('tells "recorded but unshowable" from "never recorded"', () => {
+    expect(toEvidence(null)).toBeNull()
+    expect(toEvidence({ receipt_email: 'priya@example.com' })).toEqual({})
+  })
+
+  it('refuses an array, which is not evidence', () => {
+    expect(toEvidence([{ status: 'succeeded' }])).toBeNull()
+  })
+})
+
 describe('GET /v1/operations/reconciliation', () => {
+  it('shows no provider payload even when the row holds one', async () => {
+    const { app } = await worldWithTimeout({
+      task: {
+        providerState: {
+          status: 'succeeded',
+          receipt_email: 'priya@example.com',
+          charges: { data: [{ payment_method_details: { card: { last4: '4242' } } }] },
+        },
+      },
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/operations/reconciliation',
+      headers: await asUser(app, OPERATOR),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data[0].providerState).toEqual({ status: 'succeeded' })
+    expect(response.body).not.toMatch(/4242|receipt_email/u)
+  })
+
   it('shows the platform everything', async () => {
     const { app, taskId } = await worldWithTimeout()
 

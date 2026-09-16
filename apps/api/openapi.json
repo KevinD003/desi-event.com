@@ -26493,7 +26493,116 @@
                           },
                           "localState": {
                             "anyOf": [
-                              {},
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "amount": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "amountCents": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "at": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "currency": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "error": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "found": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "orderStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "payoutStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "paymentStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "refundStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "refundedAmountCents": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "status": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "totalCents": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
                               {
                                 "type": "null"
                               }
@@ -26501,7 +26610,116 @@
                           },
                           "providerState": {
                             "anyOf": [
-                              {},
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "amount": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "amountCents": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "at": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "currency": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "error": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "found": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "orderStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "payoutStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "paymentStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "refundStatus": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "refundedAmountCents": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "status": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  },
+                                  "totalCents": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  }
+                                },
+                                "additionalProperties": false
+                              },
                               {
                                 "type": "null"
                               }
@@ -26965,7 +27183,116 @@
                         },
                         "localState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -26973,7 +27300,116 @@
                         },
                         "providerState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -27332,7 +27768,116 @@
                         },
                         "localState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -27340,7 +27885,116 @@
                         },
                         "providerState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -27712,7 +28366,116 @@
                             },
                             "localState": {
                               "anyOf": [
-                                {},
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "amount": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "amountCents": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "at": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "currency": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "error": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "found": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "orderStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "payoutStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "paymentStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "refundStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "refundedAmountCents": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "status": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "totalCents": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
                                 {
                                   "type": "null"
                                 }
@@ -27720,7 +28483,116 @@
                             },
                             "providerState": {
                               "anyOf": [
-                                {},
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "amount": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "amountCents": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "at": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "currency": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "error": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "found": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "orderStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "payoutStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "paymentStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "refundStatus": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "refundedAmountCents": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "status": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "totalCents": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    }
+                                  },
+                                  "additionalProperties": false
+                                },
                                 {
                                   "type": "null"
                                 }
@@ -28170,7 +29042,116 @@
                         },
                         "localState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -28178,7 +29159,116 @@
                         },
                         "providerState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -28587,7 +29677,116 @@
                         },
                         "localState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -28595,7 +29794,116 @@
                         },
                         "providerState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -28984,7 +30292,116 @@
                         },
                         "localState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }
@@ -28992,7 +30409,116 @@
                         },
                         "providerState": {
                           "anyOf": [
-                            {},
+                            {
+                              "type": "object",
+                              "properties": {
+                                "amount": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "amountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "at": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "currency": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "error": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "found": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "orderStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "payoutStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "paymentStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundStatus": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "refundedAmountCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                },
+                                "totalCents": {
+                                  "type": [
+                                    "string",
+                                    "number",
+                                    "boolean",
+                                    "null"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
+                            },
                             {
                               "type": "null"
                             }

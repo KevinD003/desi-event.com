@@ -495,6 +495,56 @@ export const refundSchema = z.object({
 })
 
 /**
+ * The keys a piece of reconciliation evidence may carry.
+ *
+ * Every writer in this repository stores a small summary already — a status, an
+ * amount, a currency, an instant. This list is what makes that a *guarantee*
+ * rather than a habit: a payload is projected onto these keys before it is
+ * shown, so a writer who one day stores the provider's raw object ships
+ * nothing, instead of shipping a card's last four digits and a billing email
+ * onto a screen read on a shared desk.
+ *
+ * Adding a key here is a deliberate act with a reviewer. Removing one loses
+ * evidence an operator was using. Neither should be quiet.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const RECONCILIATION_EVIDENCE_KEYS = Object.freeze([
+  'amount',
+  'amountCents',
+  'at',
+  'currency',
+  'error',
+  'found',
+  'orderStatus',
+  'payoutStatus',
+  'paymentStatus',
+  'refundStatus',
+  'refundedAmountCents',
+  'status',
+  'totalCents',
+])
+
+/**
+ * One side of the evidence behind a reconciliation item.
+ *
+ * Values are primitives or null, never objects or arrays. That is the second
+ * half of the control: an allow list of keys still lets a raw payload through
+ * if one of the allowed keys holds a nested object, and `charge.status` on a
+ * Stripe object is exactly such a key.
+ *
+ * @type {object}
+ */
+export const reconciliationEvidenceSchema = z.object(
+  Object.fromEntries(
+    RECONCILIATION_EVIDENCE_KEYS.map((key) => [
+      key,
+      z.union([z.string(), z.number(), z.boolean()]).nullable().optional(),
+    ]),
+  ),
+)
+
+/**
  * A reconciliation task, as an operator sees it.
  *
  * `localState` and `providerState` are both here, because the decision is made
@@ -503,6 +553,8 @@ export const refundSchema = z.object({
  * is written by this system when the problem happens, and `providerState` is
  * the small summary {@link module:@desi-event/api/lib/reconciliation} records
  * after a re-query — never the provider's raw object, which can carry anything.
+ * Both are projected onto {@link reconciliationEvidenceSchema} on the way out,
+ * so "never" is enforced rather than intended.
  *
  * @type {object}
  */
@@ -522,8 +574,8 @@ export const reconciliationTaskSchema = z.object({
   refundId: cuidSchema.nullable(),
   organizationId: cuidSchema.nullable(),
   providerRef: z.string().nullable(),
-  localState: z.unknown().nullable(),
-  providerState: z.unknown().nullable(),
+  localState: reconciliationEvidenceSchema.nullable(),
+  providerState: reconciliationEvidenceSchema.nullable(),
   attempts: z.number().int(),
   lastError: z.string().nullable(),
   assignedToId: cuidSchema.nullable(),
