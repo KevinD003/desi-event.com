@@ -575,6 +575,22 @@ no history rewritten, squashed or force-pushed, and one worktree.
 from this report's own commit: a documentation commit is not a change to the
 system, and §11's thirty-two commands were run against `c5e98da`.
 
+### Recorded after the fact
+
+This section is the only part of the report written in a later commit, because
+it is the only part that could not be written in its own.
+
+| Fact                               | Value                                        |
+| ---------------------------------- | -------------------------------------------- |
+| Commit that introduced this report | `3966770e047675c6ac89dd03ed0d89c6485fc233`   |
+| Pushed to                          | `origin/claude/desi-event-js-stack-gb4uqe`   |
+| Verified after `git fetch`         | local and upstream agree; working tree clean |
+
+The commit adding _this_ table is not in this table either, for the same reason.
+That is the end of the regress: the property — everything committed, everything
+pushed, local equal to upstream, clean tree, one worktree — is what can be
+stated inside a file, and it is stated above.
+
 ---
 
 ## 13. The documentation matrix
