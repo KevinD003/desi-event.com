@@ -87,22 +87,27 @@ export function defineRoute(app, id, options) {
     ...(guards.length > 0 ? { onRequest: guards } : {}),
     ...(preHandlers.length > 0 ? { preHandler: preHandlers } : {}),
     /**
-     * Run the handler and apply the descriptor's declared success status.
+     * Apply the descriptor's success status, then run the handler.
+     *
+     * In that order, so a handler can *choose* a different one. Applying it
+     * afterwards looks equivalent and is not: a handler answering 200 where the
+     * contract declares 201 — an idempotent retry that created nothing — is
+     * indistinguishable afterwards from a handler that set nothing, because
+     * Fastify's own default is also 200. Set first, the contract's status is
+     * what a handler that says nothing gets, and a handler that says something
+     * is believed.
+     *
+     * An error thrown from the handler is unaffected: the error handler sets
+     * the status from the error itself.
      *
      * @param {object} request The incoming request.
      * @param {object} reply The reply.
      * @returns {Promise<unknown>} The response payload.
      */
     handler: async (request, reply) => {
-      const payload = await handler(request, reply)
+      if (route.successStatus !== 200) reply.code(route.successStatus)
 
-      // A handler that has already chosen a status (an idempotent no-op, say)
-      // keeps it; otherwise the contract's success status applies.
-      if (!reply.sent && reply.statusCode === 200 && route.successStatus !== 200) {
-        reply.code(route.successStatus)
-      }
-
-      return payload
+      return handler(request, reply)
     },
   })
 
