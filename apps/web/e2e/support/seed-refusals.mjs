@@ -248,6 +248,8 @@ export async function seedRefusals(tag) {
     tag,
     password: PASSWORD,
     alphaOwnerEmail: alpha.owner.email,
+    alphaOwnerId: alpha.owner.id,
+    alphaOrganizationId: alpha.organization.id,
     betaOwnerEmail: beta.owner.email,
     unverifiedOwnerEmail: unverified.owner.email,
     alphaEventId: alphaEvent.id,
@@ -274,6 +276,14 @@ export async function cleanupRefusals(tag) {
     const events = await prisma.event.findMany({ where: { organizationId: organization.id } })
 
     for (const event of events) {
+      // An event a posted ledger batch reaches through an order cannot be
+      // deleted, and that is the append-only ledger working rather than a
+      // cleanup fault. Skipped rather than attempted, so the log does not carry
+      // a foreign-key error that reads like a failure.
+      const pinned = await prisma.order.count({ where: { eventId: event.id } }).catch(() => 0)
+
+      if (pinned > 0) continue
+
       const sessions = await prisma.eventSession
         .findMany({ where: { eventId: event.id } })
         .catch(() => [])
@@ -313,6 +323,13 @@ export async function cleanupRefusals(tag) {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {})
   }
 
-  await prisma.organization.deleteMany({ where: { slug: { contains: tag } } }).catch(() => {})
+  // Any organisation the ledger still reaches stays, for the same reason.
+  for (const organization of organizations) {
+    const pinned = await prisma.event.count({ where: { organizationId: organization.id } })
+
+    if (pinned > 0) continue
+
+    await prisma.organization.delete({ where: { id: organization.id } }).catch(() => {})
+  }
   await prisma.$disconnect()
 }

@@ -224,25 +224,40 @@ export default async function ReconciliationDetailPage({ params }) {
         <h2 id="status-heading" className="text-lg font-semibold text-indigo-night-900">
           Where it stands
         </h2>
+        {/*
+          Every hint lives inside its `dd`. A `div` wrapping a definition-list
+          group may contain only `dt` and `dd`; a `p` as a third sibling breaks
+          the structure a screen reader navigates the list by, and axe's
+          `definition-list` rule fails it under WCAG 1.3.1. The sweep found
+          exactly this on its first run over this screen — and had found it
+          once before, on `Figure`, which is why that component already has the
+          same comment.
+        */}
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-card border border-slate-200 bg-white p-4">
             <dt className="text-sm text-slate-600">State</dt>
-            <dd className="mt-1 font-semibold text-indigo-night-900">{task.state}</dd>
-            <p className="mt-1 text-sm text-slate-600">{STATES[task.state]}</p>
+            <dd className="mt-1">
+              <span className="block font-semibold text-indigo-night-900">{task.state}</span>
+              <span className="mt-1 block text-sm text-slate-600">{STATES[task.state]}</span>
+            </dd>
           </div>
           <div className="rounded-card border border-slate-200 bg-white p-4">
             <dt className="text-sm text-slate-600">Open for</dt>
-            <dd className="mt-1 font-semibold text-indigo-night-900">
-              {task.ageHours} hour{task.ageHours === 1 ? '' : 's'}
+            <dd className="mt-1">
+              <span className="block font-semibold text-indigo-night-900">
+                {task.ageHours} hour{task.ageHours === 1 ? '' : 's'}
+              </span>
+              <span className="mt-1 block text-sm text-slate-600">{AGING[task.aging]}</span>
             </dd>
-            <p className="mt-1 text-sm text-slate-600">{AGING[task.aging]}</p>
           </div>
           <div className="rounded-card border border-slate-200 bg-white p-4">
             <dt className="text-sm text-slate-600">Times the provider has been asked</dt>
-            <dd className="mt-1 font-semibold text-indigo-night-900">{task.attempts}</dd>
-            <p className="mt-1 text-sm text-slate-600">
-              Asking again reads an answer; it does not change one.
-            </p>
+            <dd className="mt-1">
+              <span className="block font-semibold text-indigo-night-900">{task.attempts}</span>
+              <span className="mt-1 block text-sm text-slate-600">
+                Asking again reads an answer; it does not change one.
+              </span>
+            </dd>
           </div>
         </dl>
 

@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
+import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import {
   PASSWORD,
   cleanupRefusals,
@@ -29,13 +30,16 @@ import {
  * ## What is and is not covered
  *
  * Covered: the organiser event list, the seven-step editor, the finance
- * overview, the operations board, the moderation queue, and the public event
- * page — every Phase 2 screen that exists.
+ * overview, the operations board, the moderation queue, the public event page,
+ * and the five surfaces this cycle added — organiser analytics, the
+ * reconciliation detail screen, the refund detail screen, the ticket detail
+ * screen and the invitation-acceptance screen.
  *
- * Not covered, because no such screen exists: a reconciliation detail page, a
- * refund decision page and a ticket transfer page. Those surfaces are API-only
- * in this cycle and are exercised by request-level suites; naming them here as
- * swept would report a coverage this file does not have.
+ * Every one of those five is scanned with real rows behind it: a ticket that
+ * exists, a refund with lines and an allocation, a reconciliation item with
+ * both sides of its evidence, and analytics figures derived from a ledger batch
+ * that balances. A screen rendered from a static array proves that the markup
+ * compiles, which is not what this file is for.
  *
  * @module e2e/accessibility-sweep
  */
@@ -59,6 +63,12 @@ const VIEWPORTS = [
 
 /** @type {object} */
 let seeded
+/**
+ * The commerce rows behind the four detail screens.
+ *
+ * @type {object}
+ */
+let commerce
 /** @type {object} */
 let organiserContext
 /**
@@ -153,6 +163,12 @@ function sidewaysOverflow(page) {
 test.describe.serial('the Phase 2 screens, swept', () => {
   test.beforeAll(async ({ browser }) => {
     seeded = await seedRefusals(TAG)
+    commerce = await seedDetailScreens({
+      tag: TAG,
+      organizationId: seeded.alphaOrganizationId,
+      eventId: seeded.alphaEventId,
+      ownerUserId: seeded.alphaOwnerId,
+    })
 
     organiserContext = await browser.newContext()
     organiser = await organiserContext.newPage()
@@ -164,6 +180,9 @@ test.describe.serial('the Phase 2 screens, swept', () => {
   test.afterAll(async () => {
     await organiserContext?.close()
     await moderatorContext?.close()
+    // Before the refusals cleanup, which deletes the events these rows hang
+    // from.
+    await cleanupDetailScreens(TAG)
     await cleanupRefusals(TAG)
   })
 
@@ -226,6 +245,73 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await page.goto('/operations')
       await expect(page.getByRole('heading', { name: 'Operations', level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`organiser analytics is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/analytics')
+      await expect(page.getByRole('heading', { name: /analytics/i, level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      // Six tables of figures on one page: each scrolls inside its own region
+      // rather than widening the document, which is what 1.4.10 asks for.
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the reconciliation detail screen is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(`/operations/reconciliation/${commerce.reconciliationTaskId}`)
+      await expect(page.getByRole('heading', { name: /payment timeout/i, level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the refund detail screen is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(`/finance/refunds/${commerce.refundId}`)
+      await expect(page.getByRole('heading', { name: /refund on/i, level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the ticket detail screen is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(`/tickets/${commerce.ticketIds[0]}`)
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the invitation screen is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/tickets/accept')
+      await expect(page.getByRole('heading', { name: /accept a ticket/i, level: 1 })).toBeVisible()
 
       const violations = await scan(page)
 
@@ -376,6 +462,128 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
 
     await page.close()
+  })
+
+  test('the new detail screens reflow at 200% zoom', async () => {
+    const page = organiser
+
+    // 200% zoom on a 1280px display is a 640px viewport as far as CSS is
+    // concerned. The three tables on these screens are the hard part, and they
+    // scroll inside their own regions rather than widening the document.
+    await page.setViewportSize({ width: 640, height: 900 })
+
+    for (const [path, heading] of [
+      ['/analytics', /analytics/i],
+      [`/operations/reconciliation/${commerce.reconciliationTaskId}`, /payment timeout/i],
+      [`/finance/refunds/${commerce.refundId}`, /refund on/i],
+      [`/tickets/${commerce.ticketIds[0]}`, null],
+    ]) {
+      await page.goto(path)
+
+      if (heading) {
+        await expect(page.getByRole('heading', { name: heading, level: 1 })).toBeVisible()
+      } else {
+        await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+      }
+
+      expect(
+        await sidewaysOverflow(page),
+        `${path} scrolls sideways at 200% zoom`,
+      ).toBeLessThanOrEqual(1)
+
+      const violations = await scan(page)
+
+      expect(violations, `${path}\n  ${describe(violations)}`).toHaveLength(0)
+    }
+  })
+
+  test('the detail screens keep their content when motion is reduced', async ({ browser }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' })
+    const page = await context.newPage()
+
+    await signIn(page, seeded.alphaOwnerEmail)
+    await page.goto(`/finance/refunds/${commerce.refundId}`)
+    await expect(page.getByRole('heading', { name: /refund on/i, level: 1 })).toBeVisible()
+
+    // The failure this guards against is an entrance animation whose start
+    // state is `opacity: 0`: with motion reduced the animation never runs, and
+    // the figure it was going to reveal is somebody's money.
+    const invisible = await page.evaluate(() => {
+      const offenders = []
+
+      for (const element of document.querySelectorAll('main *')) {
+        const style = getComputedStyle(element)
+        const rect = element.getBoundingClientRect()
+
+        if (rect.width === 0 && rect.height === 0) continue
+        if (style.visibility === 'hidden' || style.display === 'none') continue
+        if (Number(style.opacity) === 0) offenders.push(element.tagName.toLowerCase())
+      }
+
+      return offenders
+    })
+
+    expect(invisible).toEqual([])
+
+    await context.close()
+  })
+
+  test('a reconciliation item can be worked by keyboard alone', async () => {
+    const page = organiser
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(`/operations/reconciliation/${commerce.reconciliationTaskId}`)
+    await expect(page.getByRole('heading', { name: /payment timeout/i, level: 1 })).toBeVisible()
+
+    await page.keyboard.press('Tab')
+    await expect(page.locator(':focus')).toHaveText(/skip to main content/i)
+
+    // This account holds finance:view in the organisation but not the platform
+    // capability, so the five commands are not drawn — and the screen says so
+    // rather than showing buttons that would be refused.
+    await expect(page.getByText(/platform work/i)).toBeVisible()
+  })
+
+  test('the invitation field never carries the code in the address bar', async () => {
+    const page = organiser
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto('/tickets/accept')
+
+    const field = page.getByLabel(/invitation code/i)
+
+    await expect(field).toBeVisible()
+    await expect(field).toHaveAttribute('type', 'password')
+
+    await field.fill('abcdefghijklmnopqrstuvwx')
+
+    // A secret in a query string survives in history, in the next request's
+    // referrer and in every proxy log between here and the server.
+    expect(new URL(page.url()).search).toBe('')
+    expect(page.url()).not.toContain('abcdefghijkl')
+  })
+
+  test('the refund screen never asks for a card', async () => {
+    const page = organiser
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await page.goto(`/finance/refunds/${commerce.refundId}`)
+    await expect(page.getByRole('heading', { name: /refund on/i, level: 1 })).toBeVisible()
+
+    const rendered = (await page.locator('body').innerText()).toLowerCase()
+
+    for (const needle of ['card number', 'cvc', 'expiry', 'security code']) {
+      expect(rendered, `the refund screen mentions ${needle}`).not.toContain(needle)
+    }
+
+    // And nothing on it takes a number that could be one.
+    const fields = await page.locator('main input').all()
+
+    for (const input of fields) {
+      const type = await input.getAttribute('type')
+
+      expect(type === 'number' || type === 'tel').toBe(false)
+    }
   })
 
   test('a touch target is big enough to hit', async () => {
