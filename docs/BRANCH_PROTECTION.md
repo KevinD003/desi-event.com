@@ -18,6 +18,29 @@ and it should match what follows.
 
 ---
 
+## Measured state
+
+Checked against the GitHub API on **2026-09-16**, and recorded here because this
+document says the answer belongs where it is checked.
+
+| Branch                              | `protected` |
+| ----------------------------------- | ----------- |
+| `main`                              | **false**   |
+| `claude/desi-event-js-stack-gb4uqe` | **false**   |
+
+**Nothing below is configured.** Not one required check, not the review rule,
+not the force-push rule. The list that follows is what to configure, not a
+description of what is in place, and no document in this repository may cite it
+as though it were.
+
+The same check found **no workflow registered on the repository and no run of
+one**: `.github/workflows/ci.yml` exists on the working branch, and GitHub
+registers a workflow when it first runs. The workflow triggers on
+`push` to `main` and on `pull_request`, and this branch has had neither, so it
+has never executed. See `PHASE2_STATUS.md` gate 17.
+
+---
+
 ## What to require on `main`
 
 ### Required status checks

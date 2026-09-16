@@ -188,26 +188,57 @@ describe('facets cover the complete eligible set', () => {
   it('excludes draft events from the public facet universe', async () => {
     if (!reachable) return
 
-    const before = await loadEventFacets(prisma)
-    const publishedComedy = before.categories.find((entry) => entry.value === 'COMEDY').count
+    /**
+     * Sentinel thrown to roll the transaction back once the assertions pass.
+     *
+     * Rolling back rather than setting the status back afterwards: a restore is
+     * a second write, and between the two the event is a draft that every other
+     * reader of this database can see.
+     */
+    class Rollback extends Error {}
 
-    await prisma.event.update({
-      where: { slug: `${TAG}-event-0` },
-      data: { status: 'DRAFT' },
-    })
+    // One REPEATABLE READ snapshot for both reads.
+    //
+    // `loadEventFacets` counts the whole catalogue, which is the behaviour
+    // being tested, so a before-and-after difference is only -1 if nothing else
+    // publishes an event in between. Something else does:
+    // `event-lifecycle-integration.test.js` runs in the same vitest worker pool
+    // against the same database and publishes events of its own. Under READ
+    // COMMITTED the second read sees its commits and the difference is -1 plus
+    // whatever it did, which is a failure that appears perhaps one run in three.
+    //
+    // The assertion is unchanged — the universe must shrink by exactly one —
+    // and what changes is that both counts come from one snapshot, so the
+    // difference is this test's own write and nothing else's.
+    await expect(
+      prisma.$transaction(
+        async (tx) => {
+          const before = await loadEventFacets(tx)
+          const publishedComedy = before.categories.find((entry) => entry.value === 'COMEDY').count
 
-    const after = await loadEventFacets(prisma)
+          await tx.event.update({
+            where: { slug: `${TAG}-event-0` },
+            data: { status: 'DRAFT' },
+          })
 
-    // Exactly one fewer: a draft is not part of the public catalogue, and
-    // counting one would advertise an event nobody can buy into.
-    expect(after.categories.find((entry) => entry.value === 'COMEDY').count).toBe(
-      publishedComedy - 1,
-    )
-    expect(after.scope.total).toBe(before.scope.total - 1)
+          const after = await loadEventFacets(tx)
 
-    await prisma.event.update({
-      where: { slug: `${TAG}-event-0` },
-      data: { status: 'PUBLISHED' },
-    })
+          // Exactly one fewer: a draft is not part of the public catalogue, and
+          // counting one would advertise an event nobody can buy into.
+          expect(after.categories.find((entry) => entry.value === 'COMEDY').count).toBe(
+            publishedComedy - 1,
+          )
+          expect(after.scope.total).toBe(before.scope.total - 1)
+
+          throw new Rollback()
+        },
+        { isolationLevel: 'RepeatableRead' },
+      ),
+    ).rejects.toBeInstanceOf(Rollback)
+
+    // And the event is still published, because nothing was committed.
+    const restored = await prisma.event.findUnique({ where: { slug: `${TAG}-event-0` } })
+
+    expect(restored.status).toBe('PUBLISHED')
   })
 })
