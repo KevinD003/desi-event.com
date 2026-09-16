@@ -499,6 +499,137 @@ export const financeSummaryResponseSchema = z.object({
   }),
 })
 
+/**
+ * One grouped row in a sales breakdown.
+ *
+ * `lineValueCents` rather than `revenueCents`, and the name is the point. This
+ * is what the order lines were priced at; what the organisation keeps after
+ * fees, tax and everything given back is in `money`, derived from the ledger.
+ * Calling both "revenue" is how a screen ends up with two numbers that should
+ * agree and never will.
+ */
+const salesGroupSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  currency: z.string(),
+  quantity: z.number().int(),
+  lineValueCents: z.number().int(),
+  refundedQuantity: z.number().int(),
+  refundedCents: z.number().int(),
+  startsAt: timestampSchema.nullable().optional(),
+})
+
+/** One seat grouping, by section or by price zone. */
+const seatGroupSchema = z.object({
+  id: z.string().nullable(),
+  name: z.string(),
+  total: z.number().int(),
+  available: z.number().int(),
+  held: z.number().int(),
+  sold: z.number().int(),
+  blocked: z.number().int(),
+  byStatus: z.record(z.string(), z.number().int()),
+})
+
+/**
+ * `GET /analytics/summary`.
+ *
+ * Money and counts are deliberately separate branches of this payload, because
+ * they come from different sources and must never be added together: `money` is
+ * the ledger's, and everything else is counted from the rows that are the fact.
+ */
+export const analyticsSummaryResponseSchema = z.object({
+  data: z.object({
+    organizationId: cuidSchema,
+    currency: z.string(),
+    eventId: cuidSchema.nullable(),
+    eventSessionId: cuidSchema.nullable(),
+    from: timestampSchema.nullable(),
+    to: timestampSchema.nullable(),
+    /** Always `UTC`. Said rather than assumed, so an export and a page agree. */
+    timeZone: z.string(),
+    mode: z.string(),
+    modeNotice: z.string(),
+    /**
+     * Whether the caller may see money at all.
+     *
+     * `report:view` reaches every role from VIEWER upward, and a viewer who may
+     * see how many tickets went should not thereby see what the organisation is
+     * owed. So the money branch is gated on `finance:view` **in the payload**,
+     * not in the markup: a screen that merely hid the figures would still have
+     * sent them.
+     */
+    moneyVisible: z.boolean(),
+    money: financeSummaryResponseSchema.shape.data
+      .omit({
+        organizationId: true,
+        currency: true,
+        from: true,
+        to: true,
+        mode: true,
+        modeNotice: true,
+      })
+      .nullable(),
+    tickets: z.object({
+      live: z.number().int(),
+      lost: z.number().int(),
+      byLostState: z.array(
+        z.object({ state: z.string(), label: z.string(), count: z.number().int() }),
+      ),
+    }),
+    inventory: z.object({
+      generalAdmission: z.array(
+        z.object({
+          ticketTypeId: cuidSchema,
+          name: z.string(),
+          currency: z.string(),
+          priceCents: z.number().int(),
+          status: z.string(),
+          eventId: cuidSchema,
+          eventSessionId: cuidSchema.nullable(),
+          quantityTotal: z.number().int(),
+          quantitySold: z.number().int(),
+          quantityRemaining: z.number().int(),
+          oversold: z.boolean(),
+        }),
+      ),
+      reserved: z.object({
+        bySection: z.array(seatGroupSchema),
+        byPriceZone: z.array(seatGroupSchema),
+        statuses: z.array(z.string()),
+      }),
+    }),
+    sales: z.object({
+      byEvent: z.array(salesGroupSchema),
+      bySession: z.array(salesGroupSchema),
+      byTicketType: z.array(salesGroupSchema),
+      byDate: z.array(salesGroupSchema),
+    }),
+    checkIns: z.object({
+      admitted: z.number().int(),
+      live: z.number().int(),
+      percent: z.number().nullable(),
+    }),
+    movement: z.object({
+      transfers: z.array(z.object({ status: z.string(), count: z.number().int() })),
+      revoked: z.number().int(),
+    }),
+    notifications: z.array(z.object({ status: z.string(), count: z.number().int() })),
+    exceptions: z.object({
+      open: z.number().int(),
+      escalated: z.number().int(),
+      oldestOpenedAt: timestampSchema.nullable(),
+      oldestAgeHours: z.number().int().nullable(),
+    }),
+    funnel: z.object({
+      steps: z.array(z.object({ key: z.string(), label: z.string(), count: z.number().int() })),
+      /** What this system does not record, named so nobody reads the funnel as complete. */
+      missing: z.array(z.string()),
+    }),
+    limits: z.object({ breakdownRows: z.number().int() }),
+  }),
+})
+
 /** `GET /finance/payouts`. */
 export const payoutListResponseSchema = z.object({
   data: z.array(payoutSchema),

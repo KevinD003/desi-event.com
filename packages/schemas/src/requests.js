@@ -872,6 +872,29 @@ export const financeSummaryQuerySchema = z.object({
   to: queryDateTimeSchema.optional(),
 })
 
+/**
+ * Organiser analytics, and the export of it.
+ *
+ * `organizationId` is **required**, unlike the finance summary's. There is no
+ * platform-wide analytics view and there should not be one: these figures mix
+ * money with inventory and attendance, and the only reading of "everybody's
+ * tickets sold" that means anything is a per-organisation list. Making the
+ * field required is also what keeps the capability check scoped — an optional
+ * organisation is how an organisation capability silently becomes a platform
+ * one.
+ *
+ * `eventId` and `eventSessionId` narrow; neither widens, and neither carries the
+ * organisation. An event belonging to somebody else simply matches nothing.
+ */
+export const analyticsQuerySchema = z.object({
+  organizationId: cuidSchema,
+  currency: currencySchema.default('INR'),
+  eventId: cuidSchema.optional(),
+  eventSessionId: cuidSchema.optional(),
+  from: queryDateTimeSchema.optional(),
+  to: queryDateTimeSchema.optional(),
+})
+
 /** Reading a balance. */
 export const balanceQuerySchema = z.object({
   organizationId: cuidSchema,

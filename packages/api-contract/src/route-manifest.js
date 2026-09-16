@@ -544,6 +544,22 @@ export const apiRouteManifest = Object.freeze([
     query: false,
   },
   {
+    id: 'analytics.summary',
+    method: 'GET',
+    path: '/v1/analytics/summary',
+    auth: 'session',
+    body: false,
+    query: true,
+  },
+  {
+    id: 'analytics.export',
+    method: 'GET',
+    path: '/v1/analytics/export.csv',
+    auth: 'session',
+    body: false,
+    query: true,
+  },
+  {
     id: 'finance.balance',
     method: 'GET',
     path: '/v1/finance/balance',

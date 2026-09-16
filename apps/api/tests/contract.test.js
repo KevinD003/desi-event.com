@@ -86,7 +86,7 @@ describe('the server matches the contract', () => {
     // read at a glance.
     const nonJson = apiRoutes.filter((route) => route.produces)
 
-    expect(nonJson.map((route) => route.id)).toEqual(['finance.export'])
+    expect(nonJson.map((route) => route.id).sort()).toEqual(['analytics.export', 'finance.export'])
 
     for (const route of nonJson) {
       expect(route.produces).toBe('text/csv')

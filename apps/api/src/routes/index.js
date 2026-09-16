@@ -8,6 +8,7 @@
  * @module @desi-event/api/routes
  */
 
+import { registerAnalyticsRoutes } from './analytics.js'
 import { registerAuthRoutes } from './auth.js'
 import { registerSessionRoutes } from './sessions.js'
 import { installRawBodyParser, registerWebhookRoutes } from './webhooks.js'
@@ -64,6 +65,7 @@ export function registerRoutes(app, deps) {
   registerRefundRoutes(app, deps)
   registerReconciliationRoutes(app, deps)
   registerFinanceRoutes(app, deps)
+  registerAnalyticsRoutes(app, deps)
 
   // Scoped, so the raw-body parser applies to the webhook routes and nowhere
   // else. A global raw parser would silently stop validating every other request
