@@ -9,6 +9,7 @@
  * @module @desi-event/api/lib/presenters
  */
 
+import { agingBand } from './reconciliation.js'
 import { BADGED_STATES } from './verification.js'
 
 /** `TicketTypeStatus.ON_SALE`, inlined to avoid importing the database client. */
@@ -331,6 +332,56 @@ export function toRefund(row) {
     attempts: row.attempts ?? 0,
     submittedAt: row.submittedAt ?? null,
     settledAt: row.settledAt ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}
+
+/**
+ * One reconciliation task, as an operator sees it.
+ *
+ * Both sides of the evidence, because the decision is made by comparing them.
+ * `localState` was written when the problem happened and is never edited;
+ * `providerState` is the small summary a re-query records, never the provider's
+ * raw object — an operations screen is not a place to print one.
+ *
+ * The aging band is derived here rather than computed on the client, so a
+ * queue screen and a detail screen cannot disagree about whether something is
+ * late.
+ *
+ * @param {object} row A `ReconciliationTask` row.
+ * @param {object} options Options.
+ * @param {Date} options.now For the aging band.
+ * @param {string|null} [options.orderReference] The order's customer-facing reference.
+ * @returns {object} A payload satisfying `reconciliationTaskSchema`.
+ */
+export function toReconciliationTask(row, { now, orderReference = null }) {
+  const ageHours = Math.floor((now.getTime() - new Date(row.createdAt).getTime()) / 3_600_000)
+
+  return {
+    id: row.id,
+    kind: row.kind,
+    state: row.state,
+    paymentId: row.paymentId ?? null,
+    orderId: row.orderId ?? null,
+    orderReference,
+    refundId: row.refundId ?? null,
+    organizationId: row.organizationId ?? null,
+    providerRef: row.providerRef ?? null,
+    localState: row.localState ?? null,
+    providerState: row.providerState ?? null,
+    attempts: row.attempts,
+    lastError: row.lastError ?? null,
+    assignedToId: row.assignedToId ?? null,
+    resolution: row.resolution ?? null,
+    resolutionNote: row.resolutionNote ?? null,
+    resolvedAt: row.resolvedAt ?? null,
+    resolvedById: row.resolvedById ?? null,
+    escalatedAt: row.escalatedAt ?? null,
+    escalationReason: row.escalationReason ?? null,
+    notes: Array.isArray(row.notes) ? row.notes : null,
+    aging: agingBand(row, now),
+    ageHours,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

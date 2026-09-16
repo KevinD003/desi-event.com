@@ -644,6 +644,55 @@ export const refundQueueQuerySchema = paginationQuerySchema.extend({
   orderReference: orderReferenceSchema.optional(),
 })
 
+/**
+ * The reconciliation queue.
+ *
+ * `organizationId` is optional and it decides who may ask: with one, the caller
+ * needs `finance:view` in that organisation and sees only its work; without
+ * one, the caller needs the platform capability and sees everything. That is
+ * the scoping rule, expressed as a query rather than as two endpoints.
+ */
+export const reconciliationQueueQuerySchema = paginationQuerySchema.extend({
+  organizationId: cuidSchema.optional(),
+  state: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED']).optional(),
+  kind: z
+    .enum([
+      'PAYMENT_TIMEOUT',
+      'PROVIDER_MISMATCH',
+      'REFUND_UNKNOWN',
+      'WEBHOOK_DEAD_LETTER',
+      'TRANSFER_STUCK',
+    ])
+    .optional(),
+  /** Matches a payment, order or refund id, or a provider reference. */
+  reference: z.string().trim().min(3).max(200).optional(),
+  /** `AGING` and `OVERDUE` narrow the queue to what is late. */
+  aging: z.enum(['AGING', 'OVERDUE']).optional(),
+})
+
+/**
+ * Closing a reconciliation task.
+ *
+ * There is no status here, and there is no amount. An operator says how the
+ * item was settled and why; what changes in the payment, the order or the
+ * refund follows from what the provider said, applied through the domain
+ * command that owns it.
+ */
+export const resolveReconciliationRequestSchema = z.object({
+  resolution: z.enum([
+    'SETTLED_FROM_PROVIDER',
+    'RELEASED_FROM_PROVIDER',
+    'ALREADY_CONSISTENT',
+    'NO_ACTION_REQUIRED',
+  ]),
+  note: z.string().trim().min(10).max(1000),
+})
+
+/** Escalating a task, or adding a note to one. */
+export const reconciliationNoteRequestSchema = z.object({
+  note: z.string().trim().min(4).max(1000),
+})
+
 /** Query string for the moderation queue. */
 export const moderationQueueQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED', 'REJECTED']).optional(),

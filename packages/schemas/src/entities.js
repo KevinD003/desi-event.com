@@ -493,3 +493,53 @@ export const refundSchema = z.object({
   createdAt: timestampSchema,
   updatedAt: timestampSchema.optional(),
 })
+
+/**
+ * A reconciliation task, as an operator sees it.
+ *
+ * `localState` and `providerState` are both here, because the decision is made
+ * by comparing them and a screen that showed only one would be asking somebody
+ * to decide with half the evidence. Neither is a provider payload: `localState`
+ * is written by this system when the problem happens, and `providerState` is
+ * the small summary {@link module:@desi-event/api/lib/reconciliation} records
+ * after a re-query — never the provider's raw object, which can carry anything.
+ *
+ * @type {object}
+ */
+export const reconciliationTaskSchema = z.object({
+  id: cuidSchema,
+  kind: z.enum([
+    'PAYMENT_TIMEOUT',
+    'PROVIDER_MISMATCH',
+    'REFUND_UNKNOWN',
+    'WEBHOOK_DEAD_LETTER',
+    'TRANSFER_STUCK',
+  ]),
+  state: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED']),
+  paymentId: cuidSchema.nullable(),
+  orderId: cuidSchema.nullable(),
+  orderReference: orderReferenceSchema.nullish(),
+  refundId: cuidSchema.nullable(),
+  organizationId: cuidSchema.nullable(),
+  providerRef: z.string().nullable(),
+  localState: z.unknown().nullable(),
+  providerState: z.unknown().nullable(),
+  attempts: z.number().int(),
+  lastError: z.string().nullable(),
+  assignedToId: cuidSchema.nullable(),
+  resolution: z.string().nullable(),
+  resolutionNote: z.string().nullable(),
+  resolvedAt: timestampSchema.nullable(),
+  resolvedById: cuidSchema.nullable(),
+  escalatedAt: timestampSchema.nullable(),
+  escalationReason: z.string().nullable(),
+  notes: z
+    .array(z.object({ at: timestampSchema, actorId: cuidSchema.nullable(), note: z.string() }))
+    .nullable(),
+  /** `FRESH`, `AGING` or `OVERDUE`. Derived, so two screens cannot disagree. */
+  aging: z.enum(['FRESH', 'AGING', 'OVERDUE']),
+  /** Whole hours since it was opened. */
+  ageHours: z.number().int(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema.optional(),
+})

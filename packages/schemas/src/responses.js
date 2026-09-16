@@ -27,6 +27,7 @@ import {
   orderWithItemsSchema,
   organizationSchema,
   publicUserSchema,
+  reconciliationTaskSchema,
   refundSchema,
   ticketSchema,
   ticketTypeSchema,
@@ -371,6 +372,39 @@ export const notificationListResponseSchema = z.object({
 /** `GET /operations/notifications/:id`, and the two actions on one. */
 export const notificationDetailResponseSchema = z.object({
   data: notificationSummarySchema,
+})
+
+/** `GET /operations/reconciliation`. */
+export const reconciliationListResponseSchema = z.object({
+  data: z.array(reconciliationTaskSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /operations/reconciliation/:id`, and every action that returns one. */
+export const reconciliationTaskResponseSchema = z.object({
+  data: reconciliationTaskSchema,
+})
+
+/**
+ * What the provider said when asked again, and what that means.
+ *
+ * The verdict is returned rather than a status: the caller is being told what
+ * the evidence supports, not being handed a state to write back.
+ */
+export const reconciliationRequeryResponseSchema = z.object({
+  data: z.object({
+    task: reconciliationTaskSchema,
+    observed: z.object({
+      found: z.boolean(),
+      status: z.string().nullable(),
+      amountCents: z.number().int().nullable(),
+      currency: z.string().nullable(),
+      refundedAmountCents: z.number().int().nullable(),
+      error: z.string().nullable(),
+    }),
+    verdict: z.enum(['SETTLE', 'RELEASE', 'ALREADY_DONE', 'CONFLICT', 'UNKNOWN']),
+    why: z.string(),
+  }),
 })
 
 /** `GET /refunds`. */
