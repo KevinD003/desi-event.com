@@ -78,6 +78,11 @@ const PHASE2_MIGRATIONS = Object.freeze([
   '20260915120000_verification_revoked',
   '20260915180000_map_version_revision',
   '20260915220000_event_lifecycle_integrity',
+  // Adds `Event.revision` and constraints on `EventSession` and `TicketType`,
+  // both of which are Phase 2 tables. Classified as pre-Phase-2 it ran against
+  // a schema that does not have them yet, which is what this verifier is for:
+  // it caught its own list being out of date.
+  '20260916000000_event_draft_revision',
 ])
 
 /**

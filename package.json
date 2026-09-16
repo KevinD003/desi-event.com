@@ -41,7 +41,8 @@
     "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade",
     "test:e2e:organizer": "pnpm --filter @desi-event/web run test:e2e:organizer",
     "test:e2e:events": "pnpm --filter @desi-event/web run test:e2e:events",
-    "bundle:scan": "node scripts/scan-browser-bundle.mjs"
+    "bundle:scan": "node scripts/scan-browser-bundle.mjs",
+    "manifest:emit": "pnpm --filter @desi-event/api-contract run manifest:emit"
   },
   "devDependencies": {
     "@desi-event/config": "workspace:*",

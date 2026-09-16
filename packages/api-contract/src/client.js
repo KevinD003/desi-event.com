@@ -18,7 +18,13 @@ import {
   isApiClientError,
 } from './errors.js'
 import { buildPath, joinUrl, pathParamNames } from './path.js'
-import { apiRoutes } from './routes.js'
+// The manifest, not `routes.js`. The client reads a route's id, method, path
+// and whether it takes a body or a query string; it never parses with the
+// schemas. Importing them to answer that put every entity's column names —
+// `Organization.contactEmail`, `Organization.payoutCurrency` — into the
+// production browser bundle, in every build, for every visitor. A caller that
+// wants the schemas can still pass `apiRoutes` in.
+import { apiRouteManifest } from './route-manifest.js'
 
 export { ApiClientError, ApiContractError, NETWORK_ERROR_STATUS, isApiClientError }
 
@@ -228,7 +234,7 @@ export function createApiClient(options = {}) {
     fetch: fetchImpl = globalThis.fetch,
     token = null,
     headers: defaultHeaders = {},
-    routes = apiRoutes,
+    routes = apiRouteManifest,
   } = options
 
   if (!baseUrl || typeof baseUrl !== 'string') {

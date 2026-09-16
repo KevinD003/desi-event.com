@@ -10,6 +10,7 @@
     "./env": "./src/env.js",
     "./jobs": "./src/jobs.js",
     "./lifecycle": "./src/lifecycle.js",
+    "./payments": "./src/payments.js",
     "./package.json": "./package.json"
   },
   "files": [

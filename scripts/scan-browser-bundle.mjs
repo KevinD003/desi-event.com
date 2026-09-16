@@ -84,6 +84,7 @@ const FORBIDDEN = [
       ['login lockout thresholds', 'LOCKOUT_THRESHOLD'],
       ['pseudonymize (email/IP digesting)', 'pseudonymize'],
       ['session step-up policy table', 'STEP_UP_WINDOWS'],
+      ['per-route step-up windows', 'STEP_UP_POLICIES'],
       ['revocation reason vocabulary', 'REVOCATION_REASONS'],
     ],
   },
@@ -102,6 +103,7 @@ const FORBIDDEN = [
       ['fee setting PLATFORM_FEE_FLAT_CENTS', 'PLATFORM_FEE_FLAT_CENTS'],
       ['TICKET_HOLD_TTL_SECONDS', 'TICKET_HOLD_TTL_SECONDS'],
       ['ALLOW_DEMO_TAX_IN_PRODUCTION', 'ALLOW_DEMO_TAX_IN_PRODUCTION'],
+      ['rate-limit budget', 'RATE_LIMIT_MAX'],
     ],
   },
   {
@@ -111,6 +113,47 @@ const FORBIDDEN = [
       ['JOB_NAMES', 'JOB_NAMES'],
       ['job: expire-holds', 'expire-holds'],
       ['job: issue-tickets', 'issue-tickets'],
+      ['notification template: event.changed', 'event.changed:'],
+      ['notification template: event.cancelled', 'event.cancelled:'],
+    ],
+  },
+  {
+    /*
+     * The capability each route demands.
+     *
+     * A browser that holds the list knows which privileged routes exist and
+     * what authority each one wants, which is a map of the platform's
+     * administrative surface drawn for anybody who opens devtools. The client
+     * never needed it: it places requests and reads the answer.
+     */
+    group: 'route authorisation metadata',
+    markers: [
+      ['capability: moderation:review', 'moderation:review'],
+      ['capability: payout:manage', 'payout:manage'],
+      ['capability: ledger:manage', 'ledger:manage'],
+      ['capability: platform:admin', 'platform:admin'],
+      ['step-up policy name on a route', 'capabilityScope'],
+    ],
+  },
+  {
+    /*
+     * Things about an event that are the organiser's, the platform's, or
+     * nobody's — and specifically not a visitor's.
+     *
+     * These are field *names*, and a field name in a bundle means the object
+     * carrying it was rendered into one. The public event payload is an
+     * allow list twice over (`toEventDetail` names each field,
+     * `eventWithRelationsSchema` drops the rest), and this is the third check:
+     * whatever the server sends, none of it reached a browser.
+     */
+    group: 'private event and organiser data',
+    markers: [
+      ['organiser contact address', 'contactEmail'],
+      ['payout currency', 'payoutCurrency'],
+      ["a moderator's private note", 'moderationNote'],
+      ['submission timestamp', 'reviewSubmittedAt'],
+      ['internal fee table', 'FEE_CONFIG_BY_CURRENCY'],
+      ['internal tax table', 'TAX_POLICIES'],
     ],
   },
   {
@@ -154,7 +197,13 @@ const FORBIDDEN = [
  * @type {Array<string[]>}
  */
 const REQUIRED = [
-  ['capability name: moderation:review', 'moderation:review'],
+  // `moderation:review` used to be here, and it is deliberately gone.
+  //
+  // It was in the bundle because the route table carried each route's required
+  // *capability*, and the browser's API client imported that table for its
+  // paths. No client component ever read it: the only capability check in the
+  // browser's half of this application is in a Server Component, where it
+  // belongs. Requiring it here would be requiring the leak that put it there.
   ['route path /v1/organizers', '/v1/organizers'],
   ['route path /v1/venues', '/v1/venues'],
   ['route path /v1/auth/login', '/v1/auth/login'],

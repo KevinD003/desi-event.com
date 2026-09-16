@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.js",
     "./client": "./src/client.js",
+    "./manifest": "./src/route-manifest.js",
     "./validate": "./src/validate.js",
     "./package.json": "./package.json"
   },
@@ -19,7 +20,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "validate": "node scripts/validate-contract.mjs"
+    "validate": "node scripts/validate-contract.mjs",
+    "manifest:emit": "node scripts/emit-route-manifest.mjs"
   },
   "dependencies": {
     "@desi-event/auth": "workspace:*",

@@ -15,7 +15,13 @@
  * @module components/payment-mode-notice
  */
 
-import { DEMO_LABEL, PRODUCTION_PAYMENTS_DISABLED_MESSAGE } from '@desi-event/schemas'
+// The `./payments` subpath, not the barrel. Two strings from the barrel pull
+// `entities.js` in behind them, and with it the *shape* of every private
+// column — `Organization.contactEmail`, `Organization.payoutCurrency`. The
+// values never reached a browser; the schema describing them did, in every
+// bundle, since before this component existed. The browser-bundle scan now
+// looks for exactly that, which is how it was found.
+import { DEMO_LABEL, PRODUCTION_PAYMENTS_DISABLED_MESSAGE } from '@desi-event/schemas/payments'
 
 /**
  * The demonstration-payments notice.

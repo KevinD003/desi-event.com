@@ -100,8 +100,24 @@ describe('what reaches the browser', () => {
     // the walk arrives where it should before the assertion above means much.
     const reached = reachableFrom(['apps/web/src/lib/api-client.js'])
 
-    expect([...reached.keys()]).toContain('packages/api-contract/src/index.js')
     expect([...reached.keys()]).toContain('packages/api-contract/src/client.js')
+    expect([...reached.keys()]).toContain('packages/api-contract/src/route-manifest.js')
+  })
+
+  it('stops before the schemas the contract is built from', () => {
+    // The client used to import the barrel, which re-exports `routes.js`,
+    // which holds every request and response schema. The browser therefore
+    // carried the column names of every entity — `Organization.contactEmail`,
+    // `Organization.payoutCurrency` — in every production build. It reads a
+    // generated manifest now: ids, methods, paths, and whether a route takes a
+    // body.
+    const reached = [...reachableFrom(['apps/web/src/lib/api-client.js']).keys()]
+
+    expect(reached).not.toContain('packages/api-contract/src/routes.js')
+    expect(reached).not.toContain('packages/api-contract/src/index.js')
+    expect(reached).not.toContain('packages/schemas/src/entities.js')
+    expect(reached).not.toContain('packages/schemas/src/requests.js')
+    expect(reached).not.toContain('packages/schemas/src/responses.js')
   })
 
   it('would catch the defect it was written for', () => {

@@ -14,7 +14,12 @@
  * @module lib/api-client
  */
 
-import { createApiClient } from '@desi-event/api-contract'
+// The `./client` subpath, not the barrel. The barrel re-exports `routes.js`,
+// which holds every request and response schema, and a bundler that cannot
+// prove they are unused ships them — which is how the column names of every
+// entity, an organiser's contact address among them, came to be in a chunk
+// served to every visitor. `./client` reaches only the generated manifest.
+import { createApiClient } from '@desi-event/api-contract/client'
 
 /** Where the ticketing service lives when nothing is configured. */
 export const DEFAULT_API_URL = 'http://127.0.0.1:4000'
