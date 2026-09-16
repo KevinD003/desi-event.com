@@ -181,7 +181,16 @@ export async function sellSeats(tx, { holdId, orderItemBySeat }) {
   for (const eventSeatId of eventSeatIds) {
     const { count } = await tx.eventSeat.updateMany({
       where: { id: eventSeatId, holdId, status: SEAT_STATUS.HELD },
-      data: { status: SEAT_STATUS.SOLD, orderItemId: orderItemBySeat[eventSeatId] },
+      // `holdId` is cleared in the same statement, because
+      // `event_seat_status_coherent` reads "a seat says it is held exactly when
+      // it names a hold". Leaving the hold on a SOLD seat breaks that, and the
+      // database refuses the row. The link is not lost: `HoldItem` keeps which
+      // hold reserved which seat, which is where that history belongs.
+      data: {
+        status: SEAT_STATUS.SOLD,
+        holdId: null,
+        orderItemId: orderItemBySeat[eventSeatId],
+      },
     })
 
     sold += count

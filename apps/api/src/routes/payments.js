@@ -25,9 +25,10 @@ import { defineRoute } from '../lib/register.js'
  * @param {object} app The Fastify instance.
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
+ * @param {object} deps.env The parsed API environment, for the pass-minting secret.
  * @returns {void} Nothing.
  */
-export function registerPaymentRoutes(app, { prisma }) {
+export function registerPaymentRoutes(app, { prisma, env }) {
   defineRoute(app, 'payments.webhook', {
     handler: async (request) => {
       const body = request.body
@@ -83,6 +84,7 @@ export function registerPaymentRoutes(app, { prisma }) {
             },
             now,
             generateTicketCode,
+            credentialSecret: env.AUTH_SECRET,
             requestId: request.id,
           })
 

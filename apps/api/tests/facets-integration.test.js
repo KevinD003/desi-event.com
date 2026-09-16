@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createPrismaClient } from '@desi-event/db'
 
+import { requireDatabaseOrWarn } from './helpers/database.js'
+
 import { loadEventFacets } from '../src/lib/facets.js'
 
 const CONNECTION =
@@ -35,8 +37,13 @@ beforeAll(async () => {
     reachable = true
   } catch {
     reachable = false
-    return
   }
+
+  // Throws rather than returning when REQUIRE_DATABASE is set, so a build that
+  // asked for the database cannot report a green tick for a suite that skipped.
+  requireDatabaseOrWarn('the facets integration suite', reachable, CONNECTION)
+
+  if (!reachable) return
 
   const organization = await prisma.organization.upsert({
     where: { slug: `${TAG}-org` },

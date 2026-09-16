@@ -108,6 +108,8 @@ export const ORDER_STATUSES = Object.freeze(['PENDING', 'PAID', 'CANCELLED', 'RE
 
 export const TICKET_STATUSES = Object.freeze([
   'VALID',
+  'TRANSFER_PENDING',
+  'REVOKED',
   'CHECKED_IN',
   'VOID',
   'REFUNDED',
@@ -196,12 +198,18 @@ export const CONNECT_ONBOARDING_STATUSES = Object.freeze([
 export const REFUND_STATUSES = Object.freeze([
   'REQUESTED',
   'APPROVED',
-  'PROCESSING',
+  'SUBMITTED',
   'SUCCEEDED',
+  'DECLINED',
   'FAILED',
+  'TIMEOUT',
   'RECONCILIATION_REQUIRED',
-  'REJECTED',
   'CANCELLED',
+  // Retained spellings from the Phase 2 schema. No code writes them; a row
+  // that already carries one stays readable, and dropping an enum label is
+  // the one schema change PostgreSQL cannot do without rewriting the type.
+  'PROCESSING',
+  'REJECTED',
 ])
 
 export const REFUND_REASONS = Object.freeze([
@@ -215,17 +223,21 @@ export const REFUND_REASONS = Object.freeze([
 ])
 
 export const DISPUTE_STATUSES = Object.freeze([
+  'OPENED',
   'NEEDS_RESPONSE',
   'UNDER_REVIEW',
   'CHARGE_REFUNDED',
   'WON',
   'LOST',
+  'CLOSED',
   'WARNING_NEEDS_RESPONSE',
   'WARNING_CLOSED',
 ])
 
 export const TRANSFER_STATUSES = Object.freeze([
   'PENDING',
+  'SUBMITTED',
+  /** Retained spelling, superseded by SUBMITTED. */
   'SENT',
   'PAID',
   'FAILED',
@@ -235,11 +247,17 @@ export const TRANSFER_STATUSES = Object.freeze([
 ])
 
 export const PAYOUT_STATUSES = Object.freeze([
-  'PENDING',
-  'IN_TRANSIT',
+  'SCHEDULED',
+  'SUBMITTED',
   'PAID',
   'FAILED',
+  'REVERSED',
+  'HELD',
+  'RECONCILIATION_REQUIRED',
   'CANCELLED',
+  // Retained spellings. No code writes them.
+  'PENDING',
+  'IN_TRANSIT',
 ])
 
 export const LEDGER_ACCOUNT_TYPES = Object.freeze([
@@ -280,11 +298,15 @@ export const NOTIFICATION_CHANNELS = Object.freeze(['EMAIL', 'SMS', 'PUSH'])
 
 export const NOTIFICATION_STATUSES = Object.freeze([
   'QUEUED',
-  'SENDING',
+  'CLAIMED',
   'SENT',
+  'RETRY_SCHEDULED',
+  'CANCELLED',
   'FAILED',
   'DEAD_LETTER',
   'SUPPRESSED',
+  /** Retained spelling, superseded by CLAIMED. */
+  'SENDING',
 ])
 
 export const RECONCILIATION_STATES = Object.freeze(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'ESCALATED'])

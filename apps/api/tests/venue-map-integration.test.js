@@ -19,6 +19,8 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 import { createPrismaClient } from '@desi-event/db'
 
+import { requireDatabaseOrWarn } from './helpers/database.js'
+
 import { createVersion, publishVersion, readLayout, writeLayout } from '../src/lib/venue-maps.js'
 
 const CONNECTION =
@@ -31,11 +33,7 @@ const RUN = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toStrin
 const prisma = createPrismaClient({ connectionString: CONNECTION })
 const reachable = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false)
 
-if (!reachable) {
-  console.warn(
-    `[api] skipping the venue-map integration suite: ${CONNECTION.replace(/:[^:@/]*@/, ':***@')} is unreachable`,
-  )
-}
+requireDatabaseOrWarn('the venue-map integration suite', reachable, CONNECTION)
 
 /** Rows this suite created, newest first, for teardown. */
 const made = { versions: [], maps: [], venues: [] }

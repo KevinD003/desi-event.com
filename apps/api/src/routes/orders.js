@@ -11,16 +11,16 @@
  *     `holds.create`, because a hold may have lapsed between the cart and the
  *     card. The buyer's own holds are excluded from the held total so their
  *     reservation is not counted against them.
- *  3. **Nothing survives a failed payment.** Order, items, tickets, the sold
- *     counter and the hold conversions are all written inside one transaction
- *     that the payment runs inside; a decline throws, the transaction rolls
- *     back, and the database looks exactly as it did before the attempt.
+ *  3. **The provider is never called with a transaction open.** Checkout is
+ *     three steps — reserve and commit, capture, then a short transaction that
+ *     records the outcome — and the boundaries are the point. See
+ *     `../lib/checkout.js` for why.
  *
- * Holding a database transaction open across a payment call is a deliberate
- * trade: it costs a lock held for the duration of the provider round-trip, and
- * it buys the guarantee that a captured payment and its tickets are never
- * written apart. For a ticketing system the second is worth far more than the
- * first.
+ * Reserved seating adds one rule on top: a seat's price comes from the seat,
+ * not from the tier, so a selection spanning two price zones becomes two order
+ * lines of one ticket type. Which line pays for which seat is written onto the
+ * hold item at checkout, because by settlement the zone override may have moved
+ * and there would be no way to tell.
  *
  * @module @desi-event/api/routes/orders
  */
@@ -46,6 +46,12 @@ import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
 import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
 import { toOrder } from '../lib/presenters.js'
+import {
+  assertSeatsCoherent,
+  loadSeatedHoldItems,
+  priceLines,
+  stampHoldItems,
+} from '../lib/seated-checkout.js'
 import {
   CAPTURE_OUTCOMES,
   captureOutsideTransaction,
@@ -294,6 +300,34 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           guestToken: request.headers['x-hold-token'] ?? null,
         })
 
+        // Reserved seating, if any. Read after the tier row locks are held, so
+        // the seat states below cannot move under the order being built, and
+        // checked before anything is priced: a seat that is not this hold's to
+        // sell must not reach the pricing step at all.
+        const holdsById = new Map()
+        for (const bucket of holdsByType.values()) {
+          for (const hold of bucket) holdsById.set(hold.id, hold)
+        }
+
+        const seatedItems = await loadSeatedHoldItems(tx, [...holdsById.keys()])
+        assertSeatsCoherent(seatedItems, holdsById, body.eventSessionId ?? null)
+
+        for (const seated of seatedItems) {
+          const seatSession = await tx.eventSession.findUnique({
+            where: { id: seated.eventSeat.eventSessionId },
+            select: { eventId: true },
+          })
+
+          // A hold whose seats belong to another event's session. The trigger
+          // that keeps an order's lines to one event cannot see this, because
+          // the line is for a tier of the right event; only the seat is wrong.
+          if (seatSession?.eventId !== event.id) {
+            throw unprocessable('Those seats are not on sale at this event.', {
+              seatSession: seated.eventSeat.eventSessionId,
+            })
+          }
+        }
+
         for (const item of body.items) {
           const ticketType = byId.get(item.ticketTypeId)
 
@@ -350,13 +384,17 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
 
         const promoCode = await resolvePromoCode(tx, body.promoCode, event)
 
+        // A seated tier is priced seat by seat: a selection spanning two zones
+        // is two lines of one ticket type, because an order line carries one
+        // unit price and those seats did not cost the same.
+        const { lines: pricedLines, seatsByLineKey } = priceLines({
+          items: body.items,
+          ticketTypesById: byId,
+          seatedItems,
+        })
+
         const totals = computeOrderTotals({
-          items: body.items.map((item) => ({
-            ticketTypeId: item.ticketTypeId,
-            quantity: item.quantity,
-            unitPriceCents: byId.get(item.ticketTypeId).priceCents,
-            name: byId.get(item.ticketTypeId).name,
-          })),
+          items: pricedLines,
           promoCode,
           feeConfig: feeConfigFor(env, currency),
           taxRateBps: taxPolicy.rateBps,
@@ -397,16 +435,20 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
           },
         })
 
+        const orderItems = []
+
         for (const line of totals.lineItems) {
-          await tx.orderItem.create({
-            data: {
-              orderId: created.id,
-              ticketTypeId: line.ticketTypeId,
-              quantity: line.quantity,
-              unitPriceCents: line.unitPriceCents,
-              subtotalCents: line.subtotalCents,
-            },
-          })
+          orderItems.push(
+            await tx.orderItem.create({
+              data: {
+                orderId: created.id,
+                ticketTypeId: line.ticketTypeId,
+                quantity: line.quantity,
+                unitPriceCents: line.unitPriceCents,
+                subtotalCents: line.subtotalCents,
+              },
+            }),
+          )
         }
 
         // Attach the buyer's holds to the order so the settlement step can
@@ -414,6 +456,8 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         // to stay reserved for the whole time the provider is being called:
         // without this an unheld line would be free for somebody else to buy
         // while this buyer's card is authorising.
+        const seatedTypes = new Set(seatedItems.map((seated) => seated.ticketTypeId))
+
         for (const item of body.items) {
           const held = (holdsByType.get(item.ticketTypeId) ?? []).reduce(
             (sum, hold) => sum + hold.quantity,
@@ -424,7 +468,11 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
             await tx.ticketHold.update({ where: { id: hold.id }, data: { orderId: created.id } })
           }
 
-          const unheld = item.quantity - held
+          // A seated line's quantity is its seats, and `priceLines` has already
+          // refused any other number. Topping it up with a quantity hold would
+          // reserve stock with no seat behind it, which reserved seating does
+          // not have.
+          const unheld = seatedTypes.has(item.ticketTypeId) ? 0 : item.quantity - held
           if (unheld > 0) {
             const { ownership } = resolveHoldOwnership({ actor: request.actor })
             await tx.ticketHold.create({
@@ -440,6 +488,10 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
             })
           }
         }
+
+        // Which line pays for which seat, written down now rather than derived
+        // at settlement from prices that may have moved since.
+        await stampHoldItems(tx, { seatsByLineKey, orderItems })
 
         if (promoApplied) {
           // `increment` rather than a read-modify-write: two checkouts that
@@ -496,7 +548,12 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
         }
 
         if (result.outcome === CAPTURE_OUTCOMES.SUCCEEDED) {
-          await settleCheckout(tx, { ...common, result, generateTicketCode })
+          await settleCheckout(tx, {
+            ...common,
+            result,
+            generateTicketCode,
+            credentialSecret: env.AUTH_SECRET,
+          })
         } else if (result.outcome === CAPTURE_OUTCOMES.TIMEOUT) {
           await recordCaptureTimeout(tx, { ...common, result })
         } else {

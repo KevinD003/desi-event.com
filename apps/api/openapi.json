@@ -23917,6 +23917,8 @@
                                 "type": "string",
                                 "enum": [
                                   "VALID",
+                                  "TRANSFER_PENDING",
+                                  "REVOKED",
                                   "CHECKED_IN",
                                   "VOID",
                                   "REFUNDED",
@@ -24586,6 +24588,8 @@
                                   "type": "string",
                                   "enum": [
                                     "VALID",
+                                    "TRANSFER_PENDING",
+                                    "REVOKED",
                                     "CHECKED_IN",
                                     "VOID",
                                     "REFUNDED",
@@ -25205,6 +25209,8 @@
                                 "type": "string",
                                 "enum": [
                                   "VALID",
+                                  "TRANSFER_PENDING",
+                                  "REVOKED",
                                   "CHECKED_IN",
                                   "VOID",
                                   "REFUNDED",
@@ -25826,6 +25832,8 @@
                               "type": "string",
                               "enum": [
                                 "VALID",
+                                "TRANSFER_PENDING",
+                                "REVOKED",
                                 "CHECKED_IN",
                                 "VOID",
                                 "REFUNDED",

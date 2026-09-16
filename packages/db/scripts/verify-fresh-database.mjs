@@ -532,12 +532,21 @@ async function main() {
     const dbSuite = await run('npx', ['vitest', 'run'], { env: childEnv })
     ok = record('the @desi-event/db integration suite passes against it', dbSuite.code === 0) && ok
 
+    // REQUIRE_DATABASE turns an unreachable database from a skip into a
+    // failure. Without it, a suite that could not connect reports zero tests,
+    // and zero failing tests reads exactly like success.
     const apiSuite = await run(
       'npx',
-      ['vitest', 'run', 'tests/facets-integration.test.js', 'tests/ledger-integration.test.js'],
+      [
+        'vitest',
+        'run',
+        'tests/facets-integration.test.js',
+        'tests/ledger-integration.test.js',
+        'tests/reserved-seat-concurrency.test.js',
+      ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),
-        env: childEnv,
+        env: { ...childEnv, REQUIRE_DATABASE: '1' },
       },
     )
     ok = record('the API database integration suite passes against it', apiSuite.code === 0) && ok

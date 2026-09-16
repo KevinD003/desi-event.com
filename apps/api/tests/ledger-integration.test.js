@@ -16,6 +16,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createPrismaClient } from '@desi-event/db'
+
+import { requireDatabaseOrWarn } from './helpers/database.js'
 import {
   ACCOUNTS,
   CREDIT,
@@ -63,11 +65,7 @@ const created = []
 const prisma = createPrismaClient({ connectionString: CONNECTION })
 const reachable = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false)
 
-if (!reachable) {
-  console.warn(
-    `[api] skipping the ledger integration suite: ${CONNECTION.replace(/:[^:@/]*@/, ':***@')} is unreachable`,
-  )
-}
+requireDatabaseOrWarn('the ledger integration suite', reachable, CONNECTION)
 
 /**
  * A representative order split, in minor units.

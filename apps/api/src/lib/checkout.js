@@ -39,6 +39,7 @@ import { PROVIDER_ERROR_CODES } from '@desi-event/providers'
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { postBatch } from './ledger.js'
 import { sellSeats } from './seating.js'
+import { issueTicketCredential } from './ticket-credentials.js'
 import { openReconciliation } from './webhook-handlers.js'
 
 /** What the provider told us, once we are out of the transaction. */
@@ -114,17 +115,20 @@ export async function captureOutsideTransaction(payments, order) {
  * settlement transaction rather than after it, because a seat that is paid for
  * and still HELD is a seat the expiry sweep may release out from under a ticket.
  *
- * A hold item is matched to the order line of the same ticket type. One order
- * carries tickets from one event by construction (the `desi_order_item_event_matches`
- * trigger), so within an order the ticket type is enough to identify the line.
+ * Which line pays for which seat was decided at checkout and written onto the
+ * hold item, so this reads a column rather than reconstructing the answer. It
+ * used to match a held seat to the order line of the same ticket type, which is
+ * wrong as soon as one selection spans two price zones: that is two lines of
+ * one tier, and the map had room for only one of them. The seat that lost the
+ * collision was sold against the wrong line at the wrong price.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Inputs.
  * @param {string} params.orderId The order being settled.
- * @param {Array<object>} params.items The order's lines.
  * @returns {Promise<number>} How many seats were sold.
+ * @throws {Error} When a held seat was never stamped with the line that pays for it.
  */
-export async function sellHeldSeats(tx, { orderId, items }) {
+export async function sellHeldSeats(tx, { orderId }) {
   const holds = await tx.ticketHold.findMany({
     where: { orderId, status: 'ACTIVE' },
     select: { id: true },
@@ -132,13 +136,12 @@ export async function sellHeldSeats(tx, { orderId, items }) {
 
   if (holds.length === 0) return 0
 
-  const lineByTicketType = new Map(items.map((item) => [item.ticketTypeId, item.id]))
   let sold = 0
 
   for (const hold of holds) {
     const heldSeats = await tx.holdItem.findMany({
       where: { holdId: hold.id, eventSeatId: { not: null } },
-      select: { eventSeatId: true, ticketTypeId: true },
+      select: { eventSeatId: true, orderItemId: true, ticketTypeId: true },
     })
 
     if (heldSeats.length === 0) continue
@@ -146,18 +149,17 @@ export async function sellHeldSeats(tx, { orderId, items }) {
     const orderItemBySeat = {}
 
     for (const heldSeat of heldSeats) {
-      const orderItemId = lineByTicketType.get(heldSeat.ticketTypeId)
-
-      if (!orderItemId) {
-        // A held seat whose ticket type is not on the order. Nothing sensible
-        // can be done with it, and quietly skipping would sell the rest and
-        // leave this one held with a paid order against it.
+      if (!heldSeat.orderItemId) {
+        // A seat reserved for this order that no line claims. Selling the rest
+        // and skipping this one would leave a seat held against a paid order,
+        // which the expiry sweep would eventually release out from under a
+        // ticket. Refusing rolls the settlement back instead.
         throw new Error(
-          `Hold ${hold.id} reserves a seat for ticket type ${heldSeat.ticketTypeId}, which order ${orderId} does not buy`,
+          `Hold ${hold.id} reserves seat ${heldSeat.eventSeatId} for order ${orderId}, but no line on that order pays for it`,
         )
       }
 
-      orderItemBySeat[heldSeat.eventSeatId] = orderItemId
+      orderItemBySeat[heldSeat.eventSeatId] = heldSeat.orderItemId
     }
 
     sold += await sellSeats(tx, { holdId: hold.id, orderItemBySeat })
@@ -222,6 +224,61 @@ export async function postOrderLedger(tx, { order, payment, now, actorId = null 
 }
 
 /**
+ * Issue one ticket, with the pass that opens the door.
+ *
+ * Two writes rather than one, because the credential is derived from the
+ * ticket's own id and that id does not exist until the row does. The plaintext
+ * is computed, hashed, and thrown away here; only the digest is stored. Nothing
+ * returns it, because at issuance nobody is watching — the buyer reads their
+ * pass later, through a route that re-derives it for them.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params Inputs.
+ * @param {string} params.orderItemId The line this ticket is on.
+ * @param {string|null} params.eventSeatId The seat it admits to, for reserved seating.
+ * @param {string|null} params.attendeeName Whose name is printed on it.
+ * @param {string|null} params.ownerUserId Who holds it, when the buyer was signed in.
+ * @param {function(): string} params.generateTicketCode Ticket code factory.
+ * @param {string} params.credentialSecret The deployment's `AUTH_SECRET`.
+ * @param {Date} params.now Issuance instant.
+ * @returns {Promise<object>} The created ticket, without its credential.
+ */
+export async function issueTicket(
+  tx,
+  {
+    orderItemId,
+    eventSeatId,
+    attendeeName,
+    ownerUserId,
+    generateTicketCode,
+    credentialSecret,
+    now,
+  },
+) {
+  const ticket = await tx.ticket.create({
+    data: {
+      orderItemId,
+      code: generateTicketCode(),
+      attendeeName,
+      ownerUserId,
+      eventSeatId,
+      status: 'VALID',
+    },
+  })
+
+  const { credentialHash } = issueTicketCredential({
+    secret: credentialSecret,
+    ticketId: ticket.id,
+    version: ticket.credentialVersion ?? 1,
+  })
+
+  return tx.ticket.update({
+    where: { id: ticket.id },
+    data: { credentialHash, credentialIssuedAt: now },
+  })
+}
+
+/**
  * Record a successful capture and fulfil the order.
  *
  * The update is conditional on the order still being PENDING. That single
@@ -235,13 +292,23 @@ export async function postOrderLedger(tx, { order, payment, now, actorId = null 
  * @param {object} params.result The capture result.
  * @param {Date} params.now Settlement instant.
  * @param {function(): string} params.generateTicketCode Ticket code factory.
+ * @param {string} params.credentialSecret The deployment's `AUTH_SECRET`, for minting passes.
  * @param {string|null} [params.actorId] Actor for the audit trail.
  * @param {string|null} [params.requestId] Request id for the audit trail.
  * @returns {Promise<{settled: boolean}>} Whether this call performed the transition.
  */
 export async function settleCheckout(
   tx,
-  { order, payment, result, now, generateTicketCode, actorId = null, requestId = null },
+  {
+    order,
+    payment,
+    result,
+    now,
+    generateTicketCode,
+    credentialSecret,
+    actorId = null,
+    requestId = null,
+  },
 ) {
   const { count } = await tx.order.updateMany({
     where: { id: order.id, status: 'PENDING' },
@@ -254,15 +321,29 @@ export async function settleCheckout(
 
   const items = await tx.orderItem.findMany({ where: { orderId: order.id } })
 
+  // The seats first, so a ticket can be minted against the seat it admits to.
+  // A ticket issued before the seat was sold would have to be updated
+  // afterwards, and an update is a second chance to get it wrong.
+  const soldSeats = await sellHeldSeats(tx, { orderId: order.id })
+
   for (const item of items) {
+    const seats = soldSeats
+      ? await tx.eventSeat.findMany({
+          where: { orderItemId: item.id },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        })
+      : []
+
     for (let index = 0; index < item.quantity; index += 1) {
-      await tx.ticket.create({
-        data: {
-          orderItemId: item.id,
-          code: generateTicketCode(),
-          attendeeName: order.buyerName,
-          status: 'VALID',
-        },
+      await issueTicket(tx, {
+        orderItemId: item.id,
+        eventSeatId: seats[index]?.id ?? null,
+        attendeeName: order.buyerName,
+        ownerUserId: order.userId ?? null,
+        generateTicketCode,
+        credentialSecret,
+        now,
       })
     }
 
@@ -271,8 +352,6 @@ export async function settleCheckout(
       data: { quantitySold: { increment: item.quantity } },
     })
   }
-
-  await sellHeldSeats(tx, { orderId: order.id, items })
 
   await tx.ticketHold.updateMany({
     where: { orderId: order.id, status: 'ACTIVE' },
