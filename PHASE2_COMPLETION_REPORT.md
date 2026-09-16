@@ -687,3 +687,46 @@ absent rather than merely unimplemented.
 - `PHASE2_REQUIREMENTS_TRACEABILITY.md` — every work item and acceptance
   criterion mapped to files, tests and status, including the ones with status
   `NOT IMPLEMENTED`.
+
+---
+
+# Addendum — gate scoring after the `d1a2acf`…`9be3c79` cycle
+
+> This report's gate scoring was correct when written and is left as written.
+> `PHASE2_STATUS.md` §5 is the current score; this addendum records only what
+> moved and why, so the difference is a delta rather than a contradiction.
+
+| Gate | Was       | Now       | What moved it                                                                                                                                                 |
+| ---- | --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3    | `PARTIAL` | **`MET`** | Event authoring, the public event surface, material changes, the organiser editor and the moderation screens, all built and walked by twenty browser journeys |
+| 4    | `MET`     | `MET`     | Reinforced: fifteen more concurrency cases against real PostgreSQL                                                                                            |
+| 12   | `NOT MET` | `PARTIAL` | Five call sites write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers. **No worker sends them.**                                   |
+| 13   | `NOT MET` | `PARTIAL` | The organiser and moderation surfaces exist. No finance, reconciliation or analytics surface does.                                                            |
+| 14   | `PARTIAL` | `PARTIAL` | The event screens are built to the accessibility requirements and unit tests assert the behaviours; the three-viewport and 200%-zoom sweep has not been run   |
+| 15   | `NOT MET` | **`MET`** | `pnpm run test:e2e:events` — 20 of 20, against a real API and a disposable database                                                                           |
+
+**Nine met, five partial, six not met**, from six, five and nine.
+
+## Two findings this cycle added to the eighteen
+
+- **NF-22** — the public event payload advertised ticket types the organiser had
+  not put on sale.
+- **NF-23** — the browser carried the shape of every private column, including
+  the two `contactEmail` and `payoutCurrency` fields NF-14 had removed from the
+  payload three cycles earlier. The API client was importing the contract's
+  route table, and the route table holds every schema.
+
+Both are written up in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`, including the
+temptation NF-23 presented: deleting the two needles from the bundle scan would
+have restored a green result in thirty seconds, and would have been weakening
+the test rather than fixing the leak.
+
+## What still keeps this `PARTIAL`
+
+Unchanged in kind, and now smaller in number. `PHASE2_STATUS.md` §12 lists the
+ten code-owned items in the order they unblock the most, and names the two that
+are not code-owned so they are not mistaken for work anybody here can finish.
+
+The single largest gap is the first item on that list: five call sites create
+notification work and nothing sends it. Until a worker exists, every notice this
+system owes is a row in a table, and no report in this repository says otherwise.

@@ -519,3 +519,57 @@ HEAD` and `git rev-parse @{u}` agree and `git status --porcelain` is silent. The
 branch is `claude/desi-event-js-stack-gb4uqe`, its upstream is
 `origin/claude/desi-event-js-stack-gb4uqe`, every commit of this cycle is
 pushed, and no history was rewritten, squashed or force-pushed to get there.
+
+---
+
+# Addendum — the `d1a2acf`…`9be3c79` cycle
+
+> This report is an account of the `3f5add0`…`e1b2069` cycle. Everything above
+> is left as written. This addendum records that a later cycle ran a fuller
+> verification and that `PHASE2_STATUS.md` §9 now holds the current one.
+
+Seven commits built event authoring, the public event surface, the material-
+change workflow, the organiser editor, the moderation screens and twenty browser
+journeys, then closed two findings the journeys and the extended bundle scan
+turned up.
+
+## The sixteen-command sequence at `9be3c79`
+
+Two commands more than this cycle ran, because two suites now exist that did
+not: `pnpm run test:e2e:events`, and the contract validation split from the
+OpenAPI drift check so each reports its own exit code.
+
+**Sixteen of sixteen at exit 0.** Caches deleted first, so `test` and `build`
+both report zero cached. The full table, with every duration, is
+`PHASE2_STATUS.md` §9.
+
+| What                       | Then (`e1b2069`) | Now (`9be3c79`) |
+| -------------------------- | ---------------: | --------------: |
+| Unit and integration tests |            3,901 |       **4,099** |
+| Test files                 |              138 |         **148** |
+| Contract routes            |               71 |          **81** |
+| Browser tests, all suites  |              150 |         **170** |
+| Browser-deliverable files  |              173 |         **222** |
+| Fresh-database checks      |            68/68 |       **68/68** |
+| Populated-upgrade checks   |            20/20 |       **21/21** |
+
+## The one failure, and what it was
+
+The first run of the sequence failed at command 9. `db:verify:upgrade` keeps an
+explicit list of which migrations belong to Phase 2, because its whole job is to
+apply the earlier ones, fill every table with rows, and then apply the Phase 2
+ones over real data. `20260916000000_event_draft_revision` was missing from that
+list, so it ran against a schema without `EventSession` and failed on exactly
+that.
+
+The verifier caught its own list being out of date. Fixed at the list's
+documented extension point; nothing was relaxed; the rerun reports 21/21. No
+other command failed in either run.
+
+## What this cycle did not do
+
+Phase 2 remains `PARTIAL` and Phase 3 has not been started. Six gates are still
+`NOT MET` and five are `PARTIAL`; `PHASE2_STATUS.md` §5 scores each one and §12
+lists what is left in the order it unblocks the most. The single largest gap is
+that five call sites now create notification work and nothing sends it — no
+outbox worker exists, and no report in this repository says otherwise.

@@ -348,6 +348,81 @@ than a test expected were resolved by asserting the database's refusal:
   same value, which `event_ends_after_start` now refuses. The filler was given a
   coherent window rather than the constraint being relaxed.
 
+## NF-22 and NF-23 — the public surface cycle
+
+Two more, found in the cycle that built the organiser and moderation screens and
+the twenty browser journeys. Both were found by looking rather than by luck: the
+brief asked for a search of every browser-deliverable artefact for private
+organiser data, and the search is what turned them up.
+
+| ID        | Severity   | Finding                                                                                             | Where                                                  | How it surfaced                                        | Status    |
+| --------- | ---------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------ | --------- |
+| **NF-22** | **medium** | The public event payload advertised ticket types the organiser had not put on sale                  | `apps/api/src/lib/presenters.js` `toEventDetail`       | Writing the tier-status control and asking who sees it | **Fixed** |
+| **NF-23** | **medium** | The browser carried the shape of every private column — `contactEmail`, `payoutCurrency` among them | `apps/web/src/lib/api-client.js` → the contract barrel | Extending `bundle:scan` with private-organiser needles | **Fixed** |
+
+### NF-22 — a draft tier is the organiser holding something back
+
+A `TicketType` is `DRAFT` until somebody puts it on sale. That is a real state
+with a real meaning: an early-bird price not announced yet, a tier half built, a
+price being argued about internally. `toEventDetail` returned every tier
+regardless, so the public page announced all of it on the organiser's behalf and
+without being asked.
+
+Fixed by making the presenter take `includeDraftTiers`, and by having
+`events.get` pass the answer to the same question it already asks to decide
+whether the page resolves at all — `maySeeDrafts(event, actor)`. The four routes
+that are reachable only by somebody inside the organisation pass `true`
+explicitly rather than relying on the default, because an organiser's own editor
+going blank after a save is not a bug anybody would guess at.
+
+### NF-23 — the description of a private column is not a credential, and still should not ship
+
+`createApiClient` reads five things about a route: its id, method, path, `auth`,
+and whether it takes a body or a query string. It reads `route.body` for
+truthiness and never parses with it.
+
+To learn that, the browser was importing `packages/api-contract/src/routes.js`,
+which holds every request and response schema in the contract — which is to say
+the column list of every entity in the system, including the two fields NF-14
+had removed from the public payload three cycles earlier.
+
+Two smaller paths fed the same leak: the web app imported the contract _barrel_,
+which re-exports `routes.js` whatever the caller uses, and a notice component
+pulled two strings from the schemas barrel, dragging `entities.js` behind them.
+
+The honest thing to record is the temptation. A field _name_ is not a
+credential, the OpenAPI document is published, and deleting the two needles from
+the scan would have restored a green result in thirty seconds. That is exactly
+the move this project does not make. The client reads a generated manifest now —
+five fields, emitted by a script, drift-checked by a test the way `openapi.json`
+already is — and the schemas stay on the server.
+
+`moderation:review` left the bundle with them, and moved from the scan's
+_required_ list to its _forbidden_ one. It had been in the browser because the
+route table carried each route's capability; no client component ever read it,
+and a browser holding the list knows which privileged routes exist and what
+authority each one wants. Requiring it would have been requiring the leak.
+
+### What these two did not change
+
+Nothing was relaxed. The one test-environment change in the cycle was the global
+rate limit becoming an operator knob with its default unchanged: twenty journeys
+driving a whole product lifecycle from one address in a minute is correctly read
+as a scraper, and so is a hundred real visitors behind one corporate NAT, which
+is the actual reason the budget belongs in the environment rather than in source.
+
+Two schema rules were _refined_ rather than loosened, and both refinements make
+the rule stricter about what it was actually for:
+
+- A publication gate asked whether an event's `policies` existed; it now asks
+  whether any were written, and names the refund policy separately. The editor
+  had been sending `{entry: null, refund: null, …}` on every autosave, which
+  satisfied "exists" while the buyer had agreed to nothing.
+- The moderation schema demanded prose for any refusal; it now accepts prose or
+  notes against named fields, and still refuses a refusal carrying neither. A
+  moderator who had written the useful version was being refused for not also
+  writing the vague one.
+
 ## Provenance
 
 - Raw findings: `wf_6b34ffef-3e2/journal.jsonl`, 6 records of type `result`

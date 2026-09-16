@@ -491,3 +491,139 @@ imply completeness:
 - `PHASE2_REQUIREMENTS_TRACEABILITY.md` — every work item and acceptance
   criterion, mapped to files, tests and status, including the ones with status
   `NOT STARTED`.
+
+---
+
+# Addendum — what the `d1a2acf`…`9be3c79` cycle built, and why it is shaped that way
+
+> This report is an account of the `7777322`…`926d1a3` cycle and is left as
+> written. This addendum explains the shape of the work two cycles later.
+> `PHASE2_STATUS.md` holds the current status; this holds the reasoning.
+
+## One revision, held in one place
+
+Every authoring write carries the revision it was based on, and the server
+refuses a write whose precondition no longer holds. That is the same conditional
+`UPDATE` plus affected-row-count primitive the seats and the venue maps already
+use — this repository has one answer to "two writers" and it is used everywhere.
+
+The interesting part was the editor. Seven steps, each able to write, and each
+originally holding its own copy of the revision taken from the server render.
+Choosing a venue on one step and adding a session on the next is the ordinary
+way through the form, and it was a stale precondition and a 409 every time. The
+fix was not to refresh more often: it was to notice there is one event and
+therefore one revision, and to let the shell own it. The steps are rendered by
+the shell now rather than handed down pre-rendered from the server, which is a
+slightly unusual shape for a Next.js page and is the reason.
+
+The readiness checklist had the same defect and the same cause, one layer up: it
+was rendered from a server read and never refreshed, so an organiser who wrote
+the refund policy on the policies step came to the review step and found a
+blocker they had already cleared and a submit button disabled for a reason that
+was no longer true. It re-reads on open and whenever the revision moves. A
+checklist that does not refresh is a checklist that lies.
+
+## Autosave, and the thing autosave breaks
+
+Authoring an event is long enough that losing it to a closed tab is
+unacceptable, so the editor saves about a second after the last keystroke. That
+is also exactly how two tabs silently overwrite each other, which is why the
+revision is on every write.
+
+On a conflict the editor **stops**. It does not retry — that destroys their work
+— and it does not merge, which would produce a version neither person wrote and
+neither could reconstruct. It offers the two honest choices: take theirs, or
+keep yours on screen to copy first. A test asserts that no second request goes
+out after a conflict, because "it retried quietly" is precisely the failure mode
+that would never be noticed.
+
+Two smaller decisions, both of which were defects first:
+
+- **A draft is allowed to be incomplete.** Blocking autosave on "no venue chosen
+  yet" meant an organiser could not keep the sentence they had just typed until
+  the whole event was finished. Only schema-level problems block a save now;
+  completeness is a note that says it does not.
+- **An error message about a change somebody has undone is a lie.** Empty the
+  title, press save, put it back: the form matches what is stored and the status
+  said "not saved: 1 thing needs fixing" until it was told otherwise. Stale
+  complaints are the ones people act on.
+
+## Saying when something is off
+
+A cancelled show whose page looks exactly like a live one is the failure the
+public event page is built around. Three things derive from one status so they
+cannot drift: the banner a person reads, the `schema.org` `eventStatus` a search
+engine reads, and whether the buy button does anything. A banner saying
+"cancelled" above a working "Choose tickets" is worse than either alone.
+
+The sitemap was asking the API for `status: 'PUBLISHED'` — a literal standing in
+for a set, which is finding NF-19's shape in the other direction. An event
+anybody could actually buy a ticket to is `ON_SALE`, so every sellable event in
+the catalogue was missing from the sitemap. The filter is gone rather than
+corrected to a list: the server already answers an anonymous caller with exactly
+the indexable statuses, and naming a narrower set in a client could only ever
+reintroduce the bug. The set is still imported and asserted against what comes
+back, so a widened server default is noticed rather than published.
+
+## Confirmation proportional to consequence
+
+Pausing sales is one press, because resuming is one press. Cancelling requests a
+refund against every paid order and cannot be undone, so it asks for a reason
+code, a note, and a second press — and says plainly that a refund is
+_requested_, because no refund service exists and a screen claiming money had
+moved would be a lie the attendee discovers first.
+
+A confirmation on everything trains people to dismiss them, which is how the
+one that mattered gets dismissed too.
+
+## Material changes
+
+`materialChanges()` had been in the lifecycle package since the state machine
+landed and nothing called it: a correct classification, entirely inert. An
+organiser could move a published event's date through the generic PATCH and
+every ticket holder found out by turning up.
+
+`events.update` now runs three rules for three genuinely different situations. A
+draft is a private working copy, so it is edited. A live event has an audience,
+so a change to the date, venue, time zone, age limit, online status or policies
+needs an explicit confirmation, a reason, and one queued notice per order. An
+event under review or already approved is not the organiser's to edit at all,
+because editing the version a moderator is holding invalidates the decision
+rather than amending it.
+
+A field sent unchanged is not a change. An editor that PATCHes the whole form on
+every autosave must not trip the confirmation on a reworded summary, and the
+classification compares values rather than counting keys.
+
+The notification work is **created, not delivered**. The rows are `QUEUED` with
+`sentAt` null, no worker exists, and a test asserts exactly that rather than
+letting a count read as "people were told".
+
+## What the twenty journeys were for
+
+They found eight defects, and that is the argument for writing them. Six were in
+code that unit tests passed: a Server Component handing a function to a Client
+Component, a category the API had never heard of, the revision drift above, the
+readiness staleness above, a response envelope that named its counters
+`meta` where its contract said `pagination`, and a publication gate asking
+whether policies existed rather than whether any had been written.
+
+They are a `describe.serial` group, and that is load-bearing rather than
+stylistic. Playwright restarts a worker after a failing test, which re-imports
+the module and loses the ids a narrative shares; without serial mode one defect
+in the middle reported sixteen failures, every one of them a consequence of the
+first. A skip is an honest answer where a cascade is not.
+
+## The browser stopped carrying the contract
+
+The last finding of the cycle came from doing what the brief asked: searching
+every browser-deliverable artefact for private organiser data. `contactEmail`
+and `payoutCurrency` — the two fields NF-14 removed from the public payload —
+were in the bundle, because the API client imported the contract's route table
+to ask whether a route takes a body, and that table holds every schema.
+
+The client reads a generated manifest now: id, method, path, `auth`, and two
+booleans. `auth` is in there because it decides whether the bearer token is
+attached, and a manifest that dropped it would send credentials to a route
+declared to take none — which the existing client tests caught within a minute
+of the first attempt.
