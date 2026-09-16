@@ -315,3 +315,31 @@ export async function getRefundQueue(options) {
 
   return { refunds: body.data ?? [], pagination: body.pagination ?? null }
 }
+
+/**
+ * Organiser analytics for one organisation.
+ *
+ * `organizationId` is required by the API and therefore required here. A helper
+ * that quietly omitted it would turn an organisation question into a platform
+ * one at the first call site that forgot.
+ *
+ * @param {object} options Query options.
+ * @param {string} options.organizationId Whose analytics.
+ * @param {string} [options.currency] Which currency the money figures are in.
+ * @param {string} [options.eventId] Narrow to one event.
+ * @param {string} [options.eventSessionId] Narrow sales to one session.
+ * @param {string} [options.from] Window start, ISO.
+ * @param {string} [options.to] Window end, ISO.
+ * @returns {Promise<object>} The analytics payload.
+ */
+export async function getAnalytics(options) {
+  const query = new URLSearchParams({ organizationId: options.organizationId })
+
+  for (const key of ['currency', 'eventId', 'eventSessionId', 'from', 'to']) {
+    if (options[key]) query.set(key, options[key])
+  }
+
+  const body = await callApi(`/v1/analytics/summary?${query.toString()}`)
+
+  return body.data
+}
