@@ -701,5 +701,19 @@ Branch `claude/desi-event-js-stack-gb4uqe`, upstream
 `origin/claude/desi-event-js-stack-gb4uqe`, every commit of every cycle pushed,
 no history rewritten, squashed or force-pushed, and one worktree.
 
+**Measured after the report commit `d0feae7` was pushed:**
+
+```
+$ git rev-parse HEAD
+d0feae71e12825584417d368479d34f9bd2f286b
+(and `git rev-parse @{u}` printed the same hash)
+
+$ git status --porcelain
+(no output)
+
+$ git worktree list
+/home/user/desi-event.com  d0feae7  [claude/desi-event-js-stack-gb4uqe]
+```
+
 **The last executable-code commit is named separately from the report commit**
 in §1, and stays so: a documentation commit is not a change to the system.
