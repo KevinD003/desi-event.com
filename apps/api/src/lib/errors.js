@@ -339,3 +339,46 @@ export function tooManyRequests(message, retryAfterSeconds) {
 
   return error
 }
+
+/**
+ * The database's own error code, wherever Prisma put it.
+ *
+ * A `RAISE EXCEPTION` from a trigger reaches the client as PostgreSQL's
+ * `P0001`, and Prisma wraps it: the outer `error.code` is a Prisma code
+ * (`P2039` at the time of writing, and not stable across versions), while the
+ * original sits under `meta.driverAdapterError.cause.originalCode`. Checking
+ * only the outer one is how a trigger refusal — which the application is
+ * supposed to handle — arrives at a user as a 500.
+ *
+ * Both places are checked, and the outer one first, so an ordinary unique
+ * violation (`P2002`, which Prisma does surface directly) still matches.
+ *
+ * @param {unknown} error Whatever was thrown.
+ * @returns {string|null} The database's code, or null when there is not one.
+ */
+export function databaseErrorCode(error) {
+  const outer = error?.code
+
+  if (typeof outer === 'string' && outer.startsWith('P') && outer !== 'P2039') return outer
+
+  const nested = error?.meta?.driverAdapterError?.cause?.originalCode
+
+  return typeof nested === 'string' ? nested : typeof outer === 'string' ? outer : null
+}
+
+/**
+ * What a trigger said when it refused a write.
+ *
+ * The message is the one the migration wrote, which is prose somebody chose to
+ * be read — "check-in refused: ticket … is CHECKED_IN, which does not admit".
+ * A handler that has decided to surface it has something better to say than a
+ * generic conflict.
+ *
+ * @param {unknown} error Whatever was thrown.
+ * @returns {string|null} The trigger's message, or null.
+ */
+export function triggerMessage(error) {
+  const nested = error?.meta?.driverAdapterError?.cause?.originalMessage
+
+  return typeof nested === 'string' ? nested : null
+}

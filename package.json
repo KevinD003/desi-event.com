@@ -37,6 +37,7 @@
     "clean": "node scripts/clean.mjs",
     "secrets:scan": "node scripts/scan-secrets.mjs",
     "test:e2e:prod": "pnpm --filter @desi-event/web test:e2e:prod",
+    "load": "node scripts/load/run.mjs",
     "db:verify:fresh": "pnpm --filter @desi-event/db run verify:fresh",
     "db:verify:upgrade": "pnpm --filter @desi-event/db run verify:upgrade",
     "test:e2e:organizer": "pnpm --filter @desi-event/web run test:e2e:organizer",
@@ -49,8 +50,14 @@
     "test:e2e:sweep": "pnpm --filter @desi-event/web run test:e2e:sweep"
   },
   "devDependencies": {
+    "@desi-event/auth": "workspace:*",
     "@desi-event/config": "workspace:*",
+    "@desi-event/db": "workspace:*",
+    "@desi-event/logger": "workspace:*",
+    "@desi-event/providers": "workspace:*",
+    "@desi-event/schemas": "workspace:*",
     "@eslint/js": "^9.39.0",
+    "dotenv": "^17.2.7",
     "eslint": "^9.39.5",
     "eslint-plugin-jsdoc": "^64.4.0",
     "eslint-plugin-react": "^7.37.5",

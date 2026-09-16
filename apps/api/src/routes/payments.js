@@ -15,6 +15,7 @@
  * @module @desi-event/api/routes/payments
  */
 
+import { databaseErrorCode } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
 import { CAPTURE_OUTCOMES, compensateCheckout, settleCheckout } from '../lib/checkout.js'
 import { defineRoute } from '../lib/register.js'
@@ -34,80 +35,94 @@ export function registerPaymentRoutes(app, { prisma, env }) {
       const body = request.body
       const now = new Date()
 
-      const outcome = await prisma.$transaction(async (tx) => {
-        // Claim the event first. The unique index on
-        // (provider, providerEventId) means a duplicate delivery loses this
-        // race and is acknowledged without doing anything: that is what makes
-        // replay safe rather than merely unlikely.
-        const alreadySeen = await tx.webhookEvent.findFirst({
-          where: { provider: body.provider, providerEventId: body.providerEventId },
-        })
+      const outcome = await prisma
+        .$transaction(async (tx) => {
+          // Claim the event first. The unique index on
+          // (provider, providerEventId) is what makes replay safe rather than
+          // merely unlikely: the read below catches the ordinary case — a
+          // delivery arriving after the first was processed — and the index
+          // catches the one the read cannot, which is two deliveries in flight at
+          // the same instant. Both find nothing, both insert, and one of them
+          // loses; that loss is handled below rather than raised, because a
+          // provider that receives a 500 for a duplicate retries, which makes it
+          // worse.
+          //
+          // The load suite found this: nine 500s per ten-second window at sixteen
+          // concurrent duplicates, against a comment claiming it was already safe.
+          const alreadySeen = await tx.webhookEvent.findFirst({
+            where: { provider: body.provider, providerEventId: body.providerEventId },
+          })
 
-        if (alreadySeen) return { status: 'DUPLICATE' }
+          if (alreadySeen) return { status: 'DUPLICATE' }
 
-        const event = await tx.webhookEvent.create({
-          data: {
-            provider: body.provider,
-            providerEventId: body.providerEventId,
-            eventType: body.eventType,
-            payload: body,
-          },
-        })
+          const event = await tx.webhookEvent.create({
+            data: {
+              provider: body.provider,
+              providerEventId: body.providerEventId,
+              eventType: body.eventType,
+              payload: body,
+            },
+          })
 
-        const order = await tx.order.findUnique({ where: { reference: body.orderReference } })
+          const order = await tx.order.findUnique({ where: { reference: body.orderReference } })
 
-        if (!order) {
+          if (!order) {
+            await tx.webhookEvent.update({
+              where: { id: event.id },
+              data: { processedAt: now, processingError: 'ORDER_NOT_FOUND' },
+            })
+
+            return { status: 'ORDER_NOT_FOUND' }
+          }
+
+          const payment = await tx.payment.findFirst({
+            where: { orderId: order.id },
+            orderBy: { attemptNumber: 'desc' },
+          })
+
+          let applied = 'NOOP'
+
+          if (body.eventType === 'payment.succeeded') {
+            const { settled } = await settleCheckout(tx, {
+              order,
+              payment,
+              result: {
+                outcome: CAPTURE_OUTCOMES.SUCCEEDED,
+                intent: null,
+                providerRef: body.providerRef ?? null,
+                rawStatus: body.eventType,
+              },
+              now,
+              generateTicketCode,
+              credentialSecret: env.AUTH_SECRET,
+              requestId: request.id,
+            })
+
+            applied = settled ? 'SETTLED' : 'ALREADY_SETTLED'
+          } else if (payment) {
+            const { compensated } = await compensateCheckout(tx, {
+              order,
+              payment,
+              failureCode: body.failureCode ?? 'provider_reported_failure',
+              now,
+              requestId: request.id,
+            })
+
+            applied = compensated ? 'CANCELLED' : 'ALREADY_FINAL'
+          }
+
           await tx.webhookEvent.update({
             where: { id: event.id },
-            data: { processedAt: now, processingError: 'ORDER_NOT_FOUND' },
+            data: { processedAt: now, orderId: order.id, paymentId: payment?.id ?? null },
           })
 
-          return { status: 'ORDER_NOT_FOUND' }
-        }
-
-        const payment = await tx.payment.findFirst({
-          where: { orderId: order.id },
-          orderBy: { attemptNumber: 'desc' },
+          return { status: applied, orderId: order.id }
         })
+        .catch((error) => {
+          if (databaseErrorCode(error) !== 'P2002') throw error
 
-        let applied = 'NOOP'
-
-        if (body.eventType === 'payment.succeeded') {
-          const { settled } = await settleCheckout(tx, {
-            order,
-            payment,
-            result: {
-              outcome: CAPTURE_OUTCOMES.SUCCEEDED,
-              intent: null,
-              providerRef: body.providerRef ?? null,
-              rawStatus: body.eventType,
-            },
-            now,
-            generateTicketCode,
-            credentialSecret: env.AUTH_SECRET,
-            requestId: request.id,
-          })
-
-          applied = settled ? 'SETTLED' : 'ALREADY_SETTLED'
-        } else if (payment) {
-          const { compensated } = await compensateCheckout(tx, {
-            order,
-            payment,
-            failureCode: body.failureCode ?? 'provider_reported_failure',
-            now,
-            requestId: request.id,
-          })
-
-          applied = compensated ? 'CANCELLED' : 'ALREADY_FINAL'
-        }
-
-        await tx.webhookEvent.update({
-          where: { id: event.id },
-          data: { processedAt: now, orderId: order.id, paymentId: payment?.id ?? null },
+          return { status: 'DUPLICATE' }
         })
-
-        return { status: applied, orderId: order.id }
-      })
 
       // A callback for an order we do not have is still acknowledged. Answering
       // an error would make the provider retry forever for an event that will

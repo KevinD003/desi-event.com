@@ -12,12 +12,30 @@ importers:
 
   .:
     devDependencies:
+      '@desi-event/auth':
+        specifier: workspace:*
+        version: link:packages/auth
       '@desi-event/config':
         specifier: workspace:*
         version: link:packages/config
+      '@desi-event/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@desi-event/logger':
+        specifier: workspace:*
+        version: link:packages/logger
+      '@desi-event/providers':
+        specifier: workspace:*
+        version: link:packages/providers
+      '@desi-event/schemas':
+        specifier: workspace:*
+        version: link:packages/schemas
       '@eslint/js':
         specifier: ^9.39.0
         version: 9.39.5
+      dotenv:
+        specifier: ^17.2.7
+        version: 17.4.2
       eslint:
         specifier: ^9.39.5
         version: 9.39.5(jiti@2.7.0)
@@ -162,7 +180,7 @@ importers:
         version: 13.3.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       next:
         specifier: ^16.3.5
-        version: 16.3.5(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@26.5.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 16.3.5(@playwright/test@1.63.0)(@types/node@26.5.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -6465,7 +6483,7 @@ snapshots:
 
   natural-compare@1.4.0: {}
 
-  next@16.3.5(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@26.5.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
+  next@16.3.5(@playwright/test@1.63.0)(@types/node@26.5.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0):
     dependencies:
       '@next/env': 16.3.5
       '@swc/helpers': 0.5.23
@@ -6474,7 +6492,7 @@ snapshots:
       postcss: 8.5.23
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      styled-jsx: 5.1.6(@babel/core@7.29.7)(react@19.3.0)
+      styled-jsx: 5.1.6(react@19.3.0)
     optionalDependencies:
       '@next/swc-darwin-arm64': 16.3.5
       '@next/swc-darwin-x64': 16.3.5
@@ -7119,12 +7137,10 @@ snapshots:
     optionalDependencies:
       '@types/node': 26.5.1
 
-  styled-jsx@5.1.6(@babel/core@7.29.7)(react@19.3.0):
+  styled-jsx@5.1.6(react@19.3.0):
     dependencies:
       client-only: 0.0.1
       react: 19.3.0
-    optionalDependencies:
-      '@babel/core': 7.29.7
 
   supports-color@7.2.0:
     dependencies:

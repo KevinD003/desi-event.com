@@ -39,7 +39,7 @@
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
-import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
+import { conflict, databaseErrorCode, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
 import { maskRecipient } from '../lib/presenters.js'
 import {
@@ -173,13 +173,43 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
             now,
           }),
         )
-        .catch((error) => {
-          // The `CheckIn` unique index fired: somebody else admitted this
-          // ticket between the read and the write. Not an error to the person
-          // at the door — the ticket is in, which is what they wanted.
-          if (error?.code === 'P2002') return { admitted: false, checkIn: null }
+        .catch(async (error) => {
+          // Two ways the database refuses a racing scan, and both are ordinary
+          // at a door with a queue behind it:
+          //
+          //   - `P2002`, the `CheckIn` unique index: somebody else admitted
+          //     this ticket between the read and the write.
+          //   - `P0001`, `desi_check_in_ticket_admissible`: the ticket's status
+          //     moved between the read and the insert. The trigger is a BEFORE
+          //     INSERT, so it fires before the index does and this is the more
+          //     likely of the two.
+          //
+          // Neither is a 500. The load suite found the second one at a 1.7%
+          // error rate under sixteen concurrent scanners, which is a real
+          // failure at a real door and is exactly what that suite is for.
+          //
+          // What it becomes depends on what the ticket now *is*, re-read rather
+          // than assumed: already admitted is a duplicate and answers 200, and
+          // anything else is a refusal that the person scanning needs to see.
+          // Read from wherever Prisma put it. A trigger's `P0001` is nested
+          // under the driver adapter's cause and the outer code is Prisma's
+          // own — checking only the outer one is how this reached a door as a
+          // 500 in the first place.
+          const code = databaseErrorCode(error)
 
-          throw error
+          if (code !== 'P2002' && code !== 'P0001') throw error
+
+          const current = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+
+          if (current?.status !== TICKET_STATES.CHECKED_IN) {
+            throw conflict(
+              admissionRefusal(current ?? ticket, order) ??
+                'That ticket changed while it was being scanned. Scan it again.',
+              { status: current?.status ?? ticket.status },
+            )
+          }
+
+          return { admitted: false, checkIn: null }
         })
 
       const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
