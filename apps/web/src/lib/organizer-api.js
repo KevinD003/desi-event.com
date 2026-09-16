@@ -343,3 +343,15 @@ export async function getAnalytics(options) {
 
   return body.data
 }
+
+/**
+ * One reconciliation item, with everything a decision about it needs.
+ *
+ * @param {string} id Which item.
+ * @returns {Promise<object>} The task.
+ */
+export async function getReconciliationTask(id) {
+  const body = await callApi(`/v1/operations/reconciliation/${encodeURIComponent(id)}`)
+
+  return body.data
+}

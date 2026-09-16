@@ -162,7 +162,12 @@ export default async function OperationsPage() {
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-medium text-indigo-night-900">
-                      {task.kind.replace(/_/gu, ' ').toLowerCase()}
+                      <Link
+                        href={`/operations/reconciliation/${task.id}`}
+                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      >
+                        {task.kind.replace(/_/gu, ' ').toLowerCase()}
+                      </Link>
                       {task.orderReference ? (
                         <span className="ml-2 font-mono text-sm text-slate-600">
                           {task.orderReference}

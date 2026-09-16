@@ -192,9 +192,24 @@ const FORBIDDEN = [
       ['ticket transition table', 'TICKET_TRANSITIONS'],
       ['outbox transition table', 'OUTBOX_TRANSITIONS'],
       ['reconciliation transition table', 'TASK_TRANSITIONS'],
-      // The reconciliation verdict vocabulary is a server decision. A client
-      // that could name a verdict is a client that could propose one.
-      ['reconciliation verdicts', 'SETTLED_FROM_PROVIDER'],
+      // What the *evidence* is allowed to conclude, and how a conclusion maps
+      // to a closure. This is the server's decision procedure.
+      //
+      // The needle here used to be `SETTLED_FROM_PROVIDER`, on the reasoning
+      // that "a client that could name a verdict is a client that could propose
+      // one". That was pointing at the wrong string. `SETTLED_FROM_PROVIDER` is
+      // a member of `resolveReconciliationRequestSchema` — a *request* enum, in
+      // the published OpenAPI document — so an operator's screen has to name it
+      // in order to close anything, and naming it proposes nothing: the resolve
+      // route re-queries the provider and refuses any closure the answer does
+      // not support. The verdict vocabulary is published too, as a response
+      // field on the re-query route.
+      //
+      // What is genuinely server-only is the procedure: which verdict the
+      // evidence yields, and which closures each verdict permits. Those are the
+      // two names below, and neither appears in any schema.
+      ['reconciliation verdict mapping', 'RESOLUTIONS_FOR_VERDICT'],
+      ['reconciliation evidence comparison', 'compareEvidence'],
       // Credential derivation. The pass is derived from AUTH_SECRET; the
       // purpose string is half of what a forger would need to know.
       ['ticket credential purpose', 'ticket-pass-v1'],

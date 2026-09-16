@@ -546,6 +546,86 @@ describe('GET /v1/operations/reconciliation', () => {
   })
 })
 
+describe('GET /v1/operations/reconciliation/:id', () => {
+  it('lets an organisation read its own item without letting it act', async () => {
+    const { app, taskId } = await worldWithTimeout()
+    const headers = await asUser(app, OWNER)
+
+    const read = await app.inject({
+      method: 'GET',
+      url: `/v1/operations/reconciliation/${taskId}`,
+      headers,
+    })
+
+    // Reading is reasonable: it is their payment, and "why has this not
+    // settled" is their question. Every command is somebody else's.
+    expect(read.statusCode, read.body).toBe(200)
+
+    for (const path of ['claim', 'requery', 'resolve', 'escalate', 'notes']) {
+      const acted = await app.inject({
+        method: 'POST',
+        url: `/v1/operations/reconciliation/${taskId}/${path}`,
+        headers,
+        payload: { note: 'I would like this settled please.', resolution: 'ALREADY_CONSISTENT' },
+      })
+
+      expect(acted.statusCode, `${path} was not refused`).toBe(403)
+    }
+
+    await app.close()
+  })
+
+  it('answers a direct URL for another organisation the same way as for nothing at all', async () => {
+    const { app, taskId } = await worldWithTimeout()
+    const headers = await asUser(app, OUTSIDER)
+
+    const theirs = await app.inject({
+      method: 'GET',
+      url: `/v1/operations/reconciliation/${taskId}`,
+      headers,
+    })
+
+    const imaginary = await app.inject({
+      method: 'GET',
+      url: `/v1/operations/reconciliation/${cuid()}`,
+      headers,
+    })
+
+    // Different statuses are unavoidable — one row exists and one does not —
+    // but neither body may say which, or a list of guessed identifiers becomes
+    // a list of real ones.
+    expect([403, 404]).toContain(theirs.statusCode)
+    expect([403, 404]).toContain(imaginary.statusCode)
+    expect(theirs.body).not.toMatch(/DE-RECON1|Rangoli|PAYMENT_TIMEOUT/u)
+  })
+
+  it('names no buyer, no card and no provider payload', async () => {
+    const { app, taskId } = await worldWithTimeout({
+      task: {
+        providerState: {
+          status: 'succeeded',
+          receipt_email: 'priya@example.com',
+          charges: { data: [{ payment_method_details: { card: { last4: '4242' } } }] },
+        },
+      },
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/operations/reconciliation/${taskId}`,
+      headers: await asUser(app, OPERATOR),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    for (const needle of ['priya', '4242', 'receipt_email', 'payment_method', 'cvc']) {
+      expect(response.body.toLowerCase()).not.toContain(needle.toLowerCase())
+    }
+
+    await app.close()
+  })
+})
+
 describe('POST /v1/operations/reconciliation/:id/requery', () => {
   it('asks the provider and returns a verdict without changing anything', async () => {
     const { app, taskId } = await worldWithTimeout()
