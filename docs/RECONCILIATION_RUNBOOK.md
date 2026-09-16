@@ -40,6 +40,28 @@ diluting it with advisories is how a queue stops being read.
 
 ## Working an item
 
+Start at `/operations`, which lists what is unresolved, oldest first. Each entry
+links to `/operations/reconciliation/:id`, which shows **both sides of the
+evidence side by side** — what this system believed when the problem happened,
+and what the provider last said — because the decision is made by comparing
+them and a screen showing one would be asking somebody to decide with half of
+it. Each side is a table with a row header per field, so a screen reader
+announces "status — succeeded" against "status — requires_payment" rather than
+leaving the listener to hold both in their head.
+
+Neither side is a provider payload. Both are projected onto a reviewed key list
+before they leave the server, and an allowed key holding an object is dropped
+too — an operations screen gets read on a shared desk, and `status` on more
+than one provider can hold a whole charge.
+
+**The screen draws only the commands the item's state allows**, and that is not
+the authorisation: an action not offered is refused by the API as well, and an
+organiser's finance user — who may _read_ their own organisation's item,
+because "why has this not settled" is their question — is refused all five
+commands. A test issues each of the five as that person and asserts the refusal.
+
+The five, and what each does:
+
 1. **Claim it.** `POST /v1/operations/reconciliation/:id/claim` moves `OPEN` to
    `IN_PROGRESS` under a conditional `UPDATE`. If somebody else got there first
    you are told so rather than both doing the work.
@@ -164,9 +186,11 @@ this repository has ever queried Stripe.
 
 ## Where to look
 
-| Question                       | File                                    |
-| ------------------------------ | --------------------------------------- |
-| What does a verdict mean?      | `apps/api/src/lib/reconciliation.js`    |
-| Which resolution may I record? | `apps/api/src/routes/reconciliation.js` |
-| What opened this task?         | `apps/api/src/lib/webhook-handlers.js`  |
-| What did the operator do?      | The `AuditLog` rows for the task's id   |
+| Question                       | File                                                                 |
+| ------------------------------ | -------------------------------------------------------------------- |
+| What does a verdict mean?      | `apps/api/src/lib/reconciliation.js`                                 |
+| Which resolution may I record? | `apps/api/src/routes/reconciliation.js`                              |
+| What opened this task?         | `apps/api/src/lib/webhook-handlers.js`                               |
+| What did the operator do?      | The `AuditLog` rows for the task's id                                |
+| What does the screen show?     | `apps/web/src/app/operations/reconciliation/[id]/page.jsx`           |
+| What may the evidence carry?   | `RECONCILIATION_EVIDENCE_KEYS` in `packages/schemas/src/entities.js` |

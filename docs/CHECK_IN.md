@@ -129,10 +129,38 @@ credential at version one.
 
 A transfer is offered to an **email address**, never a user id: the recipient may
 not have an account yet, and letting a sender name an account would let them
-push a ticket at somebody who never asked for one. The invitation token goes
-into the link once; the database holds only its digest, and no response ever
+push a ticket at somebody who never asked for one. The invitation token is
+delivered out of band; the database holds only its digest, and no response ever
 echoes it — a bearer secret in a response is a bearer secret in a browser cache,
 a proxy log and a screenshot.
+
+**It is not in a link either.** `/tickets/accept` takes the code as a pasted
+value in a password field and sends it in a request body; the route reads no
+query parameter that could carry one. A link with the secret in it would leave
+that secret in the browser's history, in the next request's `Referer`, in every
+proxy along the way, and in any screenshot of the address bar — and it would
+still be there long after the invitation was spent. Every refusal of an
+invitation reads identically, whether it expired, was withdrawn, was already
+used or never existed; telling them apart tells whoever is feeding in guesses
+which of their guesses was real.
+
+### The screens
+
+`/tickets` lists what an account holds. `/tickets/:id` shows one ticket, its
+event and every transfer it has been through, and says **Admits** or **Does not
+admit** in words before any colour says it. Recipient addresses are masked to
+`p****a@example.com`: enough for the sender to recognise who they offered it to,
+not enough for anybody to collect them.
+
+**No screen renders a pass.** A pass on a page is a pass in a screenshot, and a
+screenshot of a QR code is a ticket. `GET /v1/tickets/:id` carries no
+credential, no digest and no token, and a browser case asserts the markup
+contains none of the three names they go by.
+
+The same screen serves two readers, and the API branches on which: the person
+holding the ticket asks whether it still gets them in, the organiser asks
+whether it still should. Anybody else gets what somebody guessing identifiers
+gets.
 
 Offers lapse after **72 hours** (`TRANSFER_TTL_HOURS`). A lapsed offer returns
 the ticket to `VALID`; accepting one is refused with `transferExpired`.

@@ -5,6 +5,12 @@
 > its account is in `PHASE2_STATUS.md` §§2, 9 and 10.
 > `PHASE2_STATUS.md` is the authoritative current record and is where the
 > numbers below should be read against.
+>
+> **HISTORICAL STATUS — SUPERSEDED where it reports gate status.** Two cycles
+> have run since: `cfb654c`…`910538b` (the commerce services) and
+> `66495c0`…`c5e98da` (the closeout). Nineteen of the twenty gates are now
+> `MET`; the "fourteen remain unmet or partial" below was true when written and
+> is not true now. **Nothing has been rewritten.**
 
 **Status: `PARTIAL`.** Phase 2 is not complete and this report does not claim
 it is. Fourteen of the twenty completion gates remain unmet or partial, §9 lists

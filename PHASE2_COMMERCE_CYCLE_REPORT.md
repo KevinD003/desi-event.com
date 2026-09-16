@@ -4,6 +4,14 @@
 what was true when it was written. The current status of Phase 2 is
 `PHASE2_STATUS.md`, and where the two disagree that one is right.
 
+> **HISTORICAL STATUS — SUPERSEDED where it reports gate status.** A later cycle
+> (`66495c0`…`c5e98da`) closed gates 13 and 14, and produced the first CI runs.
+> Every "seventeen met, three partial" and every "the workflow has never run" in
+> this report was true at `910538b` and is not true now;
+> `PHASE2_FINAL_CLOSEOUT_REPORT.md` is that cycle's account and
+> `PHASE2_STATUS.md` is the current record. **Nothing below has been rewritten**
+> — a report that quietly revises what it said last time is not a record.
+
 Nothing in the earlier cycle reports has been rewritten. This is a new account
 alongside them.
 

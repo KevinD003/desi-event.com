@@ -203,7 +203,13 @@ keys, and a generated route manifest carrying a path, a method and two booleans
 browser-deliverable artefact.
 
 **The rule when it fires:** remove the browser's dependency on the thing. Never
-delete the needle.
+delete the needle — with one qualification the closeout cycle earned twice. A
+needle may be _retargeted_ when it cannot express its property: two of them
+named strings that are members of published **request** schemas, which a screen
+issuing that command must name, and a string scan cannot tell that from the
+stored value coming back. Both were replaced with names that appear in no
+schema, and the reasoning is written beside them in the scan script. Neither was
+removed to obtain a green run, and the distinction is the whole of the rule.
 
 ---
 
@@ -283,15 +289,19 @@ Named rather than omitted:
 The controls above are not hypothetical; several exist because something got
 through:
 
-| Finding | What it was                                                    |
-| ------- | -------------------------------------------------------------- |
-| NF-04   | An `OrderItem` could reference another event's `TicketType`    |
-| NF-05   | An organisation capability asserted without an organisation    |
-| NF-10   | A session outliving the privilege it was granted under         |
-| NF-11   | A step-up window the request could influence                   |
-| NF-12   | A privileged route reachable with no second factor             |
-| NF-23   | A browser artefact describing the server's entities            |
-| —       | A check-in race that became a 500 at the door (1.7% of scans)  |
-| —       | A duplicate webhook that became a 500 (9 per 10-second window) |
-| —       | An attendance row that could outlive its rollback              |
-| —       | A client-supplied string arriving in a foreign-key column      |
+| Finding | What it was                                                                               |
+| ------- | ----------------------------------------------------------------------------------------- |
+| NF-04   | An `OrderItem` could reference another event's `TicketType`                               |
+| NF-05   | An organisation capability asserted without an organisation                               |
+| NF-10   | A session outliving the privilege it was granted under                                    |
+| NF-11   | A step-up window the request could influence                                              |
+| NF-12   | A privileged route reachable with no second factor                                        |
+| NF-23   | A browser artefact describing the server's entities                                       |
+| —       | A check-in race that became a 500 at the door (1.7% of scans)                             |
+| —       | A duplicate webhook that became a 500 (9 per 10-second window)                            |
+| —       | An attendance row that could outlive its rollback                                         |
+| —       | A client-supplied string arriving in a foreign-key column                                 |
+| —       | Reconciliation evidence with no allow list, so a raw provider object would have shipped   |
+| —       | Sales breakdowns carrying money past the check that withheld the totals                   |
+| —       | A refund payload that never said whose refund it was, so every caller had to ask unscoped |
+| —       | An analytics screen substituting your own organisation for the one the URL named          |

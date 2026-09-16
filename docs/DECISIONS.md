@@ -65,23 +65,28 @@ Not everything deserves an ADR. These are settled decisions whose reasoning is
 written at the point it matters, where somebody changing the behaviour will
 actually read it:
 
-| Decision                                                               | Where the reasoning is                   |
-| ---------------------------------------------------------------------- | ---------------------------------------- |
-| Production payments refuse the boot rather than being disabled         | `packages/providers/src/payment-mode.js` |
-| A provider is never called inside a database transaction               | `apps/api/src/lib/checkout.js`           |
-| Timeout is its own state, never failure                                | `apps/api/src/lib/reconciliation.js`     |
-| Conditional `UPDATE` + affected-row count as the concurrency primitive | `apps/api/src/lib/inventory.js`          |
-| An operator never edits a payment or an order                          | `apps/api/src/routes/reconciliation.js`  |
-| Money is derived from the ledger, never from order summaries           | `apps/api/src/lib/finance-reporting.js`  |
-| Reversal posts compensating entries; it never edits history            | `packages/ledger/src/batches.js`         |
-| A route cannot exist without being in the published contract           | `apps/api/src/lib/register.js`           |
-| The response schema is an allow list                                   | `apps/api/src/lib/validation.js`         |
-| A ticket credential is derived, never stored                           | `apps/api/src/lib/ticket-credentials.js` |
-| `CHECKED_IN` is terminal                                               | `apps/api/src/lib/tickets.js`            |
-| Step-up windows are server-owned named policies                        | `packages/auth/src/sessions.js`          |
-| scrypt rather than bcrypt                                              | `packages/auth/src/password.js`          |
-| Spreadsheet-injection escaping never strips a value                    | `apps/api/src/lib/csv.js`                |
-| Latency budgets scale with a profile; correctness does not             | `scripts/load/config.js`                 |
+| Decision                                                                | Where the reasoning is                                |
+| ----------------------------------------------------------------------- | ----------------------------------------------------- |
+| Production payments refuse the boot rather than being disabled          | `packages/providers/src/payment-mode.js`              |
+| A provider is never called inside a database transaction                | `apps/api/src/lib/checkout.js`                        |
+| Timeout is its own state, never failure                                 | `apps/api/src/lib/reconciliation.js`                  |
+| Conditional `UPDATE` + affected-row count as the concurrency primitive  | `apps/api/src/lib/inventory.js`                       |
+| An operator never edits a payment or an order                           | `apps/api/src/routes/reconciliation.js`               |
+| Money is derived from the ledger, never from order summaries            | `apps/api/src/lib/finance-reporting.js`               |
+| Reversal posts compensating entries; it never edits history             | `packages/ledger/src/batches.js`                      |
+| A route cannot exist without being in the published contract            | `apps/api/src/lib/register.js`                        |
+| The response schema is an allow list                                    | `apps/api/src/lib/validation.js`                      |
+| A ticket credential is derived, never stored                            | `apps/api/src/lib/ticket-credentials.js`              |
+| `CHECKED_IN` is terminal                                                | `apps/api/src/lib/tickets.js`                         |
+| Step-up windows are server-owned named policies                         | `packages/auth/src/sessions.js`                       |
+| scrypt rather than bcrypt                                               | `packages/auth/src/password.js`                       |
+| Spreadsheet-injection escaping never strips a value                     | `apps/api/src/lib/csv.js`                             |
+| Latency budgets scale with a profile; correctness does not              | `scripts/load/config.js`                              |
+| A step-up gate refuses a request; a step-up _branch_ withholds a figure | `apps/api/src/routes/analytics.js`                    |
+| Reconciliation evidence is projected onto a reviewed key list           | `apps/api/src/lib/presenters.js`                      |
+| A metric this system does not record is named, never estimated          | `apps/api/src/lib/analytics.js`                       |
+| An invitation secret is pasted, never carried in a URL                  | `apps/web/src/components/ticket-transfer-actions.jsx` |
+| A refusal says the same words whether the thing exists or not           | `apps/web/src/components/page-state.jsx`              |
 
 Each of those is a module-level comment answering _why_, not a line comment
 restating _what_.
@@ -107,6 +112,23 @@ Stripe's page to show.
 caught constraint violation. The comment above the old code claimed replay was
 "safe rather than merely unlikely", and it was not — nine 500s per ten-second
 window under duplicate delivery, found by the load suite.
+
+**A route-level step-up on the analytics routes.** It was the obvious reading of
+"financial reads need a recent second factor", and it refused every VIEWER and
+door steward — roles this system does not compel to enrol one — from reading an
+attendance figure, in order to protect a ledger total they were never going to
+be sent. Reversed to a branch-level check from the same server-held table: the
+money is withheld, the page is not. The reversal is worth recording because the
+original was not careless; it was a control applied one level too coarse.
+
+**Falling back to your own organisation when the URL named another.** The first
+draft of the analytics screen substituted `organizations[0]` for an
+`organizationId` the caller could not view. No data leaked — the server scoped
+to the membership actually held — but the address said one organisation and the
+page showed another's figures with nothing saying so, and on a money screen that
+is how somebody bookmarks, shares or screenshots a number attributed to the
+wrong organisation. Reversed to a refusal in the same words the screen uses for
+an identifier nobody has ever had.
 
 ---
 

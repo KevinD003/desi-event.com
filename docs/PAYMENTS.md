@@ -99,7 +99,10 @@ and payouts — a refund receipt especially, because it is the artefact somebody
 is most likely to be shown as proof that money came back.
 
 The finance screens repeat it above the figures rather than below them, and the
-CSV export carries it on its first row.
+CSV export carries it on its first row. So does the analytics screen, and so
+does its export — whose first three rows say the payment mode, the time zone,
+and whether money was included at all and why not. A figure a reader cannot
+attribute is a figure they will attribute wrongly.
 
 ### What the mock models, and why each
 

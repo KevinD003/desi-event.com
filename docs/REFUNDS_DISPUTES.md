@@ -101,6 +101,34 @@ Every refund route requires MFA. Reading one needs a `FINANCE_VIEW` step-up
 `FINANCE_ACTION` (five minutes). The windows are named server policies — a route
 never names a number.
 
+### The screen
+
+`/finance/refunds/:id`, reached from the queue on `/operations`. It shows what
+goes back and how it divides across face value, fee and tax; which order lines
+it came from; why; whether the tickets are revoked and the inventory returned;
+the provider's reference if there is one; and how many times it has been tried.
+
+**The amount is not a field on it.** It was computed from the order's own lines
+when the refund was requested, and the database will not accept a refund that
+takes an order past what it was paid. A screen that could propose a figure is a
+screen where "the browser said 90,000" decides how much of somebody's money goes
+back, and no amount of validation makes that safe. A test asserts the request
+body contains no `amountCents`.
+
+**No card number, no CVC, no expiry, no token, and nothing that asks for one.**
+Giving money back uses the payment this system already holds a reference to. A
+refund screen with a card field would be a phishing page with a legitimate URL,
+and the developer having meant well would not help whoever typed into it. A
+browser case reads the whole rendered page and asserts none of those words
+appear, and that no input on it would accept a number.
+
+What is drawn depends on the refund's state and on what the account holds —
+neither of which is the authorisation. Sending is not offered on a refund nobody
+has approved; cancelling is not offered on one already sent, because by then the
+question is what the provider did rather than what we intended. Separation of
+duties is not worked out on the page: the command goes, and the refusal comes
+back with its own code and is repeated rather than routed around.
+
 ---
 
 ## What happens to the seats

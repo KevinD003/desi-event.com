@@ -219,7 +219,7 @@ rather than per cluster.
 
 ## Endpoints
 
-**115 operations across 17 tags.** This page describes the ones whose behaviour
+**118 operations across 18 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -228,14 +228,14 @@ validates with, and CI fails on a difference.
 | Tag            | Ops | Tag          | Ops |
 | -------------- | --- | ------------ | --- |
 | `events`       | 23  | `finance`    | 10  |
-| `auth`         | 18  | `refunds`    | 7   |
-| `venues`       | 12  | `tickets`    | 7   |
+| `auth`         | 18  | `tickets`    | 8   |
+| `venues`       | 12  | `refunds`    | 7   |
 | `operations`   | 11  | `teams`      | 6   |
 | `ticket-types` | 5   | `organizers` | 4   |
 | `orders`       | 3   | `holds`      | 2   |
 | `sessions`     | 2   | `webhooks`   | 2   |
-| `payments`     | 1   | `waitlist`   | 1   |
-| `health`       | 1   |              |     |
+| `analytics`    | 2   | `payments`   | 1   |
+| `health`       | 1   | `waitlist`   | 1   |
 
 `Auth` is the mode described above.
 
@@ -256,7 +256,50 @@ the check inverts into a platform check (see `docs/SECURITY.md`, NF-05).
 
 **A step-up window is a named server policy.** A route names
 `FINANCE_ACTION`, never a number of minutes. A test asserts every named policy
-exists and that every route tagged `finance` or `refunds` has one.
+exists and that every route tagged `analytics`, `finance` or `refunds` has one —
+or, for the two analytics routes, that the _branch_ carrying money applies the
+same window from the same table. That exemption is on a list and the test beside
+it proves the branch is gated; an exemption without such a test would be a hole
+rather than a design.
+
+### Analytics
+
+| Method | Path                       | Auth    | Purpose                                                      |
+| ------ | -------------------------- | ------- | ------------------------------------------------------------ |
+| GET    | `/v1/analytics/summary`    | session | Money, inventory, attendance and operations, in one call     |
+| GET    | `/v1/analytics/export.csv` | session | The same figures as a spreadsheet, under a column allow list |
+
+**`organizationId` is required, not optional.** There is no platform-wide
+analytics view, and an optional organisation is how an organisation capability
+quietly becomes a platform one.
+
+**Two capabilities, one route.** `report:view` reaches every organisation role
+from VIEWER upward and gets the counts. The ledger figures are **omitted from
+the payload** unless the caller also holds `finance:view` _and_ has confirmed a
+second factor within the `FINANCE_VIEW` window. Not hidden by the screen: a page
+that rendered them behind a conditional would still have been sent them.
+`moneyWithheld` says which of the two was missing — `CAPABILITY` is permanent,
+`STEP_UP` is something the reader can fix — and the sales breakdowns lose their
+value columns along with the totals, because a table headed "sales by event" is
+the quiet way money escapes a permission check.
+
+**Money comes from the ledger**, through the same `financeSummary` the finance
+screen uses, so the two surfaces cannot disagree. Everything else is counted
+from the rows that are the fact. `lineValueCents` is called that rather than
+"revenue" because an order line's value is what it was priced at, and what the
+organisation keeps is a different figure computed a different way.
+
+**The conversion funnel is not invented.** Nothing here records a page view, so
+the step everybody means by "conversion" does not exist as data. Three real
+counts are reported — holds taken, orders created, orders paid — and
+`funnel.missing` names what cannot be counted.
+
+**The export's columns are an allow list**, written out rather than derived from
+the payload's keys: no buyer, no email, no address, no card, no provider
+reference. Counts go in `quantity` and money in `amountCents`, never the same
+column, so no spreadsheet sums two hundred tickets and two hundred rupees. Every
+cell that could begin `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed
+with an apostrophe.
 
 ### Health
 
@@ -372,6 +415,7 @@ placed under.
 | ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
 | POST   | `/v1/tickets/check-in`             | bearer | Scan a ticket at the door. Requires `ticket:check_in`                                     |
 | GET    | `/v1/tickets`                      | bearer | The caller's own tickets                                                                  |
+| GET    | `/v1/tickets/:id`                  | bearer | One ticket, its event, and every transfer it has been through                             |
 | POST   | `/v1/tickets/:id/transfers`        | bearer | Offer a ticket to an email address                                                        |
 | POST   | `/v1/ticket-transfers/accept`      | bearer | Accept an offer, by its one-time token                                                    |
 | POST   | `/v1/ticket-transfers/decline`     | bearer | Decline an offer                                                                          |
@@ -392,7 +436,20 @@ redundant.
 
 **A transfer is an invitation, not a handover.** Offering does not move the
 ticket; the current holder can still walk in. Offers lapse after 72 hours. The
-one-time token appears in the invitation link and **never in a response**.
+one-time token is delivered out of band and **never appears in a response** —
+the database holds only its digest, and the screen that accepts it takes it as a
+pasted value in a request body rather than as a query parameter, because a
+secret in a URL survives in a history, a `Referer` and a proxy log long after it
+is spent.
+
+**`GET /v1/tickets/:id` has two readers and branches in the handler.** The
+person holding the ticket asks whether it still gets them in; the organiser asks
+whether it still should. So there is no single capability to declare: the holder
+may read it, and so may anybody holding `ticket:revoke` in the organisation
+whose event it is. Anybody else gets what somebody guessing identifiers gets.
+The payload carries no pass, no token and no credential digest, and recipient
+addresses come back masked to `p****a@example.com` — enough for the sender to
+recognise, not enough for anybody to harvest.
 
 Full reasoning: `docs/CHECK_IN.md`.
 

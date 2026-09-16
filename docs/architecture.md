@@ -474,7 +474,20 @@ success gives away things nobody paid for.
 checkout and never corrected; summing it produces a number that looks like
 revenue and is not one. Every figure on the finance surface comes from
 `LedgerEntry`, and the finance screen shows the ledger's own integrity check
-_above_ the totals.
+_above_ the totals. The analytics surface calls the _same_ `financeSummary`
+rather than deriving its own, so two screens cannot come to two different
+answers about what an organisation is owed — two derivations of one question
+eventually disagree, and the disagreement surfaces as a support ticket rather
+than as a test failure.
+
+**Counts and money are different measurements and stay in different branches.**
+`analytics.js` counts tickets from `Ticket`, seats from `EventSeat`, admissions
+from `CheckIn` and remaining stock from the same counter the selling path
+guards. None of those is money, and the field carrying what an order line was
+priced at is called `lineValueCents` rather than "revenue" for exactly that
+reason: "tickets sold × face value" is not what the organisation keeps, and a
+screen printing the two side by side invites somebody to reconcile two different
+measurements.
 
 The individual documents are `docs/PAYMENTS.md`, `docs/FINANCIAL_LEDGER.md`,
 `docs/REFUNDS_DISPUTES.md`, `docs/STRIPE_CONNECT.md` and

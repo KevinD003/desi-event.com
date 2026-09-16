@@ -19,13 +19,20 @@ separately here, on purpose.
 | Moderation queue       | `/moderation/events`                                |
 | Finance overview       | `/finance`                                          |
 | Operations board       | `/operations`                                       |
+| Organiser analytics    | `/analytics`                                        |
+| Reconciliation item    | `/operations/reconciliation/[id]`                   |
+| Refund                 | `/finance/refunds/[id]`                             |
+| My tickets             | `/tickets`                                          |
+| One ticket             | `/tickets/[id]`                                     |
+| Accept an invitation   | `/tickets/accept`                                   |
 | Organiser profile      | `/organizers/[slug]`                                |
 | Venue page             | `/venues/[slug]`                                    |
 
-**Refunds, reconciliation detail and ticket transfer are API-only in this
-cycle.** There is no screen for them, they are exercised by request-level
-suites, and no document here describes a page for them. Listing a surface that
-does not exist is how a coverage claim becomes untrue.
+The last revision of this document said refunds, reconciliation detail and
+ticket transfer were API-only and that no page for them existed. **All three
+exist now**, along with organiser analytics and an invitation screen, and each
+is in the sweep. The sentence stayed accurate for exactly as long as it was
+true, which is the property that matters more than which way it reads.
 
 ---
 
@@ -42,7 +49,29 @@ totals, not in a footnote. A batch that does not add up is a reason to stop
 reading the totals, not an annotation on them.
 
 **Colour is never the only carrier.** The ageing badge on the operations board
-reads `OVERDUE` as a word as well as in red. A status is a word.
+reads `OVERDUE` as a word as well as in red. A status is a word. A ticket says
+**Admits** or **Does not admit** in bold before the colour of its panel says
+anything; an oversold tier says `Oversold — investigate` rather than turning
+amber.
+
+**An absence explains which kind of absence it is.** "No refunds yet" and "the
+refund service is down" look identical if both render as a blank area, and only
+one of them is a reason to telephone somebody. The five states every
+authenticated screen can be in — loading, empty, failed, forbidden, stale — are
+written once, in `components/page-state.jsx`, so that four surfaces cannot drift
+into four different vocabularies for the same five facts.
+
+**A refusal says nothing about what it is refusing.** Asking for another
+organisation's refund and asking for an identifier nobody has ever used produce
+the same words. A refusal that distinguished them would be an enumeration
+oracle: feed in a thousand identifiers, keep the ones that come back "not
+yours".
+
+**A secret is never in a web address.** The invitation that transfers a ticket
+is typed into a password field and sent in a request body. A link carrying it
+would leave it in the browser's history, in the next request's `Referer`, in
+every proxy log along the way, and in any screenshot of the address bar — and
+it would still be there after the invitation was spent.
 
 **Nothing is measured in "tests".** Unit tests and browser journeys are
 different evidence and are counted separately everywhere in this repository.
@@ -55,29 +84,49 @@ different evidence and are counted separately everywhere in this repository.
 rules**. There is no exclusion list; the only selector exclusion is Next's own
 development overlay, which is not the site's markup and is not shipped.
 
-Where the scanner found something, the component was fixed. Two real failures
-came out of the Phase 2 markup:
+Where the scanner found something, the component was fixed. Three real failures
+have come out of this markup, and the third is the interesting one:
 
 - a definition list whose hint text sat outside its `<dd>`;
 - a scrollable region that could not be reached by keyboard
   (`scrollable-region-focusable`), fixed with `tabIndex={0}` and a
-  `role="region"` with an accessible name.
+  `role="region"` with an accessible name;
+- **the same definition-list mistake again**, on the reconciliation detail
+  screen's "Where it stands" list, where each entry wrapped `dt`, `dd` **and an
+  explanatory `p`** in one `div`. A `div` inside a `dl` is allowed; a `p` as a
+  third sibling is not, and a screen reader walking the list gets three
+  unassociated paragraphs where it should get three definitions. Made twice
+  means it is a pattern rather than a slip, so the comment explaining it now
+  sits on both components.
 
-### The sweep: 22 browser cases
+### The sweep: 42 browser cases
 
 `apps/web/e2e/accessibility-sweep.spec.js`, run under
 `playwright.sweep.config.js`:
 
-- **Five screens × three viewports = 15 clean scans.** The organiser event
-  list, the seven-step editor, the public event page, the finance overview and
-  the operations board, at **320**, **768** and **1280** CSS pixels.
-- Reflow at **200% zoom** with no sideways scrolling.
-- Nothing left permanently invisible under `prefers-reduced-motion`.
-- The editor reachable and operable **by keyboard alone**.
+- **Ten screens × three viewports = 30 clean scans.** The organiser event list,
+  the seven-step editor, the public event page, the finance overview, the
+  operations board, organiser analytics, the reconciliation detail screen, the
+  refund detail screen, the ticket detail screen and the invitation screen, at
+  **320**, **768** and **1280** CSS pixels.
+- Reflow at **200% zoom** with no sideways scrolling — the editor, and the four
+  detail screens together.
+- Nothing left permanently invisible under `prefers-reduced-motion`, on the
+  organiser list and on the refund screen.
+- The editor reachable and operable **by keyboard alone**, and a reconciliation
+  item likewise, reaching its skip link first.
 - A visible focus indicator on **every** focusable control.
 - The moderation queue and decision screen scanned.
 - Touch targets large enough to hit.
 - The finance screen stating what produced its figures before any of them.
+- The invitation code typed in without ever entering the address bar.
+- The refund screen mentioning no card and holding no field that could take one.
+
+**Every new screen is scanned with real rows behind it** — a paid order with
+two tickets, a refund with lines and an allocation, a reconciliation item with
+both sides of its evidence, a ledger batch that balances. A screen rendered from
+a static array proves that the markup compiles, which is a different and much
+weaker claim.
 
 **320, not 360.** WCAG 1.4.10 names 320 CSS pixels as the reflow width, and a
 layout that only works at 360 fails the criterion for anybody on a small phone
@@ -85,33 +134,45 @@ or a zoomed desktop.
 
 ### Covered, and not
 
-Covered: every Phase 2 screen that exists, in the list above.
+Covered: every Phase 2 screen that exists, in the list above — all ten of them.
 
-Not covered, because no such screen exists: a reconciliation detail page, a
-refund decision page, a ticket transfer page. Naming them as swept would report
-a coverage this suite does not have.
+Not covered, because no such screen exists: Connect onboarding, and a data
+erasure request. Both are recorded as unbuilt in `PHASE2_STATUS.md` §10 and in
+`docs/STRIPE_CONNECT.md`. Naming a surface as swept would report a coverage this
+suite does not have, which is the same reason the three rows that used to be
+here are now in the table above instead.
 
 ---
 
 ## Browser journeys, counted honestly
 
-Five Playwright configurations, because they need different fixtures and
+Seven Playwright configurations, because they need different fixtures and
 different servers. Case counts are from `--list`:
 
 | Configuration                     | Cases   | What it covers                                                                                     |
 | --------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
 | `playwright.config.js` (default)  | 118     | Public catalogue, event, venue, checkout, filters, focus, reduced motion, structural accessibility |
+| `playwright.sweep.config.js`      | 42      | The responsive and accessibility sweep                                                             |
+| `playwright.detail.config.js`     | 26      | The four detail surfaces, as behaviour rather than as markup                                       |
 | `playwright.events.config.js`     | 20      | The event lifecycle end to end                                                                     |
-| `playwright.sweep.config.js`      | 22      | The responsive and accessibility sweep                                                             |
-| `playwright.organizer.config.js`  | 13      | Venue maps and versions                                                                            |
 | `playwright.production.config.js` | 19      | Not-found behaviour in a production build                                                          |
+| `playwright.organizer.config.js`  | 13      | Venue maps and versions                                                                            |
 | `playwright.refusals.config.js`   | 4       | Four product refusals (below)                                                                      |
-| **Total**                         | **196** |                                                                                                    |
+| **Total**                         | **242** |                                                                                                    |
 
-**196 browser cases is not "196 of the required journeys".** Passing a number of
+**242 browser cases is not "242 of the required journeys".** Passing a number of
 Playwright cases is not the same as passing a specific list of required
 journeys, and this document does not use the first as evidence for the second.
 The per-journey status lives in `PHASE2_STATUS.md` and nowhere else.
+
+The detail configuration runs four specs that are also separately runnable —
+`test:e2e:analytics`, `test:e2e:reconciliation`, `test:e2e:refunds`,
+`test:e2e:transfers` — under one pair of servers, because four configurations
+would be four API processes and four Next servers on a two-core CI runner. It
+seeds once and signs in once for the whole run: the first draft signed in eight
+times inside a minute and the credential limiter refused the last of them,
+correctly, and the right answer to being refused by a security control is to
+stop doing the thing rather than to widen the control.
 
 ### The four refusals, in a browser
 

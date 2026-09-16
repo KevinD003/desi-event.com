@@ -253,9 +253,26 @@ Concurrency is proved rather than asserted: `pnpm db:verify:fresh` migrates a
 disposable database and runs every race suite against real PostgreSQL, and CI
 runs a reliability smoke test on every push.
 
+A suite that runs nothing fails. `scripts/check-skipped-tests.mjs` refuses an
+undeclared skipped test _and_ a report containing zero cases — a test command
+that matches no files prints a green summary and exits zero, and a required
+check that can pass by running nothing eventually will.
+
+**The current figures**, from the cold verification at `c5e98da`: **4,633** unit
+and integration cases across 173 files, and **242** browser cases across seven
+Playwright configurations. They are never added together.
+
 ## Documentation
 
 Start with the one that matches what you are doing.
+
+### Where the project stands
+
+| Document                                                                   | Contents                                                         |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                       | **Authoritative current status**: the twenty gates, in one table |
+| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)         | The closeout cycle, its verification, and the one thing left     |
+| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md) | Requirement → implementation → evidence, row by row              |
 
 ### The system
 
@@ -290,9 +307,9 @@ Start with the one that matches what you are doing.
 
 ### Working here
 
-| Document                                               | Contents                                                                |
-| ------------------------------------------------------ | ----------------------------------------------------------------------- |
-| [docs/development.md](docs/development.md)             | Day-to-day workflow: services, env vars, migrations, debugging, testing |
-| [docs/language-policy.md](docs/language-policy.md)     | The JavaScript-only policy and the exception process                    |
-| [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | What CI enforces, and what needs external verification                  |
-| [CONTRIBUTING.md](CONTRIBUTING.md)                     | Branches, commits, the verify gate, definition of done                  |
+| Document                                               | Contents                                                                            |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| [docs/development.md](docs/development.md)             | Day-to-day workflow: services, env vars, migrations, debugging, testing             |
+| [docs/language-policy.md](docs/language-policy.md)     | The JavaScript-only policy and the exception process                                |
+| [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md) | What CI enforces, the run that proves it, and the one setting nobody here can apply |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                     | Branches, commits, the verify gate, definition of done                              |

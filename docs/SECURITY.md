@@ -76,9 +76,25 @@ without telling anybody.
 
 **Windows are not client-supplied.** Finding NF-11 was a step-up age the request
 could influence. `security-regression.test.js` asserts every `route.stepUp` names
-a policy that exists, and that every route tagged `finance` or `refunds` has
-one — with exactly two exemptions, both provider callbacks, which are
-authenticated by signature and have nobody to challenge.
+a policy that exists, and that every route tagged `analytics`, `finance` or
+`refunds` has one — with exactly four exemptions.
+
+Two are provider callbacks, authenticated by signature, with nobody to
+challenge. The other two are the analytics routes, and they are the more
+interesting case: **a route-level step-up is a gate, and a gate was the wrong
+shape here.** The guard runs before the handler and refuses the whole request,
+which meant refusing every VIEWER and door steward — roles this system does not
+compel to enrol a second factor — in order to protect a ledger total they were
+never going to be sent. The count tier was unreachable in practice.
+
+So the window is applied to the _branch_ that needs it, from the same
+`STEP_UP_POLICIES` table the route guard reads. The property NF-11 is about is
+unchanged: the window is the server's, the browser cannot see it and cannot ask
+for a longer one. What changes is the consequence of failing it — the money is
+withheld rather than the page refused, and `moneyWithheld` distinguishes
+`CAPABILITY` (permanent) from `STEP_UP` (temporary). A test beside the exemption
+proves the branch is gated; an exemption without such a test would be a hole
+rather than a design.
 
 ---
 
@@ -145,6 +161,42 @@ artefact, looking for server contract that leaked into it. When a scan has
 fired, the fix has been to remove the browser's dependency on the thing — not to
 delete the needle.
 
+Twice, though, the needle itself was wrong, and both are recorded rather than
+quietly deleted:
+
+- `SETTLED_FROM_PROVIDER` stood for "the reconciliation verdict vocabulary". It
+  is a member of `resolveReconciliationRequestSchema`, a **request** enum
+  published in `openapi.json`, so a screen that closes an item has to name it —
+  and naming it proposes nothing, because the resolve route re-queries the
+  provider and refuses any closure the answer does not support. Retargeted at
+  `RESOLUTIONS_FOR_VERDICT` and `compareEvidence`, which appear in no schema.
+- `toEmail` stood for "the unmasked recipient of a transfer". It is a field in
+  `startTicketTransferRequestSchema`, so a screen that offers a ticket must name
+  it in a request body, and a string scan cannot tell that from the stored
+  address coming back. Retargeted at `maskRecipient`: if the masking function
+  ever reached the browser, the raw address must have reached it first. The
+  masked value is asserted at runtime instead, where a value can be read.
+
+The rule that survives both: **a needle is removed only when it cannot express
+its property, and only with a replacement that can.** Neither was deleted to
+obtain a green run.
+
+Fourteen needles were added for the surfaces built in the closeout cycle: the
+analytics derivations and export allow list, the reconciliation evidence allow
+list and its projection, the refund allocator and state table, and every name
+ticket credential material goes by — `credentialHash`, `credentialVersion`,
+`mintTransferToken`, `tokenHash`.
+
+**Reconciliation evidence is projected onto a reviewed key list.** `localState`
+and `providerState` used to be `z.unknown()`, so the serialiser stripped nothing
+inside them and the presenter passed both through. Every writer happened to
+store a small summary; that was a habit rather than a guarantee, and one writer
+replacing it with a provider's raw object would have put a card's last four
+digits and a billing email onto a screen read on a shared desk. `toEvidence`
+now drops keys off `RECONCILIATION_EVIDENCE_KEYS`, **and** drops an allowed key
+whose value is an object or an array — an allow list of key _names_ is no
+protection when `status` can hold a whole charge.
+
 **Log redaction** is path-based (`packages/logger/src/redaction.js`) and covers
 secrets, tokens, credentials, authorization headers and provider payloads.
 
@@ -175,6 +227,22 @@ backup is not a set of working admissions.
 **The stated limit:** this defends against somebody who obtains the database
 _without_ the application's environment. It does not defend against somebody who
 has both. Same boundary as session sealing, same reason.
+
+**No screen renders a pass.** A pass on a page is a pass in a screenshot, and a
+screenshot of a QR code is a ticket. `GET /v1/tickets/:id` returns the ticket,
+its event and its transfer history and carries no credential, no digest and no
+token; three browser cases assert the markup contains none of the three names
+they go by.
+
+**A transfer invitation is a bearer secret and is treated as one.** It is
+delivered out of band, never in a response, and the screen that accepts it takes
+it as a pasted value in a password field. The accept route reads no query
+parameter that could carry one, because a secret in a URL survives in the
+browser's history, in the next request's `Referer`, in every proxy log along the
+way, and in any screenshot of the address bar — long after it is spent. Every
+refusal of an invitation reads identically, whether it expired, was withdrawn,
+was already used or never existed; telling them apart tells whoever is feeding
+in guesses which of their guesses was real.
 
 ---
 

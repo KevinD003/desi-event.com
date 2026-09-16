@@ -136,6 +136,11 @@ payload, because a batch that does not add up is a reason to stop reading the
 totals rather than a footnote to them. The scan is bounded and reports its
 bound, so "no imbalances" never quietly means "we stopped looking".
 
+The analytics screen shows the same result the same way, because it calls the
+same function. Two derivations of "what is this organisation owed" would
+eventually disagree, and the disagreement would surface as a support ticket
+rather than as a test failure.
+
 The load suite checks the same property after every scenario, against the
 database rather than the application.
 
@@ -151,10 +156,11 @@ currency and entries in another currency belong to a different batch.
 
 ## Where to look
 
-| Question                           | File                                    |
-| ---------------------------------- | --------------------------------------- |
-| What are the accounts?             | `packages/ledger/src/accounts.js`       |
-| What does each event post?         | `packages/ledger/src/batches.js`        |
-| How is a batch written?            | `apps/api/src/lib/ledger.js`            |
-| What is an organiser owed?         | `apps/api/src/lib/payouts.js`           |
-| What does the finance screen show? | `apps/api/src/lib/finance-reporting.js` |
+| Question                           | File                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------- |
+| What are the accounts?             | `packages/ledger/src/accounts.js`                                         |
+| What does each event post?         | `packages/ledger/src/batches.js`                                          |
+| How is a batch written?            | `apps/api/src/lib/ledger.js`                                              |
+| What is an organiser owed?         | `apps/api/src/lib/payouts.js`                                             |
+| What does the finance screen show? | `apps/api/src/lib/finance-reporting.js`                                   |
+| What does analytics add to it?     | `apps/api/src/lib/analytics.js` — counts, never a second money derivation |

@@ -2,12 +2,21 @@
 
 **Status: `PARTIAL`.** Phase 3 has not been started.
 
-**As of `910538b`.** §1 is measured at that commit and nowhere else; §13
+**As of `c5e98da`.** §1 is measured at that commit and nowhere else; §13
 records the final pushed HEAD, which no file can contain its own hash of.
 
-**Seventeen of the twenty gates are `MET`. Three are `PARTIAL`. None is
-`NOT MET`.** Phase 2 stays `PARTIAL` because the exit rule requires all twenty,
-and §5 names exactly what each of the three is missing.
+**Nineteen of the twenty gates are `MET`. One is `PARTIAL`. None is
+`NOT MET`.** Gates 13 and 14 closed in the closeout cycle; gate 17 did not, and
+the reason is not code. A real workflow run exists and all eight of its jobs
+pass — run `35108476624`, on this exact commit — and **nothing on GitHub
+requires them before a merge.** Configuring that needs write access to the
+repository's protection settings, which this session's outbound proxy refuses
+regardless of the token's permissions. See §5 and `docs/BRANCH_PROTECTION.md`,
+which carries the exact JSON to apply.
+
+Phase 2 therefore stays `PARTIAL`, the exit rule requires all twenty, and the
+one remaining item is an external configuration action rather than work in the
+tree.
 
 This document is the single current-status record for Phase 2. Where it
 disagrees with any other file in this repository, this one is right and the
@@ -20,21 +29,22 @@ that time has overtaken are marked `HISTORICAL STATUS — SUPERSEDED` and point
 here. Nothing in them has been rewritten, because a report that quietly
 rewrites what it said last time is not a record.
 
-| Document                              | What it is                                                      |
-| ------------------------------------- | --------------------------------------------------------------- |
-| `PHASE2_STATUS.md`                    | **This file. Current status. Authoritative.**                   |
-| `PHASE2_IMPLEMENTATION_REPORT.md`     | Account of the `7777322`…`926d1a3` cycle                        |
-| `PHASE2_COMPLETION_REPORT.md`         | Account of the `e93d4e9`…`b37b242` cycle, plus the gate scoring |
-| `PHASE2_REQUIREMENTS_TRACEABILITY.md` | Requirement → implementation → evidence matrix, kept current    |
-| `PHASE2_FINAL_VERIFICATION_REPORT.md` | Account of the `3f5add0`…`e1b2069` cycle and its verification   |
-| `PHASE2_COMMERCE_CYCLE_REPORT.md`     | Account of the `cfb654c`…`910538b` cycle and its verification   |
-| `docs/ADVERSARIAL_REVIEW_FINDINGS.md` | The 34-finding review and the 19-agent browser-exposure audit   |
+| Document                              | What it is                                                          |
+| ------------------------------------- | ------------------------------------------------------------------- |
+| `PHASE2_STATUS.md`                    | **This file. Current status. Authoritative.**                       |
+| `PHASE2_IMPLEMENTATION_REPORT.md`     | Account of the `7777322`…`926d1a3` cycle                            |
+| `PHASE2_COMPLETION_REPORT.md`         | Account of the `e93d4e9`…`b37b242` cycle, plus the gate scoring     |
+| `PHASE2_REQUIREMENTS_TRACEABILITY.md` | Requirement → implementation → evidence matrix, kept current        |
+| `PHASE2_FINAL_VERIFICATION_REPORT.md` | Account of the `3f5add0`…`e1b2069` cycle and its verification       |
+| `PHASE2_COMMERCE_CYCLE_REPORT.md`     | Account of the `cfb654c`…`910538b` cycle and its verification       |
+| `PHASE2_FINAL_CLOSEOUT_REPORT.md`     | Account of the `66495c0`…`c5e98da` closeout cycle, and its evidence |
+| `docs/ADVERSARIAL_REVIEW_FINDINGS.md` | The 34-finding review and the 19-agent browser-exposure audit       |
 
 ---
 
 ## 1. Repository state
 
-Measured, not recalled, **at `910538b`** — one commit, every row. Each value is
+Measured, not recalled, **at `c5e98da`** — one commit, every row. Each value is
 the output of the command named beside it.
 
 A file cannot contain the hash of the commit that edits it, so §13 records the
@@ -44,13 +54,34 @@ always re-measured at the commit named in this paragraph.
 | Fact                        | Value                                                | Command                                |
 | --------------------------- | ---------------------------------------------------- | -------------------------------------- |
 | Branch                      | `claude/desi-event-js-stack-gb4uqe`                  | `git rev-parse --abbrev-ref HEAD`      |
-| Local HEAD                  | `910538bb41a03af949a1efe0b298b4c537a69c4c`           | `git rev-parse HEAD`                   |
+| Local HEAD                  | `c5e98dae2b830646644169be045a88eb22ac0802`           | `git rev-parse HEAD`                   |
 | Upstream ref                | `origin/claude/desi-event-js-stack-gb4uqe`           | `git rev-parse --abbrev-ref @{u}`      |
-| Upstream HEAD               | `910538bb41a03af949a1efe0b298b4c537a69c4c`           | `git rev-parse @{u}` after `git fetch` |
+| Upstream HEAD               | `c5e98dae2b830646644169be045a88eb22ac0802`           | `git rev-parse @{u}` after `git fetch` |
 | Local equals upstream       | **yes**                                              | the two hashes above                   |
 | Working tree                | **clean** — `git status --porcelain` printed nothing | `git status --porcelain`               |
 | Worktrees                   | one, the repository itself                           | `git worktree list`                    |
-| Last executable-code commit | `910538b`                                            | see below                              |
+| Last executable-code commit | `c5e98da`                                            | see below                              |
+| Pull request                | #1, open against `main`                              | GitHub API                             |
+| Latest workflow run         | `35108476624` — 8 jobs, all `success`                | GitHub API                             |
+
+**The closeout cycle.** Thirteen commits from `66495c0` to `c5e98da`, 61 files
+changed, +13,710 / −860 lines. Newest first:
+
+| Commit    | What it changed                                                             | Code? |
+| --------- | --------------------------------------------------------------------------- | ----- |
+| `c5e98da` | The four detail specs joined the public suite; the branch-protection record | yes   |
+| `bdefff9` | Four behaviour suites, a zero-test guard, a seventh browser job             | yes   |
+| `cd1544a` | Fourteen bundle needles and seven contract properties                       | yes   |
+| `fc3f15a` | The sweep over five new surfaces, and the `dl` it found broken              | yes   |
+| `33eeea9` | `tickets.get`, and the ticket, transfer and invitation screens              | yes   |
+| `d48e18a` | The refund detail screen, and the organisation a refund names               | yes   |
+| `aef9332` | The reconciliation detail screen and its five commands                      | yes   |
+| `d7435a7` | Reconciliation evidence projected onto an allow list                        | yes   |
+| `7ce0a72` | The organiser analytics screen and the five page states                     | yes   |
+| `759e00a` | The money branch gated on capability **and** a fresh factor                 | yes   |
+| `699715a` | The Prisma stub honours relation selects                                    | yes   |
+| `d71d60f` | The `analytics` tag the new routes carry                                    | yes   |
+| `66495c0` | Organiser analytics, and the five-second clock failing two gates            | yes   |
 
 **The commerce cycle.** Twenty commits from `cfb654c` to `910538b`, 164 files
 changed, 74 files added, +42,106 / −3,323 lines. Newest first:
@@ -78,22 +109,29 @@ changed, 74 files added, +42,106 / −3,323 lines. Newest first:
 | `54b13b6` | A reserved seat is priced by the seat, not by the tier                | yes   |
 | `cfb654c` | The lifecycle enums the commerce services stand on                    | yes   |
 
-**Last executable-code commit.** `910538b` is HEAD and it changes a `.js` file,
-so the two coincide. `a02eb2f` is the only documentation-only commit of the
-cycle.
+**Last executable-code commit.** `c5e98da` is HEAD and it changes a `.js` file,
+so the two coincide. The closeout cycle has no documentation-only commit before
+the one adding this revision; `a02eb2f` was the commerce cycle's.
 
 **Scale at this commit:**
 
-| Thing                       | Count |
-| --------------------------- | ----: |
-| API routes in the contract  |   115 |
-| Prisma models               |    49 |
-| Enums                       |    36 |
-| plpgsql triggers            |    20 |
-| CHECK constraints           |    34 |
-| Migrations                  |    12 |
-| Unit and integration tests  | 4,536 |
-| Browser cases (six configs) |   196 |
+| Thing                         |     Count |
+| ----------------------------- | --------: |
+| API routes in the contract    |       118 |
+| OpenAPI operations / paths    | 118 / 106 |
+| Prisma models                 |        49 |
+| Enums                         |        36 |
+| plpgsql triggers              |        20 |
+| CHECK constraints             |        34 |
+| Migrations                    |        12 |
+| Unit and integration tests    |     4,633 |
+| Browser cases (seven configs) |       242 |
+
+Three routes are new this cycle — `analytics.summary`, `analytics.export` and
+`tickets.get` — and the schema is untouched, so models, enums, triggers,
+constraints and migrations are the commerce cycle's figures re-measured rather
+than restated. The two totals are never added together and never will be: one
+counts assertions in a process, the other counts pages driven in a browser.
 
 **Services and toolchain**, as the verification ran against them:
 
@@ -103,6 +141,12 @@ cycle.
 | pnpm       | `10.33.0`                                      | `pnpm --version`          |
 | PostgreSQL | 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1), running | `pg_isready`, `psql -V`   |
 | Redis      | 7.0.15, running                                | `redis-cli ping` → `PONG` |
+
+Neither service was running when the closeout cycle began — the container had
+restarted — and both were started before anything was measured. That is
+environmental rather than a finding, and it is recorded because a verification
+that began against a database that was not there would have produced skips
+reported as passes.
 
 ---
 
@@ -357,52 +401,112 @@ server.
 
 ## 5. The twenty completion gates
 
-| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                         |
-| --- | -------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`; the drift check is command 13 of §9                                                                                                                               |
-| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                  |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; organiser UI `1b5e9b9`; moderation UI `2ef2172`                                                           |
-| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | 15 reserved-seat races (`reserved-seat-concurrency.test.js`); probes in `db:verify:fresh`; two load scenarios asserting against the database                                                                     |
-| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **MET**     | GA in `checkout-ledger.test.js`; **a reserved seat end to end** in `reserved-seat-checkout.test.js` — 17 properties of one purchase, across two price zones                                                      |
-| 6   | Provider calls outside database transactions                               | **MET**     | The three-phase boundary in checkout, refunds, payouts and reconciliation; `docs/PAYMENTS.md`                                                                                                                    |
-| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **MET**     | `apps/api/src/lib/reconciliation.js`, 31 tests; a verdict is applied through the same domain commands, and `CONFLICT`/`UNKNOWN` resolve nothing                                                                  |
-| 8   | Full and partial refunds, no over-refund                                   | **MET**     | `apps/api/src/lib/refunds.js`; 19 route tests, 28 arithmetic tests, **12 races against real PostgreSQL**; the ceiling is a CHECK                                                                                 |
-| 9   | Dispute, transfer, payout state machines in mock mode                      | **MET**     | `apps/api/src/lib/payouts.js`; 27 finance tests and 17 covering the four webhook-path functions no route calls                                                                                                   |
-| 10  | Every completed commerce action posts balanced protected ledger entries    | **MET**     | Nine batch kinds; `desi_ledger_batch_balance` and the two immutability triggers; `findImbalances` runs above the totals and after every load scenario                                                            |
-| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **MET**     | `apps/api/src/lib/tickets.js`; 34 lifecycle tests, **11 races**, a load scenario at sixteen concurrent scanners                                                                                                  |
-| 12  | Notifications use an idempotent outbox                                     | **MET**     | `apps/worker/src/outbox/dispatcher.js` claims under a lease and sends; dedupe is a unique index; a load scenario asserts the outbox drains faster than it fills                                                  |
-| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser events, moderation, **finance** and **operations** all exist and are swept. Missing: organiser analytics (WI14, nothing), and detail screens for a reconciliation item, a refund and a ticket transfer |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | §6.2 — 22 browser cases, WCAG 2.1 AA, no rule disabled, five screens × three viewports. The reconciliation-detail, refund and ticket surfaces the gate also names are not swept **because they are not built**   |
-| 15  | All 20 required E2E journeys pass                                          | **MET**     | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`             |
-| 16  | Load and reliability tests exist                                           | **MET**     | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                       |
-| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL** | `.github/workflows/ci.yml` is written and complete — 7 jobs, every gate. **It has never run.** See below                                                                                                         |
-| 18  | All required documentation complete                                        | **MET**     | §7 — every named document exists and describes implemented behaviour                                                                                                                                             |
-| 19  | Production payments technically disabled                                   | **MET**     | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                |
-| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                      |
+| #   | Gate                                                                       | Status                                        | Evidence                                                                                                                                                                                                                                                                                                     |
+| --- | -------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | NF-06 fixed and proven                                                     | **MET**                                       | §4; `apps/api/tests/openapi-artifact.test.js`; the drift check is command 13 of §9                                                                                                                                                                                                                           |
+| 2   | Report inconsistencies reconciled                                          | **MET**                                       | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                                                                              |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**                                       | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; organiser UI `1b5e9b9`; moderation UI `2ef2172`                                                                                                                                                       |
+| 4   | GA and reserved inventory concurrency-safe                                 | **MET**                                       | 15 reserved-seat races (`reserved-seat-concurrency.test.js`); probes in `db:verify:fresh`; two load scenarios asserting against the database                                                                                                                                                                 |
+| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **MET**                                       | GA in `checkout-ledger.test.js`; **a reserved seat end to end** in `reserved-seat-checkout.test.js` — 17 properties of one purchase, across two price zones                                                                                                                                                  |
+| 6   | Provider calls outside database transactions                               | **MET**                                       | The three-phase boundary in checkout, refunds, payouts and reconciliation; `docs/PAYMENTS.md`                                                                                                                                                                                                                |
+| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **MET**                                       | `apps/api/src/lib/reconciliation.js`, 31 tests; a verdict is applied through the same domain commands, and `CONFLICT`/`UNKNOWN` resolve nothing                                                                                                                                                              |
+| 8   | Full and partial refunds, no over-refund                                   | **MET**                                       | `apps/api/src/lib/refunds.js`; 19 route tests, 28 arithmetic tests, **12 races against real PostgreSQL**; the ceiling is a CHECK                                                                                                                                                                             |
+| 9   | Dispute, transfer, payout state machines in mock mode                      | **MET**                                       | `apps/api/src/lib/payouts.js`; 27 finance tests and 17 covering the four webhook-path functions no route calls                                                                                                                                                                                               |
+| 10  | Every completed commerce action posts balanced protected ledger entries    | **MET**                                       | Nine batch kinds; `desi_ledger_batch_balance` and the two immutability triggers; `findImbalances` runs above the totals and after every load scenario                                                                                                                                                        |
+| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **MET**                                       | `apps/api/src/lib/tickets.js`; 34 lifecycle tests, **11 races**, a load scenario at sixteen concurrent scanners                                                                                                                                                                                              |
+| 12  | Notifications use an idempotent outbox                                     | **MET**                                       | `apps/worker/src/outbox/dispatcher.js` claims under a lease and sends; dedupe is a unique index; a load scenario asserts the outbox drains faster than it fills                                                                                                                                              |
+| 13  | Organizer and operations dashboards                                        | **MET**                                       | The four that were missing are built, tested and swept: organiser analytics (`/analytics`), the reconciliation item (`/operations/reconciliation/:id`), the refund (`/finance/refunds/:id`) and the ticket and its transfers (`/tickets/:id`, `/tickets/accept`). 26 behaviour cases against real rows; §5.2 |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **MET**                                       | §6.2 — **42** browser cases, WCAG 2.1 A and AA, no rule disabled, ten screens × three viewports plus 200% zoom, reduced motion and keyboard-only. The scanner found one serious defect on the new screens and it is recorded before its fix                                                                  |
+| 15  | All 20 required E2E journeys pass                                          | **MET**                                       | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`                                                                                                         |
+| 16  | Load and reliability tests exist                                           | **MET**                                       | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                                                                                                                   |
+| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL — EXTERNAL CONFIGURATION REQUIRED** | **8 jobs, all green, on this exact commit**: run `35108476624`, event `pull_request`, PR #1. Nothing on GitHub _requires_ them before a merge, and applying that is refused by this session’s proxy. See below                                                                                               |
+| 18  | All required documentation complete                                        | **MET**                                       | §7 — every named document exists and describes implemented behaviour                                                                                                                                                                                                                                         |
+| 19  | Production payments technically disabled                                   | **MET**                                       | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                                                                                                            |
+| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**                                       | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                                                                                                                  |
 
-**Seventeen met, three partial, none not met.** The previous revision said
-eight, six and six.
+**Nineteen met, one partial, none not met.** The revision before this said
+seventeen, three and none; the one before that said eight, six and six.
 
 ### Why gate 17 is `PARTIAL` and not `MET`
 
-The workflow file exists, is complete, and would enforce every gate. It has
-**never executed**, and that was established by asking GitHub rather than by
-assuming:
+The first half of the gate is now satisfied, and by evidence from GitHub rather
+than by reading the workflow file.
+
+| Fact          | Value                                                               |
+| ------------- | ------------------------------------------------------------------- |
+| Workflow      | `CI`, id `359635192`, `.github/workflows/ci.yml`                    |
+| Run           | `35108476624`                                                       |
+| Trigger       | `pull_request`, pull request #1                                     |
+| Commit tested | `c5e98dae2b830646644169be045a88eb22ac0802` — the commit §1 measures |
+| Jobs          | 8, every one `success`                                              |
+| Skipped steps | one per job, each an `if: failure()` artefact upload                |
+
+Eight runs preceded it on this pull request. Two failed, and both were fixed at
+the root rather than re-run: run 1 on a contract tag the new routes carried and
+the document did not declare, and run 7 on four new browser specs that had
+joined the public suite because nobody had excluded them. Neither was retried
+until it passed.
+
+**What is missing is enforcement, and it is not code.** Nothing on GitHub
+requires those eight checks before a merge:
 
 ```
-GET /repos/KevinD003/desi-event.com/actions/workflows   → {"total_count": 0}
+GET  /repos/KevinD003/desi-event.com/rulesets                  → 200 []
+GET  /repos/KevinD003/desi-event.com/branches/main/protection  → 403 "Resource not accessible by integration"
+PUT  /repos/KevinD003/desi-event.com/branches/main/protection  → 403 "Write access to this GitHub API path is not permitted through this proxy."
+POST /repos/KevinD003/desi-event.com/rulesets                  → 403 "Write access to this GitHub API path is not permitted through this proxy."
 ```
 
-GitHub registers a workflow the first time it runs. The workflow triggers on
-`push` to `main` and on `pull_request`; this branch has had neither, and no pull
-request has been opened. So the correct claim is _"a workflow is written"_, not
-_"CI enforces"_, and the gate stays `PARTIAL` until a run exists.
+The two refusals are different and the difference matters. The _read_ is refused
+by GitHub because the app installation lacks `administration`. The _writes_ are
+refused before they reach GitHub, by this session's outbound proxy — and the
+same token reports `{"admin": true, "maintain": true, "push": true}` on this
+repository, so that is neither a missing GitHub permission nor a plan
+limitation. It is the execution environment declining to let an agent change a
+repository's protection settings.
 
-**Branch protection is not enabled either**, and that is now externally
-verified rather than pending: the API reports `protected: false` for both
-`main` and `claude/desi-event-js-stack-gb4uqe`. `docs/BRANCH_PROTECTION.md`
-records the measurement and says in its own words that nothing it describes is
-configured.
+So the gate is **`PARTIAL` — external configuration required**, and the action
+is precisely specified rather than described: `docs/BRANCH_PROTECTION.md`
+carries the ruleset JSON, the classic-protection equivalent, and the eight
+check-context names read back from GitHub's own jobs endpoint. The dash in the
+browser job names is an em dash, because that is what the workflow produces; a
+hyphen there matches nothing, and a required check that matches nothing blocks
+every merge forever.
+
+### 5.2 What closed gates 13 and 14
+
+Four surfaces, three new routes, and the tests that make the claim checkable.
+
+| Surface                          | Route                                   | Behaviour cases | Swept |
+| -------------------------------- | --------------------------------------- | --------------: | ----- |
+| Organiser analytics              | `analytics.summary`, `analytics.export` |               7 | yes   |
+| Reconciliation item              | existing `reconciliation.*`             |               6 | yes   |
+| Refund                           | existing `refunds.*`                    |               6 | yes   |
+| Ticket, transfers and invitation | `tickets.get` and existing `tickets.*`  |               7 | yes   |
+
+Four defects were found by the work itself, each recorded with its fix:
+
+1. **The money branch was unreachable for the accounts it was written for.** A
+   route-level step-up gate refused every VIEWER and door steward — roles the
+   system does not compel to enrol a second factor — in order to protect a
+   ledger total they were never going to be sent. The window now applies to the
+   branch rather than to the request, from the same server-held policy table.
+2. **The sales breakdowns carried money outside the money branch.** A reader
+   told the money was not for them still got a table headed "sales by event"
+   printing what each event took.
+3. **Reconciliation evidence was not allow-listed.** `localState` and
+   `providerState` were `z.unknown()`, so nothing was stripped. Every writer
+   happened to store a small summary; that was a habit, and it is now a
+   projection onto a reviewed key list that also drops an object hiding under an
+   allowed key.
+4. **A refund payload did not say whose refund it was**, so a screen asking
+   `order:refund_approve` had no organisation to ask it in — NF-05 arriving by
+   the back door.
+
+The scanner found a fifth, in markup: a definition list whose entries carried a
+third sibling `p`, which axe fails under WCAG 1.3.1 and a screen reader renders
+as three unassociated paragraphs. All five are recorded before their fixes in
+`PHASE2_FINAL_CLOSEOUT_REPORT.md`, which holds this cycle's full evidence.
 
 ### 5.1 Gate 15, and why it returned to `MET`
 
@@ -522,18 +626,34 @@ stop.
 ### 6.2 The responsive and accessibility sweep
 
 `apps/web/e2e/accessibility-sweep.spec.js`, run by `pnpm run test:e2e:sweep`.
-**Twenty-two cases**, all passing at `910538b`:
+**Forty-two cases**, all passing at `c5e98da` — twenty-two at `910538b`, plus
+twenty for the five surfaces the closeout cycle added:
 
-- **Fifteen clean scans** — five screens at three widths each. The organiser
-  event list, the seven-step editor, the public event page, **the finance
-  overview** and **the operations board**, at 320, 768 and 1280 CSS pixels.
-- The editor at **200% zoom**, with no sideways scrolling.
-- Nothing left permanently invisible under `prefers-reduced-motion`.
-- The editor reachable and operable **by keyboard alone**.
+- **Thirty clean scans** — ten screens at three widths each, at 320, 768 and
+  1280 CSS pixels. The organiser event list, the seven-step editor, the public
+  event page, the finance overview, the operations board, **organiser
+  analytics**, **the reconciliation detail screen**, **the refund detail
+  screen**, **the ticket detail screen** and **the invitation screen**.
+- The editor at **200% zoom**, with no sideways scrolling, and the four new
+  detail screens at the same 640-pixel effective viewport.
+- Nothing left permanently invisible under `prefers-reduced-motion`, on the
+  organiser list and on the refund screen — the one where an invisible element
+  would be somebody's money.
+- The editor reachable and operable **by keyboard alone**, and a reconciliation
+  item likewise, reaching its skip link first.
 - A visible focus indicator on **every** focusable control.
 - The moderation queue and decision screen.
 - Touch targets large enough to hit.
 - The finance screen stating what produced its figures **before** any of them.
+- The invitation field typed into without the code reaching the address bar.
+- The refund screen mentioning no card, and holding no field that could take
+  one.
+
+Every new screen is scanned with real rows behind it — a paid order with two
+tickets, a refund with lines and an allocation, a reconciliation item with both
+sides of its evidence, and a ledger batch that balances. A screen rendered from
+a static array would prove that the markup compiles, which is not what this
+suite is for.
 
 320 rather than 360, because WCAG 1.4.10 names 320 as the reflow width and a
 layout that only works at 360 fails the criterion for anybody on a small phone
@@ -543,7 +663,17 @@ or a zoomed desktop.
 disabled.** The only exclusion is Next's development overlay, which the
 framework injects and no deployment ships.
 
-It found four contrast failures on its first run, all real, and all fixed in the
+**It found a serious defect on its first run over the new screens, and the
+defect is recorded before its fix.** `definition-list`, WCAG 2.1 A (1.3.1): the
+reconciliation screen's "Where it stands" list wrapped each entry in a `div`
+holding `dt`, `dd` **and an explanatory `p`**. A `div` inside a `dl` is allowed;
+a `p` as a third sibling is not, and a screen reader walking the list gets three
+unassociated paragraphs where it should get three definitions. The hints now
+live inside their `dd`. The same mistake had been made once before, on the
+`Figure` component, and the comment left there then is repeated on the new
+one — twice is a pattern, and the second is the one worth writing down.
+
+The earlier cycle's four contrast failures, all real, all fixed in the
 components rather than by silencing the rule:
 
 | What                                     | Was      | Now      | Fix                                 |
@@ -869,19 +999,18 @@ No other command failed in either run.
 | A CI workflow covering every gate                 | `.github/workflows/ci.yml` — 7 jobs                                   | `IMPLEMENTED` — see gate 17                                             |
 | The fifteen named documents                       | `docs/`                                                               | `AUTOMATICALLY TESTED` (existence and format are checked; prose is not) |
 
-### Not built — and these are what keeps Phase 2 `PARTIAL`
+### Still not built — and one of them is what keeps Phase 2 `PARTIAL`
 
-| Thing                          | Gate   | What exists instead                                                                                                         |
-| ------------------------------ | ------ | --------------------------------------------------------------------------------------------------------------------------- |
-| Organiser analytics            | 13     | Nothing. WI14 in the traceability matrix is `NOT IMPLEMENTED` throughout                                                    |
-| A reconciliation detail screen | 13, 14 | The operations board lists the queue; the seven actions are API-only                                                        |
-| A refund screen                | 13, 14 | Seven routes, no page                                                                                                       |
-| A ticket transfer screen       | 13, 14 | Six routes, no page                                                                                                         |
-| Connect onboarding             | —      | Adapter methods exist; **no route calls them and no screen sends anybody to one**. `docs/STRIPE_CONNECT.md` opens with that |
-| A CI **run**                   | 17     | A complete workflow that has never executed                                                                                 |
-| Branch protection              | 17     | Externally verified absent: `protected: false` on both branches                                                             |
-| Data erasure or redaction      | —      | A retention policy in `docs/DATA_MODEL.md` under a heading that says the mechanism does not exist                           |
-| Any Stripe API call            | —      | §11                                                                                                                         |
+| Thing                     | Gate | What exists instead                                                                                                           |
+| ------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **Branch protection**     | 17   | Eight green checks that nothing requires. Externally verified absent: no ruleset, no classic protection. This is the one gate |
+| Connect onboarding        | —    | Adapter methods exist; **no route calls them and no screen sends anybody to one**. `docs/STRIPE_CONNECT.md` opens with that   |
+| Data erasure or redaction | —    | A retention policy in `docs/DATA_MODEL.md` under a heading that says the mechanism does not exist                             |
+| Any Stripe API call       | —    | §11                                                                                                                           |
+
+The four rows this table carried last revision — organiser analytics, and the
+reconciliation, refund and ticket transfer screens — are built, and §5.2 says
+what they are and what finding their defects cost.
 
 ---
 
@@ -906,26 +1035,26 @@ transfer or payout has been fabricated anywhere in this repository.
 ### 12.1 What is code-owned and still outstanding
 
 "Code-owned" means it can be finished in this repository with no credential, no
-account and no decision from outside. The list is much shorter than it was.
+account and no decision from outside. **The list is now two items, and neither
+is a gate.**
 
-| #   | Work                                                           | Gate   | Why it is next                                                                                                                  |
-| --- | -------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | A reconciliation detail screen                                 | 13, 14 | Seven routes exist and an operator works them through an API client. This is the surface the gate names                         |
-| 2   | A refund screen                                                | 13, 14 | Same: the service is complete and there is nowhere to use it                                                                    |
-| 3   | A ticket transfer screen                                       | 13, 14 | Same, for the person holding the ticket                                                                                         |
-| 4   | Connect onboarding routes and a screen                         | —      | `connect.start` and `connect.status` calling adapter methods that already exist, behind `connect:manage` and a `PAYOUT` step-up |
-| 5   | Organiser analytics                                            | 13     | WI14. The indexes were created for it in Phase 2a and nothing reads them                                                        |
-| 6   | Sweep the three new screens once they exist                    | 14     | The suite takes a screen and a viewport list; adding one is a few lines                                                         |
-| 7   | Data erasure as redaction, with its own route and audit action | —      | The schema already forces the shape: redact the person, keep the ledger references                                              |
+| #   | Work                                                           | Gate | Why it is next                                                                                                                  |
+| --- | -------------------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Connect onboarding routes and a screen                         | —    | `connect.start` and `connect.status` calling adapter methods that already exist, behind `connect:manage` and a `PAYOUT` step-up |
+| 2   | Data erasure as redaction, with its own route and audit action | —    | The schema already forces the shape: redact the person, keep the ledger references                                              |
+
+The five rows before these are done: the reconciliation, refund and ticket
+screens, organiser analytics, and the sweep over all of them.
 
 ### 12.2 What is not code-owned
 
 Recorded so it is not mistaken for work anybody here can finish:
 
-- **A CI run, and branch protection.** Both need somebody with repository
-  settings: a pull request or a push to `main` to register the workflow, and an
-  administrator to configure protection. `docs/BRANCH_PROTECTION.md` lists
-  exactly what to require. **Gate 17 cannot be closed from inside this
+- **Branch protection.** A run now exists and its eight jobs pass; requiring
+  them before a merge needs write access to the repository's protection
+  settings, which this session's proxy refuses whatever the token holds.
+  `docs/BRANCH_PROTECTION.md` carries the exact JSON, the exact check names, and
+  the two refusals verbatim. **Gate 17 cannot be closed from inside this
   repository**, and this document does not pretend otherwise.
 - **Real Stripe sandbox operations.** Needs test credentials this repository has
   never held. `EXTERNAL VERIFICATION PENDING`, not "nearly done".
@@ -937,22 +1066,22 @@ Recorded so it is not mistaken for work anybody here can finish:
 
 Phase 3 has not been started and should not be. The conditions, stated as tests:
 
-1. **Every gate in §5 is `MET`.** Seventeen are. Three are `PARTIAL`, and each
-   row names what is missing.
-2. **A CI run exists.** A verification a person has to remember to run is a
-   verification that eventually is not run — and the workflow that would prevent
-   that has never executed.
+1. **Every gate in §5 is `MET`.** Nineteen are. One is `PARTIAL`, and its row
+   names what is missing and who can supply it.
+2. **A CI run exists.** ✅ Run `35108476624`, eight jobs, all green, on the
+   commit §1 measures. Nine runs on pull request #1 altogether; the two that
+   failed were fixed at the root rather than re-run.
 3. **Branch protection is configured**, and the claim is made by somebody who
-   looked. It is currently absent, measured.
-4. **The three missing screens exist and are swept.** A service with no surface
-   is a service nobody in the business can use, and the accessibility gate names
-   all three.
+   looked. **Still absent, measured.** This is the remaining prerequisite.
+4. **The four missing screens exist and are swept.** ✅ All four, plus the
+   invitation screen, at three widths, at 200% zoom, with motion reduced and by
+   keyboard.
 5. **Nothing claims a Stripe operation happened.** Every such claim in this
    repository is marked `EXTERNAL VERIFICATION PENDING`, and that must stay true
    until credentials exist.
 6. **Production payments remain unreachable, and something still asserts it.**
    The kill switch is a Phase 2 property that Phase 3 inherits rather than
-   retires.
+   retires. ✅ Twelve cases, as its own named CI step.
 
 ---
 
@@ -977,6 +1106,8 @@ Branch `claude/desi-event-js-stack-gb4uqe`, upstream
 `origin/claude/desi-event-js-stack-gb4uqe`, every commit of every cycle pushed,
 no history rewritten, squashed or force-pushed, and one worktree.
 
-**The last executable-code commit is `910538b`, and it is named separately from
+**The last executable-code commit is `c5e98da`, and it is named separately from
 this report's own commit** — a documentation commit is not a change to the
-system, and §9's twenty-eight commands were run against `910538b`.
+system, and the closeout cycle's thirty-two commands were run against `c5e98da`.
+`PHASE2_FINAL_CLOSEOUT_REPORT.md` records all thirty-two with their exit codes
+and durations, and records the final pushed HEAD that no file can contain.

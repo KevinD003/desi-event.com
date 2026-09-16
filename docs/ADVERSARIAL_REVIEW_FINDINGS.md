@@ -423,6 +423,37 @@ the rule stricter about what it was actually for:
   moderator who had written the useful version was being refused for not also
   writing the vague one.
 
+## The closeout cycle: five more, found by the work rather than by an audit
+
+Recorded here because this document is where findings live, and because four of
+the five were found by writing the test before believing the code.
+
+| #      | What it was                                                                                                                                                                       | Found by                                 | Fixed in  |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | --------- |
+| C5-D1  | A route-level step-up gate made the analytics count tier unreachable for every VIEWER and door steward — roles nothing compels to enrol a factor                                  | the first route test                     | `759e00a` |
+| C5-D2  | Sales breakdowns carried `lineValueCents` outside the money branch, so a reader told the money was not for them still got what each event took                                    | the same test, structurally              | `759e00a` |
+| C5-D4  | `localState` and `providerState` were `z.unknown()`: nothing stripped, so a writer storing a raw provider object would have shipped a card suffix and a billing email to a screen | reading the presenter before trusting it | `d7435a7` |
+| C5-D6  | `refundSchema` never said whose refund it was, so every caller had to ask an organisation capability with no organisation — NF-05 by the back door                                | the refund screen's first draft          | `d48e18a` |
+| C5-D7  | A definition list with a third sibling `p`, which axe fails under WCAG 1.3.1 and a screen reader reads as three unassociated paragraphs                                           | the scanner, at 320 px                   | `fc3f15a` |
+| C5-D9  | The analytics screen substituted your own organisation for one the URL named and you could not view                                                                               | `detail-analytics.spec.js`               | `bdefff9` |
+| C5-D10 | The four new browser specs joined the public suite, which runs with the API deliberately down                                                                                     | CI run `35106712692`                     | `c5e98da` |
+
+Two more were about the _tests_ rather than the code, and are recorded because
+the temptation in both cases was the same one this document exists to refuse:
+
+- **A flaky assertion.** `expect(response.body).not.toContain('800000')` failed
+  once and passed on a re-run — a cuid is twenty-five random alphanumerics and
+  will contain any short digit run by chance. Replaced with structural
+  assertions rather than re-run until green.
+- **Two bundle-scan needles that could not express their property.**
+  `SETTLED_FROM_PROVIDER` and `toEmail` are both members of published _request_
+  schemas, which a screen issuing that command must name; a string scan cannot
+  tell that from the stored value coming back. Both were **retargeted** at names
+  that appear in no schema — `RESOLUTIONS_FOR_VERDICT`, `compareEvidence`,
+  `maskRecipient` — with the reasoning written beside them. Deleting them would
+  have restored a green result in thirty seconds, which is the move recorded two
+  sections above as the one this project does not make.
+
 ## Provenance
 
 - Raw findings: `wf_6b34ffef-3e2/journal.jsonl`, 6 records of type `result`
