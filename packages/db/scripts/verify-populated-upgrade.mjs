@@ -83,6 +83,10 @@ const PHASE2_MIGRATIONS = Object.freeze([
   // a schema that does not have them yet, which is what this verifier is for:
   // it caught its own list being out of date.
   '20260916000000_event_draft_revision',
+  // Enum labels only, split from the migration that uses them: PostgreSQL will
+  // not let a transaction use a label it added.
+  '20260916120000_commerce_lifecycle_enums',
+  '20260916130000_commerce_services',
 ])
 
 /**

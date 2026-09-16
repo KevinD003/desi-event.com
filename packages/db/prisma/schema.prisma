@@ -520,12 +520,23 @@ model OrderItem {
   tickets    Ticket[]
   eventSeats EventSeat[]
   refundItems RefundItem[]
+  holdItems  HoldItem[]
 
   @@index([orderId])
 }
 
 enum TicketStatus {
+  /// Issued and admittable. The brief calls this state ACTIVE; this repository
+  /// has spelled it VALID since Phase 1 and the two are one state. One spelling,
+  /// so a reader never has to ask which of two names is authoritative.
   VALID
+  /// A transfer invitation is outstanding. The ticket still admits its current
+  /// holder — an invitation is not a handover — but a second transfer cannot
+  /// start until this one resolves.
+  TRANSFER_PENDING
+  /// Withdrawn by the organiser, with a reason. Distinct from REFUNDED, which
+  /// is about money, and from CANCELLED, which is about the event.
+  REVOKED
   CHECKED_IN
   VOID
   REFUNDED
@@ -1318,13 +1329,23 @@ model HoldItem {
   /// Always 1 for a seated item.
   quantity     Int     @default(1)
   eventSeatId  String?
+  /// The order line that will pay for this seat, stamped when the hold is
+  /// attached to an order. Settlement reads it instead of re-deriving the line
+  /// from the ticket type, which cannot tell two lines of one tier apart when
+  /// seats in a single selection sit in different price zones.
+  orderItemId  String?
+  /// What this seat cost on that line, frozen when the order was priced, so a
+  /// later change to the zone override cannot alter what was charged.
+  unitPriceCents Int?
 
   hold       TicketHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
   ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
+  orderItem  OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
 
   @@unique([holdId, eventSeatId])
   @@index([holdId])
   @@index([eventSeatId])
+  @@index([orderItemId])
 }
 
 // ---------------------------------------------------------------------------
@@ -1468,13 +1489,23 @@ enum RefundStatus {
   /// The organiser asked; approval is still required by policy.
   REQUESTED
   APPROVED
-  /// Sent to the provider, no final answer yet.
+  /// Handed to the provider, no final answer yet.
+  SUBMITTED
+  /// Retained spelling, superseded by SUBMITTED. No code writes it.
   PROCESSING
   SUCCEEDED
+  /// The provider refused it outright. No money moved.
+  DECLINED
+  /// The attempt failed for a reason that is not a refusal.
   FAILED
-  /// The provider's answer was ambiguous. Money may have moved.
+  /// The provider did not answer. Money may or may not have moved, and this is
+  /// never read as a failure.
+  TIMEOUT
+  /// The provider's answer contradicted local evidence. A human decides.
   RECONCILIATION_REQUIRED
+  /// Retained spelling, superseded by DECLINED. No code writes it.
   REJECTED
+  /// Withdrawn before it was submitted.
   CANCELLED
 }
 
@@ -1524,6 +1555,11 @@ model Refund {
   inventoryReturned Boolean   @default(false)
   failureCode    String?
   rawProviderStatus String?
+  /// When it was handed to the provider. Written before the call, so a process
+  /// that dies during it still leaves evidence that a refund may exist.
+  submittedAt    DateTime?
+  /// How many times submission has been attempted.
+  attempts       Int          @default(0)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   settledAt      DateTime?
@@ -1559,12 +1595,16 @@ model RefundItem {
 }
 
 enum DisputeStatus {
+  /// Raised, not yet worked.
+  OPENED
   NEEDS_RESPONSE
   UNDER_REVIEW
   /// The provider is holding the funds pending the outcome.
   CHARGE_REFUNDED
   WON
   LOST
+  /// Terminal. The outcome is recorded and the funds question is settled.
+  CLOSED
   WARNING_NEEDS_RESPONSE
   WARNING_CLOSED
 }
@@ -1601,6 +1641,9 @@ model Dispute {
 enum TransferStatus {
   /// Owed to the organiser, not yet sent.
   PENDING
+  /// Handed to the provider, no final answer yet.
+  SUBMITTED
+  /// Retained spelling, superseded by SUBMITTED. No code writes it.
   SENT
   PAID
   FAILED
@@ -1639,10 +1682,21 @@ model Transfer {
 }
 
 enum PayoutStatus {
+  /// Booked against an organiser balance, not yet sent.
+  SCHEDULED
+  /// Retained spellings from the Phase 2 schema. No code writes them.
   PENDING
   IN_TRANSIT
+  /// Handed to the provider, no final answer yet.
+  SUBMITTED
   PAID
   FAILED
+  /// Clawed back after payment. Posts compensating entries.
+  REVERSED
+  /// Withheld: a negative balance, open liabilities, or an operator hold.
+  HELD
+  /// The provider did not answer. Never read as a failure.
+  RECONCILIATION_REQUIRED
   CANCELLED
 }
 
@@ -1656,13 +1710,21 @@ model Payout {
   organizationId     String
   connectedAccountId String?
   provider           String
-  providerPayoutId   String
+  /// Null until the provider names it. A payout exists locally first, because
+  /// the decision to pay is ours and the identifier is theirs.
+  providerPayoutId   String?
   amountCents        Int
   currency           String
-  status             PayoutStatus @default(PENDING)
+  status             PayoutStatus @default(SCHEDULED)
   arrivalDate        DateTime?
   failureCode        String?
   rawProviderStatus  String?
+  /// Clawed back after payment. Compensating entries, never a rewritten one.
+  reversedCents      Int          @default(0)
+  /// Unique per logical payout, so a retried request returns the original.
+  idempotencyKey     String?      @unique
+  /// Why it is HELD, when it is.
+  holdReason         String?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -1907,8 +1969,16 @@ enum NotificationChannel {
 
 enum NotificationStatus {
   QUEUED
+  /// A worker holds a lease on it. Only the lease owner may finish it, and only
+  /// until the lease expires.
+  CLAIMED
+  /// Retained spelling, superseded by CLAIMED. No code writes it.
   SENDING
   SENT
+  /// A transient failure with attempts left. `scheduledFor` says when.
+  RETRY_SCHEDULED
+  /// Withdrawn before it was sent, by an operator or by the domain.
+  CANCELLED
   FAILED
   /// Out of retries; waits for a human.
   DEAD_LETTER
@@ -1941,6 +2011,28 @@ model NotificationOutbox {
   maxAttempts Int                 @default(5)
   scheduledFor DateTime           @default(now())
   sentAt      DateTime?
+  /// The business event this message describes, e.g. `event.cancelled`. The
+  /// dedupe key is derived from it together with the recipient, the channel and
+  /// the template version, so two different messages about one event do not
+  /// collide and one message about it is never sent twice.
+  businessEvent String?
+  /// Bumped when a template's content changes enough that a recipient should
+  /// receive the new one even though they received the old.
+  templateVersion Int             @default(1)
+  /// The worker holding the lease. Null unless the row is CLAIMED.
+  leaseOwner  String?
+  /// When the lease lapses and another worker may take the row. A worker that
+  /// dies mid-send leaves this in the past, which is what makes the row
+  /// recoverable without anybody having to decide that it failed.
+  leaseExpiresAt DateTime?
+  lastAttemptAt DateTime?
+  /// PERMANENT or TRANSIENT. A permanent failure is not retried.
+  failureCategory String?
+  /// The provider's identifier for the delivery, when it gave one. Never the
+  /// message body.
+  providerMessageId String?
+  /// Whose message this is, for operator scoping. Null for platform messages.
+  organizationId String?
   /// Provider error, sanitised. Never a payload dump.
   lastError   String?
   /// Whether this message may be suppressed by preferences. False for
@@ -1952,6 +2044,8 @@ model NotificationOutbox {
   @@index([status, scheduledFor])
   @@index([userId])
   @@index([template])
+  @@index([status, leaseExpiresAt])
+  @@index([organizationId, status])
 }
 
 /// What one person wants to be told about.
@@ -2047,6 +2141,17 @@ model ReconciliationTask {
   resolution  String?
   resolutionNote String?
   resolvedAt  DateTime?
+  resolvedById String?
+  escalatedAt DateTime?
+  escalationReason String?
+  /// Whose work item this is, for operator scoping. Null means platform-level.
+  organizationId String?
+  /// Operator notes, appended and never replaced: `[{at, actorId, note}]`.
+  notes       Json?
+  /// The transfer, payout or dispute in doubt, when that is what this is about.
+  transferId  String?
+  payoutId    String?
+  disputeId   String?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
@@ -2056,4 +2161,6 @@ model ReconciliationTask {
   @@index([state, kind, createdAt])
   @@index([paymentId])
   @@index([providerRef])
+  @@index([organizationId, state])
+  @@index([refundId])
 }

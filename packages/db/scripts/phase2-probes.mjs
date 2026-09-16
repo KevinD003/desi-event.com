@@ -779,6 +779,230 @@ export async function runPhase2Probes(prisma, { probe, record }) {
     }),
   )
 
+  // ---- Ticket lifecycle, leases and the refund ceiling --------------------
+
+  results.push(
+    await probe(prisma, 'a revoked ticket cannot be checked in', /does not admit/, async (tx) => {
+      const ticket = await tx.ticket.findFirst()
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'REVOKED' } })
+      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+    }),
+  )
+
+  results.push(
+    await probe(prisma, 'a refunded ticket cannot be checked in', /does not admit/, async (tx) => {
+      const ticket = await tx.ticket.findFirst()
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'REFUNDED' } })
+      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+    }),
+  )
+
+  results.push(
+    await probe(prisma, 'a ticket handed on cannot be checked in', /does not admit/, async (tx) => {
+      const ticket = await tx.ticket.findFirst()
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFERRED' } })
+      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+    }),
+  )
+
+  results.push(
+    await probe(prisma, 'a ticket mid-transfer still admits its holder', null, async (tx) => {
+      // The positive case. A pending invitation is not a handover, and a gate
+      // that turned those people away would be turning away the buyer.
+      const ticket = await tx.ticket.findFirst()
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFER_PENDING' } })
+      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+    }),
+  )
+
+  results.push(
+    await probe(prisma, 'a used ticket cannot be handed on', /has been checked in/, async (tx) => {
+      const ticket = await tx.ticket.findFirst()
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'CHECKED_IN' } })
+      await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFERRED' } })
+    }),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a revoked ticket cannot be made valid again',
+      /is REVOKED, which is terminal/,
+      async (tx) => {
+        const ticket = await tx.ticket.findFirst()
+        await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'REVOKED' } })
+        await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'VALID' } })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a claimed notification must carry a lease',
+      /notification_claim_has_lease/,
+      (tx) =>
+        tx.notificationOutbox.create({
+          data: {
+            template: 'probe.lease',
+            recipient: 'probe@desi-event.example',
+            payload: {},
+            status: 'CLAIMED',
+            dedupeKey: `probe-lease-${Math.random().toString(36).slice(2, 12)}`,
+          },
+        }),
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a notification failure category is one of two words',
+      /notification_failure_category_known/,
+      (tx) =>
+        tx.notificationOutbox.create({
+          data: {
+            template: 'probe.category',
+            recipient: 'probe@desi-event.example',
+            payload: {},
+            failureCategory: 'MAYBE',
+            dedupeKey: `probe-category-${Math.random().toString(36).slice(2, 12)}`,
+          },
+        }),
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a settled refund cannot exceed what the order paid',
+      /which has already given back|would take/,
+      async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            orderId: order.id,
+            provider: 'probe',
+            status: 'SUCCEEDED',
+            amountCents: order.totalCents,
+            currency: order.currency,
+          },
+        })
+        const base = {
+          orderId: order.id,
+          paymentId: payment.id,
+          provider: 'probe',
+          currency: order.currency,
+        }
+        await tx.refund.create({
+          data: {
+            ...base,
+            amountCents: order.totalCents,
+            status: 'SUCCEEDED',
+            idempotencyKey: `probe-refund-a-${Math.random().toString(36).slice(2, 10)}`,
+          },
+        })
+        await tx.refund.create({
+          data: {
+            ...base,
+            amountCents: 1,
+            status: 'SUCCEEDED',
+            idempotencyKey: `probe-refund-b-${Math.random().toString(36).slice(2, 10)}`,
+          },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a refund cannot be in a currency the order was not paid in',
+      /but order .* was paid in/,
+      async (tx) => {
+        const payment = await tx.payment.create({
+          data: {
+            orderId: order.id,
+            provider: 'probe',
+            status: 'SUCCEEDED',
+            amountCents: order.totalCents,
+            currency: order.currency,
+          },
+        })
+        await tx.refund.create({
+          data: {
+            orderId: order.id,
+            paymentId: payment.id,
+            provider: 'probe',
+            currency: order.currency === 'USD' ? 'INR' : 'USD',
+            amountCents: 100,
+            idempotencyKey: `probe-refund-fx-${Math.random().toString(36).slice(2, 10)}`,
+          },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a hold item cannot be paid for by another order',
+      /but its line belongs to order/,
+      async (tx) => {
+        const line = await tx.orderItem.findFirst({ where: { orderId: order.id } })
+        const hold = await tx.ticketHold.create({
+          data: {
+            ticketTypeId: line.ticketTypeId,
+            quantity: 1,
+            expiresAt: new Date(Date.now() + 600_000),
+            guestTokenHash: 'd'.repeat(64),
+          },
+        })
+        await tx.holdItem.create({
+          data: {
+            holdId: hold.id,
+            ticketTypeId: line.ticketTypeId,
+            orderItemId: line.id,
+            quantity: 1,
+          },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a paid payout has to say who paid it',
+      /payout_paid_has_provider_reference/,
+      (tx) =>
+        tx.payout.create({
+          data: {
+            organizationId: fixtures.event.organizationId,
+            provider: 'probe',
+            amountCents: 5000,
+            currency: order.currency,
+            status: 'PAID',
+          },
+        }),
+    ),
+  )
+
+  results.push(
+    await probe(prisma, 'a payout cannot be reversed for more than it sent', REFUSED, (tx) =>
+      tx.payout.create({
+        data: {
+          organizationId: fixtures.event.organizationId,
+          provider: 'probe',
+          providerPayoutId: `po_${Math.random().toString(36).slice(2, 10)}`,
+          amountCents: 5000,
+          reversedCents: 5001,
+          currency: order.currency,
+          status: 'PAID',
+        },
+      }),
+    ),
+  )
+
   return results.every(Boolean)
 }
 

@@ -59,6 +59,23 @@ const RELATIONS = {
   },
   holdItem: {
     hold: { kind: 'one', model: 'ticketHold', from: 'holdId', to: 'id' },
+    orderItem: { kind: 'one', model: 'orderItem', from: 'orderItemId', to: 'id' },
+  },
+  ticketTransfer: {
+    ticket: { kind: 'one', model: 'ticket', from: 'ticketId', to: 'id' },
+  },
+  checkIn: {
+    ticket: { kind: 'one', model: 'ticket', from: 'ticketId', to: 'id' },
+  },
+  refund: {
+    order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
+    payment: { kind: 'one', model: 'payment', from: 'paymentId', to: 'id' },
+    items: { kind: 'many', model: 'refundItem', from: 'id', to: 'refundId' },
+  },
+  refundItem: {
+    refund: { kind: 'one', model: 'refund', from: 'refundId', to: 'id' },
+    orderItem: { kind: 'one', model: 'orderItem', from: 'orderItemId', to: 'id' },
+    ticket: { kind: 'one', model: 'ticket', from: 'ticketId', to: 'id' },
   },
   membership: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
@@ -271,7 +288,7 @@ const DEFAULTS = {
     priceCentsOverride: null,
     blockedReason: null,
   },
-  holdItem: { quantity: 1, eventSeatId: null },
+  holdItem: { quantity: 1, eventSeatId: null, orderItemId: null, unitPriceCents: null },
   webhookEvent: {
     accountContext: '',
     apiVersion: null,
@@ -300,6 +317,14 @@ const DEFAULTS = {
     resolution: null,
     resolutionNote: null,
     resolvedAt: null,
+    resolvedById: null,
+    escalatedAt: null,
+    escalationReason: null,
+    organizationId: null,
+    notes: null,
+    transferId: null,
+    payoutId: null,
+    disputeId: null,
   },
   organizationVerificationEvent: { fromStatus: null, actorId: null, reason: null },
   // The lifecycle writes one of these per transition, so the delegate has to
@@ -319,6 +344,14 @@ const DEFAULTS = {
     sentAt: null,
     lastError: null,
     suppressible: true,
+    businessEvent: null,
+    templateVersion: 1,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    lastAttemptAt: null,
+    failureCategory: null,
+    providerMessageId: null,
+    organizationId: null,
   },
   refund: {
     providerRefundId: null,
@@ -334,8 +367,56 @@ const DEFAULTS = {
     inventoryReturned: false,
     failureCode: null,
     rawProviderStatus: null,
+    submittedAt: null,
+    attempts: 0,
     settledAt: null,
   },
+  dispute: {
+    status: 'OPENED',
+    reason: null,
+    evidenceDueAt: null,
+    rawProviderStatus: null,
+    fundsWithheld: true,
+    closedAt: null,
+  },
+  transfer: {
+    connectedAccountId: null,
+    orderId: null,
+    providerTransferId: null,
+    status: 'PENDING',
+    reversedCents: 0,
+    failureCode: null,
+    rawProviderStatus: null,
+    settledAt: null,
+  },
+  payout: {
+    connectedAccountId: null,
+    providerPayoutId: null,
+    status: 'SCHEDULED',
+    arrivalDate: null,
+    failureCode: null,
+    rawProviderStatus: null,
+    reversedCents: 0,
+    idempotencyKey: null,
+    holdReason: null,
+  },
+  ticketTransfer: {
+    fromUserId: null,
+    toUserId: null,
+    status: 'PENDING',
+    acceptedAt: null,
+    declinedAt: null,
+    cancelledAt: null,
+    resultTicketId: null,
+  },
+  checkIn: {
+    eventSessionId: null,
+    scannedByUserId: null,
+    deviceId: null,
+    method: 'QR_SCAN',
+    gate: null,
+  },
+  refundItem: { ticketId: null },
   ledgerAccount: { currency: null, active: true },
   ledgerBatch: {
     status: 'DRAFT',
@@ -385,6 +466,13 @@ const UNIQUE_FIELDS = {
   ticket: ['code'],
   session: ['tokenHash'],
   authToken: ['tokenHash'],
+  // One ticket, one attendance. The database enforces it with a unique index on
+  // CheckIn.ticketId, and two scanners racing is exactly the case the stub has
+  // to reproduce for the check-in tests to mean anything.
+  checkIn: ['ticketId'],
+  ticketTransfer: ['tokenHash'],
+  payout: ['idempotencyKey'],
+  transfer: ['idempotencyKey'],
 }
 
 /**
@@ -403,6 +491,10 @@ const COMPOUND_UNIQUE = {
   // because the same provider event id for two connected accounts is two facts.
   webhookEvent: [['provider', 'accountContext', 'providerEventId']],
   connectedAccount: [['provider', 'providerAccountId']],
+  dispute: [['provider', 'providerDisputeId']],
+  payout: [['provider', 'providerPayoutId']],
+  transfer: [['provider', 'providerTransferId']],
+  holdItem: [['holdId', 'eventSeatId']],
   seat: [['venueMapVersionId', 'label']],
   eventSeat: [['eventSessionId', 'seatId']],
   venueMapVersion: [['venueMapId', 'version']],
@@ -427,6 +519,9 @@ const TIMESTAMPED = new Set([
   'connectedAccount',
   'notificationOutbox',
   'refund',
+  'dispute',
+  'transfer',
+  'payout',
 ])
 
 /**
@@ -455,6 +550,9 @@ const CREATED_ONLY = new Set([
   'ledgerEntry',
   'organizationVerificationEvent',
   'eventModerationAction',
+  'ticketTransfer',
+  'checkIn',
+  'refundItem',
   // An audit row with no timestamp is not an audit row. The column is
   // `@default(now())` in the schema and was missing here, so every test that
   // read one back saw `createdAt: undefined` and none of them looked.
