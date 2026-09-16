@@ -108,7 +108,12 @@ export function routeSchema(route, options = {}) {
   if (route.params) schema.params = route.params
   if (route.query) schema.querystring = route.query
   if (route.body) schema.body = route.body
-  if (validateResponse && route.response) {
+  // A route that produces something other than JSON has no response schema to
+  // enforce: the serialiser would try to validate a CSV document against an
+  // object schema and refuse it. The contract still carries the column allow
+  // list for that route — see `csvColumns` — and the handler is what applies it,
+  // so "the response is an allow list" stays true by a different mechanism.
+  if (validateResponse && route.response && !route.produces) {
     schema.response = { [route.successStatus]: route.response }
   }
 

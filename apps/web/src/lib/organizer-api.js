@@ -208,3 +208,110 @@ export async function getModerationQueue(options = {}) {
 
   return { events: body.data ?? [], pagination: body.pagination ?? null }
 }
+
+/**
+ * The finance view for one organisation, or for the platform.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.organizationId] Restrict to one organisation.
+ * @param {string} [options.currency] Which currency.
+ * @param {string} [options.from] Inclusive lower bound, ISO-8601.
+ * @param {string} [options.to] Exclusive upper bound, ISO-8601.
+ * @returns {Promise<object>} The summary.
+ */
+export async function getFinanceSummary(options = {}) {
+  const query = new URLSearchParams()
+
+  for (const key of ['organizationId', 'currency', 'from', 'to']) {
+    if (options[key]) query.set(key, options[key])
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+
+  return (await callApi(`/v1/finance/summary${suffix}`)).data
+}
+
+/**
+ * Payouts for one organisation.
+ *
+ * @param {string} organizationId Whose.
+ * @returns {Promise<object[]>} The payouts, newest first.
+ */
+export async function listPayouts(organizationId) {
+  const body = await callApi(
+    `/v1/finance/payouts?organizationId=${encodeURIComponent(organizationId)}`,
+  )
+
+  return body.data ?? []
+}
+
+/**
+ * Disputes against one organisation's payments.
+ *
+ * @param {string} organizationId Whose.
+ * @returns {Promise<object[]>} The disputes, newest first.
+ */
+export async function listDisputes(organizationId) {
+  const body = await callApi(
+    `/v1/finance/disputes?organizationId=${encodeURIComponent(organizationId)}`,
+  )
+
+  return body.data ?? []
+}
+
+/**
+ * The reconciliation queue.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.organizationId] Restrict to one organisation.
+ * @param {string} [options.state] Restrict to one state.
+ * @returns {Promise<{tasks: object[], pagination: object|null}>} The queue.
+ */
+export async function getReconciliationQueue(options = {}) {
+  const query = new URLSearchParams()
+
+  for (const key of ['organizationId', 'state', 'kind', 'aging']) {
+    if (options[key]) query.set(key, options[key])
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/operations/reconciliation${suffix}`)
+
+  return { tasks: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * The notification outbox, as operations sees it.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.status] Restrict to one status.
+ * @returns {Promise<{messages: object[], pagination: object|null}>} The queue.
+ */
+export async function getNotificationQueue(options = {}) {
+  const query = new URLSearchParams()
+
+  if (options.status) query.set('status', options.status)
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/operations/notifications${suffix}`)
+
+  return { messages: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * Refunds for one organisation.
+ *
+ * @param {object} options Query options.
+ * @param {string} options.organizationId Whose.
+ * @param {string} [options.status] Restrict to one status.
+ * @returns {Promise<{refunds: object[], pagination: object|null}>} The queue.
+ */
+export async function getRefundQueue(options) {
+  const query = new URLSearchParams({ organizationId: options.organizationId })
+
+  if (options.status) query.set('status', options.status)
+
+  const body = await callApi(`/v1/refunds?${query.toString()}`)
+
+  return { refunds: body.data ?? [], pagination: body.pagination ?? null }
+}

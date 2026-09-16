@@ -857,6 +857,21 @@ export const disputeQueryQuerySchema = paginationQuerySchema.extend({
     .optional(),
 })
 
+/**
+ * The finance summary, and the export of it.
+ *
+ * `organizationId` is optional and decides the scope: with one, the caller
+ * needs `finance:view` in that organisation; without one it is the platform
+ * view and needs a platform capability. `from` and `to` bound the window, and
+ * `to` is exclusive so two adjacent months do not both count the boundary.
+ */
+export const financeSummaryQuerySchema = z.object({
+  organizationId: cuidSchema.optional(),
+  currency: currencySchema.default('INR'),
+  from: queryDateTimeSchema.optional(),
+  to: queryDateTimeSchema.optional(),
+})
+
 /** Reading a balance. */
 export const balanceQuerySchema = z.object({
   organizationId: cuidSchema,

@@ -65,7 +65,34 @@ describe('the server matches the contract', () => {
       if (route.body) expect(schema.body).toBe(route.body)
       if (route.query) expect(schema.querystring).toBe(route.query)
       if (route.params) expect(schema.params).toBe(route.params)
+
+      if (route.produces) {
+        // A route producing something other than JSON has no response schema to
+        // install: the serialiser would try to validate a CSV document against
+        // an object schema and refuse it. The allow list for such a route is
+        // applied by its handler — see the export's column list — so the
+        // property being checked here simply does not apply.
+        expect(schema.response).toBeUndefined()
+        continue
+      }
+
       expect(schema.response[route.successStatus]).toBe(route.response)
+    }
+  })
+
+  it('produces JSON everywhere except where a route says otherwise', () => {
+    // A small list on purpose. Every non-JSON route is a route whose response
+    // the serialiser does not check, so the set of them is worth being able to
+    // read at a glance.
+    const nonJson = apiRoutes.filter((route) => route.produces)
+
+    expect(nonJson.map((route) => route.id)).toEqual(['finance.export'])
+
+    for (const route of nonJson) {
+      expect(route.produces).toBe('text/csv')
+      // Still carries one, because the document describes what a row holds even
+      // though the wire format is a file.
+      expect(route.response).toBeTruthy()
     }
   })
 

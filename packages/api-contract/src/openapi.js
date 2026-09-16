@@ -195,7 +195,13 @@ function buildResponses(route, components) {
   const responses = {
     [String(route.successStatus)]: {
       description: route.summary,
-      content: { 'application/json': { schema: success } },
+      // A route may produce something other than JSON — an export is a file, not
+      // a document — and the schema still describes what a row contains, because
+      // that is the allow list the handler applies. Errors stay JSON: a failed
+      // download answers with the same envelope everything else does.
+      content: route.produces
+        ? { [route.produces]: { schema: { type: 'string' } } }
+        : { 'application/json': { schema: success } },
     },
   }
 

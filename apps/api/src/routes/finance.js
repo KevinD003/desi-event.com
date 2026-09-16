@@ -21,7 +21,9 @@ import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
+import { csvFilename, toCsv } from '../lib/csv.js'
 import { conflict, notFound } from '../lib/errors.js'
+import { financeSummary } from '../lib/finance-reporting.js'
 import {
   MOVEMENT_OUTCOMES,
   availableBalance,
@@ -42,6 +44,101 @@ import { defineRoute } from '../lib/register.js'
 const NEWEST_FIRST = Object.freeze([{ createdAt: 'desc' }])
 
 /**
+ * What a finance export contains, and therefore what it does not.
+ *
+ * An allow list rather than an object's keys: a schema that grew a field would
+ * otherwise start exporting it, and the field most likely to be added to a
+ * finance row is the buyer. There is no name here, no address, no card, no
+ * provider reference.
+ *
+ * @type {ReadonlyArray<{key: string, header: string}>}
+ */
+const EXPORT_COLUMNS = Object.freeze([
+  { key: 'section', header: 'Section' },
+  { key: 'label', header: 'Item' },
+  { key: 'code', header: 'Code' },
+  { key: 'debitCents', header: 'Debits (minor units)' },
+  { key: 'creditCents', header: 'Credits (minor units)' },
+  { key: 'balanceCents', header: 'Balance (minor units)' },
+  { key: 'count', header: 'Count' },
+  { key: 'currency', header: 'Currency' },
+])
+
+/**
+ * Assert who may see this view, and say how it is scoped.
+ *
+ * The same rule the reconciliation queue uses, and for the same reason: with an
+ * organisation named it is that organisation's money and `finance:view` is the
+ * right question; without one it is everybody's, which is a platform question.
+ *
+ * @param {object} request The request.
+ * @returns {{organizationId: string|null}} The scope.
+ */
+function summaryScope(request) {
+  const organizationId = request.query?.organizationId ?? null
+
+  if (organizationId) {
+    assertCan(request.actor, CAPABILITIES.FINANCE_VIEW, { organizationId })
+
+    return { organizationId }
+  }
+
+  assertCan(request.actor, CAPABILITIES.RECONCILIATION_MANAGE, {})
+
+  return { organizationId: null }
+}
+
+/**
+ * Turn a summary into the rows an export carries.
+ *
+ * @param {object} summary From `financeSummary`.
+ * @param {string} currency Which currency.
+ * @returns {Array<object>} Rows ready for {@link EXPORT_COLUMNS}.
+ */
+function exportRows(summary, currency) {
+  const rows = []
+
+  for (const [key, value] of Object.entries(summary.totals)) {
+    rows.push({ section: 'Totals', label: key, balanceCents: value, currency })
+  }
+
+  for (const account of summary.accounts) {
+    rows.push({
+      section: 'Accounts',
+      label: account.label,
+      code: account.code,
+      debitCents: account.debitCents,
+      creditCents: account.creditCents,
+      balanceCents: account.balanceCents,
+      currency,
+    })
+  }
+
+  for (const [key, value] of Object.entries(summary.activity)) {
+    rows.push({
+      section: 'Activity',
+      label: key,
+      count: value.count,
+      balanceCents: value.amountCents,
+      currency,
+    })
+  }
+
+  for (const imbalance of summary.integrity.imbalances) {
+    rows.push({
+      section: 'Integrity',
+      label: imbalance.problem,
+      code: imbalance.reference,
+      debitCents: imbalance.actualDebitCents,
+      creditCents: imbalance.actualCreditCents,
+      currency,
+    })
+  }
+
+  return rows
+}
+
+/**
  * Register the finance routes.
  *
  * @param {object} app The Fastify instance.
@@ -51,6 +148,79 @@ const NEWEST_FIRST = Object.freeze([{ createdAt: 'desc' }])
  * @returns {void} Nothing.
  */
 export function registerFinanceRoutes(app, { prisma, providers }) {
+  /**
+   * Build the summary a screen or an export is asking for.
+   *
+   * @param {object} request The request.
+   * @returns {Promise<object>} The summary, with its window and its mode.
+   */
+  async function summaryFor(request) {
+    const { currency, from, to } = request.query
+    const { organizationId } = summaryScope(request)
+    const window = {
+      from: from ? new Date(from) : null,
+      to: to ? new Date(to) : null,
+    }
+
+    const summary = await financeSummary(prisma, { organizationId, currency, ...window })
+
+    return {
+      organizationId,
+      currency,
+      from: window.from,
+      to: window.to,
+      // Said on every finance surface, and said first. A figure from a mock
+      // provider is not an accounting record, and a screen that does not say so
+      // is one somebody will eventually paste into a return.
+      mode: providers.payments.name === 'in-memory-payments' ? 'MOCK' : 'STRIPE_TEST',
+      modeNotice:
+        providers.payments.name === 'in-memory-payments'
+          ? 'DEMO — no money moved. These figures describe a demonstration and are not an accounting record.'
+          : "SANDBOX — settled in Stripe's test mode. No real money moved.",
+      ...summary,
+    }
+  }
+
+  defineRoute(app, 'finance.summary', {
+    handler: async (request) => ({ data: await summaryFor(request) }),
+  })
+
+  defineRoute(app, 'finance.export', {
+    handler: async (request, reply) => {
+      const summary = await summaryFor(request)
+      const stamp = new Date().toISOString()
+
+      reply
+        .type('text/csv; charset=utf-8')
+        .header(
+          'content-disposition',
+          `attachment; filename="${csvFilename(
+            summary.organizationId ? `finance-${summary.organizationId}` : 'finance-platform',
+            stamp,
+          )}"`,
+        )
+        // An export is a snapshot of a moment. Saying so stops a stale file in
+        // somebody's downloads folder being read as current.
+        .header('cache-control', 'no-store')
+
+      // The mode line is the first row rather than a footer, because a
+      // spreadsheet opened at the top is read from the top.
+      const header = [
+        {
+          section: 'Mode',
+          label: summary.modeNotice,
+          code: summary.mode,
+          currency: summary.currency,
+        },
+      ]
+
+      return toCsv({
+        columns: EXPORT_COLUMNS,
+        rows: [...header, ...exportRows(summary, summary.currency)],
+      })
+    },
+  })
+
   defineRoute(app, 'finance.balance', {
     handler: async (request) => {
       const { organizationId, currency } = request.query

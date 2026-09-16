@@ -439,6 +439,66 @@ export const notificationDetailResponseSchema = z.object({
 /** `GET /finance/balance`. */
 export const balanceResponseSchema = z.object({ data: organizerBalanceSchema })
 
+/**
+ * `GET /finance/summary`.
+ *
+ * Every figure derived from the append-only ledger. `integrity` is above the
+ * totals in the payload as well as on the screen, because a batch that does not
+ * add up is a reason to stop reading the totals rather than a footnote to them.
+ */
+export const financeSummaryResponseSchema = z.object({
+  data: z.object({
+    organizationId: cuidSchema.nullable(),
+    currency: z.string(),
+    from: timestampSchema.nullable(),
+    to: timestampSchema.nullable(),
+    /** Which mode the money moved in. `MOCK` here means no money moved at all. */
+    mode: z.string(),
+    modeNotice: z.string(),
+    integrity: z.object({
+      examined: z.number().int(),
+      truncated: z.boolean(),
+      imbalances: z.array(
+        z.object({
+          batchId: cuidSchema,
+          reference: z.string(),
+          kind: z.string(),
+          problem: z.enum(['NO_ENTRIES', 'ENTRIES_UNBALANCED', 'ENTRIES_DISAGREE_WITH_BATCH']),
+          storedDebitCents: z.number().int(),
+          storedCreditCents: z.number().int(),
+          actualDebitCents: z.number().int(),
+          actualCreditCents: z.number().int(),
+        }),
+      ),
+    }),
+    totals: z.object({
+      grossCollectedCents: z.number().int(),
+      faceValueCents: z.number().int(),
+      discountCents: z.number().int(),
+      taxPayableCents: z.number().int(),
+      platformFeeRevenueCents: z.number().int(),
+      organizerPayableCents: z.number().int(),
+      processorFeeCents: z.number().int(),
+    }),
+    accounts: z.array(
+      z.object({
+        code: z.string(),
+        label: z.string(),
+        debitCents: z.number().int(),
+        creditCents: z.number().int(),
+        balanceCents: z.number().int(),
+      }),
+    ),
+    activity: z.object({
+      refundsRequested: z.object({ count: z.number().int(), amountCents: z.number().int() }),
+      refundsSettled: z.object({ count: z.number().int(), amountCents: z.number().int() }),
+      disputes: z.object({ count: z.number().int(), amountCents: z.number().int() }),
+      transfers: z.object({ count: z.number().int(), amountCents: z.number().int() }),
+      payouts: z.object({ count: z.number().int(), amountCents: z.number().int() }),
+    }),
+  }),
+})
+
 /** `GET /finance/payouts`. */
 export const payoutListResponseSchema = z.object({
   data: z.array(payoutSchema),
