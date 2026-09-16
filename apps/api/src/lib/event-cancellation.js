@@ -40,6 +40,8 @@
  * @file @desi-event/api/lib/event-cancellation
  */
 
+import { isSuppressible } from '@desi-event/notifications'
+
 /**
  * Order statuses that represent money actually taken.
  *
@@ -124,8 +126,10 @@ export async function cancellationWork(tx, options) {
             },
             dedupeKey,
             // Being told the event you bought a ticket for is cancelled is not
-            // marketing, and a preference must not suppress it.
-            suppressible: false,
+            // marketing, and a preference must not suppress it. Asked of the
+            // one list rather than answered here, so a new call site cannot
+            // answer it differently.
+            suppressible: isSuppressible(TEMPLATES[kind]),
           },
         ],
         skipDuplicates: true,

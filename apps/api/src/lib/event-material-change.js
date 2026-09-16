@@ -45,6 +45,7 @@
  */
 
 import { MATERIAL_FIELDS, materialChanges } from '@desi-event/schemas/lifecycle'
+import { isSuppressible } from '@desi-event/notifications'
 
 import { unprocessable } from './errors.js'
 
@@ -242,8 +243,9 @@ export async function materialChangeWork(tx, options) {
           },
           dedupeKey,
           // A change to what somebody bought is not marketing, and a
-          // notification preference must not suppress it.
-          suppressible: false,
+          // notification preference must not suppress it. Asked of the one
+          // list rather than answered here.
+          suppressible: isSuppressible('event.changed'),
         },
       ],
       skipDuplicates: true,

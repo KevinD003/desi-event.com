@@ -45,11 +45,21 @@ export const UNSUPPRESSIBLE_TEMPLATES = Object.freeze(
     'event.cancelled',
     'event.postponed',
     'event.changed',
+    // A ticket somebody paid for, and an offer of one somebody paid for. Both
+    // were written `suppressible: false` at their call sites while this list
+    // said they were ordinary — which is the disagreement the list exists to
+    // prevent, and it survived because no writer consulted the list.
+    'ticket.issued',
+    'ticket.transfer.invited',
     'ticket.revoked',
     'refund.settled',
     'security.alert',
   ]),
 )
+
+// `ticket.transfer.completed` is deliberately absent. It is the sender's
+// courtesy confirmation; the recipient already has `ticket.issued` for the
+// ticket itself. A list where every entry is unsuppressible decides nothing.
 
 /**
  * Whether a template is one the outbox knows.

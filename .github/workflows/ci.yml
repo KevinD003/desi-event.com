@@ -140,6 +140,15 @@ jobs:
       - name: Refuse an undeclared skipped test
         run: node scripts/check-skipped-tests.mjs $(find . -name vitest-report.json -not -path '*/node_modules/*')
 
+      # The pure-logic packages carry coverage thresholds, and a threshold
+      # nothing runs is a decoration. This step is here because the thresholds
+      # were not being enforced anywhere: `@desi-event/notifications` sat at 75%
+      # function coverage against its own 80% floor, and the two uncovered
+      # functions turned out to disagree with every call site that should have
+      # been calling them.
+      - name: Coverage thresholds
+        run: pnpm run test:coverage
+
       - name: Fresh-database verification
         run: pnpm run db:verify:fresh
 

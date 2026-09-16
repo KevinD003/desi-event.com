@@ -36,6 +36,7 @@
  * @module @desi-event/api/routes/tickets
  */
 
+import { isSuppressible } from '@desi-event/notifications'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
@@ -331,8 +332,9 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
             },
             businessEvent: `ticket.transfer.invited:${outcome.transfer.id}`,
             dedupeKey: `ticket.transfer.invited:${outcome.transfer.id}`,
-            // Being offered a ticket somebody paid for is not marketing.
-            suppressible: false,
+            // Being offered a ticket somebody paid for is not marketing. Asked
+            // of the one list rather than answered here.
+            suppressible: isSuppressible('ticket.transfer.invited'),
           },
         ],
         skipDuplicates: true,
