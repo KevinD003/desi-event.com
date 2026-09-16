@@ -543,6 +543,7 @@ async function main() {
         'tests/facets-integration.test.js',
         'tests/ledger-integration.test.js',
         'tests/reserved-seat-concurrency.test.js',
+        'tests/refund-concurrency.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

@@ -49,6 +49,8 @@ import {
   promoTypeSchema,
   notificationChannelSchema,
   notificationStatusSchema,
+  refundReasonSchema,
+  refundStatusSchema,
   ticketStatusSchema,
   ticketTypeStatusSchema,
   userRoleSchema,
@@ -432,4 +434,62 @@ export const notificationSummarySchema = z.object({
   leaseExpiresAt: timestampSchema.nullable(),
   suppressible: z.boolean(),
   createdAt: timestampSchema,
+})
+
+/**
+ * One line of a refund: which order line, how many tickets, how much.
+ *
+ * @type {object}
+ */
+export const refundLineSchema = z.object({
+  orderItemId: cuidSchema,
+  quantity: countSchema,
+  amountCents: centsSchema,
+})
+
+/**
+ * A refund, as finance sees it.
+ *
+ * `providerRefundId` is whatever the provider returned and nothing else. It is
+ * nullable because a refund that has not been submitted does not have one, and
+ * a refund that timed out may never get one; the field is never filled in to
+ * make a row look finished.
+ *
+ * What is deliberately absent: the buyer's name, their email, and anything
+ * about how they paid. A refund screen is a money screen, and none of those is
+ * needed to decide whether money should go back.
+ *
+ * @type {object}
+ */
+export const refundSchema = z.object({
+  id: cuidSchema,
+  orderId: cuidSchema,
+  orderReference: orderReferenceSchema.nullish(),
+  paymentId: cuidSchema,
+  provider: z.string(),
+  providerRefundId: z.string().nullable(),
+  amountCents: centsSchema,
+  currency: currencySchema,
+  reason: refundReasonSchema,
+  reasonNote: z.string().nullable(),
+  status: refundStatusSchema,
+  /** How the amount divides across face value, fee and tax. */
+  allocation: z
+    .object({
+      faceValueCents: z.number().int(),
+      feeCents: z.number().int(),
+      taxCents: z.number().int(),
+    })
+    .nullable(),
+  items: z.array(refundLineSchema),
+  requestedById: cuidSchema.nullable(),
+  approvedById: cuidSchema.nullable(),
+  ticketsRevoked: z.boolean(),
+  inventoryReturned: z.boolean(),
+  failureCode: z.string().nullable(),
+  attempts: z.number().int(),
+  submittedAt: timestampSchema.nullable(),
+  settledAt: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema.optional(),
 })

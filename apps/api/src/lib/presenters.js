@@ -289,3 +289,49 @@ export function toOperatorNotification(row) {
     createdAt: row.createdAt,
   }
 }
+
+/**
+ * One refund, as finance sees it.
+ *
+ * The buyer is not here. Neither is their email, their name, or anything about
+ * the card: a refund screen answers "should this money go back, and has it",
+ * and none of those is needed to answer it. The response schema is an allow
+ * list and this function is what decides what is on it.
+ *
+ * `providerRefundId` passes through exactly as the provider gave it, or stays
+ * null. Nothing in this path manufactures one.
+ *
+ * @param {object} row A `Refund` row, optionally with `items` and its order.
+ * @returns {object} A payload satisfying `refundSchema`.
+ */
+export function toRefund(row) {
+  return {
+    id: row.id,
+    orderId: row.orderId,
+    orderReference: row.order?.reference ?? null,
+    paymentId: row.paymentId,
+    provider: row.provider,
+    providerRefundId: row.providerRefundId ?? null,
+    amountCents: row.amountCents,
+    currency: row.currency,
+    reason: row.reason,
+    reasonNote: row.reasonNote ?? null,
+    status: row.status,
+    allocation: row.allocation ?? null,
+    items: (row.items ?? []).map((item) => ({
+      orderItemId: item.orderItemId,
+      quantity: item.quantity,
+      amountCents: item.amountCents,
+    })),
+    requestedById: row.requestedById ?? null,
+    approvedById: row.approvedById ?? null,
+    ticketsRevoked: row.ticketsRevoked,
+    inventoryReturned: row.inventoryReturned,
+    failureCode: row.failureCode ?? null,
+    attempts: row.attempts ?? 0,
+    submittedAt: row.submittedAt ?? null,
+    settledAt: row.settledAt ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
+}

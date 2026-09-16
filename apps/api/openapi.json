@@ -65,6 +65,10 @@
       "description": "Provider callbacks. The authoritative signal that money moved, verified over the exact bytes sent."
     },
     {
+      "name": "refunds",
+      "description": "Giving money back: requesting, approving, submitting and withdrawing. Every amount is computed from the order, every step is audited, and the provider is called with no transaction open — a refund is the one commerce action where every failure mode costs somebody money."
+    },
+    {
       "name": "tickets",
       "description": "Door scanning and attendance."
     },
@@ -19746,6 +19750,2748 @@
                     "type": "string",
                     "minLength": 4,
                     "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/orders/{reference}/refunds": {
+      "get": {
+        "operationId": "refunds.summary",
+        "summary": "What this order has left to give back",
+        "description": "The order’s refund position: how much has gone back, how much is reserved by a refund somebody has asked for but not yet settled, and how many tickets on each line are still refundable. Computed here rather than on the client, so two screens cannot disagree about how much is left. Requires `finance:view` in the organisation that owns the event.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "What this order has left to give back",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "orderId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderReference": {
+                          "type": "string",
+                          "minLength": 4,
+                          "maxLength": 32,
+                          "pattern": "^[A-Z0-9-]+$"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "totalCents": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "refundedCents": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "refundPendingCents": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "refundableCents": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "lines": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "orderItemId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "ticketTypeId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "ticketTypeName": {
+                                "type": "string"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "unitPriceCents": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "refundedQuantity": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "pendingQuantity": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "refundableQuantity": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "orderItemId",
+                              "ticketTypeId",
+                              "ticketTypeName",
+                              "quantity",
+                              "unitPriceCents",
+                              "refundedQuantity",
+                              "pendingQuantity",
+                              "refundableQuantity"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "refunds": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "orderId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "orderReference": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 4,
+                                    "maxLength": 32,
+                                    "pattern": "^[A-Z0-9-]+$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "paymentId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "provider": {
+                                "type": "string"
+                              },
+                              "providerRefundId": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "amountCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              },
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "reason": {
+                                "type": "string",
+                                "enum": [
+                                  "EVENT_CANCELLED",
+                                  "EVENT_POSTPONED",
+                                  "DUPLICATE_ORDER",
+                                  "CUSTOMER_REQUEST",
+                                  "ORGANIZER_GOODWILL",
+                                  "FRAUDULENT",
+                                  "OTHER"
+                                ]
+                              },
+                              "reasonNote": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "REQUESTED",
+                                  "APPROVED",
+                                  "SUBMITTED",
+                                  "SUCCEEDED",
+                                  "DECLINED",
+                                  "FAILED",
+                                  "TIMEOUT",
+                                  "RECONCILIATION_REQUIRED",
+                                  "CANCELLED",
+                                  "PROCESSING",
+                                  "REJECTED"
+                                ]
+                              },
+                              "allocation": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "faceValueCents": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "feeCents": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      "taxCents": {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      }
+                                    },
+                                    "required": [
+                                      "faceValueCents",
+                                      "feeCents",
+                                      "taxCents"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "items": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "orderItemId": {
+                                      "type": "string",
+                                      "maxLength": 64,
+                                      "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                    },
+                                    "quantity": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 10000000
+                                    },
+                                    "amountCents": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 1000000000
+                                    }
+                                  },
+                                  "required": [
+                                    "orderItemId",
+                                    "quantity",
+                                    "amountCents"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "requestedById": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "approvedById": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "ticketsRevoked": {
+                                "type": "boolean"
+                              },
+                              "inventoryReturned": {
+                                "type": "boolean"
+                              },
+                              "failureCode": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "attempts": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              "submittedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "settledAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "orderId",
+                              "paymentId",
+                              "provider",
+                              "providerRefundId",
+                              "amountCents",
+                              "currency",
+                              "reason",
+                              "reasonNote",
+                              "status",
+                              "allocation",
+                              "items",
+                              "requestedById",
+                              "approvedById",
+                              "ticketsRevoked",
+                              "inventoryReturned",
+                              "failureCode",
+                              "attempts",
+                              "submittedAt",
+                              "settledAt",
+                              "createdAt"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "orderId",
+                        "orderReference",
+                        "currency",
+                        "totalCents",
+                        "refundedCents",
+                        "refundPendingCents",
+                        "refundableCents",
+                        "lines",
+                        "refunds"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 32,
+              "pattern": "^[A-Z0-9-]+$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "refunds.request",
+        "summary": "Ask for a refund",
+        "description": "Creates a REQUESTED refund and reserves the amount against the order in the same transaction, which is what stops two requests from together exceeding the total. Send either `amountCents` or `lines`; prices are never taken from the request. `idempotencyKey` is required — a retry that is not recognised as one costs somebody money twice. Nothing is sent to the provider here. Requires `order:refund_request`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "201": {
+            "description": "Ask for a refund",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderReference": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 4,
+                              "maxLength": 32,
+                              "pattern": "^[A-Z0-9-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "paymentId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "providerRefundId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "amountCents": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "EVENT_CANCELLED",
+                            "EVENT_POSTPONED",
+                            "DUPLICATE_ORDER",
+                            "CUSTOMER_REQUEST",
+                            "ORGANIZER_GOODWILL",
+                            "FRAUDULENT",
+                            "OTHER"
+                          ]
+                        },
+                        "reasonNote": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "REQUESTED",
+                            "APPROVED",
+                            "SUBMITTED",
+                            "SUCCEEDED",
+                            "DECLINED",
+                            "FAILED",
+                            "TIMEOUT",
+                            "RECONCILIATION_REQUIRED",
+                            "CANCELLED",
+                            "PROCESSING",
+                            "REJECTED"
+                          ]
+                        },
+                        "allocation": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "faceValueCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "feeCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "taxCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "faceValueCents",
+                                "feeCents",
+                                "taxCents"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "orderItemId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "amountCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              }
+                            },
+                            "required": [
+                              "orderItemId",
+                              "quantity",
+                              "amountCents"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "requestedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "approvedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "ticketsRevoked": {
+                          "type": "boolean"
+                        },
+                        "inventoryReturned": {
+                          "type": "boolean"
+                        },
+                        "failureCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "submittedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "settledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "orderId",
+                        "paymentId",
+                        "provider",
+                        "providerRefundId",
+                        "amountCents",
+                        "currency",
+                        "reason",
+                        "reasonNote",
+                        "status",
+                        "allocation",
+                        "items",
+                        "requestedById",
+                        "approvedById",
+                        "ticketsRevoked",
+                        "inventoryReturned",
+                        "failureCode",
+                        "attempts",
+                        "submittedAt",
+                        "settledAt",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "reference",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 32,
+              "pattern": "^[A-Z0-9-]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "amountCents": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000
+                  },
+                  "lines": {
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "orderItemId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 50
+                        }
+                      },
+                      "required": [
+                        "orderItemId",
+                        "quantity"
+                      ]
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "EVENT_CANCELLED",
+                      "EVENT_POSTPONED",
+                      "DUPLICATE_ORDER",
+                      "CUSTOMER_REQUEST",
+                      "ORGANIZER_GOODWILL",
+                      "FRAUDULENT",
+                      "OTHER"
+                    ]
+                  },
+                  "reasonNote": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 200
+                  },
+                  "seatPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "RESELL",
+                      "WITHHOLD"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason",
+                  "idempotencyKey"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/refunds": {
+      "get": {
+        "operationId": "refunds.queue",
+        "summary": "The refund queue for one organisation",
+        "description": "Refunds belonging to one organisation, unresolved first. Organisation-scoped by `organizationId`, which is where the capability is asserted rather than a filter the caller may widen — a finance user of one organisation cannot read another’s refunds by asking.\n\nRequires the `finance:view` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "The refund queue for one organisation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z][a-z0-9]{7,31}$"
+                          },
+                          "orderId": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z][a-z0-9]{7,31}$"
+                          },
+                          "orderReference": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 4,
+                                "maxLength": 32,
+                                "pattern": "^[A-Z0-9-]+$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "paymentId": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z][a-z0-9]{7,31}$"
+                          },
+                          "provider": {
+                            "type": "string"
+                          },
+                          "providerRefundId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "amountCents": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 1000000000
+                          },
+                          "currency": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "enum": [
+                              "EVENT_CANCELLED",
+                              "EVENT_POSTPONED",
+                              "DUPLICATE_ORDER",
+                              "CUSTOMER_REQUEST",
+                              "ORGANIZER_GOODWILL",
+                              "FRAUDULENT",
+                              "OTHER"
+                            ]
+                          },
+                          "reasonNote": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "REQUESTED",
+                              "APPROVED",
+                              "SUBMITTED",
+                              "SUCCEEDED",
+                              "DECLINED",
+                              "FAILED",
+                              "TIMEOUT",
+                              "RECONCILIATION_REQUIRED",
+                              "CANCELLED",
+                              "PROCESSING",
+                              "REJECTED"
+                            ]
+                          },
+                          "allocation": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "faceValueCents": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "feeCents": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "taxCents": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  }
+                                },
+                                "required": [
+                                  "faceValueCents",
+                                  "feeCents",
+                                  "taxCents"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "orderItemId": {
+                                  "type": "string",
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "quantity": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 10000000
+                                },
+                                "amountCents": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 1000000000
+                                }
+                              },
+                              "required": [
+                                "orderItemId",
+                                "quantity",
+                                "amountCents"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "requestedById": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "approvedById": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ticketsRevoked": {
+                            "type": "boolean"
+                          },
+                          "inventoryReturned": {
+                            "type": "boolean"
+                          },
+                          "failureCode": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "attempts": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "submittedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "settledAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "orderId",
+                          "paymentId",
+                          "provider",
+                          "providerRefundId",
+                          "amountCents",
+                          "currency",
+                          "reason",
+                          "reasonNote",
+                          "status",
+                          "allocation",
+                          "items",
+                          "requestedById",
+                          "approvedById",
+                          "ticketsRevoked",
+                          "inventoryReturned",
+                          "failureCode",
+                          "attempts",
+                          "submittedAt",
+                          "settledAt",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "perPage": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "totalPages": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "hasNextPage": {
+                          "type": "boolean"
+                        },
+                        "hasPreviousPage": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "perPage",
+                        "total",
+                        "totalPages",
+                        "hasNextPage",
+                        "hasPreviousPage"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "organizationId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REQUESTED",
+                "APPROVED",
+                "SUBMITTED",
+                "SUCCEEDED",
+                "DECLINED",
+                "FAILED",
+                "TIMEOUT",
+                "RECONCILIATION_REQUIRED",
+                "CANCELLED",
+                "PROCESSING",
+                "REJECTED"
+              ]
+            }
+          },
+          {
+            "name": "orderReference",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 32,
+              "pattern": "^[A-Z0-9-]+$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/refunds/{id}": {
+      "get": {
+        "operationId": "refunds.get",
+        "summary": "Read one refund",
+        "description": "One refund with its lines, its provider reference if it has one, and its attempt count. The organisation is the one that owns the order’s event, so the capability is asserted in the handler once the row is loaded rather than taken from the request.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Read one refund",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderReference": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 4,
+                              "maxLength": 32,
+                              "pattern": "^[A-Z0-9-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "paymentId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "providerRefundId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "amountCents": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "EVENT_CANCELLED",
+                            "EVENT_POSTPONED",
+                            "DUPLICATE_ORDER",
+                            "CUSTOMER_REQUEST",
+                            "ORGANIZER_GOODWILL",
+                            "FRAUDULENT",
+                            "OTHER"
+                          ]
+                        },
+                        "reasonNote": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "REQUESTED",
+                            "APPROVED",
+                            "SUBMITTED",
+                            "SUCCEEDED",
+                            "DECLINED",
+                            "FAILED",
+                            "TIMEOUT",
+                            "RECONCILIATION_REQUIRED",
+                            "CANCELLED",
+                            "PROCESSING",
+                            "REJECTED"
+                          ]
+                        },
+                        "allocation": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "faceValueCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "feeCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "taxCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "faceValueCents",
+                                "feeCents",
+                                "taxCents"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "orderItemId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "amountCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              }
+                            },
+                            "required": [
+                              "orderItemId",
+                              "quantity",
+                              "amountCents"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "requestedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "approvedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "ticketsRevoked": {
+                          "type": "boolean"
+                        },
+                        "inventoryReturned": {
+                          "type": "boolean"
+                        },
+                        "failureCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "submittedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "settledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "orderId",
+                        "paymentId",
+                        "provider",
+                        "providerRefundId",
+                        "amountCents",
+                        "currency",
+                        "reason",
+                        "reasonNote",
+                        "status",
+                        "allocation",
+                        "items",
+                        "requestedById",
+                        "approvedById",
+                        "ticketsRevoked",
+                        "inventoryReturned",
+                        "failureCode",
+                        "attempts",
+                        "submittedAt",
+                        "settledAt",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/refunds/{id}/approve": {
+      "post": {
+        "operationId": "refunds.approve",
+        "summary": "Approve a requested refund",
+        "description": "Moves REQUESTED to APPROVED. Still nothing is sent. Whoever asked for a refund may not approve it unless they also hold `order:refund`, which is the capability that says one person may do both — separation of duties is a policy, and it is enforced here rather than assumed. Requires `order:refund_approve`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Approve a requested refund",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderReference": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 4,
+                              "maxLength": 32,
+                              "pattern": "^[A-Z0-9-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "paymentId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "providerRefundId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "amountCents": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "EVENT_CANCELLED",
+                            "EVENT_POSTPONED",
+                            "DUPLICATE_ORDER",
+                            "CUSTOMER_REQUEST",
+                            "ORGANIZER_GOODWILL",
+                            "FRAUDULENT",
+                            "OTHER"
+                          ]
+                        },
+                        "reasonNote": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "REQUESTED",
+                            "APPROVED",
+                            "SUBMITTED",
+                            "SUCCEEDED",
+                            "DECLINED",
+                            "FAILED",
+                            "TIMEOUT",
+                            "RECONCILIATION_REQUIRED",
+                            "CANCELLED",
+                            "PROCESSING",
+                            "REJECTED"
+                          ]
+                        },
+                        "allocation": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "faceValueCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "feeCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "taxCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "faceValueCents",
+                                "feeCents",
+                                "taxCents"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "orderItemId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "amountCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              }
+                            },
+                            "required": [
+                              "orderItemId",
+                              "quantity",
+                              "amountCents"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "requestedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "approvedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "ticketsRevoked": {
+                          "type": "boolean"
+                        },
+                        "inventoryReturned": {
+                          "type": "boolean"
+                        },
+                        "failureCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "submittedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "settledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "orderId",
+                        "paymentId",
+                        "provider",
+                        "providerRefundId",
+                        "amountCents",
+                        "currency",
+                        "reason",
+                        "reasonNote",
+                        "status",
+                        "allocation",
+                        "items",
+                        "requestedById",
+                        "approvedById",
+                        "ticketsRevoked",
+                        "inventoryReturned",
+                        "failureCode",
+                        "attempts",
+                        "submittedAt",
+                        "settledAt",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 500
+                  },
+                  "seatPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "RESELL",
+                      "WITHHOLD"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/refunds/{id}/submit": {
+      "post": {
+        "operationId": "refunds.submit",
+        "summary": "Send an approved refund to the provider",
+        "description": "The only route that reaches a payment provider. SUBMITTED is written first, in its own transaction, so a process that dies mid-call leaves durable evidence that a refund may exist; the provider is then called with nothing open; a second short transaction records what it said. A provider that does not answer is a TIMEOUT, which is neither success nor failure: the reservation stays and a reconciliation task is opened. Requires `order:refund`.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Send an approved refund to the provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderReference": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 4,
+                              "maxLength": 32,
+                              "pattern": "^[A-Z0-9-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "paymentId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "providerRefundId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "amountCents": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "EVENT_CANCELLED",
+                            "EVENT_POSTPONED",
+                            "DUPLICATE_ORDER",
+                            "CUSTOMER_REQUEST",
+                            "ORGANIZER_GOODWILL",
+                            "FRAUDULENT",
+                            "OTHER"
+                          ]
+                        },
+                        "reasonNote": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "REQUESTED",
+                            "APPROVED",
+                            "SUBMITTED",
+                            "SUCCEEDED",
+                            "DECLINED",
+                            "FAILED",
+                            "TIMEOUT",
+                            "RECONCILIATION_REQUIRED",
+                            "CANCELLED",
+                            "PROCESSING",
+                            "REJECTED"
+                          ]
+                        },
+                        "allocation": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "faceValueCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "feeCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "taxCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "faceValueCents",
+                                "feeCents",
+                                "taxCents"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "orderItemId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "amountCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              }
+                            },
+                            "required": [
+                              "orderItemId",
+                              "quantity",
+                              "amountCents"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "requestedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "approvedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "ticketsRevoked": {
+                          "type": "boolean"
+                        },
+                        "inventoryReturned": {
+                          "type": "boolean"
+                        },
+                        "failureCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "submittedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "settledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "orderId",
+                        "paymentId",
+                        "provider",
+                        "providerRefundId",
+                        "amountCents",
+                        "currency",
+                        "reason",
+                        "reasonNote",
+                        "status",
+                        "allocation",
+                        "items",
+                        "requestedById",
+                        "approvedById",
+                        "ticketsRevoked",
+                        "inventoryReturned",
+                        "failureCode",
+                        "attempts",
+                        "submittedAt",
+                        "settledAt",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 500
+                  },
+                  "seatPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "RESELL",
+                      "WITHHOLD"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/refunds/{id}/cancel": {
+      "post": {
+        "operationId": "refunds.cancel",
+        "summary": "Withdraw a refund nobody has submitted",
+        "description": "Terminal, and refused once a refund has been handed to the provider: withdrawing something that may already have moved money would leave the row saying one thing and the provider having done another. Releases the reservation. Requires `order:refund_approve`, or `order:refund_request` for the person who asked.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "refunds"
+        ],
+        "responses": {
+          "200": {
+            "description": "Withdraw a refund nobody has submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "orderReference": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "minLength": 4,
+                              "maxLength": 32,
+                              "pattern": "^[A-Z0-9-]+$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "paymentId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "provider": {
+                          "type": "string"
+                        },
+                        "providerRefundId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "amountCents": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000000000
+                        },
+                        "currency": {
+                          "type": "string",
+                          "pattern": "^[A-Z]{3}$"
+                        },
+                        "reason": {
+                          "type": "string",
+                          "enum": [
+                            "EVENT_CANCELLED",
+                            "EVENT_POSTPONED",
+                            "DUPLICATE_ORDER",
+                            "CUSTOMER_REQUEST",
+                            "ORGANIZER_GOODWILL",
+                            "FRAUDULENT",
+                            "OTHER"
+                          ]
+                        },
+                        "reasonNote": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "REQUESTED",
+                            "APPROVED",
+                            "SUBMITTED",
+                            "SUCCEEDED",
+                            "DECLINED",
+                            "FAILED",
+                            "TIMEOUT",
+                            "RECONCILIATION_REQUIRED",
+                            "CANCELLED",
+                            "PROCESSING",
+                            "REJECTED"
+                          ]
+                        },
+                        "allocation": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "faceValueCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "feeCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "taxCents": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "faceValueCents",
+                                "feeCents",
+                                "taxCents"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "items": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "orderItemId": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "quantity": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 10000000
+                              },
+                              "amountCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 1000000000
+                              }
+                            },
+                            "required": [
+                              "orderItemId",
+                              "quantity",
+                              "amountCents"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "requestedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "approvedById": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "ticketsRevoked": {
+                          "type": "boolean"
+                        },
+                        "inventoryReturned": {
+                          "type": "boolean"
+                        },
+                        "failureCode": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "attempts": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "submittedAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "settledAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "orderId",
+                        "paymentId",
+                        "provider",
+                        "providerRefundId",
+                        "amountCents",
+                        "currency",
+                        "reason",
+                        "reasonNote",
+                        "status",
+                        "allocation",
+                        "items",
+                        "requestedById",
+                        "approvedById",
+                        "ticketsRevoked",
+                        "inventoryReturned",
+                        "failureCode",
+                        "attempts",
+                        "submittedAt",
+                        "settledAt",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 500
+                  },
+                  "seatPolicy": {
+                    "type": "string",
+                    "enum": [
+                      "RESELL",
+                      "WITHHOLD"
+                    ]
                   }
                 },
                 "required": [

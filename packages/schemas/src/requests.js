@@ -38,6 +38,8 @@ import {
   eventStatusSchema,
   notificationStatusSchema,
   promoTypeSchema,
+  refundReasonSchema,
+  refundStatusSchema,
   ticketTypeStatusSchema,
 } from './enums.js'
 import { eventPoliciesSchema } from './entities.js'
@@ -568,6 +570,78 @@ export const notificationQueueQuerySchema = paginationQuerySchema.extend({
  */
 export const notificationActionRequestSchema = z.object({
   reason: z.string().trim().min(4).max(500),
+})
+
+/**
+ * Asking for a refund.
+ *
+ * Two forms, exactly one of them at a time: an amount, or the lines to give
+ * back. No price appears anywhere. A request that could name what a ticket cost
+ * would be a request that could refund more than was paid, and the order's own
+ * unit prices are the only prices this application will use.
+ *
+ * `idempotencyKey` is required rather than optional. A refund is the one request
+ * where a retry that is not recognised as a retry costs somebody money twice,
+ * and making the client supply the key is what lets the server recognise it.
+ */
+export const requestRefundRequestSchema = z
+  .object({
+    amountCents: centsSchema.optional(),
+    lines: z
+      .array(z.object({ orderItemId: cuidSchema, quantity: quantitySchema }))
+      .min(1)
+      .max(50)
+      .optional(),
+    reason: refundReasonSchema,
+    reasonNote: z.string().trim().min(1).max(500).optional(),
+    idempotencyKey: z.string().trim().min(8).max(200),
+    /** `RESELL` or `WITHHOLD`, when an organiser overrides the default. */
+    seatPolicy: z.enum(['RESELL', 'WITHHOLD']).optional(),
+  })
+  .superRefine((value, ctx) => {
+    const hasAmount = value.amountCents !== undefined
+    const hasLines = value.lines !== undefined
+
+    if (hasAmount === hasLines) {
+      ctx.addIssue({
+        code: 'custom',
+        path: hasAmount ? ['lines'] : ['amountCents'],
+        message: 'Send either an amount or the lines to refund, not both and not neither.',
+      })
+    }
+
+    if (hasAmount && value.amountCents <= 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['amountCents'],
+        message: 'A refund has to be for more than nothing.',
+      })
+    }
+  })
+
+/**
+ * Approving, submitting or withdrawing a refund.
+ *
+ * A reason on every one, for the same reason the notification actions carry
+ * one: in six months the row says what happened and nothing says why.
+ */
+export const refundActionRequestSchema = z.object({
+  reason: z.string().trim().min(4).max(500),
+  /** Overrides the distance-based default when the refund settles. */
+  seatPolicy: z.enum(['RESELL', 'WITHHOLD']).optional(),
+})
+
+/**
+ * The finance refund queue.
+ *
+ * `organizationId` is required and is not a convenience. It is where the
+ * capability guard reads the organisation from, so a request without one is a
+ * request that could not be scoped — see `capabilityScope` in the contract.
+ */
+export const refundQueueQuerySchema = paginationQuerySchema.extend({
+  organizationId: cuidSchema,
+  status: refundStatusSchema.optional(),
+  orderReference: orderReferenceSchema.optional(),
 })
 
 /** Query string for the moderation queue. */

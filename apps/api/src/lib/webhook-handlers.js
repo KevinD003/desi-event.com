@@ -43,13 +43,20 @@ export const AMOUNT_TOLERANCE_CENTS = 0
  * hundred tasks for one payment. The first task is the one an operator works, and
  * subsequent attempts add to its count rather than to its number.
  *
+ * A `refundId` narrows the match as well as being stored. Two refunds against
+ * one payment are two separate unknowns — a partial refund that timed out and
+ * a later one that also did are not the same question — so folding them into
+ * one task would leave an operator resolving one and silently closing both.
+ *
  * @param {object} prisma A Prisma client.
  * @param {object} task The task.
  * @param {string} task.kind A `ReconciliationKind`.
  * @param {string|null} [task.paymentId] The payment.
  * @param {string|null} [task.orderId] The order.
+ * @param {string|null} [task.refundId] The refund, when the doubt is about one.
  * @param {string|null} [task.webhookEventId] The delivery that raised it.
  * @param {string|null} [task.providerRef] The provider's reference.
+ * @param {string|null} [task.organizationId] Whose work item it is. Null is platform-level.
  * @param {object} [task.localState] What this system believes.
  * @param {object} [task.providerState] What the provider said.
  * @param {string} [task.lastError] Why.
@@ -60,6 +67,7 @@ export async function openReconciliation(prisma, task) {
     where: {
       kind: task.kind,
       state: { in: ['OPEN', 'IN_PROGRESS', 'ESCALATED'] },
+      ...(task.refundId ? { refundId: task.refundId } : {}),
       ...(task.paymentId ? { paymentId: task.paymentId } : {}),
       ...(task.providerRef && !task.paymentId ? { providerRef: task.providerRef } : {}),
     },
@@ -82,8 +90,12 @@ export async function openReconciliation(prisma, task) {
       state: 'OPEN',
       paymentId: task.paymentId ?? null,
       orderId: task.orderId ?? null,
+      // Stored, not merely accepted. A task about a refund that does not name
+      // the refund is a task nobody can act on.
+      refundId: task.refundId ?? null,
       webhookEventId: task.webhookEventId ?? null,
       providerRef: task.providerRef ?? null,
+      organizationId: task.organizationId ?? null,
       localState: task.localState ?? undefined,
       providerState: task.providerState ?? undefined,
       attempts: 1,

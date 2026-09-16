@@ -15,6 +15,7 @@ import {
   countSchema,
   cuidSchema,
   nonEmptyStringSchema,
+  orderReferenceSchema,
   timestampSchema,
 } from './primitives.js'
 import { eventCategorySchema, logLevelSchema } from './enums.js'
@@ -26,6 +27,7 @@ import {
   orderWithItemsSchema,
   organizationSchema,
   publicUserSchema,
+  refundSchema,
   ticketSchema,
   ticketTypeSchema,
 } from './entities.js'
@@ -369,4 +371,47 @@ export const notificationListResponseSchema = z.object({
 /** `GET /operations/notifications/:id`, and the two actions on one. */
 export const notificationDetailResponseSchema = z.object({
   data: notificationSummarySchema,
+})
+
+/** `GET /refunds`. */
+export const refundListResponseSchema = z.object({
+  data: z.array(refundSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /refunds/:id`, and every action that returns one refund. */
+export const refundResponseSchema = z.object({
+  data: refundSchema,
+})
+
+/**
+ * What an order has left to give back.
+ *
+ * Returned alongside the refund on a request, because "it worked" is not the
+ * useful answer — "and there is this much left" is, and computing it on the
+ * client from a list of refunds is how two screens end up disagreeing.
+ */
+export const refundableResponseSchema = z.object({
+  data: z.object({
+    orderId: cuidSchema,
+    orderReference: orderReferenceSchema,
+    currency: z.string(),
+    totalCents: z.number().int(),
+    refundedCents: z.number().int(),
+    refundPendingCents: z.number().int(),
+    refundableCents: z.number().int(),
+    lines: z.array(
+      z.object({
+        orderItemId: cuidSchema,
+        ticketTypeId: cuidSchema,
+        ticketTypeName: z.string(),
+        quantity: z.number().int(),
+        unitPriceCents: z.number().int(),
+        refundedQuantity: z.number().int(),
+        pendingQuantity: z.number().int(),
+        refundableQuantity: z.number().int(),
+      }),
+    ),
+    refunds: z.array(refundSchema),
+  }),
 })
