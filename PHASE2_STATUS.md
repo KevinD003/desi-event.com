@@ -255,6 +255,7 @@ Used below with exactly these meanings and nothing softer.
 | ------------------------------- | ------------------------------------------------------------------------- |
 | `AUTOMATICALLY TESTED`          | Implemented, and a test in this repository fails if it stops working.     |
 | `IMPLEMENTED`                   | Code exists and is exercised, but no test asserts this specific property. |
+| `API-TESTED ONLY`               | An API or database test refuses it. No browser performs the act itself.   |
 | `MANUALLY TESTED`               | Exercised by hand, with the evidence recorded. No automated assertion.    |
 | `DB-ENFORCED`                   | The database refuses the violation, proven by a probe that attempts it.   |
 | `MOCK-ONLY`                     | Exercised only against a double. The real integration has never run.      |
@@ -322,34 +323,35 @@ server.
 
 ## 5. The twenty completion gates
 
-| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                                                                 |
-| --- | -------------------------------------------------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                                                                                                                                                            |
-| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                          |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; public event page `8271563`; material changes `0e5d9d3`; organiser UI `1b5e9b9`; moderation UI `2ef2172`. Twenty browser journeys walk all of it. |
-| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`; `apps/api/tests/event-authoring-integration.test.js`                                                                                                                                                   |
-| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end                                                                                                                                              |
-| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                                                                                                                                                                |
-| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                                                                                                                                                                    |
-| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; cancellation now _requests_ refunds; no refund service moves one                                                                                                                                                                |
-| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                                                                                                                                                                   |
-| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                                                                                                                                                            |
-| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                     |
-| 12  | Notifications use an idempotent outbox                                     | **PARTIAL** | Cancellation, postponement and material changes write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers; **no worker sends them**                                                                                               |
-| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser: event list, seven-step editor, review panel, venues and maps. Moderation: queue and decision. No finance, reconciliation or analytics surface.                                                                                                |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | Venue and map screens at phone, tablet and desktop with reduced motion; the event editor is keyboard-navigable with a linked validation summary, focus restoration and live-region save state, asserted in unit tests but not yet at three viewports     |
-| 15  | All 20 required E2E journeys pass                                          | **MET**     | §6 — `pnpm run test:e2e:events`, 20 passed in 54.2s against a real API and a disposable database                                                                                                                                                         |
-| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                        |
-| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                              |
-| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                          |
-| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                                                                                                                                                                  |
-| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9; §1                                                                                                                                                                                                                                                   |
+| #   | Gate                                                                       | Status      | Evidence                                                                                                                                                                                                                                                  |
+| --- | -------------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | NF-06 fixed and proven                                                     | **MET**     | §4; `apps/api/tests/openapi-artifact.test.js`                                                                                                                                                                                                             |
+| 2   | Report inconsistencies reconciled                                          | **MET**     | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                           |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**     | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; public event page `8271563`; material changes `0e5d9d3`; organiser UI `1b5e9b9`; moderation UI `2ef2172`. Twenty browser cases walk the lifecycle. |
+| 4   | GA and reserved inventory concurrency-safe                                 | **MET**     | Nine real-PostgreSQL probes in `db:verify:fresh`; `apps/api/tests/event-authoring-integration.test.js`                                                                                                                                                    |
+| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **PARTIAL** | General admission end to end in `apps/api/tests/checkout-ledger.test.js`; no seated order bought end to end                                                                                                                                               |
+| 6   | Provider calls outside database transactions                               | **MET**     | Proven by instrumentation                                                                                                                                                                                                                                 |
+| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **PARTIAL** | They enter it; nothing can resolve it                                                                                                                                                                                                                     |
+| 8   | Full and partial refunds, no over-refund                                   | **NOT MET** | Database ceilings exist; cancellation now _requests_ refunds; no refund service moves one                                                                                                                                                                 |
+| 9   | Dispute, transfer, payout state machines in mock mode                      | **NOT MET** | Ledger composition exists; no services                                                                                                                                                                                                                    |
+| 10  | Every completed commerce action posts balanced protected ledger entries    | **PARTIAL** | True for a paid order; the other actions do not exist to post                                                                                                                                                                                             |
+| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **NOT MET** | Phase 1 check-in carried; no transfer, no revocation                                                                                                                                                                                                      |
+| 12  | Notifications use an idempotent outbox                                     | **PARTIAL** | Cancellation, postponement and material changes write deduplicated `QUEUED` rows, proven idempotent under two concurrent writers; **no worker sends them**                                                                                                |
+| 13  | Organizer and operations dashboards                                        | **PARTIAL** | Organiser: event list, seven-step editor, review panel, venues and maps. Moderation: queue and decision. No finance, reconciliation or analytics surface.                                                                                                 |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **PARTIAL** | Venue and map screens at phone, tablet and desktop with reduced motion; the event editor is keyboard-navigable with a linked validation summary, focus restoration and live-region save state, asserted in unit tests but not yet at three viewports      |
+| 15  | All 20 required E2E journeys pass                                          | **PARTIAL** | §6 — twenty Playwright cases pass, but five of the twenty _required_ journeys are not what those cases walk. Corrected in `C4-0`; see §5.1.                                                                                                               |
+| 16  | Load and reliability tests exist                                           | **NOT MET** | —                                                                                                                                                                                                                                                         |
+| 17  | CI enforces the Phase 2 gates                                              | **NOT MET** | No workflow                                                                                                                                                                                                                                               |
+| 18  | All required documentation complete                                        | **NOT MET** | §7 — twelve of the named documents do not exist                                                                                                                                                                                                           |
+| 19  | Production payments technically disabled                                   | **MET**     | Kill switch, asserted in a real process                                                                                                                                                                                                                   |
+| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**     | §9; §1                                                                                                                                                                                                                                                    |
 
-**Nine met, five partial, six not met.** Previously six, five and nine.
+**Eight met, six partial, six not met.** The previous revision of this document
+said nine, five and six. The difference is gate 15, corrected below.
 
-Gates 3 and 15 moved this cycle; gates 12, 13 and 14 moved from `NOT MET` to
-`PARTIAL`. What each partial is still missing is named in the row rather than
-left to inference.
+Gate 3 moved in the previous cycle; gates 12, 13 and 14 moved from `NOT MET` to
+`PARTIAL` there. What each partial is still missing is named in the row rather
+than left to inference.
 
 Gate 14 stays `PARTIAL` deliberately. The event screens are built to the
 accessibility requirements and unit tests assert the behaviours — keyboard
@@ -360,45 +362,77 @@ alone. What has not been run is the three-viewport and 200%-zoom sweep the venue
 screens have. Asserting the behaviours is not the same as asserting the reflow,
 and the gate asks for both.
 
+### 5.1 Why gate 15 went back to `PARTIAL`
+
+The previous revision moved gate 15 to `MET` on the strength of
+`pnpm run test:e2e:events` reporting twenty passed. That was an overstatement,
+and this is the correction.
+
+> Passing 20 Playwright cases is not automatically the same as passing the 20
+> specifically required journeys.
+
+The twenty cases in `apps/web/e2e/event-lifecycle.spec.js` are real browser
+journeys and they do pass. But the twenty _required_ journeys are a different
+list, and the mapping between the two was not one to one. Five rows in §6 were
+scored `AUTOMATICALLY TESTED` on evidence that was an API test, a database
+probe, or a browser assertion about something adjacent to the requirement:
+
+| Required journey                                              | What was actually proven                                                   | Why that is not the journey                                                     |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 5 — unauthorized organization member cannot submit for review | An API test refuses the call; a browser case shows the queue is not linked | No browser ever attempted the submission as that member and saw it refused      |
+| 10 — unverified organizer cannot publish                      | A readiness checklist rendered a line; an API test refuses the call        | No browser ever pressed publish as an unverified organizer and read the refusal |
+| 11 — reserved event cannot publish with a draft map           | A service gate and a database trigger both refuse it                       | No browser ever selected or referenced a draft map and read the refusal         |
+| 16 — three viewports, zoom, reduced motion                    | The screens are built to it; unit tests assert the behaviours              | The sweep has not been run — this one was already scored `IMPLEMENTED`          |
+| 20 — cross-organization edit and publication denied           | An API test refuses both calls                                             | No browser ever attempted them as a user of another organization                |
+
+Gate 15 may return to `MET` when those exact cases are walked in a browser.
+Until then the required-journey count is fifteen of twenty, whatever the
+Playwright summary line says.
 ---
 
 ## 6. The twenty required end-to-end journeys
 
-All twenty exist as browser journeys and all twenty pass. They are one story
-told in order — a blank list becomes a draft, the draft is reviewed, approved,
-published, put on sale, and cancelled — because that is what the feature is.
+Twenty Playwright cases pass. Fifteen of the twenty _required_ journeys are
+proven by them. The other five are named in §5.1 and scored honestly below.
 
 `apps/web/e2e/event-lifecycle.spec.js`, run by
 `pnpm run test:e2e:events` against a real API, a real browser and a disposable
 database, with both accounts going through the second factor their roles require
 rather than around it.
 
-| #   | Journey                                                         | Status                 | Browser journey                                                                                       |
-| --- | --------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1   | Verified organizer creates a draft event                        | `AUTOMATICALLY TESTED` | journey 1 — create from an empty list                                                                 |
-| 2   | Organizer configures sessions and GA inventory                  | `AUTOMATICALLY TESTED` | journeys 7 and 9                                                                                      |
-| 3   | Organizer selects a published reserved-seat map version         | `AUTOMATICALLY TESTED` | journey 7 (the select lists published versions only) + `DB-ENFORCED` refusal in the integration suite |
-| 4   | Organizer submits event for review                              | `AUTOMATICALLY TESTED` | journey 11                                                                                            |
-| 5   | Unauthorized organization member cannot submit it               | `AUTOMATICALLY TESTED` | API-level in `event-lifecycle.test.js`; journey 12 shows the queue is closed to an organiser          |
-| 6   | Moderator requests changes                                      | `AUTOMATICALLY TESTED` | journey 13                                                                                            |
-| 7   | Organizer updates and resubmits                                 | `AUTOMATICALLY TESTED` | journey 14                                                                                            |
-| 8   | Moderator approves                                              | `AUTOMATICALLY TESTED` | journey 14                                                                                            |
-| 9   | Authorized organizer publishes                                  | `AUTOMATICALLY TESTED` | journey 16                                                                                            |
-| 10  | Unverified organizer cannot publish                             | `AUTOMATICALLY TESTED` | the readiness checklist in journey 10; API-level gate                                                 |
-| 11  | Reserved event cannot publish with a draft map                  | `AUTOMATICALLY TESTED` | service gate and database refusal, both asserted                                                      |
-| 12  | Published event appears publicly                                | `AUTOMATICALLY TESTED` | journey 16                                                                                            |
-| 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` | journeys 2 and 15                                                                                     |
-| 14  | Public page works without JavaScript                            | `AUTOMATICALLY TESTED` | journeys 16–18 read server-rendered HTML and its JSON-LD                                              |
-| 15  | Event editor works by keyboard                                  | `AUTOMATICALLY TESTED` | journey 4 (summary, links, focus); unit tests for the rest                                            |
-| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `IMPLEMENTED`          | built for it; the viewport sweep has not been run — gate 14                                           |
-| 17  | Material post-publication change requires confirmation          | `AUTOMATICALLY TESTED` | journey 19                                                                                            |
-| 18  | Sales can be paused and resumed                                 | `AUTOMATICALLY TESTED` | journeys 17 and 18                                                                                    |
-| 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` | journey 20; concurrency in `event-authoring-integration.test.js`                                      |
-| 20  | Cross-organization edit and publication attempts are denied     | `AUTOMATICALLY TESTED` | API-level in `event-lifecycle.test.js`                                                                |
+The `Status` column answers one question only: **does a browser walk the
+required journey?** A row scored `API-TESTED ONLY` is implemented and defended —
+an API test, a database trigger, or both, fail if it regresses — but no browser
+performs the act the journey names, so it does not count toward gate 15.
 
-Nineteen are asserted in the browser. Journey 16 is the one that is not, and it
-is recorded as `IMPLEMENTED` rather than tested: the screens are built to the
-requirement, and the sweep that would prove it has not been run.
+| #   | Journey                                                         | Status                 | Browser journey                                                                                 |
+| --- | --------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------- |
+| 1   | Verified organizer creates a draft event                        | `AUTOMATICALLY TESTED` | journey 1 — create from an empty list                                                           |
+| 2   | Organizer configures sessions and GA inventory                  | `AUTOMATICALLY TESTED` | journeys 7 and 9                                                                                |
+| 3   | Organizer selects a published reserved-seat map version         | `AUTOMATICALLY TESTED` | journey 7 — the select lists published versions only                                            |
+| 4   | Organizer submits event for review                              | `AUTOMATICALLY TESTED` | journey 11                                                                                      |
+| 5   | Unauthorized organization member cannot submit it               | `API-TESTED ONLY`      | refused in `event-lifecycle.test.js`; no browser attempts the submission as that member         |
+| 6   | Moderator requests changes                                      | `AUTOMATICALLY TESTED` | journey 13                                                                                      |
+| 7   | Organizer updates and resubmits                                 | `AUTOMATICALLY TESTED` | journey 14                                                                                      |
+| 8   | Moderator approves                                              | `AUTOMATICALLY TESTED` | journey 14                                                                                      |
+| 9   | Authorized organizer publishes                                  | `AUTOMATICALLY TESTED` | journey 16                                                                                      |
+| 10  | Unverified organizer cannot publish                             | `API-TESTED ONLY`      | API gate asserted; no browser presses publish as an unverified organizer                        |
+| 11  | Reserved event cannot publish with a draft map                  | `API-TESTED ONLY`      | service gate and `DB-ENFORCED` refusal; no browser references a draft map and reads the refusal |
+| 12  | Published event appears publicly                                | `AUTOMATICALLY TESTED` | journey 16                                                                                      |
+| 13  | Draft and rejected events remain private                        | `AUTOMATICALLY TESTED` | journeys 2 and 15                                                                               |
+| 14  | Public page works without JavaScript                            | `AUTOMATICALLY TESTED` | journeys 16–18 read server-rendered HTML and its JSON-LD                                        |
+| 15  | Event editor works by keyboard                                  | `AUTOMATICALLY TESTED` | journey 4 (summary, links, focus); unit tests for the rest                                      |
+| 16  | Event screens pass phone, tablet, desktop, zoom, reduced motion | `IMPLEMENTED`          | built for it; the viewport sweep has not been run — gate 14                                     |
+| 17  | Material post-publication change requires confirmation          | `AUTOMATICALLY TESTED` | journey 19                                                                                      |
+| 18  | Sales can be paused and resumed                                 | `AUTOMATICALLY TESTED` | journeys 17 and 18                                                                              |
+| 19  | Cancellation creates notification/refund work exactly once      | `AUTOMATICALLY TESTED` | journey 20; concurrency in `event-authoring-integration.test.js`                                |
+| 20  | Cross-organization edit and publication attempts are denied     | `API-TESTED ONLY`      | refused in `event-lifecycle.test.js`; no browser attempts either as another organization's user |
+
+**Fifteen proven in a browser. Four `API-TESTED ONLY`. One `IMPLEMENTED`.**
+
+The four `API-TESTED ONLY` rows are not gaps in the product — every one of them
+is refused by the server, and three are refused by the database as well. They
+are gaps in the _evidence_ for gate 15, which asks for browser journeys.
 
 **Browser coverage by suite**, and these four are disjoint — each config names
 its own spec files, so no test is counted twice:
@@ -408,9 +442,11 @@ its own spec files, so no test is counted twice:
 | `pnpm run test:e2e`           | `playwright.config.js`            | Public catalogue, filters, accessibility, reduced motion, venue page |     118 |
 | `pnpm run test:e2e:prod`      | `playwright.production.config.js` | Not-found behaviour against a compiled build                         |      19 |
 | `pnpm run test:e2e:organizer` | `playwright.organizer.config.js`  | The twelve venue and venue-map journeys                              |      13 |
-| `pnpm run test:e2e:events`    | `playwright.events.config.js`     | **The twenty event-lifecycle journeys**                              |      20 |
+| `pnpm run test:e2e:events`    | `playwright.events.config.js`     | Twenty event-lifecycle cases                                         |      20 |
 | **Total**                     |                                   |                                                                      | **170** |
 
+That total is Playwright cases, not required journeys. The two numbers are
+counted separately everywhere in this document and never added together.
 ---
 
 ## 7. The sixteen required documents
@@ -590,7 +626,7 @@ No other command failed in either run.
 | Moderation queue and decision                   | `apps/web/src/app/moderation/`, `components/moderation-decision.jsx` | `AUTOMATICALLY TESTED` |
 | Reactive step-up prompt                         | `components/step-up-prompt.jsx`                                      | `AUTOMATICALLY TESTED` |
 | Wall-clock ↔ instant conversion with zones      | `apps/web/src/lib/zoned-time.js`                                     | `AUTOMATICALLY TESTED` |
-| Twenty browser journeys                         | `apps/web/e2e/event-lifecycle.spec.js`                               | `AUTOMATICALLY TESTED` |
+| Twenty event-lifecycle browser cases            | `apps/web/e2e/event-lifecycle.spec.js`                               | `AUTOMATICALLY TESTED` |
 | Fifteen authoring concurrency cases             | `apps/api/tests/event-authoring-integration.test.js`                 | `AUTOMATICALLY TESTED` |
 | Schema-free route manifest for the browser      | `packages/api-contract/src/route-manifest.js`                        | `AUTOMATICALLY TESTED` |
 | Operator-configurable global rate limit         | `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW`                                | `AUTOMATICALLY TESTED` |
