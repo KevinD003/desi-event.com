@@ -40,6 +40,9 @@ const RELATIONS = {
   order: {
     items: { kind: 'many', model: 'orderItem', from: 'id', to: 'orderId' },
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    // Nullable: a general-admission order names no session. Analytics groups
+    // sales by session and has to tell "no session" from "session missing".
+    eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
     payments: { kind: 'many', model: 'payment', from: 'id', to: 'orderId' },
   },
   orderItem: {
@@ -110,6 +113,9 @@ const RELATIONS = {
   seat: {
     section: { kind: 'one', model: 'section', from: 'sectionId', to: 'id' },
     row: { kind: 'one', model: 'seatRow', from: 'rowId', to: 'id' },
+    // Also nullable: a seat outside every price zone is an ordinary state, and
+    // the seat-inventory grouping labels it rather than dropping it.
+    priceZone: { kind: 'one', model: 'priceZone', from: 'priceZoneId', to: 'id' },
   },
   payment: {
     order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
@@ -791,14 +797,60 @@ export function createPrismaStub(seed = {}) {
   }
 
   /**
-   * Attach the requested relations to a copy of a row.
+   * Shape a row the way `include` and `select` asked for.
+   *
+   * `include` widens: the whole row, plus the named relations. `select`
+   * narrows: only the named fields, and a named field may itself be a relation
+   * carrying its own `select`. Prisma allows both to nest arbitrarily, and a
+   * query that uses `select` to reach two levels down — an order line's order's
+   * event — is a perfectly ordinary query that this stub used to answer with
+   * `undefined`.
+   *
+   * A relation asked for with a nested object (`{select: {…}}`) but absent from
+   * {@link RELATIONS} throws rather than returning `undefined`, on the same
+   * principle as `aggregate`: a stub that answers a question it has not
+   * implemented is worse than one that refuses, because the wrong shape looks
+   * exactly like the right one until an assertion far away fails. A key asked
+   * for with `true` is taken as a scalar, which is what it almost always is.
    *
    * @param {string} model The model of the row.
    * @param {object} row The row.
    * @param {object|boolean|undefined} include The `include` argument.
-   * @returns {object} A detached copy carrying its relations.
+   * @param {object|undefined} [selection] The `select` argument.
+   * @returns {object} A detached copy, shaped as asked.
    */
-  function hydrate(model, row, include) {
+  function hydrate(model, row, include, selection) {
+    if (selection && typeof selection === 'object') {
+      const projected = {}
+
+      for (const [name, spec] of Object.entries(selection)) {
+        if (!spec) continue
+
+        const relation = RELATIONS[model]?.[name]
+        const nested = typeof spec === 'object' ? spec : null
+
+        if (!relation) {
+          if (nested) throw new Error(`prisma-stub: unknown relation ${model}.${name}`)
+
+          projected[name] = row[name]
+          continue
+        }
+
+        const related = resolveRelation(model, row, name)
+
+        projected[name] =
+          relation.kind === 'one'
+            ? related
+              ? hydrate(relation.model, related, nested?.include, nested?.select)
+              : null
+            : /** @type {object[]} */ (related).map((child) =>
+                hydrate(relation.model, child, nested?.include, nested?.select),
+              )
+      }
+
+      return projected
+    }
+
     const copy = { ...row }
     if (!include || typeof include !== 'object') return copy
 
@@ -807,15 +859,17 @@ export function createPrismaStub(seed = {}) {
       const relation = RELATIONS[model]?.[name]
       if (!relation) throw new Error(`prisma-stub: unknown relation ${model}.${name}`)
 
-      const nested = typeof spec === 'object' ? spec.include : undefined
+      const nested = typeof spec === 'object' ? spec : null
       const related = resolveRelation(model, row, name)
 
       copy[name] =
         relation.kind === 'one'
           ? related
-            ? hydrate(relation.model, related, nested)
+            ? hydrate(relation.model, related, nested?.include, nested?.select)
             : null
-          : /** @type {object[]} */ (related).map((child) => hydrate(relation.model, child, nested))
+          : /** @type {object[]} */ (related).map((child) =>
+              hydrate(relation.model, child, nested?.include, nested?.select),
+            )
     }
 
     return copy
@@ -919,14 +973,15 @@ export function createPrismaStub(seed = {}) {
     }
 
     return {
-      findMany: async (args = {}) => select(args).map((row) => hydrate(model, row, args.include)),
+      findMany: async (args = {}) =>
+        select(args).map((row) => hydrate(model, row, args.include, args.select)),
       findFirst: async (args = {}) => {
         const [row] = select(args)
-        return row ? hydrate(model, row, args.include) : null
+        return row ? hydrate(model, row, args.include, args.select) : null
       },
       findUnique: async (args = {}) => {
         const [row] = select({ where: args.where })
-        return row ? hydrate(model, row, args.include) : null
+        return row ? hydrate(model, row, args.include, args.select) : null
       },
       count: async (args = {}) =>
         (tables[model] ?? []).filter((row) => matches(model, row, args.where)).length,
@@ -1035,7 +1090,7 @@ export function createPrismaStub(seed = {}) {
           }
         }
 
-        return hydrate(model, row, args.include)
+        return hydrate(model, row, args.include, args.select)
       },
       /**
        * Write several rows, optionally skipping the ones a unique constraint
@@ -1082,7 +1137,7 @@ export function createPrismaStub(seed = {}) {
 
         applyData(row, args.data)
         if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
-        return hydrate(model, row, args.include)
+        return hydrate(model, row, args.include, args.select)
       },
       updateMany: async (args) => {
         const rows = tables[model].filter((candidate) => matches(model, candidate, args.where))
@@ -1098,7 +1153,7 @@ export function createPrismaStub(seed = {}) {
         if (row) {
           applyData(row, args.update)
           if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
-          return hydrate(model, row, args.include)
+          return hydrate(model, row, args.include, args.select)
         }
 
         const now = new Date()
