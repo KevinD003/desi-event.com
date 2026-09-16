@@ -228,6 +228,11 @@ export const API_TAGS = Object.freeze([
       'Provider callbacks. The authoritative signal that money moved, verified over the exact bytes sent.',
   },
   {
+    name: 'analytics',
+    description:
+      'What an organiser\u2019s events actually did: tickets gone, seats left, people admitted, refunds and disputes outstanding, and the money behind all of it. Every figure is counted from the record it belongs to \u2014 money from the append-only ledger, inventory from the seats themselves \u2014 and a measurement this system does not record is named as missing rather than estimated.',
+  },
+  {
     name: 'finance',
     description:
       'Money leaving: what an organiser is owed, what is held against it, and the payouts, transfers and disputes that move it. Every figure is derived from the append-only ledger rather than read off a column, and a reversal posts compensating entries rather than editing history.',
