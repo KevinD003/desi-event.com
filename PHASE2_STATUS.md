@@ -8,16 +8,40 @@ They are not the same commit and never have been. Treating them as one is
 exactly how the run tally in this file came to be wrong twice, so they are now
 stated separately and each says what it is a fact _about_.
 
-| What                                         | Value                                                                                                         |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                              |
-| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                            |
-| Latest corrective commit                     | **`354e66f`** — documentation only; the executable-code fix preceding it is **`79ff795`**                     |
-| Latest GitHub Actions run                    | **`35127103320`**, testing exactly `354e66f` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped      |
-| Repository protection state                  | **UNPROTECTED.** `GET /rulesets` → `200 []`; `GET /branches/main/protection` → `403`. Re-queried at `354e66f` |
+| What                                         | Value                                                                                                                                                          |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                                                                               |
+| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                                                                             |
+| Latest corrective commit                     | **`40d8ca4`** — a worker test-harness fix; see "The failure after the closeout" below                                                                          |
+| Last fully green run                         | **`35127103320`**, testing exactly `354e66f` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped                                                       |
+| Repository protection state                  | **UNPROTECTED**, re-verified **2026-09-16T18:06Z**: `GET /rulesets` → `200 []`, `GET /rules/branches/main` → `200 []`, `GET /branches/main/protection` → `403` |
 
-`79ff795..354e66f` changes four Markdown files and nothing else, so the coverage
-figures measured at `79ff795` describe the executable code at the current HEAD.
+`79ff795..354e66f` changes four Markdown files and nothing else. `40d8ca4`
+changes one test file. So the coverage figures measured at `79ff795` still
+describe the application code at the current HEAD.
+
+### The failure after the closeout, and what it was
+
+`PHASE2_POST_CLOSEOUT_VERIFICATION.md` is anchored at `354e66f` and is left
+that way. Two things happened afterwards, and neither is allowed to go
+unrecorded here:
+
+- **Run `35130417097` failed on `0102fd6`**, a commit that changes only
+  Markdown. One test: `apps/worker/tests/redis-integration.test.js > fails a
+malformed payload without burning its retries`, which timed out waiting
+  15,000ms for a job to finish.
+- **It was not the prisma-generate race** fixed in `79ff795`. `Invalid package
+config` appears nowhere in that job's 1,556-line log. The cause is that the
+  test's deadline was never derived from the thing it tests: `src/queues.js`
+  gives the search queue `backoff: { type: 'exponential', delay: 10_000 }`, so a
+  15s wait cannot survive one retry and leaves ~5s of slack for the job to be
+  picked up at all. Measured against live Redis, the happy path takes 545ms and
+  ends `state=failed attemptsMade=1`.
+- **Fixed at the root in `40d8ca4`**: deadlines derived from that configuration
+  (`WAIT_MS` 30s, `TEST_TIMEOUT_MS` 45s), and `beforeAll` now awaits
+  `worker.waitUntilReady()`, which nothing previously ordered against the first
+  job. No assertion was relaxed, skipped or quarantined; the test still requires
+  the reason to match `/Invalid/` and `attemptsMade` to be exactly 1.
 
 > **`HISTORICAL STATUS — SUPERSEDED`** — an earlier revision of this header said
 > only "As of `6eb6030`" and named run `35115541656` as the current run. Both
