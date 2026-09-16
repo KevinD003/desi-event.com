@@ -172,6 +172,23 @@ jobs:
       - name: Production payments are unreachable
         run: pnpm --filter @desi-event/api exec vitest run tests/payment-kill-switch.test.js
 
+      # A reliability smoke test rather than the whole load suite. The three
+      # contention scenarios are the ones whose failure modes only appear under
+      # concurrency — overselling a tier, selling one seat twice, admitting one
+      # ticket at two doors — and each checks its correctness invariants against
+      # the database afterwards. A broken invariant fails this step whatever the
+      # latency did.
+      #
+      # The ramp profile, because a runner's cores are shared and unpredictable:
+      # what is being asserted here is correctness under contention, and holding
+      # a noisy-neighbour runner to a laptop's p95 would produce a flaky gate
+      # that people learn to re-run.
+      - name: Reliability smoke test
+        run: |
+          for scenario in ga-hold-contention seat-hold-contention check-in-concurrency; do
+            pnpm run load -- --profile ramp --scenario "$scenario" --no-write
+          done
+
       - name: Upload failure artefacts
         if: failure()
         uses: actions/upload-artifact@v4
