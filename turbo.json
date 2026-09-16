@@ -34,7 +34,7 @@
       "dependsOn": ["^build"]
     },
     "test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "build"],
       "outputs": ["coverage/**"]
     },
     "test:watch": {
@@ -42,7 +42,7 @@
       "persistent": true
     },
     "test:coverage": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "build"],
       "outputs": ["coverage/**"]
     },
     "test:e2e": {

@@ -107,6 +107,11 @@ jobs:
       - name: Language policy
         run: pnpm run policy:check
 
+      # Cheap, and both properties it checks were broken on this pull request
+      # while every green run said nothing. See the script's own header.
+      - name: CI invariants
+        run: pnpm run ci:check
+
       - name: Secret scan
         run: pnpm run secrets:scan
 
@@ -318,11 +323,20 @@ jobs:
       - name: Run ${{ matrix.suite.name }}
         run: pnpm run ${{ matrix.suite.script }}
 
+      # The suite's name, not its script. Every script is a pnpm task of the
+      # form `test:e2e:detail`, and `actions/upload-artifact` rejects a colon
+      # in an artefact name — so this step failed on `bdefff9` with "The
+      # artifact name is not valid: playwright-test:e2e", discarding the sixty
+      # report files the failure had just produced. It runs only `if: failure()`,
+      # so no green run can ever expose it: the upload is skipped on every run
+      # that passes, and on the one run that needed it, it threw the evidence
+      # away. `name` carries spaces rather than colons and is already unique
+      # per matrix leg.
       - name: Upload Playwright artefacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-${{ matrix.suite.script }}
+          name: playwright-${{ matrix.suite.name }}
           path: |
             apps/web/playwright-report
             apps/web/test-results
