@@ -258,7 +258,7 @@ undeclared skipped test _and_ a report containing zero cases — a test command
 that matches no files prints a green summary and exits zero, and a required
 check that can pass by running nothing eventually will.
 
-**The current figures**, from the cold verification at `c5e98da`: **4,633** unit
+**The current figures**: **4,642** unit
 and integration cases across 173 files, and **242** browser cases across seven
 Playwright configurations. They are never added together.
 

@@ -802,7 +802,7 @@ durations is `PHASE2_STATUS.md` §9; the headline figures:
 | **A CI run**                          | run `35108476624`, 8 jobs, all `success`, on `c5e98da`                  | **PASSED**  |
 | **Branch protection**                 | **still absent** — see WI21 and gate 17                                 | **NOT SET** |
 
-Unit and integration tests (**4,633**) and browser cases (**242 across seven
+Unit and integration tests (**4,642**) and browser cases (**242 across seven
 configurations**) are counted separately here and everywhere else in this
 repository, and are never added together.
 

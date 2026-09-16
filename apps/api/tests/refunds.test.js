@@ -23,12 +23,22 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { createInMemoryProviderRegistry } from '@desi-event/providers'
+
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 
 /** What one ticket costs in this world. */
 const UNIT_CENTS = 120_000
+
+/**
+ * The amount the mock provider refuses to refund.
+ *
+ * A lever rather than a random refusal: a test that wanted a declined refund
+ * and got one by chance is a test that will one day get a settled one.
+ */
+const REFUND_DECLINE_CENTS = 11_111
 
 /** How many were bought. */
 const QUANTITY = 2
@@ -38,10 +48,17 @@ const QUANTITY = 2
  *
  * @param {object} [options] Options.
  * @param {object} [options.order] Columns to override on the order.
+ * @param {object} [options.providers] A provider registry, when a test needs one that knows the payment.
+ * @param {string} [options.providerRef] The payment's provider reference.
  * @param {Array<object>} [options.refunds] Refund rows to seed.
  * @returns {Promise<object>} The harness and the ids the tests need.
  */
-async function worldWithPaidOrder({ order: orderOverrides = {}, refunds = [] } = {}) {
+async function worldWithPaidOrder({
+  order: orderOverrides = {},
+  refunds = [],
+  providers,
+  providerRef = 'pi_000001',
+} = {}) {
   const world = await makeWorld()
   const { seed, ids } = world
 
@@ -94,7 +111,7 @@ async function worldWithPaidOrder({ order: orderOverrides = {}, refunds = [] } =
       id: paymentId,
       orderId,
       provider: 'in-memory-payments',
-      providerRef: 'pi_000001',
+      providerRef,
       status: 'SUCCEEDED',
       amountCents: totalCents,
       currency: 'INR',
@@ -133,7 +150,7 @@ async function worldWithPaidOrder({ order: orderOverrides = {}, refunds = [] } =
     ...refund,
   }))
 
-  const harness = await createTestApp({ seed, ids })
+  const harness = await createTestApp({ seed, ids, ...(providers ? { providers } : {}) })
 
   return { ...harness, ids, orderId, orderItemId, paymentId, reference, totalCents }
 }
@@ -534,6 +551,211 @@ describe('POST /v1/refunds/:id/cancel', () => {
 
     expect(response.statusCode).toBe(409)
     expect(response.json().error.message).toMatch(/with the provider/i)
+
+    await app.close()
+  })
+})
+
+describe('POST /v1/refunds/:id/submit', () => {
+  /**
+   * A world whose provider actually knows the payment being refunded.
+   *
+   * The ordinary fixture seeds `providerRef: 'pi_000001'`, which no provider
+   * has heard of — fine for the steps before the provider is called, and not
+   * fine for the one step that calls it. So this creates a real intent in the
+   * in-memory registry and captures it, and seeds the payment against *that*
+   * reference. A submit test against a reference nobody holds would be testing
+   * the failure path while claiming to test the success one.
+   *
+   * @param {object} [options] Options.
+   * @param {number} [options.amountCents] What the refund asks for.
+   * @param {object} [options.refund] Fields to change on the seeded refund.
+   * @returns {Promise<object>} The harness, the refund id and the providers.
+   */
+  async function worldReadyToSubmit({ amountCents = UNIT_CENTS, refund = {} } = {}) {
+    const providers = createInMemoryProviderRegistry({
+      payments: { refundDeclineAmountCents: REFUND_DECLINE_CENTS },
+    })
+    const intent = providers.payments.createIntent({
+      amountCents: UNIT_CENTS * QUANTITY,
+      currency: 'INR',
+    })
+
+    providers.payments.capture(intent.id)
+
+    const refundId = cuid()
+    const world = await worldWithPaidOrder({
+      order: { refundPendingCents: amountCents },
+      refunds: [
+        { id: refundId, status: 'APPROVED', idempotencyKey: 'to-submit', amountCents, ...refund },
+      ],
+      providers,
+      providerRef: intent.id,
+    })
+
+    return { ...world, refundId, providers, intentId: intent.id }
+  }
+
+  it('sends an approved refund and records what the provider said', async () => {
+    const { app, refundId } = await worldReadyToSubmit()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/submit`,
+      headers: await asUser(app, OWNER),
+      payload: { reason: 'Approved and sent.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const { data } = response.json()
+
+    expect(data.status).toBe('SUCCEEDED')
+    // Stored as the provider gave it. Nothing invents an identifier to make the
+    // row look finished.
+    expect(data.providerRefundId).toBeTruthy()
+    expect(data.settledAt).toBeTruthy()
+
+    await app.close()
+  })
+
+  it('will not send the same refund twice', async () => {
+    const { app, refundId } = await worldReadyToSubmit()
+    const headers = await asUser(app, OWNER)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/submit`,
+      headers,
+      payload: { reason: 'Approved and sent.' },
+    })
+
+    expect(first.statusCode).toBe(200)
+
+    const second = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/submit`,
+      headers,
+      payload: { reason: 'Again, by accident.' },
+    })
+
+    // The transition table refuses a settled refund. Sending twice is the one
+    // mistake on this route that costs somebody real money.
+    expect(second.statusCode).toBe(409)
+
+    await app.close()
+  })
+
+  it('answers 200 describing a declined refund, not an error', async () => {
+    // The mock declines by amount, which is a reproducible refusal rather than
+    // a random one.
+    const { app, refundId } = await worldReadyToSubmit({ amountCents: REFUND_DECLINE_CENTS })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/submit`,
+      headers: await asUser(app, OWNER),
+      payload: { reason: 'Sent, and refused.' },
+    })
+
+    // The request succeeded; it is the money that did not move. A 4xx here
+    // would tell the caller their request was wrong, which it was not.
+    expect(response.statusCode, response.body).toBe(200)
+
+    const { data } = response.json()
+
+    expect(data.status).toBe('DECLINED')
+    expect(data.failureCode).toBeTruthy()
+    expect(data.settledAt).toBeNull()
+
+    await app.close()
+  })
+
+  it('refuses somebody who may approve but may not send', async () => {
+    const { app, refundId } = await worldReadyToSubmit()
+
+    // `order:refund_approve` without `order:refund`. Approving says a refund
+    // should go; sending it is the step that moves money.
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/submit`,
+      headers: await asUser(app, MANAGER),
+      payload: { reason: 'I approved it, so I will send it.' },
+    })
+
+    expect(response.statusCode).toBe(403)
+
+    await app.close()
+  })
+})
+
+describe('POST /v1/refunds/:id/cancel', () => {
+  it('withdraws a refund nobody has sent', async () => {
+    const refundId = cuid()
+    const { app } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [{ id: refundId, status: 'REQUESTED', idempotencyKey: 'to-cancel' }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/cancel`,
+      headers: await asUser(app, OWNER),
+      payload: { reason: 'The buyer changed their mind.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.status).toBe('CANCELLED')
+
+    await app.close()
+  })
+
+  it('will not withdraw one that is with the provider', async () => {
+    const refundId = cuid()
+    const { app } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [
+        {
+          id: refundId,
+          status: 'SUBMITTED',
+          idempotencyKey: 'in-flight',
+          submittedAt: new Date('2026-09-02T10:05:00Z'),
+        },
+      ],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/cancel`,
+      headers: await asUser(app, OWNER),
+      payload: { reason: 'Actually, no.' },
+    })
+
+    // A submitted refund may already have moved money. Withdrawing it would
+    // leave the row saying one thing and the provider having done another, so
+    // this refusal is stated on the route rather than left to the table — and
+    // it says why.
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.message).toMatch(/with the provider/i)
+
+    await app.close()
+  })
+
+  it('refuses a stranger to the organisation', async () => {
+    const refundId = cuid()
+    const { app } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [{ id: refundId, status: 'REQUESTED', idempotencyKey: 'not-theirs-to-cancel' }],
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/refunds/${refundId}/cancel`,
+      headers: await asUser(app, OUTSIDER),
+      payload: { reason: 'Withdrawing somebody else’s refund.' },
+    })
+
+    expect(response.statusCode).toBe(403)
 
     await app.close()
   })

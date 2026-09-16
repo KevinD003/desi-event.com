@@ -252,11 +252,16 @@ so the comment now sits on both.
 
 ## 5. Unit and integration totals
 
-**4,633 cases across 173 files.** Never added to the browser figure.
+**4,642 cases across 173 files.** Never added to the browser figure.
+
+The cold sequence in §11 ran at **4,633**. The nine cases in §9A were added
+afterwards, when the third CI failure was investigated. Both numbers appear in
+this report, and neither quietly replaces the other: §11 records what that
+sequence actually saw.
 
 | Package                   | Tests | Files | Package                     |     Tests |   Files |
 | ------------------------- | ----: | ----: | --------------------------- | --------: | ------: |
-| `@desi-event/api`         |   989 |    50 | `@desi-event/api-contract`  |       191 |       8 |
+| `@desi-event/api`         |   998 |    50 | `@desi-event/api-contract`  |       191 |       8 |
 | `@desi-event/schemas`     |   580 |    11 | `@desi-event/pricing`       |       116 |       5 |
 | `@desi-event/permissions` |   570 |     3 | `@desi-event/db`            |       102 |       3 |
 | `@desi-event/providers`   |   494 |    12 | `@desi-event/ui`            |        97 |      12 |
@@ -264,7 +269,7 @@ so the comment now sits on both.
 | `@desi-event/auth`        |   353 |     7 | `@desi-event/notifications` |        56 |       2 |
 | `@desi-event/inventory`   |   291 |     8 | `@desi-event/ledger`        |        33 |       1 |
 | `@desi-event/worker`      |   216 |    15 | `@desi-event/config`        |        11 |       1 |
-| **Total**                 |       |       |                             | **4,633** | **173** |
+| **Total**                 |       |       |                             | **4,642** | **173** |
 
 Turbo reports seventeen tasks and sixteen packages write a report; the
 seventeenth produces no test output of its own. Recorded rather than smoothed.
@@ -344,17 +349,32 @@ CHECK constraints, 12 migrations — re-measured, not restated.
 required step was skipped. The job names above are read back from
 `GET /actions/runs/35108476624/jobs`, not transcribed from the workflow file.
 
-### The two failures, and what was done about them
+### The three failures, and what was done about them
 
-Nine runs happened on this pull request. Two failed, and neither was re-run
-until it passed.
+**Ten runs happened on this pull request. Three failed and two were cancelled**
+by the workflow's own `concurrency` group when a later push superseded them —
+`fc3f15a` and `3966770`, both superseded within minutes and both covered by a
+green run on the following commit. None of the three failures was re-run until
+it passed.
 
-| Run           | Commit    | What failed                                                                           | Root cause                                                                                   | Fixed by  |
-| ------------- | --------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------- |
-| `35097650069` | `66495c0` | `@desi-event/api-contract#test` — "tags every route with a tag the document declares" | The new `analytics` tag was on two routes and absent from `API_TAGS`                         | `d71d60f` |
-| `35106712692` | `bdefff9` | `Browser — public catalogue`                                                          | Four new `detail-*` specs joined the public suite, which runs with the API deliberately down | `c5e98da` |
+An earlier revision of this section said "nine runs, two failed". That was
+wrong: it was written from the runs this session had watched while working, and
+the third failure had been superseded by a green run on a later commit before
+anybody looked at it. It is set out below, because a record that quietly omits
+the failure nobody noticed is worth less than one that names it.
 
-The second is worth its own sentence. `playwright.config.js` excludes other
+| Run           | Commit    | What failed                                                                           | Root cause                                                                                                                                                                                  | Fixed by  |
+| ------------- | --------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| `35097650069` | `66495c0` | `@desi-event/api-contract#test` — "tags every route with a tag the document declares" | The new `analytics` tag was on two routes and absent from `API_TAGS`                                                                                                                        | `d71d60f` |
+| `35103232838` | `33eeea9` | **`Coverage thresholds`** — the `Test` step itself passed                             | `apps/api` branch coverage fell under its 75% floor. `33eeea9` added the `tickets.get` handler and three screens; the branches arrived in that commit and the tests exercising them did not | see below |
+| `35106712692` | `bdefff9` | `Browser — public catalogue`                                                          | Four new `detail-*` specs joined the public suite, which runs with the API deliberately down                                                                                                | `c5e98da` |
+
+The middle one went green again on the very next commit, `cd1544a`, which added
+twenty security-regression cases — **incidentally**, not because anybody was
+fixing coverage. That is the part worth recording, and §9A says what was done
+about it once it was noticed.
+
+The third is worth its own sentence. `playwright.config.js` excludes other
 configurations' specs by name, and its own comment calls that list "a
 maintenance hazard and a deliberate one: a new spec joins the public suite
 unless somebody says otherwise, and a public spec that is silently not run is

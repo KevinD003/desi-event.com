@@ -124,7 +124,7 @@ the one adding this revision; `a02eb2f` was the commerce cycle's.
 | plpgsql triggers              |        20 |
 | CHECK constraints             |        34 |
 | Migrations                    |        12 |
-| Unit and integration tests    |     4,633 |
+| Unit and integration tests    |     4,642 |
 | Browser cases (seven configs) |       242 |
 
 Three routes are new this cycle — `analytics.summary`, `analytics.export` and

@@ -511,6 +511,78 @@ describe('POST /v1/ticket-transfers/accept', () => {
     await app.close()
   })
 
+  it('lets the recipient decline, leaving the ticket where it was', async () => {
+    const world = await withCapture()
+    const { app, prisma, tickets } = world
+    const token = await offerAndCaptureToken(world, tickets[0].id)
+    const recipientToken = await signIn(app, RECIPIENT)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/decline',
+      headers: bearer(recipientToken),
+      payload: { token },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.status).toBe('DECLINED')
+
+    // Declining is not a half-transfer. The ticket goes back to VALID with the
+    // credential it always had, so the person who offered it can still walk in
+    // and does not need a new pass.
+    const original = prisma._store.ticket.find((row) => row.id === tickets[0].id)
+
+    expect(original.status).toBe('VALID')
+    expect(original.credentialVersion).toBe(1)
+    expect(original.credentialHash).toBeTruthy()
+
+    await app.close()
+  })
+
+  it('refuses a second answer to an invitation already answered', async () => {
+    const world = await withCapture()
+    const { app, tickets } = world
+    const token = await offerAndCaptureToken(world, tickets[0].id)
+    const recipientToken = await signIn(app, RECIPIENT)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/decline',
+      headers: bearer(recipientToken),
+      payload: { token },
+    })
+
+    expect(first.statusCode).toBe(200)
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(recipientToken),
+      payload: { token },
+    })
+
+    // Declining and then accepting the same invitation is the race that would
+    // otherwise hand out a ticket somebody already gave back.
+    expect([404, 409]).toContain(second.statusCode)
+
+    await app.close()
+  })
+
+  it('has nothing to withdraw when no invitation is outstanding', async () => {
+    const { app, tickets } = await withOwnedTickets()
+    const senderToken = await signIn(app, BUYER)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${tickets[0].id}/transfers/cancel`,
+      headers: bearer(senderToken),
+    })
+
+    expect(response.statusCode).toBe(422)
+
+    await app.close()
+  })
+
   it('lets the sender withdraw an offer', async () => {
     const world = await withCapture()
     const { app, prisma, tickets } = world
