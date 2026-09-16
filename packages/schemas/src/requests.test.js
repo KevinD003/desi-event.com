@@ -550,15 +550,35 @@ describe('createOrderRequestSchema', () => {
 })
 
 describe('checkInRequestSchema', () => {
-  it('upper-cases the scanned code and defaults force to false', () => {
+  it('upper-cases the scanned code', () => {
+    // `force` used to default here and is gone: with an attendance row that is
+    // unique per ticket, the only thing it could mean is "rewrite the admission
+    // record", and a record whoever holds the scanner can rewrite is not one.
     expect(checkInRequestSchema.parse({ code: 'de-8f3k2q-01' })).toEqual({
       code: 'DE-8F3K2Q-01',
-      force: false,
     })
+  })
+
+  it('accepts the scanned pass on its own', () => {
+    const credential = 'a'.repeat(43)
+
+    expect(checkInRequestSchema.parse({ credential })).toEqual({ credential })
   })
 
   it('rejects an empty code', () => {
     expect(checkInRequestSchema.safeParse({ code: '' }).success).toBe(false)
+  })
+
+  it('rejects a request that presents nothing', () => {
+    expect(checkInRequestSchema.safeParse({ gate: 'North' }).success).toBe(false)
+  })
+
+  it('rejects a pass that is not base64url', () => {
+    // The scanner sends what it read. Anything else is either a broken device
+    // or somebody probing, and neither should reach a database lookup.
+    expect(checkInRequestSchema.safeParse({ credential: `${'a'.repeat(40)}+/=` }).success).toBe(
+      false,
+    )
   })
 })
 

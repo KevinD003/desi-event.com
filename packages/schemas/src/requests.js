@@ -357,12 +357,88 @@ export const createOrderRequestSchema = z
   })
 
 /** Scan a ticket at the door. */
-export const checkInRequestSchema = z.object({
-  code: ticketCodeSchema,
+export const checkInRequestSchema = z
+  .object({
+    /**
+     * The pass from a QR code.
+     *
+     * Base64url, and bounded: a scanner sends what it read, and an unbounded
+     * string from a device at a door is a hashing job somebody else chose the
+     * size of.
+     */
+    credential: z
+      .string()
+      .trim()
+      .min(16)
+      .max(200)
+      .regex(/^[A-Za-z0-9_-]+$/u)
+      .optional(),
+    /** The printed reference, for when a pass will not scan. */
+    code: ticketCodeSchema.optional(),
+    eventId: cuidSchema.optional(),
+    eventSessionId: cuidSchema.optional(),
+    checkedInAt: timestampSchema.optional(),
+    deviceId: nonEmptyStringSchema.optional(),
+    gate: z.string().trim().min(1).max(60).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.credential && !value.code) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['credential'],
+        message: 'Send the scanned pass, or the printed code.',
+      })
+    }
+  })
+
+/**
+ * Offering a ticket to somebody.
+ *
+ * An address and nothing else. Not a user id: the recipient may not have an
+ * account yet, and letting a sender name an account would let them hand a
+ * ticket to somebody who never asked for it.
+ */
+export const startTicketTransferRequestSchema = z.object({
+  toEmail: emailSchema,
+  message: z.string().trim().max(500).optional(),
+})
+
+/**
+ * Accepting or declining one.
+ *
+ * The token is the invitation. It is a bearer secret, so it is bounded and
+ * shaped, and the server compares its digest rather than the token itself.
+ */
+export const respondToTicketTransferRequestSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(16)
+    .max(200)
+    .regex(/^[A-Za-z0-9_-]+$/u),
+})
+
+/** Withdrawing a ticket. */
+export const revokeTicketRequestSchema = z.object({
+  reason: z.string().trim().min(4).max(500),
+})
+
+/** The tickets belonging to the signed-in person. */
+export const myTicketsQuerySchema = paginationQuerySchema.extend({
   eventId: cuidSchema.optional(),
-  checkedInAt: timestampSchema.optional(),
-  deviceId: nonEmptyStringSchema.optional(),
-  force: z.boolean().default(false),
+  status: z
+    .enum([
+      'VALID',
+      'TRANSFER_PENDING',
+      'TRANSFERRED',
+      'REVOKED',
+      'REFUNDED',
+      'CHECKED_IN',
+      'CANCELLED',
+      'SUPERSEDED',
+      'VOID',
+    ])
+    .optional(),
 })
 
 /** Join the waitlist for a sold-out event. */

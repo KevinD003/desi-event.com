@@ -88,23 +88,31 @@ describe('POST /v1/tickets/check-in', () => {
     await app.close()
   })
 
-  it('re-stamps only when the steward explicitly forces it', async () => {
+  it('will not let a scanner rewrite an admission, however it asks', async () => {
     const { app, tickets } = harness
     const token = await signIn(app, 'door@rangoli.example')
-    const scan = (force) =>
+    const scan = (checkedInAt, extra = {}) =>
       app.inject({
         method: 'POST',
         url: '/v1/tickets/check-in',
         headers: bearer(token),
-        payload: { code: tickets[0].code, force, checkedInAt: '2026-01-01T10:00:00.000Z' },
+        payload: { code: tickets[0].code, checkedInAt, ...extra },
       })
 
-    await scan(false)
-    const forced = await scan(true)
+    const first = await scan('2026-01-01T10:00:00.000Z')
 
-    expect(forced.statusCode).toBe(200)
-    expect(forced.json().data.alreadyCheckedIn).toBe(true)
-    expect(forced.json().data.ticket.checkedInAt).toBe('2026-01-01T10:00:00.000Z')
+    expect(first.json().data.checkedInAt).toBe('2026-01-01T10:00:00.000Z')
+
+    // `force` used to re-stamp the time. It is gone: with a CheckIn row that is
+    // unique per ticket, the only thing it could mean is "rewrite the admission
+    // record", and a record whoever holds the scanner can rewrite is not one.
+    // The field is not on the schema, so it is stripped and changes nothing.
+    const again = await scan('2026-02-02T20:00:00.000Z', { force: true })
+
+    expect(again.statusCode).toBe(200)
+    expect(again.json().data.alreadyCheckedIn).toBe(true)
+    expect(again.json().data.checkedInAt).toBe('2026-01-01T10:00:00.000Z')
+    expect(again.json().data.ticket.checkedInAt).toBe('2026-01-01T10:00:00.000Z')
 
     await app.close()
   })

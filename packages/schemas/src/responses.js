@@ -159,8 +159,66 @@ export const checkInResponseSchema = z.object({
   data: z.object({
     ticket: ticketSchema,
     alreadyCheckedIn: z.boolean().default(false),
+    /** When it was first admitted, for a re-scan. */
+    checkedInAt: timestampSchema.nullable(),
+    /** Who it says on the ticket, so a door can match a face to a name. */
+    attendeeName: z.string().nullable(),
   }),
 })
+
+/**
+ * A ticket transfer, as the two parties see it.
+ *
+ * The token is never here. It goes in the invitation link once and the database
+ * holds only its digest; a response that echoed it would put a bearer secret in
+ * a browser cache, a proxy log and a screenshot.
+ *
+ * @type {object}
+ */
+export const ticketTransferSchema = z.object({
+  id: cuidSchema,
+  ticketId: cuidSchema,
+  fromUserId: cuidSchema.nullable(),
+  /** `p****a@example.com`. Enough to recognise, not enough to harvest. */
+  toEmailMasked: z.string(),
+  status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'EXPIRED']),
+  expiresAt: timestampSchema,
+  acceptedAt: timestampSchema.nullable(),
+  declinedAt: timestampSchema.nullable(),
+  cancelledAt: timestampSchema.nullable(),
+  resultTicketId: cuidSchema.nullable(),
+  createdAt: timestampSchema,
+})
+
+/** `POST /tickets/:id/transfers`, and the responses to one. */
+export const ticketTransferResponseSchema = z.object({
+  data: ticketTransferSchema,
+})
+
+/**
+ * The accepted ticket, with its pass.
+ *
+ * `credential` appears exactly here and nowhere else: it is derived at the
+ * moment of acceptance, handed over once, and never stored. Reading the ticket
+ * back later returns everything except this field.
+ *
+ * @type {object}
+ */
+export const acceptedTicketResponseSchema = z.object({
+  data: z.object({
+    ticket: ticketSchema,
+    credential: z.string(),
+  }),
+})
+
+/** `GET /tickets`. */
+export const myTicketListResponseSchema = z.object({
+  data: z.array(ticketSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `POST /tickets/:id/revoke`. */
+export const ticketResponseSchema = z.object({ data: ticketSchema })
 
 /** `GET /organizations/:id`. */
 export const organizationResponseSchema = z.object({

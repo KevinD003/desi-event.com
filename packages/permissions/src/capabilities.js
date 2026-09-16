@@ -100,6 +100,15 @@ export const CAPABILITIES = deepFreeze({
   /** Download the attendee list. A privacy-sensitive bulk read, on its own. */
   ATTENDEE_EXPORT: 'attendee:export',
   TICKET_CHECK_IN: 'ticket:check_in',
+  /**
+   * Withdraw one ticket.
+   *
+   * Separate from refunding, because it is a different decision: a revocation
+   * stops a ticket admitting anybody and gives nothing back. Held by an
+   * organisation's event managers, and not by a door scanner — somebody on a
+   * gate must not be able to turn an awkward attendee's ticket off.
+   */
+  TICKET_REVOKE: 'ticket:revoke',
 
   // --- Money ---------------------------------------------------------------
   /** Ask for a refund. Under a policy that requires approval, this is all it does. */
@@ -276,6 +285,7 @@ const ORG_ROLE_GRANTS = {
     CAPABILITIES.VENUE_MAP_MANAGE,
     CAPABILITIES.PROMO_MANAGE,
     CAPABILITIES.ATTENDEE_EXPORT,
+    CAPABILITIES.TICKET_REVOKE,
   ],
   // Handles money, and cannot publish or edit an event.
   FINANCE: [

@@ -231,10 +231,31 @@ describe('holdResponseSchema and checkInResponseSchema', () => {
     const parsed = checkInResponseSchema.parse({
       data: {
         ticket: { id: ids.ticket, orderItemId: ids.orderItem, code: 'DE-8F3K2Q-01' },
+        // Both required and both nullable: a door always gets an answer to
+        // "when was this first admitted" and "who does it say", even when the
+        // answer is "it has not been" and "nobody wrote a name".
+        checkedInAt: null,
+        attendeeName: null,
       },
     })
     expect(parsed.data.alreadyCheckedIn).toBe(false)
     expect(parsed.data.ticket.status).toBe('VALID')
+  })
+
+  it('carries the first admission time on a re-scan', () => {
+    const parsed = checkInResponseSchema.parse({
+      data: {
+        ticket: { id: ids.ticket, orderItemId: ids.orderItem, code: 'DE-8F3K2Q-01' },
+        alreadyCheckedIn: true,
+        checkedInAt: '2026-09-16T18:30:00.000Z',
+        attendeeName: 'Priya Sharma',
+      },
+    })
+
+    // What the person on the door actually needs when a pass scans twice: when
+    // it went through the first time, not merely that it did.
+    expect(parsed.data.checkedInAt).toBe('2026-09-16T18:30:00.000Z')
+    expect(parsed.data.attendeeName).toBe('Priya Sharma')
   })
 })
 

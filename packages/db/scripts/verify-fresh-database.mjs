@@ -544,6 +544,7 @@ async function main() {
         'tests/ledger-integration.test.js',
         'tests/reserved-seat-concurrency.test.js',
         'tests/refund-concurrency.test.js',
+        'tests/ticket-concurrency.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

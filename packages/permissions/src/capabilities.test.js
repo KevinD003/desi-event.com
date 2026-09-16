@@ -31,6 +31,7 @@ const REQUIRED_CAPABILITIES = [
   'venue:manage',
   'venueMap:manage',
   // Inventory
+  'ticket:revoke',
   'ticketType:manage',
   'inventory:manage',
   'hold:release_any',
