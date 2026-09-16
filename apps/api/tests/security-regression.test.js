@@ -31,9 +31,26 @@ import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
 
 import { toDispute, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
+import { bearer, createTestApp, signIn } from './helpers/app.js'
+
+/** The organisation's owner, who holds `finance:view`. */
+const OWNER = 'owner@rangoli.example'
+
+/**
+ * Sign the owner in.
+ *
+ * Signing in with a second factor *is* a step-up, so the session starts fresh
+ * and the test has to age it to prove the window is enforced.
+ *
+ * @param {object} app The Fastify instance.
+ * @returns {Promise<object>} Authenticated headers.
+ */
+async function asOwner(app) {
+  return bearer(await signIn(app, OWNER))
+}
 
 /** Routes that move money, decide who may, or read what somebody is owed. */
-const MONEY_TAGS = new Set(['finance', 'refunds'])
+const MONEY_TAGS = new Set(['analytics', 'finance', 'refunds'])
 
 describe('NF-05: no capability is asserted without knowing whose organisation it is', () => {
   it('gives every organisation-scoped capability a scope the schema declares', () => {
@@ -79,6 +96,16 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
       // bytes sent, and there is nobody to challenge for a second factor.
       'payments.webhook',
       'webhooks.stripe',
+      // The two analytics routes carry money *conditionally*. A route-level
+      // gate would refuse the reader who was never going to be shown any — a
+      // VIEWER or a door steward holds `report:view` and no second factor,
+      // because the system only compels enrolment for privileged roles — so the
+      // window is applied to the money branch instead, out of the same
+      // `STEP_UP_POLICIES` table, in `routes/analytics.js`. The next test
+      // proves the branch is actually gated; without it this exemption would be
+      // a hole rather than a design.
+      'analytics.summary',
+      'analytics.export',
     ])
 
     for (const route of apiRoutes) {
@@ -87,6 +114,38 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
 
       expect(route.stepUp, `${route.id} touches money with no step-up policy`).toBeTruthy()
     }
+  })
+
+  it('applies the same window to the analytics money branch, in the handler', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = await asOwner(app)
+
+    const fresh = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/summary?organizationId=${ids.organization.id}&currency=INR`,
+      headers,
+    })
+
+    expect(fresh.json().data.moneyVisible).toBe(true)
+
+    // Older than `FINANCE_VIEW`'s window, which is the server's number.
+    for (const session of prisma._store.session) {
+      session.mfaSatisfiedAt = new Date(Date.now() - STEP_UP_POLICIES.FINANCE_VIEW - 1000)
+    }
+
+    const stale = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/summary?organizationId=${ids.organization.id}&currency=INR`,
+      headers,
+    })
+
+    const view = stale.json().data
+
+    expect(view.moneyVisible).toBe(false)
+    expect(view.moneyWithheld).toBe('STEP_UP')
+    expect(view.money).toBeNull()
+
+    await app.close()
   })
 })
 

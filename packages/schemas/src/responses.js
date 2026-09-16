@@ -513,9 +513,17 @@ const salesGroupSchema = z.object({
   label: z.string(),
   currency: z.string(),
   quantity: z.number().int(),
-  lineValueCents: z.number().int(),
+  /**
+   * Null when money is withheld.
+   *
+   * A breakdown is the quiet way money escapes a permission check: the totals
+   * are gated, the reader is told the money is not for them, and then a table
+   * headed "sales by event" prints what each event took. Counts survive the
+   * withholding; values do not.
+   */
+  lineValueCents: z.number().int().nullable(),
   refundedQuantity: z.number().int(),
-  refundedCents: z.number().int(),
+  refundedCents: z.number().int().nullable(),
   startsAt: timestampSchema.nullable().optional(),
 })
 
@@ -560,6 +568,17 @@ export const analyticsSummaryResponseSchema = z.object({
      * sent them.
      */
     moneyVisible: z.boolean(),
+    /**
+     * Why the money is absent, when it is.
+     *
+     * `CAPABILITY` is a permanent answer — this account will never see these
+     * figures and the screen should say so plainly rather than offer a button.
+     * `STEP_UP` is a temporary one: the account holds `finance:view` but has not
+     * confirmed a second factor recently enough, and confirming it again is a
+     * thing the reader can actually do. Telling the two apart is the difference
+     * between a useful prompt and a dead end.
+     */
+    moneyWithheld: z.enum(['CAPABILITY', 'STEP_UP']).nullable(),
     money: financeSummaryResponseSchema.shape.data
       .omit({
         organizationId: true,

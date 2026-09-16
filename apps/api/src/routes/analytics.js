@@ -16,6 +16,23 @@
  * `moneyVisible` says which of the two happened, so the screen can explain the
  * absence instead of drawing a row of zeros.
  *
+ * ## Why the step-up is in here rather than on the route
+ *
+ * A route-level `stepUp` is a *gate*: the guard runs before the handler and the
+ * whole request is refused. That is right for an action, and wrong here, because
+ * it would refuse the caller who was never going to be shown any money. A
+ * VIEWER or a door steward holds `report:view` and no second factor — the
+ * system only compels enrolment for privileged roles — so a route-level gate
+ * would lock every one of them out of an attendance figure in order to protect
+ * a ledger total they were never going to receive.
+ *
+ * So the window is applied to the *branch* that needs it, using the same
+ * server-held policy table the route guard reads. NF-11's property is unchanged:
+ * the window comes from `STEP_UP_POLICIES`, the browser cannot see it and cannot
+ * ask for a longer one. What changes is the consequence of failing it — the
+ * money is withheld rather than the page refused, and `moneyWithheld` says
+ * `STEP_UP` so the screen can offer the one thing that would fix it.
+ *
  * ## What an export may carry
  *
  * An allow list, as the finance export has, and a stricter one than it looks:
@@ -28,6 +45,7 @@
  * @module @desi-event/api/routes/analytics
  */
 
+import { stepUpSatisfied, stepUpWindowFor } from '@desi-event/auth'
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 
 import { organizerAnalytics } from '../lib/analytics.js'
@@ -48,6 +66,26 @@ const EXPORT_COLUMNS = Object.freeze([
   { key: 'currency', header: 'Currency' },
   { key: 'note', header: 'Note' },
 ])
+
+/**
+ * The same breakdowns with every monetary column removed.
+ *
+ * Nulled rather than dropped, so the shape a screen renders is the same shape
+ * whether or not the reader may see money — a table that grows and loses
+ * columns depending on who is reading it is a table whose headings stop
+ * matching its cells.
+ *
+ * @param {object} sales The four breakdowns.
+ * @returns {object} The same four, valueless.
+ */
+function withoutValues(sales) {
+  return Object.fromEntries(
+    Object.entries(sales).map(([key, groups]) => [
+      key,
+      groups.map((group) => ({ ...group, lineValueCents: null, refundedCents: null })),
+    ]),
+  )
+}
 
 /**
  * Turn an analytics payload into the rows an export carries.
@@ -75,7 +113,9 @@ function exportRows(view) {
       code: view.moneyVisible ? 'yes' : 'no',
       note: view.moneyVisible
         ? 'Derived from the append-only ledger'
-        : 'Omitted: this account does not hold finance:view in this organisation',
+        : view.moneyWithheld === 'STEP_UP'
+          ? 'Omitted: this account holds finance:view but has not confirmed a second factor recently enough'
+          : 'Omitted: this account does not hold finance:view in this organisation',
     },
   ]
 
@@ -219,7 +259,12 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
     // the first fails a pull request, the second fails a request.
     assertCan(request.actor, CAPABILITIES.REPORT_VIEW, { organizationId })
 
-    const moneyVisible = can(request.actor, CAPABILITIES.FINANCE_VIEW, { organizationId })
+    const holdsFinance = can(request.actor, CAPABILITIES.FINANCE_VIEW, { organizationId })
+    const confirmedRecently = stepUpSatisfied(request.session, {
+      windowMs: stepUpWindowFor('FINANCE_VIEW'),
+    })
+    const moneyWithheld = !holdsFinance ? 'CAPABILITY' : confirmedRecently ? null : 'STEP_UP'
+    const moneyVisible = moneyWithheld === null
     const mock = providers.payments.name === 'in-memory-payments'
 
     const analytics = await organizerAnalytics(prisma, {
@@ -232,7 +277,7 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
       now: new Date(),
     })
 
-    const { money, ...rest } = analytics
+    const { money, sales, ...rest } = analytics
 
     return {
       organizationId,
@@ -246,6 +291,12 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
         ? 'DEMO — no money moved. These figures describe a demonstration and are not an accounting record.'
         : "SANDBOX — settled in Stripe's test mode. No real money moved.",
       moneyVisible,
+      moneyWithheld,
+      // The breakdowns are the quiet way money escapes a permission check: the
+      // totals are gated, and then a table headed "sales by event" prints what
+      // each one took. The quantities survive the withholding; the values do
+      // not, and they are removed here rather than left out of the markup.
+      sales: moneyVisible ? sales : withoutValues(sales),
       // Dropped from the payload, not from the markup.
       money: moneyVisible
         ? {

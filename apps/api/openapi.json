@@ -22523,7 +22523,7 @@
       "get": {
         "operationId": "analytics.summary",
         "summary": "What an organisation sold, holds, owes and let in",
-        "description": "Money, inventory, attendance and operations for one organisation, in one call. The monetary figures are the finance view’s — derived from the append-only ledger, never from order totals — and everything else is counted from the rows that are the fact: `Ticket`, `EventSeat`, `CheckIn`. The two are separate branches of the payload on purpose, because \"tickets sold × face value\" is not revenue and a screen that prints it beside a ledger figure invites somebody to reconcile two different measurements. Every window and date bucket is UTC and the payload says so. `organizationId` is required: there is no platform-wide analytics view, and an optional organisation is how an organisation capability quietly becomes a platform one. Requires `report:view` in that organisation.\n\nRequires the `report:view` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Money, inventory, attendance and operations for one organisation, in one call. The monetary figures are the finance view’s — derived from the append-only ledger, never from order totals — and everything else is counted from the rows that are the fact: `Ticket`, `EventSeat`, `CheckIn`. The two are separate branches of the payload on purpose, because \"tickets sold × face value\" is not revenue and a screen that prints it beside a ledger figure invites somebody to reconcile two different measurements. Every window and date bucket is UTC and the payload says so. `organizationId` is required: there is no platform-wide analytics view, and an optional organisation is how an organisation capability quietly becomes a platform one. Requires `report:view` in that organisation. The monetary branch additionally requires `finance:view` **and** a second factor confirmed within the `FINANCE_VIEW` window; without either it is absent from the payload rather than hidden by the screen, and `moneyWithheld` says which of the two was missing. The counts are not withheld for a stale session, because a door steward reading an attendance figure is not a financial action.\n\nRequires the `report:view` capability.",
         "tags": [
           "analytics"
         ],
@@ -22605,6 +22605,20 @@
                         },
                         "moneyVisible": {
                           "type": "boolean"
+                        },
+                        "moneyWithheld": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "CAPABILITY",
+                                "STEP_UP"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         },
                         "money": {
                           "anyOf": [
@@ -23202,9 +23216,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "lineValueCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "refundedQuantity": {
                                     "type": "integer",
@@ -23212,9 +23233,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "refundedCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "startsAt": {
                                     "anyOf": [
@@ -23261,9 +23289,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "lineValueCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "refundedQuantity": {
                                     "type": "integer",
@@ -23271,9 +23306,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "refundedCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "startsAt": {
                                     "anyOf": [
@@ -23320,9 +23362,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "lineValueCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "refundedQuantity": {
                                     "type": "integer",
@@ -23330,9 +23379,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "refundedCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "startsAt": {
                                     "anyOf": [
@@ -23379,9 +23435,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "lineValueCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "refundedQuantity": {
                                     "type": "integer",
@@ -23389,9 +23452,16 @@
                                     "maximum": 9007199254740991
                                   },
                                   "refundedCents": {
-                                    "type": "integer",
-                                    "minimum": -9007199254740991,
-                                    "maximum": 9007199254740991
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
                                   },
                                   "startsAt": {
                                     "anyOf": [
@@ -23624,6 +23694,7 @@
                         "mode",
                         "modeNotice",
                         "moneyVisible",
+                        "moneyWithheld",
                         "money",
                         "tickets",
                         "inventory",
@@ -23667,7 +23738,7 @@
             }
           },
           "403": {
-            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "description": "The caller is authenticated but lacks the required capability.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23752,7 +23823,7 @@
       "get": {
         "operationId": "analytics.export",
         "summary": "The analytics view as a spreadsheet",
-        "description": "The same figures as a CSV under an explicit column allow list. No buyer name, no address, no email, no card, no provider reference, and nothing belonging to another organisation. Every cell that could begin `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with an apostrophe, because a spreadsheet reads those as formulas and the person harmed is whoever opened the file; the value is escaped rather than stripped, so a ticket type genuinely called `-Premium` still reads as itself. The first row records which payment mode produced the figures, so a demonstration export cannot be mistaken for an accounting record. Requires `report:view` in the organisation.\n\nRequires the `report:view` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "The same figures as a CSV under an explicit column allow list. No buyer name, no address, no email, no card, no provider reference, and nothing belonging to another organisation. Every cell that could begin `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with an apostrophe, because a spreadsheet reads those as formulas and the person harmed is whoever opened the file; the value is escaped rather than stripped, so a ticket type genuinely called `-Premium` still reads as itself. The first row records which payment mode produced the figures, so a demonstration export cannot be mistaken for an accounting record, and a further row records whether money was included and why not. Money rows require `finance:view` and a second factor confirmed within the `FINANCE_VIEW` window; the count rows do not.\n\nRequires the `report:view` capability.",
         "tags": [
           "analytics"
         ],
@@ -23788,7 +23859,7 @@
             }
           },
           "403": {
-            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "description": "The caller is authenticated but lacks the required capability.",
             "content": {
               "application/json": {
                 "schema": {
