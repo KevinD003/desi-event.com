@@ -57,7 +57,7 @@ import { defineRoute } from '../lib/register.js'
  *
  * @type {ReadonlyArray<{key: string, header: string}>}
  */
-const EXPORT_COLUMNS = Object.freeze([
+export const EXPORT_COLUMNS = Object.freeze([
   { key: 'section', header: 'Section' },
   { key: 'label', header: 'Item' },
   { key: 'code', header: 'Code' },

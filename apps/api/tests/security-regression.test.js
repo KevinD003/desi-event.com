@@ -30,7 +30,8 @@ import { apiRouteManifest } from '@desi-event/api-contract/manifest'
 import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
 
-import { toDispute, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
+import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
+import { toDispute, toEvidence, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
 
 /** The organisation's owner, who holds `finance:view`. */
@@ -279,6 +280,116 @@ describe('allow-list presenters: what a money payload carries', () => {
     // created the row, not something a later read hands out.
     expect(serialised).not.toContain('not-the-client-s-business')
     expect(serialised).not.toContain('internalNote')
+  })
+})
+
+describe('the surfaces added for gate 13', () => {
+  /** The route ids this cycle added. */
+  const ADDED = ['analytics.summary', 'analytics.export', 'tickets.get']
+
+  it('gives every new route an entry in the published contract', () => {
+    // A route that exists without a contract entry is a route nothing reviews,
+    // and `defineRoute` is what makes that impossible — but only for routes
+    // registered through it. This is the check that the three added this cycle
+    // went through the front door.
+    for (const id of ADDED) {
+      expect(
+        apiRoutes.find((route) => route.id === id),
+        `${id} is registered but not in the contract`,
+      ).toBeTruthy()
+    }
+  })
+
+  it('scopes every organisation capability the new routes assert', () => {
+    for (const id of ['analytics.summary', 'analytics.export']) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      // `report:view` is an organisation capability. Asserted with no
+      // organisation it becomes a platform check, which refuses every organiser
+      // and passes every platform admin.
+      expect(route.capability).toBe('report:view')
+      expect(route.capabilityScope, `${id} asserts report:view unscoped`).toBe(
+        'query.organizationId',
+      )
+      expect(
+        route.query.shape.organizationId.def.type,
+        `${id} lets the organisation be omitted`,
+      ).not.toBe('optional')
+    }
+  })
+
+  it('branches the ticket read in the handler rather than leaving it open', () => {
+    const route = apiRoutes.find((candidate) => candidate.id === 'tickets.get')
+
+    // Two readers with two different rights, so there is no single capability
+    // to declare. What the contract must still say is that it needs a session
+    // and that a refusal is one of its documented outcomes; the branch itself
+    // is asserted in `ticket-lifecycle.test.js` against a real request.
+    expect(route.capability).toBeUndefined()
+    expect(route.auth).toBe('session')
+    expect(route.errors.map((error) => error.code)).toContain('FORBIDDEN')
+  })
+
+  it('exports nothing from analytics that names a person or a provider', () => {
+    // The column list is the allow list. Read from the module rather than
+    // restated, so a column added there fails here rather than being exported
+    // quietly — and the field most likely to be added to an analytics row is
+    // the one identifying somebody.
+    const headers = ANALYTICS_EXPORT_COLUMNS.map((column) => column.key.toLowerCase())
+
+    for (const key of headers) {
+      expect(key).not.toMatch(/email|name$|buyer|address|card|provider|token|secret|payment/u)
+    }
+
+    expect(headers).toEqual([
+      'section',
+      'label',
+      'code',
+      'quantity',
+      'amountcents',
+      'currency',
+      'note',
+    ])
+  })
+
+  it('keeps counts and money in different export columns', () => {
+    // A single "value" column would let a spreadsheet sum two hundred tickets
+    // and two hundred rupees into four hundred of something.
+    const keys = ANALYTICS_EXPORT_COLUMNS.map((column) => column.key)
+
+    expect(keys).toContain('quantity')
+    expect(keys).toContain('amountCents')
+  })
+
+  it('drops a provider payload from reconciliation evidence, however it arrives', () => {
+    const projected = toEvidence({
+      status: 'succeeded',
+      receipt_email: 'priya@example.com',
+      payment_method_details: { card: { last4: '4242' } },
+      charges: { data: [{ billing_details: { name: 'Priya Sharma' } }] },
+    })
+
+    expect(JSON.stringify(projected)).not.toMatch(/priya|4242|billing|receipt/iu)
+    expect(Object.keys(projected)).toEqual(['status'])
+  })
+
+  it('names the organisation on a refund, so a screen cannot ask unscoped', () => {
+    const presented = toRefund({
+      id: 'c1',
+      orderId: 'c2',
+      paymentId: 'c3',
+      provider: 'in-memory-payments',
+      amountCents: 100,
+      currency: 'INR',
+      reason: 'CUSTOMER_REQUEST',
+      status: 'REQUESTED',
+      ticketsRevoked: false,
+      inventoryReturned: false,
+      order: { reference: 'DE-1', event: { organizationId: 'org1' } },
+      createdAt: new Date('2026-09-01T10:00:00Z'),
+    })
+
+    expect(presented.organizationId).toBe('org1')
   })
 })
 

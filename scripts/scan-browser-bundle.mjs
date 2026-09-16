@@ -157,6 +157,44 @@ const FORBIDDEN = [
     ],
   },
   {
+    group: 'the surfaces added for gate 13',
+    markers: [
+      // The analytics library and its derivations. What an organisation is owed
+      // is computed from the ledger on the server; a browser holding the
+      // derivation is a browser that can be argued with about the answer.
+      ['analytics derivation', 'organizerAnalytics'],
+      ['analytics breakdown builder', 'salesBreakdowns'],
+      ['analytics export allow list', 'EXPORT_COLUMNS'],
+      ['reserved-seat inventory derivation', 'reservedSeatInventory'],
+      // The reconciliation evidence allow list. Shipping it tells a reader
+      // which keys are dropped, which is the shape of the redaction rather
+      // than the redaction itself — useful only to somebody probing it.
+      ['reconciliation evidence allow list', 'RECONCILIATION_EVIDENCE_KEYS'],
+      ['reconciliation evidence projection', 'toEvidence'],
+      // Refund internals. The allocator decides how much of a refund is face
+      // value, fee and tax; the browser is told the answer and never the rule.
+      ['refund allocator', 'allocateRefund'],
+      ['refund state table', 'REFUND_STATES'],
+      // Ticket credential material, by every name it has. A browser that can
+      // name the deriver is a browser somebody will try to derive from.
+      ['ticket credential hash column', 'credentialHash'],
+      ['ticket credential version column', 'credentialVersion'],
+      ['transfer token minting', 'mintTransferToken'],
+      ['transfer token column', 'tokenHash'],
+      // Where the masking happens.
+      //
+      // The column itself, `toEmail`, cannot be a needle: it is a field name in
+      // `startTicketTransferRequestSchema`, so a screen that offers a ticket has
+      // to name it in the request body, and a scan for the string cannot tell
+      // that from the stored address coming back. What it *can* check is that
+      // masking stays a server concern — if `maskRecipient` ever reached the
+      // browser, the raw address would have had to reach it first, which is the
+      // failure the needle is for. The masked value itself is asserted in
+      // `ticket-lifecycle.test.js`, where a runtime value can actually be read.
+      ['transfer recipient masking', 'maskRecipient'],
+    ],
+  },
+  {
     group: 'permission tables (server-only)',
     markers: [
       ['ORG_ROLE_GRANTS', 'ORG_ROLE_GRANTS'],
@@ -265,6 +303,13 @@ const REQUIRED = [
   // dropped it would pass every forbidden check above by shipping a screen with
   // no way to get the data out.
   ['finance export path', '/v1/finance/export.csv'],
+  // The same argument for the surfaces added this cycle. Each is a client
+  // component that issues a command, so its path must reach the browser — and
+  // a build that dropped one would pass every forbidden check above by shipping
+  // a screen whose buttons do nothing.
+  ['reconciliation action path', '/v1/operations/reconciliation/'],
+  ['refund action path', '/v1/refunds/'],
+  ['ticket transfer path', '/v1/ticket-transfers/'],
 ]
 
 /**
