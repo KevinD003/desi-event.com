@@ -212,14 +212,34 @@ event-lifecycle suite passes locally — 20 of 20, in about 45 seconds, three
 consecutive times — and passed locally _before_ this change as well. The removed
 delete is not a credible cause of a 90-second wait for a button.
 
-The evidence is consistent with a slow CI runner: CI spent 2.1 minutes reaching
-journey 14 where a local run completes all twenty in 45 seconds. Raising the
-timeout, adding a retry or adding a wait would have hidden it rather than fixed
-it, and all three are forbidden here — correctly.
+> **Correction — 2026-09-17, after retrieving the run's own timeline.** This
+> section first said the evidence was "consistent with a slow CI runner",
+> comparing the job's 2.1-minute wall time against a 45-second local suite. That
+> comparison was wrong: the 2.1 minutes included container start, install and web
+> server boot. The per-journey timestamps show journeys 1–13 finishing in **23
+> seconds in total, 0–3 seconds each** — the runner was fast. Journey 14 alone
+> consumed the entire 90-second budget, and the server received **no request at
+> all** for 87 of those seconds. It did not run slowly; it did nothing.
+>
+> The full analysis, including two further disproven theories and the leading
+> candidate, is `docs/CI_RUN_35248621822_EVENT_LIFECYCLE_EVIDENCE.md`. In short:
+> the failure is reported at the `click` on line 436, so the `goto` on line 435
+> completed — yet no `GET /moderation/events/<id>` follows the submit. A
+> navigation that completes without reaching the server points at the App Router
+> client cache serving the page as journey 13 left it, in a state that renders no
+> Approve button and gives nothing a reason to re-fetch. That is a candidate, not
+> a conclusion: the artifact that would settle it is unreachable, because this
+> environment's egress proxy refuses `blob.core.windows.net`.
+>
+> Raising the timeout, adding a retry or adding a wait would have hidden it, and
+> all three are forbidden here — correctly, and more clearly so now that the
+> failure is known to be deterministic rather than slow.
 
-**So it may recur.** If it does, the next step is the Playwright artefacts from
-the failing run, which were uploaded and which name the page state at the moment
-of the timeout.
+**So it may recur** — and on the evidence it is deterministic on CI rather than
+occasional, which makes recurrence likely rather than possible. The next step is
+the Playwright artefacts, which were uploaded and have not expired, and which
+name the page state at the moment of the timeout. They cannot be fetched from
+this environment; anyone with ordinary GitHub access can download them.
 
 ### What was not done
 
