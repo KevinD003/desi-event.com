@@ -24,8 +24,10 @@ what §2.6 of the authorisation required. The eight skipped steps in that run ar
 the `if: failure()` artefact uploads, one per job, which a green run never
 executes.
 
-The final SHA and its CI result are recorded in §12, which is written after the
-push because it cannot honestly be written before.
+**Final SHA `0508da199dbb379403cacf38397dff77d874ea1d`**, CI run `35223710945`,
+**8 of 8 jobs `success`** on attempt 1. §12.3 has the job-by-job record. This
+paragraph was written after the push, because it could not honestly be written
+before.
 
 ---
 
@@ -530,7 +532,36 @@ obligation the plan's §12 puts on new branches.
 
 ### 12.3 CI
 
-_Recorded after the push; see the closeout commit._
+| Fact             | Value                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------- |
+| Final SHA        | `0508da199dbb379403cacf38397dff77d874ea1d`                                            |
+| Run              | [`35223710945`](https://github.com/KevinD003/desi-event.com/actions/runs/35223710945) |
+| Trigger          | `workflow_dispatch`, run number 33                                                    |
+| Attempt          | 1 — nothing was re-run                                                                |
+| Conclusion       | **success**                                                                           |
+| Jobs             | **8 of 8 `success`**                                                                  |
+| Started/finished | 2026-09-17T12:53:22Z → 13:03:02Z                                                      |
+
+Every job by name: `Policy, lint, contract, tests, build`,
+`Browser — public catalogue`, `Browser — production build`,
+`Browser — organiser venue maps`, `Browser — event lifecycle`,
+`Browser — refusals`, `Browser — accessibility sweep`,
+`Browser — commerce and operations detail`. All `success`.
+
+**Eight steps skipped, and all eight are the same step.** Each job ends with an
+artefact upload guarded by `if: failure()` — `Upload failure artefacts` on the
+first job and `Upload Playwright artefacts` on the seven browser jobs. A green
+run never exercises that path by construction, so a skip there is the workflow
+working rather than a gap. Nothing else was skipped and nothing was cancelled.
+
+The steps that matter to this phase all ran and all passed on the exact SHA:
+`Test` (2m56s), `Coverage thresholds` (2m54s), `Fresh-database verification`,
+`Upgrade-database verification`, `OpenAPI drift`, `Route-manifest drift`,
+`Browser bundle scan`, `Dependency audit`, `Production payments are unreachable`
+and `Reliability smoke test`.
+
+**No failure was observed on this SHA, so none was root-caused, and no job was
+re-run to obtain a green.**
 
 ---
 
