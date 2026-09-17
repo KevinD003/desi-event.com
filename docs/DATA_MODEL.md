@@ -366,9 +366,19 @@ is. Evidence must not be deleted by a cascade from the thing it describes.
 ### A dry run cannot claim to have changed something
 
 `retention_sweep_dry_run_changes_nothing` refuses a `DRY_RUN` row with a non-zero
-`affectedCount`. `DRY_RUN` is the default posture, because every duration the
+`affectedCount`. `DRY_RUN` is the intended posture, because every duration the
 sweeper would apply is a proposal awaiting legal review rather than settled
 policy — see `docs/PRIVACY_AND_RETENTION.md`.
+
+> **Correction — 2026-09-17.** This paragraph said `DRY_RUN` "is the default
+> posture", which reads as a column default and is not one. `RetentionSweep.mode`
+> carries **no** `@default` in `schema.prisma` and no `DEFAULT` in the migration —
+> `state` does, `mode` does not — so a row would have to name its mode explicitly.
+> The point stands in the only sense that matters today: **nothing creates a
+> `RetentionSweep` row at all.** The single `retentionSweep.create` in the tree is
+> a negative probe in `packages/db/scripts/verify-fresh-database.mjs` that expects
+> rejection and rolls back. The constraint above is real and enforced; it
+> constrains rows that nothing yet inserts.
 
 ---
 

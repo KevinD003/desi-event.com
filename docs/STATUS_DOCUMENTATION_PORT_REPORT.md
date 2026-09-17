@@ -87,6 +87,29 @@ privacy-surface section and a Journey 14 section the original lacked.
 
 ---
 
+### Two further defects, found by adversarial verification after the first pass
+
+Neither came from the source branch. Both were already on `main`, both were
+missed by my own first reading, and both were found by an adversarial pass over
+the drafts rather than by the pass that wrote them.
+
+- **`docs/PHASE3_IMPLEMENTATION_REPORT.md`** described "seven privacy routes
+  (two reads from Phase 1 plus five commands and two hold routes)". That
+  undercounts twice: the surface is **nine** operations, and there are **three**
+  hold routes. The two operations missing from the count are both reads,
+  `privacy.listRequestEvents` and `privacy.listHolds`. "Seven" is probably the
+  path count — `/privacy/requests` and `/privacy/holds` each carry a GET and a
+  POST — which is how a plausible number came to stand for the wrong thing. A
+  labelled correction was added; nothing about what was built changed.
+- **`docs/DATA_MODEL.md`** said `DRY_RUN` "is the default posture" of
+  `RetentionSweep`. It reads as a column default and is not one: `mode` carries
+  no `@default` in the schema and no `DEFAULT` in the migration, while the
+  adjacent `state` carries both. This is the same claim I had separately repeated
+  in my own new text and corrected there — and then left standing three hundred
+  lines below **in the same file**. Both instances are now corrected.
+
+---
+
 ## 4. False statements deliberately excluded
 
 None of the following was carried forward, in any wording:
@@ -120,7 +143,9 @@ inherited from the source branch and repeated:
   operations. It applies to the **five commands**; the four reads carry no
   `stepUp` in `packages/api-contract/src/routes.js`.
 
-Both were corrected in all three affected documents before commit.
+Both were corrected in all three affected documents before commit. A second
+adversarial pass then found two more defects already on `main` that my first
+reading had missed — see §3's closing subsection.
 
 ---
 

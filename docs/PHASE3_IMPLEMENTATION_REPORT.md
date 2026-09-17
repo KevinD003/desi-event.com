@@ -253,6 +253,19 @@ single-use confirmation and a server-minted idempotency key, seven privacy route
 (two reads from Phase 1 plus five commands and two hold routes), and immutable
 audit evidence carrying no personal value.
 
+> **Correction — 2026-09-17.** "Seven privacy routes … two hold routes" is an
+> undercount twice over. The surface is **nine operations over seven paths** —
+> `/privacy/requests` and `/privacy/holds` each carry both a `GET` and a `POST`,
+> which is probably where "seven" came from. There are **three** hold routes, not
+> two (`listHolds`, `placeHold`, `releaseHold`), and the two operations missing
+> from the count are both reads: `privacy.listRequestEvents` and
+> `privacy.listHolds`. Counted by verb it is four reads and five commands; all
+> nine require `privacy:redact`, and only the five commands require a fresh
+> `PRIVACY_ERASURE` step-up. Sourced from
+> `packages/api-contract/src/route-manifest.js` and the nine `defineRoute` calls
+> in `apps/api/src/routes/privacy.js`. Nothing about what was _built_ changed —
+> only the count describing it.
+
 Not built, and excluded by the plan: UI, exports, the retention sweeper, Connect.
 
 **No migration.** Phase 1's schema needed no change, which is the strongest thing
