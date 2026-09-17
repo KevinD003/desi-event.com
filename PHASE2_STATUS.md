@@ -2,20 +2,31 @@
 
 **Status: `COMPLETE`. All twenty gates are `MET`.** Phase 3 has not been started.
 
+**Complete is not production-ready, and this file does not claim it is.** Twenty
+of twenty gates are `MET` and `main` is green under enforced protection; that is
+a statement about this project's own exit criteria and nothing wider. No payment
+has ever been taken, no real payment provider has ever been called, no real
+traffic has reached this system and no real user has used it. Stripe is
+mock-only and every real Stripe operation remains
+`EXTERNAL VERIFICATION PENDING`. Branch-protection automation is likewise
+unverified: the `Apply branch protection` workflow has never completed a
+successful run. `PHASE2_GATE17_CLOSURE_REPORT.md` §13 lists what is current and
+what has been resolved.
+
 ### Four different "current" facts, kept apart on purpose
 
 They are not the same commit and never have been. Treating them as one is
 exactly how the run tally in this file came to be wrong twice, so they are now
 stated separately and each says what it is a fact _about_.
 
-| What                                         | Value                                                                                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                                                                             |
-| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                                                                           |
-| Latest corrective commit                     | **`fd1c3de`** — a credential preflight for the protection workflow                                                                                           |
-| Default branch                               | **`main`**, tip **`7f9c1c8`** (pull request #1 merged 2026-09-16T23:05:46Z), `protected: true`                                                               |
-| Last fully green run                         | **`35160752451`**, event `push`, testing exactly `7f9c1c8` on `main` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped                             |
-| Repository protection state                  | **PROTECTED**, verified **2026-09-17T01:07Z**: ruleset `23572317` active, `GET /rules/branches/main` → **4 rules in force**, 8 contexts, `bypass_actors: []` |
+| What                                         | Value                                                                                                                                                                                                                         |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                                                                                                                                              |
+| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                                                                                                                                            |
+| Latest corrective commit                     | **`c44bfa5`** — the accessibility-sweep gate; `fd1c3de` before it                                                                                                                                                             |
+| Default branch                               | **`main`**, tip **`6b8c7d2`** (pull request #3 merged 2026-09-17T03:31Z), `protected: true`                                                                                                                                   |
+| Last fully green run                         | **`35178489515`**, event `push`, testing exactly `6b8c7d2` on `main` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped, 0 failed, attempt 1                                                                         |
+| Repository protection state                  | **PROTECTED**, re-verified **2026-09-17T03:40Z**: ruleset `23572317` active, `GET /rules/branches/main` → **4 rules in force**, 8 contexts, `bypass_actors: []`, `current_user_can_bypass: never`, 1 approval, `strict: true` |
 
 `79ff795..354e66f` changes four Markdown files and nothing else. `40d8ca4`
 changes one test file. So the coverage figures measured at `79ff795` still
