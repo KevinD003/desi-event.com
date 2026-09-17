@@ -1,6 +1,16 @@
 # Phase 2 status — the authoritative current record
 
-**Status: `COMPLETE`. All twenty gates are `MET`.** Phase 3 has not been started.
+**Status: `COMPLETE`. All twenty gates are `MET`.**
+
+> **Current-status update — 2026-09-17.** The sentence that stood here, "Phase 3
+> has not been started", became false and is corrected rather than deleted.
+> Phase 3's Phase 1 and Phase 2 are implemented and merged to `main`; Phase 3's
+> Phase 3 and Phase 4 have **not** started. This file remains the authoritative
+> record for **Phase 2** and says nothing about Phase 3 — for that, read
+> `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3 and §3A, or
+> `docs/STATUS_READING_GUIDE.md` for the map of which document governs what.
+> **Nothing about the Phase 2 verdict above changed**, and this update does not
+> revisit it.
 
 **Complete is not production-ready, and this file does not claim it is.** Twenty
 of twenty gates are `MET` and `main` is green under enforced protection; that is
@@ -1156,6 +1166,14 @@ Recorded so it is not mistaken for work anybody here can finish:
   Phase 2 exit criterion and it is deliberately unreachable from this code.
 
 ### 12.3 Phase 3 prerequisites
+
+> **HISTORICAL STATUS — SUPERSEDED, 2026-09-17.** These were the conditions for
+> starting Phase 3. They were met, and Phase 3's Phase 1 and Phase 2 have since
+> been implemented and merged. The list below is preserved as the record of what
+> was required at the time, not as a statement that Phase 3 is unstarted. Phase
+> 3's Phase 3 and Phase 4 do remain `NOT STARTED`. The run numbers cited below
+> were current when this section was written and are not the current CI
+> evidence; for that, see `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3.
 
 Phase 3 has not been started and should not be. The conditions, stated as tests:
 

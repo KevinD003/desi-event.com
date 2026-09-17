@@ -154,6 +154,47 @@ separately.
 > `docs/CI_RUN_35248621822_EVENT_LIFECYCLE_EVIDENCE.md` §7A. Its root cause
 > remains unknown.
 
+#### Current `main`, as of 2026-09-17 — two merges later
+
+Additive. Nothing above this block is rewritten; the block above it records
+`main` at `09e66bd`, which was accurate when written.
+
+`main` has since advanced twice, and **both merge commits were tested directly
+by their own `push` run** — not by inheritance from a branch:
+
+| `main` commit | How it got there                 | Its own CI run | Result                                      |
+| ------------- | -------------------------------- | -------------- | ------------------------------------------- |
+| `09e66bd`     | merge of PR #5 (Phase 3-1 + 3-2) | `35248621822`  | att. 1 **failure**, att. 2 **success**, 8/8 |
+| `7db5fec`     | merge of PR #6 (CI reliability)  | `35273492335`  | **success**, 8/8, att. 1                    |
+| `510d75a`     | merge of PR #7 (seed cleanup)    | `35279635031`  | **success**, 8/8, att. 1                    |
+
+**`main` is green at `510d75a`**, proven by run `35279635031`, a `push` event
+whose head SHA is that merge commit, all eight jobs `success`, first attempt, no
+re-runs.
+
+One correction worth stating plainly, because a superseded draft of this
+repository's status documentation got it wrong: **run `35248621822` did have
+`09e66bd` as its head SHA**, on `main`, on a `push` event. Attempt 1 concluded
+`failure` with two of eight jobs red. Any statement that no CI run ever had
+`09e66bd` as its head is false, and that statement was never merged here.
+
+### 3.0.1 The phase map, as it now stands
+
+| Phase             | State                                                                                                             |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Phase 3 — Phase 1 | Implemented foundation; **`PARTIAL`** by this file's own documented scope and reporting convention — see its §1.3 |
+| Phase 3 — Phase 2 | **`COMPLETE`** against its stated scope, and merged                                                               |
+| Phase 3 — Phase 3 | **`NOT STARTED`** — privacy UI, exports, retention worker, operations                                             |
+| Phase 3 — Phase 4 | **`NOT STARTED`** — Connect mock, sandbox readiness, adversarial verification                                     |
+
+`PARTIAL` on Phase 1 is a reporting convention about named deviations and
+deferrals, not a claim that its code is unfinished. Read its own report rather
+than this row.
+
+This index does not erase the historical CI failures recorded elsewhere in this
+file, and it does not claim earlier reports were wrong. They were dated evidence
+and remain accurate for their date; this block is current status.
+
 #### Attempt 1, as it happened
 
 **CI run `35248621822` ran on `09e66bd` itself** — event `push`, branch `main`,
