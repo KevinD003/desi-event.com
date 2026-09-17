@@ -494,7 +494,7 @@ Every command below was run locally against real PostgreSQL 16 before the push.
 | `lint`                    | clean                                                      |
 | `contract:check`          | 127 routes, 127 operations, 113 paths; artefact up to date |
 | `test`                    | 19 tasks; `apps/api` 57 files, **1,133 cases**             |
-| `check-skipped-tests`     | 0 skipped, 0 undeclared                                    |
+| `check-skipped-tests`     | 0 skipped, 0 undeclared — **but see §12.0**                |
 | `test:coverage`           | 18 tasks; every floor met                                  |
 | `db:verify:fresh`         | **96 of 96**                                               |
 | `db:verify:upgrade`       | **24 of 24**                                               |
@@ -502,6 +502,67 @@ Every command below was run locally against real PostgreSQL 16 before the push.
 | `build`                   | 3 tasks                                                    |
 | `bundle:scan`             | 300 browser-deliverable files, nothing server-only         |
 | `payment-kill-switch`     | 12 passed                                                  |
+
+### 12.0 Correction — the `check-skipped-tests` row above was produced by an instrument that could not fail
+
+**Added 2026-09-17, after this report was first published.** Recorded here rather
+than silently rewritten, which is this repository's established convention.
+
+**The figure is true. The evidence for it was not.**
+
+`0 skipped, 0 undeclared` is a correct description of what CI ran: the verify job
+provides PostgreSQL and Redis as services and applies migrations before testing,
+so no suite had cause to skip. CI's own log for `c512dee` confirms it directly —
+all nineteen test-task summaries read `passed == total`, including
+`Tests 216 passed (216)` for `apps/worker`, which contains the five Redis
+integration cases, and `Tests 102 passed (102)` for `packages/db`.
+
+What is corrected is the **weight the row carries as evidence**. Until
+`c512dee`'s successor, `scripts/check-skipped-tests.mjs` matched
+`assertion.status === 'pending' || 'todo'`. Vitest's JSON reporter writes
+`'skipped'`. The checker therefore matched a status Vitest never emits, and
+would have printed `0 skipped, 0 undeclared` no matter how many cases had been
+skipped.
+
+Demonstrated rather than inferred. Running `apps/worker/tests/redis-integration.test.js`
+against an unreachable Redis produces a report the reporter describes as
+
+```
+numTotalTests 5 | numPendingTests 5 | numPassedTests 0
+  status= skipped | carries a payload through Redis and runs the real processor   (and four more)
+```
+
+and the checker, reading that exact file, answered:
+
+```
+Skipped-test check: OK — 5 case(s) ran across 1 report(s); 0 skipped, 0 allow-listed, 0 undeclared.
+```
+
+**Scope of the defect.** Only skip detection was blind. The zero-test half of the
+same file — which fails a report containing no cases at all — read
+`numTotalTests` and worked throughout. The allow-list was empty, so nothing was
+ever wrongly exempted; it was simply never consulted.
+
+**Consequence for this repository's history.** No published claim of the form
+"0 skipped" in any earlier report was _checked_ by this gate, in this report or
+in any before it. Each such claim may still be true — and for the CI runs cited
+here it demonstrably is, by the per-task counts above — but it rests on those
+counts, not on the checker. The clearest illustration is local rather than in
+CI: a local battery run with PostgreSQL stopped produced 156 skipped cases in
+`apps/api` and drove branch coverage to 71.44 against a floor of 75. The coverage
+floor caught that. The skipped-test gate, looking at the same reports, did not.
+
+**Fixed, with regression coverage.** `DID_NOT_RUN` now lists `skipped`, `pending`
+and `todo`, and `packages/config/tests/skipped-tests.test.js` runs the real
+script against reports a real reporter could have written — nine cases, including
+the whole-suite skip shape above. The fix was verified in both directions before
+it was pushed: it fails the real five-skip report with exit 1, and it passes the
+repository's current reports with exit 0 and an empty allow-list.
+
+**Not claimed:** that the gate is now exhaustive. It reads Vitest JSON reports
+only. A Playwright suite that skips, a job that never starts, and a test file
+deleted outright are all invisible to it, and the first two of those have both
+occurred on this branch.
 
 ### 12.1 Coverage
 

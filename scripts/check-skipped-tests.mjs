@@ -104,7 +104,30 @@ function casesIn(file) {
 }
 
 /**
- * Every skipped or todo case in one Vitest JSON report.
+ * The assertion statuses that mean "this case did not run".
+ *
+ * Vitest's JSON reporter copies Jest's *shape* but not all of its *vocabulary*.
+ * Jest writes `pending` for a skipped case; Vitest writes **`skipped`**. This
+ * checker was written to Jest's spelling, so from the day it was added until the
+ * day this constant replaced it, it matched a status Vitest never emits — and a
+ * status nobody matches is a skip nobody counts.
+ *
+ * It was not a near miss. The checker reported `0 skipped, 0 undeclared` on a
+ * report containing five genuinely skipped cases, and would have reported the
+ * same on the run where 156 cases skipped themselves because PostgreSQL was
+ * unreachable. The zero-test half of this file worked throughout; only this half
+ * was blind.
+ *
+ * All three spellings are listed rather than only the one this version of Vitest
+ * emits. An extra string costs nothing; the wrong one costs a guard that prints
+ * OK while looking at nothing.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const DID_NOT_RUN = Object.freeze(['skipped', 'pending', 'todo'])
+
+/**
+ * Every case in one Vitest JSON report that did not run.
  *
  * @param {string} file Path to the report.
  * @returns {Array<{name: string, file: string}>} What was not run.
@@ -115,7 +138,7 @@ function skippedIn(file) {
 
   for (const suite of report.testResults ?? []) {
     for (const assertion of suite.assertionResults ?? []) {
-      if (assertion.status === 'pending' || assertion.status === 'todo') {
+      if (DID_NOT_RUN.includes(assertion.status)) {
         skipped.push({
           name: [...(assertion.ancestorTitles ?? []), assertion.title].join(' > '),
           file: path.relative(process.cwd(), suite.name ?? file),
