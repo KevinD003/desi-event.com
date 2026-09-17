@@ -121,13 +121,29 @@ established convention.
 
 ## 3. Phase records
 
-| Phase                                                            | Report                                        | Commit      | CI run                                            | State                |
-| ---------------------------------------------------------------- | --------------------------------------------- | ----------- | ------------------------------------------------- | -------------------- |
-| Baseline                                                         | this file, §1                                 | `f7cbe25`   | `35185073072` — success, 8/8                      | verified green       |
-| 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | this commit | dispatched after the push; recorded once terminal | complete, pending CI |
-| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | —           | —                                                 | not started          |
-| 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —           | —                                                 | not started          |
-| 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —           | —                                                 | not started          |
+| Phase                                                            | Report                                        | Commit                  | CI run                                                        | State                        |
+| ---------------------------------------------------------------- | --------------------------------------------- | ----------------------- | ------------------------------------------------------------- | ---------------------------- |
+| Baseline                                                         | this file, §1                                 | `f7cbe25`               | `35185073072` — success, 8/8                                  | verified green               |
+| 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6`, then the fix | `35187664416` — **failure**, 7/8; see the Phase 1 report §1.1 | superseded by the fix commit |
+| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | —                       | —                                                             | not started                  |
+| 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —                       | —                                                             | not started                  |
+| 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —                       | —                                                             | not started                  |
+
+### 3.1 Runs, in order
+
+| Run           | Commit    | Event               | Conclusion  | Jobs                                   |
+| ------------- | --------- | ------------------- | ----------- | -------------------------------------- |
+| `35185073072` | `f7cbe25` | `workflow_dispatch` | success     | 8/8                                    |
+| `35187664416` | `aeb65d6` | `workflow_dispatch` | **failure** | 7/8 — `Browser — organiser venue maps` |
+
+No run was cancelled. The eight `if: failure()` artefact uploads are skipped on
+every green job; on the failing job the upload ran and succeeded, which is the
+only time that path is exercised.
+
+The failure is analysed in `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` §1.1:
+one failure this change caused and fixed, one that could not be reproduced in
+four local runs and for which no mechanism connects it to this change. Neither
+is written off as a flake.
 
 ## 4. Known conflicts between the authorised rules and the repository
 

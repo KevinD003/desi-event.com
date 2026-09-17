@@ -106,14 +106,24 @@ export async function seedRefusals(tag) {
       },
     })
 
-    const owner = await prisma.user.create({
-      data: {
-        email: `${slug}-owner-${tag}@organiser.test`,
-        passwordHash,
-        displayName: `${name} Owner`,
-        role: 'ORGANIZER',
-        emailVerified: true,
-      },
+    // Upserted rather than created, because a fixture user is no longer
+    // deletable: `desi_audit_log_immutable` refuses the `SET NULL` update that
+    // deleting an actor would make to their audit rows, so `cleanup*` leaves
+    // the row behind. Playwright starts a fresh worker after a failure and
+    // re-runs `beforeAll`, which re-seeds the same tag — and a `create` there
+    // turns one failing test into a suite that cannot continue. Seeding is
+    // idempotent instead, which is a better contract than one that depended on
+    // deletion.
+    const ownerIdentity = {
+      passwordHash,
+      displayName: `${name} Owner`,
+      role: 'ORGANIZER',
+      emailVerified: true,
+    }
+    const owner = await prisma.user.upsert({
+      where: { email: `${slug}-owner-${tag}@organiser.test` },
+      update: ownerIdentity,
+      create: { email: `${slug}-owner-${tag}@organiser.test`, ...ownerIdentity },
     })
 
     await prisma.membership.create({

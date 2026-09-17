@@ -20,11 +20,62 @@ database will not let anybody rewrite.
 
 A feature-branch push triggers no workflow in this repository — `ci.yml` fires on
 `push` to `main`, on `pull_request` and on `workflow_dispatch` — so CI for this
-phase is obtained by dispatching the workflow against the exact pushed SHA. The
-run id and its job conclusions are recorded in
-`docs/PHASE3_IMPLEMENTATION_REPORT.md` §3 once the run is terminal, which is one
-commit later: a commit cannot carry the id of a run that does not exist until it
-is pushed, and amending a pushed commit to insert one would be a force push.
+phase is obtained by dispatching the workflow against the exact pushed SHA.
+
+### 1.1 The first push failed CI, and why
+
+|                 |                                                                                                       |
+| --------------- | ----------------------------------------------------------------------------------------------------- |
+| Commit          | `aeb65d6133e6c1daf5ddc0e8980544b962756884`                                                            |
+| Run             | `35187664416`, `workflow_dispatch`, attempt 1                                                         |
+| Conclusion      | **failure**                                                                                           |
+| Jobs            | 7 of 8 `success`; `Browser — organiser venue maps` **failure** at step 10, `Run organiser venue maps` |
+| Cancellations   | none                                                                                                  |
+| Within that job | 8 passed, 2 failed, 3 did not run                                                                     |
+
+Two failures, and they are not the same thing.
+
+**The first was not reproducible and no mechanism connects it to this change.**
+Test 9, `publishes a map, which then refuses to change, clones, and keeps
+history`, timed out after 10 seconds waiting for `State: Frozen`. The publish
+call had already returned `200`; what never happened was the page request the
+following `page.reload()` should have made — no `GET /organizer/map-versions/...`
+appears in the log for those ten seconds, so the browser's reload produced no
+server request rather than producing a wrong answer. The runner logged
+`Slow filesystem detected` on the same job. The suite was run four times
+locally against real PostgreSQL 16 and Redis 7 with this change applied and
+passed 13 of 13 every time, and nothing in this phase touches the publish path,
+the map-version page, or any code the reload reaches.
+
+That is **not** a claim that it was a flake. It is the state of the evidence:
+this job had succeeded on six consecutive prior runs, so the coincidence is
+recorded rather than explained away, and the next run is the test.
+
+**The second failure was caused by this change, and is fixed.** Test 10 failed
+at 0 ms with `Unique constraint failed on the constraint: User_email_key`,
+thrown from `seedOrganizer` inside `beforeAll`. The chain is exact: Playwright
+discards a worker after a test fails and starts a fresh one, `afterAll` runs on
+the way out, and `beforeAll` runs again in the new worker with the same run tag.
+`cleanupOrganizer` deletes sessions, factors, memberships and organisations —
+and, until this phase, the user. It no longer can, because
+`desi_audit_log_immutable` refuses the `SET NULL` update that deleting an actor
+makes to their audit rows. So the re-seed's `user.create` collided.
+
+The effect was worse than one extra failure: it turned a single failing test
+into a suite that could not continue, and three tests did not run at all.
+
+The fix is to make seeding idempotent rather than dependent on deletion, which
+is the better contract anyway: the three e2e seeds now `upsert` their users by
+e-mail. Proven by seeding, cleaning up and re-seeding the same tag — exactly
+what a worker restart does — for all three suites, and by running the organiser,
+events and refusals suites in full against a real stack.
+
+### 1.2 The recorded run for this phase
+
+The run id for the fixed commit and its job conclusions are recorded in
+`docs/PHASE3_IMPLEMENTATION_REPORT.md` §3. A commit cannot carry the id of a run
+that does not exist until it is pushed, and amending a pushed commit to insert
+one would be a force push.
 
 Every check below was run locally against real PostgreSQL 16 and Redis 7 before
 the push.
@@ -188,6 +239,12 @@ The seed also had to change: it upserted its sample audit rows by id, and the
 second run's `UPDATE` is now refused. It creates the missing ones and leaves the
 rest. `db:verify:fresh` asserts that seeding twice still leaves exactly the rows
 seeding once did, and it does.
+
+And the three Playwright seeds had to become idempotent, which the first CI run
+is what proved — see §1.1. They `upsert` their users by e-mail rather than
+creating them, so re-seeding a tag whose user survived cleanup works. That is a
+better contract than the one it replaces: a seed that only worked because a
+teardown had deleted its rows was a seed that could not be run twice.
 
 ---
 
