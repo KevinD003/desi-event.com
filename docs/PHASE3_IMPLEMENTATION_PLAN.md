@@ -1,438 +1,777 @@
-# Phase 3 implementation plan
+# Phase 3 Implementation Plan
 
-**Phase 3 implementation has not started.** This document is a plan. No route,
-schema, migration, provider call, UI surface or workflow has been written for
-either workstream, and none will be until this plan is reviewed.
+## 1. Planning Scope and Non-Goals
 
-## 1. Baseline
+This is a **plan-only** Phase 3 deliverable. It is a planning and policy-design
+artifact. It is not an implementation, and it is not legal advice.
 
-Verified against GitHub and the working tree at 2026-09-17T04:45Z, not carried
-from any earlier report.
+No product behaviour, database schema, payment behaviour, user data, Stripe
+integration, authentication, authorization, CI enforcement, branch protection or
+production configuration was changed while producing it. The only file written
+is this one.
 
-| Fact              | Value                                                     |
-| ----------------- | --------------------------------------------------------- |
-| Starting commit   | **`d1e0dd2`** (`origin/main`, `protected: true`)          |
-| Produced by       | merge of pull request #4, approved by `KWinOverAnything`  |
-| Baseline CI run   | **`35178489515`**, workflow `CI`, event `push`, attempt 1 |
-| Conclusion        | **`success`** — 8 of 8 jobs                               |
-| Steps             | 137 `success`, 8 `skipped`, 0 other                       |
-| Skipped steps     | the `if: failure()` artefact uploads, one per job         |
-| Required vs green | identical sets; nothing required missing                  |
-| Legacy statuses   | none (`total_count: 0`)                                   |
-| Working tree      | clean                                                     |
+**Prohibited work that has not begun.** No Prisma model, enum, constraint,
+trigger, table, column or index was created, altered or deleted. No migration
+exists. No API route, frontend route, background job, scheduled task, webhook
+handler, payment call or Stripe call was added or altered. Real Stripe
+processing was not enabled. Payment mode remains `MOCK`. No secret of any kind
+was requested, revealed, logged, printed, saved, committed or inspected. No
+authentication, authorization, step-up, audit, CI, coverage, scan, rate-limit,
+test-assertion or database-integrity control was weakened. No Phase 1 or Phase 2
+historical record was rewritten. No pull request was merged. Phase 4 has not
+started. No destructive operation was performed against any record.
 
-Branch protection at baseline, unchanged by this plan and not to be changed by
-Phase 3: `deletion`, `non_fast_forward`, `pull_request` and
-`required_status_checks` in force; 1 approving review;
-`dismiss_stale_reviews_on_push`; `required_review_thread_resolution`;
-`strict_required_status_checks_policy`; `bypass_actors: []`;
-`current_user_can_bypass: never`.
+## 2. Verified Baseline and Evidence
 
-## 2. Scope and non-goals
+Measured 2026-09-17T05:05Z from the repository and the GitHub API.
 
-**In scope — exactly two workstreams.**
+| Fact               | Value                                                                  |
+| ------------------ | ---------------------------------------------------------------------- |
+| Branch             | `claude/desi-event-js-stack-gb4uqe`                                    |
+| HEAD               | `87ead82dc7e209d496a7fe4b09fdeed2fac1449d`                             |
+| Upstream `@{u}`    | `87ead82` — 0 ahead, 0 behind                                          |
+| `origin/main`      | `d1e0dd2fc88817d7f0ae8a11c48b0c2d3d5e320c` — HEAD is 1 ahead, 0 behind |
+| Working tree       | clean, `git status --porcelain=v1` returns 0 entries                   |
+| Worktrees          | one                                                                    |
+| Open pull requests | 0                                                                      |
 
-1. A Stripe Connect onboarding interface and API boundary, **`MOCK-ONLY`**.
-2. Data erasure implemented as auditable, privacy-preserving redaction.
+### 2.1 CI for the current HEAD
 
-**Explicit non-goals.** None of the following is authorised and none appears in
-any milestone below: real Stripe API calls; Stripe test-mode or live-mode
-credentials; creating, reading, printing or changing any secret; Stripe account
-activation; live onboarding; production payment activation; real payouts,
-transfers or refunds through a real provider; tax configuration; real provider
-callbacks or webhooks; branch-protection, ruleset or required-context changes;
-workflow-permission changes; and any product work outside these two
-workstreams.
+**There is no CI run for `87ead82`.** `GET /actions/runs?head_sha=87ead82`
+returns `total_count: 0`; the commit carries 0 check runs.
 
-## 3. Verified inventory
+This is by design, not a failure. `.github/workflows/ci.yml` declares:
 
-Every line below was read in the repository at `d1e0dd2`. A declared adapter
-method, capability constant or document paragraph is **not** treated as proof a
-feature exists; a feature exists only where a caller path, an authorization
-boundary, persistence and tests all exist.
+```yaml
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+```
 
-### 3.1 Stripe Connect
+A push to a feature branch triggers nothing. Only a `pull_request` event runs CI
+off `main`, and no pull request is open for this commit. **The baseline is
+therefore not green for the current HEAD, and this document does not claim it
+is.**
 
-| Finding                                                                                                 | Evidence                                                              | Status                                                                   |
-| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `CONNECT_MANAGE: 'connect:manage'` — "Start provider onboarding and read the connected account's state" | `packages/permissions/src/capabilities.js:122-123`, granted at `:294` | `NOT IMPLEMENTED` (declared, **zero callers** outside `permissions/src`) |
-| `PAYOUT_MANAGE: 'payout:manage'`                                                                        | `packages/permissions/src/capabilities.js:124-125`                    | `IMPLEMENTED` — used at `apps/api/src/routes/finance.js:300,392`         |
-| Connect onboarding / account-link / account-status adapter method                                       | absent from `packages/providers/src/payments.js`                      | `NOT IMPLEMENTED`                                                        |
-| Transfer to a connected account (`destination`)                                                         | `packages/providers/src/payments.js:704-714`                          | `MOCK-ONLY`                                                              |
-| Connect webhook secret handling and same-secret guard                                                   | `packages/providers/src/payment-mode.js:299-321,444-473,518`          | `IMPLEMENTED`                                                            |
-| Any Connect API route                                                                                   | none among the 22 files in `apps/api/src/routes/`                     | `NOT IMPLEMENTED`                                                        |
-| Any Connect UI surface                                                                                  | none                                                                  | `NOT IMPLEMENTED`                                                        |
-| Organization-to-provider-account persistence                                                            | no model, column or migration                                         | `NOT IMPLEMENTED`                                                        |
-| Real Stripe network access from current code paths                                                      | no Stripe SDK import on any live path; mode guard refuses boot        | `DISABLED`                                                               |
-| Real Stripe verification                                                                                | no credentials have ever been supplied                                | `EXTERNAL VERIFICATION PENDING`                                          |
+### 2.2 Last verified green CI
 
-**There is no adapter-defined Connect state vocabulary.** It does not exist yet
-and will be defined by the mock seam in Milestone 2 — not copied from Stripe's
-real vocabulary, and not documented before it is implemented.
+Run **`35178489515`**, tested SHA `d1e0dd2` (`origin/main`), event `push`,
+attempt 1, conclusion `success`. Eight of eight jobs succeeded:
+`Policy, lint, contract, tests, build`, `Browser — public catalogue`,
+`Browser — production build`, `Browser — organiser venue maps`,
+`Browser — event lifecycle`, `Browser — refusals`,
+`Browser — accessibility sweep`, `Browser — commerce and operations detail`.
+137 steps `success`, 8 `skipped` — the per-job `if: failure()` artefact uploads
+— and 0 other. No required job was skipped, cancelled or failed. Required
+context set equals successful check-run set. No legacy commit statuses exist.
 
-### 3.2 Authorization
+### 2.3 Branch protection, readable and unchanged
 
-Twenty-three capabilities exist in `packages/permissions/src/capabilities.js`:
-`attendee:export`, `connect:manage`, `event:cancel`, `event:create`,
-`event:delete`, `event:publish`, `event:update`, `finance:view`,
-`inventory:manage`, `ledger:manage`, `moderation:review`, `order:refund`,
-`order:view`, `organization:manage`, `payout:manage`, `platform:admin`,
-`promo:manage`, `reconciliation:manage`, `report:view`, `team:invite`,
-`team:remove`, `ticket:revoke`, `venue:manage`.
+`GET /rules/branches/main`: `deletion`, `non_fast_forward`, `pull_request`,
+`required_status_checks` in force. `required_approving_review_count: 1`;
+`dismiss_stale_reviews_on_push: true`; `required_review_thread_resolution: true`;
+`strict_required_status_checks_policy: true`; 8 required contexts. Ruleset
+`23572317`, `enforcement: active`, `bypass_actors: []`,
+`current_user_can_bypass: never`. Legacy branch protection is off.
 
-**No privacy, redaction or erasure capability exists.** `attendee:export` is the
-only privacy-adjacent one and is a bulk _read_, not a destructive action.
+### 2.4 Phase 2 status as documented
 
-### 3.3 Step-up
+`PHASE2_STATUS.md` records `COMPLETE`, all twenty gates `MET`, and states that
+completion by the gates is not a claim of production readiness.
 
-Nine policies, `packages/auth/src/sessions.js:80-123`:
+### 2.5 Sources used for this inventory
 
-| Policy           | Window | Defined purpose                                                         |
-| ---------------- | ------ | ----------------------------------------------------------------------- |
-| `FINANCE_VIEW`   | 15 min | reading gross, fees, refunds, net                                       |
-| `FINANCE_ACTION` | 5 min  | a refund, or resolving a reconciliation task                            |
-| `PAYOUT`         | 5 min  | "A payout, **or a change to a connected account's payout destination**" |
-| `CREDENTIAL`     | 2 min  | removing a factor, regenerating recovery codes                          |
-| `SECURITY_ROLE`  | 2 min  | granting or removing a privileged role                                  |
-| `EVENT_PUBLISH`  | 10 min | making an event public or open for sale                                 |
-| `EVENT_CANCEL`   | 5 min  | cancelling or postponing a live event                                   |
-| `MODERATION`     | 10 min | acting on somebody else's event                                         |
-| `OPERATIONS`     | 5 min  | acting on an operational work item                                      |
+Read directly: `packages/db/prisma/schema.prisma` (2166 lines, 49 models);
+every `packages/db/prisma/migrations/*/migration.sql`;
+`packages/permissions/src/capabilities.js` (566 lines);
+`packages/auth/src/sessions.js` (334 lines);
+`packages/providers/src/stripe.js`, `payments.js`, `payment-mode.js`,
+`interfaces.js`; `apps/api/src/lib/audit.js`, `webhook-handlers.js`,
+`payouts.js`, `presenters.js`; `apps/api/src/routes/` (22 files);
+`packages/api-contract/src/route-manifest.js`; `.github/workflows/ci.yml`;
+`turbo.json`; `apps/web/e2e/accessibility-sweep.spec.js`;
+`scripts/scan-browser-bundle.mjs`; `packages/config/src/vitest-node.js`;
+`docs/DATA_MODEL.md`, `docs/PAYMENTS.md`, `docs/BRANCH_PROTECTION.md`,
+`docs/SECURITY.md`, `docs/STRIPE_CONNECT.md`, `docs/PROVIDERS.md`.
 
-`stepUpWindowFor` throws on an unknown name rather than defaulting
-(`sessions.js:133-145`), so a typo cannot silently become a fifteen-minute
-window. Each route declares its policy in the contract, so **a browser can
-neither send a window nor widen one**. Status: `IMPLEMENTED`.
+Line numbers appear below only where verified by opening the file.
 
-**No policy governs irreversible personal-data destruction.** `CREDENTIAL` and
-`SECURITY_ROLE` concern authentication authority, not personal data.
+### 2.6 Corrections to the previous revision of this document
 
-### 3.4 Audit
+Three claims were wrong. They were stated in conversation **and committed in the
+previous revision of this file** (commit `87ead82`, section 3.1). Recording the
+correction rather than quietly replacing it is the repository's established
+convention, so they are named here rather than simply overwritten.
 
-`model AuditLog` — `packages/db/prisma/schema.prisma`: `id`, `actorId`,
-`action`, `entityType`, `entityId`, `metadata Json?`, `createdAt`;
-`actor User? @relation(onDelete: SetNull)`; indexed on
-`[entityType, entityId]` and `[createdAt]`. Fifty action constants in
-`apps/api/src/lib/audit.js`.
+1. "Organization-to-provider-account persistence — no model, column or
+   migration — `NOT IMPLEMENTED`" was wrong. `model ConnectedAccount` is in the
+   schema, has a migration, and is read and written by application code.
+2. "Connect onboarding / account-link / account-status adapter method —
+   `NOT IMPLEMENTED`" was true only of the mock adapter
+   (`packages/providers/src/payments.js`) and misleading as written. Three such
+   methods exist on the real Stripe adapter: `createConnectedAccount`,
+   `createOnboardingLink`, `getConnectedAccount`.
+3. "There is no adapter-defined Connect state vocabulary" was wrong in effect. A
+   state vocabulary is already fixed by `enum ConnectOnboardingStatus` in the
+   schema, and a mock seam must match it rather than invent one.
 
-Two findings that shape Milestone 1:
+The corrected position is in §4.8 and §9.
 
-1. **`AuditLog` has no organization column.** Organization scope is carried by
-   `entityType`/`entityId` or by `metadata`. A redaction audit event must
-   therefore record organization explicitly in `metadata`.
-2. **`AuditLog` immutability is convention, not `DB-ENFORCED`.** The migrations
-   define `desi_ledger_entry_immutable` and `desi_ledger_batch_immutable` but
-   no equivalent for audit rows. The approved decision requires "a new
-   immutable audit event", so Milestone 1 proposes
-   `desi_audit_log_immutable` following the existing ledger trigger pattern.
-   Until that ships, any claim of audit immutability must read `IMPLEMENTED`,
-   not `DB-ENFORCED`.
+### 2.7 What this revision replaces
 
-### 3.5 Retention and data model
+The previous revision of this file organised future work as seven milestones.
+This revision replaces that structure with the four direct phases in §15, at the
+repository owner's explicit direction, and adopts the section structure required
+by that same direction. No Phase 1 or Phase 2 historical report was altered; the
+change is confined to this forward-looking planning document, and §2.6 above
+records what the superseded revision got wrong instead of erasing it.
 
-`docs/DATA_MODEL.md:188-219` carries a **table-level** retention table and the
-heading **"Erasure is NOT IMPLEMENTED"**, stating there is no erasure or
-redaction route, no redaction command and no scheduled retention job, and that
-the redaction shape described there "is the shape of the work, not a
-description of code that exists".
+## 3. Approved Product and Privacy Decisions
 
-No redaction model, column, enum or migration exists. The only `redact` symbol
-in the codebase is `apps/api/src/lib/webhook-intake.js:53-83`, which strips keys
-from inbound webhook payloads and is unrelated to personal-data erasure.
+Recorded from the authorization of 2026-09-17. **Approved implementation
+direction** is policy. **Proposed technical design** is this document's
+suggestion and is not yet approved. **Requires human approval** is outstanding.
 
-Personal-data fields confirmed in `packages/db/prisma/schema.prisma`:
-`email` (`:61`, `@unique`), `displayName` (`:63`), `phone` (`:64`),
-`contactEmail` (`:108`, `:299`), `buyerEmail`/`buyerName` (`:456-457`),
-`userAgent` (`:837`), further `email` columns at `:783` and `:1053`, and
-`name` columns at `:105`, `:217`, `:344`, `:1087`, `:1141`, `:1173`, `:1771`.
+### 3.1 Approved implementation direction
 
-`NotificationOutbox.recipient` is documented in-schema as "Recipient address.
-Present because it must be sent to; never logged."
+Personal-data treatment, as approved:
 
-### 3.6 API contract
+Redact/anonymize — user email, user display name, user phone number, buyer
+email, buyer name, organization contact email, event contact email, ticket
+holder details, ticket recipient details, `NotificationOutbox` recipient address
+after send, `NotificationOutbox` personal-data payload after send.
 
-Routes are declared in the contract and the browser-facing manifest is
-**generated**: `packages/api-contract/src/route-manifest.js` carries only
-`id`, `method`, `path`, `auth`, `body`, `query`, deliberately excluding request
-and response schemas because those "describe every column of every entity —
-including an organiser's contact address". `manifest.test.js` fails on drift;
-regenerate with
-`pnpm --filter @desi-event/api-contract run manifest:emit`. OpenAPI drift is
-checked by `pnpm openapi:check`. Status: `AUTOMATICALLY TESTED`.
+Retain the financial and operational fact, redact the personal data inside it —
+orders, payments, refunds, payouts.
 
-### 3.7 Web UI, accessibility, CI
+Retain unchanged — tax totals, financial ledger entries, existing `AuditLog`
+rows, ticket inventory, ticket state, admission/check-in state unless directly
+identifying, active legal-hold data until the hold resolves, active
+fraud-investigation data until the investigation resolves.
 
-Seven Playwright configs exist: `playwright.config.js`, `.detail`, `.events`,
-`.organizer`, `.production`, `.refusals`, `.sweep`. The accessibility sweep runs
-three viewports — phone 320×720, tablet 768×1024, desktop 1280×900
-(`apps/web/e2e/accessibility-sweep.spec.js:59-61`) — with
-`withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa'])` and **no rule disabled**
-(`:212`). `scripts/scan-browser-bundle.mjs` enforces a `FORBIDDEN` list and a
-`REQUIRED` list over the browser-deliverable roots. Coverage floor:
-`branches: 75` in `packages/config/src/vitest-node.js:19`.
+Retain temporarily then delete on a retention policy — login attempts, session
+metadata, browser user-agent and IP/security metadata where stored.
 
-**Reliability observation, not a change.** `turbo.json` gives `test` and
-`test:coverage` `dependsOn: ["^build", "build"]`, but `test:e2e` still declares
-`["^build"]` only, so the class of race fixed in `79ff795` remains structurally
-possible there. No failure has been traced to it. **Phase 3 does not change
-this**; it is recorded so a future decision can be made deliberately.
+Exports — delete stored exports containing a redacted person's personal data
+where technically possible; future exports must not include redacted personal
+data.
 
-## 4. Approved decisions
+New audit evidence of redaction is created during future implementation.
 
-Recorded verbatim from the authorisation of 2026-09-17. These are policy, not
-proposals.
+**Retain does not mean retaining personal information forever.** It means
+preserving financial and operational integrity while removing direct
+identifiers wherever the approved treatment says redact.
 
-### 4.1 Personal-data treatment
-
-**Redact / anonymize:** user email; user display name; user phone; buyer email;
-buyer name; organization contact email; event contact email; ticket holder and
-ticket recipient personal details; `NotificationOutbox` recipient address and
-personal-data payload after sending.
-
-**Retain the financial and operational fact, redact the personal data within
-it:** orders, order items, payments, refunds, payouts, tax data, ledger
-entries, ticket inventory and ticket status. Amounts, dates, transaction
-states, tax and ticket status and non-personal references are kept unchanged;
-names, email addresses, phone numbers and other direct identifiers are removed
-or replaced.
-
-**Retain unchanged:** existing `AuditLog` rows; financial ledger records; active
-legal-hold and fraud-investigation data until the hold or investigation is
-resolved. Old audit rows are never edited or deleted; redaction **adds** a new
-audit event recording that redaction was performed.
-
-**Retain temporarily, then delete on a documented schedule:** login attempts;
-session metadata; user-agent data; IP or security metadata where stored.
-
-**Exports:** stored exports containing a redacted user's personal data are
-deleted where technically possible; future exports must not include redacted
-personal data.
-
-### 4.2 Irreversibility (approved wording)
+Irreversibility, approved verbatim:
 
 > Redaction replaces personal fields with deterministic, non-identifying
 > placeholders derived from the relevant row ID. Redaction is irreversible. No
-> reversal path, original value, backup field, or recoverable mapping may be
-> stored. Repeating the same redaction is idempotent and produces the same safe
-> result.
+> reversal path, original value, backup field, encrypted copy, recoverable
+> mapping, or hidden lookup may be stored. Repeating the same redaction is
+> idempotent and produces the same safe result.
 
-### 4.3 Authorization
+Audit records, approved: existing rows are never silently edited or deleted; a
+new immutable audit event is added for the redaction action; new audit metadata
+contains no redactable personal data; only safe identifiers, action type, scope,
+actor reference, result, timestamp, policy version and a non-sensitive reason
+code are stored; never an old value, new value, raw email, phone number,
+address, token, secret, card reference or personal message body.
 
-- New capability **`privacy:redact`**, granted only to the minimum
-  organization-management role necessary.
-- New step-up policy **`PRIVACY_ERASURE`**, window **2 minutes**.
-- Every redaction action writes a new immutable audit event.
-- Broad administrator, organization-management, credential or security-role
-  privileges must **not** be reused as a substitute for `privacy:redact`.
+Authorization, approved: a new narrow capability `privacy:redact`, granted only
+to the minimum organization-management role necessary; `platform:admin`,
+`organization:manage`, credential and security-role privileges must not be
+substituted; a new step-up policy `PRIVACY_ERASURE = 2 * 60 * 1000`; explicit
+confirmation; a server-side idempotency key; immutable audit evidence for every
+attempt and completion; cross-organization redaction denied; organization scope
+enforced at API, service, query and database layers; the browser never decides
+eligibility, authorization, retention, legal-hold status or outcome.
 
-### 4.4 Stripe Connect
+Stripe Connect, approved: existing capability `connect:manage` and existing
+step-up policy `PAYOUT`, for starting onboarding, reading connected-account
+status, and managing payout-destination workflows subject to `PAYOUT`. Payment
+mode stays `MOCK`; the production kill switch stays intact; real Stripe
+execution stays `EXTERNAL VERIFICATION PENDING`.
 
-`connect:manage` + `PAYOUT` step-up, for starting onboarding and reading
-connected-account status. Payment mode stays `MOCK`. All real Stripe
-verification stays `EXTERNAL VERIFICATION PENDING`.
+### 3.2 Proposed technical design, not yet approved
 
-## 5. Per-category treatment table
+Placeholder format; transaction boundaries; the legal-hold model shape; the
+retention sweeper design; the specific route paths and payload shapes in §10;
+the four-phase order in §15.
 
-| Data category                                  | Storage locations                                  | Existing retention policy                      | Existing enforcement                                                                                      | Phase 3 treatment                                                         | Decision status                              |
-| ---------------------------------------------- | -------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
-| User email                                     | `User.email` (`schema.prisma:61`, `@unique`)       | silent                                         | none                                                                                                      | Redact/anonymize                                                          | Approved                                     |
-| User display name                              | `User.displayName` (`:63`)                         | silent                                         | none                                                                                                      | Redact/anonymize                                                          | Approved                                     |
-| User phone                                     | `User.phone` (`:64`)                               | silent                                         | none                                                                                                      | Redact/anonymize                                                          | Approved                                     |
-| Buyer identity                                 | `Order.buyerEmail`, `Order.buyerName` (`:456-457`) | "Order… indefinite; counterpart to the ledger" | none                                                                                                      | Retain row, redact identity fields                                        | Approved                                     |
-| Organization contact                           | `contactEmail` (`:108`)                            | silent                                         | none                                                                                                      | Redact/anonymize                                                          | Approved                                     |
-| Event contact                                  | `contactEmail` (`:299`)                            | silent                                         | none                                                                                                      | Redact/anonymize                                                          | Approved                                     |
-| Ticket holder / recipient                      | ticket holder and recipient fields                 | silent                                         | none                                                                                                      | Retain ticket + status, redact identity                                   | Approved                                     |
-| Notification recipient and payload             | `NotificationOutbox.recipient`, `.payload`         | "Retained after send as delivery evidence"     | none                                                                                                      | Redact after send; the send record is the evidence, not the address       | Approved (resolves the conflict)             |
-| Order / item / payment / refund / payout / tax | order, payment, refund, payout, tax models         | indefinite                                     | `DB-ENFORCED` constraints                                                                                 | Retain amounts, dates, states, tax, non-personal refs; redact identifiers | Approved                                     |
-| Ledger entries and batches                     | `LedgerEntry`, `LedgerBatch`                       | "Indefinite. Not deletable by design"          | `DB-ENFORCED` — `desi_ledger_entry_immutable`, `desi_ledger_batch_immutable`, `desi_ledger_batch_balance` | Retain unchanged                                                          | Approved                                     |
-| Audit rows                                     | `AuditLog`                                         | "Indefinite… cannot be pruned selectively"     | convention only — **no trigger**                                                                          | Retain unchanged; add a new event                                         | Approved                                     |
-| Legal hold / fraud investigation               | no model exists yet                                | silent                                         | none                                                                                                      | Retain unchanged until resolved                                           | Approved — **model does not exist**, see §11 |
-| Login attempts                                 | `LoginAttempt`                                     | "Short-lived; for rate limiting, not history"  | none (no sweeper)                                                                                         | Retain temporarily, then delete on schedule                               | Approved                                     |
-| Session metadata                               | `Session`, `AuthToken`                             | "Expire and are deleted"                       | expired on read, not swept                                                                                | Retain temporarily, then delete on schedule                               | Approved                                     |
-| User-agent data                                | `userAgent` (`:837`)                               | silent                                         | none                                                                                                      | Retain temporarily, then delete on schedule                               | Approved                                     |
-| IP / security metadata                         | not confirmed stored                               | silent                                         | n/a                                                                                                       | Retain temporarily, then delete if stored                                 | Approved, conditional on existence           |
-| Exports                                        | export surfaces                                    | silent                                         | none                                                                                                      | Delete stored exports where possible; exclude from future exports         | Approved                                     |
-| Provider / account identifiers                 | none exist yet                                     | n/a                                            | n/a                                                                                                       | Not applicable — no Connect account persistence exists                    | Approved                                     |
-| Logs, fixtures, snapshots, browser bundle      | repository artefacts                               | n/a                                            | `scripts/scan-browser-bundle.mjs`                                                                         | Must never contain redactable personal fields; scan extended              | Approved                                     |
+### 3.3 Requires human approval
 
-## 6. Retention schedule and legal hold
+Retention durations (§5, §14). Jurisdiction-specific legal review. The
+legal-hold and fraud-hold record design, since no such model exists today. Any
+decision to seek Stripe sandbox credentials.
 
-**Recommended schedule**, to be implemented as an explicitly scheduled job with
-durable state, not as an implicit side effect:
+## 4. Current-State Architecture Inventory
 
-| Data                            | Proposed retention          | Rationale                                        |
-| ------------------------------- | --------------------------- | ------------------------------------------------ |
-| `LoginAttempt`                  | 30 days                     | its stated purpose is rate limiting, not history |
-| `Session`, `AuthToken`          | delete 30 days after expiry | a spent token has no further use                 |
-| `userAgent` / security metadata | 90 days                     | long enough for incident review                  |
+Status labels are used strictly. A declared constant, adapter method, enum,
+schema field or document paragraph is not evidence that a feature works.
 
-**Legal hold.** No legal-hold or fraud-investigation model exists in the schema.
-The approved policy requires that such data be retained until the hold is
-resolved, which cannot be honoured without a hold record to consult. Phase 3
-therefore introduces a minimal hold marker in Milestone 4 and **redaction
-refuses, with an explicit refusal audit event, while a hold is active**. A
-refusal is a safe outcome; a silent redaction through a hold is not.
+### 4.1 Monorepo
 
-## 7. Milestones
+`apps/`: `api` (Fastify), `web` (Next.js App Router), `worker` (BullMQ).
+`packages/`: `api-contract`, `auth`, `config`, `db`, `inventory`, `ledger`,
+`logger`, `notifications`, `permissions`, `pricing`, `providers`, `schemas`,
+`ui`. Status: `IMPLEMENTED`.
 
-Each milestone is one reviewable pull request against `main`, opened only after
-its own tests pass locally, and merged only through the existing protected
-review process. No milestone begins until this plan is approved.
+### 4.2 Database
 
-### Milestone 1 — foundation
+49 Prisma models in `packages/db/prisma/schema.prisma`: `User`, `Organization`,
+`Membership`, `Venue`, `Event`, `TicketType`, `TicketHold`, `Order`,
+`OrderItem`, `Ticket`, `Payment`, `WebhookEvent`, `PromoCode`, `WaitlistEntry`,
+`AuditLog`, `Session`, `Device`, `MfaFactor`, `AuthToken`, `LoginAttempt`,
+`ScannerScope`, `OrganizationVerificationEvent`, `Invitation`, `VenueMap`,
+`VenueMapVersion`, `Section`, `SeatRow`, `PriceZone`, `Seat`, `EventSession`,
+`EventSeat`, `HoldItem`, `EventModerationAction`, `MediaAsset`,
+`ConnectedAccount`, `Refund`, `RefundItem`, `Dispute`, `Transfer`, `Payout`,
+`LedgerAccount`, `LedgerBatch`, `LedgerEntry`, `TicketTransfer`, `CheckIn`,
+`NotificationOutbox`, `NotificationPreference`, `IdempotencyRecord`,
+`ReconciliationTask`. Status: `IMPLEMENTED`.
 
-**Goal.** Shared vocabulary and audit integrity only.
-**Non-goals.** No route, no UI, no provider action, no destructive operation.
+Eighteen database functions/triggers exist in the migrations and are
+`DB-ENFORCED`: `desi_check_in_ticket_admissible`, `desi_event_revision_forward`,
+`desi_event_seat_map_matches`, `desi_event_session_map_frozen`,
+`desi_hold_item_line_matches`, `desi_hold_item_session_matches`,
+`desi_ledger_batch_balance`, `desi_ledger_batch_immutable`,
+`desi_ledger_entry_immutable`, `desi_map_version_frozen`,
+`desi_map_version_publish_once`, `desi_map_version_revision_forward`,
+`desi_order_item_event_matches`, `desi_payout_currency_matches`,
+`desi_refund_within_order_total`, `desi_seat_frozen_and_coherent`,
+`desi_ticket_status_transition`, `desi_ticket_type_session_matches`.
 
-- Add `privacy:redact` to `packages/permissions/src/capabilities.js`, granted to
-  the minimum organization-management role.
-- Add `PRIVACY_ERASURE: 2 * 60 * 1000` to `STEP_UP_POLICIES`.
-- Add redaction and Connect audit action constants to `apps/api/src/lib/audit.js`.
-- Add migration `desi_audit_log_immutable`, matching the existing ledger trigger
-  pattern, so audit immutability becomes `DB-ENFORCED` rather than convention.
+**There is no audit-immutability trigger.** Ledger rows are `DB-ENFORCED`
+immutable; audit rows are not. Audit immutability today is `IMPLEMENTED` by
+convention only.
 
-**Tests.** Capability and role-graph unit tests; `stepUpWindowFor('PRIVACY_ERASURE')`
-returns 120000 and an unknown name still throws; a database test proving an
-`UPDATE` and a `DELETE` against `AuditLog` are both refused.
-**Acceptance.** No behaviour change to any existing route; full suite green;
-no document claims either feature exists.
+### 4.3 API
 
-### Milestone 2 — Connect API boundary (`MOCK-ONLY`)
+Fastify, 22 route files under `apps/api/src/routes/`. Routes are declared in the
+contract; the browser-facing manifest in
+`packages/api-contract/src/route-manifest.js` is generated and deliberately
+carries only `id`, `method`, `path`, `auth`, `body`, `query` — never request or
+response schemas, because those describe every column of every entity. Drift is
+caught by `manifest.test.js` and `pnpm openapi:check`. Status:
+`AUTOMATICALLY TESTED`.
 
-**Goal.** Authenticated, organization-scoped start/status boundary over the
-existing mock seam.
-**Non-goals.** No real SDK, no network, no webhook handling, no UI.
+### 4.4 Web and worker
 
-- Define the Connect adapter methods and their mock implementation; the state
-  vocabulary is whatever the mock can actually produce and no more.
-- Persist the minimum organization-scoped account state; the association is
-  unique per organization.
-- Routes require a session, `connect:manage`, `PAYOUT` step-up, and server-side
-  organization resolution. A client-supplied organization id, account id,
-  status or return target never grants authority.
-- Status reads do not mutate. A repeated start is idempotent.
-- Return/refresh URLs, if any, are internal routes only, validated server-side.
-- Responses expose no secret, token, credential or unnecessary provider
-  metadata; raw provider errors are never serialised to clients.
+Next.js App Router with server/client boundaries; BullMQ worker with a
+notification outbox dispatcher. Status: `IMPLEMENTED`.
 
-**Tests.** Route tests for happy path, missing session, missing capability,
-missing and stale step-up, invalid input, cross-organization target, unknown
-target with a non-enumerating response, duplicate request, mock failure, and
-the audit event in each case.
-**Acceptance.** `pnpm openapi:check` and the manifest test pass; no Connect
-schema field reaches the browser manifest; documentation says `MOCK-ONLY`.
+### 4.5 Permissions
 
-### Milestone 3 — Connect organizer UI
+23 capabilities in `packages/permissions/src/capabilities.js`: `attendee:export`,
+`connect:manage`, `event:cancel`, `event:create`, `event:delete`,
+`event:publish`, `event:update`, `finance:view`, `inventory:manage`,
+`ledger:manage`, `moderation:review`, `order:refund`, `order:view`,
+`organization:manage`, `payout:manage`, `platform:admin`, `promo:manage`,
+`reconciliation:manage`, `report:view`, `team:invite`, `team:remove`,
+`ticket:revoke`, `venue:manage`. Status: `IMPLEMENTED`.
 
-**Goal.** An organizer settings surface over the Milestone 2 boundary.
+`connect:manage` is declared at lines 122–123 — "Start provider onboarding and
+read the connected account's state" — and granted at line 294, but **no route,
+service or UI references it**. Status: `SEAM ONLY`.
 
-States rendered: not authorized; step-up required; not started; start available;
-pending / action needed; mock-only status; provider unavailable; failure. Any
-dashboard link is generated by the mock boundary and labelled mock/test-only.
-No surface suggests production payouts can be enabled.
+No privacy, redaction or erasure capability exists. Status: `NOT IMPLEMENTED`.
 
-**Tests.** A new browser suite at 320/768/1280 with
-`wcag2a, wcag2aa, wcag21a, wcag21aa` and no rule disabled; keyboard-only;
-200% zoom; reduced motion; real authenticated session and real seeded rows;
-a direct route call without step-up is refused.
+### 4.6 Authentication and step-up
 
-### Milestone 4 — redaction model and migration
+Nine step-up policies in `packages/auth/src/sessions.js` lines 80–123:
+`FINANCE_VIEW` 15 min, `FINANCE_ACTION` 5 min, `PAYOUT` 5 min, `CREDENTIAL`
+2 min, `SECURITY_ROLE` 2 min, `EVENT_PUBLISH` 10 min, `EVENT_CANCEL` 5 min,
+`MODERATION` 10 min, `OPERATIONS` 5 min. `PAYOUT` is documented as "A payout, or
+a change to a connected account's payout destination." `stepUpWindowFor` throws
+on an unknown policy name rather than defaulting. Each route declares its policy
+in the contract, so a browser can neither send a window nor widen one. Status:
+`AUTOMATICALLY TESTED`.
 
-**Goal.** A durable, auditable redaction request/action model, plus the legal-hold
-marker §6 requires.
+No policy governs irreversible personal-data destruction. Status:
+`NOT IMPLEMENTED`.
 
-- Deterministic placeholders derived from the row id; irreversible; no original
-  value, backup column or mapping stored anywhere.
-- Unique constraints, including `User.email @unique`, satisfied by construction
-  since placeholders are row-id-derived and therefore distinct.
-- Foreign keys and ledger references survive untouched.
-- Concurrency handled by transaction boundaries and an idempotency record, so a
-  repeated or concurrent request cannot produce inconsistent state.
+### 4.7 Provider adapters
 
-**Tests.** Database tests against real disposable PostgreSQL: transactional
-integrity, concurrent requests against one subject, no broken references,
-ledger and audit invariants intact, retained accounting records still
-internally consistent, redacted values unrecoverable through joins.
+`packages/providers/src/`: `email.js`, `errors.js`, `index.js`, `interfaces.js`,
+`internal.js`, `payment-mode.js`, `payments.js`, `registry.js`, `sms.js`,
+`storage.js`, `stripe.js`, `webhooks.js`.
 
-### Milestone 5 — redaction API, authorization, audit
+`payment-mode.js` resolves the credential mode and gates boot. Status:
+`IMPLEMENTED`. Production payments: `DISABLED`, with executable proof in
+`apps/api/tests/payment-kill-switch.test.js`.
 
-**Goal.** The route, with authority and an audit trail.
+`stripe.js` is the real adapter, test-mode only. It imports the Stripe SDK
+lazily inside a closure — `const { default: Stripe } = await import('stripe')`
+around line 231 — reachable only if `resolvePaymentMode` returns `STRIPE_TEST`,
+which requires a coherent set of test credentials supplied on purpose. Its own
+header states that nothing in the module has been run against Stripe. Status:
+`EXTERNAL VERIFICATION PENDING`. The only other repository reference to the
+`stripe` package is in the kill-switch test, which asserts its absence from
+browser-deliverable code.
 
-Requires session, `privacy:redact`, `PRIVACY_ERASURE` step-up, server-side
-organization ownership, and explicit human confirmation. Non-enumerating:
-unauthorized and cross-organization requests are indistinguishable from
-not-found. Malformed, stale, duplicate and unauthorized requests are refused
-with no partial mutation. Audit records actor, organization, a privacy-safe
-target reference, action, outcome, correlation id and timestamps — and never
-the personal data just removed. Refusal under legal hold is itself audited.
+### 4.8 Connect — corrected inventory
 
-### Milestone 6 — redaction UI
+| Item                                                                                                                                                                                                                                                                                                                                    | Evidence                                                                                    | Status                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------ |
+| `model ConnectedAccount` — `organizationId @unique`, `provider`, `providerAccountId`, `providerMode`, `country`, `defaultCurrency`, `onboardingStatus`, `chargesEnabled`, `payoutsEnabled`, `detailsSubmitted`, `disabledReason`, `requirementsDue`, `syncedAt`; `@@unique([provider, providerAccountId])`; cascade from `Organization` | `schema.prisma`                                                                             | `IMPLEMENTED`            |
+| `enum ConnectOnboardingStatus` — `NOT_STARTED`, `IN_PROGRESS`, `REQUIREMENTS_DUE`, `COMPLETE`, `DISABLED`                                                                                                                                                                                                                               | `schema.prisma`                                                                             | `SCHEMA ONLY`            |
+| `createConnectedAccount({ organizationId, email, country })`                                                                                                                                                                                                                                                                            | `providers/src/stripe.js:455`                                                               | `SEAM ONLY` — no callers |
+| `createOnboardingLink({ accountId, refreshUrl, returnUrl })`                                                                                                                                                                                                                                                                            | `providers/src/stripe.js:488`                                                               | `SEAM ONLY` — no callers |
+| `getConnectedAccount(accountId)`                                                                                                                                                                                                                                                                                                        | `providers/src/stripe.js:512`                                                               | `SEAM ONLY` — no callers |
+| Connect methods on the **mock** adapter                                                                                                                                                                                                                                                                                                 | absent from `providers/src/payments.js`                                                     | `NOT IMPLEMENTED`        |
+| Connect in the declared provider interface                                                                                                                                                                                                                                                                                              | absent from `providers/src/interfaces.js`                                                   | `NOT IMPLEMENTED`        |
+| `account.updated` webhook updates `ConnectedAccount`                                                                                                                                                                                                                                                                                    | `apps/api/src/lib/webhook-handlers.js` around lines 316–383                                 | `IMPLEMENTED`            |
+| `ConnectedAccount` read by payouts and finance                                                                                                                                                                                                                                                                                          | `apps/api/src/lib/payouts.js` ~1006, `routes/finance.js` ~256, `lib/presenters.js` ~443/468 | `IMPLEMENTED`            |
+| Separate Connect webhook secret and same-secret guard                                                                                                                                                                                                                                                                                   | `providers/src/payment-mode.js`                                                             | `IMPLEMENTED`            |
+| Any Connect onboarding API route                                                                                                                                                                                                                                                                                                        | none among 22 route files                                                                   | `NOT IMPLEMENTED`        |
+| Any Connect onboarding UI                                                                                                                                                                                                                                                                                                               | none                                                                                        | `NOT IMPLEMENTED`        |
 
-**Goal.** A constrained administrative surface with confirmation and honest
-messaging: redaction removes personal data and does **not** rewrite financial
-or audit history. Server-side authorization and step-up regardless of UI
-gating. States: confirmation, success, already-redacted, retryable failure,
-denied. No personal data in URLs, query strings, logs, error boundaries, aria
-labels or audit views.
+**The consequence that shapes §9 and §15.** Connect onboarding methods exist
+only on the _real_ adapter, which has never run. The mock has none. There is
+therefore **no mock seam for onboarding today**, and the first Connect work is
+to create one — not to wire up an existing one.
 
-### Milestone 7 — verification and documentation
+### 4.9 Payments, exports, notifications, audit
 
-Update only what has become factually stale: `docs/STRIPE_CONNECT.md`,
-`docs/DATA_MODEL.md`, `docs/SECURITY.md`, `docs/api.md`, `docs/DECISIONS.md`,
-and applicable provider, UX, retention and threat-model documents. Connect
-stays `MOCK-ONLY`; real Stripe stays `EXTERNAL VERIFICATION PENDING`;
-production payments stay `DISABLED` with executable kill-switch proof.
-`PHASE3_COMPLETION_REPORT.md` is written only after every gate has passed, and
-never claims a result on the commit that introduces it.
+Payments: two-phase boundary, provider calls outside database transactions,
+`MOCK-ONLY`. Exports: `attendee:export` capability exists; export surfaces
+require audit in Phase 3 (§5). Notifications: `NotificationOutbox` with
+`recipient`, `payload`, `dedupeKey @unique`, retry counters; documented as
+"Retained after send as delivery evidence"; `IMPLEMENTED`.
 
-## 8. Risk register
+Audit: `model AuditLog` with `id`, `actorId`, `action`, `entityType`,
+`entityId`, `metadata Json?`, `createdAt`; `actor User? @relation(onDelete:
+SetNull)`; indexed on `[entityType, entityId]` and `[createdAt]`. Fifty action
+constants in `apps/api/src/lib/audit.js`. **No organization column**, so
+organization scope must be carried in `metadata` or derived from the entity.
+Status: `IMPLEMENTED`; immutability is convention, not `DB-ENFORCED`.
 
-| Risk                                         | Consequence                                        | Mitigation                                                                                                            |
-| -------------------------------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Redaction breaks ledger balance              | financial records stop balancing                   | never touch `LedgerEntry`/`LedgerBatch`; `desi_ledger_batch_balance` proves it                                        |
-| Placeholder collides on `User.email @unique` | migration fails or wrong row updated               | placeholders derived from row id, therefore unique by construction                                                    |
-| Partial redaction                            | subject believes data is gone when it is not       | single transaction; durable state machine with an explicit incomplete state if boundaries force it; no silent partial |
-| Redacted data resurfaces                     | privacy failure after the fact                     | presenter tests, export tests, audit-metadata tests, extended bundle scan                                             |
-| Audit rows mutated by redaction              | destroys the evidence trail                        | `desi_audit_log_immutable` trigger in Milestone 1                                                                     |
-| Coverage floor breached                      | CI red, `apps/api` margin is thin                  | every new branch gets a test in its own milestone; no threshold is lowered                                            |
-| Connect state vocabulary invented            | documentation claims behaviour that does not exist | vocabulary defined by the mock seam only                                                                              |
-| New browser suite escapes CI                 | untested surface ships                             | suite added to the `ci.yml` matrix deliberately; required context names unchanged                                     |
+### 4.10 CI and branch protection
 
-## 9. External verification
+`.github/workflows/ci.yml`: `push` on `main` only, plus `pull_request` and
+`workflow_dispatch`; `concurrency` with `cancel-in-progress: true`;
+`permissions: contents: read`; a `verify` job and a seven-way `browser` matrix
+producing the eight required contexts. Guard scripts: language policy, secret
+scan, browser-bundle scan, CI invariants, skipped-test check. Coverage floor
+`branches: 75` in `packages/config/src/vitest-node.js`. Status:
+`AUTOMATICALLY TESTED`.
 
-Every real Stripe action remains **`EXTERNAL VERIFICATION PENDING`**. No Stripe
-credential has ever been supplied to this repository and none is requested by
-this plan. The Connect flow delivered by Milestones 2 and 3 is **`MOCK-ONLY`**:
-it exercises a test double with the real call shapes and proves nothing about
-Stripe. No Stripe object id, dashboard screenshot, CLI transcript, webhook
-delivery or provider event may be fabricated anywhere.
+`turbo.json`: `test` and `test:coverage` declare `dependsOn: ["^build",
+"build"]`; `test:e2e` declares `["^build"]` only. Recorded as a reliability
+observation; **not changed by Phase 3**. Status: `CARRIED`.
 
-The `Apply branch protection` workflow is separately **unverified** — its three
-runs failed in local PEM parsing before any token was minted. That is unrelated
-to Phase 3 and is not addressed here.
+Branch protection as §2.3. Status: `IMPLEMENTED`, verified live.
 
-## 10. Production safety
+## 5. Data Classification and Retention Matrix
 
-Production payments remain **`DISABLED`** and must retain executable proof.
-`apps/api/tests/payment-kill-switch.test.js` runs as its own named CI step and
-must continue to pass unchanged. No milestone may remove, weaken, bypass or
-condition the kill switch, and no milestone changes payment mode away from
-`MOCK`.
+All durations below are **PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW**. Nothing in
+this section is a compliance claim.
 
-## 11. Decisions still required
+| Data category                             | Actual model / field                                                                                                      | Classification                                                | Current retention                              | Approved treatment                                                     | Legal hold      | Future technical enforcement                                                | Status / evidence                                                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| User email                                | `User.email` (`@unique`)                                                                                                  | Direct identifier                                             | Silent in policy                               | Redact/anonymize                                                       | Overrides       | Deterministic placeholder from row id; uniqueness preserved by construction | `NOT IMPLEMENTED`                                                                                         |
+| User display name                         | `User.displayName`                                                                                                        | Direct identifier                                             | Silent                                         | Redact/anonymize                                                       | Overrides       | Placeholder                                                                 | `NOT IMPLEMENTED`                                                                                         |
+| User phone                                | `User.phone`                                                                                                              | Direct identifier                                             | Silent                                         | Redact/anonymize                                                       | Overrides       | Null or placeholder                                                         | `NOT IMPLEMENTED`                                                                                         |
+| Buyer identity                            | `Order.buyerEmail`, `Order.buyerName`                                                                                     | Direct identifier on a financial row                          | "Order… indefinite; counterpart to the ledger" | Retain row, redact identity                                            | Overrides       | Placeholder; amounts, dates, state untouched                                | `NOT IMPLEMENTED`                                                                                         |
+| Organization contact                      | `Organization.contactEmail`                                                                                               | Direct identifier                                             | Silent                                         | Redact/anonymize                                                       | Overrides       | Placeholder                                                                 | `NOT IMPLEMENTED`                                                                                         |
+| Event contact                             | `Event.contactEmail`                                                                                                      | Direct identifier                                             | Silent                                         | Redact/anonymize                                                       | Overrides       | Placeholder                                                                 | `NOT IMPLEMENTED`                                                                                         |
+| Ticket holder / recipient                 | `Ticket.attendeeName`, `TicketTransfer.toEmail`                                                                           | Direct identifier                                             | Silent                                         | Retain ticket and status, redact identity                              | Overrides       | Placeholder; `desi_ticket_status_transition` untouched                      | `NOT IMPLEMENTED`                                                                                         |
+| Notification recipient                    | `NotificationOutbox.recipient`                                                                                            | Direct identifier                                             | "Retained after send as delivery evidence"     | Redact after send                                                      | Overrides       | Placeholder; `dedupeKey` untouched                                          | `NOT IMPLEMENTED`                                                                                         |
+| Notification payload                      | `NotificationOutbox.payload` (Json)                                                                                       | Direct + indirect                                             | Same                                           | Redact personal keys after send                                        | Overrides       | Key allow-list scrub                                                        | `NOT IMPLEMENTED`                                                                                         |
+| Financial facts                           | `Order`, `OrderItem`, `Payment`, `Refund`, `RefundItem`, `Payout`, `Transfer`, `Dispute`                                  | Financial                                                     | Indefinite                                     | Retain amounts, dates, states, non-personal refs                       | Overrides       | Identifier fields only are replaced                                         | `DB-ENFORCED` constraints retained                                                                        |
+| Tax totals                                | order/tax fields                                                                                                          | Financial                                                     | Indefinite                                     | Retain unchanged                                                       | Overrides       | No change                                                                   | `IMPLEMENTED`                                                                                             |
+| Ledger                                    | `LedgerEntry`, `LedgerBatch`, `LedgerAccount`                                                                             | Financial                                                     | "Indefinite. Not deletable by design"          | Retain unchanged                                                       | Overrides       | Never touched                                                               | `DB-ENFORCED` — `desi_ledger_entry_immutable`, `desi_ledger_batch_immutable`, `desi_ledger_batch_balance` |
+| Ticket inventory / state / check-in       | `Ticket`, `CheckIn`, `EventSeat`, `Seat`                                                                                  | Operational                                                   | Silent                                         | Retain unless directly identifying                                     | Overrides       | Identity fields only                                                        | `NOT IMPLEMENTED`                                                                                         |
+| Existing audit rows                       | `AuditLog`                                                                                                                | Security evidence                                             | "Indefinite… cannot be pruned selectively"     | Retain unchanged                                                       | Overrides       | New immutability trigger proposed                                           | Convention only today                                                                                     |
+| New redaction audit event                 | `AuditLog`                                                                                                                | Security evidence                                             | n/a                                            | Create, PII-free                                                       | n/a             | Safe metadata only                                                          | `NOT IMPLEMENTED`                                                                                         |
+| Login attempts                            | `LoginAttempt.emailHash`, `LoginAttempt.ipHash`, `outcome` — SHA-256 with a server pepper, so no raw identifier is stored | Security metadata, hashed                                     | "Short-lived; for rate limiting, not history"  | Retain temporarily, then delete — deletion by retention, not redaction | Overrides       | Scheduled sweeper — 30 days PROPOSED                                        | `NOT IMPLEMENTED` — no sweeper                                                                            |
+| Sessions and tokens                       | `Session`, `AuthToken`, `Device`                                                                                          | Security metadata                                             | "Expire and are deleted"                       | Retain temporarily, then delete                                        | Overrides       | Sweeper — 30 days after expiry PROPOSED                                     | Expired on read, not swept                                                                                |
+| User agent / IP                           | `Session.userAgent`, `Session.ipHash`, `LoginAttempt.ipHash` — the address is stored only as a SHA-256 hash, never raw    | Indirect identifier, hashed                                   | Silent                                         | Retain temporarily, then delete                                        | Overrides       | Sweeper — 90 days PROPOSED                                                  | `NOT IMPLEMENTED`                                                                                         |
+| MFA factors                               | `MfaFactor`                                                                                                               | Credential                                                    | Silent                                         | Not applicable — credential, not content                               | Overrides       | Removed with account closure, never logged                                  | `IMPLEMENTED`                                                                                             |
+| Stored exports                            | export artefacts                                                                                                          | Direct identifier                                             | Silent                                         | Delete where technically possible                                      | Overrides       | Invalidation list + deletion job                                            | `NOT IMPLEMENTED`                                                                                         |
+| Future exports                            | export generation                                                                                                         | Direct identifier                                             | Silent                                         | Must exclude redacted data                                             | Overrides       | Presenter-level exclusion + test                                            | `NOT IMPLEMENTED`                                                                                         |
+| Connected-account references              | `ConnectedAccount.providerAccountId`, `requirementsDue`                                                                   | Provider identifier; `requirementsDue` may carry indirect PII | Silent                                         | Not applicable to person redaction; review `requirementsDue`           | Overrides       | Data minimisation review                                                    | `IMPLEMENTED`                                                                                             |
+| Webhook payloads                          | `WebhookEvent`                                                                                                            | Provider data                                                 | Silent                                         | Already key-redacted on intake                                         | Overrides       | Extend the redacted-key set if needed                                       | `IMPLEMENTED` — `lib/webhook-intake.js`                                                                   |
+| Legal hold / fraud investigation          | **no model exists**                                                                                                       | Governance                                                    | n/a                                            | Retain unchanged until resolved                                        | Is the override | Requires a new model                                                        | `NOT IMPLEMENTED`                                                                                         |
+| Logs, fixtures, snapshots, browser bundle | repository artefacts                                                                                                      | Mixed                                                         | n/a                                            | Must never contain redactable PII                                      | n/a             | Extend `scripts/scan-browser-bundle.mjs`                                    | `AUTOMATICALLY TESTED` for current rules                                                                  |
 
-The approved decisions of 2026-09-17 resolve treatment, irreversibility and
-authorization. Two narrower questions remain, and implementation of the
-affected milestone should not begin until they are answered.
+### 5.1 The conflict, and the approved resolution
 
-1. **Legal-hold model.** No hold or fraud-investigation record exists in the
-   schema, so "retain until the hold is resolved" has nothing to consult.
-   Proposed: a minimal hold marker scoped to a subject and organization, set and
-   cleared by an existing privileged role, with redaction refusing and auditing
-   the refusal while a hold is active. Confirm, or name an alternative.
-2. **Retention schedule values.** The 30/30/90-day figures in §6 are proposals,
-   not policy. Confirm them or supply the intended values before the sweeper is
-   built.
+Historical retention evidence and privacy redaction genuinely conflict in three
+places. The approved resolution is:
 
-Nothing in this plan authorises implementation. Phase 3 begins only on an
-explicit instruction to start a named milestone.
+- **Audit rows are retained unchanged.** Redaction never edits or deletes an
+  existing `AuditLog` row. It writes a new event recording that redaction
+  occurred.
+- **Notification delivery evidence is retained without the recipient address or
+  message PII.** The evidence that a message was sent is the row, its template,
+  its `dedupeKey`, its status and its timestamps — not the address it went to.
+- **Financial facts are retained without direct identifiers.** Amounts, dates,
+  currency, transaction states, tax and non-personal references are untouched;
+  names, emails and phone numbers within those rows are replaced.
+- **Legal and fraud holds override redaction until resolved.** While a hold is
+  active, redaction refuses and records the refusal.
+
+**This is not a claim of legal compliance.** It is a product policy and a
+technical design.
+
+## 6. Privacy Redaction Design
+
+Design only. Nothing here is built.
+
+**Initiation.** A request is raised by an authorized organization member on
+behalf of a data subject, or by a platform operator through the same route. The
+browser supplies a subject reference and a confirmation token; it never supplies
+authority, organization identity, eligibility or outcome.
+
+**Authorization.** Session required; `privacy:redact` required; organization
+resolved server-side from the session, never from the request body;
+`PRIVACY_ERASURE` step-up required and validated server-side within two minutes.
+
+**Identity confirmation and explicit confirmation.** The operator must confirm a
+typed, non-guessable confirmation string rendered by the server. The preview
+shows the _scope_ of what will be redacted — counts and categories — and never
+the values themselves.
+
+**Idempotency.** A server-generated idempotency key is stored in
+`IdempotencyRecord` (a model that already exists). A repeated request with the
+same key returns the original outcome without repeating side effects.
+
+**Hold evaluation.** Before any mutation, legal-hold and fraud-hold state is
+evaluated server-side. An active hold refuses the request and writes a refusal
+audit event.
+
+**Redaction strategy.** Deterministic placeholders derived from the row id, for
+example a stable non-reversible token rendered into a shape the column accepts.
+`User.email` is `@unique`, so a row-id-derived placeholder is unique by
+construction. Placeholders must be visibly synthetic so no operator mistakes one
+for a real person, and must not collide with any real value.
+
+**One-way guarantee.** No original value, backup column, encrypted copy,
+reversal table, hidden lookup or recoverable mapping may be stored anywhere.
+
+**Transactions and partial failure.** Redaction runs in a single database
+transaction wherever service boundaries permit. Where they do not, a durable
+state machine with an explicit incomplete state and safe retries is used; silent
+partial redaction is forbidden. A failure leaves data in a consistent,
+explainable state.
+
+**Post-action.** A new audit event is written. Sessions and tokens for the
+subject are revoked. Stored exports containing the subject are invalidated and
+deleted where technically possible. Caches and any search index entries are
+invalidated. Outbox rows are scrubbed after send.
+
+**Downstream effects.** Ticket transfers, check-in, refunds, disputes, payouts
+and reconciliation continue to function on the retained non-personal facts.
+Ticket status transitions remain governed by `desi_ticket_status_transition`.
+
+**Backups and disaster recovery.** Backups taken before redaction may still
+contain the original values. This is a real limitation and must be documented in
+the runbook, not hidden. A restore requires re-running redaction for every
+completed request since the backup was taken.
+
+**Recordkeeping.** A data-subject request record retains the request id,
+organization, timestamps, outcome and policy version — and no personal data.
+
+**Old values must never appear in** audit metadata, error messages, logs,
+analytics, webhooks, queues, exports, browser bundles, screenshots, UI alerts,
+or retry payloads. Each of these is a test in §12.
+
+## 7. Authorization and Step-Up Design
+
+**New capability `privacy:redact`.** Permitted scope: initiating and executing a
+privacy redaction for a subject within the caller's own organization; reading
+the redaction request record. Prohibited: any cross-organization action, any
+platform-wide sweep, any retention-policy change.
+
+**Minimum grant.** Only the minimum organization-management role. Not granted to
+event, finance, moderation, scanner or support roles.
+
+**Prohibited substitutes, and why.** `organization:manage` is insufficient
+because it authorises routine administration — team, venue, settings — and is
+held by people who should not be able to destroy personal data irreversibly;
+granting redaction through it silently widens every existing holder's authority.
+`platform:admin` is too broad: it is a superuser capability, and using it would
+make the control unauditable as a distinct decision and impossible to grant
+narrowly. `CREDENTIAL` and `SECURITY_ROLE` step-up policies do not authorize
+privacy destruction because they gate authentication authority — removing a
+factor, changing a role — which is reversible; redaction is not, and a policy
+name that says "credential" would misdescribe what was approved.
+
+**New policy `PRIVACY_ERASURE = 2 * 60 * 1000`.** Two minutes, matching the
+scale used for the least reversible existing actions. Declared in the route
+contract, resolved server-side; a browser can neither send nor widen it.
+
+**Connect remains `connect:manage` + `PAYOUT`.** Appropriate because
+`connect:manage` is documented for exactly this action and `PAYOUT` is
+documented as covering "a change to a connected account's payout destination".
+No new capability or policy is proposed for Connect.
+
+**Enforcement.** Server-side only, at route, service, query and database layers.
+Organization scope is derived from the session. A caller-supplied organization
+id, subject id, status or return target never grants authority. UI state never
+escalates privilege.
+
+## 8. Auditability and Evidence Design
+
+Future audit records carry: action type; actor id; organization id; an opaque
+target reference; policy version; a non-sensitive reason code; the legal-hold
+decision; an idempotency reference or hash; result status; timestamps; and a
+correlation id.
+
+They carry **no** personal data, no old or new values, no raw email, phone,
+address, token, secret, card reference or message body.
+
+Because `AuditLog` has no organization column, organization id is carried in
+`metadata`. Because audit immutability is convention rather than `DB-ENFORCED`,
+this plan proposes a `desi_audit_log_immutable` trigger following the existing
+ledger pattern, so that "immutable audit event" is a property of the database
+rather than an assertion.
+
+Operational queries to support: all redaction events for an organization in a
+period; all refusals and their reason codes; all events for one opaque target;
+all events by actor. Incident evidence must be answerable without reintroducing
+personal data.
+
+## 9. Stripe Connect Architecture Plan
+
+Plan only. Nothing is implemented, and no Stripe call is described as working.
+
+**Starting position, corrected.** `ConnectedAccount` and
+`ConnectOnboardingStatus` exist and are used by payouts, finance and the
+`account.updated` webhook handler. Three Connect methods exist on the real
+adapter and have **no callers**. The mock adapter has **no** Connect methods.
+The declared provider interface does not include Connect.
+
+**Therefore the first Connect task is to define the Connect portion of the
+provider interface and implement it in the mock**, matching the real adapter's
+signatures so the seam is honest. Onboarding state vocabulary is already fixed
+by `ConnectOnboardingStatus` and must not be invented anew.
+
+Planned coverage: connected-account creation; account-link generation;
+onboarding return and refresh handling through internal routes only, validated
+server-side, never accepting an arbitrary redirect; onboarding status read that
+does not mutate; account verification requirements surfaced from
+`requirementsDue` with data minimisation; payout-destination handling under
+`PAYOUT`; `connect:manage` + `PAYOUT` enforced server-side; the existing
+one-organization-to-one-account uniqueness preserved; platform and
+connected-account webhooks kept separate with distinct secrets, as
+`payment-mode.js` already enforces; Connect webhook signature validation;
+idempotent start; durable reconciliation of account state; provider calls kept
+outside database transactions, as the existing payment boundary already does;
+mock behaviour covering every `ConnectOnboardingStatus` value; production
+behaviour `DISABLED`; observability that never logs a secret, a full onboarding
+URL or a provider payload; defined failure and retry behaviour; account
+disconnect and deauthorization handling; and transfer/payout ledger interactions
+left exactly as they are.
+
+**Sandbox verification plan.** Requires authorized Stripe test credentials,
+which do not exist in this repository and are not requested here. Until a
+sandbox run happens with real credentials and recorded evidence, every real
+Stripe action is `EXTERNAL VERIFICATION PENDING`. **Live verification**
+additionally requires an approved operational launch plan and is out of scope
+for Phase 3 entirely.
+
+## 10. API, UI, Worker, and Database Change Plan
+
+Every item below is **FUTURE IMPLEMENTATION — NOT EXECUTED**.
+
+**Proposed API routes.** A Connect start action, a Connect status read, a
+privacy redaction request creation, a redaction confirmation/execution action,
+and a redaction request read. Exact paths follow the existing contract
+conventions and are settled at implementation time.
+
+**Fields that must never be accepted from a browser:** organization id, actor
+id, capability, step-up state, subject authority, connected-account id, provider
+account id, onboarding status, redaction outcome, legal-hold state, retention
+class, idempotency key.
+
+**Errors.** Reuse the canonical error shape. Unauthorized, cross-organization
+and unknown-subject responses must be indistinguishable — non-enumerating.
+
+**UI.** An organizer Connect settings surface with states not authorized,
+step-up required, not started, start available, in progress, requirements due,
+complete (mock), disabled, provider unavailable, failure. A privacy
+administration surface with preview, typed confirmation, success,
+already-redacted, retryable failure, denied and hold-refused states.
+
+**Worker.** A retention sweeper with durable state, leases, idempotency,
+observability and a defined recovery path. An export invalidation job. Neither
+is enqueued without durable state.
+
+**Database.** New models for the redaction request and the legal/fraud hold; a
+`desi_audit_log_immutable` trigger; no change to any ledger, order, payment or
+ticket constraint. **FUTURE IMPLEMENTATION — NOT EXECUTED.**
+
+**Configuration.** Any new environment variable is validated at boot by the
+existing validator. No secret is added by Phase 3.
+
+## 11. Security Threat Model
+
+For each threat: prevention, detection, recovery.
+
+| Threat                      | Prevention                                             | Detection                      | Recovery                             |
+| --------------------------- | ------------------------------------------------------ | ------------------------------ | ------------------------------------ |
+| Cross-tenant redaction      | org scope from session at every layer                  | cross-org refusal audit events | none needed; refused before mutation |
+| Accidental redaction        | typed confirmation, scope preview, step-up             | audit trail                    | irreversible — see §13               |
+| Repeat / redelivery         | idempotency record                                     | duplicate-key audit            | returns original outcome             |
+| Request replay              | short step-up window, single-use confirmation          | audit                          | refuse                               |
+| CSRF                        | existing session and origin controls                   | auth logs                      | revoke session                       |
+| Session theft               | short step-up, revocation on privilege change          | login attempt records          | revoke all sessions                  |
+| Missing/expired step-up     | server-side window check that throws on unknown policy | refusal audit                  | re-authenticate                      |
+| Malicious browser payload   | schema validation, server-derived authority            | validation errors              | reject                               |
+| Admin privilege misuse      | narrow `privacy:redact`, minimum grant                 | immutable audit                | access revocation, review            |
+| Audit PII leakage           | metadata allow-list, no old values                     | audit-content tests            | cannot be undone — prevent           |
+| Export re-identification    | export invalidation and exclusion                      | export tests                   | delete artefacts                     |
+| Notification leakage        | outbox scrub after send                                | outbox tests                   | scrub                                |
+| Cache / index resurrection  | invalidation step                                      | presenter tests                | re-invalidate                        |
+| Race conditions             | transaction boundaries, locking                        | concurrency tests              | idempotent retry                     |
+| Partial redaction           | single transaction or durable state machine            | explicit incomplete state      | resume                               |
+| Worker retry duplication    | leases and idempotency                                 | job observability              | safe replay                          |
+| Webhook spoofing            | signature validation, separate Connect secret          | intake logs                    | reject                               |
+| Connected-account takeover  | `connect:manage` + `PAYOUT`, uniqueness constraint     | account audit                  | disconnect                           |
+| Token / private-key leakage | secrets never read by this work; secret scan in CI     | `pnpm secrets:scan`            | rotate externally                    |
+| Ruleset / CI bypass         | `bypass_actors: []`, required checks                   | protection verification        | restore ruleset                      |
+| Supply chain                | pinned dependencies, audit step                        | `pnpm audit`                   | pin or revert                        |
+| Logging risk                | no PII in logs by construction                         | log review                     | scrub                                |
+| Backup resurrection         | documented caveat; re-run redaction after restore      | restore checklist              | re-run redaction                     |
+
+## 12. Testing and CI Verification Plan
+
+Layers: unit; integration; database against real disposable PostgreSQL; API
+route; browser; accessibility; concurrency; load and reliability; workflow and
+CI invariants; security regression; secret scan; bundle scan.
+
+Acceptance test cases: audit-trail verification; redaction idempotency;
+legal-hold refusal; fraud-hold refusal; cross-tenant refusal; expired step-up
+refusal; missing capability refusal; export deletion and invalidation; no PII in
+post-redaction presentation; no PII in audit metadata; no PII in the browser
+bundle; no skipped or zero-test result; Stripe mock-only tests; and a Stripe
+external-verification checklist that remains unticked.
+
+Browser and accessibility work uses the existing standard: viewports 320×720,
+768×1024 and 1280×900; `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`; no rule
+disabled; keyboard-only; 200% zoom; reduced motion; real authenticated sessions
+and real seeded rows; and a direct route call without step-up must be refused.
+
+**Existing coverage floors must not be lowered.** `branches: 75` stands. The
+`apps/api` margin is thin — approximately `+0.83` points at last measurement —
+so every new branch introduced by Phase 3 carries a test obligation in the same
+change that introduces it. No file may be excluded from coverage to pass CI.
+
+## 13. Rollback, Incident Response, and Operational Runbooks
+
+**Software rollback is possible. Redaction is not reversible.** These must never
+be conflated. Reverting a deployment restores code; it does not restore a
+redacted person, and no design may claim otherwise.
+
+Incident response: stop accepting new redaction requests by disabling the route;
+pause queue workers; halt the scheduled retention sweeper; preserve audit
+evidence, which is safe because it contains no personal data; classify severity;
+revoke access if misuse is suspected; communicate with affected parties;
+escalate to legal for a hold question; conduct a post-incident review.
+
+Backup and restoration: a restore may resurrect data redacted after the backup
+was taken. The runbook must require re-running redaction for every completed
+request since the backup point, and must record that this window exists.
+
+Provider incidents: a Stripe or Connect incident is handled through the mock
+boundary in Phase 3, because no real provider call is made. Connected-account
+compromise handling is disconnect and re-verify.
+
+## 14. Legal, Privacy, and External Verification Boundaries
+
+This plan is **not legal advice**. Every retention duration in §5 is
+**PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW** and requires counsel approval
+before implementation. Jurisdiction-specific requirements require counsel
+review. No claim of GDPR, CCPA/CPRA, PCI DSS, HIPAA, tax, employment, fraud or
+consumer-law compliance is made anywhere in this document, and none may be added
+without a source in this repository that proves it.
+
+Stripe sandbox verification requires authorized test credentials that do not
+exist here. Production Stripe and Connect verification additionally requires an
+approved operational launch plan. **Payment mode remains `MOCK`.** Real Stripe
+and Stripe Connect actions remain `EXTERNAL VERIFICATION PENDING`. This plan
+does not make the system compliant by itself.
+
+## 15. Phased Implementation Order
+
+Four phases. No subphases. None begins without an explicit instruction naming it.
+
+### Phase 1 — Privacy policy enforcement foundation
+
+Scope: add `privacy:redact` and grant it to the minimum organization-management
+role; add `PRIVACY_ERASURE`; add redaction and Connect audit action constants;
+add the `desi_audit_log_immutable` trigger. Files: `packages/permissions`,
+`packages/auth`, `apps/api/src/lib/audit.js`, one migration. Invariants: no
+existing route changes behaviour; no personal data moves. Tests before
+advancing: capability and role-graph tests; `stepUpWindowFor('PRIVACY_ERASURE')`
+returns 120000 and unknown names still throw; a database test proving `UPDATE`
+and `DELETE` on `AuditLog` are refused. Excluded: any route, UI or redaction
+logic. Completion: full suite green, no behaviour change. Approval: owner.
+Stop condition: any existing test changes result.
+
+### Phase 2 — Privacy redaction service, database integrity, and audit evidence
+
+Scope: redaction request and hold models; the deterministic placeholder
+strategy; the transactional service; the redaction API route with authorization,
+step-up, confirmation and idempotency; the audit events. Invariants: ledger and
+audit rows untouched; referential integrity preserved; no reversal path stored.
+Tests: database tests against real PostgreSQL for concurrency, idempotency,
+integrity and non-recoverability; route tests for every refusal case; audit
+content tests. Excluded: UI, exports, retention sweeper, Connect. Completion:
+every §16 criterion for redaction passes. Approval: owner, plus legal sign-off
+on §5 durations if the sweeper is in scope. Stop: any integrity test fails.
+
+### Phase 3 — Privacy request UI, exports, retention worker, and operational controls
+
+Scope: the administrative UI; export invalidation and exclusion; the retention
+sweeper with durable state; operational dashboards and runbooks. Invariants:
+server decides everything; no PII in any client-visible surface. Tests: browser
+and accessibility at the existing standard; export tests; sweeper idempotency
+and recovery tests. Excluded: Connect. Completion: §16 UI and export criteria
+pass. Approval: owner, plus counsel approval of retention durations. Stop:
+any PII appears in a client surface.
+
+### Phase 4 — Stripe Connect mock integration, sandbox verification readiness, and final adversarial verification
+
+Scope: define the Connect portion of the provider interface; implement it in the
+mock across every `ConnectOnboardingStatus` value; the Connect API boundary
+under `connect:manage` + `PAYOUT`; the organizer Connect UI; a sandbox
+verification checklist left unticked. Invariants: payment mode stays `MOCK`; the
+kill switch stays intact; no real Stripe call. Tests: mock-only unit and route
+tests; browser and accessibility tests; kill-switch proof unchanged. Excluded:
+any real Stripe call, any credential. Completion: §16 Connect criteria pass and
+every real Stripe item still reads `EXTERNAL VERIFICATION PENDING`. Approval:
+owner. Stop: any code path can reach a real provider.
+
+## 16. Acceptance Criteria
+
+Pass/fail, all required.
+
+Every data category in §5 is treated as the matrix says, proven by test. No
+personal data resurfaces through presenters, exports, notifications, audit
+metadata, logs, queues, caches, OpenAPI examples, fixtures or the browser
+bundle. A repeated redaction is idempotent and produces identical state. Every
+redaction route refuses without a session, without `privacy:redact`, without
+fresh `PRIVACY_ERASURE` step-up, across organizations, and for an unknown
+subject — with a non-enumerating response. An active legal or fraud hold refuses
+redaction and records the refusal. Every attempt and completion writes an
+immutable audit event containing no personal data, and no existing audit row is
+modified or deleted. Ledger balance, financial totals, tax, refunds, payouts and
+reconciliation remain correct. Tickets, transfers and check-in continue to work.
+Stored exports containing a redacted subject are deleted where possible and
+future exports exclude them. CI passes with coverage floors unchanged and every
+new branch covered. Branch protection is unchanged. Every Connect path is
+`MOCK-ONLY` and every real Stripe action still reads
+`EXTERNAL VERIFICATION PENDING`. Production payments remain `DISABLED` with
+executable proof. Documentation describes only implemented behaviour.
+
+## 17. Explicit Non-Implementation Statement
+
+Phase 3 application implementation has not begun. This document is a planning
+and policy-design artifact only. No database migration, API route, UI feature,
+worker, Stripe operation, user-data redaction, retention deletion, or production
+configuration change was performed by this planning task.
