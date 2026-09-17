@@ -242,18 +242,46 @@ path into it because there is nothing there to redact.
 
 **BLOCKED — REQUIRES OWNER DECISION.**
 
-Three code paths write raw addresses into audit metadata: the ticket-transfer
-path, the checkout path and the team-invitation path. The authorised rule is that
-existing audit rows are retained unchanged, and `desi_audit_log_immutable` now
-enforces exactly that — so those historical addresses **cannot be redacted in
-place**, and a redaction that rewrote them would be the audit rewrite this design
-exists to prevent.
+**Corrected 2026-09-17.** This paragraph first said three code paths write raw
+addresses into audit metadata — ticket transfer, checkout and team invitation.
+Two of the three were wrong. `apps/api/src/lib/checkout.js:70` is the payment
+provider's intent metadata, not an audit row, and
+`apps/api/src/routes/teams.js:292` records only
+`{ organizationId, role, requestedEventIds }`.
+
+Measured rather than estimated: **68 `recordAudit` call sites across
+`apps/api/src` and `apps/worker/src` were scanned, and exactly two name a
+personal field.** Both are `toEmail`, both in `apps/api/src/lib/tickets.js`, on
+the `ticket.transfer_started` and `ticket.transfer_ended` actions.
+
+A second measurement, over the metadata **values** rather than their keys, found
+a class the first pass missed: up to twenty of those 68 call sites write an
+operator's free-text `reason`, `reasonNote` or `note` into audit metadata, and the
+schemas behind those fields bound length only — `z.string().trim().min(4).max(500)`
+and similar. Eight are proven by reading `request.body` at the call site; the other
+twelve take the value as a parameter and were not individually traced. Nothing rejects a name, an address or a telephone number typed into a
+refund reason or an escalation note. `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md`
+§11.2a lists every site.
+
+The authorised rule is that existing audit rows are retained unchanged, and
+`desi_audit_log_immutable` now enforces exactly that — so those historical
+addresses **cannot be redacted in place**, and a redaction that rewrote them
+would be the audit rewrite this design exists to prevent. The same is true of
+anything an operator typed into a `reason` before today.
 
 The options are (a) accept the exclusion and say so in the policy, (b) stop
 writing addresses into audit metadata going forward and accept the historical
 rows, or (c) relax the immutability rule for a metadata-only update under a named
 condition. Only (a) and (b) are consistent with an append-only audit trail. This
 has not been decided and Phase 3 has not decided it unilaterally.
+
+For the free-text class there is a fourth option, (d): keep the operator's note
+on the mutable domain row that already stores it — `Refund.reasonNote`,
+`ReconciliationNote.body` and `EventStatusChange.reason` all exist — and put only
+its identifier in the audit metadata. That leaves the note redactable while the
+audit row still points at it. It is the option this document recommends, and it
+is also the one that changes the most call sites, so it is put to the owner
+rather than taken.
 
 ### `LedgerEntry.memo` can never be redacted
 

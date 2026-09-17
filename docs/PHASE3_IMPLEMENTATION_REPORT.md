@@ -155,13 +155,19 @@ Named here as they are found, with the stronger control preserved.
    registered on the server. Declaring privacy route descriptors before their
    handlers exist would fail that test. The stronger control is kept: each
    privacy route descriptor lands in the same phase as its handler.
-2. **`AuditLog.metadata` already contains raw e-mail addresses**, written by
-   `apps/api/src/lib/tickets.js`, `apps/api/src/lib/checkout.js` and
-   `apps/api/src/routes/teams.js`, in the one table `docs/DATA_MODEL.md`
-   describes as unprunable. The authorised rules say existing audit rows are
-   retained unchanged, so those historical addresses cannot be redacted in
-   place. This is recorded as **BLOCKED — REQUIRES OWNER DECISION** and carried
-   through the phase reports rather than silently omitted.
+2. **`AuditLog.metadata` already contains raw e-mail addresses.** Corrected
+   2026-09-17: this item first named three write paths — ticket transfer,
+   checkout and team invitation — and two of those were wrong. Measured rather
+   than estimated, **68 `recordAudit` call sites carry exactly two personal
+   fields**, both `toEmail`, both in `apps/api/src/lib/tickets.js`. A second
+   pass over the metadata values found a further class: up to twenty sites write
+   an operator's free-text `reason` or `note` under schemas that bound length and
+   not content — eight proven by reading `request.body` at the call site, the
+   other twelve untraced. The authorised rules say existing audit rows are retained
+   unchanged, so neither the historical addresses nor anything an operator typed
+   can be redacted in place. Recorded as **BLOCKED — REQUIRES OWNER DECISION**;
+   the assessment is `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` §11 and
+   §11.2a.
 3. **`LedgerEntry.memo` is permanently unredactable.** `desi_ledger_entry_immutable`
    refuses any UPDATE once the owning batch is `POSTED`. If a memo ever carried
    a person's name, no mechanism can remove it. Financial immutability is the
