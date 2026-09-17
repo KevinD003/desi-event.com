@@ -1,6 +1,6 @@
 # The data model
 
-49 models, 36 enums, 20 plpgsql triggers and 34 CHECK constraints. This document
+55 models, 45 enums, 23 plpgsql triggers and 59 CHECK constraints. This document
 is about the parts where the shape encodes a decision — not a field-by-field
 listing, which `packages/db/prisma/schema.prisma` already is and keeps current.
 
@@ -199,22 +199,136 @@ What is kept, and for how long, follows from what each row is for:
 | `TicketHold`                 | Expires and is released                                       |
 | `NotificationOutbox`         | Retained after send as delivery evidence                      |
 
-### Erasure is NOT IMPLEMENTED
+### Erasure is NOT IMPLEMENTED — HISTORICAL STATUS, SUPERSEDED IN PART
 
-Stated plainly rather than implied by a policy paragraph. **There is no user
-erasure or redaction route, no redaction command and no scheduled retention
-job.** The table above describes what each row is _for_ and the retention its
-purpose implies; it does not describe an enforcement mechanism, because there
-is not one yet. Rows that "expire" are expired by the code that reads them
-(a spent session is refused, a lapsed hold is released) rather than deleted by
-a sweeper.
+The section below was written in Phase 2 and was accurate then. Phase 3 has
+since built the foundation it describes as missing, and the honest correction is
+narrower than "this is done":
 
-The design constraint erasure will have to satisfy is already fixed by the
-schema: removing a `User` row would remove the counterparty from financial
-records that must keep balancing, so erasure will have to be redaction of
-personal fields with the row, its identifiers and every ledger reference
-surviving. That is the shape of the work, not a description of code that
-exists.
+- **Still true.** There is no redaction command and no scheduled retention job
+  that deletes anything. Nothing in this repository has redacted a person.
+- **No longer true.** There is a redaction data model — `PrivacyRequest`,
+  `PrivacyHold`, `PrivacyAuditEvent`, `ExportArtifact`, `ExportArtifactSubject`
+  and `RetentionSweep` — a `privacy:redact` capability, a `PRIVACY_ERASURE`
+  step-up policy, and two read routes under
+  `/v1/organizations/:id/privacy/requests`. See **Personal data** below.
+
+The Phase 2 text, unchanged:
+
+> Stated plainly rather than implied by a policy paragraph. **There is no user
+> erasure or redaction route, no redaction command and no scheduled retention
+> job.** The table above describes what each row is _for_ and the retention its
+> purpose implies; it does not describe an enforcement mechanism, because there
+> is not one yet. Rows that "expire" are expired by the code that reads them
+> (a spent session is refused, a lapsed hold is released) rather than deleted by
+> a sweeper.
+>
+> The design constraint erasure will have to satisfy is already fixed by the
+> schema: removing a `User` row would remove the counterparty from financial
+> records that must keep balancing, so erasure will have to be redaction of
+> personal fields with the row, its identifiers and every ledger reference
+> surviving. That is the shape of the work, not a description of code that
+> exists.
+
+That last paragraph turned out to be exactly right, and it is what the Phase 3
+design implements.
+
+---
+
+## Personal data
+
+Six models, and one rule they all serve: **a person is redacted, never deleted.**
+Removing a `User` row would remove the counterparty from financial records that
+must keep balancing, and the database refuses it twice over — once through the
+posted-ledger triggers and, since Phase 3, once through `desi_audit_log_immutable`,
+because the actor foreign key's `ON DELETE SET NULL` is an `UPDATE` of audit rows
+that no longer happens.
+
+| Model                   | What it is                                                               |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `PrivacyRequest`        | One request to redact one person inside one organisation                 |
+| `PrivacyHold`           | A legal or fraud matter that keeps a subject's data in place             |
+| `PrivacyAuditEvent`     | Append-only evidence of every privacy decision, PII-free by construction |
+| `ExportArtifact`        | A generated export, and whether its bytes still exist                    |
+| `ExportArtifactSubject` | Which people an export is known to contain                               |
+| `RetentionSweep`        | One run of the retention sweeper, including one that refused to run      |
+
+### The engine that fills these models — Phase 2, 2026-09-17
+
+The six models above described a shape. Since Phase 2 there is code that uses it,
+in `apps/api/src/lib/privacy-{placeholders,holds,redaction,requests}.js`, and the
+schema needed no change to carry it — no Phase 2 migration exists.
+
+The placeholder is `sha256(field + "\0" + rowId)` truncated to twelve hex
+characters. Derived from the row's own primary key, never from the value it
+replaces, and taking no secret and no clock: a re-run after a crash produces
+byte-identical rows, and `User.email`'s unique index is satisfied by construction
+rather than by checking afterwards.
+
+Columns replaced: `User.email`, `User.displayName`, `User.phone` (nulled),
+`Order.buyerEmail`, `Order.buyerName`, `Ticket.attendeeName`,
+`TicketTransfer.toEmail` on settled transfers, `WaitlistEntry.email`,
+`NotificationOutbox.recipient` and the personal keys of its payload on settled
+rows, and `Organization.contactEmail` / `Event.contactEmail` only where the
+stored address is the subject's own.
+
+Columns never touched: every amount, every status, every timestamp that is not a
+privacy timestamp, every ledger row, every credential digest, every foreign key.
+
+One correction to the record while this was built:
+**`NotificationOutbox.organizationId` had never been written by any writer** since
+the column was added in the Phase 2 commerce migration. All three call sites
+omitted it, so every outbox row carried a null organisation and an
+organisation-scoped scrub matched nothing. The writers now stamp it; rows written
+before that change still carry null and are unreachable without a backfill.
+
+### Redaction is irreversible, and nothing stores a way back
+
+No original value, backup column, encrypted copy, reversal table or recoverable
+mapping is kept anywhere in this schema. The absence is the design. It is also
+why `pseudonymize` — which exists, and is keyed — is **not** the placeholder
+mechanism: a keyed digest is reversible by whoever holds the key, and a
+redaction that a key undoes is not a redaction.
+
+### One in flight at a time
+
+`PrivacyRequest_one_in_flight_per_subject_key` is a partial unique index over
+`(organizationId, subjectUserId)` where the state is `REQUESTED`, `QUEUED` or
+`PROCESSING`. Two operators confirming the same screen would otherwise start two
+redactions of one person, and the second would find placeholders where it
+expected values. Partial, because a terminal request must not block the next
+one: a subject whose redaction was `HELD` may be redacted once the hold lifts.
+
+### Nothing executes without a hold decision
+
+`privacy_request_executes_only_when_clear` refuses a request in `QUEUED`,
+`PROCESSING` or `COMPLETED` unless its `holdDecision` is `NONE_ACTIVE`. It is
+the floor under the whole workstream: a request that reached execution while its
+decision still read `NOT_EVALUATED` would be a redaction performed without
+asking whether it was allowed.
+
+`desi_privacy_request_state_transition` carries the rest — the state machine only
+moves forward, a terminal request is finished, and the identity columns
+(organisation, subject, idempotency key, correlation id, policy version,
+confirmation hash) cannot be rewritten after the row exists.
+
+### Privacy evidence is append-only, and the database says so
+
+`desi_privacy_audit_event_immutable` refuses every `UPDATE` and `DELETE`
+unconditionally. The ledger's equivalent is conditional because a batch is
+assembled before it is posted; an audit event is final the instant it is
+written, so there is no earlier state to allow.
+
+Its references — `actorId`, `organizationId`, `privacyRequestId`, `targetId` —
+are bare strings rather than foreign keys, exactly as `AuditLog.entityId` already
+is. Evidence must not be deleted by a cascade from the thing it describes.
+
+### A dry run cannot claim to have changed something
+
+`retention_sweep_dry_run_changes_nothing` refuses a `DRY_RUN` row with a non-zero
+`affectedCount`. `DRY_RUN` is the default posture, because every duration the
+sweeper would apply is a proposal awaiting legal review rather than settled
+policy — see `docs/PRIVACY_AND_RETENTION.md`.
 
 ---
 

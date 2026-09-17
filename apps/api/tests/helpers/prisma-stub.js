@@ -53,6 +53,20 @@ const RELATIONS = {
   ticket: {
     orderItem: { kind: 'one', model: 'orderItem', from: 'orderItemId', to: 'id' },
   },
+  // "Is this person somebody this organisation holds data about?" is asked by
+  // walking a waitlist entry to its event, which is how a subject who only ever
+  // joined a queue is still in scope for a redaction.
+  waitlistEntry: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+  },
+  privacyRequest: {
+    organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+    subject: { kind: 'one', model: 'user', from: 'subjectUserId', to: 'id' },
+  },
+  privacyHold: {
+    organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+    subject: { kind: 'one', model: 'user', from: 'subjectUserId', to: 'id' },
+  },
   ledgerBatch: {
     entries: { kind: 'many', model: 'ledgerEntry', from: 'id', to: 'batchId' },
   },
@@ -265,6 +279,60 @@ const DEFAULTS = {
     settledAt: null,
   },
   auditLog: { actorId: null, metadata: null },
+  // Phase 3. Every nullable column is listed, because a column the stub leaves
+  // `undefined` is a column a response schema refuses and a test then blames on
+  // the handler.
+  privacyRequest: {
+    state: 'REQUESTED',
+    holdDecision: 'NOT_EVALUATED',
+    confirmedAt: null,
+    heldByHoldId: null,
+    outcomeCode: null,
+    scope: null,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    attempts: 0,
+    maxAttempts: 3,
+    lastAttemptAt: null,
+    failureCode: null,
+    startedAt: null,
+    completedAt: null,
+    cancelledAt: null,
+  },
+  privacyHold: {
+    state: 'ACTIVE',
+    expectedUntil: null,
+    releasedById: null,
+    releasedAt: null,
+    releaseReasonCode: null,
+  },
+  privacyAuditEvent: {
+    actorId: null,
+    privacyRequestId: null,
+    idempotencyKeyHash: null,
+    detail: null,
+  },
+  exportArtifact: {
+    storageKey: null,
+    ephemeral: true,
+    requestedById: null,
+    state: 'AVAILABLE',
+    invalidatedAt: null,
+    deletedAt: null,
+    failureCode: null,
+  },
+  exportArtifactSubject: {},
+  retentionSweep: {
+    state: 'SCHEDULED',
+    examinedCount: 0,
+    affectedCount: 0,
+    heldCount: 0,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    startedAt: null,
+    finishedAt: null,
+    failureCode: null,
+  },
   promoCode: {
     active: true,
     redemptionCount: 0,
@@ -529,6 +597,7 @@ const COMPOUND_UNIQUE = {
   venueMapVersion: [['venueMapId', 'version']],
   membership: [['userId', 'organizationId']],
   scannerScope: [['membershipId', 'eventId']],
+  exportArtifactSubject: [['exportArtifactId', 'subjectUserId']],
 }
 
 /** Models that carry `createdAt`/`updatedAt`. */
@@ -551,6 +620,10 @@ const TIMESTAMPED = new Set([
   'dispute',
   'transfer',
   'payout',
+  'privacyRequest',
+  'privacyHold',
+  'exportArtifact',
+  'retentionSweep',
 ])
 
 /**
@@ -586,6 +659,10 @@ const CREATED_ONLY = new Set([
   // `@default(now())` in the schema and was missing here, so every test that
   // read one back saw `createdAt: undefined` and none of them looked.
   'auditLog',
+  // Append-only at the database, so there is no `updatedAt` to carry: a row
+  // that could be updated would not be evidence.
+  'privacyAuditEvent',
+  'exportArtifactSubject',
 ])
 
 let idCounter = 0
@@ -1049,6 +1126,13 @@ export function createPrismaStub(seed = {}) {
           ...(model === 'webhookEvent' ? { receivedAt: now } : {}),
           ...(model === 'session' ? { lastSeenAt: now } : {}),
           ...(model === 'device' ? { firstSeenAt: now, lastSeenAt: now } : {}),
+          // `@default(now())` on a column that is not `createdAt`. Each of
+          // these was missing, and a missing one is not harmless: the column
+          // comes back `undefined`, the response schema refuses it, and the
+          // handler gets blamed for a gap in the double.
+          ...(model === 'privacyHold' ? { placedAt: now } : {}),
+          ...(model === 'privacyAuditEvent' ? { occurredAt: now, recordedAt: now } : {}),
+          ...(model === 'exportArtifact' ? { generatedAt: now } : {}),
           ...scalarData,
         }
 

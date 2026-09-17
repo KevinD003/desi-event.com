@@ -113,14 +113,24 @@ export async function seedEvents(tag) {
     },
   })
 
-  const organiser = await prisma.user.create({
-    data: {
-      email: `owner-${tag}@organiser.test`,
-      passwordHash,
-      displayName: `Owner ${tag}`,
-      role: 'ORGANIZER',
-      emailVerified: true,
-    },
+  // Upserted rather than created, because a fixture user is no longer
+  // deletable: `desi_audit_log_immutable` refuses the `SET NULL` update that
+  // deleting an actor would make to their audit rows, so `cleanup*` leaves
+  // the row behind. Playwright starts a fresh worker after a failure and
+  // re-runs `beforeAll`, which re-seeds the same tag — and a `create` there
+  // turns one failing test into a suite that cannot continue. Seeding is
+  // idempotent instead, which is a better contract than one that depended on
+  // deletion.
+  const organiserIdentity = {
+    passwordHash,
+    displayName: `Owner ${tag}`,
+    role: 'ORGANIZER',
+    emailVerified: true,
+  }
+  const organiser = await prisma.user.upsert({
+    where: { email: `owner-${tag}@organiser.test` },
+    update: organiserIdentity,
+    create: { email: `owner-${tag}@organiser.test`, ...organiserIdentity },
   })
 
   // OWNER rather than EVENT_MANAGER: cancelling an event is an owner's or an
@@ -130,14 +140,16 @@ export async function seedEvents(tag) {
   })
   await enrol(organiser.id)
 
-  const moderator = await prisma.user.create({
-    data: {
-      email: `moderator-${tag}@platform.test`,
-      passwordHash,
-      displayName: `Moderator ${tag}`,
-      role: 'MODERATOR',
-      emailVerified: true,
-    },
+  const moderatorIdentity = {
+    passwordHash,
+    displayName: `Moderator ${tag}`,
+    role: 'MODERATOR',
+    emailVerified: true,
+  }
+  const moderator = await prisma.user.upsert({
+    where: { email: `moderator-${tag}@platform.test` },
+    update: moderatorIdentity,
+    create: { email: `moderator-${tag}@platform.test`, ...moderatorIdentity },
   })
 
   await enrol(moderator.id)
@@ -221,8 +233,12 @@ export async function cleanupEvents(tag) {
     await prisma.session.deleteMany({ where: { userId: user.id } }).catch(() => {})
     await prisma.mfaFactor.deleteMany({ where: { userId: user.id } }).catch(() => {})
     await prisma.membership.deleteMany({ where: { userId: user.id } }).catch(() => {})
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } }).catch(() => {})
-    await prisma.user.delete({ where: { id: user.id } }).catch(() => {})
+    // The audit rows and the user row deliberately stay. `desi_audit_log_immutable`
+    // refuses an UPDATE or a DELETE on `AuditLog`, and the actor foreign key is
+    // ON DELETE SET NULL, so deleting this user would be an UPDATE of their audit
+    // rows and is refused. That is the guarantee working, not a teardown bug: in
+    // this system a person is redacted, never deleted. Every identifier above is
+    // suffixed with a per-run tag, so what is left behind collides with nothing.
   }
 
   await prisma.organization.deleteMany({ where: { slug: { contains: tag } } }).catch(() => {})

@@ -151,6 +151,33 @@ export const CAPABILITIES = deepFreeze({
   PROMO_MANAGE: 'promo:manage',
   REPORT_VIEW: 'report:view',
 
+  // --- Personal data --------------------------------------------------------
+  /**
+   * Redact a person's personal data within one organisation, and read the
+   * record of that request.
+   *
+   * Its own capability, and the narrowest one in this table, because it is the
+   * only action here that cannot be undone. A refund can be reversed, an event
+   * can be republished, a removed member can be invited back; a redacted name
+   * is gone, and no key, backup column or hidden mapping brings it back.
+   *
+   * Deliberately not folded into `organization:manage`. That grant is routine
+   * administration — the organisation record, its members, its settings — and
+   * is held by people who should be able to rename the company without also
+   * being able to destroy somebody's personal data irreversibly. Widening
+   * `organization:manage` would have handed this authority to every existing
+   * holder with no review and no migration.
+   *
+   * Equally not `platform:admin`, which is the key to everything: granting
+   * redaction through it would make the decision unauditable as a distinct
+   * one, and ungrantable narrowly.
+   *
+   * Organisation-scoped rather than platform-only, so every route asserting it
+   * must name the organisation in the request — see `capabilityScope`. One
+   * request never spans two organisations.
+   */
+  PRIVACY_REDACT: 'privacy:redact',
+
   // --- Platform scope -------------------------------------------------------
   /** Read a customer's order across tenants to answer a support request. */
   SUPPORT_VIEW_ORDER: 'support:view_order',
@@ -307,8 +334,11 @@ const ORG_ROLE_GRANTS = {
     CAPABILITIES.TEAM_REMOVE,
     CAPABILITIES.TEAM_ROLE_MANAGE,
   ],
-  // Owns the organisation record itself, including its membership list.
-  OWNER: [CAPABILITIES.ORGANIZATION_MANAGE],
+  // Owns the organisation record itself, including its membership list, and is
+  // the only organisation role that may destroy a person's personal data. The
+  // narrowest grant available: OWNER inherits ADMIN, so granting here and
+  // nowhere else means exactly one role holds it.
+  OWNER: [CAPABILITIES.ORGANIZATION_MANAGE, CAPABILITIES.PRIVACY_REDACT],
 }
 
 /**

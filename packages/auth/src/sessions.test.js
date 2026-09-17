@@ -325,6 +325,36 @@ describe('step-up policies', () => {
     expect(STEP_UP_POLICIES.PAYOUT).toBe(5 * 60 * 1000)
     expect(STEP_UP_POLICIES.CREDENTIAL).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.SECURITY_ROLE).toBe(2 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PRIVACY_ERASURE).toBe(2 * 60 * 1000)
+  })
+
+  it('gives an irreversible redaction no wider a window than any reversible action', () => {
+    // The scale is the argument: nothing else in this table destroys something
+    // that cannot be restored, so nothing else may be gated more tightly.
+    for (const name of STEP_UP_POLICY_NAMES) {
+      expect(
+        STEP_UP_POLICIES.PRIVACY_ERASURE,
+        `${name} has a tighter window than PRIVACY_ERASURE`,
+      ).toBeLessThanOrEqual(STEP_UP_POLICIES[name])
+    }
+  })
+
+  it('names a privacy erasure policy rather than reusing a credential one', () => {
+    // Reusing CREDENTIAL would put the same name on two different controls, and
+    // a control whose name misdescribes what it protects is a control nobody
+    // can reason about. The windows are equal; the policies are not.
+    expect(STEP_UP_POLICY_NAMES).toContain('PRIVACY_ERASURE')
+    expect(stepUpWindowFor('PRIVACY_ERASURE')).toBe(2 * 60 * 1000)
+  })
+
+  it('refuses a step-up that was fresh enough for a payout but not for a redaction', () => {
+    const now = new Date('2026-03-01T12:00:00Z')
+    const session = { mfaSatisfiedAt: new Date(now.getTime() - 3 * 60 * 1000) }
+
+    expect(stepUpSatisfied(session, { now, windowMs: stepUpWindowFor('PAYOUT') })).toBe(true)
+    expect(stepUpSatisfied(session, { now, windowMs: stepUpWindowFor('PRIVACY_ERASURE') })).toBe(
+      false,
+    )
   })
 
   it('throws on an unknown policy rather than falling back to a default', () => {

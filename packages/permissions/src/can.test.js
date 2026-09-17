@@ -125,7 +125,8 @@ const EXPECTED_ORG_MATRIX = {
     'venue:manage',
     'venueMap:manage',
   ],
-  // Everything ADMIN has, plus the organisation record itself.
+  // Everything ADMIN has, plus the organisation record itself and the one
+  // action in this table that cannot be undone.
   OWNER: [
     'attendee:export',
     'connect:manage',
@@ -148,6 +149,7 @@ const EXPECTED_ORG_MATRIX = {
     'organization:submit_verification',
     'organization:view_members',
     'payout:manage',
+    'privacy:redact',
     'promo:manage',
     'report:view',
     'team:invite',

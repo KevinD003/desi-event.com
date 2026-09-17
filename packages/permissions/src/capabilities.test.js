@@ -56,6 +56,8 @@ const REQUIRED_CAPABILITIES = [
   // Promotions and reporting
   'promo:manage',
   'report:view',
+  // Personal data
+  'privacy:redact',
   // Platform scope
   'support:view_order',
   'moderation:review',
@@ -412,5 +414,49 @@ describe('assertAcyclic', () => {
 
   it('passes the production graph', () => {
     expect(() => assertAcyclic(ORG_ROLE_INHERITS)).not.toThrow()
+  })
+})
+
+describe('privacy:redact', () => {
+  it('is granted by exactly one organisation role', () => {
+    const holders = Object.entries(ORG_ROLE_CAPABILITIES)
+      .filter(([, capabilities]) => capabilities.includes(CAPABILITIES.PRIVACY_REDACT))
+      .map(([role]) => role)
+
+    // Not a restatement of the table: this is the assertion that catches a
+    // future edit widening an irreversible authority. Granting it to ADMIN
+    // would hand it to MANAGER's superset by inheritance; granting it to
+    // FINANCE would hand it to ADMIN and OWNER as well.
+    expect(holders).toEqual(['OWNER'])
+  })
+
+  it('is not granted by any platform role except SUPER_ADMIN', () => {
+    const holders = Object.entries(PLATFORM_ROLE_CAPABILITIES)
+      .filter(([, capabilities]) => capabilities.includes(CAPABILITIES.PRIVACY_REDACT))
+      .map(([role]) => role)
+
+    // SUPER_ADMIN holds every capability by construction (it is
+    // `[...ALL_CAPABILITIES]`), so it is not an exception this table can make.
+    // What matters is that no narrow staff role — SUPPORT, MODERATOR,
+    // FINANCE_ADMIN — picks it up, and that organisation scope is still
+    // enforced below the capability check for the role that does.
+    expect(holders).toEqual(['SUPER_ADMIN'])
+  })
+
+  it('is organisation-scoped, so every route asserting it must name one', () => {
+    // Platform-only capabilities take no `capabilityScope`, and a route that
+    // asserted this one unscoped would refuse every organiser and pass every
+    // platform admin — finding NF-05, the authorization inversion.
+    expect(PLATFORM_ONLY_CAPABILITIES).not.toContain(CAPABILITIES.PRIVACY_REDACT)
+  })
+
+  it('is not implied by any other capability an organisation role already held', () => {
+    // The point of a separate name: nothing that used to be granted now grants
+    // redaction as a side effect.
+    for (const [role, capabilities] of Object.entries(ORG_ROLE_CAPABILITIES)) {
+      if (role === 'OWNER') continue
+
+      expect(capabilities).not.toContain(CAPABILITIES.PRIVACY_REDACT)
+    }
   })
 })

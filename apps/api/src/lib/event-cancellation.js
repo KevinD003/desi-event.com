@@ -112,6 +112,13 @@ export async function cancellationWork(tx, options) {
             channel: 'EMAIL',
             recipient,
             userId: order.userId ?? null,
+            // Stamped so a privacy redaction can find this row. The column
+            // has existed since the Phase 2 commerce migration and no writer
+            // ever set it, so every outbox row carried `organizationId: null`
+            // — and an organisation-scoped scrub of delivery evidence matched
+            // nothing at all while the recipient's address sat in the row.
+            // Delivery is unaffected: the dispatcher never reads this column.
+            organizationId: event.organizationId,
             // Ids and prose only. No token, no secret, no payment detail: the
             // outbox row is read by a worker and by anybody debugging it.
             payload: {

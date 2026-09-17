@@ -90,6 +90,24 @@ const PHASE2_MIGRATIONS = Object.freeze([
 ])
 
 /**
+ * The migrations Phase 3 added.
+ *
+ * Listed separately for the reason the Phase 2 list gives: a date range would
+ * move the cut point on its own. Without this list a Phase 3 migration is
+ * classified as pre-Phase-2 and applied *before* the schema it was written
+ * against, which is not an upgrade path anybody will ever run — and the generic
+ * filler then tries to populate its tables against constraints designed to
+ * refuse a minimum row.
+ *
+ * They are applied after the Phase 2 group, which is the real order, and
+ * proving they apply over existing rows is the same claim this script makes
+ * about Phase 2.
+ *
+ * @type {string[]}
+ */
+const PHASE3_MIGRATIONS = Object.freeze(['20260917060000_privacy_redaction_foundation'])
+
+/**
  * Rows the generic filler cannot produce, because a CHECK constraint means the
  * minimum legal row is not the minimum row.
  *
@@ -587,13 +605,16 @@ async function main() {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort()
-  const before = all.filter((migration) => !PHASE2_MIGRATIONS.includes(migration))
+  const before = all.filter(
+    (migration) => !PHASE2_MIGRATIONS.includes(migration) && !PHASE3_MIGRATIONS.includes(migration),
+  )
   const phase2 = all.filter((migration) => PHASE2_MIGRATIONS.includes(migration))
+  const phase3 = all.filter((migration) => PHASE3_MIGRATIONS.includes(migration))
 
   console.log('Populated-upgrade verification')
   console.log(`  target: ${redacted(target)}`)
   console.log(
-    `  upgrading a database holding rows: ${before.length} migrations, then ${phase2.length}`,
+    `  upgrading a database holding rows: ${before.length} migrations, then ${phase2.length}, then ${phase3.length}`,
   )
   console.log('  credentials are never printed; only the disposable database name is.\n')
 
@@ -608,6 +629,13 @@ async function main() {
     if (phase2.length !== PHASE2_MIGRATIONS.length) {
       return record('the Phase 2 migrations named here exist', false, {
         note: `expected ${PHASE2_MIGRATIONS.join(', ')}`,
+      })
+        ? 0
+        : 1
+    }
+    if (phase3.length !== PHASE3_MIGRATIONS.length) {
+      return record('the Phase 3 migrations named here exist', false, {
+        note: `expected ${PHASE3_MIGRATIONS.join(', ')}`,
       })
         ? 0
         : 1
@@ -658,6 +686,19 @@ async function main() {
       ok =
         record(
           `the Phase 2 migration ${migration} applied over existing rows`,
+          applied.code === 0,
+          {
+            note:
+              applied.code === 0 ? undefined : applied.output.replace(/\s+/g, ' ').slice(0, 400),
+          },
+        ) && ok
+    }
+
+    for (const migration of phase3) {
+      const applied = await applyMigration(target, migration)
+      ok =
+        record(
+          `the Phase 3 migration ${migration} applied over existing rows`,
           applied.code === 0,
           {
             note:

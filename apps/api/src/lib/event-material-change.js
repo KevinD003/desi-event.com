@@ -228,6 +228,12 @@ export async function materialChangeWork(tx, options) {
           channel: 'EMAIL',
           recipient: order.buyerEmail,
           userId: order.userId ?? null,
+          // Stamped so a privacy redaction can find this row. The column has
+          // existed since the Phase 2 commerce migration and no writer ever set
+          // it, so every outbox row carried `organizationId: null` and an
+          // organisation-scoped scrub of delivery evidence matched nothing at
+          // all. Delivery is unaffected: the dispatcher never reads it.
+          organizationId: event.organizationId,
           // Ids, field names and prose. No token, no payment detail: an outbox
           // row is read by a worker and by whoever is debugging it.
           payload: {

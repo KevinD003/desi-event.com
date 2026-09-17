@@ -1,0 +1,273 @@
+/**
+ * Privacy redaction, holds and retention.
+ *
+ * These schemas describe what a browser may say about a redaction and what the
+ * server says back. The asymmetry is the point: a request names a subject and a
+ * reason and nothing else, while a response describes *scope* — how many rows in
+ * which categories — and never a value.
+ *
+ * Two absences are deliberate and load-bearing.
+ *
+ * Nothing here accepts an organisation id. Organisation scope is resolved from
+ * the caller's session on the server, and a caller-supplied organisation is a
+ * caller-supplied authority. The one place an organisation appears in a request
+ * is a path parameter, where the route's `capabilityScope` reads it and the
+ * capability check refuses a caller who does not hold `privacy:redact` there.
+ *
+ * Nothing here accepts an idempotency key or a confirmation token as input to
+ * the *raising* of a request. Both are minted by the server: a caller-chosen
+ * idempotency key is a caller-chosen replay, and a caller-chosen confirmation is
+ * not a confirmation.
+ *
+ * @module @desi-event/schemas/privacy
+ */
+
+import { z } from 'zod'
+
+import {
+  privacyAuditResultSchema,
+  privacyHoldDecisionSchema,
+  privacyHoldKindSchema,
+  privacyHoldStateSchema,
+  privacyRequestReasonSchema,
+  privacyRequestStateSchema,
+} from './enums.js'
+import {
+  cuidSchema,
+  nonEmptyStringSchema,
+  paginationQuerySchema,
+  timestampSchema,
+} from './primitives.js'
+import { paginationMetaSchema } from './responses.js'
+
+/**
+ * The personal-data categories a redaction is expressed in.
+ *
+ * Categories rather than columns, because a category is what an operator can be
+ * asked to confirm and a column list is a map of where the personal data is.
+ * The mapping from category to column lives on the server.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const PRIVACY_DATA_CATEGORIES = Object.freeze([
+  'ACCOUNT_IDENTITY',
+  'BUYER_IDENTITY',
+  'TICKET_HOLDER_IDENTITY',
+  'NOTIFICATION_DELIVERY',
+  'SECURITY_METADATA',
+  'EXPORTS',
+])
+
+/** One personal-data category. */
+export const privacyDataCategorySchema = z.enum(PRIVACY_DATA_CATEGORIES)
+
+/**
+ * How much there is to redact in one category.
+ *
+ * A count and a category name. Never a value, and never a column name: a
+ * preview an operator reads must not become a map of where the personal data
+ * is.
+ */
+export const privacyScopeEntrySchema = z.object({
+  category: privacyDataCategorySchema,
+  rows: z.int().min(0),
+  /// Why the count is what it is. A count of zero cannot distinguish "there was
+  /// nothing of this kind" from "this organisation may not touch it", and an
+  /// operator confirming an irreversible action is owed the difference.
+  status: z.enum(['REDACTED', 'NOTHING_TO_DO', 'ALREADY_REDACTED', 'OUT_OF_SCOPE', 'DEFERRED']),
+})
+
+/**
+ * What a redaction request looks like to an authorised operator.
+ *
+ * `subjectId` is an opaque row id, which is what makes this payload safe: it
+ * identifies the person to the system without naming them. There is no
+ * `subjectEmail`, no `subjectName`, and no field carrying anything that was or
+ * will be redacted.
+ */
+export const privacyRequestSchema = z.object({
+  id: cuidSchema,
+  subjectId: cuidSchema,
+  state: privacyRequestStateSchema,
+  reason: privacyRequestReasonSchema,
+  holdDecision: privacyHoldDecisionSchema,
+  /// The policy revision the request was evaluated against.
+  policyVersion: nonEmptyStringSchema,
+  /// Ties this request's audit events together. Server-minted, never a secret.
+  correlationId: nonEmptyStringSchema,
+  /// Category counts, when they have been established. Null before the preview.
+  scope: z.array(privacyScopeEntrySchema).nullable(),
+  /// A closed-vocabulary code once the request is terminal.
+  outcomeCode: nonEmptyStringSchema.nullable(),
+  requestedAt: timestampSchema,
+  confirmedAt: timestampSchema.nullable(),
+  startedAt: timestampSchema.nullable(),
+  completedAt: timestampSchema.nullable(),
+  cancelledAt: timestampSchema.nullable(),
+})
+
+/** `GET /v1/organizations/:id/privacy/requests`. */
+export const privacyRequestListResponseSchema = z.object({
+  data: z.array(privacyRequestSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /v1/organizations/:id/privacy/requests/:requestId`. */
+export const privacyRequestResponseSchema = z.object({
+  data: privacyRequestSchema,
+})
+
+/**
+ * Filters for the request list.
+ *
+ * `subjectId` is a cuid and never an address: searching by e-mail would make
+ * this endpoint a way to confirm whether a given person is in the system, which
+ * is exactly the question a redaction is supposed to stop answering.
+ */
+export const privacyRequestListQuerySchema = paginationQuerySchema.extend({
+  state: privacyRequestStateSchema.optional(),
+  subjectId: cuidSchema.optional(),
+})
+
+/**
+ * Raising a redaction request.
+ *
+ * Two fields, and the shortness is the design. Everything else a redaction needs
+ * — which organisation, whether the caller may act there, whether a hold blocks
+ * it, which idempotency key, which policy revision, what the confirmation phrase
+ * is — is decided on the server. A request body that could carry any of them
+ * would be a request body that could lie about them.
+ *
+ * `subjectId` is a cuid rather than an address for the same reason the list
+ * filter is: accepting an address would turn this route into a way to ask
+ * whether a given person exists in the system.
+ */
+export const privacyRequestCreateSchema = z.object({
+  subjectId: cuidSchema,
+  reason: privacyRequestReasonSchema,
+})
+
+/**
+ * The confirmation the server issues when a request is raised.
+ *
+ * Returned exactly once, in the creation response. Only its digest is stored, so
+ * this is the only moment the phrase exists anywhere the operator can read it —
+ * re-fetching the request will not produce it again.
+ */
+export const privacyConfirmationSchema = z.object({
+  phrase: nonEmptyStringSchema,
+  expiresAt: timestampSchema,
+})
+
+/** `POST /v1/organizations/:id/privacy/requests`. */
+export const privacyRequestCreatedResponseSchema = z.object({
+  data: privacyRequestSchema,
+  confirmation: privacyConfirmationSchema,
+})
+
+/**
+ * Confirming a redaction.
+ *
+ * The phrase the server issued, typed back. Note what is absent: no `confirmed`
+ * boolean, no `force`, no `skipHolds`, no outcome. A redaction that could be
+ * triggered by a client-supplied flag would be a redaction an accidental request
+ * replay could perform.
+ */
+export const privacyRequestConfirmSchema = z.object({
+  confirmationPhrase: nonEmptyStringSchema,
+})
+
+/** Withdrawing a request before it executes. */
+export const privacyRequestCancelSchema = z.object({
+  reasonCode: z.enum(['NO_LONGER_REQUIRED', 'RAISED_IN_ERROR', 'SUPERSEDED']),
+})
+
+/**
+ * A hold, as an authorised operator sees it.
+ *
+ * `matterReference` points at the matter; it never describes it. An allegation,
+ * a counterparty's name or a summary of an investigation would all be personal
+ * data about somebody, recorded in the one place this subsystem exists to keep
+ * clean.
+ */
+export const privacyHoldSchema = z.object({
+  id: cuidSchema,
+  subjectId: cuidSchema,
+  kind: privacyHoldKindSchema,
+  state: privacyHoldStateSchema,
+  matterReference: nonEmptyStringSchema,
+  placedAt: timestampSchema,
+  expectedUntil: timestampSchema.nullable(),
+  releasedAt: timestampSchema.nullable(),
+  releaseReasonCode: nonEmptyStringSchema.nullable(),
+})
+
+/**
+ * Placing a hold.
+ *
+ * `matterReference` is bounded and required. An unbounded field here would be
+ * the obvious place for somebody to type the circumstances, and the
+ * circumstances are personal data about the person whose erasure is being
+ * blocked.
+ */
+export const privacyHoldCreateSchema = z.object({
+  subjectId: cuidSchema,
+  kind: privacyHoldKindSchema,
+  matterReference: z.string().trim().min(3).max(120),
+  expectedUntil: timestampSchema.nullable().optional(),
+})
+
+/** Lifting a hold. A code, never a sentence. */
+export const privacyHoldReleaseSchema = z.object({
+  releaseReasonCode: z.enum([
+    'MATTER_CLOSED',
+    'COUNSEL_INSTRUCTION',
+    'INVESTIGATION_CLOSED',
+    'PLACED_IN_ERROR',
+  ]),
+})
+
+/** `GET /v1/organizations/:id/privacy/holds`. */
+export const privacyHoldListResponseSchema = z.object({
+  data: z.array(privacyHoldSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `POST /v1/organizations/:id/privacy/holds` and the release action. */
+export const privacyHoldResponseSchema = z.object({ data: privacyHoldSchema })
+
+/** Filters for the hold list. */
+export const privacyHoldListQuerySchema = paginationQuerySchema.extend({
+  state: privacyHoldStateSchema.optional(),
+  subjectId: cuidSchema.optional(),
+})
+
+/**
+ * One entry in a request's evidence timeline.
+ *
+ * Every field is an opaque id, an enum, a closed-vocabulary code or a timestamp.
+ * `detail` carries counts and category names and nothing else — there is no
+ * before-value, no after-value, and no message. That is what makes the timeline
+ * safe to show to somebody investigating an incident about a person who has
+ * already been redacted.
+ */
+export const privacyAuditEventSchema = z.object({
+  id: cuidSchema,
+  action: nonEmptyStringSchema,
+  actorId: cuidSchema.nullable(),
+  targetId: cuidSchema,
+  targetType: nonEmptyStringSchema,
+  reasonCode: nonEmptyStringSchema,
+  holdDecision: privacyHoldDecisionSchema,
+  result: privacyAuditResultSchema,
+  policyVersion: nonEmptyStringSchema,
+  correlationId: nonEmptyStringSchema,
+  detail: z.record(z.string(), z.unknown()).nullable(),
+  occurredAt: timestampSchema,
+})
+
+/** `GET /v1/organizations/:id/privacy/requests/:requestId/events`. */
+export const privacyAuditEventListResponseSchema = z.object({
+  data: z.array(privacyAuditEventSchema),
+  pagination: paginationMetaSchema,
+})
