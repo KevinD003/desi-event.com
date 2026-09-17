@@ -1,6 +1,6 @@
 # Phase 2 status — the authoritative current record
 
-**Status: `PARTIAL`.** Phase 3 has not been started.
+**Status: `COMPLETE`. All twenty gates are `MET`.** Phase 3 has not been started.
 
 ### Four different "current" facts, kept apart on purpose
 
@@ -8,13 +8,14 @@ They are not the same commit and never have been. Treating them as one is
 exactly how the run tally in this file came to be wrong twice, so they are now
 stated separately and each says what it is a fact _about_.
 
-| What                                         | Value                                                                                                                                                          |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                                                                               |
-| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                                                                             |
-| Latest corrective commit                     | **`40d8ca4`** — a worker test-harness fix; see "The failure after the closeout" below                                                                          |
-| Last fully green run                         | **`35127103320`**, testing exactly `354e66f` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped                                                       |
-| Repository protection state                  | **UNPROTECTED**, re-verified **2026-09-16T18:06Z**: `GET /rulesets` → `200 []`, `GET /rules/branches/main` → `200 []`, `GET /branches/main/protection` → `403` |
+| What                                         | Value                                                                                                                                                        |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Commit §1's measurements were taken at       | **`6eb6030`** — unchanged. §1 is measured there and nowhere else                                                                                             |
+| Commit the coverage figures were measured at | **`79ff795`** — cold run, `Tasks: 18 successful, 18 total`, exit 0                                                                                           |
+| Latest corrective commit                     | **`fd1c3de`** — a credential preflight for the protection workflow                                                                                           |
+| Default branch                               | **`main`**, tip **`7f9c1c8`** (pull request #1 merged 2026-09-16T23:05:46Z), `protected: true`                                                               |
+| Last fully green run                         | **`35160752451`**, event `push`, testing exactly `7f9c1c8` on `main` — **8 jobs, all `success`**, 137 steps `success`, 8 skipped                             |
+| Repository protection state                  | **PROTECTED**, verified **2026-09-17T01:07Z**: ruleset `23572317` active, `GET /rules/branches/main` → **4 rules in force**, 8 contexts, `bypass_actors: []` |
 
 `79ff795..354e66f` changes four Markdown files and nothing else. `40d8ca4`
 changes one test file. So the coverage figures measured at `79ff795` still
@@ -48,18 +49,32 @@ config` appears nowhere in that job's 1,556-line log. The cause is that the
 > statements were true when written and are left standing above in the table,
 > reattributed to the commit each is actually a fact about, rather than deleted.
 
-**Nineteen of the twenty gates are `MET`. One is `PARTIAL`. None is
-`NOT MET`.** Gates 13 and 14 closed in the closeout cycle; gate 17 did not, and
-the reason is not code. A real workflow run exists and all eight of its jobs
-pass — and **nothing on GitHub requires them before a merge.** Configuring that
-needs write access to the repository's protection settings, which this session's
-outbound proxy refuses regardless of the token's permissions. See §5,
-`docs/BRANCH_PROTECTION.md` for the exact JSON, and
-`PHASE2_POST_CLOSEOUT_VERIFICATION.md` for the API responses recorded verbatim.
+**All twenty gates are `MET`. None is `PARTIAL`. None is `NOT MET`.** Gates 13
+and 14 closed in the closeout cycle. **Gate 17 closed on 2026-09-17**, when the
+repository owner applied the ruleset from `docs/BRANCH_PROTECTION.md` through
+the GitHub UI — the one action no identity available to this session could
+perform, and the reason the gate stood at `PARTIAL` for two cycles.
 
-Phase 2 therefore stays `PARTIAL`, the exit rule requires all twenty, and the
-one remaining item is an external configuration action rather than work in the
-tree.
+Both halves are now met and both were verified against GitHub rather than
+assumed: a real run, `35160752451`, eight jobs green on `main`; and four rules
+actually in force on `main`, requiring all eight check contexts with their em
+dashes intact, one approving review, conversation resolution, branches up to
+date, no force pushes, no deletions and no bypass actors.
+
+Two defects were caught during that verification and are recorded rather than
+smoothed over — the ruleset was at first protecting the wrong branch while
+reading `active`, and "require branches to be up to date" was off.
+`PHASE2_GATE17_CLOSURE_REPORT.md` has the API responses, the byte-for-byte
+context comparison and the reproducible commands.
+
+The exit rule requires all twenty gates, and all twenty are met. The external
+configuration action that blocked it is done.
+
+> **`HISTORICAL STATUS — SUPERSEDED`** — every earlier revision of this file
+> recorded Phase 2 as `PARTIAL` with gate 17 `PARTIAL — EXTERNAL CONFIGURATION
+REQUIRED`. Those statements were true when written and are left standing in
+> the cycle reports rather than rewritten. What changed is the repository, not
+> the account of it.
 
 This document is the single current-status record for Phase 2. Where it
 disagrees with any other file in this repository, this one is right and the
@@ -445,28 +460,28 @@ server.
 
 ## 5. The twenty completion gates
 
-| #   | Gate                                                                       | Status                                        | Evidence                                                                                                                                                                                                                                                                                                     |
-| --- | -------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | NF-06 fixed and proven                                                     | **MET**                                       | §4; `apps/api/tests/openapi-artifact.test.js`; the drift check is command 13 of §9                                                                                                                                                                                                                           |
-| 2   | Report inconsistencies reconciled                                          | **MET**                                       | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                                                                              |
-| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET**                                       | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; organiser UI `1b5e9b9`; moderation UI `2ef2172`                                                                                                                                                       |
-| 4   | GA and reserved inventory concurrency-safe                                 | **MET**                                       | 15 reserved-seat races (`reserved-seat-concurrency.test.js`); probes in `db:verify:fresh`; two load scenarios asserting against the database                                                                                                                                                                 |
-| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **MET**                                       | GA in `checkout-ledger.test.js`; **a reserved seat end to end** in `reserved-seat-checkout.test.js` — 17 properties of one purchase, across two price zones                                                                                                                                                  |
-| 6   | Provider calls outside database transactions                               | **MET**                                       | The three-phase boundary in checkout, refunds, payouts and reconciliation; `docs/PAYMENTS.md`                                                                                                                                                                                                                |
-| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **MET**                                       | `apps/api/src/lib/reconciliation.js`, 31 tests; a verdict is applied through the same domain commands, and `CONFLICT`/`UNKNOWN` resolve nothing                                                                                                                                                              |
-| 8   | Full and partial refunds, no over-refund                                   | **MET**                                       | `apps/api/src/lib/refunds.js`; 19 route tests, 28 arithmetic tests, **12 races against real PostgreSQL**; the ceiling is a CHECK                                                                                                                                                                             |
-| 9   | Dispute, transfer, payout state machines in mock mode                      | **MET**                                       | `apps/api/src/lib/payouts.js`; 27 finance tests and 17 covering the four webhook-path functions no route calls                                                                                                                                                                                               |
-| 10  | Every completed commerce action posts balanced protected ledger entries    | **MET**                                       | Nine batch kinds; `desi_ledger_batch_balance` and the two immutability triggers; `findImbalances` runs above the totals and after every load scenario                                                                                                                                                        |
-| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **MET**                                       | `apps/api/src/lib/tickets.js`; 34 lifecycle tests, **11 races**, a load scenario at sixteen concurrent scanners                                                                                                                                                                                              |
-| 12  | Notifications use an idempotent outbox                                     | **MET**                                       | `apps/worker/src/outbox/dispatcher.js` claims under a lease and sends; dedupe is a unique index; a load scenario asserts the outbox drains faster than it fills                                                                                                                                              |
-| 13  | Organizer and operations dashboards                                        | **MET**                                       | The four that were missing are built, tested and swept: organiser analytics (`/analytics`), the reconciliation item (`/operations/reconciliation/:id`), the refund (`/finance/refunds/:id`) and the ticket and its transfers (`/tickets/:id`, `/tickets/accept`). 26 behaviour cases against real rows; §5.2 |
-| 14  | Phase 2 UI passes accessibility and responsive tests                       | **MET**                                       | §6.2 — **42** browser cases, WCAG 2.1 A and AA, no rule disabled, ten screens × three viewports plus 200% zoom, reduced motion and keyboard-only. The scanner found one serious defect on the new screens and it is recorded before its fix                                                                  |
-| 15  | All 20 required E2E journeys pass                                          | **MET**                                       | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`                                                                                                         |
-| 16  | Load and reliability tests exist                                           | **MET**                                       | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                                                                                                                   |
-| 17  | CI enforces the Phase 2 gates                                              | **PARTIAL — EXTERNAL CONFIGURATION REQUIRED** | **8 jobs, all green**: run `35115541656` on `6eb6030`, and again run `35127103320` on the current HEAD `354e66f`, event `pull_request`, PR #1. Nothing on GitHub _requires_ them before a merge, and applying that is refused by this session’s proxy. See below                                             |
-| 18  | All required documentation complete                                        | **MET**                                       | §7 — every named document exists and describes implemented behaviour                                                                                                                                                                                                                                         |
-| 19  | Production payments technically disabled                                   | **MET**                                       | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                                                                                                            |
-| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET**                                       | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                                                                                                                  |
+| #   | Gate                                                                       | Status  | Evidence                                                                                                                                                                                                                                                                                                                          |
+| --- | -------------------------------------------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | NF-06 fixed and proven                                                     | **MET** | §4; `apps/api/tests/openapi-artifact.test.js`; the drift check is command 13 of §9                                                                                                                                                                                                                                                |
+| 2   | Report inconsistencies reconciled                                          | **MET** | §2; the 19-agent audit in `docs/ADVERSARIAL_REVIEW_FINDINGS.md`                                                                                                                                                                                                                                                                   |
+| 3   | Organizer verification, public routes, venues, venue maps, event lifecycle | **MET** | Verification `77b3040`; venues and maps `98dd142`…`71a3b8e`; lifecycle `8661bbf`; authoring `d1a2acf`; organiser UI `1b5e9b9`; moderation UI `2ef2172`                                                                                                                                                                            |
+| 4   | GA and reserved inventory concurrency-safe                                 | **MET** | 15 reserved-seat races (`reserved-seat-concurrency.test.js`); probes in `db:verify:fresh`; two load scenarios asserting against the database                                                                                                                                                                                      |
+| 5   | Attendee completes mock checkout through order, payment, ledger, tickets   | **MET** | GA in `checkout-ledger.test.js`; **a reserved seat end to end** in `reserved-seat-checkout.test.js` — 17 properties of one purchase, across two price zones                                                                                                                                                                       |
+| 6   | Provider calls outside database transactions                               | **MET** | The three-phase boundary in checkout, refunds, payouts and reconciliation; `docs/PAYMENTS.md`                                                                                                                                                                                                                                     |
+| 7   | Timeouts enter durable reconciliation and can be resolved safely           | **MET** | `apps/api/src/lib/reconciliation.js`, 31 tests; a verdict is applied through the same domain commands, and `CONFLICT`/`UNKNOWN` resolve nothing                                                                                                                                                                                   |
+| 8   | Full and partial refunds, no over-refund                                   | **MET** | `apps/api/src/lib/refunds.js`; 19 route tests, 28 arithmetic tests, **12 races against real PostgreSQL**; the ceiling is a CHECK                                                                                                                                                                                                  |
+| 9   | Dispute, transfer, payout state machines in mock mode                      | **MET** | `apps/api/src/lib/payouts.js`; 27 finance tests and 17 covering the four webhook-path functions no route calls                                                                                                                                                                                                                    |
+| 10  | Every completed commerce action posts balanced protected ledger entries    | **MET** | Nine batch kinds; `desi_ledger_batch_balance` and the two immutability triggers; `findImbalances` runs above the totals and after every load scenario                                                                                                                                                                             |
+| 11  | Ticket transfer, revocation, check-in concurrency-safe                     | **MET** | `apps/api/src/lib/tickets.js`; 34 lifecycle tests, **11 races**, a load scenario at sixteen concurrent scanners                                                                                                                                                                                                                   |
+| 12  | Notifications use an idempotent outbox                                     | **MET** | `apps/worker/src/outbox/dispatcher.js` claims under a lease and sends; dedupe is a unique index; a load scenario asserts the outbox drains faster than it fills                                                                                                                                                                   |
+| 13  | Organizer and operations dashboards                                        | **MET** | The four that were missing are built, tested and swept: organiser analytics (`/analytics`), the reconciliation item (`/operations/reconciliation/:id`), the refund (`/finance/refunds/:id`) and the ticket and its transfers (`/tickets/:id`, `/tickets/accept`). 26 behaviour cases against real rows; §5.2                      |
+| 14  | Phase 2 UI passes accessibility and responsive tests                       | **MET** | §6.2 — **42** browser cases, WCAG 2.1 A and AA, no rule disabled, ten screens × three viewports plus 200% zoom, reduced motion and keyboard-only. The scanner found one serious defect on the new screens and it is recorded before its fix                                                                                       |
+| 15  | All 20 required E2E journeys pass                                          | **MET** | §6 — nineteen walked in a browser; journey 11's required end state is unreachable by construction and its refusal is proven earlier and more strongly. §5.1 records why this returned from `PARTIAL`                                                                                                                              |
+| 16  | Load and reliability tests exist                                           | **MET** | `scripts/load/`; 11 scenarios, 4 profiles, 7 database-side invariants; `docs/LOAD_AND_CAPACITY.md` states plainly what it does not measure                                                                                                                                                                                        |
+| 17  | CI enforces the Phase 2 gates                                              | **MET** | **8 jobs, all green** on `main`: run `35160752451`, event `push`, commit `7f9c1c8`. **And required before a merge**: ruleset `23572317`, 4 rules in force on `main`, all 8 contexts, 1 approval, branches up to date, no force pushes, no deletions, no bypass. Verified 2026-09-17T01:07Z; see `PHASE2_GATE17_CLOSURE_REPORT.md` |
+| 18  | All required documentation complete                                        | **MET** | §7 — every named document exists and describes implemented behaviour                                                                                                                                                                                                                                                              |
+| 19  | Production payments technically disabled                                   | **MET** | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                                                                                                                                 |
+| 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET** | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                                                                                                                                       |
 
 **Nineteen met, one partial, none not met.** The revision before this said
 seventeen, three and none; the one before that said eight, six and six.
@@ -1119,8 +1134,8 @@ Recorded so it is not mistaken for work anybody here can finish:
 
 Phase 3 has not been started and should not be. The conditions, stated as tests:
 
-1. **Every gate in §5 is `MET`.** Nineteen are. One is `PARTIAL`, and its row
-   names what is missing and who can supply it.
+1. **Every gate in §5 is `MET`.** ✅ All twenty. Gate 17 closed on 2026-09-17
+   when the owner applied the ruleset; it is the last one that was outstanding.
 2. **A CI run exists.** ✅ Run `35115541656`, eight jobs, all green, on the
    commit §1 measures, and run `35127103320`, eight jobs, all green, on the
    current HEAD `354e66f`. **As of run `35117010156` there had been twelve runs
@@ -1130,7 +1145,12 @@ Phase 3 has not been started and should not be. The conditions, stated as tests:
    at the root rather than re-run; the third only after this file had
    misattributed it to a coverage threshold for several commits.
 3. **Branch protection is configured**, and the claim is made by somebody who
-   looked. **Still absent, measured.** This is the remaining prerequisite.
+   looked. ✅ **Present, measured** — not read from the ruleset list, which says
+   only what exists, but from `GET /rules/branches/main`, which says what is in
+   force: `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks`.
+   The distinction earned its keep: on first check the ruleset read `active`
+   while enforcing nothing on `main`, because the default branch had been
+   changed and the ruleset targets `~DEFAULT_BRANCH`.
 4. **The four missing screens exist and are swept.** ✅ All four, plus the
    invitation screen, at three widths, at 200% zoom, with motion reduced and by
    keyboard.
