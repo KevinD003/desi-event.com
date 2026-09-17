@@ -109,16 +109,65 @@ async function signIn(page, email) {
 }
 
 /**
+ * Wait until the generated stylesheet has actually applied.
+ *
+ * Every colour assertion in this file depends on this and cannot be trusted
+ * without it. `goto` resolving on `load` does not imply it: Tailwind v4 emits
+ * one stylesheet carrying both the `@theme` custom properties and the utilities
+ * built from them, and on a cold Turbopack compile that file can arrive after
+ * the markup. A page caught in that state renders the real text with its
+ * utilities unapplied, so axe walks up to the nearest painted ancestor for a
+ * background and reports a ratio near 1:1 between two tokens that cannot
+ * produce one.
+ *
+ * Reading `:root` for theme custom properties is a sound proxy rather than a
+ * guess, because the properties and the utilities are emitted into the same
+ * file: if `--color-indigo-night-100` resolves, the rule that defines
+ * `.bg-indigo-night-100` has been parsed too.
+ *
+ * **This cannot mask a real violation.** It waits for the stylesheet to apply
+ * and then scans the finished page. Colours that are genuinely wrong are still
+ * wrong once it has, and a stylesheet that never applies fails here instead of
+ * being reported as a contrast defect that does not exist.
+ *
+ * @param {object} page The page about to be scanned.
+ * @returns {Promise<void>} Resolves once colour is meaningful.
+ */
+async function styled(page) {
+  await page.waitForFunction(
+    () => {
+      const root = getComputedStyle(document.documentElement)
+      return (
+        root.getPropertyValue('--color-marigold-100').trim() !== '' &&
+        root.getPropertyValue('--color-indigo-night-100').trim() !== '' &&
+        root.getPropertyValue('--color-indigo-night-900').trim() !== ''
+      )
+    },
+    null,
+    { timeout: 30_000 },
+  )
+
+  // Fonts change metrics rather than colour, but a scan that begins mid-swap
+  // measures a layout that nothing will ever look like.
+  await page.evaluate(() => document.fonts.ready)
+}
+
+/**
  * Run the scanner and return whatever it found.
  *
  * No rule is disabled. The one exclusion is Next's development overlay, which
  * the framework injects into every page in `next dev` and which no deployment
  * ships — scanning it would report the framework's markup as the site's.
  *
+ * The scan waits for {@link styled} first, so every case in this file is
+ * ordered against the stylesheet rather than each remembering to be.
+ *
  * @param {object} page The page to scan.
  * @returns {Promise<object[]>} Violations, each with its rule id and nodes.
  */
 async function scan(page) {
+  await styled(page)
+
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .exclude('nextjs-portal')
@@ -216,16 +265,24 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     test(`the public event page is clean at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await page.goto(`/events/alpha-event-${seeded.tag}`)
-      // Wait for the page to be rendered before asking axe what colour anything
-      // is. `goto` resolves on `load`, which is not the same thing: on run
-      // 35157268740 this was the only one of the thirteen scans in this file
-      // that scanned without waiting, and it was the one that failed — axe
-      // measured a 1.13:1 contrast between `text-marigold-900` and
-      // `bg-marigold-100`, two tokens that cannot produce that ratio once the
-      // stylesheet has applied. The route was on its first Turbopack compile
-      // (2.0s) in that job and is warm locally, which is why it passes here and
-      // failed there. Waiting cannot hide a real violation: the scan still runs
-      // over the finished page, so genuinely wrong colours still fail.
+      // This case has failed this way twice, and the first fix was not enough.
+      //
+      // Run 35157268740: it was the only one of the thirteen scans here that
+      // scanned without waiting, and axe measured 1.13:1 between
+      // `text-marigold-900` and `bg-marigold-100` — two tokens that cannot
+      // produce that ratio once the stylesheet has applied. The wait below was
+      // added, and it was the wrong wait.
+      //
+      // Run 35175112378, on `main`, on a tree byte-identical to one that had
+      // passed minutes earlier: the same failure, now four nodes, with `h1`
+      // reported as `#dfd5cc` on `#fff6e0` and `.bg-indigo-night-100` measured
+      // as a cream that token is not. A heading being *visible* says nothing
+      // about whether its utilities have been parsed; an element renders and
+      // paints before the stylesheet that colours it arrives. The real gate is
+      // in {@link styled}, which `scan` now awaits for every case.
+      //
+      // This assertion stays because the page genuinely must have its heading
+      // before a scan means anything.
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 
       const violations = await scan(page)

@@ -298,11 +298,92 @@ node scripts/check-ci-invariants.mjs
 
 ### Recorded after the fact
 
-The commit carrying this report, and the run that tested it, are appended here
-once they exist — a file cannot contain its own hash.
+A file cannot contain its own hash, so these are written by the commit after
+the one they describe.
 
-- Commit introducing this report: `<recorded in the follow-up commit>`
-- Run on that commit: `<recorded in the follow-up commit>`
+| Fact                              | Value                                                           |
+| --------------------------------- | --------------------------------------------------------------- |
+| Commit introducing this report    | `1432b8b`                                                       |
+| Run on it                         | `35169936261` — 8 jobs, all `success`                           |
+| Commit correcting it under review | `29bcdc4` — see §15                                             |
+| Run on it                         | `35173475877` — 8 jobs, all `success`                           |
+| Merged to `main` as               | `2801184`, pull request #2, 2026-09-17T02:37:16Z by `KevinD003` |
+| Run on the merge commit           | `35175112378` — **`failure`**, 7 of 8 jobs `success`; see §16   |
+
+**How it merged, recorded because the protection blocked it.** Limitation 7 in
+§13 is not hypothetical. Pull request #2 could not be approved by anybody, so
+the repository owner set the ruleset's `required_approving_review_count` from
+`1` to `0` at `02:30:43Z`, merged at `02:37:16Z`, and restored it to `1` at
+`02:41:29Z` — a window of about eleven minutes.
+
+The live ruleset was read before the change and after the restoration and the
+two were compared field by field. The only difference is `updated_at`, which
+GitHub sets itself; `enforcement`, `bypass_actors`, `strict`, all eight
+contexts, dismiss-stale and conversation-resolution are byte-identical. The
+`required_status_checks` rule stayed in force for the whole window, so the merge
+was still gated on eight green checks — what was relaxed was the review
+requirement alone, and only that.
+
+## 16. The run on `main` failed, and what that proved
+
+`35175112378`, the `push` run on merge commit `2801184`, ended `failure`. Seven
+of its eight jobs passed; `Browser — accessibility sweep` did not.
+
+**It is not a content regression.** `2801184` and `29bcdc4` have the same tree —
+`06eb57dca04b94f287614c33a5d8ebe98be41d89` both — so the code that failed here
+is byte-for-byte the code that passed as `35173475877` minutes earlier.
+
+**It is not a flake either, and calling it one would have been wrong.** The
+failing case is `the public event page is clean at phone`, and axe reported four
+`color-contrast` violations with foreground colours of `#ebd9c2`, `#dfd5cc` and
+`#e0dbcb` — pale creams, on elements whose classes are `text-marigold-900`,
+`text-indigo-night-900` and `text-slate-700`. A badge marked
+`bg-indigo-night-100` measured its background as `#fbf3e4`; that token is
+`oklch(0.924 0.035 286.5)`, a pale blue, and cannot be a cream. Axe was reading
+a page whose utilities had not been applied, and falling through to the nearest
+painted ancestor for a background.
+
+This exact failure had happened once before, on run `35157268740`, and the fix
+then — waiting for the `h1` to be visible — was the wrong wait. An element
+renders and paints before the stylesheet that colours it arrives; visibility
+says nothing about whether its utilities have been parsed. Tailwind v4 emits the
+`@theme` custom properties and the utilities built from them into one
+stylesheet, and on a cold Turbopack compile that file can land after the markup.
+
+Fixed at the root in `apps/web/e2e/accessibility-sweep.spec.js`: `scan()` now
+awaits a `styled()` gate that waits for the theme custom properties to resolve
+on `:root` before axe runs, so all thirteen scans in the file are ordered
+against the stylesheet rather than each remembering to be. **No rule is
+disabled, no test is skipped, and no threshold is moved.** The gate cannot mask
+a violation — it waits for the stylesheet and then scans the finished page, and
+a stylesheet that never applies now fails as a timeout rather than as a contrast
+defect that does not exist.
+
+The gate was verified in a real Chromium against the predicate text extracted
+from the spec file itself: it blocks on an unstyled page, blocks on a partially
+applied theme, and resolves 1009 ms after a late stylesheet is injected. The
+full sweep needs PostgreSQL, Redis and a Next server and could not be run here;
+CI is the first place the whole case runs.
+
+### What the failure proved
+
+Every green run skips the eight `if: failure()` artefact uploads, so no green
+run has ever exercised them. This report and its predecessors therefore refused
+to claim that artefact uploading works end to end. **This failure ran that path,
+and it succeeded:**
+
+```
+Artifact playwright-accessibility sweep has been successfully uploaded!
+Final size is 118109 bytes. Artifact ID is 10478283065
+```
+
+That also settles the artefact-name defect fixed earlier in this cycle. The name
+resolved to `playwright-accessibility sweep` — from `matrix.suite.name` — which
+contains a space and no colon. The earlier `matrix.suite.script` would have
+produced `playwright-test:e2e:sweep`, and `actions/upload-artifact` rejects a
+colon outright, discarding the very report that explains the failure. The upload
+path is now proven by execution rather than by reading, on the first occasion it
+has ever been reached.
 
 ## 15. Defects this review caught in the record itself
 
