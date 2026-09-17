@@ -109,43 +109,83 @@ async function signIn(page, email) {
 }
 
 /**
- * Wait until the generated stylesheet has actually applied.
+ * Wait until every entrance animation has finished.
  *
- * Every colour assertion in this file depends on this and cannot be trusted
- * without it. `goto` resolving on `load` does not imply it: Tailwind v4 emits
- * one stylesheet carrying both the `@theme` custom properties and the utilities
- * built from them, and on a cold Turbopack compile that file can arrive after
- * the markup. A page caught in that state renders the real text with its
- * utilities unapplied, so axe walks up to the nearest painted ancestor for a
- * background and reports a ratio near 1:1 between two tokens that cannot
- * produce one.
+ * This is the gate the colour assertions in this file depend on, and two
+ * earlier attempts at it were wrong in instructive ways.
  *
- * Reading `:root` for theme custom properties is a sound proxy rather than a
- * guess, because the properties and the utilities are emitted into the same
- * file: if `--color-indigo-night-100` resolves, the rule that defines
- * `.bg-indigo-night-100` has been parsed too.
+ * The site animates through `components/motion.jsx`, which wraps content in
+ * Framer Motion elements that start at `opacity: 0` and fade to `1`. Axe reads
+ * `getComputedStyle().color` and blends it through ancestor opacity, so a scan
+ * that lands mid-fade measures text at a fraction of its real colour against a
+ * background that is already correct — which is exactly what the failures
+ * showed: `text-marigold-900` reported as `#efdfc9`, a ratio of 1.2 against a
+ * `bg-marigold-100` that had resolved perfectly.
  *
- * **This cannot mask a real violation.** It waits for the stylesheet to apply
- * and then scans the finished page. Colours that are genuinely wrong are still
- * wrong once it has, and a stylesheet that never applies fails here instead of
- * being reported as a contrast defect that does not exist.
+ * Two hypotheses were tried and neither held. Waiting for the `h1` to be
+ * visible (run `35157268740`) fails because an element is visible at
+ * `opacity: 0`. Waiting for the theme custom properties to resolve on `:root`
+ * (run `35175112378`) fails because the stylesheet was never the problem — the
+ * tokens were present and correct the whole time. Both were diagnosed from a
+ * log; this one was diagnosed from a reproduction, by dumping the computed
+ * style chain and finding `DIV.mt-6` — the `FadeIn` at `events/[slug]/page.jsx`
+ * — sitting at `opacity: 0` with the `h1` beneath it.
+ *
+ * `RevealOnScroll` uses `whileInView`, so content below the fold stays faded
+ * out until it is scrolled to. The page is therefore walked top to bottom
+ * first: a scan of a page whose lower half is still invisible is not a scan of
+ * that page. Every animated element carries `data-motion`, which
+ * `motion.jsx` documents as load-bearing rather than decorative, so it is a
+ * contract this file may rely on.
+ *
+ * **This cannot mask a violation.** It waits for the resting state and then
+ * scans it, and the resting state is the one a reader actually reads. Colours
+ * that are wrong at rest are still wrong once the fade has finished.
  *
  * @param {object} page The page about to be scanned.
- * @returns {Promise<void>} Resolves once colour is meaningful.
+ * @returns {Promise<void>} Resolves once the page has stopped moving.
  */
-async function styled(page) {
-  await page.waitForFunction(
-    () => {
-      const root = getComputedStyle(document.documentElement)
-      return (
-        root.getPropertyValue('--color-marigold-100').trim() !== '' &&
-        root.getPropertyValue('--color-indigo-night-100').trim() !== '' &&
-        root.getPropertyValue('--color-indigo-night-900').trim() !== ''
+async function settled(page) {
+  const deadline = Date.now() + 30_000
+
+  for (;;) {
+    // Scroll each unsettled element into view rather than sweeping the page
+    // once. A single pass is not enough: the first one runs before hydration
+    // has attached Framer Motion's IntersectionObservers, so it triggers
+    // nothing, and once the page scrolls back the sections below the fold
+    // never re-enter view. Measured on the public event page at 320x720 —
+    // four `RevealOnScroll` sections at 852, 1266, 1496 and 1674 stayed at
+    // `opacity: 0` through a full sweep. `viewport.once` means an element that
+    // has animated stays animated, so this converges.
+    const unsettled = await page.evaluate(async () => {
+      const pending = [...document.querySelectorAll('[data-motion]')].filter(
+        (element) => Number.parseFloat(getComputedStyle(element).opacity) < 1,
       )
-    },
-    null,
-    { timeout: 30_000 },
-  )
+
+      for (const element of pending) {
+        element.scrollIntoView({ block: 'center' })
+        await new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        })
+      }
+
+      return pending.length
+    })
+
+    if (unsettled === 0) break
+
+    if (Date.now() > deadline) {
+      throw new Error(
+        `${unsettled} [data-motion] element(s) never reached opacity 1. The scan ` +
+          'would have measured text blended through an unfinished entrance ' +
+          'animation, which is not a contrast defect — see the note on this helper.',
+      )
+    }
+
+    await page.waitForTimeout(250)
+  }
+
+  await page.evaluate(() => window.scrollTo(0, 0))
 
   // Fonts change metrics rather than colour, but a scan that begins mid-swap
   // measures a layout that nothing will ever look like.
@@ -159,14 +199,14 @@ async function styled(page) {
  * the framework injects into every page in `next dev` and which no deployment
  * ships — scanning it would report the framework's markup as the site's.
  *
- * The scan waits for {@link styled} first, so every case in this file is
- * ordered against the stylesheet rather than each remembering to be.
+ * The scan waits for {@link settled} first, so every case in this file is
+ * ordered against the finished page rather than each remembering to be.
  *
  * @param {object} page The page to scan.
  * @returns {Promise<object[]>} Violations, each with its rule id and nodes.
  */
 async function scan(page) {
-  await styled(page)
+  await settled(page)
 
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
@@ -265,21 +305,12 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     test(`the public event page is clean at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await page.goto(`/events/alpha-event-${seeded.tag}`)
-      // This case has failed this way twice, and the first fix was not enough.
-      //
-      // Run 35157268740: it was the only one of the thirteen scans here that
-      // scanned without waiting, and axe measured 1.13:1 between
-      // `text-marigold-900` and `bg-marigold-100` — two tokens that cannot
-      // produce that ratio once the stylesheet has applied. The wait below was
-      // added, and it was the wrong wait.
-      //
-      // Run 35175112378, on `main`, on a tree byte-identical to one that had
-      // passed minutes earlier: the same failure, now four nodes, with `h1`
-      // reported as `#dfd5cc` on `#fff6e0` and `.bg-indigo-night-100` measured
-      // as a cream that token is not. A heading being *visible* says nothing
-      // about whether its utilities have been parsed; an element renders and
-      // paints before the stylesheet that colours it arrives. The real gate is
-      // in {@link styled}, which `scan` now awaits for every case.
+      // This case has failed three times, and the first two fixes were wrong.
+      // The cause is not the stylesheet and never was: the page fades in from
+      // `opacity: 0` through `components/motion.jsx`, and a scan that lands
+      // mid-fade measures blended text. {@link settled} is the real gate, and
+      // `scan` awaits it for every case. Runs 35157268740, 35175112378 and
+      // 35176281573 are the three, in order.
       //
       // This assertion stays because the page genuinely must have its heading
       // before a scan means anything.

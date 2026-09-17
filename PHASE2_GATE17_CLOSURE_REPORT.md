@@ -324,67 +324,6 @@ contexts, dismiss-stale and conversation-resolution are byte-identical. The
 was still gated on eight green checks — what was relaxed was the review
 requirement alone, and only that.
 
-## 16. The run on `main` failed, and what that proved
-
-`35175112378`, the `push` run on merge commit `2801184`, ended `failure`. Seven
-of its eight jobs passed; `Browser — accessibility sweep` did not.
-
-**It is not a content regression.** `2801184` and `29bcdc4` have the same tree —
-`06eb57dca04b94f287614c33a5d8ebe98be41d89` both — so the code that failed here
-is byte-for-byte the code that passed as `35173475877` minutes earlier.
-
-**It is not a flake either, and calling it one would have been wrong.** The
-failing case is `the public event page is clean at phone`, and axe reported four
-`color-contrast` violations with foreground colours of `#ebd9c2`, `#dfd5cc` and
-`#e0dbcb` — pale creams, on elements whose classes are `text-marigold-900`,
-`text-indigo-night-900` and `text-slate-700`. A badge marked
-`bg-indigo-night-100` measured its background as `#fbf3e4`; that token is
-`oklch(0.924 0.035 286.5)`, a pale blue, and cannot be a cream. Axe was reading
-a page whose utilities had not been applied, and falling through to the nearest
-painted ancestor for a background.
-
-This exact failure had happened once before, on run `35157268740`, and the fix
-then — waiting for the `h1` to be visible — was the wrong wait. An element
-renders and paints before the stylesheet that colours it arrives; visibility
-says nothing about whether its utilities have been parsed. Tailwind v4 emits the
-`@theme` custom properties and the utilities built from them into one
-stylesheet, and on a cold Turbopack compile that file can land after the markup.
-
-Fixed at the root in `apps/web/e2e/accessibility-sweep.spec.js`: `scan()` now
-awaits a `styled()` gate that waits for the theme custom properties to resolve
-on `:root` before axe runs, so all thirteen scans in the file are ordered
-against the stylesheet rather than each remembering to be. **No rule is
-disabled, no test is skipped, and no threshold is moved.** The gate cannot mask
-a violation — it waits for the stylesheet and then scans the finished page, and
-a stylesheet that never applies now fails as a timeout rather than as a contrast
-defect that does not exist.
-
-The gate was verified in a real Chromium against the predicate text extracted
-from the spec file itself: it blocks on an unstyled page, blocks on a partially
-applied theme, and resolves 1009 ms after a late stylesheet is injected. The
-full sweep needs PostgreSQL, Redis and a Next server and could not be run here;
-CI is the first place the whole case runs.
-
-### What the failure proved
-
-Every green run skips the eight `if: failure()` artefact uploads, so no green
-run has ever exercised them. This report and its predecessors therefore refused
-to claim that artefact uploading works end to end. **This failure ran that path,
-and it succeeded:**
-
-```
-Artifact playwright-accessibility sweep has been successfully uploaded!
-Final size is 118109 bytes. Artifact ID is 10478283065
-```
-
-That also settles the artefact-name defect fixed earlier in this cycle. The name
-resolved to `playwright-accessibility sweep` — from `matrix.suite.name` — which
-contains a space and no colon. The earlier `matrix.suite.script` would have
-produced `playwright-test:e2e:sweep`, and `actions/upload-artifact` rejects a
-colon outright, discarding the very report that explains the failure. The upload
-path is now proven by execution rather than by reading, on the first occasion it
-has ever been reached.
-
 ## 15. Defects this review caught in the record itself
 
 Found by review of this pull request, before it merged, and fixed in it. None
@@ -432,3 +371,99 @@ are not commands at `910538b` carry their own provenance.
 **This report misdescribed its own branch.** §1 said "one commit ahead of
 `main`", measured at 01:14Z when `fd1c3de` was the tip. At the commit that
 carries the file the branch is two ahead. Corrected.
+
+## 16. The run on `main` failed, and the first two diagnoses were wrong
+
+`35175112378`, the `push` run on merge commit `2801184`, ended `failure`. Seven
+of its eight jobs passed; `Browser — accessibility sweep` did not. It failed
+again on `35176281573`. Recorded in full because the failure is less
+interesting than how long it took to read correctly.
+
+**It was never a content regression.** `2801184` and `29bcdc4` have the same
+tree — `06eb57dca04b94f287614c33a5d8ebe98be41d89` both — so the code that failed
+is byte-for-byte the code that had passed minutes earlier.
+
+**The cause is an entrance animation.** The site animates through
+`apps/web/src/components/motion.jsx`, which wraps content in Framer Motion
+elements that begin at `opacity: 0` and fade to `1`. Axe reads
+`getComputedStyle().color` and blends it through ancestor opacity, so a scan
+landing mid-fade measures text at a fraction of its real colour. The
+`<FadeIn className="mt-6">` at `apps/web/src/app/events/[slug]/page.jsx:255` is
+the specific ancestor; a dump of the computed style chain shows it plainly:
+
+```
+H1        color=lab(15.1 21.2 -35.7)  opacity=1
+DIV.mt-6  color=lab(7.79 1.82 -15.1)  opacity=0
+ARTICLE   opacity=1
+BODY      opacity=1
+```
+
+`RevealOnScroll` compounds it with `whileInView`: four sections at 852, 1266,
+1496 and 1674 pixels stay at `opacity: 0` until scrolled to, which is why
+`#schedule-heading` was among the reported nodes.
+
+**Two fixes were pushed before this one and neither worked.** Run
+`35157268740` was met by waiting for the `h1` to be visible, which fails because
+an element is visible at `opacity: 0`. Run `35175112378` was met by waiting for
+the theme custom properties to resolve on `:root`, which fails because the
+stylesheet was never the problem: the tokens were present and correct
+throughout, `indigo900` reading `lab(15.106% 21.1634 -35.6623)` with 63 rules
+parsed and fonts loaded. That second attempt only added delay, which moved the
+failure from the phone viewport to the tablet one and looked briefly like
+progress.
+
+**The evidence that should have settled it was in the first log.** Backgrounds
+resolved correctly while foregrounds came out pale — `bg-marigold-100` at
+`#fff5dc`, exactly right, with `text-marigold-900` at `#efdfc9`. An unapplied
+text utility inherits the body's dark ink and produces _high_ contrast, not a
+ratio of 1.2. Only blending can pull a foreground toward its background.
+
+**Both wrong diagnoses trace to one bad command.** A search for `opacity` across
+`apps/web/src` was run as
+`grep -rnE "opacity|animate|..." --include=*.js --include=*.css`. Eighty-seven
+of the files in that tree are `.jsx`. The search read no component at all,
+returned nothing, and the empty result was treated as evidence that the
+application contains no animations. It contains one on every page.
+
+**Fixed** in `apps/web/e2e/accessibility-sweep.spec.js`: `scan()` awaits a
+`settled()` gate that scrolls each unsettled `[data-motion]` element into view
+and repeats until none remain, then returns to the top. A single sweep of the
+page is not enough — the first pass runs before hydration has attached the
+IntersectionObservers, so it triggers nothing, and once the page scrolls back
+the sections below the fold never re-enter view. `viewport.once` means an
+element that has animated stays animated, so the loop converges. `motion.jsx`
+documents `data-motion` as load-bearing rather than decorative, so it is a
+contract a test may rely on. **No rule is disabled, no test is skipped and no
+threshold is moved**; the gate scans the resting state, which is the state a
+reader actually reads.
+
+**Verified by reproduction rather than by inference**, which is the difference
+between this attempt and the two before it. PostgreSQL 16 and Redis were started
+locally, migrations applied to a disposable database, and the suite run against
+the real stack. The failure reproduced exactly — tablet, 12 passed, 1 failed —
+and after the fix:
+
+```
+$ pnpm run test:e2e:sweep
+  42 passed (49.7s)
+```
+
+### What the failure proved
+
+Every green run skips the eight `if: failure()` artefact uploads, so no green
+run has ever exercised them. This report and its predecessors therefore refused
+to claim that artefact uploading works end to end. **This failure ran that path,
+and it succeeded:**
+
+```
+Artifact playwright-accessibility sweep has been successfully uploaded!
+Final size is 118109 bytes. Artifact ID is 10478283065
+```
+
+That also settles the artefact-name defect fixed earlier in this cycle. The name
+resolved to `playwright-accessibility sweep` — from `matrix.suite.name` — which
+contains a space and no colon. The earlier `matrix.suite.script` would have
+produced `playwright-test:e2e:sweep`, and `actions/upload-artifact` rejects a
+colon outright, discarding the very report that explains the failure. The upload
+path is now proven by execution rather than by reading, on the first occasion it
+has ever been reached.
