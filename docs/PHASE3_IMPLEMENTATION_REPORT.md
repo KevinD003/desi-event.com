@@ -146,6 +146,48 @@ one failure this change caused and fixed, one that could not be reproduced in
 four local runs and for which no mechanism connects it to this change. Neither
 is written off as a flake.
 
+## 3A. Phase 2 — privacy redaction service
+
+**COMPLETE** against the plan's §15 scope. The full record is
+`docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`; this is the spine entry.
+
+Built: a deterministic placeholder strategy derived from row ids, a redaction
+engine that runs in one transaction, hold and open-process evaluation, the
+request lifecycle (raise, confirm, execute, cancel) with a server-issued
+single-use confirmation and a server-minted idempotency key, seven privacy routes
+(two reads from Phase 1 plus five commands and two hold routes), and immutable
+audit evidence carrying no personal value.
+
+Not built, and excluded by the plan: UI, exports, the retention sweeper, Connect.
+
+**No migration.** Phase 1's schema needed no change, which is the strongest thing
+that can be said about it.
+
+**Three defects were found by an adversarial re-read after the implementation was
+green, and all three are fixed with regression tests:**
+
+1. A ticket invitation addressed to somebody who had no account yet was invisible
+   to the hold check. Redacting them would have stranded a paid ticket
+   permanently, acceptable to nobody.
+2. The scope preview counted fewer rows than the redaction wrote, so an operator
+   confirmed an irreversible action against a number that was too small.
+3. `NotificationOutbox.organizationId` had never been written by any writer since
+   the column was added, so the delivery-evidence scrub matched zero rows and
+   reported success.
+
+The third leaves a limitation: rows written before this change still carry a null
+organisation and cannot be reached by an organisation-scoped scrub. A backfill is
+possible and was not attempted.
+
+| Check               | Result                      |
+| ------------------- | --------------------------- |
+| `test`              | 19 tasks, 1,133 API cases   |
+| `db:verify:fresh`   | 96 of 96                    |
+| `db:verify:upgrade` | 24 of 24                    |
+| `apps/api` branches | 76.09 against a floor of 75 |
+
+---
+
 ## 4. Known conflicts between the authorised rules and the repository
 
 Named here as they are found, with the stronger control preserved.

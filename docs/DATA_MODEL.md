@@ -253,6 +253,35 @@ that no longer happens.
 | `ExportArtifactSubject` | Which people an export is known to contain                               |
 | `RetentionSweep`        | One run of the retention sweeper, including one that refused to run      |
 
+### The engine that fills these models — Phase 2, 2026-09-17
+
+The six models above described a shape. Since Phase 2 there is code that uses it,
+in `apps/api/src/lib/privacy-{placeholders,holds,redaction,requests}.js`, and the
+schema needed no change to carry it — no Phase 2 migration exists.
+
+The placeholder is `sha256(field + "\0" + rowId)` truncated to twelve hex
+characters. Derived from the row's own primary key, never from the value it
+replaces, and taking no secret and no clock: a re-run after a crash produces
+byte-identical rows, and `User.email`'s unique index is satisfied by construction
+rather than by checking afterwards.
+
+Columns replaced: `User.email`, `User.displayName`, `User.phone` (nulled),
+`Order.buyerEmail`, `Order.buyerName`, `Ticket.attendeeName`,
+`TicketTransfer.toEmail` on settled transfers, `WaitlistEntry.email`,
+`NotificationOutbox.recipient` and the personal keys of its payload on settled
+rows, and `Organization.contactEmail` / `Event.contactEmail` only where the
+stored address is the subject's own.
+
+Columns never touched: every amount, every status, every timestamp that is not a
+privacy timestamp, every ledger row, every credential digest, every foreign key.
+
+One correction to the record while this was built:
+**`NotificationOutbox.organizationId` had never been written by any writer** since
+the column was added in the Phase 2 commerce migration. All three call sites
+omitted it, so every outbox row carried a null organisation and an
+organisation-scoped scrub matched nothing. The writers now stamp it; rows written
+before that change still carry null and are unreachable without a backfill.
+
 ### Redaction is irreversible, and nothing stores a way back
 
 No original value, backup column, encrypted copy, reversal table or recoverable

@@ -25,7 +25,10 @@
 import { z } from 'zod'
 
 import {
+  privacyAuditResultSchema,
   privacyHoldDecisionSchema,
+  privacyHoldKindSchema,
+  privacyHoldStateSchema,
   privacyRequestReasonSchema,
   privacyRequestStateSchema,
 } from './enums.js'
@@ -68,6 +71,10 @@ export const privacyDataCategorySchema = z.enum(PRIVACY_DATA_CATEGORIES)
 export const privacyScopeEntrySchema = z.object({
   category: privacyDataCategorySchema,
   rows: z.int().min(0),
+  /// Why the count is what it is. A count of zero cannot distinguish "there was
+  /// nothing of this kind" from "this organisation may not touch it", and an
+  /// operator confirming an irreversible action is owed the difference.
+  status: z.enum(['REDACTED', 'NOTHING_TO_DO', 'ALREADY_REDACTED', 'OUT_OF_SCOPE', 'DEFERRED']),
 })
 
 /**
@@ -120,4 +127,147 @@ export const privacyRequestResponseSchema = z.object({
 export const privacyRequestListQuerySchema = paginationQuerySchema.extend({
   state: privacyRequestStateSchema.optional(),
   subjectId: cuidSchema.optional(),
+})
+
+/**
+ * Raising a redaction request.
+ *
+ * Two fields, and the shortness is the design. Everything else a redaction needs
+ * — which organisation, whether the caller may act there, whether a hold blocks
+ * it, which idempotency key, which policy revision, what the confirmation phrase
+ * is — is decided on the server. A request body that could carry any of them
+ * would be a request body that could lie about them.
+ *
+ * `subjectId` is a cuid rather than an address for the same reason the list
+ * filter is: accepting an address would turn this route into a way to ask
+ * whether a given person exists in the system.
+ */
+export const privacyRequestCreateSchema = z.object({
+  subjectId: cuidSchema,
+  reason: privacyRequestReasonSchema,
+})
+
+/**
+ * The confirmation the server issues when a request is raised.
+ *
+ * Returned exactly once, in the creation response. Only its digest is stored, so
+ * this is the only moment the phrase exists anywhere the operator can read it —
+ * re-fetching the request will not produce it again.
+ */
+export const privacyConfirmationSchema = z.object({
+  phrase: nonEmptyStringSchema,
+  expiresAt: timestampSchema,
+})
+
+/** `POST /v1/organizations/:id/privacy/requests`. */
+export const privacyRequestCreatedResponseSchema = z.object({
+  data: privacyRequestSchema,
+  confirmation: privacyConfirmationSchema,
+})
+
+/**
+ * Confirming a redaction.
+ *
+ * The phrase the server issued, typed back. Note what is absent: no `confirmed`
+ * boolean, no `force`, no `skipHolds`, no outcome. A redaction that could be
+ * triggered by a client-supplied flag would be a redaction an accidental request
+ * replay could perform.
+ */
+export const privacyRequestConfirmSchema = z.object({
+  confirmationPhrase: nonEmptyStringSchema,
+})
+
+/** Withdrawing a request before it executes. */
+export const privacyRequestCancelSchema = z.object({
+  reasonCode: z.enum(['NO_LONGER_REQUIRED', 'RAISED_IN_ERROR', 'SUPERSEDED']),
+})
+
+/**
+ * A hold, as an authorised operator sees it.
+ *
+ * `matterReference` points at the matter; it never describes it. An allegation,
+ * a counterparty's name or a summary of an investigation would all be personal
+ * data about somebody, recorded in the one place this subsystem exists to keep
+ * clean.
+ */
+export const privacyHoldSchema = z.object({
+  id: cuidSchema,
+  subjectId: cuidSchema,
+  kind: privacyHoldKindSchema,
+  state: privacyHoldStateSchema,
+  matterReference: nonEmptyStringSchema,
+  placedAt: timestampSchema,
+  expectedUntil: timestampSchema.nullable(),
+  releasedAt: timestampSchema.nullable(),
+  releaseReasonCode: nonEmptyStringSchema.nullable(),
+})
+
+/**
+ * Placing a hold.
+ *
+ * `matterReference` is bounded and required. An unbounded field here would be
+ * the obvious place for somebody to type the circumstances, and the
+ * circumstances are personal data about the person whose erasure is being
+ * blocked.
+ */
+export const privacyHoldCreateSchema = z.object({
+  subjectId: cuidSchema,
+  kind: privacyHoldKindSchema,
+  matterReference: z.string().trim().min(3).max(120),
+  expectedUntil: timestampSchema.nullable().optional(),
+})
+
+/** Lifting a hold. A code, never a sentence. */
+export const privacyHoldReleaseSchema = z.object({
+  releaseReasonCode: z.enum([
+    'MATTER_CLOSED',
+    'COUNSEL_INSTRUCTION',
+    'INVESTIGATION_CLOSED',
+    'PLACED_IN_ERROR',
+  ]),
+})
+
+/** `GET /v1/organizations/:id/privacy/holds`. */
+export const privacyHoldListResponseSchema = z.object({
+  data: z.array(privacyHoldSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `POST /v1/organizations/:id/privacy/holds` and the release action. */
+export const privacyHoldResponseSchema = z.object({ data: privacyHoldSchema })
+
+/** Filters for the hold list. */
+export const privacyHoldListQuerySchema = paginationQuerySchema.extend({
+  state: privacyHoldStateSchema.optional(),
+  subjectId: cuidSchema.optional(),
+})
+
+/**
+ * One entry in a request's evidence timeline.
+ *
+ * Every field is an opaque id, an enum, a closed-vocabulary code or a timestamp.
+ * `detail` carries counts and category names and nothing else — there is no
+ * before-value, no after-value, and no message. That is what makes the timeline
+ * safe to show to somebody investigating an incident about a person who has
+ * already been redacted.
+ */
+export const privacyAuditEventSchema = z.object({
+  id: cuidSchema,
+  action: nonEmptyStringSchema,
+  actorId: cuidSchema.nullable(),
+  targetId: cuidSchema,
+  targetType: nonEmptyStringSchema,
+  reasonCode: nonEmptyStringSchema,
+  holdDecision: privacyHoldDecisionSchema,
+  result: privacyAuditResultSchema,
+  policyVersion: nonEmptyStringSchema,
+  correlationId: nonEmptyStringSchema,
+  detail: z.record(z.string(), z.unknown()).nullable(),
+  occurredAt: timestampSchema,
+})
+
+/** `GET /v1/organizations/:id/privacy/requests/:requestId/events`. */
+export const privacyAuditEventListResponseSchema = z.object({
+  data: z.array(privacyAuditEventSchema),
+  pagination: paginationMetaSchema,
 })

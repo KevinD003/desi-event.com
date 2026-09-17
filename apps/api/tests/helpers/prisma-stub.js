@@ -1126,6 +1126,13 @@ export function createPrismaStub(seed = {}) {
           ...(model === 'webhookEvent' ? { receivedAt: now } : {}),
           ...(model === 'session' ? { lastSeenAt: now } : {}),
           ...(model === 'device' ? { firstSeenAt: now, lastSeenAt: now } : {}),
+          // `@default(now())` on a column that is not `createdAt`. Each of
+          // these was missing, and a missing one is not harmless: the column
+          // comes back `undefined`, the response schema refuses it, and the
+          // handler gets blamed for a gap in the double.
+          ...(model === 'privacyHold' ? { placedAt: now } : {}),
+          ...(model === 'privacyAuditEvent' ? { occurredAt: now, recordedAt: now } : {}),
+          ...(model === 'exportArtifact' ? { generatedAt: now } : {}),
           ...scalarData,
         }
 

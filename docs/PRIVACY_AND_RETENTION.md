@@ -308,3 +308,85 @@ rather than a theoretical one.
 data whenever the organiser is a sole trader. Redacting an organisation is a
 different problem with different financial constraints — `Transfer` and `Payout`
 both reference it with `onDelete: Restrict` — and Phase 3 does not attempt it.
+
+---
+
+## Phase 2: what is now implemented
+
+Added 2026-09-17, when the redaction service shipped. Everything above this line
+described a design; this section describes running code, and
+`docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` holds the evidence.
+
+### The placeholder
+
+`sha256(field + "\0" + rowId)` truncated to twelve hex characters, rendered as
+`redacted-<token>@redacted.invalid` for an address and `Redacted person <token>`
+for a name. It takes no secret and no clock, so re-running a redaction produces
+byte-identical rows. It never reads the value it replaces, so there is nothing to
+invert — and `.invalid` is reserved by RFC 2606, so a placeholder address can
+never resolve or be delivered to.
+
+**No original value, backup column, encrypted copy, reversal table or recoverable
+mapping is stored anywhere.**
+
+### What the engine touches
+
+`User.email`, `User.displayName`, `User.phone` (nulled), `Order.buyerEmail`,
+`Order.buyerName`, `Ticket.attendeeName`, `TicketTransfer.toEmail` on settled
+transfers, `WaitlistEntry.email`, `NotificationOutbox.recipient` and its payload
+on settled rows, and `Organization.contactEmail` / `Event.contactEmail` **only
+when the stored address is the subject's own**.
+
+That last narrowing is a deliberate departure from the matrix above. Read
+literally, the matrix would have an attendee's erasure request blank the
+organiser's public contact address and break their ability to be contacted about
+their own events. The implemented rule replaces those columns only where they
+hold personal data about the subject.
+
+### What it never touches
+
+Amounts, currency, tax, fees, discounts, order status, payment status, refund
+state, payout state, dispute state, reconciliation evidence, every ledger entry
+and batch, ticket status, ticket code, credential digest, seat assignment,
+check-in state, `dedupeKey`, and every foreign key.
+
+### Two scoping rules
+
+**Organisation-scoped data is redacted.** Orders, tickets, transfers, waitlist
+entries and notifications belonging to this organisation.
+
+**Account-wide data is redacted only when this organisation is the last one.**
+`User.email` serves every organisation a person deals with, so an organiser who
+could blank it would be erasing that person from organisations they hold no
+authority over. When another organisation still holds something, the category
+reports `OUT_OF_SCOPE` and the preview says so before the operator confirms.
+
+**A person who deals with two organisations therefore cannot have their account
+identity removed by either one alone.** Whether a platform-level path should
+exist for that is an owner decision, and no such path was built.
+
+### When a redaction refuses
+
+A legal hold or a fraud-investigation hold refuses it until somebody lifts the
+hold. An **open process** refuses it temporarily and lets the operator retry once
+the process settles: a pending ticket invitation, a refund still moving, an open
+dispute, an open reconciliation task, an unspent admission for an event that has
+not finished, or a message still waiting to go out.
+
+The pending-invitation case is the sharpest and is worth naming. Accepting a
+ticket invitation is authorised by comparing the signed-in address against the
+address the invitation was sent to. Redacting either side mid-flight makes the
+invitation unacceptable by anybody, including its rightful recipient, and the
+ticket is stranded until it lapses. Refusing costs the subject a wait; redacting
+anyway costs somebody a ticket they paid for.
+
+### What a subject can be told, and what they cannot
+
+They can be told that their identity has been replaced everywhere this
+organisation holds it, that the financial record of what they bought survives
+without their name on it, and that the replacement cannot be reversed.
+
+**They cannot be told the erasure is complete**, for as long as the historic
+`AuditLog` addresses described above remain. That is not a wording problem to be
+solved by better phrasing; it is a fact about the data, and it stays true until
+the owner takes one of the options in the section above.

@@ -313,7 +313,13 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
       const now = new Date()
       const toEmail = request.body.toEmail.toLowerCase()
 
-      const ticket = await prisma.ticket.findUnique({ where: { id: request.params.id } })
+      // The organisation comes along because the outbox row is stamped with it,
+      // so a later privacy redaction can find the message by the organisation
+      // that sent it rather than by reading its payload.
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: request.params.id },
+        include: { orderItem: { select: { order: { select: { event: true } } } } },
+      })
 
       if (!ticket) throw notFound('No such ticket.')
 
@@ -373,6 +379,11 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
             channel: 'EMAIL',
             recipient: toEmail,
             userId: outcome.transfer.toUserId ?? null,
+            // Stamped so a privacy redaction can find this row. Until now every
+            // outbox row carried `organizationId: null`, which made an
+            // organisation-scoped scrub of delivery evidence a no-op. Delivery
+            // is unaffected: the dispatcher never reads this column.
+            organizationId: ticket.orderItem?.order?.event?.organizationId ?? null,
             payload: {
               ticketId: ticket.id,
               transferId: outcome.transfer.id,

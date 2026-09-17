@@ -256,7 +256,7 @@ describe('GET /v1/organizations/:id/privacy/requests/:requestId', () => {
       organizationId: ids.organization.id,
       subjectUserId: ids.attendee.id,
       requestedById: ids.owner.id,
-      scope: [{ category: 'ACCOUNT_IDENTITY', rows: 1 }],
+      scope: [{ category: 'ACCOUNT_IDENTITY', rows: 1, status: 'REDACTED' }],
     })
 
     const token = await signIn(app, 'owner@rangoli.example')
@@ -274,7 +274,7 @@ describe('GET /v1/organizations/:id/privacy/requests/:requestId', () => {
       reason: 'SUBJECT_REQUEST',
       holdDecision: 'NOT_EVALUATED',
       policyVersion: POLICY_VERSION,
-      scope: [{ category: 'ACCOUNT_IDENTITY', rows: 1 }],
+      scope: [{ category: 'ACCOUNT_IDENTITY', rows: 1, status: 'REDACTED' }],
     })
 
     await app.close()

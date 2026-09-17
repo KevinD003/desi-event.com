@@ -489,6 +489,91 @@ async function probeConstraints(prisma) {
     ),
   )
 
+  // Phase 2 makes "withdrawn before execution" a promise the service keeps. This
+  // is the half the database keeps: once a personal field may already have been
+  // replaced, CANCELLED would claim nothing happened.
+  results.push(
+    await probe(
+      prisma,
+      'a redaction already in progress cannot be withdrawn',
+      /already processing/,
+      async (tx) => {
+        const created = await tx.privacyRequest.create({
+          data: {
+            ...request,
+            idempotencyKey: `probe-cancel-${Date.now()}`,
+            state: 'REQUESTED',
+            holdDecision: 'NONE_ACTIVE',
+          },
+        })
+
+        const confirmed = new Date()
+
+        await tx.privacyRequest.update({
+          where: { id: created.id },
+          data: { state: 'QUEUED', confirmedAt: confirmed },
+        })
+
+        await tx.privacyRequest.update({
+          where: { id: created.id },
+          data: { state: 'PROCESSING', startedAt: confirmed },
+        })
+
+        await tx.privacyRequest.update({
+          where: { id: created.id },
+          data: { state: 'CANCELLED', cancelledAt: new Date(), outcomeCode: 'WITHDRAWN' },
+        })
+      },
+    ),
+  )
+
+  // A hold that says it is released without saying who released it is a hold
+  // nobody can be asked about.
+  results.push(
+    await probe(prisma, 'a released hold must name who lifted it', /privacy_hold_release/, (tx) =>
+      tx.privacyHold.create({
+        data: {
+          organizationId: organization.id,
+          subjectUserId: user.id,
+          kind: 'LEGAL',
+          state: 'RELEASED',
+          matterReference: `probe-${Date.now()}`,
+          placedById: user.id,
+        },
+      }),
+    ),
+  )
+
+  // The redaction engine derives `User.email` placeholders from the row id, so
+  // two subjects can never collide. This proves the constraint that would catch
+  // it if a future derivation stopped being row-scoped.
+  results.push(
+    await probe(
+      prisma,
+      'two accounts cannot end up at the same redacted address',
+      /User_email_key|Unique constraint/,
+      async (tx) => {
+        const shared = `redacted-collision-${Date.now()}@redacted.invalid`
+
+        await tx.user.create({
+          data: {
+            email: shared,
+            passwordHash: 'x'.repeat(60),
+            displayName: 'Redacted person one',
+          },
+        })
+
+        await tx.user.create({
+          data: {
+            email: shared,
+            passwordHash: 'x'.repeat(60),
+            displayName: 'Redacted person two',
+          },
+        })
+      },
+    ),
+  )
+
   const auditEvent = {
     action: 'privacy.request_raised',
     organizationId: organization.id,
@@ -800,6 +885,8 @@ async function main() {
         'tests/reserved-seat-concurrency.test.js',
         'tests/refund-concurrency.test.js',
         'tests/ticket-concurrency.test.js',
+        'tests/privacy-redaction-integration.test.js',
+        'tests/privacy-lifecycle-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

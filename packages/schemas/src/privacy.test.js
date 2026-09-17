@@ -102,18 +102,58 @@ describe('the privacy vocabularies', () => {
 
 describe('privacyScopeEntrySchema', () => {
   it('accepts a category and a count', () => {
-    expect(privacyScopeEntrySchema.parse({ category: 'BUYER_IDENTITY', rows: 3 })).toEqual({
+    expect(
+      privacyScopeEntrySchema.parse({
+        category: 'BUYER_IDENTITY',
+        rows: 3,
+        status: 'REDACTED',
+      }),
+    ).toEqual({
       category: 'BUYER_IDENTITY',
       rows: 3,
+      status: 'REDACTED',
     })
   })
 
   it('refuses a negative or fractional count', () => {
     expect(
-      privacyScopeEntrySchema.safeParse({ category: 'BUYER_IDENTITY', rows: -1 }).success,
+      privacyScopeEntrySchema.safeParse({
+        category: 'BUYER_IDENTITY',
+        rows: -1,
+        status: 'REDACTED',
+      }).success,
     ).toBe(false)
     expect(
-      privacyScopeEntrySchema.safeParse({ category: 'BUYER_IDENTITY', rows: 1.5 }).success,
+      privacyScopeEntrySchema.safeParse({
+        category: 'BUYER_IDENTITY',
+        rows: 1.5,
+        status: 'REDACTED',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('requires a status, because a count of zero cannot say why', () => {
+    // "Nothing of this kind" and "this organisation may not touch it" are
+    // different answers, and an operator confirming an irreversible action is
+    // owed the difference. Zero rows with no status would conflate them.
+    expect(
+      privacyScopeEntrySchema.safeParse({ category: 'ACCOUNT_IDENTITY', rows: 0 }).success,
+    ).toBe(false)
+
+    expect(
+      privacyScopeEntrySchema.safeParse({
+        category: 'ACCOUNT_IDENTITY',
+        rows: 0,
+        status: 'OUT_OF_SCOPE',
+      }).success,
+    ).toBe(true)
+
+    expect(
+      privacyScopeEntrySchema.safeParse({
+        category: 'ACCOUNT_IDENTITY',
+        rows: 0,
+        status: 'INVENTED',
+      }).success,
     ).toBe(false)
   })
 
@@ -121,6 +161,7 @@ describe('privacyScopeEntrySchema', () => {
     const parsed = privacyScopeEntrySchema.parse({
       category: 'BUYER_IDENTITY',
       rows: 1,
+      status: 'REDACTED',
       sample: 'priya@example.com',
     })
 
@@ -154,10 +195,10 @@ describe('privacyRequestSchema', () => {
 
   it('carries scope as a list of category counts when there is one', () => {
     const parsed = privacyRequestSchema.parse(
-      request({ scope: [{ category: 'ACCOUNT_IDENTITY', rows: 1 }] }),
+      request({ scope: [{ category: 'ACCOUNT_IDENTITY', rows: 1, status: 'REDACTED' }] }),
     )
 
-    expect(parsed.scope).toEqual([{ category: 'ACCOUNT_IDENTITY', rows: 1 }])
+    expect(parsed.scope).toEqual([{ category: 'ACCOUNT_IDENTITY', rows: 1, status: 'REDACTED' }])
   })
 
   it('wraps a single request and a list in the shapes the routes return', () => {

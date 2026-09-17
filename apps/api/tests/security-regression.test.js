@@ -23,6 +23,8 @@
  * @module @desi-event/api/tests/security-regression
  */
 
+import { readFileSync, readdirSync } from 'node:fs'
+
 import { describe, expect, it } from 'vitest'
 
 import { apiRoutes } from '@desi-event/api-contract'
@@ -162,6 +164,137 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
       expect(route.capabilityScope, `${route.id} asserts privacy:redact unscoped`).toMatch(
         /^(params|query|body)\.[A-Za-z][A-Za-z0-9_]*$/,
       )
+    }
+  })
+
+  it('stamps every outbox row with the organisation that sent it', () => {
+    // Not a tidiness rule. `NotificationOutbox.organizationId` is what an
+    // organisation-scoped privacy redaction matches delivery evidence on, and
+    // the column sat nullable and unwritten from the Phase 2 commerce migration
+    // until Phase 3 — so a scrub of a person's delivery evidence matched zero
+    // rows while their address sat in `recipient`, and reported success. A new
+    // writer that forgets the column reopens exactly that hole, silently.
+    const root = new URL('../src/', import.meta.url)
+    const files = []
+
+    const walk = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const next = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir)
+
+        if (entry.isDirectory()) walk(next)
+        else if (entry.name.endsWith('.js')) files.push(next)
+      }
+    }
+
+    walk(root)
+
+    const offenders = []
+
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8')
+      const lines = source.split('\n')
+
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!/notificationOutbox\.(create|createMany|upsert)\b/.test(lines[index])) continue
+
+        // The call's own object literal, bounded generously; every writer in
+        // this repository closes well inside forty lines.
+        const block = lines.slice(index, index + 40).join('\n')
+
+        if (!/organizationId\s*:/.test(block)) {
+          offenders.push(`${file.pathname.split('/src/')[1]}:${index + 1}`)
+        }
+      }
+    }
+
+    expect(offenders, `outbox writers with no organisationId: ${offenders.join(', ')}`).toEqual([])
+  })
+
+  it('never accepts an authority-bearing field from a browser on the privacy surface', () => {
+    // `docs/PHASE3_IMPLEMENTATION_PLAN.md` §10 names the fields a browser must
+    // never be able to send. Each one is an answer the server has to produce:
+    // a caller-supplied organisation is a caller-supplied authority, a
+    // caller-supplied idempotency key is a caller-supplied replay, and a
+    // caller-supplied hold decision or outcome is a caller-supplied verdict on
+    // whether somebody's data may be destroyed.
+    const forbidden = [
+      'organizationId',
+      'actorId',
+      'capability',
+      'stepUp',
+      'idempotencyKey',
+      'outcome',
+      'outcomeCode',
+      'holdDecision',
+      'heldByHoldId',
+      'state',
+      'policyVersion',
+      'confirmationHash',
+      'correlationId',
+      'confirmed',
+      'force',
+      'skipHolds',
+    ]
+
+    for (const route of apiRoutes) {
+      if (!route.tags.includes('privacy')) continue
+      if (!route.body) continue
+
+      const keys = Object.keys(route.body.shape ?? {})
+
+      for (const key of keys) {
+        expect(forbidden, `${route.id} accepts "${key}" from the browser`).not.toContain(key)
+      }
+    }
+  })
+
+  it('never returns a personal value from the privacy surface', () => {
+    // The whole surface describes a subject by opaque id and the work by counts.
+    // A field named for a person's address or name would be one somebody later
+    // fills in, so the name is refused before the value can exist.
+    const personal =
+      /^(email|phone|address|displayName|buyerName|buyerEmail|attendeeName|toEmail|recipient|subjectEmail|subjectName|name)$/
+
+    const walk = (schema, path, routeId, seen) => {
+      if (!schema || seen.has(schema)) return
+
+      seen.add(schema)
+
+      const shape = schema.shape ?? schema._def?.shape
+      const resolved = typeof shape === 'function' ? shape() : shape
+
+      if (resolved) {
+        for (const [key, value] of Object.entries(resolved)) {
+          expect(
+            personal.test(key),
+            `${routeId} returns "${[...path, key].join('.')}", which names a person`,
+          ).toBe(false)
+
+          walk(value, [...path, key], routeId, seen)
+        }
+      }
+
+      const inner = schema._def?.innerType ?? schema._def?.type ?? schema._def?.element
+
+      if (inner && typeof inner === 'object') walk(inner, path, routeId, seen)
+    }
+
+    for (const route of apiRoutes) {
+      if (!route.tags.includes('privacy')) continue
+
+      walk(route.response, [], route.id, new Set())
+    }
+  })
+
+  it('gives every privacy command a body, so nothing destroys data on an empty POST', () => {
+    // A command with no body is a command a bare POST reaches. On this surface
+    // the body is where the confirmation phrase lives, and a route that did not
+    // require one would be a redaction without a confirmation.
+    for (const route of apiRoutes) {
+      if (!route.tags.includes('privacy')) continue
+      if (route.method === 'GET') continue
+
+      expect(route.body, `${route.id} destroys data without requiring a body`).toBeTruthy()
     }
   })
 

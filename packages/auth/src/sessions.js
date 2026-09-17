@@ -324,6 +324,16 @@ export const REVOCATION_REASONS = Object.freeze({
   ACCOUNT_SUSPENDED: 'account_suspended',
   ROTATED: 'rotated',
   ADMINISTRATIVE: 'administrative',
+  /**
+   * The account's personal data was redacted.
+   *
+   * Not in {@link REVOKE_ALL_REASONS}, and the omission is deliberate rather
+   * than an oversight: that list answers "must this event end the account's
+   * *other* sessions", and a redaction ends every one of them directly. Adding
+   * it there would change nothing about a redaction and would quietly widen what
+   * `revokesSiblings` promises for every other caller.
+   */
+  PRIVACY_REDACTION: 'privacy_redaction',
 })
 
 /**
