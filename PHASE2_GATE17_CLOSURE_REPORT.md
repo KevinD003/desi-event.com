@@ -215,29 +215,68 @@ application code was changed, in the cycle that closed this gate.
 
 ## 13. Remaining limitations
 
-These are unchanged by Gate 17 closing, and none of them is a gate.
+None of these is a gate, and none is changed by Gate 17 closing. Items marked
+**CURRENT** hold as of 2026-09-17T03:40Z; items marked **RESOLVED** are kept
+rather than deleted, because a limitation that was true and then stopped being
+true is part of the record.
 
-1. **Stripe is mock-only.** No credentials have ever been supplied, none were
-   requested as a blocker, and every real Stripe operation remains
-   **EXTERNAL VERIFICATION PENDING**. Production payments refuse the boot.
-2. **`apps/api` branch coverage sits `+0.83` points over its 75% floor** —
+**What Phase 2 completion does not mean.** Twenty of twenty gates are `MET` and
+`main` is green under enforced protection. That is a statement about the
+project's own defined exit criteria and nothing more. It is **not** a claim that
+this system is production-ready, and no document in this repository makes one.
+The gates measure the system against itself: no payment has ever been taken, no
+real provider has ever been called, no real traffic has ever reached it and no
+real user has ever used it. Those are not gate failures — they were never in
+scope for Phase 2 — but they are the distance between "the exit criteria are
+met" and "this is finished".
+
+1. **CURRENT — Stripe is mock-only; there has been no live-provider
+   verification.** No credentials have ever been supplied, none were requested
+   as a blocker, and every real Stripe operation remains
+   **EXTERNAL VERIFICATION PENDING**. Production payments refuse the boot. Every
+   payment, refund, transfer, payout and dispute path in this repository is
+   proven against a double with the real call shapes and against nothing else.
+2. **CURRENT — `apps/api` branch coverage sits `+0.83` points over its 75% floor** —
    75.83%, the thinnest margin in the repository. One new uncovered branch can
    turn CI red.
-3. **`test:e2e` still declares `dependsOn: ["^build"]` only**, so the class of
+3. **CURRENT — `test:e2e` still declares `dependsOn: ["^build"]` only**, so the class of
    race fixed in `79ff795` for `test` and `test:coverage` is structurally
    possible there. No failure has been traced to it.
-4. **`apps/web` and `packages/ui` do not use the shared coverage helper**, so
+4. **CURRENT — `apps/web` and `packages/ui` do not use the shared coverage helper**, so
    their figures are reported but enforce nothing; `packages/db` reports no
    coverage deliberately.
-5. **The `Apply branch protection` workflow has never succeeded.** Runs
-   `35160860535`, `35160953245` and `35161239974` all failed at
-   `Mint a short-lived App token` with `Invalid keyData` /
-   `ERR_OSSL_ASN1_NOT_ENOUGH_DATA` — a malformed PEM in `APP_PRIVATE_KEY`, not a
-   permission or proxy problem. The gate was closed through the GitHub UI
-   instead. The workflow and its preflight are left in place as the
-   reproducible route; the secret needs re-pasting before it will work.
+5. **CURRENT — branch-protection automation is unverified. The
+   `Apply branch protection` workflow has never succeeded.** All three runs —
+   `35160860535`, `35160953245`, `35161239974`, every one a
+   `workflow_dispatch` — failed at step 4, `Mint a short-lived App token`, and
+   the apply step was skipped in each.
 
-6. **The live ruleset has drifted from the approved payload in two fields that
+   The stack trace locates it exactly: `SubtleCrypto.importKey` inside
+   `githubAppJwt` inside `actions/create-github-app-token@v1`, raising
+   `error:0680008E:asn1 encoding routines::not enough data`
+   (`ERR_OSSL_ASN1_NOT_ENOUGH_DATA`), surfaced as `Invalid keyData`. That is a
+   **local key-parse failure**: it happens while the action is reading the
+   private key to sign a JWT, before any JWT exists and before any request is
+   sent to GitHub.
+
+   **What that proves, and what it does not.** It proves the value in
+   `APP_PRIVATE_KEY` is not parseable as supplied — most commonly a paste whose
+   newlines were lost or which omits the `BEGIN`/`END` delimiter lines. It
+   proves nothing at all about `APP_ID`, the App's installation on this
+   repository, its `administration` permission, the repository targeting, the
+   event trigger or the apply logic in `scripts/apply-branch-protection.mjs`:
+   execution never reached any of them, so each is **untested rather than
+   working**. A repaired key may therefore expose a second, different failure,
+   and this document does not predict that it will not.
+
+   Gate 17 was closed through the GitHub UI instead and verified against
+   `GET /rules/branches/main`, so the gate is genuinely met; what is missing is
+   the automated route to re-apply or re-verify it. **The workflow must not be
+   described as fixed until a dispatched run actually succeeds.** The credential
+   preflight added in `fd1c3de` has still never executed — all three runs
+   predate it — so its first real exercise will also be that run.
+
+6. **CURRENT — the live ruleset has drifted from the approved payload in two fields that
    are not contexts.** `docs/BRANCH_PROTECTION.md` carries
    `automatic_copilot_code_review_enabled: false`, which the live rule does not
    report; the live rule carries
@@ -249,7 +288,13 @@ These are unchanged by Gate 17 closing, and none of them is a gate.
    is a weakening, but the document and the live rule are no longer identical
    and this record should not imply they are.
 
-7. **No pull request can currently merge into `main`, including this one.** The
+7. **RESOLVED 2026-09-17 — no pull request could merge into `main`.**
+   Resolved by the repository owner adding a second collaborator,
+   `KWinOverAnything`, who approved pull request #3 on `c44bfa5`; it merged as
+   `6b8c7d2` with `required_approving_review_count` still `1` and the ruleset
+   untouched. That is the first merge in this sequence to pass through the
+   protection rather than around it. The account below is left as written,
+   because it was true when written. The
    ruleset requires one approving review; `bypass_actors` is empty and
    `current_user_can_bypass` is `"never"`; the repository has exactly one
    collaborator, `KevinD003`, `role_name: admin`; and this pull request's author
@@ -263,13 +308,22 @@ These are unchanged by Gate 17 closing, and none of them is a gate.
    temporary change to the review requirement. **No such change was made by this
    session.**
 
-8. **A second check suite sits on the head commit and has never reported.**
-   `GET /commits/<head>/check-suites` returns two: the `github-actions` suite
-   with the eight successful runs, and suite `95247531653` from app `1236702`
-   ("Claude"), `status: queued`, `conclusion: null`, zero check runs, created
-   `2026-09-17T01:16:26Z` and not updated since. It contributes no required
-   context and so blocks nothing, but "eight checks on this commit" is true of
-   check _runs_ and not of check _suites_.
+   For completeness, and because it is the less comfortable half of the record:
+   pull request #2 was merged earlier by a different route — the owner set
+   `required_approving_review_count` to `0` at `02:30:43Z`, merged at
+   `02:37:16Z`, and restored it to `1` at `02:41:29Z`. The eight required status
+   checks stayed in force throughout that window, and the ruleset was verified
+   byte-identical to its pre-change state afterwards except for `updated_at`.
+
+8. **CURRENT — a second check suite sits on the head commit and never
+   reports, and it recurs.** `GET /commits/<head>/check-suites` returns two on
+   every commit checked: the `github-actions` suite carrying the eight
+   successful runs, and one from app `1236702` ("Claude") with
+   `status: queued`, `conclusion: null` and zero check runs — suite
+   `95247531653` on `1432b8b`, and again suite `95269840860` on `6b8c7d2`. It
+   contributes no required context and so blocks nothing, but "eight checks on
+   this commit" is true of check _runs_ and not of check _suites_, and this is a
+   standing condition rather than a one-off.
 
 ## 14. Reproducible verification
 
@@ -309,6 +363,26 @@ the one they describe.
 | Run on it                         | `35173475877` — 8 jobs, all `success`                           |
 | Merged to `main` as               | `2801184`, pull request #2, 2026-09-17T02:37:16Z by `KevinD003` |
 | Run on the merge commit           | `35175112378` — **`failure`**, 7 of 8 jobs `success`; see §16   |
+| Fix for that failure              | `c44bfa5`, pull request #3, approved by `KWinOverAnything`      |
+| Merged to `main` as               | **`6b8c7d2`**, 2026-09-17T03:31Z, ruleset untouched             |
+| Run on that merge commit          | **`35178489515`** — **`success`**, 8 of 8 jobs                  |
+
+**Final verified state of `main`.** Measured 2026-09-17T03:40Z, from GitHub
+rather than from any document in this repository.
+
+| Fact                                   | Value                                                               |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| `main` tip                             | `6b8c7d2`, `protected: true`                                        |
+| Runs on that commit                    | exactly one — `35178489515`, workflow `CI`, event `push`, attempt 1 |
+| Conclusion                             | **`success`**                                                       |
+| Jobs                                   | **8 of 8 `success`**                                                |
+| Steps                                  | 137 `success`, 8 `skipped`, 0 other                                 |
+| Check runs on the commit, `filter=all` | 8, every one `success`                                              |
+| Legacy commit statuses                 | none — `total_count: 0`                                             |
+| Required contexts vs green contexts    | identical sets; nothing required is missing                         |
+
+The eight skipped steps are the `if: failure()` artefact uploads, one per job,
+as on every passing run. Nothing was re-run — `run_attempt` is `1`.
 
 **How it merged, recorded because the protection blocked it.** Limitation 7 in
 §13 is not hypothetical. Pull request #2 could not be approved by anybody, so
@@ -447,6 +521,12 @@ and after the fix:
 $ pnpm run test:e2e:sweep
   42 passed (49.7s)
 ```
+
+**And it held on CI.** `c44bfa5` went green on all eight checks, was approved by
+`KWinOverAnything` and merged as `6b8c7d2`. Run `35178489515` on that merge
+commit is `success`, 8 of 8 jobs, `Browser — accessibility sweep` among them.
+`main` was red from `2801184` at 02:37Z until `6b8c7d2` at 03:31Z — just under
+an hour, across three failed runs and two wrong diagnoses.
 
 ### What the failure proved
 
