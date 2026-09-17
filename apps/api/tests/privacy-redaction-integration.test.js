@@ -51,6 +51,9 @@ import {
   redactSubject,
   subjectBelongsElsewhere,
 } from '../src/lib/privacy-redaction.js'
+import { orderPaidBatch } from '@desi-event/ledger'
+
+import { postBatch } from '../src/lib/ledger.js'
 import { connectTestDatabase } from './helpers/database.js'
 
 /** Marks every row this suite creates, so nothing else can be mistaken for it. */
@@ -215,7 +218,25 @@ async function paidOrder({ graph, buyer, quantity = 1, ticketStatus = 'VALID' })
     )
   }
 
-  return { order, item, tickets }
+  // A paid order that posted no ledger batch is not a paid order, and an
+  // assertion about money that has no money to look at proves nothing. The first
+  // version of this fixture created none, so `financialFacts` had nothing of its
+  // own to count and counted the whole table instead — see its comment.
+  const { batch } = await postBatch(
+    prisma,
+    orderPaidBatch({
+      capturedCents: order.totalCents,
+      organizerNetCents: order.subtotalCents,
+      platformFeeCents: order.feesCents,
+      taxCents: order.taxCents,
+      currency: order.currency,
+      organizationId: graph.org.id,
+      reference,
+    }),
+    { sourceType: 'ORDER', sourceId: order.id, reference, orderId: order.id },
+  )
+
+  return { order, item, tickets, batch }
 }
 
 /**
@@ -226,7 +247,37 @@ async function paidOrder({ graph, buyer, quantity = 1, ticketStatus = 'VALID' })
  */
 async function financialFacts(order) {
   const row = await prisma.order.findUnique({ where: { id: order.id } })
-  const ledger = await prisma.ledgerEntry.aggregate({ _count: { _all: true } })
+
+  // Scoped to this order through `LedgerBatch.orderId`, which is a foreign key
+  // and therefore something no other suite can reach into.
+  //
+  // The first version counted the whole table — `ledgerEntry.aggregate({ _count:
+  // { _all: true } })` — which made this assertion a measurement of whatever
+  // else happened to be running. Vitest runs suites in parallel, so a neighbour
+  // posting a batch between the two snapshots moved the number: CI run
+  // `35248621822` on merged `main` failed here with 59 expected and 61 received.
+  // Worse than flaky, it was empty: this fixture posted no batch of its own, so
+  // every row it counted belonged to somebody else and none of them could ever
+  // have been changed by redacting this subject.
+  //
+  // The rows are compared, not tallied. A count cannot tell the difference
+  // between a row that was left alone and a row that was deleted while another
+  // appeared, and `memo` is the field §11 of the Phase 2 report names as the one
+  // a redaction can never reach — so it is read back rather than assumed.
+  const ledger = await prisma.ledgerEntry.findMany({
+    where: { batch: { orderId: order.id } },
+    orderBy: { id: 'asc' },
+    select: {
+      id: true,
+      batchId: true,
+      accountId: true,
+      direction: true,
+      amountCents: true,
+      currency: true,
+      memo: true,
+      organizationId: true,
+    },
+  })
 
   return {
     status: row.status,
@@ -239,7 +290,8 @@ async function financialFacts(order) {
     refundedCents: row.refundedCents,
     refundPendingCents: row.refundPendingCents,
     paidAt: row.paidAt?.toISOString() ?? null,
-    ledgerEntries: ledger._count._all,
+    ledgerEntries: ledger.length,
+    ledger,
   }
 }
 
@@ -281,6 +333,57 @@ when()('redacting a subject who belongs to one organisation', () => {
 
     expect(redactedTicket.attendeeName).not.toBe(originalName)
     expect(isRedactedValue(redactedTicket.attendeeName)).toBe(true)
+  })
+
+  it('is unmoved by a neighbouring order posting its own ledger batch', async () => {
+    // The regression for CI run `35248621822`. That failure was not a redaction
+    // defect: a parallel suite posted entries between the two snapshots and the
+    // whole-table count moved underneath an assertion that had no business
+    // reading it. This reproduces the interference deliberately and proves the
+    // scoped snapshot does not feel it.
+    const graph = await organisation({ past: true })
+    const subject = await person('neighbour-subject')
+
+    const { order } = await paidOrder({ graph, buyer: subject })
+    const before = await financialFacts(order)
+
+    expect(before.ledgerEntries).toBeGreaterThan(0)
+
+    const globalBefore = await prisma.ledgerEntry.count()
+
+    // Somebody else's money, in somebody else's organisation, posted between the
+    // two snapshots — exactly what a neighbouring suite does.
+    const otherGraph = await organisation({ past: true })
+    const otherBuyer = await person('neighbour-other')
+    const { order: otherOrder } = await paidOrder({ graph: otherGraph, buyer: otherBuyer })
+
+    const globalAfterNeighbour = await prisma.ledgerEntry.count()
+
+    // Without this, the test would pass for the wrong reason: it has to prove
+    // the interference actually happened before it can prove it was survived.
+    expect(globalAfterNeighbour).toBeGreaterThan(globalBefore)
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    expect(await financialFacts(order)).toEqual(before)
+
+    // And the neighbour is untouched by a redaction in an organisation that is
+    // not theirs — the tenant boundary, asserted on the money rather than on the
+    // identity columns.
+    const neighbour = await prisma.ledgerEntry.findMany({
+      where: { batch: { orderId: otherOrder.id } },
+      orderBy: { id: 'asc' },
+      select: { id: true, amountCents: true, memo: true },
+    })
+
+    expect(neighbour.length).toBeGreaterThan(0)
+    expect(neighbour.every((entry) => entry.amountCents > 0)).toBe(true)
   })
 
   it('leaves ticket status, code and credential untouched, so the door still works', async () => {
