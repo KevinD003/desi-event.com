@@ -28,6 +28,72 @@ calls either. A `ConnectedAccount` row reaches the database today only by
 seeding, and is kept current by the `account.updated` webhook handler. Payouts
 read it; no product surface creates it.
 
+## Current-status update — 2026-09-17
+
+The table and the paragraph above understate the gap in four places. Each is
+corrected here rather than edited above, and the direction of every error is the
+same: the document is **more** optimistic than the code.
+
+**No `ConnectedAccount` row reaches the database at all — not even by seeding.**
+There is no `create`, `upsert`, `createMany` or raw `INSERT` for that model
+anywhere in the repository. `packages/db/scripts/seed.mjs` upserts fourteen
+models and `connectedAccount` is not among them; none of the four end-to-end
+seeds touch it either. The only writers are two `updateMany` calls in
+`apps/api/src/lib/webhook-handlers.js`, and `updateMany` cannot create a row.
+The payout path's destination lookup is therefore permanently null in practice.
+
+**Transfers and disputes are not "mock mode" — they are unreachable in any
+mode.** Nothing creates a `Transfer` row at runtime (`transfer.create` appears
+only in a database constraint probe). `settleTransfer`, `reverseTransfer`,
+`openDispute` and `resolveDispute` in `apps/api/src/lib/payouts.js` are imported
+by exactly one file, their own unit test, whose header says plainly that no route
+calls them; `transfer.created` and the `charge.dispute.*` events are not
+dispatched anywhere in `apps/api/src`. **Payouts are the exception** and are
+genuinely reachable: `payouts.schedule`, `payouts.send` and `payouts.reverse` are
+real routes against the in-memory provider.
+
+**The webhook handling row says `Implemented` without a caveat, and should not.**
+The route exists and verifies signatures, but no handler runs in a deployment:
+dispatch happens only when `processInline` is true, which defaults to false and
+is set only by tests, and the out-of-band consumer does not exist. The Connect
+endpoint additionally refuses every delivery with a 400 unless the mode is
+`STRIPE_TEST` with a Connect signing secret, which is not part of the required
+credential set. No real Stripe webhook delivery has ever been verified.
+
+**The `account.application.deauthorized` behaviour described below is very
+likely inert.** That branch matches on `object.id ?? row.accountContext`, but for
+this event Stripe's `data.object` is the Application — its id is a `ca_…`, not
+the connected account — so `object.id` is truthy, the fallback never fires, and
+the `updateMany` matches nothing. Unlike the `account.updated` path it returns
+`processed` without checking the affected count, so the delivery is recorded as
+handled while nothing changed. It has no test coverage. **This is a code
+observation recorded here, not a fix**; nothing in this update changes behaviour.
+
+### The verification boundary, stated plainly
+
+Because the rows above say `Implemented` in several places, this is spelled out
+rather than left to inference:
+
+- **Stripe credentials have never been supplied to this project.** No
+  `sk_test_`, `pk_test_`, `whsec_` or live credential has been provided, and none
+  is present in anything this repository commits.
+- **No real Stripe or Stripe Connect API operation has ever been run** from this
+  code, in live mode or test mode. The sole `import('stripe')` sits in
+  `packages/providers/src/stripe.js` and is reached by no call site outside that
+  adapter's own tests, which inject a hand-written double.
+- **Payment mode is `MOCK`**, and production payment processing is **disabled**
+  by a boot-time kill switch that runs before the HTTP server is constructed.
+- **Real Stripe and real Stripe Connect remain `EXTERNAL VERIFICATION
+PENDING`.**
+- **An adapter method, a schema model, a state machine and a mocked flow are not
+  operational Connect onboarding.** Everything on this page was written and
+  tested against this project's own contracts, never against Stripe.
+- **The repository owner intends to provide Stripe access only at the final
+  external-verification stage**, after the mock-mode implementation, security,
+  testing, documentation and operational-readiness work is otherwise complete.
+- **This update claims no behaviour and no external verification.** It is a
+  documentation correction and nothing was executed to produce it.
+
 ---
 
 ## The charge model: destination charges
