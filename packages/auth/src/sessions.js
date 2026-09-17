@@ -121,6 +121,28 @@ export const STEP_UP_POLICIES = Object.freeze({
    * cancelling one means somebody is never told something they were promised.
    */
   OPERATIONS: 5 * 60 * 1000,
+  /**
+   * Irreversibly redacting a person's personal data.
+   *
+   * Two minutes, the shortest tier, alongside the credential and role policies
+   * — and for the same reason, taken further. Those actions are reversible: a
+   * factor can be re-enrolled, a role can be granted back. This one is not.
+   * There is no reversal path, no original value, no backup column and no
+   * recoverable mapping, by design, so a stale window would be authority to
+   * destroy something that cannot be restored.
+   *
+   * Two minutes is what an operator has while looking at the screen, which is
+   * the only circumstance in which this action should ever be taken.
+   *
+   * A window is not by itself sufficient here. Nothing consumes
+   * `mfaSatisfiedAt`, so one step-up authorises every call inside its window —
+   * see the note on {@link stepUpSatisfied}. A redaction therefore also
+   * requires a single-use, server-issued confirmation that is spent on one
+   * request, and a server-generated idempotency key. The step-up proves the
+   * person is still at the keyboard; the confirmation proves they meant this
+   * particular subject.
+   */
+  PRIVACY_ERASURE: 2 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */

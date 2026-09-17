@@ -76,6 +76,9 @@ import {
   orderWithItemsSchema,
   organizerSlugParamSchema,
   paginationMetaSchema,
+  privacyRequestListQuerySchema,
+  privacyRequestListResponseSchema,
+  privacyRequestResponseSchema,
   pauseSalesRequestSchema,
   paymentWebhookRequestSchema,
   postponeEventRequestSchema,
@@ -245,6 +248,11 @@ export const API_TAGS = Object.freeze([
   },
   { name: 'tickets', description: 'Door scanning and attendance.' },
   { name: 'waitlist', description: 'Waitlist sign-up for sold-out events.' },
+  {
+    name: 'privacy',
+    description:
+      'Redacting a person\u2019s personal data, and the record of having done it. Organisation-scoped and never platform-wide: one request names one subject inside one organisation. Redaction is irreversible \u2014 no reversal path, original value, encrypted copy or recoverable mapping is stored \u2014 so every command here needs the narrow `privacy:redact` capability, a step-up no older than two minutes, and a single-use confirmation the server issued. Nothing on this surface returns a value that was or will be redacted: a request is described by counts and categories, and the subject by an opaque id.',
+  },
 ])
 
 /**
@@ -339,6 +347,9 @@ const organizationIdParamSchema = z.object({ id: cuidSchema })
 
 /** Path parameters for the routes naming one membership or invitation within an organisation. */
 const memberParamSchema = z.object({ id: cuidSchema, memberId: cuidSchema })
+
+/** `/v1/organizations/:id/privacy/requests/:requestId`. */
+const privacyRequestParamSchema = z.object({ id: cuidSchema, requestId: cuidSchema })
 
 /** Path parameters for the routes keyed by a session id. */
 const sessionIdParamSchema = z.object({ id: cuidSchema })
@@ -934,6 +945,47 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
       ],
+    },
+    {
+      id: 'privacy.listRequests',
+      method: 'GET',
+      path: '/v1/organizations/:id/privacy/requests',
+      summary: 'List redaction requests',
+      description:
+        'Every redaction request raised inside this organisation, newest first, with its state, the reason code it was raised under, what the hold evaluation concluded and how much there was to redact. Requires `privacy:redact`, which is granted to the organisation owner alone: reading who has asked to be removed is part of the same decision as removing them. Filterable by state and by subject id \u2014 by id and never by address, because searching by e-mail would make this endpoint a way to confirm whether a named person is in the system, which is the question a redaction exists to stop answering. Carries no value that was or will be redacted, and no organisation but the caller\u2019s own: the organisation is read from the path and the capability is asserted against it, so another tenant\u2019s identifier answers 404 rather than 403.',
+      tags: ['privacy'],
+      auth: 'session',
+      capability: 'privacy:redact',
+      capabilityScope: 'params.id',
+      params: organizationIdParamSchema,
+      query: privacyRequestListQuerySchema,
+      body: null,
+      response: privacyRequestListResponseSchema,
+      successStatus: 200,
+      errors: [
+        API_ERRORS.validation,
+        API_ERRORS.unauthorized,
+        API_ERRORS.forbidden,
+        API_ERRORS.notFound,
+      ],
+    },
+    {
+      id: 'privacy.getRequest',
+      method: 'GET',
+      path: '/v1/organizations/:id/privacy/requests/:requestId',
+      summary: 'Read one redaction request',
+      description:
+        'One request in full: its state, its reason code, the hold decision, the policy revision it was evaluated against, the correlation id its audit events share, and the category counts it covers. Requires `privacy:redact` on the organisation named in the path. A request belonging to another organisation and a request that does not exist answer the same 404, deliberately: a caller must not be able to learn that an identifier is real by the shape of the refusal. Describes the subject by opaque id and the scope by counts \u2014 never by a name, an address, or the value of any field, before or after redaction.',
+      tags: ['privacy'],
+      auth: 'session',
+      capability: 'privacy:redact',
+      capabilityScope: 'params.id',
+      params: privacyRequestParamSchema,
+      query: null,
+      body: null,
+      response: privacyRequestResponseSchema,
+      successStatus: 200,
+      errors: [API_ERRORS.unauthorized, API_ERRORS.forbidden, API_ERRORS.notFound],
     },
     {
       id: 'organizers.get',

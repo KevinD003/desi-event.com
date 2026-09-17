@@ -26,6 +26,7 @@ export * from './venues.js'
 export * from './venue-maps.js'
 export * from './payments-wire.js'
 export * from './responses.js'
+export * from './privacy.js'
 
 // `env.js` and `jobs.js` are deliberately NOT re-exported here — finding NF-16.
 //

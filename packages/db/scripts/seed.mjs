@@ -2202,19 +2202,30 @@ export async function writeSeedData(prisma, data) {
     })
   }
 
+  // Audit rows are append-only at the database — `desi_audit_log_immutable`
+  // refuses an UPDATE — so re-seeding creates the ones that are missing and
+  // leaves the rest alone. It cannot be an upsert: the second run's update
+  // would be refused, and an audit row the seed could rewrite would be an audit
+  // row nothing else could be trusted not to rewrite either. The sample rows
+  // carry fixed ids and fixed content, so skipping them changes nothing.
   for (const log of data.auditLogs) {
-    const fields = {
-      actorId: userIdByEmail.get(log.actorEmail) ?? null,
-      action: log.action,
-      entityType: log.entityType,
-      entityId: log.entityId,
-      metadata: log.metadata,
-      createdAt: log.createdAt,
-    }
-    await prisma.auditLog.upsert({
+    const present = await prisma.auditLog.findUnique({
       where: { id: log.id },
-      update: fields,
-      create: { id: log.id, ...fields },
+      select: { id: true },
+    })
+
+    if (present) continue
+
+    await prisma.auditLog.create({
+      data: {
+        id: log.id,
+        actorId: userIdByEmail.get(log.actorEmail) ?? null,
+        action: log.action,
+        entityType: log.entityType,
+        entityId: log.entityId,
+        metadata: log.metadata,
+        createdAt: log.createdAt,
+      },
     })
   }
 

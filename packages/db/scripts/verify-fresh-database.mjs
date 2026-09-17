@@ -375,6 +375,261 @@ async function probeConstraints(prisma) {
     ),
   )
 
+  // ---------------------------------------------------------------------------
+  // Personal data: the invariants an irreversible redaction rests on.
+  //
+  // Each of these is a statement the application must not be trusted with,
+  // because getting it wrong destroys something that cannot be restored or
+  // rewrites the record of having destroyed it.
+  // ---------------------------------------------------------------------------
+
+  const request = {
+    organizationId: organization.id,
+    subjectUserId: user.id,
+    requestedById: user.id,
+    reason: 'SUBJECT_REQUEST',
+    confirmationHash: 'a'.repeat(64),
+    confirmationExpiresAt: new Date(Date.now() + 120_000),
+    policyVersion: 'probe',
+    correlationId: `probe-${Date.now()}`,
+  }
+
+  // The floor under the whole workstream. A request that reached execution
+  // without a hold evaluation would be a redaction performed without asking
+  // whether it was allowed.
+  results.push(
+    await probe(
+      prisma,
+      'a redaction may not be queued before its holds are evaluated',
+      /privacy_request_executes_only_when_clear/,
+      (tx) =>
+        tx.privacyRequest.create({
+          data: {
+            ...request,
+            idempotencyKey: `probe-unclear-${Date.now()}`,
+            state: 'QUEUED',
+            confirmedAt: new Date(),
+          },
+        }),
+    ),
+  )
+
+  // Two operators confirming the same screen would otherwise start two
+  // redactions of one person, and the second would find placeholders where it
+  // expected values.
+  results.push(
+    await probe(
+      prisma,
+      'one subject has at most one redaction in flight',
+      duplicateKey,
+      async (tx) => {
+        await tx.privacyRequest.create({
+          data: { ...request, idempotencyKey: `probe-first-${Date.now()}` },
+        })
+        await tx.privacyRequest.create({
+          data: { ...request, idempotencyKey: `probe-second-${Date.now()}` },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a terminal redaction request must say what happened',
+      /privacy_request_terminal_has_outcome/,
+      async (tx) => {
+        const created = await tx.privacyRequest.create({
+          data: { ...request, idempotencyKey: `probe-outcome-${Date.now()}` },
+        })
+
+        await tx.privacyRequest.update({
+          where: { id: created.id },
+          data: { state: 'CANCELLED', cancelledAt: new Date() },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a redaction request cannot skip from requested to processing',
+      /cannot move from REQUESTED to PROCESSING/,
+      async (tx) => {
+        const created = await tx.privacyRequest.create({
+          data: { ...request, idempotencyKey: `probe-skip-${Date.now()}` },
+        })
+
+        await tx.privacyRequest.update({
+          where: { id: created.id },
+          data: { state: 'PROCESSING', startedAt: new Date() },
+        })
+      },
+    ),
+  )
+
+  // An audit trail assembled by correlation id has to describe the request that
+  // actually ran, so what a request is about is fixed once the row exists.
+  results.push(
+    await probe(
+      prisma,
+      'a redaction request cannot change which person it is about',
+      /cannot change what it is about/,
+      async (tx) => {
+        const created = await tx.privacyRequest.create({
+          data: { ...request, idempotencyKey: `probe-identity-${Date.now()}` },
+        })
+
+        await tx.privacyRequest.update({
+          where: { id: created.id },
+          data: { policyVersion: 'rewritten' },
+        })
+      },
+    ),
+  )
+
+  const auditEvent = {
+    action: 'privacy.request_raised',
+    organizationId: organization.id,
+    targetId: user.id,
+    targetType: 'User',
+    policyVersion: 'probe',
+    reasonCode: 'SUBJECT_REQUEST',
+    holdDecision: 'NOT_EVALUATED',
+    result: 'REQUESTED',
+    correlationId: `probe-${Date.now()}`,
+  }
+
+  results.push(
+    await probe(
+      prisma,
+      'privacy audit evidence cannot be edited',
+      /privacy audit events are append-only/,
+      async (tx) => {
+        const created = await tx.privacyAuditEvent.create({ data: auditEvent })
+
+        await tx.privacyAuditEvent.update({
+          where: { id: created.id },
+          data: { action: 'privacy.nothing_happened' },
+        })
+      },
+    ),
+  )
+  results.push(
+    await probe(
+      prisma,
+      'privacy audit evidence cannot be deleted',
+      /privacy audit events are append-only/,
+      async (tx) => {
+        const created = await tx.privacyAuditEvent.create({ data: auditEvent })
+
+        await tx.privacyAuditEvent.delete({ where: { id: created.id } })
+      },
+    ),
+  )
+
+  // Until Phase 3 this was convention: `docs/DATA_MODEL.md` said audit rows
+  // could not be pruned selectively and nothing enforced it.
+  results.push(
+    await probe(
+      prisma,
+      'an audit row cannot be edited',
+      /audit rows are append-only/,
+      async (tx) => {
+        const created = await tx.auditLog.create({
+          data: { action: 'probe.written', entityType: 'User', entityId: user.id },
+        })
+
+        await tx.auditLog.update({ where: { id: created.id }, data: { action: 'probe.rewritten' } })
+      },
+    ),
+  )
+  results.push(
+    await probe(
+      prisma,
+      'an audit row cannot be deleted',
+      /audit rows are append-only/,
+      async (tx) => {
+        const created = await tx.auditLog.create({
+          data: { action: 'probe.written', entityType: 'User', entityId: user.id },
+        })
+
+        await tx.auditLog.delete({ where: { id: created.id } })
+      },
+    ),
+  )
+
+  // The consequence of audit immutability, stated as a probe rather than left
+  // to be discovered: a person who has acted cannot be deleted, because the
+  // actor foreign key's ON DELETE SET NULL is an UPDATE of their audit rows.
+  // Erasure in this system is redaction; the row survives it.
+  results.push(
+    await probe(
+      prisma,
+      'a person who has acted cannot be deleted, only redacted',
+      /audit rows are append-only/,
+      async (tx) => {
+        const actor = await tx.user.create({
+          data: {
+            email: `probe-delete-${Date.now()}@example.test`,
+            passwordHash: 'x',
+            displayName: 'Probe',
+          },
+        })
+
+        await tx.auditLog.create({
+          data: {
+            actorId: actor.id,
+            action: 'probe.acted',
+            entityType: 'User',
+            entityId: actor.id,
+          },
+        })
+        await tx.user.delete({ where: { id: actor.id } })
+      },
+    ),
+  )
+
+  // A rehearsal that reports changes is not a rehearsal.
+  results.push(
+    await probe(
+      prisma,
+      'a dry-run retention sweep cannot report having changed anything',
+      /retention_sweep_dry_run_changes_nothing/,
+      (tx) =>
+        tx.retentionSweep.create({
+          data: {
+            retentionClass: 'login_attempt',
+            mode: 'DRY_RUN',
+            olderThan: new Date(),
+            examinedCount: 10,
+            affectedCount: 5,
+          },
+        }),
+    ),
+  )
+
+  // A hold with no reference to the matter outside this system blocks a
+  // person's redaction indefinitely and gives nobody a way to resolve it.
+  results.push(
+    await probe(
+      prisma,
+      'a privacy hold must name the matter holding the data',
+      /privacy_hold_names_its_matter/,
+      (tx) =>
+        tx.privacyHold.create({
+          data: {
+            organizationId: organization.id,
+            subjectUserId: user.id,
+            kind: 'LEGAL',
+            matterReference: '   ',
+            placedById: user.id,
+          },
+        }),
+    ),
+  )
+
   return results.every(Boolean)
 }
 

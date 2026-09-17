@@ -452,6 +452,131 @@ export const PRIVATE_EVENT_STATUSES = Object.freeze(
 export const publicEventStatusSchema = z.enum([...PUBLIC_EVENT_STATUSES])
 
 // ---------------------------------------------------------------------------
+// Personal data
+//
+// Phase 3. Mirrors of the Prisma enums behind redaction, holds, exports and
+// retention. They live here with every other Prisma mirror so the drift guard
+// in `enums.test.js` covers them: an enum added to the database and forgotten
+// here fails that suite rather than surfacing as a 500 the first time somebody
+// asks to be removed.
+// ---------------------------------------------------------------------------
+
+/** Why a redaction was asked for. Closed, so nobody records circumstances. */
+export const PRIVACY_REQUEST_REASONS = Object.freeze([
+  'SUBJECT_REQUEST',
+  'ORGANIZER_REQUEST',
+  'RETENTION_POLICY',
+  'DATA_MINIMISATION',
+])
+
+/**
+ * Where a redaction request is in its lifecycle.
+ *
+ * `PROCESSING` and `FAILED_SAFE` are distinct from `COMPLETED` because a
+ * redaction that stopped halfway is the one case where a system must not round
+ * its answer.
+ */
+export const PRIVACY_REQUEST_STATES = Object.freeze([
+  'REQUESTED',
+  'QUEUED',
+  'PROCESSING',
+  'COMPLETED',
+  'HELD',
+  'FAILED_SAFE',
+  'CANCELLED',
+])
+
+/** What kind of matter is holding a subject's data in place. */
+export const PRIVACY_HOLD_KINDS = Object.freeze(['LEGAL', 'FRAUD_INVESTIGATION'])
+
+/** Whether a hold is still in force. Nothing expires one; a release is an act. */
+export const PRIVACY_HOLD_STATES = Object.freeze(['ACTIVE', 'RELEASED'])
+
+/**
+ * What the hold evaluation concluded.
+ *
+ * A caller learns that a legal hold is active, never what it is about.
+ */
+export const PRIVACY_HOLD_DECISIONS = Object.freeze([
+  'NOT_EVALUATED',
+  'NONE_ACTIVE',
+  'LEGAL_HOLD_ACTIVE',
+  'FRAUD_HOLD_ACTIVE',
+  'OPEN_PROCESS',
+])
+
+/** The outcome one privacy audit event records. */
+export const PRIVACY_AUDIT_RESULTS = Object.freeze([
+  'REQUESTED',
+  'CONFIRMED',
+  'REFUSED_HOLD',
+  'REFUSED_AUTHORIZATION',
+  'REFUSED_CONFLICT',
+  'STARTED',
+  'COMPLETED',
+  'FAILED_SAFE',
+  'CANCELLED',
+])
+
+/**
+ * Whether a generated export still exists.
+ *
+ * `DELETION_FAILED` is the one state here that waits for a human, so that a
+ * failed deletion is never reported as a deletion.
+ */
+export const EXPORT_ARTIFACT_STATES = Object.freeze([
+  'AVAILABLE',
+  'INVALIDATED',
+  'DELETED',
+  'DELETION_FAILED',
+])
+
+/** Whether a retention sweep was a rehearsal or the real thing. */
+export const RETENTION_SWEEP_MODES = Object.freeze(['DRY_RUN', 'EXECUTE'])
+
+/**
+ * Where a retention sweep got to.
+ *
+ * `SKIPPED_DISABLED` is recorded rather than silent, because a sweeper that
+ * quietly declined is indistinguishable from one that found nothing — and the
+ * difference is whether a retention policy is being enforced at all.
+ */
+export const RETENTION_SWEEP_STATES = Object.freeze([
+  'SCHEDULED',
+  'CLAIMED',
+  'COMPLETED',
+  'FAILED',
+  'SKIPPED_DISABLED',
+])
+
+/** `PRIVACY_REQUEST_REASONS` as a Zod enum. */
+export const privacyRequestReasonSchema = z.enum([...PRIVACY_REQUEST_REASONS])
+
+/** `PRIVACY_REQUEST_STATES` as a Zod enum. */
+export const privacyRequestStateSchema = z.enum([...PRIVACY_REQUEST_STATES])
+
+/** `PRIVACY_HOLD_KINDS` as a Zod enum. */
+export const privacyHoldKindSchema = z.enum([...PRIVACY_HOLD_KINDS])
+
+/** `PRIVACY_HOLD_STATES` as a Zod enum. */
+export const privacyHoldStateSchema = z.enum([...PRIVACY_HOLD_STATES])
+
+/** `PRIVACY_HOLD_DECISIONS` as a Zod enum. */
+export const privacyHoldDecisionSchema = z.enum([...PRIVACY_HOLD_DECISIONS])
+
+/** `PRIVACY_AUDIT_RESULTS` as a Zod enum. */
+export const privacyAuditResultSchema = z.enum([...PRIVACY_AUDIT_RESULTS])
+
+/** `EXPORT_ARTIFACT_STATES` as a Zod enum. */
+export const exportArtifactStateSchema = z.enum([...EXPORT_ARTIFACT_STATES])
+
+/** `RETENTION_SWEEP_MODES` as a Zod enum. */
+export const retentionSweepModeSchema = z.enum([...RETENTION_SWEEP_MODES])
+
+/** `RETENTION_SWEEP_STATES` as a Zod enum. */
+export const retentionSweepStateSchema = z.enum([...RETENTION_SWEEP_STATES])
+
+// ---------------------------------------------------------------------------
 // Operational enums
 //
 // Not Prisma enums, so the drift guard above does not cover them. They live

@@ -117,6 +117,54 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
     }
   })
 
+  it('demands the privacy policy on every privacy command', () => {
+    // A companion to the money-tag rule, and a narrower one. An irreversible
+    // redaction must not be gated by a five-minute finance window or a
+    // credential window that says it protects something else; there is exactly
+    // one policy for it, and a command on this surface that named another —
+    // or none — would be an authority nobody reviewed.
+    //
+    // Scoped to commands. A read does not destroy anything, and demanding a
+    // second factor to look at a list would train operators to keep one to
+    // hand, which is the opposite of what the control is for.
+    for (const route of apiRoutes) {
+      if (!route.tags.includes('privacy')) continue
+      if (route.method === 'GET') continue
+
+      expect(
+        route.stepUp,
+        `${route.id} destroys personal data under the ${route.stepUp ?? 'no'} policy`,
+      ).toBe('PRIVACY_ERASURE')
+    }
+  })
+
+  it('reserves the privacy policy for the privacy surface', () => {
+    // The other half of the same claim: a policy named for one thing must not
+    // quietly start gating another, or its name stops describing what it
+    // protects.
+    for (const route of apiRoutes) {
+      if (route.stepUp !== 'PRIVACY_ERASURE') continue
+
+      expect(
+        route.tags,
+        `${route.id} uses the privacy erasure policy without being a privacy route`,
+      ).toContain('privacy')
+    }
+  })
+
+  it('never lets a privacy route be asserted without an organisation', () => {
+    // `privacy:redact` is organisation-scoped. A route asserting it unscoped
+    // would refuse every organiser and pass every platform admin — finding
+    // NF-05 — which on this surface means redacting across tenants.
+    for (const route of apiRoutes) {
+      if (route.capability !== 'privacy:redact') continue
+
+      expect(route.capabilityScope, `${route.id} asserts privacy:redact unscoped`).toMatch(
+        /^(params|query|body)\.[A-Za-z][A-Za-z0-9_]*$/,
+      )
+    }
+  })
+
   it('applies the same window to the analytics money branch, in the handler', async () => {
     const { app, prisma, ids } = await createTestApp()
     const headers = await asOwner(app)

@@ -54,6 +54,14 @@ export const AUDIT_ACTIONS = Object.freeze({
   REFUND_TIMEOUT: 'refund.timeout',
   REFUND_CANCELLED: 'refund.cancelled',
   VERIFICATION_SUBMITTED: 'organization.verification_submitted',
+  // Read at apps/api/src/routes/organizers.js and absent from this map until
+  // Phase 3, so that call site passed `action: undefined` to a NOT NULL column.
+  // It has never failed in a test because the Prisma test double applies no
+  // required-column checks and no integration suite covers the decision route;
+  // against real PostgreSQL the whole moderation transaction would have rolled
+  // back. Added here rather than left for somebody to find at a moderator's
+  // desk.
+  VERIFICATION_DECIDED: 'organization.verification_decided',
   VENUE_CREATED: 'venue.created',
   VENUE_UPDATED: 'venue.updated',
   VENUE_MERGED: 'venue.merged',
@@ -61,6 +69,29 @@ export const AUDIT_ACTIONS = Object.freeze({
   VENUE_MAP_VERSION_CREATED: 'venueMap.version_created',
   VENUE_MAP_LAYOUT_WRITTEN: 'venueMap.layout_written',
   VENUE_MAP_PUBLISHED: 'venueMap.published',
+
+  // --- Personal data --------------------------------------------------------
+  //
+  // The privacy actions are also written to `PrivacyAuditEvent`, which carries
+  // them as columns rather than as free-form JSON and is immutable at the
+  // database. These rows exist so that the one audit surface an operator
+  // already reads does not go quiet about the most consequential action the
+  // system can take.
+  //
+  // Their metadata carries counts, category names, reason codes and opaque ids.
+  // Never a value, old or new; never an address; never a name.
+  PRIVACY_REQUEST_RAISED: 'privacy.request_raised',
+  PRIVACY_REQUEST_CONFIRMED: 'privacy.request_confirmed',
+  PRIVACY_REQUEST_REFUSED: 'privacy.request_refused',
+  PRIVACY_REQUEST_CANCELLED: 'privacy.request_cancelled',
+  PRIVACY_REDACTION_STARTED: 'privacy.redaction_started',
+  PRIVACY_REDACTION_COMPLETED: 'privacy.redaction_completed',
+  PRIVACY_REDACTION_FAILED_SAFE: 'privacy.redaction_failed_safe',
+  PRIVACY_HOLD_PLACED: 'privacy.hold_placed',
+  PRIVACY_HOLD_RELEASED: 'privacy.hold_released',
+  PRIVACY_EXPORT_INVALIDATED: 'privacy.export_invalidated',
+  PRIVACY_EXPORT_DELETED: 'privacy.export_deleted',
+  PRIVACY_RETENTION_SWEEP_RAN: 'privacy.retention_sweep_ran',
 })
 
 /**
@@ -79,6 +110,20 @@ export async function recordAudit(
   tx,
   { action, entityType, entityId, actorId = null, metadata = {} },
 ) {
+  // `AuditLog.action` is NOT NULL, so a missing action is a rolled-back
+  // transaction against real PostgreSQL and a silently stored row against the
+  // test double — which is how `AUDIT_ACTIONS.VERIFICATION_DECIDED` being
+  // undefined survived two phases. Failing here names the caller instead.
+  //
+  // Deliberately not a membership check against AUDIT_ACTIONS: around thirty
+  // call sites still pass a bare literal, and closing that vocabulary is a
+  // cross-cutting change rather than this one's job.
+  if (typeof action !== 'string' || action.trim() === '') {
+    throw new TypeError(
+      `An audit row needs an action; ${entityType ?? 'an entity'} ${entityId ?? ''} was given ${String(action)}. Add the name to AUDIT_ACTIONS.`,
+    )
+  }
+
   return tx.auditLog.create({
     data: {
       action,

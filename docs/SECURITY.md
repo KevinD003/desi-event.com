@@ -56,17 +56,23 @@ list fails CI on the day it is added.
 Ten named policies in `packages/auth/src/sessions.js`. A route names a policy;
 it never names a number.
 
-| Policy           | Window | For                                                 |
-| ---------------- | ------ | --------------------------------------------------- |
-| `CREDENTIAL`     | 2 min  | Removing a factor, regenerating recovery codes      |
-| `SECURITY_ROLE`  | 2 min  | Granting or removing a privileged role              |
-| `FINANCE_ACTION` | 5 min  | A refund; resolving a reconciliation task           |
-| `PAYOUT`         | 5 min  | A payout, or changing a payout destination          |
-| `EVENT_CANCEL`   | 5 min  | Cancelling or postponing a live event               |
-| `OPERATIONS`     | 5 min  | Acting on an operational work item                  |
-| `EVENT_PUBLISH`  | 10 min | Making a listing public and taking strangers' money |
-| `MODERATION`     | 10 min | Approving or rejecting somebody else's event        |
-| `FINANCE_VIEW`   | 15 min | Reading gross, fees, refunds and net                |
+(That count was wrong until Phase 3 — the table held nine, and this line said
+ten. Adding `PRIVACY_ERASURE` made the sentence accidentally correct, which is
+the sort of thing worth saying out loud rather than letting it quietly become
+true. Count from `STEP_UP_POLICIES`, not from here.)
+
+| Policy            | Window | For                                                 |
+| ----------------- | ------ | --------------------------------------------------- |
+| `CREDENTIAL`      | 2 min  | Removing a factor, regenerating recovery codes      |
+| `SECURITY_ROLE`   | 2 min  | Granting or removing a privileged role              |
+| `PRIVACY_ERASURE` | 2 min  | Irreversibly redacting a person's personal data     |
+| `FINANCE_ACTION`  | 5 min  | A refund; resolving a reconciliation task           |
+| `PAYOUT`          | 5 min  | A payout, or changing a payout destination          |
+| `EVENT_CANCEL`    | 5 min  | Cancelling or postponing a live event               |
+| `OPERATIONS`      | 5 min  | Acting on an operational work item                  |
+| `EVENT_PUBLISH`   | 10 min | Making a listing public and taking strangers' money |
+| `MODERATION`      | 10 min | Approving or rejecting somebody else's event        |
+| `FINANCE_VIEW`    | 15 min | Reading gross, fees, refunds and net                |
 
 Two properties are worth more than the numbers:
 
@@ -100,10 +106,20 @@ rather than a design.
 
 ## Authorization
 
-36 capabilities, derived from the caller's `Membership` role **in a named
+37 capabilities, derived from the caller's `Membership` role **in a named
 organisation**. Nothing is derived from a global role except the five
 platform-only capabilities, listed explicitly in
 `PLATFORM_ONLY_CAPABILITIES`.
+
+The thirty-seventh is `privacy:redact`, added in Phase 3 and granted to the
+organisation `OWNER` and to nobody else — the narrowest grant the table can
+express, because OWNER inherits ADMIN and so granting anywhere lower would hand
+it to a superset by inheritance. It is organisation-scoped rather than
+platform-only, so every route asserting it names an organisation, and a
+standing test in `packages/permissions/src/capabilities.test.js` asserts that
+exactly one organisation role holds it. Why it is not folded into
+`organization:manage` or `platform:admin`, and why a step-up window alone is not
+sufficient authority for it, are in `docs/PRIVACY_AND_RETENTION.md`.
 
 ### NF-05, and why it has a standing test
 
@@ -270,6 +286,25 @@ about.
 
 Rows name the actor, the entity, the previous state and the request id.
 Operator notes on reconciliation items **append**; they never replace.
+
+**`AuditLog` is append-only at the database**, from Phase 3.
+`desi_audit_log_immutable` refuses every `UPDATE` and `DELETE`. Until then the
+claim that audit rows could not be pruned selectively was a convention — no
+trigger, no constraint, no revoked grant — and a redaction implementation could
+have rewritten history with no failure and no trace, which is exactly the power
+an auditable redaction must not have.
+
+One consequence, stated rather than left to be discovered: the actor foreign key
+is `ON DELETE SET NULL`, so deleting a `User` is an `UPDATE` of every audit row
+that person produced, and is now refused. **A person who has acted cannot be
+deleted.** That is the design — erasure here is redaction, and the row survives
+it — and no route has ever deleted a user.
+
+`PrivacyAuditEvent` is a second, narrower audit table for the privacy surface,
+also append-only at the database and carrying its evidence as typed columns
+rather than as free-form JSON. It exists because `AuditLog` has no organisation
+column and no correlation column, so the questions privacy evidence must answer
+are not expressible against it.
 
 ---
 

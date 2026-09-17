@@ -95,6 +95,13 @@ model User {
   notificationPreferences NotificationPreference[]
   mediaUploaded MediaAsset[]
   reconciliationTasks ReconciliationTask[]
+  privacyRequestsAsSubject PrivacyRequest[] @relation("PrivacyRequestSubject")
+  privacyRequestsRaised PrivacyRequest[] @relation("PrivacyRequestRequestedBy")
+  privacyHoldsAsSubject PrivacyHold[] @relation("PrivacyHoldSubject")
+  privacyHoldsPlaced PrivacyHold[]    @relation("PrivacyHoldPlacedBy")
+  privacyHoldsReleased PrivacyHold[]  @relation("PrivacyHoldReleasedBy")
+  exportArtifactsRequested ExportArtifact[]
+  exportArtifactSubjects ExportArtifactSubject[]
 
   @@index([role])
   @@index([suspendedAt])
@@ -138,6 +145,9 @@ model Organization {
   transfers   Transfer[]
   payouts     Payout[]
   verificationHistory OrganizationVerificationEvent[]
+  privacyRequests PrivacyRequest[]
+  privacyHolds PrivacyHold[]
+  exportArtifacts ExportArtifact[]
 
   @@index([verified])
   @@index([verificationStatus])
@@ -2163,4 +2173,419 @@ model ReconciliationTask {
   @@index([providerRef])
   @@index([organizationId, state])
   @@index([refundId])
+}
+
+// ===========================================================================
+// Personal data: redaction, holds, retention, and the evidence of both
+//
+// Phase 3's foundation. Every model here exists because erasing a person from
+// this system cannot mean deleting their rows: an `Order` is the counterparty
+// of a `LedgerEntry` that must keep balancing, and a posted ledger batch is
+// immutable at the database. So erasure is redaction — the row, its id and
+// every financial reference survive, and the personal fields inside them are
+// replaced by deterministic placeholders derived from the row id.
+//
+// That makes redaction irreversible on purpose. Nothing here stores an original
+// value, an encrypted copy, a reversal path or a recoverable mapping, and the
+// absence is the point rather than an omission.
+//
+// Nothing in this section performs a redaction. These are the records the
+// service in Phase 2 writes, the holds it must respect, and the evidence it
+// leaves behind.
+// ===========================================================================
+
+/// Why a redaction was asked for.
+///
+/// A closed vocabulary rather than free text, because free text is where
+/// somebody writes the circumstances — and the circumstances are personal data
+/// about the very person the request exists to remove from the system.
+enum PrivacyRequestReason {
+  /// The data subject asked for their own personal data to be removed.
+  SUBJECT_REQUEST
+  /// The organisation asked on the subject's recorded instruction.
+  ORGANIZER_REQUEST
+  /// A retention policy reached its limit for this subject.
+  RETENTION_POLICY
+  /// Data that should never have been collected is being removed.
+  DATA_MINIMISATION
+}
+
+/// Where a redaction request is in its lifecycle.
+///
+/// The states exist to make "partly done" a thing the system can say out loud.
+/// A redaction that failed halfway is the one case where silence would be
+/// unforgivable, so PROCESSING and FAILED_SAFE are distinct from COMPLETED and
+/// from each other, and nothing reaches COMPLETED until every approved category
+/// has been written.
+enum PrivacyRequestState {
+  /// Raised by an authorised actor with a fresh step-up. Awaiting the
+  /// server-issued confirmation. Nothing has been read or written about the
+  /// subject's data yet beyond counting it.
+  REQUESTED
+  /// Confirmed and accepted for execution. Still nothing redacted.
+  QUEUED
+  /// Execution has begun. Some personal fields may already be placeholders.
+  PROCESSING
+  /// Every approved category was redacted. Terminal.
+  COMPLETED
+  /// Refused before anything was written, because a legal or fraud hold was
+  /// active or an open process needed the data. Terminal for this request; a
+  /// new one may be raised once the hold is released.
+  HELD
+  /// Stopped before or during execution, leaving the data in a consistent and
+  /// explainable state. Terminal. A retry is a new request, not a resumption,
+  /// unless the same idempotency key is presented.
+  FAILED_SAFE
+  /// Withdrawn before execution. Nothing was written. Terminal.
+  CANCELLED
+}
+
+/// What kind of matter is holding a subject's data in place.
+enum PrivacyHoldKind {
+  /// A legal obligation or instruction to preserve.
+  LEGAL
+  /// An open fraud or abuse investigation.
+  FRAUD_INVESTIGATION
+}
+
+/// Whether a hold is still in force.
+enum PrivacyHoldState {
+  ACTIVE
+  RELEASED
+}
+
+/// What the hold evaluation concluded, recorded on the request and on every
+/// audit event so the decision is reconstructable without re-running it.
+enum PrivacyHoldDecision {
+  /// Not yet evaluated. A request in this state must never execute.
+  NOT_EVALUATED
+  /// Evaluated, and nothing blocks the redaction.
+  NONE_ACTIVE
+  LEGAL_HOLD_ACTIVE
+  FRAUD_HOLD_ACTIVE
+  /// No hold row, but an open refund, dispute, payout, transfer, reconciliation
+  /// task or unspent admission still needs the data.
+  OPEN_PROCESS
+}
+
+/// The outcome an audit event records.
+enum PrivacyAuditResult {
+  /// The request was raised and authorised.
+  REQUESTED
+  /// The server-issued confirmation was accepted.
+  CONFIRMED
+  /// Refused because a hold or an open process blocked it.
+  REFUSED_HOLD
+  /// Refused by authorization: capability, organisation scope or step-up.
+  REFUSED_AUTHORIZATION
+  /// Refused because another request for the same subject was already in
+  /// flight, or the confirmation had lapsed or been spent.
+  REFUSED_CONFLICT
+  /// Execution began.
+  STARTED
+  /// Execution finished, with every approved category redacted.
+  COMPLETED
+  /// Execution stopped in a consistent state.
+  FAILED_SAFE
+  /// Withdrawn before execution.
+  CANCELLED
+}
+
+/// Whether a generated export still exists and may still be read.
+enum ExportArtifactState {
+  AVAILABLE
+  /// May no longer be served. The bytes may still exist.
+  INVALIDATED
+  /// The bytes are gone.
+  DELETED
+  /// Deletion was attempted and did not succeed. Waits for a human; it is not
+  /// silently retried forever and it is never reported as DELETED.
+  DELETION_FAILED
+}
+
+/// Whether a retention sweep was a rehearsal or the real thing.
+enum RetentionSweepMode {
+  /// Counts what it would touch and writes nothing.
+  DRY_RUN
+  EXECUTE
+}
+
+/// Where a retention sweep got to.
+enum RetentionSweepState {
+  SCHEDULED
+  CLAIMED
+  COMPLETED
+  FAILED
+  /// Refused to run because retention enforcement is not activated in this
+  /// environment. The default, and the only state a production sweep reaches
+  /// until a documented legal activation says otherwise.
+  SKIPPED_DISABLED
+}
+
+/// One request to redact one person's personal data within one organisation.
+///
+/// Never spans two organisations: the organisation is resolved from the
+/// caller's session on the server, and a request names exactly one subject.
+///
+/// `confirmationHash` and `idempotencyKey` are the two halves of "they meant
+/// this". The step-up window proves somebody is still at the keyboard, but
+/// nothing consumes a step-up, so one would otherwise authorise every
+/// redaction inside its two minutes. The confirmation is single-use and
+/// server-issued; the idempotency key is server-generated and unique, so a
+/// replayed request returns the first outcome instead of redacting twice.
+model PrivacyRequest {
+  id                    String               @id @default(cuid())
+  organizationId        String
+  /// The data subject. Their `User` row survives the redaction, so this
+  /// reference stays valid afterwards — which is what makes the audit trail
+  /// readable about a person who no longer has a name in the database.
+  subjectUserId         String
+  requestedById         String
+  state                 PrivacyRequestState  @default(REQUESTED)
+  reason                PrivacyRequestReason
+  /// Server-generated and unique. A browser never supplies one: a
+  /// caller-chosen key is a caller-chosen replay.
+  idempotencyKey        String               @unique
+  /// SHA-256 of the confirmation phrase the server issued and displayed.
+  /// Never the phrase, so a leaked row cannot be used to confirm anything.
+  confirmationHash      String
+  confirmationExpiresAt DateTime
+  confirmedAt           DateTime?
+  /// Which revision of the redaction policy this request was evaluated
+  /// against, so a later change of policy does not silently rewrite what was
+  /// promised at the time.
+  policyVersion         String
+  /// Ties every audit event of this request together. Server-minted.
+  correlationId         String
+  holdDecision          PrivacyHoldDecision  @default(NOT_EVALUATED)
+  /// The hold that refused it, by id. Never the matter's contents.
+  heldByHoldId          String?
+  /// The terminal outcome, from a closed vocabulary. Never a sentence, because
+  /// a sentence about why a redaction failed tends to quote the data.
+  outcomeCode           String?
+  /// What the request covers: category names and counts. Never a value.
+  scope                 Json?
+  /// The worker holding the lease. Null unless the row is being processed.
+  leaseOwner            String?
+  /// When the lease lapses and another worker may take the row. A worker that
+  /// dies mid-redaction leaves this in the past, which is what makes the row
+  /// recoverable without anybody having to decide that it failed.
+  leaseExpiresAt        DateTime?
+  attempts              Int                  @default(0)
+  maxAttempts           Int                  @default(3)
+  lastAttemptAt         DateTime?
+  /// A failure code from a closed vocabulary. Never a driver message: those
+  /// quote the row that failed, and the row that failed is the person.
+  failureCode           String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  cancelledAt           DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subject      User         @relation("PrivacyRequestSubject", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  requestedBy  User         @relation("PrivacyRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, state])
+  @@index([subjectUserId, state])
+  @@index([state, leaseExpiresAt])
+  @@index([correlationId])
+  @@index([requestedById])
+}
+
+/// A reason a subject's data must stay as it is, for now.
+///
+/// Evaluated before every redaction. An active hold refuses the request and is
+/// recorded as a refusal rather than a silent no-op, because "nothing happened"
+/// and "we were told not to" are different answers and only one of them is
+/// evidence.
+model PrivacyHold {
+  id                String           @id @default(cuid())
+  organizationId    String
+  subjectUserId     String
+  kind              PrivacyHoldKind
+  state             PrivacyHoldState @default(ACTIVE)
+  /// An opaque reference to the matter outside this system — a case number, a
+  /// counsel's reference. Never its contents, never an allegation, never a
+  /// third party's name.
+  matterReference   String
+  placedById        String
+  placedAt          DateTime         @default(now())
+  /// When the hold is expected to lapse, when that is known. Advisory only:
+  /// nothing expires a hold, because a hold that expired on its own would be a
+  /// legal obligation with a timer nobody checked.
+  expectedUntil     DateTime?
+  releasedById      String?
+  releasedAt        DateTime?
+  /// From a closed vocabulary. Never a sentence.
+  releaseReasonCode String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subject      User         @relation("PrivacyHoldSubject", fields: [subjectUserId], references: [id], onDelete: Cascade)
+  placedBy     User         @relation("PrivacyHoldPlacedBy", fields: [placedById], references: [id], onDelete: Restrict)
+  releasedBy   User?        @relation("PrivacyHoldReleasedBy", fields: [releasedById], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, subjectUserId, state])
+  @@index([state, kind])
+  @@index([subjectUserId, state])
+}
+
+/// Append-only evidence of every privacy decision, safe to keep forever.
+///
+/// A separate table from `AuditLog` for three reasons, none of them cosmetic.
+/// `AuditLog` has no organisation column and no correlation column, so the
+/// queries this evidence exists to answer — every redaction in one
+/// organisation over a period, every refusal and its reason, every event of one
+/// run — are not expressible against it. `AuditLog` is immutable by convention
+/// only, and "immutable audit evidence" for an irreversible action has to be a
+/// property of the database. And `AuditLog.metadata` is free-form JSON that
+/// already carries e-mail addresses, whereas every column here is either an
+/// opaque id, an enum or a hash.
+///
+/// Its references are deliberately bare strings rather than foreign keys, which
+/// is how `AuditLog.entityId` already works: evidence must not be deleted by a
+/// cascade from the thing it describes.
+///
+/// `desi_privacy_audit_event_immutable` refuses every UPDATE and DELETE. There
+/// is no redaction path into this table because there is nothing here to
+/// redact.
+model PrivacyAuditEvent {
+  id                 String              @id @default(cuid())
+  /// Dotted action from the privacy vocabulary, e.g. `privacy.redaction_completed`.
+  action             String
+  /// Null means the system acted rather than a person — the retention sweeper,
+  /// or a lease that lapsed. Not a foreign key, so an actor can never be
+  /// nulled out from under the record.
+  actorId            String?
+  organizationId     String
+  privacyRequestId   String?
+  /// The subject, as an opaque row id. Never an address, a name or a number.
+  targetId           String
+  /// Which model the target id belongs to, e.g. `User`.
+  targetType         String
+  policyVersion      String
+  /// Why, from a closed vocabulary. Never a sentence.
+  reasonCode         String
+  holdDecision       PrivacyHoldDecision
+  /// SHA-256 of the idempotency key, so two events can be shown to belong to
+  /// one attempt without the key being replayable from this table.
+  idempotencyKeyHash String?
+  result             PrivacyAuditResult
+  correlationId      String
+  /// Category names and counts only. Never a value, old or new; never an
+  /// error message; never a payload.
+  detail             Json?
+  /// When the thing happened.
+  occurredAt         DateTime            @default(now())
+  /// When the row was written. Equal to `occurredAt` for a synchronous action,
+  /// later for one a worker recorded afterwards.
+  recordedAt         DateTime            @default(now())
+
+  @@index([organizationId, occurredAt])
+  @@index([privacyRequestId])
+  @@index([targetType, targetId])
+  @@index([correlationId])
+  @@index([actorId])
+  @@index([result, occurredAt])
+  @@index([action, occurredAt])
+}
+
+/// A generated export, and whether it still exists.
+///
+/// Exports are the largest way personal data leaves this system, and the one a
+/// redaction cannot reach by rewriting a column. This table is the register
+/// that makes "delete the exports containing this person" answerable at all.
+///
+/// It cannot make it answerable for a copy somebody has already downloaded.
+/// Nothing here pretends otherwise.
+model ExportArtifact {
+  id             String              @id @default(cuid())
+  organizationId String
+  /// What the export was of — `attendees`, `finance`, `analytics`. Never the
+  /// rows themselves.
+  kind           String
+  /// Where the bytes are, when they are kept at all. A storage key; never a
+  /// signed URL, never the bytes.
+  storageKey     String?
+  /// True when the export was streamed to the caller and nothing was stored,
+  /// which is how every export in this system works today. Recorded rather
+  /// than assumed, so a future stored export cannot quietly escape the
+  /// register.
+  ephemeral      Boolean             @default(true)
+  requestedById  String?
+  generatedAt    DateTime            @default(now())
+  state          ExportArtifactState @default(AVAILABLE)
+  invalidatedAt  DateTime?
+  deletedAt      DateTime?
+  /// From a closed vocabulary, when deletion did not succeed.
+  failureCode    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User?                   @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  subjects     ExportArtifactSubject[]
+
+  @@index([organizationId, state])
+  @@index([state, generatedAt])
+}
+
+/// Which people an export is known to contain.
+///
+/// The join exists so a redaction can find the artefacts to invalidate without
+/// reading any of them, and without the export register holding a single
+/// personal field.
+model ExportArtifactSubject {
+  id               String   @id @default(cuid())
+  exportArtifactId String
+  subjectUserId    String
+  createdAt        DateTime @default(now())
+
+  artifact ExportArtifact @relation(fields: [exportArtifactId], references: [id], onDelete: Cascade)
+  subject  User           @relation(fields: [subjectUserId], references: [id], onDelete: Cascade)
+
+  @@unique([exportArtifactId, subjectUserId])
+  @@index([subjectUserId])
+}
+
+/// One run of the retention sweeper.
+///
+/// Recorded whether or not it did anything, including when it refused to run —
+/// a sweeper that silently declined would be indistinguishable from a sweeper
+/// that found nothing, and the difference is whether a retention policy is
+/// being enforced at all.
+///
+/// `DRY_RUN` is the default posture. A run that deletes anything needs both an
+/// explicit mode and an environment where retention enforcement has been
+/// activated, because the durations it would apply are proposals awaiting legal
+/// review rather than settled policy.
+model RetentionSweep {
+  id             String              @id @default(cuid())
+  /// Which retention class this run swept, from a closed vocabulary —
+  /// `login_attempt`, `session`, `notification_recipient`.
+  retentionClass String
+  mode           RetentionSweepMode
+  state          RetentionSweepState @default(SCHEDULED)
+  /// The cut-off the run used. Recorded so a later change of duration does not
+  /// make an earlier run's behaviour unexplainable.
+  olderThan      DateTime
+  examinedCount  Int                 @default(0)
+  affectedCount  Int                 @default(0)
+  /// Rows a hold protected, which the sweep left alone.
+  heldCount      Int                 @default(0)
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  /// From a closed vocabulary. Never a driver message.
+  failureCode    String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([retentionClass, state])
+  @@index([state, leaseExpiresAt])
+  @@index([createdAt])
 }

@@ -261,10 +261,12 @@ afterAll(async () => {
     // to be irreversible, and a teardown that undid it would be the thing
     // disproving the guarantee. `db:verify:fresh` is what clears them.
     for (const id of made.venues) await prisma.venue.delete({ where: { id } }).catch(() => {})
-    for (const id of made.users) {
-      await prisma.auditLog.deleteMany({ where: { actorId: id } }).catch(() => {})
-      await prisma.user.delete({ where: { id } }).catch(() => {})
-    }
+    // Users and their audit rows deliberately stay, for the same reason as the
+    // map version above. `desi_audit_log_immutable` refuses an UPDATE or a DELETE
+    // on `AuditLog`, and the actor foreign key is ON DELETE SET NULL, so deleting
+    // a fixture user would be an UPDATE of their audit rows and is refused. In
+    // this system a person is redacted, never deleted. Every fixture identifier
+    // carries the per-run suffix, so what is left behind collides with nothing.
     for (const id of made.organizations) {
       await prisma.organization.delete({ where: { id } }).catch(() => {})
     }

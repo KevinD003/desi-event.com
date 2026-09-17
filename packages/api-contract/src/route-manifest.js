@@ -240,6 +240,22 @@ export const apiRouteManifest = Object.freeze([
     query: false,
   },
   {
+    id: 'privacy.listRequests',
+    method: 'GET',
+    path: '/v1/organizations/:id/privacy/requests',
+    auth: 'session',
+    body: false,
+    query: true,
+  },
+  {
+    id: 'privacy.getRequest',
+    method: 'GET',
+    path: '/v1/organizations/:id/privacy/requests/:requestId',
+    auth: 'session',
+    body: false,
+    query: false,
+  },
+  {
     id: 'organizers.get',
     method: 'GET',
     path: '/v1/organizers/:slug',

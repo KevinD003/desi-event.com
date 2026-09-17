@@ -100,6 +100,15 @@ const MIRRORS = {
   MediaModerationStatus: 'MEDIA_MODERATION_STATUSES',
   MediaScanStatus: 'MEDIA_SCAN_STATUSES',
   PromoType: 'PROMO_TYPES',
+  PrivacyRequestReason: 'PRIVACY_REQUEST_REASONS',
+  PrivacyRequestState: 'PRIVACY_REQUEST_STATES',
+  PrivacyHoldKind: 'PRIVACY_HOLD_KINDS',
+  PrivacyHoldState: 'PRIVACY_HOLD_STATES',
+  PrivacyHoldDecision: 'PRIVACY_HOLD_DECISIONS',
+  PrivacyAuditResult: 'PRIVACY_AUDIT_RESULTS',
+  ExportArtifactState: 'EXPORT_ARTIFACT_STATES',
+  RetentionSweepMode: 'RETENTION_SWEEP_MODES',
+  RetentionSweepState: 'RETENTION_SWEEP_STATES',
 }
 
 /**
@@ -150,6 +159,15 @@ const SCHEMAS = {
   MEDIA_MODERATION_STATUSES: 'mediaModerationStatusSchema',
   MEDIA_SCAN_STATUSES: 'mediaScanStatusSchema',
   PROMO_TYPES: 'promoTypeSchema',
+  PRIVACY_REQUEST_REASONS: 'privacyRequestReasonSchema',
+  PRIVACY_REQUEST_STATES: 'privacyRequestStateSchema',
+  PRIVACY_HOLD_KINDS: 'privacyHoldKindSchema',
+  PRIVACY_HOLD_STATES: 'privacyHoldStateSchema',
+  PRIVACY_HOLD_DECISIONS: 'privacyHoldDecisionSchema',
+  PRIVACY_AUDIT_RESULTS: 'privacyAuditResultSchema',
+  EXPORT_ARTIFACT_STATES: 'exportArtifactStateSchema',
+  RETENTION_SWEEP_MODES: 'retentionSweepModeSchema',
+  RETENTION_SWEEP_STATES: 'retentionSweepStateSchema',
 }
 
 const prismaSource = readFileSync(schemaPath, 'utf8')

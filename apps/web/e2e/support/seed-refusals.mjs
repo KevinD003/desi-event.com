@@ -320,8 +320,12 @@ export async function cleanupRefusals(tag) {
     await prisma.session.deleteMany({ where: { userId: user.id } }).catch(() => {})
     await prisma.mfaFactor.deleteMany({ where: { userId: user.id } }).catch(() => {})
     await prisma.membership.deleteMany({ where: { userId: user.id } }).catch(() => {})
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } }).catch(() => {})
-    await prisma.user.delete({ where: { id: user.id } }).catch(() => {})
+    // The audit rows and the user row deliberately stay. `desi_audit_log_immutable`
+    // refuses an UPDATE or a DELETE on `AuditLog`, and the actor foreign key is
+    // ON DELETE SET NULL, so deleting this user would be an UPDATE of their audit
+    // rows and is refused. That is the guarantee working, not a teardown bug: in
+    // this system a person is redacted, never deleted. Every identifier above is
+    // suffixed with a per-run tag, so what is left behind collides with nothing.
   }
 
   // Any organisation the ledger still reaches stays, for the same reason.
