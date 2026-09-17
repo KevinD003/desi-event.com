@@ -213,6 +213,22 @@ narrower than "this is done":
   step-up policy, and two read routes under
   `/v1/organizations/:id/privacy/requests`. See **Personal data** below.
 
+**Updated 2026-09-17, after Phase 3's Phase 2 merged in `09e66bd`.** The
+paragraph above was written at the end of Phase 3's Phase 1 and is now itself
+out of date in one direction only — it understates what exists:
+
+- **The redaction engine exists and is tested**, against real PostgreSQL. "There
+  is no redaction command" is no longer true.
+- **The privacy surface is nine operations**, not two read routes: the two reads
+  plus raise, confirm, cancel, two hold routes and the audit read.
+- **Still true, and the part that matters most.** No scheduled retention job
+  deletes anything; `RetentionSweep` has no writer and defaults to a dry run
+  because no retention duration has legal approval. **Nothing in this repository
+  has redacted a real person** — every redaction has run against disposable test
+  data.
+
+The full record is `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`.
+
 The Phase 2 text, unchanged:
 
 > Stated plainly rather than implied by a policy paragraph. **There is no user

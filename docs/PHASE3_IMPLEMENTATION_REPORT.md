@@ -125,9 +125,38 @@ established convention.
 | ---------------------------------------------------------------- | --------------------------------------------- | --------------------- | ---------------------------- | -------------------------- |
 | Baseline                                                         | this file, §1                                 | `f7cbe25`             | `35185073072` — success, 8/8 | verified green             |
 | 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8 | **PARTIAL** — see its §1.3 |
-| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | —                     | —                            | not started                |
+| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | `35244793473` — success, 8/8 | **COMPLETE** — see §3A     |
 | 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —                     | —                            | not started                |
 | 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —                     | —                            | not started                |
+
+### 3.0 Current-status update — 2026-09-17
+
+**The Phase 2 row above read `not started` until this update, while §3A of this
+same file recorded it COMPLETE.** A reader who stopped at the table got the
+wrong answer. The row is corrected; §3A remains the full entry and nothing in it
+is rewritten.
+
+Two things the table cannot express, and a reviewer needs:
+
+**Phase 3's Phase 2 is merged.** `main` moved from `d1e0dd2` to merge commit
+`09e66bd`, merged by `KWinOverAnything` at `2026-09-17T16:46:06Z`, carrying
+eleven commits — Phase 3's Phase 1 and Phase 2 together, because Phase 1 was
+never merged separately.
+
+**What CI proves about `main`, stated exactly.** Run `35244793473` ran on
+`723f7af`, not on `09e66bd`; no CI run has ever had `09e66bd` as its head SHA.
+What closes that gap is not an assumption but a measurement: the two commits
+have the **same tree**, `8b53048d643b4c1ef7cdbd8810cb01a0b6041f95`, and
+`d1e0dd2` is an ancestor of `723f7af`, so the merge changed no file. `git diff
+723f7af 09e66bd` is empty in both directions. The content on `main` is therefore
+byte-identical to the content that ran green — which is a stronger claim than
+"CI passed on the branch" and a weaker one than "CI ran on `main`". Both matter.
+
+That run was **attempt 2**. Attempt 1 started no jobs at all: every one of the
+eight was refused by GitHub with "The job was not started because recent account
+payments have failed or your spending limit needs to be increased", each
+reporting zero steps. No code was involved and none was changed between the
+attempts.
 
 ### 3.1 Runs, in order
 

@@ -43,6 +43,23 @@ holds the key, and a redaction a key undoes is not a redaction.
 
 ## 2. What is built, and what is not
 
+> **HISTORICAL STATUS — SUPERSEDED IN PART, 2026-09-17.** The table below was
+> written before Phase 3's Phase 2 and is preserved unchanged, because it is the
+> record of what was true then. Three of its rows are now wrong: **"Raising,
+> confirming or executing a redaction"** and **"The redaction engine itself"**
+> are no longer `NOT IMPLEMENTED`, and **"Reading redaction requests"** is no
+> longer the only tested surface. The redaction engine was merged to `main` in
+> `09e66bd`. Read **"Phase 2: what is now implemented"** near the end of this
+> file for the current position, and `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`
+> for the full record.
+>
+> **Three rows are still exactly true and should not be read as superseded:**
+> the retention sweeper is still `NOT IMPLEMENTED`, export invalidation is still
+> `SCHEMA ONLY`, and retention durations remain
+> `BLOCKED — REQUIRES OWNER DECISION`. So is the sentence below the table: no
+> personal data has been redacted by this system, and no retention deletion has
+> run. The per-category matrix in §4 carries the same caveat.
+
 | Thing                                              | Status                                |
 | -------------------------------------------------- | ------------------------------------- |
 | `privacy:redact` capability, granted to OWNER only | `IMPLEMENTED`, `AUTOMATICALLY TESTED` |
