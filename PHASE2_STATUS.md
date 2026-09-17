@@ -483,10 +483,22 @@ server.
 | 19  | Production payments technically disabled                                   | **MET** | The kill switch refuses the boot; `payment-kill-switch.test.js` (12) runs as its own named step, command 18 of §9                                                                                                                                                                                                                 |
 | 20  | All code-owned checks pass, committed, pushed, clean tree                  | **MET** | §9 — 28 of 28 at exit 0; §1                                                                                                                                                                                                                                                                                                       |
 
-**Nineteen met, one partial, none not met.** The revision before this said
-seventeen, three and none; the one before that said eight, six and six.
+**All twenty met, none partial, none not met.** The revision before this said
+nineteen, one and none; before that seventeen, three and none; before that
+eight, six and six.
 
-### Why gate 17 is `PARTIAL` and not `MET`
+### `HISTORICAL STATUS — SUPERSEDED` — why gate 17 was `PARTIAL` and not `MET`
+
+> **Superseded 2026-09-17.** Gate 17 is now `MET`. The enforcement half was
+> configured by the repository owner through the GitHub UI and verified against
+> `GET /rules/branches/main`: ruleset `23572317`, four rules in force, eight
+> contexts, `bypass_actors: []`. `PHASE2_GATE17_CLOSURE_REPORT.md` carries the
+> evidence. Everything below is left exactly as it was written, because it is
+> the record of what was true while it was true, and that record is the point.
+> Read it as history. The four API responses quoted below in particular no
+> longer hold: `GET /rulesets` returned `200 []` when this was written and now
+> returns one ruleset, and `/rules/branches/main` now returns four rules where
+> it then returned none.
 
 The first half of the gate is now satisfied, and by evidence from GitHub rather
 than by reading the workflow file.
@@ -1067,18 +1079,20 @@ No other command failed in either run.
 | A CI workflow covering every gate                 | `.github/workflows/ci.yml` — 8 jobs                                   | `IMPLEMENTED` — see gate 17                                             |
 | The fifteen named documents                       | `docs/`                                                               | `AUTOMATICALLY TESTED` (existence and format are checked; prose is not) |
 
-### Still not built — and one of them is what keeps Phase 2 `PARTIAL`
+### Still not built
 
-| Thing                     | Gate | What exists instead                                                                                                           |
-| ------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------- |
-| **Branch protection**     | 17   | Eight green checks that nothing requires. Externally verified absent: no ruleset, no classic protection. This is the one gate |
-| Connect onboarding        | —    | Adapter methods exist; **no route calls them and no screen sends anybody to one**. `docs/STRIPE_CONNECT.md` opens with that   |
-| Data erasure or redaction | —    | A retention policy in `docs/DATA_MODEL.md` under a heading that says the mechanism does not exist                             |
-| Any Stripe API call       | —    | §11                                                                                                                           |
+| Thing                     | Gate | What exists instead                                                                                                         |
+| ------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------- |
+| Connect onboarding        | —    | Adapter methods exist; **no route calls them and no screen sends anybody to one**. `docs/STRIPE_CONNECT.md` opens with that |
+| Data erasure or redaction | —    | A retention policy in `docs/DATA_MODEL.md` under a heading that says the mechanism does not exist                           |
+| Any Stripe API call       | —    | §11                                                                                                                         |
 
-The four rows this table carried last revision — organiser analytics, and the
-reconciliation, refund and ticket transfer screens — are built, and §5.2 says
-what they are and what finding their defects cost.
+The four rows this table carried two revisions ago — organiser analytics, and
+the reconciliation, refund and ticket transfer screens — are built, and §5.2
+says what they are and what finding their defects cost. **Branch protection
+left this table on 2026-09-17**, when it stopped being a document describing
+what to require and became four rules in force on `main`. No row that remains
+is a gate.
 
 ---
 

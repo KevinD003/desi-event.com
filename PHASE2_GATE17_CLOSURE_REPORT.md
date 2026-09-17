@@ -14,13 +14,13 @@ strength of this document.
 
 Measured 2026-09-17T01:14Z.
 
-| Fact                   | Value                                                           |
-| ---------------------- | --------------------------------------------------------------- |
-| Default branch         | **`main`**                                                      |
-| `main` tip             | **`7f9c1c8`**, `protected: true`                                |
-| Merge that produced it | pull request #1, merged 2026-09-16T23:05:46Z by `KevinD003`     |
-| Working tree           | clean                                                           |
-| Branch for this report | `claude/desi-event-js-stack-gb4uqe`, one commit ahead of `main` |
+| Fact                   | Value                                                            |
+| ---------------------- | ---------------------------------------------------------------- |
+| Default branch         | **`main`**                                                       |
+| `main` tip             | **`7f9c1c8`**, `protected: true`                                 |
+| Merge that produced it | pull request #1, merged 2026-09-16T23:05:46Z by `KevinD003`      |
+| Working tree           | clean                                                            |
+| Branch for this report | `claude/desi-event-js-stack-gb4uqe`, two commits ahead of `main` |
 
 ## 2. Pull-request state
 
@@ -67,7 +67,10 @@ second can close this gate. The difference was not academic — see §9.
 GET /repos/KevinD003/desi-event.com/rulesets
   200 — 1 ruleset
        id 23572317, name "Phase 2 required checks on main",
-       target branch, enforcement active, bypass_actors []
+       target branch, enforcement active
+       (this route returns id, name, target, source_type, source,
+        enforcement, node_id, _links and timestamps — and no
+        bypass_actors, which is why the single-ruleset route is read too)
 
 GET /repos/KevinD003/desi-event.com/rules/branches/main
   200 — 4 rules in force:
@@ -75,7 +78,21 @@ GET /repos/KevinD003/desi-event.com/rules/branches/main
        non_fast_forward
        pull_request
        required_status_checks
+
+GET /repos/KevinD003/desi-event.com/rulesets/23572317
+  200 — bypass_actors [], current_user_can_bypass "never"
+
+GET /repos/KevinD003/desi-event.com/branches/main
+  200 — protection.enabled false,
+       required_status_checks.enforcement_level "off", contexts []
 ```
+
+The last two matter because without them the picture has two holes. A ruleset
+with no bypass actors still grants no implicit override to a repository
+administrator — `current_user_can_bypass: "never"` says so from GitHub rather
+than from documentation. And the eight contexts are required by the ruleset
+alone: legacy branch protection is off and contributes nothing, so nothing is
+being enforced twice or from a second place.
 
 No token, credential or authentication header appears in this document, and
 none was printed in producing it.
@@ -152,14 +169,24 @@ existed, read `enforcement: active`, and enforced **nothing on `main`** —
 default branch had been changed to `claude/desi-event-js-stack-gb4uqe`, and the
 ruleset targets `~DEFAULT_BRANCH`, so all four rules were in force on the feature
 branch while `main` sat unprotected with `protected: false`. Reading the ruleset
-list alone would have shown a tick and been false. Resolved by restoring `main`
-as the default branch.
+list alone would have shown a tick and been false. **The repository owner
+resolved it** by restoring `main` as the default branch; this session has never
+held the access to do so.
 
 **"Require branches to be up to date" was off.**
 `strict_required_status_checks_policy` read `false` on first check, against a
 document that requires it. Without it, two pull requests that each pass alone can
 merge into a broken `main`, because each was tested against a state that no
-longer exists by the time the second lands. Now `true`.
+longer exists by the time the second lands. **The repository owner set it**;
+it now reads `true`.
+
+Both remediations were the owner's, made through the GitHub UI. The ruleset's
+own timestamps corroborate the sequence and are worth stating rather than
+leaving to inference: `created_at 2026-09-17T01:02:05Z`,
+`updated_at 2026-09-17T01:07:24Z`. The verification time this document quotes,
+`01:07Z`, is therefore the same minute as the last modification — the reading
+was taken immediately after the final change, not before it, and nothing has
+modified the ruleset since.
 
 ## 10. Gate 17 verdict
 
@@ -210,6 +237,40 @@ These are unchanged by Gate 17 closing, and none of them is a gate.
    instead. The workflow and its preflight are left in place as the
    reproducible route; the secret needs re-pasting before it will work.
 
+6. **The live ruleset has drifted from the approved payload in two fields that
+   are not contexts.** `docs/BRANCH_PROTECTION.md` carries
+   `automatic_copilot_code_review_enabled: false`, which the live rule does not
+   report; the live rule carries
+   `require_extra_approval_for_unattributed_changes: true`, which the document
+   does not contain. GitHub added the second platform-side and defaulted it on.
+   The byte-for-byte comparison in §7 is of the **eight check contexts**, and
+   that comparison holds exactly; it is not a claim that every field of the
+   payload matches. Both drifted fields tighten rather than loosen, so neither
+   is a weakening, but the document and the live rule are no longer identical
+   and this record should not imply they are.
+
+7. **No pull request can currently merge into `main`, including this one.** The
+   ruleset requires one approving review; `bypass_actors` is empty and
+   `current_user_can_bypass` is `"never"`; the repository has exactly one
+   collaborator, `KevinD003`, `role_name: admin`; and this pull request's author
+   is `KevinD003`. GitHub does not permit the author of a pull request to
+   approve it, so the required approval cannot be supplied by anybody, and there
+   is no override path. This is the protection working exactly as written — it
+   is recorded here because a rule that its only participant cannot satisfy is a
+   fact about the repository, not a defect in the rule, and whoever reads this
+   later should not have to rediscover it. Resolving it is a repository-owner
+   decision: a second collaborator with write access, or a deliberate and
+   temporary change to the review requirement. **No such change was made by this
+   session.**
+
+8. **A second check suite sits on the head commit and has never reported.**
+   `GET /commits/<head>/check-suites` returns two: the `github-actions` suite
+   with the eight successful runs, and suite `95247531653` from app `1236702`
+   ("Claude"), `status: queued`, `conclusion: null`, zero check runs, created
+   `2026-09-17T01:16:26Z` and not updated since. It contributes no required
+   context and so blocks nothing, but "eight checks on this commit" is true of
+   check _runs_ and not of check _suites_.
+
 ## 14. Reproducible verification
 
 Every figure above comes from one of these. Nothing is transcribed from memory.
@@ -242,3 +303,51 @@ once they exist — a file cannot contain its own hash.
 
 - Commit introducing this report: `<recorded in the follow-up commit>`
 - Run on that commit: `<recorded in the follow-up commit>`
+
+## 15. Defects this review caught in the record itself
+
+Found by review of this pull request, before it merged, and fixed in it. None
+is a defect in the protection; all four are defects in the account of it, which
+is the thing this document exists to be trusted on.
+
+**The two modified documents asserted gate 17 both ways at once.** Two kinds of
+defect are tangled here and the difference is worth keeping. What this pull
+request _created_: it flipped the headline, the gate table and the traceability
+rows to `MET` and `CONFIGURED`, and left the prose explaining the opposite
+untouched — so a `**CONFIGURED**` row now sat directly above the sentence "What
+keeps gate 17 `PARTIAL` is ... nothing on GitHub _requires_ those checks". What
+it _inherited_: some of the contradicting prose was already on `main` at
+`7f9c1c8` and is untouched by this diff, including the traceability preamble
+below. Inherited or created, a reader cannot tell which sentence to believe, so
+both are fixed here. `PHASE2_STATUS.md` still carried "Nineteen met, one
+partial", a section headed "Why gate 17 is `PARTIAL` and not `MET`", the
+response `GET /rulesets → 200 []`, and a table row reading "Externally verified
+absent: no ruleset, no classic protection" — all in the present tense, eight
+lines below a row citing the ruleset that disproves them.
+`PHASE2_REQUIREMENTS_TRACEABILITY.md` opened its CI section with "The workflow
+exists and has never run" above nine rows citing the runs that tested them.
+
+That is worse than an omission. `PHASE2_STATUS.md` says of itself that where it
+disagrees with any other file in this repository it is right and the other is
+historical, so a file that disagrees with itself has no readable answer at all.
+
+Fixed by marking both sections `HISTORICAL STATUS — SUPERSEDED` — the
+convention the file already states for itself — with a dated note saying which
+quoted API responses no longer hold. **Nothing was deleted and no tally was
+rewritten**: the superseded text stands exactly as written, and the gate tally
+now records every prior count rather than replacing them.
+
+**Branch protection sat in a "Still not built" table.** Removed, with a line
+recording when and why it left.
+
+**A protection fact was filed under a commit it is not a fact about.** The
+traceability verification table is headed "Result at `910538b`"; the branch
+protection row is a reading taken on 2026-09-17. This is a looseness the table
+already had — the row it replaced said "**still absent**", which was equally a
+repository-state fact rather than a command result — so it is a tightening
+rather than a fresh defect. The column is now "Result", and the two rows that
+are not commands at `910538b` carry their own provenance.
+
+**This report misdescribed its own branch.** §1 said "one commit ahead of
+`main`", measured at 01:14Z when `fd1c3de` was the tip. At the commit that
+carries the file the branch is two ahead. Corrected.
