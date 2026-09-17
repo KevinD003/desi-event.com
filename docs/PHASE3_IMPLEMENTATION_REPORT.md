@@ -121,13 +121,13 @@ established convention.
 
 ## 3. Phase records
 
-| Phase                                                            | Report                                        | Commit                | CI run                       | State                      |
-| ---------------------------------------------------------------- | --------------------------------------------- | --------------------- | ---------------------------- | -------------------------- |
-| Baseline                                                         | this file, §1                                 | `f7cbe25`             | `35185073072` — success, 8/8 | verified green             |
-| 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8 | **PARTIAL** — see its §1.3 |
-| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | see §3.0 — **`main` is red** | **COMPLETE** — see §3A     |
-| 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —                     | —                            | not started                |
-| 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —                     | —                            | not started                |
+| Phase                                                            | Report                                        | Commit                | CI run                              | State                      |
+| ---------------------------------------------------------------- | --------------------------------------------- | --------------------- | ----------------------------------- | -------------------------- |
+| Baseline                                                         | this file, §1                                 | `f7cbe25`             | `35185073072` — success, 8/8        | verified green             |
+| 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8        | **PARTIAL** — see its §1.3 |
+| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | `35248621822` att. 2 — success, 8/8 | **COMPLETE** — see §3A     |
+| 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —                     | —                                   | not started                |
+| 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —                     | —                                   | not started                |
 
 ### 3.0 Current-status update — 2026-09-17
 
@@ -140,7 +140,21 @@ answer. The row is corrected; §3A is unchanged.
 eleven commits — Phase 1 and Phase 2 together, because Phase 1 was never merged
 separately.
 
-#### `main` is red, and that is the important half
+#### `main` was red, and is green again
+
+> **Update — 2026-09-17.** Run `35248621822` was re-run on the same commit with
+> no code change. **Attempt 2 concluded `success`, 8 of 8**, and is the latest
+> run on `main`. `main` is green. Both attempt-1 failures were **intermittent**:
+> neither reproduced, including the fresh-database one, which passed with the
+> unfixed assertion still in place. The section below records attempt 1 as it
+> happened and is kept for that reason.
+>
+> An earlier version of this section called the event-lifecycle failure
+> deterministic. That is withdrawn — see
+> `docs/CI_RUN_35248621822_EVENT_LIFECYCLE_EVIDENCE.md` §7A. Its root cause
+> remains unknown.
+
+#### Attempt 1, as it happened
 
 **CI run `35248621822` ran on `09e66bd` itself** — event `push`, branch `main`,
 created four seconds after the merge — and **failed**. Six of its eight jobs
@@ -151,7 +165,8 @@ passed; two did not:
 | Policy, lint, contract, tests, build | 19. Fresh-database verification — 95/96 | `privacy-redaction-integration.test.js:266` — `ledgerEntries` 59 expected, 61 got    |
 | Browser — event lifecycle            | 10. Run event lifecycle                 | Journey 14 exceeded the 90 s test timeout waiting for the moderator's Approve button |
 
-No later run on `main` exists, so `main` remains red until a fix lands.
+At the time of writing no later run on `main` existed. One does now: attempt 2
+of the same run, green. See the update above.
 
 **A correction to how this was first reported.** An earlier account of this merge
 stated that no CI run had ever had `09e66bd` as its head SHA, and concluded that

@@ -4,6 +4,35 @@ Date: 2026-09-17.
 
 ---
 
+> # Current-status update — 2026-09-17, after the authorized re-run and PR #6 CI
+>
+> **`main` is green.** Run `35248621822` was re-run on the same commit `09e66bd`
+> with no code change, and attempt 2 concluded **success, 8 of 8**. It is the
+> latest run on `main`. Every "`main` is red" statement below was true when
+> written and is superseded by this.
+>
+> **Both attempt-1 failures were intermittent.** Neither reproduced. The
+> event-lifecycle suite passed, and — more surprisingly — so did the
+> fresh-database verification, with the **unfixed** global-count assertion still
+> in place.
+>
+> **Two characterisations below are withdrawn:**
+>
+> 1. That journey 14 is "deterministic on CI". It is not; it did not reproduce.
+> 2. That this branch is repairing a broken `main`. `main` is fine. This branch
+>    improves the reliability and the meaning of two tests.
+>
+> **What stands.** The ledger assertion was vacuous: the fixture posted no ledger
+> batch, so it counted only other suites' rows and could never have detected a
+> redaction touching this order's money. That is true however often the old
+> assertion happened to go red, and it is the reason the fix is worth having.
+> **PR #6 CI is green, 8 of 8, on `ba5ca96`** — so the scoped assertion is now
+> runner-validated, not merely local.
+>
+> **What is still open.** Journey 14's root cause. It is intermittent, not
+> understood, and not fixed. The artifact that would settle the leading candidate
+> is still unreachable from this environment.
+
 ## 1. Purpose and scope
 
 Merged `main` is red. CI run `35248621822` ran on merge commit `09e66bd` and

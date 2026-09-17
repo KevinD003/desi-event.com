@@ -188,14 +188,61 @@ cleanup, not a fix for journey 14**, and this document does not claim otherwise.
 
 ---
 
+## 7A. The authorized re-run — 2026-09-17, and what it overturns
+
+Run `35248621822` was re-run on the same commit `09e66bd`, same workflow, same
+configuration, no code change. `rerun_failed_jobs` re-executed only the two
+failed jobs; the other six carried over from attempt 1 and are not fresh
+evidence.
+
+| Job on attempt 2                       | Attempt 1   | Attempt 2   |
+| -------------------------------------- | ----------- | ----------- |
+| `Policy, lint, contract, tests, build` | **failure** | **success** |
+| `Browser — event lifecycle`            | **failure** | **success** |
+| Run conclusion                         | **failure** | **success** |
+
+**Both failures are intermittent.** Neither reproduced on an identical commit.
+
+### What this withdraws
+
+**Journey 14 is not deterministic, and §8 below said it was.** That claim is
+withdrawn. It rested on a single observation — 87 seconds of server silence,
+which really is what a wedged navigation looks like — and a single observation
+cannot distinguish "always" from "sometimes". The reasoning was sound; the
+confidence was not.
+
+**The leading candidate in §6 is neither confirmed nor refuted by this.** A
+client-cache hit would be timing-sensitive, so an intermittent failure is
+consistent with it — and equally consistent with several other races. It stays a
+candidate, and the `error-context.md` that would settle it is still unreachable.
+
+**The fresh-database failure was intermittent too**, which is the more surprising
+half. Attempt 2 passed step 19 with the **unfixed** global-count assertion still
+in place. That does not make the assertion sound: it counted rows belonging to
+other suites and could never have detected a redaction touching this order's
+money. It means only that the race it depended on does not fire every time. An
+assertion that is both vacuous and occasionally red is worth fixing on the first
+count alone.
+
+### What this changes about `main`
+
+**`main` is green.** Run `35248621822` attempt 2 is the latest run on `main` and
+it concluded `success`, 8 of 8, on `09e66bd`. Every statement in this repository
+that `main` is red was true when written and is now superseded.
+
 ## 8. Conclusion
 
-**Root cause not confirmed.** The two theories that were on the table are
-disproven, a third is disproven, and the remaining candidate is well supported by
-request-level evidence but needs a page snapshot that this environment cannot
-fetch.
+**Root cause not confirmed, and the failure is intermittent** — see §7A, which
+supersedes the characterisation below. The three theories on the table are
+disproven, and the remaining candidate is supported by request-level evidence but
+needs a page snapshot this environment cannot fetch.
 
 No speculative change was made to journey 14, its spec, its selectors or its
-timeouts on the strength of this document. Raising the timeout or adding a retry
-would have hidden a defect that the evidence says is real and deterministic on
-CI — journey 14 did not run slowly, it did nothing at all for 87 seconds.
+timeouts on the strength of this document, and none has been made since. Raising
+the timeout or adding a retry would still be wrong: journey 14 did not run
+slowly, it did nothing at all for 87 seconds, and a longer budget cannot help
+something that is not waiting on work.
+
+> **Superseded in part — see §7A.** This paragraph originally called the failure
+> "deterministic on CI". The authorized re-run passed on the identical commit, so
+> it is intermittent. The rest of the paragraph stands.
