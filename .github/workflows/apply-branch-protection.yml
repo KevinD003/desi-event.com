@@ -42,6 +42,42 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # `actions/create-github-app-token` reports a malformed private key as
+      # `Invalid keyData` / `ERR_OSSL_ASN1_NOT_ENOUGH_DATA`, which is accurate
+      # and tells you nothing about which way it is malformed. Runs
+      # 35160860535, 35160953245 and 35161239974 all died there. This step says
+      # which, using only the *shape* of the secret: whether it is set, how many
+      # bytes and lines it has, and whether its first and last lines are PEM
+      # delimiters. No byte of the key is printed, and `grep -q` is silent by
+      # construction. A 2048-bit RSA PEM is roughly 1,700 bytes over about 27
+      # lines; one line, or a few hundred bytes, means the newlines were lost or
+      # the paste was truncated.
+      - name: Check the credentials are well formed
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ -n "$APP_ID" ] || fail 'The APP_ID secret is empty or not set.'
+          [ -n "$APP_PRIVATE_KEY" ] || fail 'The APP_PRIVATE_KEY secret is empty or not set.'
+          echo 'APP_ID is set.'
+
+          bytes=$(printf '%s' "$APP_PRIVATE_KEY" | wc -c | tr -d ' ')
+          lines=$(printf '%s\n' "$APP_PRIVATE_KEY" | wc -l | tr -d ' ')
+          echo "APP_PRIVATE_KEY is set: ${bytes} bytes across ${lines} line(s)."
+
+          printf '%s\n' "$APP_PRIVATE_KEY" | head -1 | grep -q -- '-----BEGIN .*PRIVATE KEY-----' \
+            || fail 'The first line of APP_PRIVATE_KEY is not a PEM header. Paste the whole .pem file, including the BEGIN and END lines.'
+          printf '%s\n' "$APP_PRIVATE_KEY" | grep -q -- '-----END .*PRIVATE KEY-----' \
+            || fail 'APP_PRIVATE_KEY has no PEM footer. The paste looks truncated.'
+          [ "$lines" -gt 3 ] \
+            || fail "APP_PRIVATE_KEY is only ${lines} line(s). A PEM is many lines; the newlines were lost when it was pasted."
+          [ "$bytes" -gt 800 ] \
+            || fail "APP_PRIVATE_KEY is only ${bytes} bytes, far short of an RSA private key. The paste looks truncated."
+
+          echo 'Shape looks like a PEM private key. Whether it is the right key is for the next step to find out.'
+
       # Mints an installation token that expires in an hour, from secrets this
       # job never reads itself. Actions masks the minted token in logs, and
       # nothing below echoes it: it is passed to the script through the
@@ -68,7 +104,11 @@ jobs:
       # but a credential that is dead the moment it is no longer needed is one
       # fewer thing to reason about if a log is ever shared.
       - name: Revoke the token
-        if: always()
+        # Only if one was actually minted. On the three runs that failed at the
+        # minting step this ran with an empty header and reported `HTTP 401`,
+        # which reads like an authentication problem and is really just a
+        # request with nothing in it.
+        if: always() && steps.app-token.outputs.token != ''
         env:
           GITHUB_APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
