@@ -220,7 +220,16 @@ export async function cleanupEvents(tag) {
       await prisma.eventModerationAction
         .deleteMany({ where: { eventId: event.id } })
         .catch(() => {})
-      await prisma.auditLog.deleteMany({ where: { entityId: event.id } }).catch(() => {})
+      // The audit rows deliberately stay, exactly as they do in the user cleanup
+      // below. `desi_audit_log_immutable` refuses every DELETE on `AuditLog`, so
+      // this line could never succeed: it threw on every run since the trigger
+      // landed, was swallowed by its own `.catch`, and left
+      // `Database error. Code: 23514` in the log of every green run — including
+      // run `35248621822`, where it sat immediately above an unrelated failure
+      // and invited exactly the wrong diagnosis.
+      //
+      // Removing it changes no behaviour. `AuditLog.entityId` is a plain string
+      // with no foreign key to `Event`, so the delete below never depended on it.
       await prisma.event.delete({ where: { id: event.id } }).catch(() => {})
     }
 
