@@ -28,6 +28,7 @@ import {
 } from '../src/lib/reconciliation.js'
 import { toEvidence } from '../src/lib/presenters.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { expectNoNeedles } from './helpers/payloads.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 
@@ -618,9 +619,17 @@ describe('GET /v1/operations/reconciliation/:id', () => {
 
     expect(response.statusCode).toBe(200)
 
-    for (const needle of ['priya', '4242', 'receipt_email', 'payment_method', 'cvc']) {
-      expect(response.body.toLowerCase()).not.toContain(needle.toLowerCase())
-    }
+    // Identifiers are masked before the scan. A cuid is random base-36 and will
+    // eventually contain a three-letter needle by chance: this assertion failed
+    // on CI run 35227997764 against `"organizationid":"caqg3dml7cvcjm…"`. The
+    // scan is about a leaked field, not about an id.
+    expectNoNeedles(expect, response.body, [
+      'priya',
+      '4242',
+      'receipt_email',
+      'payment_method',
+      'cvc',
+    ])
 
     await app.close()
   })

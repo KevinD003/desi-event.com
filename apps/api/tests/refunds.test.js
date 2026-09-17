@@ -26,6 +26,7 @@ import { describe, expect, it } from 'vitest'
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
 
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { expectNoNeedles } from './helpers/payloads.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 
@@ -828,11 +829,15 @@ describe('GET /v1/refunds/:id', () => {
 
     expect(response.statusCode).toBe(200)
 
-    const scanned = response.body.replace(/\b[a-z0-9]{20,32}\b/gu, '').toLowerCase()
-
-    for (const needle of ['card', 'cvc', 'last4', 'exp_month', 'priya', 'buyeremail', 'pan']) {
-      expect(scanned, `the payload carries ${needle}`).not.toContain(needle)
-    }
+    expectNoNeedles(expect, response.body, [
+      'card',
+      'cvc',
+      'last4',
+      'exp_month',
+      'priya',
+      'buyeremail',
+      'pan',
+    ])
 
     await app.close()
   })

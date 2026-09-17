@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest'
 import { ACCOUNTS, CREDIT, DEBIT } from '@desi-event/ledger'
 
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { expectNoNeedles } from './helpers/payloads.js'
 import { LEDGER_ACCOUNTS, makeWorld } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 
@@ -187,21 +188,6 @@ async function worldWithSales() {
   const harness = await createTestApp({ seed, ids })
 
   return { ...harness, ids, orderId }
-}
-
-/**
- * A payload with its identifiers blanked, ready for a needle scan.
- *
- * A cuid is twenty-five random alphanumerics, so it will eventually contain
- * `card`, `priya` or any other short needle by chance, and a test that scans the
- * raw body for those is a test that fails on a Tuesday for no reason. The ids
- * are not what the scan is about \u2014 a leaked *field* is \u2014 so they go first.
- *
- * @param {string} body The response body.
- * @returns {string} The same JSON with every identifier-shaped string emptied.
- */
-function withoutIdentifiers(body) {
-  return body.replace(/\b[a-z0-9]{20,32}\b/gu, '')
 }
 
 /**
@@ -423,11 +409,15 @@ describe('GET /v1/analytics/summary', () => {
       headers: await asUser(app, OWNER),
     })
 
-    const scanned = withoutIdentifiers(response.body).toLowerCase()
-
-    for (const needle of ['priya', 'buyeremail', 'buyername', 'pi_', 'card', 'cvc', 'pan']) {
-      expect(scanned, `the payload carries ${needle}`).not.toContain(needle)
-    }
+    expectNoNeedles(expect, response.body, [
+      'priya',
+      'buyeremail',
+      'buyername',
+      'pi_',
+      'card',
+      'cvc',
+      'pan',
+    ])
   })
 })
 
