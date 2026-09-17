@@ -308,7 +308,27 @@ export async function cleanupRefusals(tag) {
       await prisma.eventModerationAction
         .deleteMany({ where: { eventId: event.id } })
         .catch(() => {})
-      await prisma.auditLog.deleteMany({ where: { entityId: event.id } }).catch(() => {})
+      // The audit rows deliberately stay, exactly as they do in the user cleanup
+      // below. `desi_audit_log_immutable` refuses every DELETE on `AuditLog`, so
+      // the statement that stood here could never legitimately succeed.
+      //
+      // It was quieter than its twin in `seed-events.mjs`, and the reason is
+      // worth keeping: the trigger is `FOR EACH ROW`, and a DELETE matching no
+      // rows never fires it. These journeys are about things being *refused*, so
+      // the events seeded here accumulate no audit rows at all — the statement
+      // matched nothing and raised nothing. A run with it still in place was
+      // measured before removing it, and produced zero `23514` errors. Its twin
+      // sat in a suite whose event really is submitted, approved, published and
+      // cancelled, so it matched rows every time and left
+      // `Database error. Code: 23514` in the log of every green run — which is
+      // how the audit trigger came to be blamed for an unrelated timeout on CI
+      // run `35248621822`.
+      //
+      // So removing this one silences no logged error. It deletes a statement
+      // that declares an intention the database forbids, and that would begin
+      // throwing the day these journeys started writing audit rows.
+      // `AuditLog.entityId` is a plain string with no foreign key to `Event`, so
+      // the delete below never depended on it having run.
       await prisma.event.delete({ where: { id: event.id } }).catch(() => {})
     }
 
