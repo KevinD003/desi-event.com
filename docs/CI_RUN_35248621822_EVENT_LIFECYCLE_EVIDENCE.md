@@ -230,6 +230,132 @@ count alone.
 it concluded `success`, 8 of 8, on `09e66bd`. Every statement in this repository
 that `main` is red was true when written and is now superseded.
 
+## 7B. Third observation — post-merge `main` CI on 2026-09-17
+
+Added after §7A, and additive to it. Nothing above this line has been rewritten.
+
+PR #6 was merged by `KWinOverAnything` at `20:53:19Z`, producing merge commit
+
+```text
+7db5fecc919af8c53f6afefb7d59cf794cdce587
+```
+
+That push ran CI directly against the merge commit itself — not against a branch
+head that happens to share its tree, which is the distinction §7A was written to
+respect.
+
+| Field          | Value                                      |
+| -------------- | ------------------------------------------ |
+| Run            | `35273492335`, attempt 1 — no re-runs      |
+| Head SHA       | `7db5fecc919af8c53f6afefb7d59cf794cdce587` |
+| Branch / event | `main` / `push`                            |
+| Conclusion     | **success — 8 of 8 jobs**                  |
+| Window         | `20:53:22Z` → `21:01:00Z`                  |
+
+Every job, by name:
+
+| Job                                        | Conclusion  | Duration |
+| ------------------------------------------ | ----------- | -------- |
+| `Policy, lint, contract, tests, build`     | **success** | 6m 25s   |
+| `Browser — production build`               | **success** | 1m 34s   |
+| `Browser — public catalogue`               | **success** | 3m 00s   |
+| `Browser — organiser venue maps`           | **success** | 1m 42s   |
+| `Browser — refusals`                       | **success** | 1m 32s   |
+| `Browser — event lifecycle`                | **success** | 2m 26s   |
+| `Browser — accessibility sweep`            | **success** | 2m 05s   |
+| `Browser — commerce and operations detail` | **success** | 2m 04s   |
+
+### What the event-lifecycle log says
+
+From job `105378319859`, step 10, `Run event lifecycle`:
+
+```text
+✓  13  journey 13: the moderator asks for a specific change … (3.2s)   20:58:35.946
+✓  14  journey 14: the organiser resubmits and the moderator approves (4.5s)   20:58:40.489
+✓  15  journey 15: an approved event is still not public (711ms)
+…
+20 passed (50.3s)
+```
+
+```text
+Journey 14 passed in 4.5 seconds.
+20 tests passed.
+Event lifecycle suite completed in 50.3 seconds.
+```
+
+Journey 14 consumed 4.5 seconds of a 90-second budget. On attempt 1 of run
+`35248621822` the same journey consumed the whole budget and timed out, with 87
+seconds of total server silence inside it (§4). Nothing between those two runs
+changed journey 14, its spec, its selectors or its timeouts.
+
+### What this does and does not establish
+
+**It establishes** that this is the second successful direct-`main` observation
+following the one original failure. The tally on `main`, on code that is
+identical for every line journey 14 touches, is now **one failure and two
+passes**: `09e66bd` attempt 1 failed, `09e66bd` attempt 2 passed, `7db5fec`
+passed. That strengthens §7A's conclusion that the failure is **intermittent or
+environment-dependent**.
+
+**It does not identify the root cause, and it does not prove journey 14 is
+fixed.** No change was made to journey 14. A test that passes twice after
+failing once has told you about its distribution, not its mechanism. The status
+remains:
+
+```text
+NOT REPRODUCED — ROOT CAUSE STILL UNKNOWN
+```
+
+**The artifact is still unreachable.** Artifact `10508771552`, holding
+`error-context.md` and the failure screenshots, was requested again through the
+GitHub Actions artifact API. That call returns a valid signed URL, and the
+download is then refused at this environment's egress gateway:
+
+```json
+{
+  "kind": "connect_rejected",
+  "detail": "gateway answered 403 to CONNECT (policy denial or upstream failure)",
+  "host": "productionresultssa14.blob.core.windows.net:443"
+}
+```
+
+So the refusal is a standing network policy, not an expired link or a wrong URL.
+
+**One thing did change about what is reachable.** Job **logs** can be read from
+this environment through the GitHub MCP server, which proxies their content
+rather than redirecting to blob storage — that is how the per-journey timings
+above were obtained without a re-run. Failure **artifacts** cannot. Future CI
+failures here can therefore be diagnosed to the log level, but not to the
+screenshot or page-snapshot level.
+
+### The §6 conclusions are unchanged by this
+
+Recorded explicitly so that a passing run is not mistaken for a resolution:
+
+| Theory                                   | Status after this observation                                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| The `auditLog.deleteMany` caused it      | **Still disproven**, by timing — the refusal is stamped in teardown, 88 s after the journey began. |
+| A slow CI runner caused it               | **Still disproven**, by per-journey timing — journeys 1–13 took 23 s in total.                     |
+| An optimistic UI ran ahead of the server | **Still disproven** — the panel sets status from the server's response, not a local map.           |
+| The App Router client router cache       | **Still an unconfirmed candidate, and only that.** Nothing here confirms or refutes it.            |
+
+The removal of the dead `auditLog.deleteMany` from the refusals seed, made
+alongside this note, is the same cleanup `1b77cc5` made to the lifecycle seed.
+**It is not a fix for journey 14**, and this document does not claim it is.
+
+One correction to a claim made while doing it. The removal was first written up
+as silencing the same `23514` error the lifecycle seed produced. It does not.
+The trigger is `FOR EACH ROW`, so a `DELETE` matching no rows never fires it, and
+the refusals journeys are about things being refused — their events accumulate no
+audit rows for the statement to match. A measured run of the refusals suite with
+the statement still in place produced **zero** `23514` errors, and the refusals
+job on this very run, `105378319787`, carries none either. The lifecycle seed's
+copy matched rows on every run and was genuinely noisy; the refusals copy was
+dead and quiet. Both were worth removing, for different reasons, and only the
+first one ever misled anybody.
+
+---
+
 ## 8. Conclusion
 
 **Root cause not confirmed, and the failure is intermittent** — see §7A, which
@@ -246,3 +372,74 @@ something that is not waiting on work.
 > **Superseded in part — see §7A.** This paragraph originally called the failure
 > "deterministic on CI". The authorized re-run passed on the identical commit, so
 > it is intermittent. The rest of the paragraph stands.
+
+---
+
+## 9. The superseded documentation branch — assessed, and **retained**
+
+Recorded here because the assessment was made alongside §7B, and because the
+conclusion is the opposite of the one expected when the check was ordered.
+
+Branch: `claude/docs-post-merge-status-reconciliation`, head `e6da134`, two
+commits, cut from `09e66bd`.
+
+Deletion was authorised **only if all five** of the conditions below held. Two do
+not, so **the branch was not deleted**.
+
+| #   | Condition                                                     | Verdict   | Basis                                                                        |
+| --- | ------------------------------------------------------------- | --------- | ---------------------------------------------------------------------------- |
+| 1   | It is not `main`                                              | **True**  | `main` is `7db5fec`; this is `e6da134`, unprotected                          |
+| 2   | It has no open pull request                                   | **True**  | No PR has ever referenced it; PRs #1–#6 all name other branches              |
+| 3   | No commits or files that merged work on `main` has superseded | **FALSE** | Five files carry content that is not on `main` in any form                   |
+| 4   | Its useful content was incorporated, or is now obsolete       | **FALSE** | Three of its corrections fix statements that are still wrong on `main` today |
+| 5   | Its false CI claim is still present, so it must not be merged | **True**  | Present in two files — see below                                             |
+
+### The blocker, exactly
+
+`main` at `7db5fec` still says, in `PHASE2_STATUS.md` line 3:
+
+```text
+**Status: `COMPLETE`. All twenty gates are `MET`.** Phase 3 has not been started.
+```
+
+and again at line 1160. That is false: Phase 3's Phase 1 and Phase 2 are merged.
+The branch corrects it. Nothing on `main` does.
+
+Content on the branch and nowhere on `main`:
+
+| File                                                  | Size    | What it does                                                              |
+| ----------------------------------------------------- | ------- | ------------------------------------------------------------------------- |
+| `PHASE2_STATUS.md`                                    | +17     | Corrects "Phase 3 has not been started"; marks §12.3 historical           |
+| `docs/DATA_MODEL.md`                                  | +16     | Corrects a paragraph that understates the redaction engine                |
+| `docs/PRIVACY_AND_RETENTION.md`                       | +17     | Marks the §2 table superseded in part, naming which three rows still hold |
+| `docs/STATUS_READING_GUIDE.md`                        | 274 new | Map of which document governs what                                        |
+| `docs/STATUS_RECONCILIATION_IMPLEMENTATION_REPORT.md` | 329 new | The reconciliation record                                                 |
+
+Only `docs/PHASE3_IMPLEMENTATION_REPORT.md` is genuinely superseded: `main`
+carries its own corrected version of the same file, merged in PR #6.
+
+### Why it still must not be merged as it stands
+
+The false claim is in **two** files on the branch:
+
+- `docs/STATUS_READING_GUIDE.md`, line 193
+- `docs/PHASE3_IMPLEMENTATION_REPORT.md`, §3.0
+
+both asserting:
+
+```text
+No CI run has ever had `09e66bd` as its head SHA.
+```
+
+Run `35248621822` had `09e66bd` as its head SHA, on `main`, on a `push` event. It
+failed on attempt 1 and succeeded on attempt 2. `main` already carries the
+corrected text for the second file. `docs/STATUS_RECONCILIATION_IMPLEMENTATION_REPORT.md`
+does **not** contain the claim; its §81 is careful and correct.
+
+### Disposition
+
+**Retained, untouched — not deleted, and not merged.** The branch holds real
+corrections and one false sentence in two places. Deleting it would discard the
+corrections; merging it would publish the falsehood. Resolving it means porting
+the three still-needed corrections onto `main` without the two false statements,
+which is a separate, authorised piece of work and was not done here.
