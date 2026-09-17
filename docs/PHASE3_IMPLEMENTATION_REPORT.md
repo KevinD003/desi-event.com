@@ -121,20 +121,21 @@ established convention.
 
 ## 3. Phase records
 
-| Phase                                                            | Report                                        | Commit                  | CI run                                                        | State                        |
-| ---------------------------------------------------------------- | --------------------------------------------- | ----------------------- | ------------------------------------------------------------- | ---------------------------- |
-| Baseline                                                         | this file, §1                                 | `f7cbe25`               | `35185073072` — success, 8/8                                  | verified green               |
-| 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6`, then the fix | `35187664416` — **failure**, 7/8; see the Phase 1 report §1.1 | superseded by the fix commit |
-| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | —                       | —                                                             | not started                  |
-| 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —                       | —                                                             | not started                  |
-| 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —                       | —                                                             | not started                  |
+| Phase                                                            | Report                                        | Commit                | CI run                       | State                      |
+| ---------------------------------------------------------------- | --------------------------------------------- | --------------------- | ---------------------------- | -------------------------- |
+| Baseline                                                         | this file, §1                                 | `f7cbe25`             | `35185073072` — success, 8/8 | verified green             |
+| 1 — Privacy authorization, policy enforcement foundation, schema | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8 | **PARTIAL** — see its §1.3 |
+| 2 — Redaction service, immutable audit evidence, data integrity  | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | —                     | —                            | not started                |
+| 3 — Privacy UI, exports, retention worker, operations            | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | —                     | —                            | not started                |
+| 4 — Connect mock, sandbox readiness, adversarial verification    | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | —                     | —                            | not started                |
 
 ### 3.1 Runs, in order
 
-| Run           | Commit    | Event               | Conclusion  | Jobs                                   |
-| ------------- | --------- | ------------------- | ----------- | -------------------------------------- |
-| `35185073072` | `f7cbe25` | `workflow_dispatch` | success     | 8/8                                    |
-| `35187664416` | `aeb65d6` | `workflow_dispatch` | **failure** | 7/8 — `Browser — organiser venue maps` |
+| Run           | Commit    | Event               | Conclusion  | Jobs                                           |
+| ------------- | --------- | ------------------- | ----------- | ---------------------------------------------- |
+| `35185073072` | `f7cbe25` | `workflow_dispatch` | success     | 8/8                                            |
+| `35187664416` | `aeb65d6` | `workflow_dispatch` | **failure** | 7/8 — `Browser — organiser venue maps`         |
+| `35189099797` | `d177e2d` | `workflow_dispatch` | **success** | **8/8**, 137 steps success, 8 skipped, 0 other |
 
 No run was cancelled. The eight `if: failure()` artefact uploads are skipped on
 every green job; on the failing job the upload ran and succeeded, which is the

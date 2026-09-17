@@ -72,10 +72,50 @@ events and refusals suites in full against a real stack.
 
 ### 1.2 The recorded run for this phase
 
-The run id for the fixed commit and its job conclusions are recorded in
-`docs/PHASE3_IMPLEMENTATION_REPORT.md` §3. A commit cannot carry the id of a run
-that does not exist until it is pushed, and amending a pushed commit to insert
-one would be a force push.
+|                       |                                                         |
+| --------------------- | ------------------------------------------------------- |
+| Commit                | `d177e2de1e1c4c390dcc6080f305d728939f05fa`              |
+| Run                   | `35189099797`, `workflow_dispatch`, attempt 1           |
+| Conclusion            | **success**                                             |
+| Jobs                  | **8 of 8 success**                                      |
+| Steps                 | 145 — **137 success, 8 skipped, 0 other**               |
+| Skipped steps         | the eight `if: failure()` artefact uploads, one per job |
+| Check runs on the SHA | 8, every one `success`                                  |
+| Cancellations         | none                                                    |
+
+The eight skipped steps are the only steps skipped, and they are skipped on
+every green run by construction: an upload guarded by `if: failure()` cannot run
+when nothing failed. That is worth stating rather than glossing, because a green
+run is exactly the run that never exercises them — the previous, failing run did,
+and it succeeded.
+
+Test 9, the one failure that could not be attributed to this change, passed on
+this run without any test being skipped, any timeout raised, any retry added, or
+the previous run being re-run to obtain a green.
+
+### 1.3 Phase 1 status: PARTIAL
+
+Complete against every item of the approved Phase 1 scope, with one deliberate
+deviation and one deliberate deferral. Both are named here rather than rounded
+away, which is why the word is PARTIAL and not COMPLETE.
+
+**Deferred — Connect audit action constants.** `docs/PHASE3_IMPLEMENTATION_PLAN.md`
+§15 places "redaction **and Connect** audit action constants" in Phase 1. The
+redaction constants are here; the Connect ones are not. They would have no
+writer until Phase 4, and this repository's own evidence culture treats a
+declared-but-uncalled constant as a defect rather than preparation — four
+existing `AUDIT_ACTIONS` entries are already unused and are recorded as a smell.
+They land with the Connect work that writes them. Nothing depends on them in the
+meantime.
+
+**Added — two read routes.** The same plan section says Phase 1 excludes "any
+route, UI or redaction logic". Two `GET` routes ship here, because the approving
+instruction asked for "route-contract, service-level, and authorization
+validation needed for future privacy actions" and for route contract tests, and
+because `apps/api/tests/contract.test.js` asserts that every contract route is
+registered — so a descriptor cannot exist without a handler. Neither route
+redacts anything, neither has a side effect, and no user-data redaction route was
+created.
 
 Every check below was run locally against real PostgreSQL 16 and Redis 7 before
 the push.
