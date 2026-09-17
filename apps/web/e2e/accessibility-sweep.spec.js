@@ -109,16 +109,105 @@ async function signIn(page, email) {
 }
 
 /**
+ * Wait until every entrance animation has finished.
+ *
+ * This is the gate the colour assertions in this file depend on, and two
+ * earlier attempts at it were wrong in instructive ways.
+ *
+ * The site animates through `components/motion.jsx`, which wraps content in
+ * Framer Motion elements that start at `opacity: 0` and fade to `1`. Axe reads
+ * `getComputedStyle().color` and blends it through ancestor opacity, so a scan
+ * that lands mid-fade measures text at a fraction of its real colour against a
+ * background that is already correct — which is exactly what the failures
+ * showed: `text-marigold-900` reported as `#efdfc9`, a ratio of 1.2 against a
+ * `bg-marigold-100` that had resolved perfectly.
+ *
+ * Two hypotheses were tried and neither held. Waiting for the `h1` to be
+ * visible (run `35157268740`) fails because an element is visible at
+ * `opacity: 0`. Waiting for the theme custom properties to resolve on `:root`
+ * (run `35175112378`) fails because the stylesheet was never the problem — the
+ * tokens were present and correct the whole time. Both were diagnosed from a
+ * log; this one was diagnosed from a reproduction, by dumping the computed
+ * style chain and finding `DIV.mt-6` — the `FadeIn` at `events/[slug]/page.jsx`
+ * — sitting at `opacity: 0` with the `h1` beneath it.
+ *
+ * `RevealOnScroll` uses `whileInView`, so content below the fold stays faded
+ * out until it is scrolled to. The page is therefore walked top to bottom
+ * first: a scan of a page whose lower half is still invisible is not a scan of
+ * that page. Every animated element carries `data-motion`, which
+ * `motion.jsx` documents as load-bearing rather than decorative, so it is a
+ * contract this file may rely on.
+ *
+ * **This cannot mask a violation.** It waits for the resting state and then
+ * scans it, and the resting state is the one a reader actually reads. Colours
+ * that are wrong at rest are still wrong once the fade has finished.
+ *
+ * @param {object} page The page about to be scanned.
+ * @returns {Promise<void>} Resolves once the page has stopped moving.
+ */
+async function settled(page) {
+  const deadline = Date.now() + 30_000
+
+  for (;;) {
+    // Scroll each unsettled element into view rather than sweeping the page
+    // once. A single pass is not enough: the first one runs before hydration
+    // has attached Framer Motion's IntersectionObservers, so it triggers
+    // nothing, and once the page scrolls back the sections below the fold
+    // never re-enter view. Measured on the public event page at 320x720 —
+    // four `RevealOnScroll` sections at 852, 1266, 1496 and 1674 stayed at
+    // `opacity: 0` through a full sweep. `viewport.once` means an element that
+    // has animated stays animated, so this converges.
+    const unsettled = await page.evaluate(async () => {
+      const pending = [...document.querySelectorAll('[data-motion]')].filter(
+        (element) => Number.parseFloat(getComputedStyle(element).opacity) < 1,
+      )
+
+      for (const element of pending) {
+        element.scrollIntoView({ block: 'center' })
+        await new Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve))
+        })
+      }
+
+      return pending.length
+    })
+
+    if (unsettled === 0) break
+
+    if (Date.now() > deadline) {
+      throw new Error(
+        `${unsettled} [data-motion] element(s) never reached opacity 1. The scan ` +
+          'would have measured text blended through an unfinished entrance ' +
+          'animation, which is not a contrast defect — see the note on this helper.',
+      )
+    }
+
+    await page.waitForTimeout(250)
+  }
+
+  await page.evaluate(() => window.scrollTo(0, 0))
+
+  // Fonts change metrics rather than colour, but a scan that begins mid-swap
+  // measures a layout that nothing will ever look like.
+  await page.evaluate(() => document.fonts.ready)
+}
+
+/**
  * Run the scanner and return whatever it found.
  *
  * No rule is disabled. The one exclusion is Next's development overlay, which
  * the framework injects into every page in `next dev` and which no deployment
  * ships — scanning it would report the framework's markup as the site's.
  *
+ * The scan waits for {@link settled} first, so every case in this file is
+ * ordered against the finished page rather than each remembering to be.
+ *
  * @param {object} page The page to scan.
  * @returns {Promise<object[]>} Violations, each with its rule id and nodes.
  */
 async function scan(page) {
+  await settled(page)
+
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .exclude('nextjs-portal')
@@ -216,16 +305,15 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     test(`the public event page is clean at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await page.goto(`/events/alpha-event-${seeded.tag}`)
-      // Wait for the page to be rendered before asking axe what colour anything
-      // is. `goto` resolves on `load`, which is not the same thing: on run
-      // 35157268740 this was the only one of the thirteen scans in this file
-      // that scanned without waiting, and it was the one that failed — axe
-      // measured a 1.13:1 contrast between `text-marigold-900` and
-      // `bg-marigold-100`, two tokens that cannot produce that ratio once the
-      // stylesheet has applied. The route was on its first Turbopack compile
-      // (2.0s) in that job and is warm locally, which is why it passes here and
-      // failed there. Waiting cannot hide a real violation: the scan still runs
-      // over the finished page, so genuinely wrong colours still fail.
+      // This case has failed three times, and the first two fixes were wrong.
+      // The cause is not the stylesheet and never was: the page fades in from
+      // `opacity: 0` through `components/motion.jsx`, and a scan that lands
+      // mid-fade measures blended text. {@link settled} is the real gate, and
+      // `scan` awaits it for every case. Runs 35157268740, 35175112378 and
+      // 35176281573 are the three, in order.
+      //
+      // This assertion stays because the page genuinely must have its heading
+      // before a scan means anything.
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
 
       const violations = await scan(page)
