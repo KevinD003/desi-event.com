@@ -19,8 +19,14 @@
  * provider retries, which is what it was built for.
  *
  * These cases assert **domain state**, not status codes: an order that stayed
- * `PENDING`, a `ticket` table that stayed empty, inventory that did not move.
- * A 4xx with a ticket behind it would be a worse bug than a 200.
+ * `PENDING`, a `ticket` table that stayed empty, inventory that did not move,
+ * a ledger that posted nothing. A 4xx with a ticket behind it would be a worse
+ * bug than a 200.
+ *
+ * Every one of those facts is paired with a positive control, because an
+ * assertion that something did not change is worth exactly as much as the
+ * proof that it can. "The trusted mock provider still settles" is that proof:
+ * it asserts the same numbers do move, order-linked, when settlement is real.
  *
  * The repository already holds the right answer for this shape of problem.
  * `/v1/webhooks/stripe` refuses every delivery it cannot verify and refuses
@@ -126,6 +132,19 @@ async function pendingOrderWorld() {
 /**
  * The domain facts that must not move when a forgery is refused.
  *
+ * Every field here is one a legitimate settlement demonstrably *does* move —
+ * that is the whole requirement for a snapshot to be worth comparing. The
+ * positive control in "the trusted mock provider still settles" is what keeps
+ * that true: if settlement ever stopped writing the ledger, that test fails
+ * rather than this one silently degrading into a comparison of zero with zero.
+ *
+ * Notification outbox rows are deliberately **not** here. `settleCheckout`
+ * writes no outbox row — the only writers are ticket transfer, event
+ * cancellation and material-change — so asserting the outbox is unchanged after
+ * a refusal would compare 0 with 0 and prove nothing about a prevented
+ * notification. Claiming it as evidence would be claiming a guarantee the
+ * product does not implement.
+ *
  * @param {object} prisma The stub client.
  * @returns {object} A snapshot.
  */
@@ -137,8 +156,53 @@ function domainState(prisma) {
     quantitySold: prisma._store.ticketType.reduce((sum, row) => sum + (row.quantitySold ?? 0), 0),
     ledgerEntries: prisma._store.ledgerEntry?.length ?? 0,
     ledgerBatches: prisma._store.ledgerBatch?.length ?? 0,
-    outbox: prisma._store.notificationOutbox?.length ?? 0,
   }
+}
+
+/**
+ * The ledger this one order caused, counted through its own link.
+ *
+ * Order-linked rather than global: a global count would pass just as happily if
+ * a batch were posted against somebody else's order, which is the failure a
+ * settlement test most needs to see.
+ *
+ * @param {object} prisma The stub client.
+ * @param {string} orderId The order to narrow to.
+ * @returns {{batches: number, posted: number, entries: number, debitCents: number, creditCents: number}} Its ledger.
+ */
+function orderLedger(prisma, orderId) {
+  const batches = (prisma._store.ledgerBatch ?? []).filter((row) => row.orderId === orderId)
+  const batchIds = new Set(batches.map((row) => row.id))
+  const entries = (prisma._store.ledgerEntry ?? []).filter((row) => batchIds.has(row.batchId))
+
+  return {
+    batches: batches.length,
+    posted: batches.filter((row) => row.status === 'POSTED').length,
+    entries: entries.length,
+    debitCents: batches.reduce((sum, row) => sum + (row.debitCents ?? 0), 0),
+    creditCents: batches.reduce((sum, row) => sum + (row.creditCents ?? 0), 0),
+  }
+}
+
+/**
+ * How many entries the paid-order batch should carry for a given order.
+ *
+ * Derived from the order's own money rather than hard-coded, because
+ * `orderPaidBatch` emits the discount, fee and tax lines conditionally. A
+ * literal would be right for today's fixture and quietly wrong the moment a
+ * fixture gained a discount.
+ *
+ * @param {object} order The order row.
+ * @returns {number} The expected entry count.
+ */
+function expectedLedgerEntries(order) {
+  return (
+    1 + // money in, to processor clearing
+    (order.discountCents > 0 ? 1 : 0) +
+    1 + // owed to the organiser
+    (order.feesCents > 0 ? 1 : 0) +
+    (order.taxCents > 0 ? 1 : 0)
+  )
 }
 
 describe('an anonymous caller cannot settle an order', () => {
@@ -259,8 +323,16 @@ function signedWebhook(app, payload, { timestamp, tamperedInto } = {}) {
 }
 
 describe('the trusted mock provider still settles', () => {
-  it('settles a pending order exactly once and mints one ticket', async () => {
+  it('settles a pending order exactly once, mints one ticket, and posts its ledger', async () => {
     const { app, prisma, order } = await pendingOrderWorld()
+
+    // The positive control for the refusal tests above. Those assert that a
+    // forgery moves none of these numbers; this asserts the numbers move at all
+    // when settlement is genuine. Without it, "unchanged" would be satisfied by
+    // a counter that can never change, which is not evidence of anything.
+    const before = orderLedger(prisma, order.id)
+
+    expect(before).toEqual({ batches: 0, posted: 0, entries: 0, debitCents: 0, creditCents: 0 })
 
     const payload = {
       provider: 'in-memory-payments',
@@ -276,6 +348,18 @@ describe('the trusted mock provider still settles', () => {
     expect(prisma._store.ticket).toHaveLength(1)
     expect(prisma._store.ticketType.reduce((sum, row) => sum + (row.quantitySold ?? 0), 0)).toBe(1)
 
+    const after = orderLedger(prisma, order.id)
+
+    // One batch, posted, linked to this order, balanced, and for exactly what
+    // the buyer was charged. A batch that did not balance would not have been
+    // allowed to post; asserting it here says the money recorded is the money
+    // the order says it took, not merely that some rows appeared.
+    expect(after.batches).toBe(1)
+    expect(after.posted).toBe(1)
+    expect(after.entries).toBe(expectedLedgerEntries(order))
+    expect(after.debitCents).toBe(order.totalCents)
+    expect(after.creditCents).toBe(order.totalCents)
+
     await app.close()
   })
 
@@ -290,12 +374,21 @@ describe('the trusted mock provider still settles', () => {
     }
 
     expect((await signedWebhook(app, payload)).statusCode).toBe(200)
+
+    const afterFirst = orderLedger(prisma, order.id)
+
+    expect(afterFirst.batches).toBe(1)
+    expect(afterFirst.entries).toBe(expectedLedgerEntries(order))
+
     expect((await signedWebhook(app, payload)).statusCode).toBe(200)
 
     // The second delivery is acknowledged and changes nothing: one ticket, one
-    // stored event, one settlement.
+    // stored event, one settlement — and, the reason this matters for money,
+    // one ledger batch. A replay that posted the order's revenue twice would
+    // leave the books saying the buyer paid twice.
     expect(prisma._store.ticket).toHaveLength(1)
     expect(prisma._store.webhookEvent).toHaveLength(1)
+    expect(orderLedger(prisma, order.id)).toEqual(afterFirst)
 
     await app.close()
   })
@@ -316,9 +409,16 @@ describe('the trusted mock provider still settles', () => {
 
     // Two genuinely distinct events, both signed. The order is settled once,
     // because `settleCheckout` is conditional on PENDING — signature checking
-    // did not replace that guard, it sits in front of it.
+    // did not replace that guard, it sits in front of it. Inventory moves once
+    // and the ledger is posted once, which is the same statement said in the
+    // two places it has to be true.
     expect(prisma._store.ticket).toHaveLength(1)
     expect(prisma._store.ticketType.reduce((sum, row) => sum + (row.quantitySold ?? 0), 0)).toBe(1)
+
+    const ledger = orderLedger(prisma, order.id)
+
+    expect(ledger.batches).toBe(1)
+    expect(ledger.entries).toBe(expectedLedgerEntries(order))
 
     await app.close()
   })
