@@ -1,8 +1,8 @@
 # Security finding — unauthenticated order settlement via the payment webhook
 
-**Status: CONFIRMED — exploit path verified by reading the code end to end.**
-A failing regression test is written next; until that test is green-when-fixed
-and red-when-not, this document is the evidence and the test is the proof.
+**Status: CONFIRMED by regression test, then REMEDIATED.** The sections from
+"Confirmation through regression test" onwards were added after the fix; §1–§8
+are the pre-fix record and are left as they were written.
 
 **Severity: CRITICAL** for any deployment reachable by an untrusted network.
 The precondition is met by the attacker themselves, so this is not a
@@ -193,3 +193,90 @@ future intention. Two things make it a finding now rather than a known gap:
 No credential, secret, real order reference, customer datum or copy-pasteable
 exploit payload appears in this document. No request was made against any
 deployed service. No Stripe call of any kind was made.
+
+---
+
+## Confirmation through regression test
+
+The reading in §1–§4 was argued. This is what the code actually did, measured
+against the stub database with disposable fixture data only.
+
+A guest placed an order through the ordinary anonymous route. The provider was
+configured to time out on that amount, which leaves the order `PENDING` — the
+same state a real reconciliation case produces. One unsigned `POST` followed,
+carrying a provider name the caller invented, an event id the caller invented,
+the caller's own order reference, and `amountCents: 1`:
+
+```text
+http status  : 200
+order before : { status: "PENDING", tickets: 0 }
+order after  : { status: "PAID",    tickets: 1 }
+```
+
+A ticket, for one unit of currency claimed and none paid. The probe that
+produced this was removed once it had; the committed evidence is
+`apps/api/tests/payment-webhook-auth.test.js`, which asserts the **secure**
+behaviour and therefore failed 4 of 4 against the vulnerable code:
+
+```text
+AssertionError: expected 200 to be greater than or equal to 400
+```
+
+## Remediation
+
+`apps/api/src/lib/mock-webhook.js` adds the thing that was missing: proof the
+message came from the provider. The route verifies before it does anything else,
+and refuses with a bare 400 whose reason goes only to the log.
+
+**The key is derived, not configured.** `AUTH_SECRET` already fans out through
+HKDF with a distinct purpose label per use, so this adds a purpose rather than a
+secret. There is no new environment variable, so there is no deployment that is
+accidentally unprotected because somebody missed one; nothing new appears in
+`.env.example` to be copied into production as a real value; and `AUTH_SECRET`
+never reaches the browser, so neither does this key.
+
+**It fails closed.** No secret, no signature, no stale timestamp, no match — all
+refuse. There is deliberately no mock-mode branch that accepts an unsigned body:
+"we are only pretending to take payments" is not a reason to let a stranger issue
+a ticket. This is the posture `/v1/webhooks/stripe` already had, brought to the
+endpoint that lacked it.
+
+**The signature covers fields, not raw bytes, and that is a deliberate
+divergence.** Stripe signs bytes, so the Stripe route must verify bytes. Here we
+define both ends, so the signature covers a canonical sorted encoding of every
+field the schema allows — including `amountCents`, which the handler does not
+read today but which any future amount check would have to trust. This avoids a
+second raw-body parser and the byte-fidelity plumbing that comes with it.
+
+**Why not an end-user session.** A provider has no session. Requiring one would
+have meant either inventing a service account for a caller that is not a user, or
+letting the buyer authenticate their own payment confirmation — which is the same
+capability the finding is about, wearing a cookie.
+
+The legitimate senders now sign: the test helper in `payment-flow.test.js` and
+the `webhook-duplicates` load scenario, both through the exported
+`signMockWebhook`, so there is one implementation of the scheme rather than three
+that can drift.
+
+## Residual limitations
+
+- **Replay inside the tolerance window is bounded by identity, not by the
+  signature.** A captured delivery re-sent within 300 seconds carries a valid
+  signature; what stops it changing anything is the unique index on
+  `(provider, providerEventId)` and `settleCheckout`'s `PENDING` predicate. Both
+  are tested. A nonce store would close the window itself and is not built.
+- **This is the mock provider's boundary only.** It proves nothing about Stripe.
+  Real Stripe and real Stripe Connect remain `EXTERNAL VERIFICATION PENDING`, no
+  credential has been supplied, and no Stripe call of any kind was made here.
+- **`settleCheckout` still does not verify that money moved.** It gates on
+  `PENDING` and trusts its caller. That is now defensible because the only caller
+  that can reach it from outside is authenticated — but the deeper check, that a
+  captured payment exists for the amount claimed, is not implemented and would be
+  the natural next hardening.
+- **The `ORDER_NOT_FOUND` oracle is closed by accident rather than by design.**
+  Unverified deliveries are now refused before the order is looked up, so the
+  distinction is no longer observable; a test pins that. It was not the reason for
+  the fix.
+- **No deployment was tested.** Everything here is measured against the test
+  harness. Whether any running instance of this API is reachable from an untrusted
+  network is outside what this repository can tell.
