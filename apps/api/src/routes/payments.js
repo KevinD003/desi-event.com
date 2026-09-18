@@ -15,9 +15,10 @@
  * @module @desi-event/api/routes/payments
  */
 
-import { databaseErrorCode } from '../lib/errors.js'
+import { databaseErrorCode, httpError } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
 import { CAPTURE_OUTCOMES, compensateCheckout, settleCheckout } from '../lib/checkout.js'
+import { MOCK_SIGNATURE_HEADER, verifyMockWebhook } from '../lib/mock-webhook.js'
 import { defineRoute } from '../lib/register.js'
 
 /**
@@ -34,6 +35,34 @@ export function registerPaymentRoutes(app, { prisma, env }) {
     handler: async (request) => {
       const body = request.body
       const now = new Date()
+
+      // Authentication, on a route that has no session to authenticate. Until
+      // this existed the handler took the body's word for it, and `settleCheckout`
+      // gates only on `status: 'PENDING'` — so a caller who created their own
+      // order and was handed its reference could mint themselves tickets.
+      //
+      // Fail closed, exactly as `/v1/webhooks/stripe` does: no signature, no
+      // settlement. There is no mock-mode branch that accepts an unsigned body,
+      // because "we are only pretending to take payments" is not a reason to let
+      // a stranger issue a ticket.
+      const verification = verifyMockWebhook({
+        body,
+        signature: request.headers[MOCK_SIGNATURE_HEADER],
+        authSecret: env.AUTH_SECRET,
+        now,
+      })
+
+      if (!verification.ok) {
+        // The reason goes to the log; the sender gets a bare 400 that
+        // distinguishes nothing. Warn rather than error: unverifiable traffic is
+        // expected on a public endpoint and should not page anybody.
+        request.log.warn(
+          { reason: verification.reason },
+          'refused an unverifiable payment webhook delivery',
+        )
+
+        throw httpError(400, 'WEBHOOK_SIGNATURE_INVALID', 'This delivery could not be verified.')
+      }
 
       const outcome = await prisma
         .$transaction(async (tx) => {

@@ -2768,7 +2768,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/payments/webhook',
       summary: 'Payment provider callback',
       description:
-        'The authoritative signal that money moved. A browser redirect is not: a buyer can close the tab, replay it or forge it, so fulfilment is driven from here. Processing is idempotent on `(provider, providerEventId)` — a replayed or duplicated delivery is acknowledged and changes nothing. In production this endpoint is authenticated by the provider signature; the Phase 1 mock provider posts unsigned callbacks and real payments remain disabled.',
+        'The authoritative signal that money moved. A browser redirect is not: a buyer can close the tab, replay it or forge it, so fulfilment is driven from here. Processing is idempotent on `(provider, providerEventId)` — a replayed or duplicated delivery is acknowledged and changes nothing. This is a provider callback boundary, not a way for a buyer to confirm their own payment: it is not for browser clients or any untrusted caller, and a delivery that cannot be shown to come from the trusted mock provider is refused before the order is looked up. Verification is required — a callback that is unsigned, malformed, stale or altered after signing is rejected with a bare 400, and which part was wrong goes to the log only. There is no mode that skips it. Real Stripe deliveries are a different endpoint with a different scheme, and real payments remain disabled.',
       tags: ['payments'],
       auth: 'none',
       params: null,

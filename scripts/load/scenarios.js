@@ -17,6 +17,8 @@
  * @module scripts/load/scenarios
  */
 
+import { MOCK_SIGNATURE_HEADER, signMockWebhook } from '../../apps/api/src/lib/mock-webhook.js'
+
 /**
  * @typedef {object} Scenario
  * @property {string} key Its threshold key in `./config.js`.
@@ -178,10 +180,8 @@ export const SCENARIOS = Object.freeze([
     async run(context) {
       return attempt(
         context,
-        {
-          method: 'POST',
-          path: '/v1/payments/webhook',
-          body: {
+        (() => {
+          const body = {
             provider: 'in-memory-payments',
             // The same delivery every time, which is the case a provider
             // actually produces: a webhook retried because the acknowledgement
@@ -192,8 +192,21 @@ export const SCENARIOS = Object.freeze([
             providerRef: context.world.intentId,
             amountCents: 5_000,
             currency: 'INR',
-          },
-        },
+          }
+
+          // Signed, because the endpoint refuses unsigned deliveries. What this
+          // scenario measures is duplicate *processing*, so the signature has to
+          // be valid or every request would be rejected at the door and the
+          // measurement would be of nothing.
+          return {
+            method: 'POST',
+            path: '/v1/payments/webhook',
+            body,
+            headers: {
+              [MOCK_SIGNATURE_HEADER]: signMockWebhook(body, context.world.authSecret),
+            },
+          }
+        })(),
         EXPECTED.write,
       )
     },

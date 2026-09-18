@@ -259,6 +259,11 @@ export async function buildWorld(prisma, app, tag) {
     refundableReference: refundable.reference,
     webhookEventId: `evt_load_${tag}`,
     intentId: refundable.intentId,
+    // The webhook scenario signs its callbacks the way the mock provider does;
+    // the endpoint refuses anything unsigned. Carried on the world rather than
+    // re-read from the environment in the scenario, so there is one place that
+    // decides what this run's secret is.
+    authSecret,
   }
 }
 
