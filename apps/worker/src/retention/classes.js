@@ -48,30 +48,32 @@
  * @module worker/retention/classes
  */
 
-/** The status every duration in this module carries. */
-export const RETENTION_APPROVAL = 'PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW'
+import {
+  RETENTION_APPROVAL,
+  RETENTION_CLASS_PROPOSALS,
+  RETENTION_NOT_EVALUATED,
+} from '@desi-event/schemas'
+
+export { RETENTION_APPROVAL }
 
 /** Milliseconds in a day, for readable cut-off arithmetic. */
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * The classes a dry run evaluates.
+ * How each class is counted: which table, whether a hold can attach to it, and
+ * the clause that selects candidates.
  *
- * `retentionClass` matches the closed vocabulary named in `RetentionSweep`'s
- * own doc-comment, extended with `session_metadata` because the schema names
- * three classes while the retention table proposes five distinct durations —
- * the two session rows expire on different clocks and cannot share one class
- * without one of them being swept on the wrong proposal.
+ * Kept separate from the proposal in `@desi-event/schemas/retention`, and
+ * merged with it below. The split is the point: the shared module holds the
+ * durations, which the API also has to describe, and this map holds the
+ * queries, which only a process with a database has any use for. Nothing here
+ * can be read by the browser, and nothing there can count anything.
  *
- * @type {ReadonlyArray<object>}
+ * @type {Readonly<Record<string, object>>}
  */
-export const RETENTION_CLASSES = Object.freeze([
-  Object.freeze({
-    retentionClass: 'login_attempt',
+const CLASS_QUERIES = Object.freeze({
+  login_attempt: Object.freeze({
     model: 'loginAttempt',
-    proposedDays: 30,
-    approval: RETENTION_APPROVAL,
-    basis: 'It exists for rate limiting, not history',
     subjectLinked: false,
     /**
      * Rows older than the cut-off.
@@ -84,12 +86,8 @@ export const RETENTION_CLASSES = Object.freeze([
      */
     where: (olderThan) => ({ createdAt: { lt: olderThan } }),
   }),
-  Object.freeze({
-    retentionClass: 'session',
+  session: Object.freeze({
     model: 'session',
-    proposedDays: 30,
-    approval: RETENTION_APPROVAL,
-    basis: 'Nothing needs a spent token',
     subjectLinked: false,
     /**
      * Sessions that expired before the cut-off.
@@ -102,12 +100,8 @@ export const RETENTION_CLASSES = Object.freeze([
      */
     where: (olderThan) => ({ expiresAt: { lt: olderThan } }),
   }),
-  Object.freeze({
-    retentionClass: 'session_metadata',
+  session_metadata: Object.freeze({
     model: 'session',
-    proposedDays: 90,
-    approval: RETENTION_APPROVAL,
-    basis: 'Security metadata, already hashed',
     subjectLinked: false,
     /**
      * Sessions still carrying security metadata past the cut-off.
@@ -124,12 +118,8 @@ export const RETENTION_CLASSES = Object.freeze([
       OR: [{ userAgent: { not: null } }, { ipHash: { not: null } }],
     }),
   }),
-  Object.freeze({
-    retentionClass: 'notification_recipient',
+  notification_recipient: Object.freeze({
     model: 'notificationOutbox',
-    proposedDays: 30,
-    approval: RETENTION_APPROVAL,
-    basis: 'The evidence is that it went, not where',
     subjectLinked: true,
     /**
      * Delivered notifications older than the cut-off, within an organisation.
@@ -148,25 +138,43 @@ export const RETENTION_CLASSES = Object.freeze([
       organizationId: { not: null },
     }),
   }),
-])
+})
+
+/**
+ * The classes a dry run evaluates: the shared proposal, plus how to count it.
+ *
+ * Derived from `RETENTION_CLASS_PROPOSALS` rather than restated, so a duration
+ * cannot be changed in one place and left stale in the other. A proposal with
+ * no query here is dropped with a loud error rather than silently skipped —
+ * a class that vanished between the policy and the sweep is exactly the kind of
+ * gap this whole surface exists to make visible.
+ *
+ * @type {ReadonlyArray<object>}
+ */
+export const RETENTION_CLASSES = Object.freeze(
+  RETENTION_CLASS_PROPOSALS.map((proposal) => {
+    const query = CLASS_QUERIES[proposal.retentionClass]
+
+    if (!query) {
+      throw new Error(
+        `retention class "${proposal.retentionClass}" is proposed but has no candidate query`,
+      )
+    }
+
+    return Object.freeze({ ...proposal, ...query })
+  }),
+)
 
 /**
  * Classes named by the policy but not evaluated, and why.
  *
- * Reported rather than omitted. A class that silently disappears reads as a
- * class that was swept and found empty, which is a different claim entirely.
+ * Re-exported from the shared vocabulary rather than restated. Reported rather
+ * than omitted: a class that silently disappears reads as a class that was
+ * swept and found empty, which is a different claim entirely.
  *
  * @type {ReadonlyArray<object>}
  */
-export const NOT_EVALUATED_CLASSES = Object.freeze([
-  Object.freeze({
-    retentionClass: 'export_artifact',
-    proposedDays: 7,
-    approval: RETENTION_APPROVAL,
-    reason:
-      'Nothing in this repository has ever written an ExportArtifact row, so the table is empty by construction. A count over it would report "no writer exists" while looking like "nothing is old enough".',
-  }),
-])
+export const NOT_EVALUATED_CLASSES = RETENTION_NOT_EVALUATED
 
 /**
  * The cut-off a class would use, counted back from a given instant.

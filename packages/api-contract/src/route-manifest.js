@@ -768,6 +768,14 @@ export const apiRouteManifest = Object.freeze([
     query: false,
   },
   {
+    id: 'retention.listSweeps',
+    method: 'GET',
+    path: '/v1/operations/retention/sweeps',
+    auth: 'session',
+    body: false,
+    query: true,
+  },
+  {
     id: 'moderation.queue',
     method: 'GET',
     path: '/v1/moderation/events',

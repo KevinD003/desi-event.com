@@ -31,6 +31,8 @@ import {
   privacyHoldStateSchema,
   privacyRequestReasonSchema,
   privacyRequestStateSchema,
+  retentionSweepModeSchema,
+  retentionSweepStateSchema,
 } from './enums.js'
 import {
   cuidSchema,
@@ -270,4 +272,92 @@ export const privacyAuditEventSchema = z.object({
 export const privacyAuditEventListResponseSchema = z.object({
   data: z.array(privacyAuditEventSchema),
   pagination: paginationMetaSchema,
+})
+
+/**
+ * One retention rehearsal, as an authorised reader sees it.
+ *
+ * Every field is a class name, an enum, a count or a timestamp. There is no
+ * field here that could carry a person's data, and that is structural rather
+ * than careful: the sweep that wrote the row never read a personal value in the
+ * first place — its queries ask about timestamps and about whether a column is
+ * null, never what is in one.
+ *
+ * `approval` is not stored. It is attached by the server on the way out,
+ * because a duration that reaches a reader without
+ * `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW` beside it is a duration somebody
+ * will eventually mistake for policy. Carrying it in the payload means the
+ * label travels with the number instead of living in a document beside it.
+ *
+ * `leaseOwner` is deliberately absent. It names a worker process, which is
+ * infrastructure detail a reader cannot act on and an attacker would rather
+ * have.
+ */
+export const retentionSweepSchema = z.object({
+  id: cuidSchema,
+  retentionClass: nonEmptyStringSchema,
+  mode: retentionSweepModeSchema,
+  state: retentionSweepStateSchema,
+  /// The cut-off this run used, so a later change of proposal does not make an
+  /// earlier run's behaviour unexplainable.
+  olderThan: timestampSchema,
+  examinedCount: z.number().int().min(0),
+  /// Always 0 for a `DRY_RUN`, which a CHECK constraint enforces in the
+  /// database rather than trusting any writer.
+  affectedCount: z.number().int().min(0),
+  heldCount: z.number().int().min(0),
+  /// A closed-vocabulary code when the run failed. Never a driver message.
+  failureCode: nonEmptyStringSchema.nullable(),
+  startedAt: timestampSchema.nullable(),
+  finishedAt: timestampSchema.nullable(),
+  createdAt: timestampSchema,
+  /// Server-attached, never stored: the approval status of the duration behind
+  /// this class.
+  approval: nonEmptyStringSchema,
+})
+
+/**
+ * A retention class the sweep names but does not evaluate, and why.
+ *
+ * Reported rather than omitted. A class that silently disappeared from the list
+ * would read as a class that was swept and found empty, which is a different
+ * claim entirely — and the wrong one.
+ */
+export const retentionNotEvaluatedSchema = z.object({
+  retentionClass: nonEmptyStringSchema,
+  proposedDays: z.number().int().min(0),
+  approval: nonEmptyStringSchema,
+  reason: nonEmptyStringSchema,
+})
+
+/**
+ * `GET /v1/operations/retention/sweeps`.
+ *
+ * There is deliberately no `enforcementActivated` field. Activation is a
+ * *worker* setting, and the API is a different process that cannot see it —
+ * a flag answered from the API's own environment would be a guess presented as
+ * a fact, and the two could disagree without either noticing.
+ *
+ * The rows carry the answer honestly instead: a `SKIPPED_DISABLED` sweep is the
+ * worker stating, at a recorded instant, that it was told not to run. An empty
+ * list means no rehearsal has ever run here, which is a third thing again and
+ * worth being able to tell apart from the other two.
+ */
+export const retentionSweepListResponseSchema = z.object({
+  data: z.array(retentionSweepSchema),
+  pagination: paginationMetaSchema,
+  /**
+   * Classes named by the policy that no rehearsal evaluates, and why.
+   *
+   * Sent with the list rather than left to the reader to notice as an absence,
+   * because a class that is simply missing reads as a class that was swept and
+   * found empty.
+   */
+  notEvaluated: z.array(retentionNotEvaluatedSchema),
+})
+
+/** Filters for the sweep list. */
+export const retentionSweepListQuerySchema = paginationQuerySchema.extend({
+  retentionClass: nonEmptyStringSchema.optional(),
+  state: retentionSweepStateSchema.optional(),
 })

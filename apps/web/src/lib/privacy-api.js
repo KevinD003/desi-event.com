@@ -132,3 +132,34 @@ export async function listPrivacyHolds(organizationId, options = {}) {
 
   return callApi(`/v1/organizations/${organizationId}/privacy/holds${search}`)
 }
+
+/**
+ * Every retention rehearsal the platform has recorded.
+ *
+ * Takes no organisation id, and that is not an oversight. `RetentionSweep` has
+ * no `organizationId` — a sweep counts across every tenant at once — so there
+ * is no honest per-organisation figure to ask for, and a parameter that looked
+ * like one would be a parameter that lied.
+ *
+ * There is deliberately no sibling that *starts* a sweep. The API exposes no
+ * such route: initiation is an operator action against the worker, so the one
+ * surface reachable from a browser cannot begin a job whose durations nobody
+ * has approved.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.retentionClass] One class only.
+ * @param {string} [options.state] One `RetentionSweepState`.
+ * @param {number} [options.page] 1-based page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<object>} `{ data, pagination, notEvaluated }`.
+ */
+export async function listRetentionSweeps(options = {}) {
+  const search = query({
+    retentionClass: options.retentionClass,
+    state: options.state,
+    page: options.page,
+    perPage: options.perPage,
+  })
+
+  return callApi(`/v1/operations/retention/sweeps${search}`)
+}

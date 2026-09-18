@@ -63,6 +63,7 @@ const REQUIRED_CAPABILITIES = [
   'moderation:review',
   'reconciliation:manage',
   'ledger:manage',
+  'retention:view',
   'platform:admin',
 ]
 
