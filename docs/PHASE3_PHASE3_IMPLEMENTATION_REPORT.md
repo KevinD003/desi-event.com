@@ -1,37 +1,75 @@
 # Phase 3 — Phase 3 implementation report
 
-**Status: PARTIAL.** Scope A (privacy operations UI) is implemented and tested.
-Scopes B (export governance), C (dry-run retention) and D (the remaining
-documentation) are **NOT IMPLEMENTED** at the time of writing. The word is
-PARTIAL rather than COMPLETE because that is what is true, and a report that
-rounded it up would be the one document nobody could trust afterwards.
+**Status: COMPLETE for the four scopes, with named exclusions.** All four scopes
+— A (privacy operations UI), B (export governance), C (dry-run retention) and D
+(documentation and runbooks) — are implemented and tested.
+
+Two things this phase set out to do are **not** done and must not be read as
+done:
+
+- **Browser and accessibility suites for the new screens.** Blocker 3 below: a
+  new browser job would imply a ninth required CI status context, and branch
+  protection pins eight with `bypass_actors: []`. Changing branch protection is
+  out of scope. Folding the privacy journeys into an existing browser job is the
+  remaining work.
+- **Everything the ten owner decisions in §4 block.** Those are decisions, not
+  engineering, and the safe defaults remain applied.
 
 Written against `main` at `650a1fda4749afdfdf90b483d13d8385549e1658`, which
 direct CI run `35304257349` proved green 8/8.
+
+> **This section was revised 2026-09-18**, when scopes B, C and D landed. The
+> original said "Status: PARTIAL — Scope A is implemented, B, C and D are NOT
+> IMPLEMENTED", and that was true when written. The status table in §1 below is
+> updated in place rather than annotated, because it is a live index of what
+> exists rather than a record of a past observation; §§3–6 are unchanged, and
+> everything added since is dated.
 
 ---
 
 ## 1. What was delivered
 
-| Surface                                              | Status              |
-| ---------------------------------------------------- | ------------------- |
-| Privacy area shell, organisation-scoped              | **IMPLEMENTED**     |
-| Privacy request queue, filterable by state           | **IMPLEMENTED**     |
-| Privacy request detail with scope table              | **IMPLEMENTED**     |
-| Request evidence timeline                            | **IMPLEMENTED**     |
-| Server-issued confirmation flow                      | **IMPLEMENTED**     |
-| Cancellation, state-gated                            | **IMPLEMENTED**     |
-| Hold list, place and release                         | **IMPLEMENTED**     |
-| Refusal vocabulary, schema-driven and total          | **IMPLEMENTED**     |
-| Export artifact governance                           | **NOT IMPLEMENTED** |
-| Dry-run retention classes (pure, tested)             | **IMPLEMENTED**     |
-| Dry-run retention worker wiring (queue/processor)    | **NOT IMPLEMENTED** |
-| Retention operations UI                              | **NOT IMPLEMENTED** |
-| Browser and accessibility suites for the new screens | **NOT IMPLEMENTED** |
+| Surface                                              | Status                          |
+| ---------------------------------------------------- | ------------------------------- |
+| Privacy area shell, organisation-scoped              | **IMPLEMENTED**                 |
+| Privacy request queue, filterable by state           | **IMPLEMENTED**                 |
+| Privacy request detail with scope table              | **IMPLEMENTED**                 |
+| Request evidence timeline                            | **IMPLEMENTED**                 |
+| Server-issued confirmation flow                      | **IMPLEMENTED**                 |
+| Cancellation, state-gated                            | **IMPLEMENTED**                 |
+| Hold list, place and release                         | **IMPLEMENTED**                 |
+| Refusal vocabulary, schema-driven and total          | **IMPLEMENTED**                 |
+| Export register, written by both CSV routes          | **IMPLEMENTED**                 |
+| Export invalidation on redaction                     | **IMPLEMENTED**                 |
+| Export register UI                                   | **IMPLEMENTED**                 |
+| Dry-run retention classes (pure, tested)             | **IMPLEMENTED**                 |
+| Dry-run retention worker wiring (queue/processor)    | **IMPLEMENTED**                 |
+| Retention operations UI                              | **IMPLEMENTED**                 |
+| Retention runbook and privacy documentation          | **IMPLEMENTED**                 |
+| Retention **execution** (deletion of any kind)       | **NOT IMPLEMENTED — BY DESIGN** |
+| Export **deletion**                                  | **NOT IMPLEMENTED**             |
+| Browser and accessibility suites for the new screens | **NOT IMPLEMENTED**             |
 
-139 tests were added: 48 over the refusal vocabulary, 26 over the request
-commands, 16 over the hold commands, and 35 over the retention classes. The web
-suite is 604 across 35 files (was 562/33); the worker suite is 250 across 16.
+### Test counts
+
+Scope A added 139: 48 over the refusal vocabulary, 26 over the request commands,
+16 over the hold commands, and 35 over the retention classes. At that point the
+web suite was 604 across 35 files (was 562/33) and the worker suite 250 across 16.
+
+Scopes B and C added 82 more. As of 2026-09-18, against a live PostgreSQL and
+Redis with **nothing skipped**:
+
+| Suite       | Tests | Files |
+| ----------- | ----- | ----- |
+| api         | 1,185 | 61    |
+| web         | 649   | 39    |
+| schemas     | 651   | 12    |
+| permissions | 600   | 3     |
+| worker      | 266   | 17    |
+
+All 19 packages pass. Gates: `lint`, `format:check`, `policy:check`,
+`ci:check`, `contract:check`, `openapi:check`, `secrets:scan`, `bundle:scan` and
+`build`.
 
 ## 2. What the UI is not allowed to do, and how that is held down
 
@@ -181,12 +219,103 @@ Three, each of which changes how the remaining scopes must be built:
    protection is out of scope. Privacy journeys must therefore fold into an
    existing browser job.
 
+## 6A. Scopes B, C and D — added 2026-09-18
+
+### What Scope C delivered, and the three absences that are its design
+
+The rehearsal counts and records. `apps/worker/src/processors/sweep-retention.js`
+writes one `RetentionSweep` row per evaluated class, and three independent things
+stop it deleting: the `retention_sweep_dry_run_changes_nothing` CHECK constraint,
+the absence of any deletion path in the tree, and `RETENTION_ENFORCEMENT_ACTIVATED`
+defaulting to false in both the environment schema and `createProcessors`.
+
+Three deliberate absences, each pinned by a test:
+
+1. **No schedule.** `scheduler.js` never registers it, and a test asserts its
+   source never mentions the job. A sweep on a timer is the first step towards a
+   deletion on a timer.
+2. **No route that starts one.** The API holds no queue client. A test asserts
+   against the whole contract that exactly one `/retention` route exists and its
+   method is `GET`.
+3. **No payload that can request execution.** `sweepRetentionJobSchema` has no
+   `mode` and no `execute`; an unknown key is stripped, and a test asserts it.
+
+An unactivated environment writes `SKIPPED_DISABLED` with the cut-off it would
+have used, rather than doing nothing. Blocker 1 above is why that row is the only
+evidence: the worker cannot write an audit row, and per blocker 2
+`PrivacyAuditEvent` could not carry a platform-wide sweep in any case.
+`AUDIT_ACTIONS.PRIVACY_RETENTION_SWEEP_RAN` therefore still has no writer, which
+is recorded rather than resolved by giving it a dishonest one.
+
+### A finding that changed what Scope B is
+
+Nothing had ever written an `ExportArtifact` row, and the reason turned out to
+matter more than the gap. **Both CSV export routes emit aggregate figures under
+explicit column allow lists** — analytics is section/item/code/quantity/amount/
+currency/note, finance is section/item/code/debits/credits/balance/count/currency
+— with no name, address, e-mail, card or provider reference anywhere.
+
+So **no export in this system contains a person.** `ExportArtifactSubject` has
+nothing to link, and a redaction finding no artefact to invalidate is correct
+rather than unimplemented. A test asserts that nothing ever writes a subject
+link, so the first export that does carry a person fails the suite instead of
+slipping past the redaction path.
+
+The `EXPORTS` redaction category was `DEFERRED` with rows 0 under a test whose
+own name said "a later phase owns". This is that phase; it now answers
+`NOTHING_TO_DO`. "Nothing to reach" and "nobody has looked" are different claims
+and only one is true now.
+
+### New findings, recorded rather than fixed
+
+| #   | Finding                                                                                                                                               | Disposition                                                                     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| 10  | `attendee:export` is a capability with no route asserting it. Nothing in the API uses it.                                                             | Recorded. No route was invented for it.                                         |
+| 11  | A platform-wide finance export cannot be registered: `ExportArtifact.organizationId` is NOT NULL and an export belonging to no organisation has none. | Skipped and logged rather than attributed to a tenant. Owner decision to widen. |
+| 12  | `ExportArtifactState` has `DELETED` and `DELETION_FAILED`, which nothing writes, because nothing stores export bytes to delete.                       | Recorded. Invalidation is implemented; deletion is not.                         |
+
+### New owner decisions
+
+| #   | Decision                                                                           | Current state                                                       |
+| --- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| 11  | Which platform role should carry `retention:view`.                                 | Only `SUPER_ADMIN`, via `ALL_CAPABILITIES`. No role was granted it. |
+| 12  | Whether `ExportArtifact.organizationId` should become nullable.                    | Not changed. Platform-wide exports go unrecorded and are logged.    |
+| 13  | Whether a retention rehearsal should ever be scheduled, and in which environments. | No schedule exists. `RETENTION_ENFORCEMENT_ACTIVATED` is false.     |
+
+`retention:view` is a new capability and the first added since `privacy:redact`.
+It is platform-only — `PLATFORM_ONLY_CAPABILITIES` asserts at module load that no
+organisation role carries it — for the same reason `privacy:redact` is its own
+capability rather than folded into `platform:admin`: an authority inside the key
+to everything cannot be granted narrowly.
+
+### Scope D
+
+`docs/RETENTION_RUNBOOK.md` is new. `docs/PRIVACY_AND_RETENTION.md` gained two
+dated sections (5A, the rehearsal; 5B, the export register) and a dated
+correction to its status table — three more of its rows were out of date, and the
+table is left unedited beside the correction because it is the record of what was
+true when written.
+
+### Contract and artefacts
+
+Two routes added: `retention.listSweeps` and `privacy.listExports`. The contract
+went from 127 routes to 129; `openapi.json` and the browser route manifest were
+regenerated and both drift checks pass. **No migration was added.** No CI
+workflow changed, and no new required status context was created.
+
 ## 7. What is explicitly not claimed
 
 - No real Stripe or Stripe Connect operation occurred; both remain
   `EXTERNAL VERIFICATION PENDING`.
 - Payment mode remains `MOCK` and production payments remain disabled.
-- No retention deletion, destructive or otherwise, was implemented or run.
+- No retention deletion, destructive or otherwise, was implemented or run. A
+  rehearsal that counts is not a sweep that deletes, and this report does not
+  present it as one.
+- No retention duration is approved. Every one remains
+  `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`.
+- No export was deleted, and no export was recalled. An artefact record can be
+  invalidated; bytes that left the building are gone.
+- No browser or accessibility suite covers the new screens. Blocker 3 stands.
 - No legal, privacy, PCI, GDPR, CCPA, HIPAA or SOC 2 compliance is claimed.
 - No migration was added.
 - Journey 14 remains `NOT REPRODUCED — ROOT CAUSE STILL UNKNOWN` and none of its
