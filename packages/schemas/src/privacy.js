@@ -25,6 +25,7 @@
 import { z } from 'zod'
 
 import {
+  exportArtifactStateSchema,
   privacyAuditResultSchema,
   privacyHoldDecisionSchema,
   privacyHoldKindSchema,
@@ -360,4 +361,66 @@ export const retentionSweepListResponseSchema = z.object({
 export const retentionSweepListQuerySchema = paginationQuerySchema.extend({
   retentionClass: nonEmptyStringSchema.optional(),
   state: retentionSweepStateSchema.optional(),
+})
+
+/**
+ * The kinds of export this system produces.
+ *
+ * A closed vocabulary rather than a free string, so the register cannot grow a
+ * category nobody reviewed. Both entries are aggregate exports: neither
+ * contains a name, an address, an e-mail or any other personal value, which is
+ * why neither links a subject.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EXPORT_KINDS = Object.freeze(['analytics', 'finance'])
+
+/** One export kind. */
+export const exportKindSchema = z.enum([...EXPORT_KINDS])
+
+/**
+ * One entry in the export register.
+ *
+ * What it records is that an export *happened* — its kind, who asked, when,
+ * and whether anything was stored. What it does not record is a single row of
+ * what was exported. That asymmetry is the design: an export register that
+ * held the export would be a second copy of the data, kept longer, under
+ * weaker scrutiny.
+ *
+ * `subjectCount` is how many people the artefact is *known* to contain, via
+ * `ExportArtifactSubject`. It is 0 for every export this system currently
+ * produces, and that is a fact about the exports rather than a gap in the
+ * register: both CSV routes emit aggregate figures under explicit column allow
+ * lists that exclude every personal field.
+ */
+export const exportArtifactSchema = z.object({
+  id: cuidSchema,
+  kind: nonEmptyStringSchema,
+  state: exportArtifactStateSchema,
+  /// True when the bytes were streamed to the caller and nothing was kept,
+  /// which is how every export in this system works today.
+  ephemeral: z.boolean(),
+  /// Whether bytes are stored anywhere. A boolean rather than the key itself:
+  /// a storage key in a payload is a storage key in a log.
+  stored: z.boolean(),
+  /// Who asked. An opaque id, never a name.
+  requestedById: cuidSchema.nullable(),
+  subjectCount: z.number().int().min(0),
+  generatedAt: timestampSchema,
+  invalidatedAt: timestampSchema.nullable(),
+  deletedAt: timestampSchema.nullable(),
+  /// A closed-vocabulary code when a deletion did not succeed.
+  failureCode: nonEmptyStringSchema.nullable(),
+})
+
+/** `GET /v1/organizations/:id/privacy/exports`. */
+export const exportArtifactListResponseSchema = z.object({
+  data: z.array(exportArtifactSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** Filters for the export register. */
+export const exportArtifactListQuerySchema = paginationQuerySchema.extend({
+  kind: exportKindSchema.optional(),
+  state: exportArtifactStateSchema.optional(),
 })

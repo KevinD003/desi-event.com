@@ -38,6 +38,7 @@ import {
   PAYOUT_TRANSITIONS,
 } from '../lib/payouts.js'
 import { toDispute, toPayout, toTransfer } from '../lib/presenters.js'
+import { EXPORT_KINDS, recordExport } from '../lib/export-register.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Newest first. A finance list is read from the top. */
@@ -189,6 +190,26 @@ export function registerFinanceRoutes(app, { prisma, providers }) {
     handler: async (request, reply) => {
       const summary = await summaryFor(request)
       const stamp = new Date().toISOString()
+
+      // Registered before the body is returned, and a failure here fails the
+      // request. An export that happened with no record of it is exactly what
+      // the register exists to prevent, and a best-effort register is empty
+      // precisely when somebody needs it.
+      //
+      // A platform-wide export answers `null` — `ExportArtifact.organizationId`
+      // is NOT NULL — and is logged rather than silently dropped.
+      const registered = await recordExport(prisma, {
+        organizationId: summary.organizationId ?? null,
+        kind: EXPORT_KINDS.FINANCE,
+        requestedById: request.actor?.id ?? null,
+      })
+
+      if (!registered) {
+        request.log.info(
+          { kind: EXPORT_KINDS.FINANCE },
+          'platform-wide export not recorded in the export register: it has no organisation and the column is not nullable',
+        )
+      }
 
       reply
         .type('text/csv; charset=utf-8')

@@ -95,6 +95,14 @@ export default async function PrivacyLayout({ children }) {
             </li>
             <li>
               <Link
+                href="/privacy/exports"
+                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              >
+                Exports
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/privacy/holds"
                 className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
               >

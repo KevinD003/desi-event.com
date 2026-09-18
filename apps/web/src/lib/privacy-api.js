@@ -163,3 +163,33 @@ export async function listRetentionSweeps(options = {}) {
 
   return callApi(`/v1/operations/retention/sweeps${search}`)
 }
+
+/**
+ * The export register for one organisation.
+ *
+ * Organisation id in the path, like everything else on this surface, because
+ * that is where the capability guard reads it from.
+ *
+ * What comes back records that an export happened — its kind, who asked, when,
+ * whether anything was stored — and nothing about what was in it. There is no
+ * download here and no route that would provide one: the bytes were streamed to
+ * whoever asked at the time and nothing was kept.
+ *
+ * @param {string} organizationId Whose register.
+ * @param {object} [options] Filters.
+ * @param {string} [options.kind] One export kind.
+ * @param {string} [options.state] One `ExportArtifactState`.
+ * @param {number} [options.page] 1-based page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<object>} `{ data, pagination }`.
+ */
+export async function listExportArtifacts(organizationId, options = {}) {
+  const search = query({
+    kind: options.kind,
+    state: options.state,
+    page: options.page,
+    perPage: options.perPage,
+  })
+
+  return callApi(`/v1/organizations/${organizationId}/privacy/exports${search}`)
+}

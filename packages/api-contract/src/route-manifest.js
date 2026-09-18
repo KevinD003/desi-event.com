@@ -288,6 +288,14 @@ export const apiRouteManifest = Object.freeze([
     query: true,
   },
   {
+    id: 'privacy.listExports',
+    method: 'GET',
+    path: '/v1/organizations/:id/privacy/exports',
+    auth: 'session',
+    body: false,
+    query: true,
+  },
+  {
     id: 'privacy.listHolds',
     method: 'GET',
     path: '/v1/organizations/:id/privacy/holds',
