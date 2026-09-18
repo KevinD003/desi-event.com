@@ -28,7 +28,7 @@
  * @module app/privacy/hold-actions
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { StepUpPrompt } from '../../components/step-up-prompt.jsx'
@@ -59,17 +59,27 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
   const [refusal, setRefusal] = useState(null)
   const [announcement, setAnnouncement] = useState('')
   const [stepUp, setStepUp] = useState(false)
+  const [restore, setRestore] = useState(false)
   const panelRef = useRef(null)
-  const returnFocus = useRef(null)
+  const triggerRef = useRef(null)
+
+  // Restored by effect rather than by holding the node: opening the panel
+  // unmounts the trigger, so the element captured on the way in is detached by
+  // the time focus should go back to it, and focusing a detached node silently
+  // drops focus to the document body.
+  useEffect(() => {
+    if (open || !restore) return
+
+    triggerRef.current?.focus()
+    setRestore(false)
+  }, [open, restore])
 
   /**
-   * Open the form, remembering where focus came from.
+   * Open the form.
    *
-   * @param {object} event The click event.
    * @returns {void}
    */
-  function start(event) {
-    returnFocus.current = event.currentTarget
+  function start() {
     setOpen(true)
     setRefusal(null)
     queueMicrotask(() => panelRef.current?.focus())
@@ -81,9 +91,9 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
    * @returns {void}
    */
   function dismiss() {
+    setRestore(true)
     setOpen(false)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
   }
 
   /**
@@ -148,6 +158,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
       {!open ? (
         <button
           type="button"
+          ref={triggerRef}
           onClick={start}
           className={
             releaseOnly
