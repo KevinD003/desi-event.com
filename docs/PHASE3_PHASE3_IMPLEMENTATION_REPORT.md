@@ -24,13 +24,14 @@ direct CI run `35304257349` proved green 8/8.
 | Hold list, place and release                         | **IMPLEMENTED**     |
 | Refusal vocabulary, schema-driven and total          | **IMPLEMENTED**     |
 | Export artifact governance                           | **NOT IMPLEMENTED** |
-| Dry-run retention worker                             | **NOT IMPLEMENTED** |
+| Dry-run retention classes (pure, tested)             | **IMPLEMENTED**     |
+| Dry-run retention worker wiring (queue/processor)    | **NOT IMPLEMENTED** |
 | Retention operations UI                              | **NOT IMPLEMENTED** |
 | Browser and accessibility suites for the new screens | **NOT IMPLEMENTED** |
 
-104 tests were added: 48 over the refusal vocabulary, 26 over the request
-commands, 16 over the hold commands, and the existing 562-test web suite
-continues to pass, for 604 across 35 files.
+139 tests were added: 48 over the refusal vocabulary, 26 over the request
+commands, 16 over the hold commands, and 35 over the retention classes. The web
+suite is 604 across 35 files (was 562/33); the worker suite is 250 across 16.
 
 ## 2. What the UI is not allowed to do, and how that is held down
 
@@ -64,9 +65,17 @@ Fixed in both by restoring focus from an effect against a live ref.
 
 ## 3. Retention-class decision table
 
-**No retention worker has been written.** This table is the precondition for
-writing one, recorded here first so that the worker is built against a decided
-model rather than deciding as it goes.
+This table is the precondition for a worker, recorded before any worker code so
+that the worker is built against a decided model rather than deciding as it
+goes. It is now also expressed as code in `apps/worker/src/retention/classes.js`
+and held down by 35 tests.
+
+**The worker itself is still NOT IMPLEMENTED.** What exists is the pure
+decision layer: cut-off arithmetic, candidate clauses, hold counting, and the
+sweep row a caller would write. The queue name, job schema, processor,
+scheduler registration and activation gate are not built, and the rehearsal is
+therefore not reachable from a running worker. The pure layer is testable and
+tested without a database; the wiring is what remains.
 
 Every duration below is **PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW**. None is
 approved, none is enforced, and nothing in this repository treats any of them as
