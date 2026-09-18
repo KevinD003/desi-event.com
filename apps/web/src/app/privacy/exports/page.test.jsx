@@ -153,6 +153,17 @@ describe('what the register cannot do', () => {
   })
 })
 
+describe('the register does not end silently at the page size', () => {
+  it('says how many of the total are shown', async () => {
+    await renderPage({
+      data: [artifact(), artifact({ id: 'exp2', kind: 'finance' })],
+      pagination: { page: 1, perPage: 20, total: 84 },
+    })
+
+    expect(screen.getByText(/Showing 2 of 84\./)).toBeInTheDocument()
+  })
+})
+
 describe('the empty state', () => {
   it('says what the register does not cover rather than implying it is complete', async () => {
     await renderPage({ data: [], pagination: null })

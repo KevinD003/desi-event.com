@@ -168,6 +168,71 @@ describe('the page offers no way to act', () => {
     // The heading survives, so a reader can tell a refusal from a crash.
     expect(screen.getByRole('heading', { name: 'Retention rehearsals' })).toBeInTheDocument()
   })
+
+  it('does not claim nothing has ever run when the read was refused', async () => {
+    // The defect this replaces: `sweeps` is still null after a refusal, and
+    // summariseSweeps(null) answers NONE_RECORDED, so the page printed
+    // "nothing has run here" above the error alert — telling an operator whose
+    // request was refused that the system is idle. A refusal and an empty
+    // history are different facts, and this page exists to keep them apart.
+    listRetentionSweeps.mockRejectedValue(
+      Object.assign(new Error('nope'), { status: 403, code: 'FORBIDDEN' }),
+    )
+
+    render(await RetentionPage({ searchParams: Promise.resolve({}) }))
+
+    expect(screen.queryByTestId('retention-reading')).not.toBeInTheDocument()
+    expect(screen.queryByText(/nothing has run here/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/no retention rehearsal has been recorded/i)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['a step-up refusal', { status: 403, code: 'STEP_UP_REQUIRED' }],
+    ['a server failure', { status: 500, code: 'INTERNAL' }],
+    ['a timeout with no code at all', {}],
+  ])('says nothing about what ran after %s', async (_label, thrown) => {
+    // Every failure path, not just the one that was easiest to write. A reading
+    // rendered on any of them is a statement of fact the page cannot support.
+    listRetentionSweeps.mockRejectedValue(Object.assign(new Error('nope'), thrown))
+
+    render(await RetentionPage({ searchParams: Promise.resolve({}) }))
+
+    expect(screen.queryByTestId('retention-reading')).not.toBeInTheDocument()
+  })
+
+  it('still reads the history when the fetch succeeds and returns nothing', async () => {
+    // The other side of the same coin: a genuinely empty history must still say
+    // so. Suppressing the reading on failure must not suppress it on success.
+    await renderPage({ data: [], pagination: null, notEvaluated: NOT_EVALUATED })
+
+    expect(screen.getByTestId('retention-reading')).toHaveTextContent(/nothing has run here/i)
+  })
+})
+
+describe('the history does not end silently at the page size', () => {
+  it('says how many of the total are shown', async () => {
+    // The defect this replaces: `answer.pagination` was fetched by the client
+    // and then discarded, so a register with 500 rehearsals rendered 20 with
+    // nothing to say there were more. The sibling privacy queue already did
+    // this; these pages did not.
+    await renderPage({
+      data: [sweep(), sweep({ retentionClass: 'session' })],
+      pagination: { page: 1, perPage: 20, total: 137 },
+      notEvaluated: [],
+    })
+
+    expect(screen.getByText(/Showing 2 of 137\./)).toBeInTheDocument()
+  })
+
+  it('falls back to the row count when the server sends no total', async () => {
+    await renderPage({
+      data: [sweep()],
+      pagination: { page: 1, perPage: 20 },
+      notEvaluated: [],
+    })
+
+    expect(screen.getByText(/Showing 1 of 1\./)).toBeInTheDocument()
+  })
 })
 
 describe('filters reach the server rather than the browser', () => {

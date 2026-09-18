@@ -96,6 +96,7 @@ export default async function ExportRegisterPage({ searchParams }) {
     organizations[0]
 
   let artifacts = null
+  let pagination = null
   let failure = null
 
   try {
@@ -106,6 +107,7 @@ export default async function ExportRegisterPage({ searchParams }) {
     })
 
     artifacts = answer.data ?? []
+    pagination = answer.pagination ?? null
   } catch (error) {
     failure = describeRefusal(error)
   }
@@ -182,6 +184,12 @@ export default async function ExportRegisterPage({ searchParams }) {
               </tbody>
             </table>
           </div>
+
+          {pagination ? (
+            <p className="mt-4 text-sm text-slate-600">
+              Showing {artifacts.length} of {pagination.total ?? artifacts.length}.
+            </p>
+          ) : null}
         </>
       ) : null}
     </>

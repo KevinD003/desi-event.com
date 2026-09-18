@@ -75,6 +75,7 @@ export default async function RetentionPage({ searchParams }) {
 
   let sweeps = null
   let notEvaluated = []
+  let pagination = null
   let failure = null
 
   try {
@@ -86,11 +87,18 @@ export default async function RetentionPage({ searchParams }) {
 
     sweeps = answer.data ?? []
     notEvaluated = answer.notEvaluated ?? []
+    pagination = answer.pagination ?? null
   } catch (error) {
     failure = describeRefusal(error)
   }
 
-  const reading = summariseSweeps(sweeps ?? [])
+  // Only when the read actually succeeded. `sweeps` is still null after a
+  // refusal, and `summariseSweeps(null)` answers NONE_RECORDED — so passing it
+  // through regardless printed "nothing has run here" above the error alert,
+  // telling an operator whose request was refused that the system is idle.
+  // That is the precise misreading this vocabulary exists to prevent, produced
+  // by the page meant to prevent it.
+  const reading = sweeps === null ? null : summariseSweeps(sweeps)
   const readAt = new Date().toISOString()
 
   return (
@@ -105,12 +113,14 @@ export default async function RetentionPage({ searchParams }) {
         </p>
       </header>
 
-      <p
-        className="mt-6 rounded-md border border-marigold-300 bg-marigold-50 px-4 py-3 text-sm text-indigo-night-900"
-        data-testid="retention-reading"
-      >
-        {reading.sentence}
-      </p>
+      {reading ? (
+        <p
+          className="mt-6 rounded-md border border-marigold-300 bg-marigold-50 px-4 py-3 text-sm text-indigo-night-900"
+          data-testid="retention-reading"
+        >
+          {reading.sentence}
+        </p>
+      ) : null}
 
       {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
 
@@ -177,6 +187,12 @@ export default async function RetentionPage({ searchParams }) {
               </tbody>
             </table>
           </div>
+
+          {pagination ? (
+            <p className="mt-4 text-sm text-slate-600">
+              Showing {sweeps.length} of {pagination.total ?? sweeps.length}.
+            </p>
+          ) : null}
         </>
       ) : null}
 
