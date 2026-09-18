@@ -222,6 +222,13 @@ behaviour and therefore failed 4 of 4 against the vulnerable code:
 AssertionError: expected 200 to be greater than or equal to 400
 ```
 
+> **⚠ CORRECTED — see "Evidence correction — 2026-09-17" below.** The two
+> sentences above misattribute this measurement. It was real, but it described
+> an earlier pre-commit shape of the test file, not the committed suite and not
+> commit `aa811ba` — which cannot run standalone at all, because it imports a
+> helper added by the following commit. The committed suite fails **8 of 11**
+> against the vulnerable route. The probe output above is unaffected.
+
 ## Remediation
 
 `apps/api/src/lib/mock-webhook.js` adds the thing that was missing: proof the
@@ -280,3 +287,146 @@ that can drift.
 - **No deployment was tested.** Everything here is measured against the test
   harness. Whether any running instance of this API is reachable from an untrusted
   network is outside what this repository can tell.
+
+---
+
+## Evidence correction — 2026-09-17
+
+Pre-PR adversarial verification found that one sentence in this document, and
+the commit message of `aa811ba`, attributed a measurement to the wrong artefact.
+Nothing above is deleted; this section is the correction, and it is here rather
+than edited into place because a security document that quietly rewrites itself
+is one nobody can audit.
+
+**The finding is still confirmed, and the fix is still sound.** What was wrong
+is the provenance of one number, not the vulnerability and not the remedy.
+
+### What was claimed
+
+The "Confirmation through regression test" section above says the committed
+suite "failed 4 of 4 against the vulnerable code", quoting
+`AssertionError: expected 200 to be greater than or equal to 400`. The `aa811ba`
+commit message says the same. Both imply that commit ran four failing
+assertions.
+
+### What is actually true
+
+`aa811ba` adds `apps/api/tests/payment-webhook-auth.test.js`, which at line 38
+imports `../src/lib/mock-webhook.js`. That helper does not exist until the next
+commit, `8530814`:
+
+```text
+$ git cat-file -e aa811ba:apps/api/src/lib/mock-webhook.js
+fatal: path 'apps/api/src/lib/mock-webhook.js' exists on disk, but not in 'aa811ba'
+```
+
+So at `aa811ba` the file cannot load. The run ends at module resolution with
+**zero test cases executed** — not four assertion failures. `aa811ba` is a
+genuine historical test-first commit, but it is **not standalone runnable**,
+because the suite it adds depends on a module the implementation commit
+introduces.
+
+The "4 of 4" figure was a real measurement. It described an **earlier, smaller,
+pre-commit shape of the test file** — the four unsigned-caller cases, before the
+signed-path, tampering and oracle cases were written. It does not describe the
+committed file, which holds eleven cases.
+
+### The reconstructed measurement
+
+To get the number that the committed suite actually produces against the
+vulnerable route, the branch tree was extracted to a **disposable copy outside
+the repository**, `apps/api/src/routes/payments.js` was replaced there with its
+`origin/main` version, and the suite was run in that copy:
+
+```text
+Tests  8 failed | 3 passed (11)
+```
+
+The eight are the four anonymous-caller cases, the three signature-binding cases
+(tampering, cross-order swap, stale timestamp), and the refusal-oracle case. The
+three that pass are the legitimate-settlement cases, which is what one would
+expect: the vulnerable route settles a signed callback too, because it settles
+anything.
+
+That counterfactual was never committed, never pushed, and is not part of
+repository history. The working tree was verified clean and identical to
+`52db7c8` afterwards.
+
+### What is unchanged
+
+The exploit probe reported above stands exactly as written, and was measured
+independently of any of this:
+
+```text
+http status  : 200
+order before : { status: "PENDING", tickets: 0 }
+order after  : { status: "PAID",    tickets: 1 }
+```
+
+An anonymous caller settled their own order and was issued a ticket. That is the
+finding, and it is confirmed.
+
+### A limitation that cannot be fixed
+
+The `aa811ba` commit message carries the same incorrect attribution. Correcting
+it would mean rewriting published history, which is not permitted here, so it
+stands and this section is the correction of record. A reader who checks out
+`aa811ba` and finds it will not run should read this rather than conclude the
+finding was fabricated.
+
+### Scope of this correction
+
+Evidence attribution only. It changes nothing about the demonstrated
+vulnerability, the secure boundary, or the validation results. No real Stripe,
+Stripe Connect, or external provider was involved in producing it; every
+measurement was taken against the test harness with disposable fixture data.
+
+## Correction to the outbox claim — 2026-09-17
+
+The same verification found that the refusal snapshot's `outbox` counter was
+inert. `settleCheckout` writes no `NotificationOutbox` row — the only writers
+are ticket transfer, event cancellation and material-change — so a legitimate,
+correctly signed, 200-OK settlement leaves the outbox at zero just as a refused
+forgery does. Asserting it unchanged compared zero with zero.
+
+It has been removed from the domain-state proof. The suite does not claim to
+prevent a notification effect that settlement does not produce. No outbox side
+effect was added to make an assertion pass.
+
+The remaining snapshot fields were each checked for the same defect and are
+sound: order status, `paidAt`, ticket count, `quantitySold`, ledger batches and
+ledger entries all demonstrably move on a genuine settlement.
+
+## Ledger positive control — 2026-09-17
+
+The ledger counters were non-vacuous but unguarded: nothing in the committed
+suite asserted they move, so if `postOrderLedger` were later removed the
+"unchanged after refusal" assertions would have silently degraded into the same
+zero-versus-zero comparison the outbox counter already was.
+
+"The trusted mock provider still settles" now asserts, **order-linked** rather
+than globally, that a legitimate settlement posts exactly one balanced batch
+against that order, with the entry count derived from the order's own money, and
+debit and credit totals equal to what the buyer was charged. Replay is asserted
+to add nothing. Disabling `postOrderLedger` in a disposable copy fails three
+cases where it previously failed none.
+
+## Contract correction — 2026-09-17
+
+`packages/api-contract/src/routes.js` described this endpoint as one the "Phase 1
+mock provider posts unsigned callbacks" to. That was true when §6 quoted it and
+false the moment the fix landed, which left the published contract and the
+regenerated OpenAPI artifact telling integrators that unsigned callbacks were
+valid input to a route that now refuses them.
+
+The description now states that verification is required, that unsigned,
+malformed, stale or altered callbacks are refused, that this is a provider
+callback boundary rather than a way for a buyer to confirm their own payment,
+and that it is not for browser clients or untrusted callers. `apps/api/openapi.json`
+was regenerated with the repository's own emitter; one description line changed
+and the operation count was unchanged. The route is still published — it was not
+hidden — and its `auth` is still `none`, because a provider has no session and
+concealing the endpoint would not have been a fix.
+
+The quotation in §6 above is left as it was: it is the contract text as it stood
+at the time of the finding, and that is the point it is making.
