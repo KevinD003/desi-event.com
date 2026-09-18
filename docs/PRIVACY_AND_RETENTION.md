@@ -223,9 +223,20 @@ assumed:
 ## 5. Retention
 
 Every duration below is **PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW**. None is
-enforced. The sweeper that would enforce them is `NOT IMPLEMENTED`, its default
-mode is `DRY_RUN`, and `retention_sweep_dry_run_changes_nothing` means the
-database refuses a rehearsal that claims to have changed something.
+enforced. The sweeper that would enforce them is `NOT IMPLEMENTED`, and
+`retention_sweep_dry_run_changes_nothing` means the database refuses a rehearsal
+that claims to have changed something.
+
+> **Correction — 2026-09-18.** This paragraph previously said the sweeper's
+> "default mode is `DRY_RUN`". That was false and is removed. `RetentionSweep.mode`
+> has **no** `@default` in `schema.prisma` and no `DEFAULT` in the migration, so
+> any writer must pass it explicitly on every insert — a forgotten field is a
+> runtime error, not a silent `DRY_RUN`. The banner earlier in this document
+> already said so, and the two statements contradicted each other. The same
+> incorrect wording still appears in `schema.prisma`'s `RetentionSweep`
+> doc-comment and in the Phase 1 migration's commentary; the migration is applied
+> history and is not edited. Corrected here because it would otherwise mislead
+> whoever writes the retention worker.
 
 | Data                                      | Proposed retention                      | Basis                                         |
 | ----------------------------------------- | --------------------------------------- | --------------------------------------------- |
