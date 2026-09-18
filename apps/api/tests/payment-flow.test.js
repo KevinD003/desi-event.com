@@ -13,7 +13,8 @@ import { createInMemoryProviderRegistry } from '@desi-event/providers'
 import { computeOrderTotals } from '@desi-event/pricing'
 
 import { AUDIT_ACTIONS } from '../src/lib/audit.js'
-import { createTestApp, feeConfig, taxRateBps } from './helpers/app.js'
+import { MOCK_SIGNATURE_HEADER, signMockWebhook } from '../src/lib/mock-webhook.js'
+import { TEST_JWT_SECRET, createTestApp, feeConfig, taxRateBps } from './helpers/app.js'
 
 /** Face value of the General Admission tier in the fixtures. */
 const GA_PRICE = 150_000
@@ -68,7 +69,16 @@ function checkout(app, ids, overrides = {}, headers = {}) {
  * @returns {Promise<object>} The inject result.
  */
 function webhook(app, payload) {
-  return app.inject({ method: 'POST', url: '/v1/payments/webhook', payload })
+  // Signed, because the route now refuses anything that is not. The legitimate
+  // sender and the verifier derive the same key from `AUTH_SECRET`, so a test
+  // that signs correctly is exercising the real boundary rather than stepping
+  // around it.
+  return app.inject({
+    method: 'POST',
+    url: '/v1/payments/webhook',
+    payload,
+    headers: { [MOCK_SIGNATURE_HEADER]: signMockWebhook(payload, TEST_JWT_SECRET) },
+  })
 }
 
 describe('the provider is never called inside a transaction', () => {
