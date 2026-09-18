@@ -1,10 +1,10 @@
 # Phase 3 — Phase 3 implementation report
 
-**Status: COMPLETE for the four scopes, with named exclusions.** All four scopes
-— A (privacy operations UI), B (export governance), C (dry-run retention) and D
-(documentation and runbooks) — are implemented and tested.
+**Status: PARTIAL.** Scope A (privacy operations UI) is implemented and tested.
+Scopes B (export governance), C (dry-run retention) and D (documentation and
+runbooks) are **partially** implemented, with every gap named in §6B below.
 
-Two things this phase set out to do are **not** done and must not be read as
+Three things this phase set out to do are **not** done and must not be read as
 done:
 
 - **Browser and accessibility suites for the new screens.** Blocker 3 below: a
@@ -12,18 +12,39 @@ done:
   protection pins eight with `bypass_actors: []`. Changing branch protection is
   out of scope. Folding the privacy journeys into an existing browser job is the
   remaining work.
-- **Everything the ten owner decisions in §4 block.** Those are decisions, not
-  engineering, and the safe defaults remain applied.
+- **Everything the ten owner decisions in §4 block**, plus the four added in
+  §6A. Those are decisions, not engineering, and the safe defaults remain
+  applied.
+- **The gaps in §6B.** Chief among them: nothing anywhere writes an
+  `ExportArtifactSubject` row, so the export-invalidation path cannot match in
+  production; the retention worker has no lease and no idempotency; there is no
+  real-Redis or real-PostgreSQL retention test; and six of the ten documents
+  this phase was to update were never touched.
 
 Written against `main` at `650a1fda4749afdfdf90b483d13d8385549e1658`, which
 direct CI run `35304257349` proved green 8/8.
 
-> **This section was revised 2026-09-18**, when scopes B, C and D landed. The
-> original said "Status: PARTIAL — Scope A is implemented, B, C and D are NOT
-> IMPLEMENTED", and that was true when written. The status table in §1 below is
-> updated in place rather than annotated, because it is a live index of what
-> exists rather than a record of a past observation; §§3–6 are unchanged, and
-> everything added since is dated.
+> **Correction — 2026-09-18, second revision.** This line said
+> **"Status: COMPLETE for the four scopes"** for part of one morning. That was
+> wrong, and it is the single most important thing in this document to get
+> right, so the claim is recorded here rather than quietly replaced.
+>
+> An eleven-agent read-only audit checked every requirement of the phase brief
+> against the code, and a second adversarial pass tried to refute each
+> "implemented" claim. It overturned **nine**. Scopes B, C and D are real work
+> that is genuinely partial, not finished work. §6B below lists what is
+> missing, item by item.
+>
+> It also found two defects in this phase's own new screens, both since fixed:
+> a refusal rendered as "nothing has ever run", and pagination fetched and then
+> discarded. The first is described in §6C because it is instructive — the page
+> written to keep three readings apart was the page that conflated them.
+>
+> The first revision of this line (also 2026-09-18) replaced the original
+> "Status: PARTIAL — Scope A is implemented, B, C and D are NOT IMPLEMENTED",
+> which was true when written and had been overtaken by scopes B, C and D
+> landing. The status table in §1 is a live index and is updated in place;
+> §§3–6 are the record of past observations and are unchanged.
 
 ---
 
@@ -302,6 +323,107 @@ Two routes added: `retention.listSweeps` and `privacy.listExports`. The contract
 went from 127 routes to 129; `openapi.json` and the browser route manifest were
 regenerated and both drift checks pass. **No migration was added.** No CI
 workflow changed, and no new required status context was created.
+
+## 6B. What the audit found missing — 2026-09-18
+
+Verified against the code, not against this document. Each is open work, tracked
+separately.
+
+### Export governance (Scope B)
+
+| Gap                                                                   | Consequence                                                                                           |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **Nothing writes `ExportArtifactSubject`**                            | `invalidateExportsForSubject` cannot match in production; only a hand-built test fixture exercises it |
+| `AUDIT_ACTIONS.PRIVACY_EXPORT_INVALIDATED` is declared with no writer | The same constant-with-no-writer defect recorded elsewhere in this project                            |
+| No audit row on register read or on invalidation                      | No operator evidence that the register was consulted or an artefact voided                            |
+| No artifact detail screen                                             | The register is a list only                                                                           |
+| No step-up on the surface                                             | Capability alone gates it                                                                             |
+| No expiry state, no `PrivacyRequest` linkage                          | Both were in the brief                                                                                |
+
+The register itself — both CSV routes recording before returning a body, the
+read API, the list UI, invalidation inside the redaction transaction — is real
+and tested. It is the link between register and subject that nothing writes.
+
+### Retention (Scope C)
+
+| Gap                                                          | Consequence                                                      |
+| ------------------------------------------------------------ | ---------------------------------------------------------------- |
+| `RetentionSweep.leaseOwner` / `leaseExpiresAt` never written | No lease protection                                              |
+| No idempotency                                               | A retried job writes duplicate sweep rows at a new instant       |
+| No real-Redis worker test for the retention job              | The wiring is proved only against fakes                          |
+| No real-PostgreSQL retention integration test                | The counts are proved only against a stub                        |
+| No before/after database snapshot assertion                  | A stub that throws on mutation is not the same proof             |
+| Nothing writes `state: FAILED` or `failureCode`              | A failed rehearsal has no terminal record                        |
+| Held-count is a coarse global `ACTIVE` count                 | Not related to the class or subject; the UI gives no explanation |
+| No sweep detail screen, no candidate-summary rollup          | Both were in the brief                                           |
+| `db:verify:fresh` / `db:verify:upgrade` never updated        | The retention work is outside the database verification gates    |
+
+Deliberate and to be preserved: **no scheduler is registered**, and **no route
+or UI control can start a sweep**. Whether the UI should be able to initiate a
+dry run is owner decision 14 in §6A.
+
+### Documentation (Scope D)
+
+Delivered: `RETENTION_RUNBOOK.md` (new), `PRIVACY_AND_RETENTION.md` (§§5A, 5B
+and a status correction), this report.
+
+Never touched: `EXPORT_GOVERNANCE.md` (does not exist), `DATA_MODEL.md`,
+`SECURITY.md`, `api.md`, `architecture.md`, `UX.md`, `DECISIONS.md`.
+
+### Browser and accessibility
+
+Zero files under `apps/web/e2e/` changed across this entire phase, and no spec
+navigates to any privacy or retention route. The jsdom component tests use
+accessible role queries, which is real but is not browser or axe coverage.
+
+The audit identified where the journeys can fold in without a ninth CI context,
+and one hazard worth recording: `playwright.config.js` matches `**/*.spec.js`
+with only six exclusions, so a new privacy spec not added to its `testIgnore`
+is silently picked up by "Browser — public catalogue", which does not start the
+API — the exact failure that hit the four detail specs on `bdefff9`.
+
+## 6C. Two defects this phase shipped and then fixed — 2026-09-18
+
+Both were in code this phase wrote, and neither was caught by the tests this
+phase wrote. Recorded because the shape of the miss is more useful than the fix.
+
+**A refusal rendered as "nothing has ever run."** `apps/web/src/app/retention/page.jsx`
+left `sweeps` null when the fetch threw, then passed `sweeps ?? []` to
+`summariseSweeps`, which answers `NONE_RECORDED` for an empty list. A 403, a
+lapsed step-up or a 500 therefore printed _"No retention rehearsal has been
+recorded. Nothing has run here"_ in the statement-of-fact panel, above the error
+alert. The page written to keep "nothing happened", "we were told not to" and
+"nothing has ever run" apart was the page that conflated a fourth thing with the
+third. The existing test asserted only that the heading survived a refusal — it
+never looked at what else was on the screen.
+
+**Pagination fetched and discarded.** Neither new page read `answer.pagination`,
+so both truncated at the server's page size while looking complete. The Scope A
+queue already did this correctly; the two later pages did not follow it.
+
+Seven regression tests replace the one that missed them, and all seven were
+confirmed to fail against the unfixed source before the fix was restored.
+
+## 6D. A CI failure this phase caused — 2026-09-18
+
+Run `35319113778` failed `redis-integration.test.js` with `Job wait send-email
+timed out ... after 30000ms`, on a commit whose diff was two web pages. The job
+was an `EVENT_REMINDER` the in-memory provider completes on the first attempt,
+and the preceding test had round-tripped a job in 41ms — so no retry was due and
+the worker was alive. The job was never picked up.
+
+Every BullMQ `Worker` duplicates the shared connection for a blocking read, and
+that suite starts one per entry in the processor map. The map had grown from
+four to six as `drain-outbox` and then this phase's `sweep-retention` joined it:
+six blocking readers on two cores already running nineteen Turborepo tasks. The
+file's own note records the suite going red once before at a smaller worker
+count, on a commit that changed nothing but Markdown.
+
+The suite now starts workers only for the three jobs it enqueues. No timeout was
+raised, no retry, sleep, serial mode, skip or quarantine added, no assertion
+relaxed, and nothing removed from the processor map. A guard test pins the
+count, and against the unfixed setup it reports `expected [ …(6) ] to have a
+length of 3 but got 6` — which is also the evidence for the diagnosis.
 
 ## 7. What is explicitly not claimed
 
