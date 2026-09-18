@@ -187,6 +187,29 @@ export const CAPABILITIES = deepFreeze({
   RECONCILIATION_MANAGE: 'reconciliation:manage',
   /** Read and post ledger corrections. */
   LEDGER_MANAGE: 'ledger:manage',
+  /**
+   * Read what a retention rehearsal found.
+   *
+   * Read-only, and it grants nothing else: there is no deletion path anywhere
+   * in this repository for it to unlock, and the rows it reaches carry class
+   * names, cut-offs and counts rather than anybody's data.
+   *
+   * Its own capability rather than `platform:admin`, for the reason that one
+   * already gives elsewhere in this table — an authority folded into the key to
+   * everything is an authority that cannot be granted narrowly, and the person
+   * who should read a retention rehearsal is a privacy or compliance reader
+   * rather than somebody who should also be able to suspend an organisation.
+   *
+   * Platform-scoped because the thing it reads is: `RetentionSweep` has no
+   * `organizationId`, and a sweep counts across every tenant at once. There is
+   * deliberately no organisation-scoped version, because a per-tenant number
+   * cannot be derived from a platform-wide count without asking a different
+   * question of the database than the one the sweep asked.
+   *
+   * Which platform role should carry it is an owner decision and has not been
+   * made: only `SUPER_ADMIN` holds it, through `ALL_CAPABILITIES`.
+   */
+  RETENTION_VIEW: 'retention:view',
   PLATFORM_ADMIN: 'platform:admin',
 })
 
@@ -213,6 +236,7 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.MODERATION_REVIEW,
   CAPABILITIES.RECONCILIATION_MANAGE,
   CAPABILITIES.LEDGER_MANAGE,
+  CAPABILITIES.RETENTION_VIEW,
   CAPABILITIES.PLATFORM_ADMIN,
 ])
 

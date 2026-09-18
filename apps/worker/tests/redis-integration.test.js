@@ -51,6 +51,18 @@ const WAIT_MS = 30_000
 const TEST_TIMEOUT_MS = 45_000
 
 /**
+ * The jobs this suite actually enqueues, and therefore the only workers it
+ * starts. See the note in `beforeAll` for why the difference matters.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const EXERCISED_JOBS = Object.freeze([
+  JOB_NAMES.SEND_EMAIL,
+  JOB_NAMES.EXPIRE_HOLDS,
+  JOB_NAMES.INDEX_EVENT,
+])
+
+/**
  * Probe Redis without leaving a connection behind.
  *
  * @returns {Promise<boolean>} Whether a PING succeeded.
@@ -105,8 +117,25 @@ when('worker against live Redis', () => {
       ],
     })
 
+    // Only the three jobs this suite actually drives. Every BullMQ `Worker`
+    // duplicates the shared connection for its blocking read, so each one the
+    // suite starts is another blocking reader competing for the same two cores
+    // that nineteen Turborepo tasks are already fighting over — and a worker
+    // for a job nothing here enqueues buys no coverage in exchange.
+    //
+    // This mattered: run 35319113778 timed out waiting 30s for a `send-email`
+    // job the in-memory provider finishes in milliseconds, on a commit whose
+    // diff was two web pages. The job was never picked up rather than retried.
+    // The suite had grown from four workers to six as `drain-outbox` and then
+    // `sweep-retention` joined the processor map, neither of which it exercises.
+    //
+    // That `createProcessors` covers every job name is asserted directly, in
+    // src/processors/index-event.test.js — it does not need a live Redis to be
+    // true, and proving it here costs the connections above.
+    const everyProcessor = createProcessors({ prisma, providers: { email } })
+
     workers = createWorkers({
-      processors: createProcessors({ prisma, providers: { email } }),
+      processors: Object.fromEntries(EXERCISED_JOBS.map((job) => [job, everyProcessor[job]])),
       connection,
       prefix: PREFIX,
       concurrency: 2,
@@ -130,6 +159,15 @@ when('worker against live Redis', () => {
     await closeQueues(queues)
     await closeRedisConnection(connection)
   }, TEST_TIMEOUT_MS)
+
+  it('starts one worker per job it drives, and not one more', () => {
+    // A guard against the regression that produced this note. Each worker
+    // duplicates the shared connection for a blocking read, so a job added to
+    // the processor map would otherwise quietly re-inflate this suite's
+    // contention on the runner until it timed out again — which is a failure
+    // whose cause is nowhere near the change that caused it.
+    expect(workers).toHaveLength(EXERCISED_JOBS.length)
+  })
 
   it(
     'carries a payload through Redis and runs the real processor',

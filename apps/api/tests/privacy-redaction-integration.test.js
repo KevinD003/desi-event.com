@@ -919,7 +919,7 @@ when()('the scope preview', () => {
     expect(holder.rows).toBe(3)
   })
 
-  it('names the categories a later phase owns rather than reporting zero', async () => {
+  it('names the category a later phase still owns rather than reporting zero', async () => {
     const graph = await organisation({ past: true })
     const subject = await person('deferred')
 
@@ -930,11 +930,115 @@ when()('the scope preview', () => {
       subjectUserId: subject.id,
     })
 
-    const exports = scope.find((entry) => entry.category === PRIVACY_CATEGORIES.EXPORTS)
     const security = scope.find((entry) => entry.category === PRIVACY_CATEGORIES.SECURITY_METADATA)
 
-    expect(exports.status).toBe(CATEGORY_STATUSES.DEFERRED)
     expect(security.status).toBe(CATEGORY_STATUSES.DEFERRED)
+  })
+
+  it('no longer defers exports, because the register can now answer', async () => {
+    // This category was DEFERRED until the export register existed. It is now
+    // answered, and the answer happens to be zero — every export this system
+    // produces is an aggregate under a column allow list with no personal
+    // field, so there is nobody in one to reach.
+    //
+    // NOTHING_TO_DO rather than DEFERRED is the whole point of the change:
+    // "nothing to reach" and "nobody has looked" are different claims, and
+    // only one of them is true now.
+    const graph = await organisation({ past: true })
+    const subject = await person('exports')
+
+    await paidOrder({ graph, buyer: subject })
+
+    const scope = await previewScope(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+    })
+
+    const exports = scope.find((entry) => entry.category === PRIVACY_CATEGORIES.EXPORTS)
+
+    expect(exports.status).toBe(CATEGORY_STATUSES.NOTHING_TO_DO)
+    expect(exports.rows).toBe(0)
+  })
+
+  it('counts and invalidates an artefact that is linked to the subject', async () => {
+    // Nothing in this system writes such a link today. Constructed directly
+    // here so the path a redaction would take is exercised rather than assumed
+    // — the first export that does carry a person must be reachable on the day
+    // it is added, not on the day somebody notices.
+    const graph = await organisation({ past: true })
+    const subject = await person('exported')
+
+    await paidOrder({ graph, buyer: subject })
+
+    const artefact = await prisma.exportArtifact.create({
+      data: {
+        organizationId: graph.org.id,
+        kind: 'analytics',
+        ephemeral: true,
+        state: 'AVAILABLE',
+        subjects: { create: [{ subjectUserId: subject.id }] },
+      },
+    })
+
+    const scope = await previewScope(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+    })
+    const previewed = scope.find((entry) => entry.category === PRIVACY_CATEGORIES.EXPORTS)
+
+    expect(previewed.rows).toBe(1)
+    expect(previewed.status).toBe(CATEGORY_STATUSES.REDACTED)
+
+    const result = await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const done = result.categories.find((entry) => entry.category === PRIVACY_CATEGORIES.EXPORTS)
+
+    expect(done.rows).toBe(1)
+
+    const after = await prisma.exportArtifact.findUnique({ where: { id: artefact.id } })
+
+    // Invalidated, not deleted. The bytes were never stored; what changes is
+    // the register's claim that the artefact is still good.
+    expect(after.state).toBe('INVALIDATED')
+    expect(after.invalidatedAt).toBeInstanceOf(Date)
+  })
+
+  it("leaves another organisation's artefact alone", async () => {
+    const mine = await organisation({ past: true })
+    const theirs = await organisation({ past: true })
+    const subject = await person('two-orgs')
+
+    await paidOrder({ graph: mine, buyer: subject })
+
+    const other = await prisma.exportArtifact.create({
+      data: {
+        organizationId: theirs.org.id,
+        kind: 'finance',
+        ephemeral: true,
+        state: 'AVAILABLE',
+        subjects: { create: [{ subjectUserId: subject.id }] },
+      },
+    })
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: mine.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const after = await prisma.exportArtifact.findUnique({ where: { id: other.id } })
+
+    // A redaction is scoped to one organisation. Reaching into another's
+    // register would be this surface acting outside the authority it asserted.
+    expect(after.state).toBe('AVAILABLE')
   })
 })
 

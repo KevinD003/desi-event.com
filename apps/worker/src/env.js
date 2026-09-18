@@ -21,6 +21,7 @@ import { workerEnvSchema } from '@desi-event/schemas/env'
  * @property {string} QUEUE_PREFIX Namespace for every BullMQ key.
  * @property {number} WORKER_CONCURRENCY Default per-worker concurrency.
  * @property {number} EXPIRE_HOLDS_INTERVAL_MS How often the hold sweep runs.
+ * @property {boolean} RETENTION_ENFORCEMENT_ACTIVATED Whether a retention rehearsal may count anything here.
  * @property {number} PLATFORM_FEE_BPS Platform fee in basis points.
  * @property {number} PLATFORM_FEE_FLAT_CENTS Flat platform fee in cents.
  * @property {number} TICKET_HOLD_TTL_SECONDS Lifetime of a checkout hold.

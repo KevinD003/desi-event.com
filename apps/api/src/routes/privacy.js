@@ -42,6 +42,7 @@
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS } from '../lib/audit.js'
+import { toExportArtifact } from '../lib/export-register.js'
 import { conflict, notFound } from '../lib/errors.js'
 import {
   assertSubjectBelongsToOrganization,
@@ -78,6 +79,17 @@ const REQUEST_ORDER = Object.freeze([{ createdAt: 'desc' }, { id: 'desc' }])
  * @type {ReadonlyArray<object>}
  */
 const EVENT_ORDER = Object.freeze([{ occurredAt: 'asc' }, { id: 'asc' }])
+
+/**
+ * Newest export first.
+ *
+ * The opposite of the evidence timeline above, and deliberately: a timeline is
+ * read forwards because it is a story, while a register is read backwards
+ * because the question is almost always "what has been pulled lately".
+ *
+ * @type {Array<object>}
+ */
+const EXPORT_ORDER = Object.freeze([{ generatedAt: 'desc' }, { id: 'desc' }])
 
 /**
  * Project an audit row onto what an operator may see.
@@ -245,6 +257,45 @@ export function registerPrivacyRoutes(app, { prisma }) {
 
       return {
         data: rows.map(toPrivacyAuditEvent),
+        pagination: buildPaginationMeta({ page, perPage, total }),
+      }
+    },
+  })
+
+  defineRoute(app, 'privacy.listExports', {
+    handler: async (request) => {
+      const organizationId = request.params.id
+      const { page, perPage, kind, state } = request.query
+
+      // The organisation is resolved first, so a tenant that does not exist and
+      // one that is not the caller's answer the same 404 — the same rule the
+      // rest of this surface follows, for the same reason: a caller must not be
+      // able to learn that an identifier is real from the shape of the refusal.
+      await loadOrganizationForPrivacy(prisma, organizationId)
+
+      const { skip, take } = toSkipTake({ page, perPage })
+      const where = {
+        organizationId,
+        ...(kind ? { kind } : {}),
+        ...(state ? { state } : {}),
+      }
+
+      const [rows, total] = await Promise.all([
+        prisma.exportArtifact.findMany({
+          where,
+          orderBy: EXPORT_ORDER,
+          skip,
+          take,
+          // Counted through the join rather than loaded: how many people an
+          // artefact is known to contain is the answer; which people they are
+          // is not a question this surface asks.
+          include: { _count: { select: { subjects: true } } },
+        }),
+        prisma.exportArtifact.count({ where }),
+      ])
+
+      return {
+        data: rows.map(toExportArtifact),
         pagination: buildPaginationMeta({ page, perPage, total }),
       }
     },

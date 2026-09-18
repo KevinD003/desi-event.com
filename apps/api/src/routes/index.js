@@ -26,6 +26,7 @@ import { registerOperationsRoutes } from './operations.js'
 import { registerPaymentRoutes } from './payments.js'
 import { registerPrivacyRoutes } from './privacy.js'
 import { registerReconciliationRoutes } from './reconciliation.js'
+import { registerRetentionRoutes } from './retention.js'
 import { registerRefundRoutes } from './refunds.js'
 import { registerTicketRoutes } from './tickets.js'
 import { registerTicketTypeRoutes } from './ticket-types.js'
@@ -68,6 +69,7 @@ export function registerRoutes(app, deps) {
   registerFinanceRoutes(app, deps)
   registerAnalyticsRoutes(app, deps)
   registerPrivacyRoutes(app, deps)
+  registerRetentionRoutes(app, deps)
 
   // Scoped, so the raw-body parser applies to the webhook routes and nowhere
   // else. A global raw parser would silently stop validating every other request

@@ -37,6 +37,7 @@
 
 import { REVOCATION_REASONS } from '@desi-event/auth'
 
+import { countExportsContaining, invalidateExportsForSubject } from './export-register.js'
 import { PRIVACY_CATEGORIES } from './privacy.js'
 import { redactedEmail, redactedName, scrubPayload } from './privacy-placeholders.js'
 
@@ -633,6 +634,10 @@ export async function previewScope(prisma, { organizationId, subjectUserId }) {
   })
 
   const contacts = await countContactAddresses(prisma, { organizationId, subjectEmail })
+  // Counted through the join rather than by opening anything: the register
+  // knows which artefacts are known to contain this person, and nothing here
+  // reads an export.
+  const exports = await countExportsContaining(prisma, { organizationId, subjectUserId })
 
   return [
     {
@@ -665,7 +670,17 @@ export async function previewScope(prisma, { organizationId, subjectUserId }) {
       rows: 0,
       status: CATEGORY_STATUSES.DEFERRED,
     },
-    { category: PRIVACY_CATEGORIES.EXPORTS, rows: 0, status: CATEGORY_STATUSES.DEFERRED },
+    {
+      // No longer deferred. The export register answers this now — and for
+      // every export this system currently produces the answer is zero,
+      // because both CSV routes emit aggregate figures under column allow
+      // lists that carry no personal field. `NOTHING_TO_DO` rather than
+      // `DEFERRED` is the difference between "nothing to reach" and "nobody
+      // has looked", and only one of those is true.
+      category: PRIVACY_CATEGORIES.EXPORTS,
+      rows: exports,
+      status: exports === 0 ? CATEGORY_STATUSES.NOTHING_TO_DO : CATEGORY_STATUSES.REDACTED,
+    },
   ]
 }
 
@@ -712,6 +727,14 @@ export async function redactSubject(tx, { organizationId, subjectUserId, now }) 
     subjectEmail,
   })
   const contacts = await redactContactAddresses(tx, { organizationId, subjectEmail })
+  // Inside the same transaction as everything else, so there is no state in
+  // which the person is redacted while the register still advertises an
+  // artefact containing them.
+  const exportsInvalidated = await invalidateExportsForSubject(tx, {
+    organizationId,
+    subjectUserId,
+    now,
+  })
 
   // Last, because every category above needs the address this one replaces.
   const account = elsewhere
@@ -756,7 +779,17 @@ export async function redactSubject(tx, { organizationId, subjectUserId, now }) 
         rows: 0,
         status: CATEGORY_STATUSES.DEFERRED,
       },
-      { category: PRIVACY_CATEGORIES.EXPORTS, rows: 0, status: CATEGORY_STATUSES.DEFERRED },
+      {
+        // Invalidated rather than deleted: every export is streamed and
+        // nothing is stored, so there are no bytes to erase. What changes is
+        // the register's claim that the artefact is still good — a row left
+        // AVAILABLE after its subject was redacted would be this system
+        // telling a later reader that a copy of that person still exists.
+        category: PRIVACY_CATEGORIES.EXPORTS,
+        rows: exportsInvalidated,
+        status:
+          exportsInvalidated === 0 ? CATEGORY_STATUSES.NOTHING_TO_DO : CATEGORY_STATUSES.REDACTED,
+      },
     ],
     sessionsRevoked: account.sessionsRevoked,
     tokensRevoked: account.tokensRevoked,

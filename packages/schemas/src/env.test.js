@@ -279,10 +279,29 @@ describe('workerEnvSchema', () => {
       QUEUE_PREFIX: 'desi-event',
       WORKER_CONCURRENCY: 5,
       EXPIRE_HOLDS_INTERVAL_MS: 30_000,
+      RETENTION_ENFORCEMENT_ACTIVATED: false,
       PLATFORM_FEE_BPS: 590,
       PLATFORM_FEE_FLAT_CENTS: 99,
       TICKET_HOLD_TTL_SECONDS: 600,
     })
+  })
+
+  it('leaves retention enforcement off unless an operator says otherwise', () => {
+    // The durations a sweep would apply are proposals nobody has approved, so
+    // the safe reading of silence is "not here". Asserted on the exact-equality
+    // default above as well, but stated separately because this one is a
+    // decision rather than a convenience.
+    const off = (env) =>
+      workerEnvSchema.parse({ DATABASE_URL: DB_URL, REDIS_URL: REDIS, ...env })
+        .RETENTION_ENFORCEMENT_ACTIVATED
+
+    expect(off({})).toBe(false)
+    expect(off({ RETENTION_ENFORCEMENT_ACTIVATED: '' })).toBe(false)
+    expect(off({ RETENTION_ENFORCEMENT_ACTIVATED: 'false' })).toBe(false)
+    expect(off({ RETENTION_ENFORCEMENT_ACTIVATED: 'true' })).toBe(true)
+    // Its own output is valid input, which is what the idempotence test below
+    // guards for the environment as a whole.
+    expect(off({ RETENTION_ENFORCEMENT_ACTIVATED: true })).toBe(true)
   })
 
   it('coerces concurrency and rejects absurd values', () => {

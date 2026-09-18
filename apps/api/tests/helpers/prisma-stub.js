@@ -30,6 +30,14 @@ const RELATIONS = {
   eventModerationAction: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
   },
+  exportArtifact: {
+    subjects: {
+      kind: 'many',
+      model: 'exportArtifactSubject',
+      from: 'id',
+      to: 'exportArtifactId',
+    },
+  },
   ticketType: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
     holds: { kind: 'many', model: 'ticketHold', from: 'id', to: 'ticketTypeId' },
@@ -811,9 +819,29 @@ export function createPrismaStub(seed = {}) {
         const related = resolveRelation(model, row, key)
         if (relation.kind === 'one') {
           if (!related || !matches(relation.model, related, condition)) return false
-        } else if (!related.some((child) => matches(relation.model, child, condition))) {
-          return false
+          continue
         }
+
+        // Prisma's to-many filters. Without these, `{ subjects: { some: {…} } }`
+        // reached `matchesCondition` with `some` as an operator and threw —
+        // which read as a broken stub rather than a missing feature. The bare
+        // shape, `{ subjects: {…} }`, keeps meaning `some` as it did before.
+        const quantifiers = ['some', 'none', 'every'].filter((name) => name in condition)
+
+        if (quantifiers.length === 0) {
+          if (!related.some((child) => matches(relation.model, child, condition))) return false
+          continue
+        }
+
+        for (const quantifier of quantifiers) {
+          const clause = condition[quantifier]
+          const hit = (child) => matches(relation.model, child, clause)
+
+          if (quantifier === 'some' && !related.some(hit)) return false
+          if (quantifier === 'none' && related.some(hit)) return false
+          if (quantifier === 'every' && !related.every(hit)) return false
+        }
+
         continue
       }
 
@@ -933,6 +961,30 @@ export function createPrismaStub(seed = {}) {
 
     for (const [name, spec] of Object.entries(include)) {
       if (!spec) continue
+
+      // `_count: { select: { subjects: true } }` — how many related rows there
+      // are, without loading them. The export register asks this because how
+      // many people an artefact contains is the answer, while which people they
+      // are is not a question that surface asks.
+      if (name === '_count') {
+        const counts = {}
+
+        for (const [relationName, wanted] of Object.entries(spec?.select ?? {})) {
+          if (!wanted) continue
+
+          const counted = RELATIONS[model]?.[relationName]
+
+          if (!counted) throw new Error(`prisma-stub: unknown relation ${model}.${relationName}`)
+
+          counts[relationName] = /** @type {object[]} */ (
+            resolveRelation(model, row, relationName)
+          ).length
+        }
+
+        copy._count = counts
+        continue
+      }
+
       const relation = RELATIONS[model]?.[name]
       if (!relation) throw new Error(`prisma-stub: unknown relation ${model}.${name}`)
 

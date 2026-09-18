@@ -19,6 +19,7 @@ export const QUEUE_NAMES = Object.freeze({
   HOLDS: 'holds',
   TICKETS: 'tickets',
   SEARCH: 'search',
+  RETENTION: 'retention',
 })
 
 /** Job names within those queues. */
@@ -28,6 +29,7 @@ export const JOB_NAMES = Object.freeze({
   ISSUE_TICKETS: 'issue-tickets',
   INDEX_EVENT: 'index-event',
   DRAIN_OUTBOX: 'drain-outbox',
+  SWEEP_RETENTION: 'sweep-retention',
 })
 
 /** Transactional email templates the worker knows how to render. */
@@ -89,6 +91,24 @@ export const indexEventJobSchema = z.object({
   reason: nonEmptyStringSchema.optional(),
 })
 
+/**
+ * A retention rehearsal.
+ *
+ * Deliberately minimal, and deliberately without a `mode`. A dry run is the
+ * only thing this job can ask for: a payload that could request execution would
+ * be a payload somebody could enqueue by hand, and the durations it would apply
+ * are proposals awaiting legal review rather than settled policy. The processor
+ * hard-codes `DRY_RUN` and the database refuses a rehearsal that claims to have
+ * changed anything.
+ *
+ * `retentionClass` narrows the run to one class when given. Absent, every
+ * evaluated class is rehearsed.
+ */
+export const sweepRetentionJobSchema = z.object({
+  now: timestampSchema.optional(),
+  retentionClass: nonEmptyStringSchema.optional(),
+})
+
 /** Map of job name to payload schema, for a worker's dispatch table. */
 export const JOB_SCHEMAS = Object.freeze({
   [JOB_NAMES.SEND_EMAIL]: sendEmailJobSchema,
@@ -96,6 +116,7 @@ export const JOB_SCHEMAS = Object.freeze({
   [JOB_NAMES.ISSUE_TICKETS]: issueTicketsJobSchema,
   [JOB_NAMES.INDEX_EVENT]: indexEventJobSchema,
   [JOB_NAMES.DRAIN_OUTBOX]: drainOutboxJobSchema,
+  [JOB_NAMES.SWEEP_RETENTION]: sweepRetentionJobSchema,
 })
 
 /**

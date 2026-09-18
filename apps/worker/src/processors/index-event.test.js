@@ -96,14 +96,43 @@ describe('createProcessors', () => {
       logger: createFakeLogger(),
     })
 
+    // Spelled out rather than derived from JOB_NAMES: comparing the registry's
+    // keys to the vocabulary they are built from would assert nothing. This
+    // list is what catches a job name added without a processor behind it.
     expect(Object.keys(processors).sort()).toEqual([
       'drain-outbox',
       'expire-holds',
       'index-event',
       'issue-tickets',
       'send-email',
+      'sweep-retention',
     ])
     for (const processor of Object.values(processors)) expect(typeof processor).toBe('function')
+  })
+
+  it('builds the retention rehearsal unactivated when nobody says otherwise', async () => {
+    // The default has to be the refusing one. A caller that forgets the flag
+    // must get the worker that records SKIPPED_DISABLED, not the one that
+    // counts people's rows — so this asserts the behaviour, not the argument.
+    const prisma = createFakePrisma()
+    const created = []
+    prisma.retentionSweep = {
+      create: async ({ data }) => {
+        created.push(data)
+        return data
+      },
+    }
+
+    const processors = createProcessors({ prisma, providers: createInMemoryProviderRegistry() })
+
+    await processors['sweep-retention']({ data: {} })
+
+    expect(created.length).toBeGreaterThan(0)
+    for (const row of created) {
+      expect(row.state).toBe('SKIPPED_DISABLED')
+      expect(row.examinedCount).toBe(0)
+      expect(row.affectedCount).toBe(0)
+    }
   })
 
   it('wires the registry email slot through to the email processor', async () => {

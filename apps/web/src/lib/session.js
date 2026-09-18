@@ -86,6 +86,29 @@ export function sessionCan(session, capability, organizationId) {
 }
 
 /**
+ * The organisations this session may run privacy erasures in.
+ *
+ * Membership-scoped on purpose. `privacy:redact` is an organisation capability
+ * held by OWNER alone, so asking the unscoped platform question would refuse
+ * every owner and pass every platform administrator — backwards, in the one
+ * area where being wrong erases somebody. The API authorises again, per
+ * organisation, with a step-up window on top; this only decides what the screens
+ * offer.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The memberships.
+ */
+export function privacyOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('privacy:redact'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
  * The organisations this session may author venues in.
  *
  * @param {object|null} session The session payload.

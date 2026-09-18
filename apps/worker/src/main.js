@@ -77,7 +77,12 @@ export async function start(options = {}) {
   const connection = options.connection ?? createRedisConnection({ url: env.REDIS_URL, logger })
 
   const queues = createQueues({ connection, prefix: env.QUEUE_PREFIX })
-  const processors = createProcessors({ prisma, providers, logger })
+  const processors = createProcessors({
+    prisma,
+    providers,
+    logger,
+    retentionActivated: env.RETENTION_ENFORCEMENT_ACTIVATED,
+  })
   const workers = createWorkers({
     processors,
     connection,
@@ -106,6 +111,10 @@ export async function start(options = {}) {
       concurrency: env.WORKER_CONCURRENCY,
       prefix: env.QUEUE_PREFIX,
       sweepIntervalMs: env.EXPIRE_HOLDS_INTERVAL_MS,
+      // Said at boot rather than only when a rehearsal runs. An operator
+      // reading the startup line should be able to answer "would a retention
+      // sweep do anything here?" without enqueueing one to find out.
+      retentionActivated: env.RETENTION_ENFORCEMENT_ACTIVATED,
     },
     'worker started',
   )

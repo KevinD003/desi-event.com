@@ -290,6 +290,23 @@ export const workerEnvSchema = z.object({
   QUEUE_PREFIX: z.string().min(1).max(64).default('desi-event'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
   EXPIRE_HOLDS_INTERVAL_MS: z.coerce.number().int().min(1000).max(3_600_000).default(30_000),
+  /**
+   * Whether retention enforcement has been activated in this environment.
+   *
+   * Defaults to off and is expected to stay off. The durations a sweep would
+   * apply are `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`, so an environment
+   * that has not been told otherwise refuses to execute and records
+   * `SKIPPED_DISABLED` — the state the schema already anticipated and nothing
+   * previously implemented.
+   *
+   * Note what this flag does **not** do: it does not enable deletion. No
+   * deletion path exists anywhere in this repository. It gates whether a
+   * rehearsal runs at all, so that an environment nobody has considered does
+   * not quietly start counting people's rows.
+   */
+  RETENTION_ENFORCEMENT_ACTIVATED: envBoolean(false).describe(
+    'Let this environment run a retention rehearsal. Off means it records SKIPPED_DISABLED and counts nothing.',
+  ),
   ...feeEnvFields,
   ...holdTtlField,
 })

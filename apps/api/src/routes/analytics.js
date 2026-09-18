@@ -50,6 +50,7 @@ import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 
 import { organizerAnalytics } from '../lib/analytics.js'
 import { csvFilename, toCsv } from '../lib/csv.js'
+import { EXPORT_KINDS, recordExport } from '../lib/export-register.js'
 import { defineRoute } from '../lib/register.js'
 
 /**
@@ -317,6 +318,16 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
   defineRoute(app, 'analytics.export', {
     handler: async (request, reply) => {
       const view = await viewFor(request)
+
+      // Before the body, and fatal if it fails: an export with no record of it
+      // is what the register exists to prevent. An analytics export always
+      // names an organisation, so unlike the finance one this always records.
+      await recordExport(prisma, {
+        organizationId: request.query.organizationId,
+        kind: EXPORT_KINDS.ANALYTICS,
+        requestedById: request.actor?.id ?? null,
+      })
+
       const body = toCsv({ columns: EXPORT_COLUMNS, rows: exportRows(view) })
 
       reply.header('content-type', 'text/csv; charset=utf-8')

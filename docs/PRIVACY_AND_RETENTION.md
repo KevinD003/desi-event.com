@@ -107,6 +107,48 @@ ONLY`", is no longer the whole story: the privacy surface is now nine
 run. The tables above the line exist so that the work below the line can be done
 safely; they are not that work.
 
+> **Correction — 2026-09-18, Phase 3 / Phase 3.** Three more rows of the table
+> above are now out of date, and one sentence of the superseded banner with them.
+> The table is left unedited because it is the record of what was true when it
+> was written; what follows is what is true now.
+>
+> | Row, as written above                            | Status now                                        |
+> | ------------------------------------------------ | ------------------------------------------------- |
+> | Reading redaction requests — `API-TESTED ONLY`   | There is now a browser surface. See below.        |
+> | Export invalidation and deletion — `SCHEMA ONLY` | Invalidation is implemented; deletion is not.     |
+> | The retention sweeper — `NOT IMPLEMENTED`        | A **rehearsal** is implemented. Execution is not. |
+>
+> **What is now implemented:**
+>
+> - **A privacy user interface.** The banner's "there is no screen for this; it
+>   is API-only" is no longer true. `/privacy` carries the request queue, request
+>   detail with its scope table and evidence timeline, the confirmation flow,
+>   cancellation, the hold list, and the export register.
+> - **An export register.** Both CSV export routes now write an `ExportArtifact`
+>   row before returning a body, and a failure to record fails the export. A
+>   redaction invalidates every live artefact linked to its subject, inside the
+>   same transaction.
+> - **A retention rehearsal.** `sweep-retention` counts what each proposed
+>   duration would reach and writes one `RetentionSweep` row per class. It is
+>   enqueued deliberately by an operator and is on no schedule.
+>
+> **What is still not implemented, and must not be read as done:**
+>
+> - **Retention execution.** Nothing deletes. There is no deletion path in the
+>   repository, `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and
+>   `retention_sweep_dry_run_changes_nothing` refuses a `DRY_RUN` row claiming a
+>   non-zero `affectedCount` whatever any code believes.
+> - **Export deletion.** An artefact can be invalidated. Nothing deletes one,
+>   because nothing stores one: every export is streamed and no bytes are kept.
+> - **Approved durations.** Still `BLOCKED — REQUIRES OWNER DECISION`. No
+>   engineering work substitutes for a legal decision.
+> - **Historic `AuditLog` personal data.** Unchanged, immutable, and still the
+>   reason a subject cannot truthfully be told their erasure is complete.
+>
+> No compliance claim is made for GDPR, CCPA/CPRA, PCI DSS, HIPAA or any other
+> regime. No personal data has been redacted outside test fixtures. No retention
+> deletion has run.
+
 ---
 
 ## 3. Who may redact, and why not somebody else
@@ -223,9 +265,20 @@ assumed:
 ## 5. Retention
 
 Every duration below is **PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW**. None is
-enforced. The sweeper that would enforce them is `NOT IMPLEMENTED`, its default
-mode is `DRY_RUN`, and `retention_sweep_dry_run_changes_nothing` means the
-database refuses a rehearsal that claims to have changed something.
+enforced. The sweeper that would enforce them is `NOT IMPLEMENTED`, and
+`retention_sweep_dry_run_changes_nothing` means the database refuses a rehearsal
+that claims to have changed something.
+
+> **Correction — 2026-09-18.** This paragraph previously said the sweeper's
+> "default mode is `DRY_RUN`". That was false and is removed. `RetentionSweep.mode`
+> has **no** `@default` in `schema.prisma` and no `DEFAULT` in the migration, so
+> any writer must pass it explicitly on every insert — a forgotten field is a
+> runtime error, not a silent `DRY_RUN`. The banner earlier in this document
+> already said so, and the two statements contradicted each other. The same
+> incorrect wording still appears in `schema.prisma`'s `RetentionSweep`
+> doc-comment and in the Phase 1 migration's commentary; the migration is applied
+> history and is not edited. Corrected here because it would otherwise mislead
+> whoever writes the retention worker.
 
 | Data                                      | Proposed retention                      | Basis                                         |
 | ----------------------------------------- | --------------------------------------- | --------------------------------------------- |
@@ -241,6 +294,108 @@ Nobody has supplied a jurisdiction, a statutory minimum for financial records, o
 a maximum for non-evidential personal data. Until somebody does, **no scheduled
 deletion runs in production**, and the sweeper refuses to execute unless a
 documented activation condition says otherwise.
+
+### 5A. The rehearsal — added 2026-09-18, Phase 3 / Phase 3
+
+A rehearsal exists. It counts what each proposed duration **would** reach and
+writes one `RetentionSweep` row per class recording the cut-off it used, how many
+rows were in scope, and how many of those an active hold protected.
+`affectedCount` is 0 on every row.
+
+**It cannot delete, and that is structural rather than careful.** Three
+independent things stop it, only the first of which depends on the code being
+right:
+
+1. `retention_sweep_dry_run_changes_nothing` — a CHECK constraint refusing any
+   `DRY_RUN` row that claims a non-zero `affectedCount`.
+2. No deletion path exists in `apps/worker/src/retention/classes.js`, in
+   `apps/worker/src/processors/sweep-retention.js`, or anywhere else. The unit
+   tests prove it with a Prisma stub whose `delete`, `deleteMany`, `update`,
+   `updateMany` and both raw-SQL escapes throw.
+3. `RETENTION_ENFORCEMENT_ACTIVATED` defaults to false, and defaults to false
+   again in `createProcessors`, so a caller who forgets it gets the refusing
+   worker rather than the counting one.
+
+**An unactivated environment records a row rather than doing nothing.** The state
+is `SKIPPED_DISABLED`, with the cut-off it would have used. "Nothing happened"
+and "we were told not to" are different answers, and an operator who cannot tell
+them apart goes looking for a broken worker.
+
+**There is no schedule, deliberately.** A retention sweep on a timer is the first
+step towards a retention sweep that deletes on a timer, and every duration here
+is a proposal nobody has approved. A test asserts that `scheduler.js` never
+mentions the job. It is enqueued by an operator through `enqueueSweepRetention`
+and by nothing else; the API exposes no route that starts one, because the API
+holds no queue client.
+
+#### Which classes are evaluated, and which is not
+
+Four are: `login_attempt`, `session`, `session_metadata` and
+`notification_recipient`. The proposals live in `@desi-event/schemas/retention`,
+shared by the worker that counts and the API that describes; the queries live in
+the worker alone, because a module holding both would be one bad edit from being
+able to delete.
+
+`session_metadata` is a fifth class the schema's own vocabulary does not name.
+The table above proposes different durations for a session row (30 days) and for
+the security metadata on it (90 days), and the two expire on different clocks;
+folding them into one class would sweep one of them on the wrong proposal.
+
+`export_artifact` is reported **NOT EVALUATED** rather than swept. Nothing in the
+repository has ever written an `ExportArtifact` row for bytes, so a count there
+would report an emptiness meaning "no writer exists" while reading as "nothing is
+old enough". Those are different findings and only one is about retention.
+
+#### Reading a rehearsal
+
+`GET /v1/operations/retention/sweeps`, and `/retention` in the browser. Requires
+`retention:view`, which is platform-only — no organisation role can carry it,
+because `RetentionSweep` has no `organizationId` and a sweep counts across every
+tenant at once. **Which platform role should hold it is an owner decision that
+has not been made**; only `SUPER_ADMIN` has it, through `ALL_CAPABILITIES`.
+
+Each row carries its own approval status rather than the page stating it once, so
+a number lifted into a ticket or a screenshot brings `PROPOSED — REQUIRES
+LEGAL/PRIVACY REVIEW` with it.
+
+### 5B. The export register — added 2026-09-18, Phase 3 / Phase 3
+
+§8 below says a downloaded export cannot be recalled. That is still true. What
+has changed is that the system now knows an export happened.
+
+Both CSV routes write an `ExportArtifact` row **before** returning a body, and a
+failure to record fails the request: an export that happened with no record of it
+is what the register exists to prevent, and a best-effort register is empty
+exactly when somebody needs it. `ephemeral` is true and `storageKey` is null,
+stated explicitly rather than defaulted, so a future stored export has to say so
+rather than inheriting a claim that stopped being true.
+
+**No export in this system contains a person.** Both routes emit aggregate
+figures under explicit column allow lists — no name, no address, no e-mail, no
+card, no provider reference. So nothing links an `ExportArtifactSubject`, and the
+`EXPORTS` redaction category answers `NOTHING_TO_DO` rather than the `DEFERRED`
+it answered before. A test asserts that nothing ever writes a subject link; the
+first export that does carry a person fails that test rather than slipping past
+the redaction path.
+
+A redaction invalidates every live artefact linked to its subject, in the same
+transaction as the rest of the redaction, so there is no moment in which a person
+is redacted while the register still advertises an artefact containing them.
+Invalidated rather than deleted: the bytes were never stored, so what changes is
+the register's claim that the artefact is good.
+
+**Stated limitations.**
+
+- A **platform-wide finance export is not recorded at all.**
+  `ExportArtifact.organizationId` is NOT NULL and an export belonging to no
+  organisation cannot be written without a migration. Attributing an
+  everybody-export to one tenant would make the register actively wrong, which is
+  worse than visibly incomplete, so it is skipped and logged. Whether to widen
+  the column is an owner decision.
+- **`attendee:export` is a capability with no route.** Nothing in the API asserts
+  it. No route was invented for it here; it is recorded as a finding.
+- **Nothing deletes an artefact row.** `DELETED` and `DELETION_FAILED` remain
+  states nothing writes.
 
 ---
 
