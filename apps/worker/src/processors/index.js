@@ -18,12 +18,14 @@ import { createIssueTicketsProcessor } from './issue-tickets.js'
 import { createSendEmailProcessor } from './send-email.js'
 import { createIndexEventProcessor } from './index-event.js'
 import { createDrainOutboxProcessor } from './drain-outbox.js'
+import { createRetentionSweepProcessor } from './sweep-retention.js'
 
 export { createExpireHoldsProcessor } from './expire-holds.js'
 export { createIssueTicketsProcessor } from './issue-tickets.js'
 export { createSendEmailProcessor } from './send-email.js'
 export { createIndexEventProcessor } from './index-event.js'
 export { createDrainOutboxProcessor } from './drain-outbox.js'
+export { createRetentionSweepProcessor } from './sweep-retention.js'
 
 /**
  * @typedef {object} ProcessorDeps
@@ -32,6 +34,7 @@ export { createDrainOutboxProcessor } from './drain-outbox.js'
  * @property {object} [logger] Logger; each processor gets a child bound to its job name.
  * @property {object} [index] A search index implementation, when one exists.
  * @property {string} [workerId] Who this process is, for the outbox leases it takes.
+ * @property {boolean} [retentionActivated] Whether this environment may run a retention rehearsal. Defaults to false.
  */
 
 /**
@@ -46,7 +49,14 @@ export { createDrainOutboxProcessor } from './drain-outbox.js'
  * @throws {TypeError} When `prisma` is missing.
  * @throws {ProviderError} When `providers.email` does not implement the email interface.
  */
-export function createProcessors({ prisma, providers, logger, index, workerId }) {
+export function createProcessors({
+  prisma,
+  providers,
+  logger,
+  index,
+  workerId,
+  retentionActivated = false,
+}) {
   /**
    * Derive a logger bound to one job name.
    *
@@ -79,6 +89,15 @@ export function createProcessors({ prisma, providers, logger, index, workerId })
       // processes sharing one would each think they held the other's claims.
       workerId: workerId ?? `worker-${process.pid}`,
       logger: childFor(JOB_NAMES.DRAIN_OUTBOX),
+    }),
+    [JOB_NAMES.SWEEP_RETENTION]: createRetentionSweepProcessor({
+      prisma,
+      // Defaulted to false one layer up rather than read from the environment
+      // here, so that a caller who forgets to pass it gets the refusing
+      // behaviour instead of the counting one. Nothing in `processors/` reads
+      // `process.env`, and this is the field most worth keeping that way.
+      activated: retentionActivated,
+      logger: childFor(JOB_NAMES.SWEEP_RETENTION),
     }),
   }
 }

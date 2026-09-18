@@ -12,6 +12,14 @@
  * after the commit, and a process that dies in between would lose the message.
  * A clock that asks the outbox what is due needs nobody to remember anything.
  *
+ * The retention rehearsal is deliberately **not** here, and its absence is the
+ * design rather than an omission. A retention sweep on a timer is the first
+ * step towards a retention sweep that deletes on a timer, and every duration it
+ * would apply is `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`. It is enqueued by
+ * an operator who has decided to run one, through `enqueueSweepRetention`, and
+ * by nothing else. If a scheduler for it ever seems warranted, the durations
+ * have to be approved first.
+ *
  * BullMQ 6 expresses this as a *job scheduler*: a named record that mints one
  * job per interval. Schedulers are upserted by id, so restarting the worker
  * updates the existing schedule in place instead of accumulating a duplicate

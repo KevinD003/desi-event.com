@@ -32,6 +32,11 @@ export const QUEUE_FOR_JOB = Object.freeze({
   // The outbox drain rides the email queue: it is the same resource it
   // contends for, so a backlog of one is visible as a backlog of the other.
   [JOB_NAMES.DRAIN_OUTBOX]: QUEUE_NAMES.EMAIL,
+  // A queue of its own rather than riding an existing one, so that a retention
+  // rehearsal can never be enqueued by something reaching for a neighbouring
+  // job name, and so that an operator looking at the retention queue sees
+  // exactly what was asked for and nothing else.
+  [JOB_NAMES.SWEEP_RETENTION]: QUEUE_NAMES.RETENTION,
 })
 
 /**
@@ -112,6 +117,25 @@ export const QUEUE_JOB_OPTIONS = Object.freeze({
     backoff: { type: 'exponential', delay: 10_000 },
     removeOnComplete: true,
     removeOnFail: { age: DAY_S, count: 500 },
+  }),
+
+  // A retention rehearsal counts and records; its result lives in
+  // `RetentionSweep`, not in Redis, so the completed key buys little and is
+  // dropped after a day. Its failures are kept for a month, because a rehearsal
+  // that could not run is the thing an operator needs to find.
+  //
+  // Two attempts, not more. Retrying is safe — nothing is mutated either way —
+  // but it is not free of consequence: an attempt that fails part-way has
+  // already written a sweep row for the classes it reached, and the retry
+  // writes those classes again at a later instant. The rows are each truthful
+  // and distinguishable by `startedAt`; they are simply duplicated. One retry
+  // buys resilience against a dropped connection without turning a persistent
+  // fault into eight copies of the same rehearsal.
+  [QUEUE_NAMES.RETENTION]: Object.freeze({
+    attempts: 2,
+    backoff: { type: 'fixed', delay: 30_000 },
+    removeOnComplete: { age: DAY_S, count: 200 },
+    removeOnFail: { age: 30 * DAY_S, count: 500 },
   }),
 })
 
@@ -297,4 +321,27 @@ export async function enqueueIssueTickets(queues, payload, options = {}) {
  */
 export function enqueueIndexEvent(queues, payload, options = {}) {
   return enqueue(queues, JOB_NAMES.INDEX_EVENT, payload, options)
+}
+
+/**
+ * Enqueue a retention rehearsal.
+ *
+ * There is deliberately no scheduler calling this. A retention sweep that runs
+ * on a timer is the first step towards a retention sweep that deletes on a
+ * timer, and every duration it would apply is `PROPOSED — REQUIRES
+ * LEGAL/PRIVACY REVIEW`. Somebody has to ask for each run, on purpose.
+ *
+ * What the run then does is decided by the worker, not by the caller:
+ * `RETENTION_ENFORCEMENT_ACTIVATED` gates whether anything is counted at all,
+ * and the payload has no way to request execution. The job cannot delete a row
+ * however it is enqueued.
+ *
+ * @param {Record<string, QueueHandle>} queues The queue map.
+ * @param {object} [payload] A `sweepRetentionJobSchema` payload.
+ * @param {Record<string, unknown>} [options] Per-job BullMQ options.
+ * @returns {Promise<object>} The created job.
+ * @throws {ValidationError} When the payload is invalid.
+ */
+export function enqueueSweepRetention(queues, payload = {}, options = {}) {
+  return enqueue(queues, JOB_NAMES.SWEEP_RETENTION, payload, options)
 }

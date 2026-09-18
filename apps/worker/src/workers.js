@@ -21,9 +21,17 @@ import { DEFAULT_QUEUE_PREFIX, QUEUE_FOR_JOB, jobOptionsFor } from './queues.js'
  *
  * The hold sweep is pinned to 1 on purpose: it is a batch job over a shared
  * table, so a second copy running concurrently would select the same rows, lose
- * the `status: ACTIVE` guard race, and do nothing but add database load. The
- * other three are I/O-bound on things that parallelise fine — an SMTP round
- * trip, a short transaction, an index write.
+ * the `status: ACTIVE` guard race, and do nothing but add database load.
+ *
+ * The retention rehearsal is pinned to 1 for a different reason. It cannot race
+ * anything — it only counts — but two copies counting the same classes at the
+ * same instant write two sweep rows apiece, and the evidence table is meant to
+ * read as a history of runs rather than a history of workers. One at a time
+ * also keeps a rehearsal's count queries off the same tables the site is
+ * serving from, which is the whole reason it is a background job.
+ *
+ * The rest are I/O-bound on things that parallelise fine — an SMTP round trip,
+ * a short transaction, an index write.
  *
  * @param {string} queueName The queue.
  * @param {number} configured The value of `WORKER_CONCURRENCY`.
@@ -31,6 +39,7 @@ import { DEFAULT_QUEUE_PREFIX, QUEUE_FOR_JOB, jobOptionsFor } from './queues.js'
  */
 export function concurrencyFor(queueName, configured) {
   if (queueName === QUEUE_NAMES.HOLDS) return 1
+  if (queueName === QUEUE_NAMES.RETENTION) return 1
   return Math.max(1, configured)
 }
 

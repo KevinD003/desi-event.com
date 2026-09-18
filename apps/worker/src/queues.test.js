@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { describe, it, expect } from 'vitest'
 import { isValidationError } from '@desi-event/schemas'
 import { JOB_NAMES, QUEUE_NAMES } from '@desi-event/schemas/jobs'
@@ -11,10 +13,17 @@ import {
   enqueueIndexEvent,
   enqueueIssueTickets,
   enqueueSendEmail,
+  enqueueSweepRetention,
   jobOptionsFor,
   validateJobPayload,
 } from './queues.js'
 import { EVENT_ID, ORDER_ID, TICKET_TYPE_ID } from '../tests/helpers/fakes.js'
+
+/**
+ * The scheduler's own source, read so that "retention is never on a clock" can
+ * be asserted against the file rather than against a claim about it.
+ */
+const schedulerSource = readFileSync(new URL('./scheduler.js', import.meta.url), 'utf8')
 
 /**
  * Build a queue map whose `add` records rather than enqueues.
@@ -122,6 +131,35 @@ describe('enqueue helpers', () => {
       [QUEUE_NAMES.TICKETS, JOB_NAMES.ISSUE_TICKETS],
       [QUEUE_NAMES.SEARCH, JOB_NAMES.INDEX_EVENT],
     ])
+  })
+
+  it('routes a retention rehearsal to its own queue', async () => {
+    // Its own queue, not a neighbour's: a rehearsal arriving on the holds or
+    // email queue would be a rehearsal somebody enqueued by reaching for the
+    // wrong name, and the retention queue is meant to show exactly what was
+    // asked for.
+    const { queues, added } = createFakeQueues()
+
+    await enqueueSweepRetention(queues)
+
+    expect(added.map((entry) => [entry.queue, entry.jobName])).toEqual([
+      [QUEUE_NAMES.RETENTION, JOB_NAMES.SWEEP_RETENTION],
+    ])
+  })
+
+  it('gives the rehearsal payload no way to ask for execution', () => {
+    // The mode is decided by the processor and the database, never by whoever
+    // enqueued the job. An unknown key is stripped rather than honoured.
+    expect(
+      validateJobPayload(JOB_NAMES.SWEEP_RETENTION, { mode: 'EXECUTE', execute: true }),
+    ).toEqual({})
+  })
+
+  it('never schedules retention on a clock', () => {
+    // The absence is the design. A sweep on a timer is the first step towards
+    // a deletion on a timer, and the durations are unapproved proposals.
+    expect(QUEUE_FOR_JOB[JOB_NAMES.SWEEP_RETENTION]).toBe(QUEUE_NAMES.RETENTION)
+    expect(schedulerSource).not.toMatch(/SWEEP_RETENTION/u)
   })
 
   it('stores the parsed payload, not the raw one', async () => {
