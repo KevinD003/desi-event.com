@@ -50,26 +50,26 @@ direct CI run `35304257349` proved green 8/8.
 
 ## 1. What was delivered
 
-| Surface                                              | Status                          |
-| ---------------------------------------------------- | ------------------------------- |
-| Privacy area shell, organisation-scoped              | **IMPLEMENTED**                 |
-| Privacy request queue, filterable by state           | **IMPLEMENTED**                 |
-| Privacy request detail with scope table              | **IMPLEMENTED**                 |
-| Request evidence timeline                            | **IMPLEMENTED**                 |
-| Server-issued confirmation flow                      | **IMPLEMENTED**                 |
-| Cancellation, state-gated                            | **IMPLEMENTED**                 |
-| Hold list, place and release                         | **IMPLEMENTED**                 |
-| Refusal vocabulary, schema-driven and total          | **IMPLEMENTED**                 |
-| Export register, written by both CSV routes          | **IMPLEMENTED**                 |
-| Export invalidation on redaction                     | **IMPLEMENTED**                 |
-| Export register UI                                   | **IMPLEMENTED**                 |
-| Dry-run retention classes (pure, tested)             | **IMPLEMENTED**                 |
-| Dry-run retention worker wiring (queue/processor)    | **IMPLEMENTED**                 |
-| Retention operations UI                              | **IMPLEMENTED**                 |
-| Retention runbook and privacy documentation          | **IMPLEMENTED**                 |
-| Retention **execution** (deletion of any kind)       | **NOT IMPLEMENTED — BY DESIGN** |
-| Export **deletion**                                  | **NOT IMPLEMENTED**             |
-| Browser and accessibility suites for the new screens | **NOT IMPLEMENTED**             |
+| Surface                                              | Status                                                              |
+| ---------------------------------------------------- | ------------------------------------------------------------------- |
+| Privacy area shell, organisation-scoped              | **IMPLEMENTED**                                                     |
+| Privacy request queue, filterable by state           | **IMPLEMENTED**                                                     |
+| Privacy request detail with scope table              | **IMPLEMENTED**                                                     |
+| Request evidence timeline                            | **IMPLEMENTED**                                                     |
+| Server-issued confirmation flow                      | **IMPLEMENTED**                                                     |
+| Cancellation, state-gated                            | **IMPLEMENTED**                                                     |
+| Hold list, place and release                         | **IMPLEMENTED**                                                     |
+| Refusal vocabulary, schema-driven and total          | **IMPLEMENTED**                                                     |
+| Export register, written by both CSV routes          | **IMPLEMENTED**                                                     |
+| Export invalidation on redaction                     | **PARTIAL** — nothing writes the subject link it matches on         |
+| Export register UI                                   | **PARTIAL** — list only, no detail screen                           |
+| Dry-run retention classes (pure, tested)             | **IMPLEMENTED**                                                     |
+| Dry-run retention worker wiring (queue/processor)    | **PARTIAL** — no lease, no idempotency, no real-infrastructure test |
+| Retention operations UI                              | **PARTIAL** — history only, no detail or candidate rollup           |
+| Retention runbook and privacy documentation          | **PARTIAL** — 4 of the 10 named documents                           |
+| Retention **execution** (deletion of any kind)       | **NOT IMPLEMENTED — BY DESIGN**                                     |
+| Export **deletion**                                  | **NOT IMPLEMENTED**                                                 |
+| Browser and accessibility suites for the new screens | **NOT IMPLEMENTED**                                                 |
 
 ### Test counts
 
