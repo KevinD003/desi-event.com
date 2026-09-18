@@ -213,6 +213,46 @@ narrower than "this is done":
   step-up policy, and two read routes under
   `/v1/organizations/:id/privacy/requests`. See **Personal data** below.
 
+> **Current-status update — 2026-09-17, after Phase 3's Phase 2 merged.** The two
+> bullets above were written at the end of Phase 3's Phase 1. One of them has
+> since become wrong and the other has become an undercount. Both are corrected
+> here rather than edited in place.
+>
+> **"There is no redaction command" is no longer true.** The redaction engine
+> exists and is tested against real PostgreSQL. What remains true, and is the
+> part that matters, is narrower: **no scheduled retention job deletes anything**
+> — nothing anywhere creates a `RetentionSweep` row, so the model is schema only
+> — and **nothing in this repository has redacted a real person.** Every redaction
+> this system has performed ran against disposable test data.
+>
+> **"Two read routes" is an undercount.** The privacy surface is **nine
+> operations**, counted from `packages/api-contract/src/route-manifest.js`:
+>
+> | Method | Path                                                | Kind            |
+> | ------ | --------------------------------------------------- | --------------- |
+> | GET    | `/v1/organizations/:id/privacy/requests`            | read            |
+> | GET    | `/v1/organizations/:id/privacy/requests/:requestId` | read            |
+> | GET    | `…/requests/:requestId/events`                      | read (audit)    |
+> | GET    | `/v1/organizations/:id/privacy/holds`               | read            |
+> | POST   | `/v1/organizations/:id/privacy/requests`            | command (raise) |
+> | POST   | `…/requests/:requestId/confirm`                     | command         |
+> | POST   | `…/requests/:requestId/cancel`                      | command         |
+> | POST   | `/v1/organizations/:id/privacy/holds`               | command (hold)  |
+> | POST   | `…/holds/:holdId/release`                           | command (hold)  |
+>
+> Four reads and five commands. The two original read routes are the first two
+> rows; the command and hold operations came with Phase 3's Phase 2.
+>
+> **Every one of the nine remains constrained** by the controls that were already
+> in place. All nine — the reads included — require `privacy:redact`, which is
+> granted to `OWNER` and to nobody else; `apps/api/src/routes/privacy.js` explains
+> why reading who has asked to be erased needs the same authority as erasing them.
+> The five commands additionally require a fresh `PRIVACY_ERASURE` step-up, which
+> the four reads do not (`packages/api-contract/src/routes.js`). Organization
+> scoping applies throughout, holds can refuse an execution, and both `AuditLog`
+> and `PrivacyAuditEvent` are immutable at the database. Adding operations did not
+> widen who may use them.
+
 The Phase 2 text, unchanged:
 
 > Stated plainly rather than implied by a policy paragraph. **There is no user
@@ -326,9 +366,19 @@ is. Evidence must not be deleted by a cascade from the thing it describes.
 ### A dry run cannot claim to have changed something
 
 `retention_sweep_dry_run_changes_nothing` refuses a `DRY_RUN` row with a non-zero
-`affectedCount`. `DRY_RUN` is the default posture, because every duration the
+`affectedCount`. `DRY_RUN` is the intended posture, because every duration the
 sweeper would apply is a proposal awaiting legal review rather than settled
 policy — see `docs/PRIVACY_AND_RETENTION.md`.
+
+> **Correction — 2026-09-17.** This paragraph said `DRY_RUN` "is the default
+> posture", which reads as a column default and is not one. `RetentionSweep.mode`
+> carries **no** `@default` in `schema.prisma` and no `DEFAULT` in the migration —
+> `state` does, `mode` does not — so a row would have to name its mode explicitly.
+> The point stands in the only sense that matters today: **nothing creates a
+> `RetentionSweep` row at all.** The single `retentionSweep.create` in the tree is
+> a negative probe in `packages/db/scripts/verify-fresh-database.mjs` that expects
+> rejection and rolls back. The constraint above is real and enforced; it
+> constrains rows that nothing yet inserts.
 
 ---
 

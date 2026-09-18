@@ -43,6 +43,52 @@ holds the key, and a redaction a key undoes is not a redaction.
 
 ## 2. What is built, and what is not
 
+> **HISTORICAL STATUS — SUPERSEDED IN PART, 2026-09-17.** The table below was
+> written before Phase 3's Phase 2 and is preserved unchanged, because it is the
+> record of what was true then. **Two of its rows are now wrong:** "Raising,
+> confirming or executing a redaction" and "The redaction engine itself" are no
+> longer `NOT IMPLEMENTED`. A third, "Reading redaction requests — `API-TESTED
+ONLY`", is no longer the whole story: the privacy surface is now nine
+> operations, four reads and five commands.
+>
+> **Four rows are still exactly true and must not be read as superseded:**
+>
+> | Still true                                   | Status                              |
+> | -------------------------------------------- | ----------------------------------- |
+> | The retention sweeper                        | `NOT IMPLEMENTED`                   |
+> | Export invalidation and deletion             | `SCHEMA ONLY`                       |
+> | Retention durations approved by counsel      | `BLOCKED — REQUIRES OWNER DECISION` |
+> | Personal data redacted outside test fixtures | **None**                            |
+>
+> So is the sentence below the table: no personal data has been redacted by this
+> system, and no retention deletion has run. The per-category matrix in §4
+> carries the same caveat.
+>
+> **What this does and does not mean, stated so the gap is not misread:**
+>
+> - **Implemented:** the redaction service and its nine-operation API, tested
+>   against real PostgreSQL.
+> - **Not implemented:** any privacy **user interface**. There is no screen for
+>   this; it is API-only.
+> - **Not implemented:** export governance. `ExportArtifact` and
+>   `ExportArtifactSubject` are schema; nothing invalidates or deletes an export.
+> - **Not implemented:** retention **execution**. Nothing anywhere creates a
+>   `RetentionSweep` row — the only `retentionSweep.create` in the tree is a
+>   negative probe in `packages/db/scripts/verify-fresh-database.mjs` that expects
+>   rejection and rolls back. Its `mode` column has no default, so there is no
+>   "default mode" to rely on either. Nothing is scheduled and nothing deletes.
+> - **Blocked, not merely undone:** retention durations remain
+>   `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`. This is a legal decision and no
+>   engineering work substitutes for it.
+> - **A standing limitation, not a defect:** historic `AuditLog` rows are
+>   immutable by database trigger and may contain personal data in identifiers
+>   and free text. They cannot be redacted or rewritten. **A data subject
+>   therefore cannot truthfully be told their erasure is complete** while those
+>   rows stand. That is an owner and legal decision, recorded and unresolved.
+>
+> No compliance claim is made here for GDPR, CCPA/CPRA, PCI DSS, HIPAA or any
+> other regime.
+
 | Thing                                              | Status                                |
 | -------------------------------------------------- | ------------------------------------- |
 | `privacy:redact` capability, granted to OWNER only | `IMPLEMENTED`, `AUTOMATICALLY TESTED` |
