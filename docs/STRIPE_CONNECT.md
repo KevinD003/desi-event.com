@@ -256,3 +256,214 @@ task, described in `docs/RECONCILIATION_RUNBOOK.md`.
 
 Items 2 and 3 are code this repository could write today; item 1 is the external
 dependency, and item 4 needs all three.
+
+---
+
+## Mock-mode Connect foundation — design, 2026-09-21
+
+The design for the repository-owned half of the closure plan above: items 2 and
+3, built in **mock mode only**. Recorded before implementation, and critiqued
+adversarially before any code was written.
+
+Nothing in this section describes a Stripe integration. It describes a
+simulation this repository runs against itself, and the whole point of writing
+it down first is that a simulation which _looks_ like onboarding is the easiest
+thing in this project to mistake for the real thing.
+
+### What exists already, and what does not
+
+Established by reading the code rather than this document, because four of this
+document's own claims were found stale while doing so (corrected below).
+
+| Piece                                                                | State                                             |
+| -------------------------------------------------------------------- | ------------------------------------------------- |
+| `ConnectedAccount` model, constraints, relations                     | Exists. `organizationId` is `@unique`             |
+| `ConnectOnboardingStatus` enum, five members                         | Exists. **Written by nothing**                    |
+| `connect:manage` capability                                          | Exists. Held by `FINANCE`, and by `ADMIN` and `OWNER` through inheritance; `SUPER_ADMIN` platform-wide. **Used by nothing** |
+| A `CONNECT_ONBOARDING` step-up policy                                | **Does not exist.** `CONNECT_ONBOARDING` is an `AuthTokenPurpose` lifetime (`packages/auth/src/tokens.js:44`), not a step-up policy. The policy for this surface is `PAYOUT`, 5 minutes (`packages/auth/src/sessions.js:87`) |
+| Adapter methods (`createConnectedAccount`, `getConnectedAccount`, …) | Exist on the Stripe adapter only                  |
+| The in-memory provider's Connect surface                             | **Does not exist**                                |
+| Any writer that can create a `ConnectedAccount` row                  | **Does not exist**                                |
+| `connect.start` / `connect.status` routes                            | **Do not exist**                                  |
+| Any organiser Connect screen                                         | **Does not exist**                                |
+
+The last four are what this work adds. The first four are why it is mostly
+wiring.
+
+### The one blocking defect, and why it is repaired here
+
+`desi_payout_currency_matches` reads `"payoutCurrency"` from `ConnectedAccount`.
+That column does not exist; the column is `defaultCurrency`. PL/pgSQL plans
+function bodies lazily, so the migration applied cleanly and the trigger has
+never executed.
+
+It has never executed because its first statement returns early when
+`connectedAccountId` is null — and no payout has ever carried one, because
+nothing could create a `ConnectedAccount` row. **This phase is precisely what
+makes that path reachable.** Verified by execution against PostgreSQL 16: an
+INSERT on `Payout` with a non-null `connectedAccountId` fails with SQLSTATE
+42703, `column "payoutCurrency" does not exist`, from the function's line 9.
+
+The repair is a new forward migration replacing the function body, one
+identifier. The early return is preserved, the invariant is preserved, and the
+trigger is not broadened.
+
+Two adjacent facts recorded rather than fixed, because fixing them would be the
+financial-policy redesign this work is not:
+
+- The same migration's comment says the rule covers "a transfer or payout", but
+  `CREATE TRIGGER` attaches to `"Payout"` only. **Transfers have no currency
+  check at all.** Owner decision.
+- The trigger compares currencies with `<>` and does not case-fold. The writer
+  added here normalises to upper case, matching the Stripe adapter's existing
+  precedent, so the comparison is safe from _this_ writer. A future writer that
+  stores `inr` would trip it. Owner decision.
+
+### The lifecycle, and why it reuses the existing vocabulary
+
+`ConnectOnboardingStatus` is already a closed, server-authoritative, indexed
+Prisma enum. Minting a parallel `MOCK_*` vocabulary would cost a migration, a
+second enum for readers to learn, and a parity test — to express the same five
+states.
+
+So the states are the existing five. What makes them unmistakably a simulation
+is carried in three other places, none of which is the state name:
+
+1. `ConnectedAccount.providerMode` is written `'mock'`. The row itself records
+   that it is not a real account.
+2. The API response carries a server-authoritative `simulated: true` the UI is
+   required to render. It is not derived in the browser.
+3. The screen never prints the raw enum. It prints mock-qualified wording, and a
+   standing block saying what the state does **not** mean.
+
+The transitions, all server-authoritative, all driven by an action from a closed
+vocabulary — never by a state supplied in a request body:
+
+| From               | Action                  | To                 |
+| ------------------ | ----------------------- | ------------------ |
+| `NOT_STARTED`      | `START`                 | `IN_PROGRESS`      |
+| `IN_PROGRESS`      | `SIMULATE_REQUIREMENTS` | `REQUIREMENTS_DUE` |
+| `IN_PROGRESS`      | `SIMULATE_READY`        | `COMPLETE`         |
+| `REQUIREMENTS_DUE` | `SIMULATE_READY`        | `COMPLETE`         |
+| `COMPLETE`         | `SIMULATE_DISABLE`      | `DISABLED`         |
+| `REQUIREMENTS_DUE` | `SIMULATE_DISABLE`      | `DISABLED`         |
+| `IN_PROGRESS`      | `SIMULATE_DISABLE`      | `DISABLED`         |
+
+Every other pair is invalid and refused with a closed reason code. In
+particular `DISABLED` is terminal in this phase: re-onboarding a disabled
+account is a real-provider concern, and inventing a mock path for it would be
+inventing policy.
+
+`chargesEnabled` and `payoutsEnabled` are derived from the state, never set
+independently — `COMPLETE` implies both true, every other state implies both
+false. A mock that could report "payouts enabled" in any state but `COMPLETE`
+would be the exact false claim this design exists to prevent.
+
+### Scoping, authorization and step-up
+
+- One `ConnectedAccount` per organisation, enforced by `organizationId @unique`
+  at the database. The writer is an upsert keyed on it.
+- Reads and writes are organisation-scoped from the path, resolved server-side.
+  A cross-organisation id is **refused**, not treated as absent.
+- Both routes require `connect:manage`, organisation-scoped from the path.
+- Both routes require a fresh **`PAYOUT`** step-up (5 minutes,
+  `packages/auth/src/sessions.js:87`).
+- Both routes declare `API_ERRORS.stepUpRequired`, so the screen's
+  retry-after-step-up path is discoverable from the contract rather than by
+  trial. The contract checker does not require this of a step-up route, so it
+  has to be done deliberately.
+
+**Correction, made during design critique.** An earlier draft of this section
+proposed a `CONNECT_ONBOARDING` step-up instead, on the reasoning that it "has
+its own 10-minute window and is named for this surface". That reasoning was
+wrong, and the fact it rested on was false. `CONNECT_ONBOARDING` is an
+`AuthTokenPurpose` lifetime (`packages/auth/src/tokens.js:44`) — the expiry of a
+single-use `AuthToken` — and not a step-up policy at all. `STEP_UP_POLICIES`
+(`packages/auth/src/sessions.js:81-146`) contains ten members and that is not one
+of them, so `stepUpWindowFor('CONNECT_ONBOARDING')` throws and, because
+`apps/api/src/lib/register.js:75` resolves the window at registration rather than
+per request, the API would have failed to boot. `PAYOUT` is not merely the
+fallback: its docstring reads "A payout, **or a change to a connected account's
+payout destination**", which is this surface exactly, and it is what closure
+item 2, `docs/PHASE3_IMPLEMENTATION_PLAN.md:191-193`, `PHASE2_STATUS.md:1146` and
+`docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md:945` have each already said.
+
+Two consequences worth stating, because both cut against the earlier draft:
+the approved window is *shorter* (5 minutes, not 10) on the surface that decides
+where an organiser's money lands, and the read is gated too. Putting
+`connect.status` behind capability alone would have made it the only
+money-adjacent read in the repository with no step-up — every one of the ten
+finance-tagged routes carries one.
+
+Adding a `CONNECT_ONBOARDING` member to `STEP_UP_POLICIES` was considered and
+rejected. It is a change to a shared security table outside this phase's scope,
+and it would put one string on two unrelated controls — the precise collision
+`packages/auth/src/sessions.test.js:343-348` records for `PRIVACY_ERASURE`
+against `CREDENTIAL`.
+
+### Idempotency and concurrency
+
+`START` on an account already past `NOT_STARTED` returns the current state and
+records nothing new — the same answer a first call would give, so a replay is
+indistinguishable from a repeat. The upsert on a unique organisation id makes
+two concurrent first-starts collapse to one row at the database rather than in
+application logic.
+
+### Audit evidence
+
+Closed action and reason vocabularies. Rows carry the organisation, the actor,
+the from-state, the to-state and the action. They carry **no** request body, no
+free text, no provider payload, no financial figure and no identity field —
+there are none to carry, because none is collected.
+
+### Data minimisation
+
+The screen has **no inputs**. No bank details, tax identifiers, government IDs,
+dates of birth, addresses, legal names, payout instructions or documents are
+collected, stored, rendered or logged, because a mock that collected them would
+have acquired the exact risk it exists to avoid carrying.
+
+`requirementsDue` stores **counts**, never contents — matching the only existing
+writer. This document said so already; `schema.prisma`'s own comment said the
+opposite ("stored verbatim") and is corrected in this change, because an
+implementer reading the schema would otherwise store requirement strings.
+
+### What must not move
+
+- `providers.payments.name` stays `'in-memory-payments'`. `finance.js:176`,
+  `finance.js:178` and `analytics.js:269` sniff that exact string to decide the
+  payment mode, and `money-figure.jsx:41` turns the result into wording shown to
+  **buyers**: renaming the provider would relabel every money figure in the
+  product from "Demonstration data" to "Sandbox data". The Connect surface is
+  added as methods on the existing provider object, not as a new provider.
+- No Stripe SDK import, no Stripe URL, no network call, no credential read.
+- Payout semantics are unchanged. Nothing here creates, schedules, executes,
+  reverses or reconciles a movement of money.
+
+### Non-goals
+
+No onboarding URL, redirect handler, return handler, hosted link, login link,
+account lookup, provider webhook trigger, background reconciler or provider
+synchronisation. No re-onboarding from `DISABLED`. No transfer currency check.
+No change to payout behaviour when an account is absent.
+
+### Owner decisions this does not take
+
+Real Stripe credentials and account setup; jurisdictions; Connect account type;
+organiser eligibility; payout countries and currencies; KYC/KYB; tax reporting;
+sanctions and AML; dispute and refund obligations; privacy and retention
+implications of connected-account data; webhook, incident and reconciliation
+ownership; legal review and launch criteria. Plus the two trigger-adjacent
+decisions recorded above, and one more that the design critique surfaced:
+
+**The `FINANCE_ADMIN` platform role can move payouts it cannot see the account
+for.** `FINANCE_ADMIN` holds `payout:manage` (`packages/permissions/src/capabilities.js:537`)
+but not `connect:manage` (`:533-542`), while `payouts.schedule` authorizes on
+`payout:manage` scoped to the body's organisation, which a platform grant
+satisfies for any organisation. So a platform finance administrator can
+schedule, send and reverse an organisation's payouts while being refused the
+connected-account state those payouts depend on. This is pre-existing and is
+left exactly as it is: granting `connect:manage` to `FINANCE_ADMIN` widens a
+platform authority, which is a separate, named change with its own review and
+not a side effect of a mock-mode phase. Recorded here so the asymmetry is a
+decision somebody took rather than one nobody noticed.
