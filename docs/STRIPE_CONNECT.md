@@ -275,17 +275,17 @@ thing in this project to mistake for the real thing.
 Established by reading the code rather than this document, because four of this
 document's own claims were found stale while doing so (corrected below).
 
-| Piece                                                                | State                                             |
-| -------------------------------------------------------------------- | ------------------------------------------------- |
-| `ConnectedAccount` model, constraints, relations                     | Exists. `organizationId` is `@unique`             |
-| `ConnectOnboardingStatus` enum, five members                         | Exists. **Written by nothing**                    |
-| `connect:manage` capability                                          | Exists. Held by `FINANCE`, and by `ADMIN` and `OWNER` through inheritance; `SUPER_ADMIN` platform-wide. **Used by nothing** |
+| Piece                                                                | State                                                                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ConnectedAccount` model, constraints, relations                     | Exists. `organizationId` is `@unique`                                                                                                                                                                                        |
+| `ConnectOnboardingStatus` enum, five members                         | Exists. **Written by nothing**                                                                                                                                                                                               |
+| `connect:manage` capability                                          | Exists. Held by `FINANCE`, and by `ADMIN` and `OWNER` through inheritance; `SUPER_ADMIN` platform-wide. **Used by nothing**                                                                                                  |
 | A `CONNECT_ONBOARDING` step-up policy                                | **Does not exist.** `CONNECT_ONBOARDING` is an `AuthTokenPurpose` lifetime (`packages/auth/src/tokens.js:44`), not a step-up policy. The policy for this surface is `PAYOUT`, 5 minutes (`packages/auth/src/sessions.js:87`) |
-| Adapter methods (`createConnectedAccount`, `getConnectedAccount`, …) | Exist on the Stripe adapter only                  |
-| The in-memory provider's Connect surface                             | **Does not exist**                                |
-| Any writer that can create a `ConnectedAccount` row                  | **Does not exist**                                |
-| `connect.start` / `connect.status` routes                            | **Do not exist**                                  |
-| Any organiser Connect screen                                         | **Does not exist**                                |
+| Adapter methods (`createConnectedAccount`, `getConnectedAccount`, …) | Exist on the Stripe adapter only                                                                                                                                                                                             |
+| The in-memory provider's Connect surface                             | **Does not exist**                                                                                                                                                                                                           |
+| Any writer that can create a `ConnectedAccount` row                  | **Does not exist**                                                                                                                                                                                                           |
+| `connect.start` / `connect.status` routes                            | **Do not exist**                                                                                                                                                                                                             |
+| Any organiser Connect screen                                         | **Does not exist**                                                                                                                                                                                                           |
 
 The last four are what this work adds. The first four are why it is mostly
 wiring.
@@ -364,7 +364,53 @@ would be the exact false claim this design exists to prevent.
 - One `ConnectedAccount` per organisation, enforced by `organizationId @unique`
   at the database. The writer is an upsert keyed on it.
 - Reads and writes are organisation-scoped from the path, resolved server-side.
-  A cross-organisation id is **refused**, not treated as absent.
+  The organisation in the path is **refused with 403** whether it belongs to
+  another tenant or does not exist at all — identical status, code and message
+  template either way, so the refusal is not an existence oracle. That is the
+  repository's rule for a path organisation (`apps/api/tests/privacy.test.js:120-137`)
+  and it is **not** the rule for an identifier nested underneath one. Should a
+  nested id ever be added here, it follows `apps/api/src/routes/privacy.js:166-168`
+  instead and answers a **404 indistinguishable from a nonexistent id**, because
+  "not yours" and "not there" must not be tellable apart below the tenant
+  boundary. `ConnectedAccount` is keyed on `organizationId` alone, so this
+  surface has no nested subject today; the distinction is written down because
+  it is the one an implementer would otherwise generalise wrongly.
+- Neither request body carries an `organizationId`, `actorId`, `state`,
+  `capability`, `stepUp` or `idempotencyKey` field. The guard reads
+  `params.organizationId` and the upsert reads that same value — a guard on the
+  path and a writer on the body would be a cross-tenant write, which is why the
+  two must be the one field. `payouts.schedule` scopes on `body.organizationId`
+  and is the counter-precedent that makes saying so necessary. The invariant at
+  `apps/api/tests/security-regression.test.js:239` that forbids those fields is
+  filtered to the `privacy` tag, so this change widens the filter to cover the
+  connect surface rather than leaving the rule merely asserted here.
+- Both routes carry the **`finance`** tag. That is load-bearing, not cosmetic:
+  `MONEY_TAGS` at `apps/api/tests/security-regression.test.js:56` is
+  `{analytics, finance, refunds}`, and every route carrying one must declare a
+  step-up. Tagging them `finance` puts both under that invariant automatically.
+  A new `connect` tag would have placed a money-adjacent surface outside it
+  without anyone deciding that, and was rejected for exactly that reason.
+- The screen picks its organisation the way every comparable screen does:
+  `connectOrganizations(session)` in `apps/web/src/lib/session.js`, filtered on
+  `connect:manage`, then
+  `organizations.find((o) => o.organizationId === params.organizationId) ?? organizations[0]`
+  — the shape used at `apps/web/src/app/privacy/page.jsx:70` and three siblings.
+  The API's 403 is the control; the intersection is what stops the screen from
+  provoking one. The new web API module applies `encodeURIComponent` to the
+  organisation id before putting it in a path, as `apps/web/src/lib/organizer-api.js:84`
+  does. `apps/web/src/lib/privacy-api.js` interpolates unencoded at `:77`, `:88`,
+  `:110`, `:133` and `:194`; the value it passes is server-resolved from session
+  memberships rather than caller-supplied, so it is not reachable today, but the
+  new module does not copy the pattern. Fixing the privacy module is a change to
+  a surface this phase was not asked to touch and is noted, not made.
+- The mock mints a `providerAccountId` unique per organisation and prefixed so
+  it **cannot be mistaken for a Stripe account id** — not `acct_`. These are the
+  first `ConnectedAccount` rows this repository has ever held, and the Connect
+  webhook handler at `apps/api/src/lib/webhook-handlers.js:330` matches on
+  `providerAccountId` alone, with no provider, mode or organisation in the
+  `where`. That unscoped match is inert today (`apps/api/src/routes/webhooks.js:93`
+  refuses every Connect delivery outside `STRIPE_TEST`) and is recorded here as
+  a known gap for whoever adds real webhooks, not repaired in this phase.
 - Both routes require `connect:manage`, organisation-scoped from the path.
 - Both routes require a fresh **`PAYOUT`** step-up (5 minutes,
   `packages/auth/src/sessions.js:87`).
@@ -389,7 +435,7 @@ item 2, `docs/PHASE3_IMPLEMENTATION_PLAN.md:191-193`, `PHASE2_STATUS.md:1146` an
 `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md:945` have each already said.
 
 Two consequences worth stating, because both cut against the earlier draft:
-the approved window is *shorter* (5 minutes, not 10) on the surface that decides
+the approved window is _shorter_ (5 minutes, not 10) on the surface that decides
 where an organiser's money lands, and the read is gated too. Putting
 `connect.status` behind capability alone would have made it the only
 money-adjacent read in the repository with no step-up — every one of the ten
@@ -411,10 +457,20 @@ application logic.
 
 ### Audit evidence
 
-Closed action and reason vocabularies. Rows carry the organisation, the actor,
-the from-state, the to-state and the action. They carry **no** request body, no
-free text, no provider payload, no financial figure and no identity field —
-there are none to carry, because none is collected.
+Closed action and reason vocabularies. A row carries the actor in `actorId`,
+the account in `entityType`/`entityId`, and the organisation, from-state,
+to-state and action in `metadata`. The organisation goes in `metadata` because
+`AuditLog` has **no `organizationId` column** (`packages/db/prisma/schema.prisma:809-822`:
+id, actorId, action, entityType, entityId, metadata, createdAt) and the only
+migration this scope authorises is the trigger repair. That is also what the
+existing finance writer does — `apps/api/src/routes/finance.js:337-344` puts
+`organizationId` in `metadata`. No schema change is required, and an earlier
+draft of this section that said rows "carry the organisation" without saying
+where would have invited one.
+
+Rows carry **no** request body, no free text, no provider payload, no financial
+figure and no identity field — there are none to carry, because none is
+collected.
 
 ### Data minimisation
 
