@@ -60,6 +60,8 @@ import {
   RETENTION_NOT_EVALUATED,
 } from '@desi-event/schemas'
 
+import { RETENTION_FAILURE_CODES, inStep } from './failures.js'
+
 export { RETENTION_APPROVAL }
 
 /** Milliseconds in a day, for readable cut-off arithmetic. */
@@ -259,8 +261,22 @@ export async function countHeld(prisma, definition) {
  */
 export async function rehearseClass(prisma, definition, now) {
   const olderThan = cutOffFor(definition, now)
-  const examinedCount = await countCandidates(prisma, definition, olderThan)
-  const heldCount = await countHeld(prisma, definition)
+  // Each step named separately, because the two failures mean different things
+  // to whoever reads the row. A candidate count that failed examined nothing;
+  // a hold count that failed means the candidates *were* counted and the figure
+  // could not be qualified — and reporting an examined count without knowing
+  // how many of them a hold protects would be reporting a number that reads as
+  // "this many would be deleted" when nobody checked what was forbidden.
+  const examinedCount = await inStep(
+    RETENTION_FAILURE_CODES.CANDIDATE_COUNT_FAILED,
+    `counting candidates for ${definition.retentionClass}`,
+    () => countCandidates(prisma, definition, olderThan),
+  )
+  const heldCount = await inStep(
+    RETENTION_FAILURE_CODES.HOLD_COUNT_FAILED,
+    `counting holds bearing on ${definition.retentionClass}`,
+    () => countHeld(prisma, definition),
+  )
 
   return {
     retentionClass: definition.retentionClass,

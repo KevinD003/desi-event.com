@@ -2576,11 +2576,34 @@ model RetentionSweep {
   affectedCount  Int                 @default(0)
   /// Rows a hold protected, which the sweep left alone.
   heldCount      Int                 @default(0)
+  /// Reserved, and deliberately never written.
+  ///
+  /// These two, with the `SCHEDULED` and `CLAIMED` states, are modelled on
+  /// `PrivacyRequest`, where a lease protects a mutating, resumable, multi-step
+  /// operation on a row that already exists. The only sweep this repository has
+  /// is a `DRY_RUN` rehearsal that counts and then inserts an already-finished
+  /// row — there is no window in which a row exists for a second worker to
+  /// steal, so there is nothing to lease.
+  ///
+  /// They would also not solve the problem they resemble. Duplicate rows come
+  /// from a retry, a restart or a stalled-job redelivery, none of which a lease
+  /// covers; the worker prevents those by deriving each row's primary key from
+  /// the run instant, the class and the kind of evidence, so a second delivery
+  /// loses on the key it already holds.
+  ///
+  /// Kept rather than dropped because dropping them costs a migration and would
+  /// take `retention_sweep_lease_has_owner` and `@@index([state, leaseExpiresAt])`
+  /// with it, for no functional gain. If a sweep that claims a pre-existing row
+  /// is ever built, that constraint is what keeps the pair honest.
   leaseOwner     String?
   leaseExpiresAt DateTime?
   startedAt      DateTime?
   finishedAt     DateTime?
-  /// From a closed vocabulary. Never a driver message.
+  /// Why a run failed, from the closed vocabulary in
+  /// `@desi-event/schemas` — `RETENTION_FAILURE_CODES`. Never a driver message:
+  /// this column is rendered on an operator screen, and a message from a failed
+  /// count against a table of sessions is the kind of string that arrives
+  /// carrying a fragment of a row.
   failureCode    String?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
