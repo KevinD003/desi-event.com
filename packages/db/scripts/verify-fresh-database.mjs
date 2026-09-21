@@ -963,6 +963,7 @@ async function main() {
         'tests/ticket-concurrency.test.js',
         'tests/privacy-redaction-integration.test.js',
         'tests/privacy-lifecycle-integration.test.js',
+        'tests/payout-currency-trigger.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

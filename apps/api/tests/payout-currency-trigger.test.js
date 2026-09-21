@@ -69,7 +69,7 @@ async function buildWorld(tx, defaultCurrency) {
     data: {
       organizationId: organization.id,
       provider: 'probe',
-      providerAccountId: `acct_${RUN}_${n}`,
+      providerAccountId: `mockacct_${RUN}_${n}`,
       providerMode: 'test',
       country: 'IN',
       defaultCurrency,

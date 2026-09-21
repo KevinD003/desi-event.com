@@ -105,7 +105,18 @@ const PHASE2_MIGRATIONS = Object.freeze([
  *
  * @type {string[]}
  */
-const PHASE3_MIGRATIONS = Object.freeze(['20260917060000_privacy_redaction_foundation'])
+const PHASE3_MIGRATIONS = Object.freeze([
+  '20260917060000_privacy_redaction_foundation',
+  // Repairs the `desi_payout_currency_matches` function that
+  // `20260916130000_commerce_services` installed with a wrong column name.
+  // Belongs in this list for a sharper reason than tidiness: the repair is a
+  // `CREATE OR REPLACE FUNCTION`, so classified as pre-Phase-2 it installs
+  // first and `commerce_services` then re-installs the *broken* body on top of
+  // it. The upgraded database silently keeps the defect the migration exists to
+  // remove, which is exactly the difference the catalogue comparison below
+  // reported.
+  '20260921090000_payout_currency_trigger_repair',
+])
 
 /**
  * Rows the generic filler cannot produce, because a CHECK constraint means the
@@ -636,6 +647,29 @@ async function main() {
     if (phase3.length !== PHASE3_MIGRATIONS.length) {
       return record('the Phase 3 migrations named here exist', false, {
         note: `expected ${PHASE3_MIGRATIONS.join(', ')}`,
+      })
+        ? 0
+        : 1
+    }
+    // The two checks above compare a filtered result against its own named
+    // list, so they catch a migration that was renamed or deleted and can never
+    // catch one that was *added*: an unclassified name simply falls into
+    // `before` and gets applied against a schema written years before it. That
+    // has now happened twice — see the comments on `20260916000000_event_draft_revision`
+    // and `20260921090000_payout_currency_trigger_repair` — and both times the
+    // symptom was a structural diff at the very end of the run with nothing in
+    // it naming the cause. So the default is closed rather than open: anything
+    // in `before` that sorts after the Phase 2 group is a migration nobody
+    // classified, and it fails here, by name, with the one-line remedy.
+    const lastPhase2 = [...PHASE2_MIGRATIONS].sort().at(-1)
+    const unclassified = before.filter((migration) => migration > lastPhase2)
+
+    if (unclassified.length > 0) {
+      return record('every migration after the Phase 2 group is classified', false, {
+        unclassified,
+        note:
+          `${unclassified.join(', ')} — add to PHASE3_MIGRATIONS, or this runs ` +
+          'before the schema it was written against',
       })
         ? 0
         : 1
