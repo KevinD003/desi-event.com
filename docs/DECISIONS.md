@@ -65,31 +65,54 @@ Not everything deserves an ADR. These are settled decisions whose reasoning is
 written at the point it matters, where somebody changing the behaviour will
 actually read it:
 
-| Decision                                                                | Where the reasoning is                                |
-| ----------------------------------------------------------------------- | ----------------------------------------------------- |
-| Production payments refuse the boot rather than being disabled          | `packages/providers/src/payment-mode.js`              |
-| A provider is never called inside a database transaction                | `apps/api/src/lib/checkout.js`                        |
-| Timeout is its own state, never failure                                 | `apps/api/src/lib/reconciliation.js`                  |
-| Conditional `UPDATE` + affected-row count as the concurrency primitive  | `apps/api/src/lib/inventory.js`                       |
-| An operator never edits a payment or an order                           | `apps/api/src/routes/reconciliation.js`               |
-| Money is derived from the ledger, never from order summaries            | `apps/api/src/lib/finance-reporting.js`               |
-| Reversal posts compensating entries; it never edits history             | `packages/ledger/src/batches.js`                      |
-| A route cannot exist without being in the published contract            | `apps/api/src/lib/register.js`                        |
-| The response schema is an allow list                                    | `apps/api/src/lib/validation.js`                      |
-| A ticket credential is derived, never stored                            | `apps/api/src/lib/ticket-credentials.js`              |
-| `CHECKED_IN` is terminal                                                | `apps/api/src/lib/tickets.js`                         |
-| Step-up windows are server-owned named policies                         | `packages/auth/src/sessions.js`                       |
-| scrypt rather than bcrypt                                               | `packages/auth/src/password.js`                       |
-| Spreadsheet-injection escaping never strips a value                     | `apps/api/src/lib/csv.js`                             |
-| Latency budgets scale with a profile; correctness does not              | `scripts/load/config.js`                              |
-| A step-up gate refuses a request; a step-up _branch_ withholds a figure | `apps/api/src/routes/analytics.js`                    |
-| Reconciliation evidence is projected onto a reviewed key list           | `apps/api/src/lib/presenters.js`                      |
-| A metric this system does not record is named, never estimated          | `apps/api/src/lib/analytics.js`                       |
-| An invitation secret is pasted, never carried in a URL                  | `apps/web/src/components/ticket-transfer-actions.jsx` |
-| A refusal says the same words whether the thing exists or not           | `apps/web/src/components/page-state.jsx`              |
+| Decision                                                                 | Where the reasoning is                                |
+| ------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Production payments refuse the boot rather than being disabled           | `packages/providers/src/payment-mode.js`              |
+| A provider is never called inside a database transaction                 | `apps/api/src/lib/checkout.js`                        |
+| Timeout is its own state, never failure                                  | `apps/api/src/lib/reconciliation.js`                  |
+| Conditional `UPDATE` + affected-row count as the concurrency primitive   | `apps/api/src/lib/inventory.js`                       |
+| An operator never edits a payment or an order                            | `apps/api/src/routes/reconciliation.js`               |
+| Money is derived from the ledger, never from order summaries             | `apps/api/src/lib/finance-reporting.js`               |
+| Reversal posts compensating entries; it never edits history              | `packages/ledger/src/batches.js`                      |
+| A route cannot exist without being in the published contract             | `apps/api/src/lib/register.js`                        |
+| The response schema is an allow list                                     | `apps/api/src/lib/validation.js`                      |
+| A ticket credential is derived, never stored                             | `apps/api/src/lib/ticket-credentials.js`              |
+| `CHECKED_IN` is terminal                                                 | `apps/api/src/lib/tickets.js`                         |
+| Step-up windows are server-owned named policies                          | `packages/auth/src/sessions.js`                       |
+| scrypt rather than bcrypt                                                | `packages/auth/src/password.js`                       |
+| Spreadsheet-injection escaping never strips a value                      | `apps/api/src/lib/csv.js`                             |
+| Latency budgets scale with a profile; correctness does not               | `scripts/load/config.js`                              |
+| A step-up gate refuses a request; a step-up _branch_ withholds a figure  | `apps/api/src/routes/analytics.js`                    |
+| Reconciliation evidence is projected onto a reviewed key list            | `apps/api/src/lib/presenters.js`                      |
+| A metric this system does not record is named, never estimated           | `apps/api/src/lib/analytics.js`                       |
+| An invitation secret is pasted, never carried in a URL                   | `apps/web/src/components/ticket-transfer-actions.jsx` |
+| A refusal says the same words whether the thing exists or not            | `apps/web/src/components/page-state.jsx`              |
+| The API holds no queue client, so no browser can start a retention sweep | `apps/api/src/routes/retention.js`                    |
+| A retention sweep has no lease, and the columns stay unwritten           | `apps/worker/src/retention/run-key.js`                |
+| An export's subject link is policed by a source scan, not by a comment   | `apps/api/tests/export-register.test.js`              |
+| A sweep row's identity is derived, so a redelivery writes nothing new    | `apps/worker/src/retention/run-key.js`                |
+| A failed rehearsal records a row per class and does not abort the run    | `apps/worker/src/processors/sweep-retention.js`       |
 
 Each of those is a module-level comment answering _why_, not a line comment
 restating _what_.
+
+### Two of those, in one line each
+
+**No queue client in the API.** Adding one to gain a "run it now" button would
+mean the one surface reachable from a browser had acquired the ability to start
+a job whose durations nobody has approved. Initiation stays where it cannot be
+reached over HTTP. This is the settled form of what the Phase 3–3 report calls
+"owner decision 14"; that report references the decision in §6B but never tabled
+it in §6A, so this row is where it lives.
+
+**No lease on a retention sweep.** `RetentionSweep.leaseOwner` and
+`leaseExpiresAt` are modelled on `PrivacyRequest`, where a lease protects a
+mutating, resumable operation on a row that already exists. The rehearsal counts
+and then inserts a row that is already finished, so there is no window for a
+second worker to steal — and a lease would not cover what actually duplicates
+rows, which is a retry, a restart or a stalled-job redelivery. A deterministic
+primary key does. The columns stay because dropping them costs a migration and
+takes a constraint and an index with it for no gain.
 
 ---
 

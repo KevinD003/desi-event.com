@@ -15,17 +15,41 @@
  * Both CSV routes emit aggregate figures under an explicit column allow list.
  * `analytics.EXPORT_COLUMNS` is section, item, code, quantity, amount, currency
  * and note; finance's is section, item, code, debits, credits, balance, count
- * and currency. Neither carries a name, an address, an e-mail, a card, a
- * provider reference or a row belonging to one person. So there is nobody to
- * link, `ExportArtifactSubject` stays empty, and a redaction finds no artefact
- * to invalidate — not because the search is unimplemented, but because the
- * exports genuinely do not contain anybody.
+ * and currency. Neither carries a name, an address, an e-mail, a card or a
+ * provider reference. So there is nobody to link, `ExportArtifactSubject` stays
+ * empty, and a redaction finds no artefact to invalidate — not because the
+ * search is unimplemented, but because the exports genuinely do not contain
+ * anybody.
  *
- * A test asserts that nothing here ever writes an `ExportArtifactSubject` row.
- * The moment an export is added that *does* carry a person, that test fails,
- * which is the point: the link is what makes a redaction able to reach it, and
- * adding a personal export without adding the link would be the silent version
- * of this gap.
+ * ### The one row that is not an aggregate
+ *
+ * Said plainly because "every row is an aggregate" would be the easier sentence
+ * and it is not quite true. The finance export's Integrity section emits one
+ * row per imbalanced ledger batch, carrying that batch's reference — `LB-DE-…`,
+ * `RF-…`, `PO-…`, built from an `Order.reference` that is `DE-` plus eight
+ * characters of a deliberately unambiguous alphabet. So a single row there does
+ * correspond to a single purchase.
+ *
+ * It still links nobody, and the reason is worth keeping rather than
+ * re-deriving: `redactBuyerIdentity` rewrites `buyerEmail` and `buyerName` and
+ * deliberately preserves `Order.reference`, because the reference is what makes
+ * a refund traceable after an erasure. A value a redaction is designed to keep
+ * in the live database is not a value an export has to be redacted for holding.
+ * If that decision is ever revisited, this is the second place it reaches.
+ *
+ * ### The invariant, and the trap next to it
+ *
+ * A source scan in `tests/export-register.test.js` asserts that nothing shipped
+ * in this repository writes an `ExportArtifactSubject` row — by accessor, by
+ * nested relation write, or by raw SQL. The moment an export is added that
+ * *does* carry a person, that scan fails, which is the point: the link is what
+ * makes a redaction able to reach it, and adding a personal export without
+ * adding the link would be the silent version of this gap.
+ *
+ * The tempting wrong way to satisfy it is to link `requestedById` — the staff
+ * member who pulled the export. Do not. Redacting a staff member would then
+ * invalidate every export they ever took, and the join's meaning, *which people
+ * an export is known to contain*, would quietly become a lie.
  *
  * ## Why registration can fail an export
  *

@@ -37,13 +37,19 @@
  *
  * ## What is deliberately absent
  *
- * `export_artifact`. Nothing in the repository has ever written an
- * `ExportArtifact` row — both export routes stream CSV straight to the caller
- * and register nothing — so a sweep over that table would report an emptiness
- * meaning "no writer exists" rather than "nothing is old enough". Reporting
- * that as a retention finding would be a vacuous measurement, which is a
- * mistake this project has already made once and corrected. The class is listed
- * as `NOT_EVALUATED` instead.
+ * `export_artifact`, and the reason changed under it. Until the export register
+ * landed, nothing had ever written an `ExportArtifact` row and a sweep would
+ * have reported an emptiness meaning "no writer exists". Both CSV routes now
+ * record one, so that reason is no longer true — but the conclusion is, for a
+ * better reason.
+ *
+ * The proposed seven days is a duration for export **bytes**. No bytes are
+ * kept: `recordExport` writes every row with `ephemeral: true` and a null
+ * `storageKey`, because each export is streamed to whoever asked and nothing is
+ * stored. So the table holds the record *that* an export happened, and a sweep
+ * over it would delete the answer to "was an export taken, by whom, when" —
+ * evidence the privacy surface exists to keep, not a working copy anybody could
+ * regenerate. The class stays `NOT_EVALUATED`.
  *
  * @module worker/retention/classes
  */
@@ -53,6 +59,8 @@ import {
   RETENTION_CLASS_PROPOSALS,
   RETENTION_NOT_EVALUATED,
 } from '@desi-event/schemas'
+
+import { RETENTION_FAILURE_CODES, inStep } from './failures.js'
 
 export { RETENTION_APPROVAL }
 
@@ -253,8 +261,22 @@ export async function countHeld(prisma, definition) {
  */
 export async function rehearseClass(prisma, definition, now) {
   const olderThan = cutOffFor(definition, now)
-  const examinedCount = await countCandidates(prisma, definition, olderThan)
-  const heldCount = await countHeld(prisma, definition)
+  // Each step named separately, because the two failures mean different things
+  // to whoever reads the row. A candidate count that failed examined nothing;
+  // a hold count that failed means the candidates *were* counted and the figure
+  // could not be qualified — and reporting an examined count without knowing
+  // how many of them a hold protects would be reporting a number that reads as
+  // "this many would be deleted" when nobody checked what was forbidden.
+  const examinedCount = await inStep(
+    RETENTION_FAILURE_CODES.CANDIDATE_COUNT_FAILED,
+    `counting candidates for ${definition.retentionClass}`,
+    () => countCandidates(prisma, definition, olderThan),
+  )
+  const heldCount = await inStep(
+    RETENTION_FAILURE_CODES.HOLD_COUNT_FAILED,
+    `counting holds bearing on ${definition.retentionClass}`,
+    () => countHeld(prisma, definition),
+  )
 
   return {
     retentionClass: definition.retentionClass,

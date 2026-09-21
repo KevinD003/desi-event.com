@@ -28,8 +28,34 @@
  * and it is rendered beside the count, because a number lifted out of this table
  * into a ticket or a screenshot has to bring its status with it.
  *
+ * ## Why there is a rollup above the table
+ *
+ * The table is paginated and newest-first, which makes it good at "what
+ * happened recently" and useless at "is any class being missed". A class whose
+ * last rehearsal was four pages ago looks exactly like a class that has never
+ * been rehearsed: both are simply not on the page in front of you.
+ *
+ * Filtering makes it actively misleading. Narrow to `FAILED` and every row on
+ * screen is a failure, which reads as a system in which everything is broken.
+ * The rollup ignores the filters on purpose — it is the fixed reference the
+ * narrowed view is read against.
+ *
+ * It renders `null` as a sentence rather than a blank, because "no rehearsal
+ * has ever covered this class" is a finding, and a finding rendered as an empty
+ * cell is a finding nobody reads.
+ *
+ * ## Why the rollup is tolerated as absent
+ *
+ * `summary` is optional in the response contract, so this page must render
+ * without it. That is not defensive padding: making a new field required on a
+ * live response schema is a breaking change, and Fastify serialises against
+ * that schema — a required field a handler forgot would have the API rejecting
+ * its own payload.
+ *
  * @module app/retention/page
  */
+
+import { retentionFailureDescription } from '@desi-event/schemas'
 
 import { AsOf, Failure } from '../../components/page-state.jsx'
 import { listRetentionSweeps } from '../../lib/privacy-api.js'
@@ -60,6 +86,33 @@ function day(value) {
 }
 
 /**
+ * What one class's most recent run says, in a sentence.
+ *
+ * Three different facts, and none of them is "nothing". A class with no run at
+ * all is the one most worth saying out loud: it is the gap an operator cannot
+ * see from a paginated table, because absence from a page looks identical to
+ * absence from the system.
+ *
+ * @param {object} entry One `summary` entry.
+ * @returns {string} The sentence.
+ */
+function standing(entry) {
+  const { latest, runCount } = entry
+
+  if (!latest) return 'No rehearsal has ever covered this class.'
+
+  if (latest.state === 'SKIPPED_DISABLED') {
+    return `Last run declined — enforcement is not activated where it ran. ${runCount} run${runCount === 1 ? '' : 's'} recorded.`
+  }
+
+  if (latest.state === 'FAILED') {
+    return `Last run failed. ${retentionFailureDescription(latest.failureCode) ?? 'No reason was recorded.'}`
+  }
+
+  return `Last run counted ${latest.examinedCount}, of which ${latest.heldCount} held back. ${runCount} run${runCount === 1 ? '' : 's'} recorded.`
+}
+
+/**
  * @typedef {object} RetentionPageProps
  * @property {Promise<Record<string, string>>} searchParams The resolved query string.
  */
@@ -76,6 +129,7 @@ export default async function RetentionPage({ searchParams }) {
   let sweeps = null
   let notEvaluated = []
   let pagination = null
+  let summary = []
   let failure = null
 
   try {
@@ -88,6 +142,9 @@ export default async function RetentionPage({ searchParams }) {
     sweeps = answer.data ?? []
     notEvaluated = answer.notEvaluated ?? []
     pagination = answer.pagination ?? null
+    // Optional in the contract, so absent is a shape this page has to handle
+    // rather than a case it can assume away.
+    summary = Array.isArray(answer.summary) ? answer.summary : []
   } catch (error) {
     failure = describeRefusal(error)
   }
@@ -123,6 +180,37 @@ export default async function RetentionPage({ searchParams }) {
       ) : null}
 
       {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+
+      {summary.length > 0 ? (
+        <section className="mt-8" aria-labelledby="where-each-class-stands">
+          <h2 id="where-each-class-stands" className="text-lg font-semibold text-indigo-night-900">
+            Where each class stands
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm text-slate-700">
+            The most recent run for every evaluated class, whatever this page is filtered to. The
+            table below answers what happened recently; this answers whether anything is being
+            missed.
+          </p>
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2" data-testid="retention-standing">
+            {summary.map((entry) => (
+              <li
+                key={entry.retentionClass}
+                className="rounded-card border border-slate-200 bg-slate-50 p-4"
+              >
+                <p className="font-medium text-indigo-night-900">
+                  {retentionClassLabel(entry.retentionClass)}
+                </p>
+                <p className="mt-1 text-sm text-slate-700">{standing(entry)}</p>
+                {entry.latest ? (
+                  <p className="mt-1 text-xs text-slate-600">
+                    Cut-off {day(entry.latest.olderThan)} — {entry.latest.approval}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {sweeps && sweeps.length > 0 ? (
         <>
@@ -174,7 +262,16 @@ export default async function RetentionPage({ searchParams }) {
                       </span>
                       {sweep.failureCode ? (
                         <span className="mt-1 block text-xs text-slate-700">
-                          {sweep.failureCode}
+                          {retentionFailureDescription(sweep.failureCode)}
+                          {/*
+                            The code as well as the wording. The wording is what
+                            an operator reads; the code is what they quote into
+                            a ticket, and a screen that showed only prose would
+                            make them retype an approximation of it.
+                          */}
+                          <span className="mt-1 block font-mono text-slate-600">
+                            {sweep.failureCode}
+                          </span>
                         </span>
                       ) : null}
                     </td>

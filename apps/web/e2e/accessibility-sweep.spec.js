@@ -41,6 +41,26 @@ import {
  * that balances. A screen rendered from a static array proves that the markup
  * compiles, which is not what this file is for.
  *
+ * ## The privacy and retention screens
+ *
+ * Added later, and they are the three this file most needed: they are the
+ * screens somebody opens during an incident, on whatever device they have, and
+ * they are the screens a regulator might one day be shown.
+ *
+ * `/retention` needs its own reader. `retention:view` is in
+ * `PLATFORM_ONLY_CAPABILITIES`, which is asserted at module load never to
+ * appear in an organisation role — so the organiser fixture, however senior,
+ * cannot reach it. The seed grows a tagged `SUPER_ADMIN` for exactly this, and
+ * the sign-in for it is separate from {@link signIn} because that helper ends
+ * by asserting `/organizer/events`, which a platform reader never sees.
+ *
+ * ## Why these tests live in this file rather than a new one
+ *
+ * `playwright.sweep.config.js` pins `testMatch: '**‍/accessibility-sweep.spec.js'`.
+ * A new spec file would not be collected by the sweep job, and would instead be
+ * picked up by the default config — whose job does not start the API. So the
+ * only place an accessibility test can go is here.
+ *
  * @module e2e/accessibility-sweep
  */
 
@@ -84,6 +104,42 @@ let organiserContext
 let organiser
 /** @type {object} */
 let moderatorContext
+/** @type {object} */
+let platformContext
+/**
+ * The in-flight or completed sign-in for the platform reader.
+ *
+ * Only `/retention` needs it: `retention:view` is platform-only, so the
+ * organiser fixture cannot reach that screen however senior its membership.
+ *
+ * The *promise* is memoised rather than the page, and that is not a style
+ * preference. Caching the page means reading the variable, awaiting a sign-in,
+ * and assigning afterwards — three steps with two suspension points, so two
+ * callers can both find it empty and both sign in. Two sign-ins is two
+ * credential requests against a ten-per-minute limiter, on top of the one this
+ * file already spends. Assigning the promise happens synchronously, so the
+ * second caller waits on the first.
+ *
+ * @type {(Promise<object>|null)}
+ */
+let platformSignIn = null
+
+/**
+ * The platform reader's page, signing in the first time it is asked for.
+ *
+ * @returns {Promise<object>} A signed-in page.
+ */
+function platformReader() {
+  platformSignIn ??= (async () => {
+    const page = await platformContext.newPage()
+
+    await signInPlatform(page, seeded.platformReaderEmail)
+
+    return page
+  })()
+
+  return platformSignIn
+}
 
 /**
  * Sign one seeded account in, through the second factor its role requires.
@@ -249,6 +305,36 @@ function sidewaysOverflow(page) {
   )
 }
 
+/**
+ * Sign in without asserting where the organiser lands.
+ *
+ * {@link signIn} ends with `expect(page).toHaveURL(/\/organizer\/events/)`,
+ * which is correct for an organiser and wrong for a platform reader: they hold
+ * no membership, so that is not where they arrive. Duplicated rather than
+ * loosened, because the organiser assertion is worth keeping — a sign-in that
+ * silently succeeded onto the wrong page would be a sign-in nobody noticed had
+ * changed.
+ *
+ * @param {object} page The page to sign in.
+ * @param {string} email Who to sign in as.
+ * @returns {Promise<void>} Resolves once past the second factor.
+ */
+async function signInPlatform(page, email) {
+  await forgetCodeUse()
+
+  await page.goto('/sign-in')
+  await page.getByLabel('Email address').fill(email)
+  await page.getByLabel('Password').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+
+  const code = page.getByLabel(/^Six-digit code/)
+  await expect(code).toBeVisible()
+  await code.fill(currentCode())
+  await page.getByRole('button', { name: 'Sign in' }).click()
+
+  await expect(page.getByLabel(/^Six-digit code/)).toBeHidden()
+}
+
 test.describe.serial('the Phase 2 screens, swept', () => {
   test.beforeAll(async ({ browser }) => {
     seeded = await seedRefusals(TAG)
@@ -264,11 +350,17 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     await signIn(organiser, seeded.alphaOwnerEmail)
 
     moderatorContext = await browser.newContext()
+    // Empty, and signed in on first use. Eagerly signing in here would spend a
+    // credential request in every run of this file, including the runs where no
+    // retention case executes — and `/v1/auth/sign-in` carries the credential
+    // limiter, which is a per-minute budget rather than a per-suite one.
+    platformContext = await browser.newContext()
   })
 
   test.afterAll(async () => {
     await organiserContext?.close()
     await moderatorContext?.close()
+    await platformContext?.close()
     // Before the refusals cleanup, which deletes the events these rows hang
     // from.
     await cleanupDetailScreens(TAG)
@@ -417,6 +509,57 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
     })
+
+    test(`the privacy request queue is clean at ${viewport.name}`, async () => {
+      // The alpha owner holds `privacy:redact` — `OWNER` grants it — so this
+      // screen needs no new account. Reading the queue does not need a
+      // second factor; acting on it does, which is the point of the step-up
+      // journey in `detail-privacy.spec.js`.
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/privacy')
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the export register is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/privacy/exports')
+      await expect(page.getByRole('heading', { name: /export register/i, level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      // The register's table gained a sixth column and its minimum width was
+      // raised from 46rem to 54rem. Nothing proved that was right until this
+      // case existed: the page's own unit tests assert text, not layout, and
+      // the module doc says as much.
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the retention rehearsal log is clean at ${viewport.name}`, async () => {
+      // A different reader, because `retention:view` is platform-only. See the
+      // module doc for why this account exists and why it signs in separately.
+      const page = await platformReader()
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/retention')
+      await expect(
+        page.getByRole('heading', { name: /retention rehearsals/i, level: 1 }),
+      ).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
   }
 
   test('the finance screen says what produced its figures, before any of them', async () => {
@@ -437,6 +580,109 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     const totals = await page.getByRole('heading', { name: 'Totals' }).boundingBox()
 
     expect(bannerBox.y).toBeLessThan(totals.y)
+  })
+
+  test('an export taken from a screen appears in the register, named for a screen reader', async () => {
+    // Two things at once, and the first is why this test exists at all.
+    //
+    // **The register is reached end to end.** `recordExport` is called by the
+    // CSV route before the body is returned, and the row it writes is what
+    // `/privacy/exports` renders. Nothing else spans that: the page's unit
+    // tests mock the API, and the API tests stop at the payload. Here the
+    // export is taken the way an organiser takes it — the same link the
+    // analytics screen offers — and then the register is read.
+    //
+    // **The table is named and its headers are scoped.** Axe does not require
+    // a `<caption>`, and it does not require `scope` on a header it can infer,
+    // so neither is covered by the scans above: deleting both would leave a
+    // clean scan. They are what make a grid of counts navigable, so they are
+    // asserted directly — and they can only be asserted once a table exists,
+    // which is the other reason these two claims share a test.
+    const page = organiser
+
+    await page.setViewportSize({ width: 1280, height: 900 })
+
+    // Empty first. If the register already had rows the assertion below would
+    // not be evidence that this export reached it.
+    await page.goto('/privacy/exports')
+    await expect(page.getByRole('heading', { name: /export register/i, level: 1 })).toBeVisible()
+    const before = await page.getByRole('row').count()
+
+    // The link the analytics screen offers, followed as a request rather than
+    // a navigation: it answers with a CSV attachment, which a browser would
+    // download rather than render.
+    const csv = await page.request.get(
+      `/api/v1/analytics/export.csv?organizationId=${seeded.alphaOrganizationId}&currency=INR`,
+    )
+
+    expect(csv.status(), await csv.text()).toBe(200)
+    expect(csv.headers()['content-type']).toContain('text/csv')
+
+    await page.goto('/privacy/exports')
+
+    const table = page.getByRole('table')
+
+    await expect(table).toBeVisible()
+    await expect(table).toHaveAccessibleName(/exports produced by/i)
+    expect(await page.getByRole('row').count()).toBeGreaterThan(before)
+
+    // The row says what the register is for: an export happened, it belongs to
+    // nobody, and there is nothing kept to hand over.
+    const row = page.getByRole('row').filter({ hasText: 'analytics' }).first()
+
+    await expect(row).toContainText(/Nobody — aggregate figures only/i)
+    await expect(row).toContainText(/No — streamed and not kept/i)
+
+    // And there is no way to get the bytes back.
+    expect(await page.locator('a[download], a[href*="export.csv"]').count()).toBe(0)
+
+    // Every header cell carries a scope, including the row header: the kind is
+    // what identifies a row, and a row identified only by position is a row
+    // nobody can quote.
+    const scoped = await page.evaluate(() => {
+      const cells = [...document.querySelectorAll('table th')]
+
+      return {
+        total: cells.length,
+        withScope: cells.filter((cell) => cell.getAttribute('scope')).length,
+      }
+    })
+
+    expect(scoped.total).toBeGreaterThan(0)
+    expect(scoped.withScope).toBe(scoped.total)
+  })
+
+  test('the register table scrolls in its own container rather than widening the page', async () => {
+    // Runs after the export above, and that ordering is the test. With an
+    // empty register there is no table at all, so an assertion here would pass
+    // by finding nothing — which is how a reflow guard quietly stops guarding.
+    // `test.describe.serial` runs in declaration order, so by this point a row
+    // exists.
+    //
+    // What is being guarded: the table is wider than a phone and always will
+    // be — six columns of counts do not fold — so reflow here means the
+    // *table* scrolls, not the document. `overflow-x-auto` on the wrapper is
+    // the control that makes that true, and it is invisible in every unit
+    // test. Note that the obvious falsification is wrong: changing
+    // `min-w-[54rem]` to `w-[54rem]` does not overflow the document, because
+    // the wrapper still contains it. Removing the wrapper's `overflow-x-auto`
+    // does.
+    const page = organiser
+
+    await page.setViewportSize({ width: 320, height: 720 })
+    await page.goto('/privacy/exports')
+    await expect(page.getByRole('table')).toBeVisible()
+
+    const overflowX = await page.evaluate(() => {
+      const table = document.querySelector('table')
+
+      return globalThis.getComputedStyle(table.parentElement).overflowX
+    })
+
+    expect(['auto', 'scroll'], `the table's wrapper had overflowX ${overflowX}`).toContain(
+      overflowX,
+    )
+    expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
   })
 
   test('the editor reflows at 200% zoom without sideways scrolling', async () => {

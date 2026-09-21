@@ -142,6 +142,27 @@ erasure request. Both are recorded as unbuilt in `PHASE2_STATUS.md` §10 and in
 suite does not have, which is the same reason the three rows that used to be
 here are now in the table above instead.
 
+> **Update — 2026-09-21.** Half of that second sentence is no longer true, and
+> the half that changed is worth being precise about rather than striking the
+> whole line.
+>
+> **The erasure screens exist**, and there are five of them: the privacy request
+> queue, a request's detail with the scope it would touch, holds, the export
+> register and the retention rehearsal log. `PHASE2_STATUS.md` §10 recorded them
+> as unbuilt because they were, at the time it was written.
+>
+> **They are covered now**, and this sentence is dated so that a later reader
+> can check it rather than trust it. Three of them — the queue, the register and
+> the retention log — are swept at all three widths with the scanner and the
+> reflow check, in `accessibility-sweep.spec.js`. The register additionally has
+> a case asserting its table is named and its headers scoped, because axe
+> requires neither and deleting both leaves a clean scan; and a case asserting
+> the table scrolls in its own container rather than widening the page, which is
+> what "reflow" means for six columns of counts that will never fold.
+>
+> **Connect onboarding is still not covered, and still does not exist.** That
+> half of the sentence stands unchanged.
+
 ---
 
 ## Browser journeys, counted honestly
@@ -152,18 +173,24 @@ different servers. Case counts are from `--list`:
 | Configuration                     | Cases   | What it covers                                                                                     |
 | --------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
 | `playwright.config.js` (default)  | 118     | Public catalogue, event, venue, checkout, filters, focus, reduced motion, structural accessibility |
-| `playwright.sweep.config.js`      | 42      | The responsive and accessibility sweep                                                             |
-| `playwright.detail.config.js`     | 26      | The four detail surfaces, as behaviour rather than as markup                                       |
+| `playwright.sweep.config.js`      | 53      | The responsive and accessibility sweep                                                             |
+| `playwright.detail.config.js`     | 37      | The five detail surfaces, as behaviour rather than as markup                                       |
 | `playwright.events.config.js`     | 20      | The event lifecycle end to end                                                                     |
 | `playwright.production.config.js` | 19      | Not-found behaviour in a production build                                                          |
 | `playwright.organizer.config.js`  | 13      | Venue maps and versions                                                                            |
 | `playwright.refusals.config.js`   | 4       | Four product refusals (below)                                                                      |
-| **Total**                         | **242** |                                                                                                    |
+| **Total**                         | **264** |                                                                                                    |
 
-**242 browser cases is not "242 of the required journeys".** Passing a number of
+**264 browser cases is not "264 of the required journeys".** Passing a number of
 Playwright cases is not the same as passing a specific list of required
 journeys, and this document does not use the first as evidence for the second.
 The per-journey status lives in `PHASE2_STATUS.md` and nowhere else.
+
+> **Update — 2026-09-21.** The sweep went 42 → 53 and the detail suite 26 → 37,
+> for the privacy and retention screens; the total is 264. Every figure in this
+> table is from `npx playwright test --config <file> --list`, run against the
+> working tree rather than remembered — which is the only way a count in a
+> document stays true, and is why the three unchanged rows were re-run too.
 
 The detail configuration runs four specs that are also separately runnable —
 `test:e2e:analytics`, `test:e2e:reconciliation`, `test:e2e:refunds`,

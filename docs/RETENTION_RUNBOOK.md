@@ -69,11 +69,23 @@ miss. **Whether to backfill them is an owner decision.**
 
 ### What is not evaluated, and why it is listed anyway
 
-`export_artifact` is reported **NOT EVALUATED**. Nothing in this repository has
-ever written an `ExportArtifact` row for stored bytes, so a count over it would
-report an emptiness meaning "no writer exists" while looking exactly like
-"nothing is old enough". Those are different findings and only one of them is
-about retention.
+`export_artifact` is reported **NOT EVALUATED**, and it is worth knowing why,
+because the reason changed.
+
+The proposed seven days is a duration for export **bytes**. No bytes are kept.
+Both CSV routes stream to whoever asked and record the artefact with
+`ephemeral: true` and a null `storageKey`, so what the table holds is the record
+_that_ an export happened — its kind, who asked, when. Sweeping that would
+delete the answer to "was an export taken, by whom", which is evidence the
+privacy surface exists to keep, not a working copy anybody could regenerate.
+
+> **Correction — 2026-09-21.** This paragraph previously said "nothing in this
+> repository has ever written an `ExportArtifact` row". That was true when the
+> runbook was written and stopped being true in the same pull request, which
+> added the export register: both CSV routes now write one. The conclusion did
+> not change — the class is still not swept — but the reason did, and the old
+> reason was being shown to operators on the `/retention` screen. If you are
+> reading an older copy of this file, that sentence is the one to distrust.
 
 It is listed rather than omitted because a class that quietly disappeared from
 the table would read as one that was swept and found empty.

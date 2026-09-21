@@ -332,6 +332,41 @@ export const retentionNotEvaluatedSchema = z.object({
 })
 
 /**
+ * Where one evaluated class stands, taken from its most recent run.
+ *
+ * ## What this is for
+ *
+ * The list is paginated and newest-first, so it answers "what happened
+ * recently". It does not answer "is any class being missed", because a class
+ * whose last rehearsal was four pages ago looks identical to a class that has
+ * never been rehearsed at all — both are simply absent from the page in front
+ * of you. A filter makes it worse: narrowing to `FAILED` produces a screen on
+ * which every class appears broken.
+ *
+ * ## Why `latest` is nullable rather than omitted
+ *
+ * Because "no rehearsal has ever covered this class" is a finding, and the way
+ * to report a finding is to say it. A class dropped from the array would be
+ * indistinguishable from a class the rollup forgot.
+ *
+ * ## What is deliberately not here
+ *
+ * `proposedDays` and `basis`. They are compile-time constants in
+ * `RETENTION_CLASS_PROPOSALS`, which the browser already imports from this
+ * package — sending them over the wire would be paying for a round trip to
+ * learn something the reader was built with, and would create a second copy
+ * that could disagree with the first.
+ */
+export const retentionClassSummarySchema = z.object({
+  retentionClass: nonEmptyStringSchema,
+  /// The most recent run for this class, or null when none has ever run.
+  latest: retentionSweepSchema.nullable(),
+  /// How many runs this class has, so "once, months ago" is distinguishable
+  /// from "every week".
+  runCount: z.number().int().min(0),
+})
+
+/**
  * `GET /v1/operations/retention/sweeps`.
  *
  * There is deliberately no `enforcementActivated` field. Activation is a
@@ -355,6 +390,19 @@ export const retentionSweepListResponseSchema = z.object({
    * found empty.
    */
   notEvaluated: z.array(retentionNotEvaluatedSchema),
+  /**
+   * Where each evaluated class stands, independent of the page being read.
+   *
+   * Optional, and that is a deliberate contract decision rather than laziness.
+   * This is a live response schema; making a new field required is a breaking
+   * change to it, and Fastify serialises against this schema, so a required
+   * field the handler failed to supply would be rejected on the way *out* — the
+   * API refusing its own payload. Optional means a reader that predates the
+   * field still validates, and a reader that expects it has to handle its
+   * absence, which is the honest posture for a rollup that is a convenience
+   * rather than the evidence itself.
+   */
+  summary: z.array(retentionClassSummarySchema).optional(),
 })
 
 /** Filters for the sweep list. */

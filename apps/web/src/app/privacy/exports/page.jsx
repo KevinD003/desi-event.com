@@ -21,8 +21,32 @@
  * is added, and a page that had assumed otherwise would keep saying "nobody"
  * after it stopped being true.
  *
+ * ## Why there is a "Requested by" column and no detail screen
+ *
+ * The register's whole claim is that it can answer *who pulled an export, and
+ * when*. It could not: `requestedById` was in the payload and on no screen, so
+ * the first half of the claim was true of the API and false of the thing an
+ * operator actually looks at.
+ *
+ * A column rather than a detail screen, because a detail screen would have one
+ * more field than this table and a URL that reads like a handle on an artefact
+ * nobody can fetch. Everything the register knows about a row now fits in the
+ * row.
+ *
+ * ## An unproven claim, stated as unproven
+ *
+ * The sixth column raised the table's minimum width from `46rem` to `54rem`,
+ * and **nothing in this repository would notice if that were wrong**:
+ * `accessibility-sweep.spec.js` covers neither `/privacy` nor
+ * `/privacy/exports`, and `page.test.jsx` asserts text, not layout. Browser and
+ * accessibility coverage for these screens is a separate, still-open piece of
+ * work. The value is named here rather than left as a judgement so that the
+ * work which does prove it has something specific to check.
+ *
  * @module app/privacy/exports/page
  */
+
+import { EXPORT_ARTIFACT_STATES } from '@desi-event/schemas'
 
 import { AsOf, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
 import { listExportArtifacts } from '../../../lib/privacy-api.js'
@@ -50,6 +74,21 @@ const STATE_LABELS = Object.freeze({
 })
 
 /**
+ * One state, in words, falling back to the raw value.
+ *
+ * A function rather than the map, because that is the shape the filter form
+ * takes from both of its callers. The fallback is not defensive padding: the
+ * database enum is the authority, so a state added there and not worded here
+ * must still render as something an operator can read and quote.
+ *
+ * @param {string} member A member of `EXPORT_ARTIFACT_STATES`.
+ * @returns {string} Its label.
+ */
+function stateLabel(member) {
+  return STATE_LABELS[member] ?? member
+}
+
+/**
  * Render a timestamp as a plain ISO day, or a dash.
  *
  * @param {string|null} value An ISO timestamp.
@@ -69,6 +108,28 @@ function contains(count) {
   if (count === 0) return 'Nobody — aggregate figures only'
 
   return count === 1 ? '1 person' : `${count} people`
+}
+
+/**
+ * Who asked for an export, as an account id.
+ *
+ * An id and not a name, deliberately. Resolving it would mean this screen read
+ * a `User` row to render a staff member's name, which would make the export
+ * register hold personal data about staff in order to record that it holds none
+ * about anybody else. The id is what the audit trail carries and what a ticket
+ * can be raised against, and it is sufficient to answer the question the
+ * register exists for: *who pulled this export.*
+ *
+ * Null when the row predates the column or the export was taken by something
+ * that is not a person. Said as "Not recorded" rather than shown as a blank,
+ * because a blank cell in this column reads as "nobody", which is a different
+ * and much more reassuring claim.
+ *
+ * @param {string|null} requestedById The account id on the row.
+ * @returns {string} The cell.
+ */
+function requestedBy(requestedById) {
+  return typeof requestedById === 'string' && requestedById !== '' ? requestedById : 'Not recorded'
 }
 
 /**
@@ -129,6 +190,12 @@ export default async function ExportRegisterPage({ searchParams }) {
         organizations={organizations}
         selectedId={selected.organizationId}
         state={params.state ?? ''}
+        action="/privacy/exports"
+        states={EXPORT_ARTIFACT_STATES}
+        stateLabel={stateLabel}
+        // `kind` has no control on this form and is read below. Without this it
+        // would be dropped the moment somebody pressed Apply.
+        extra={{ kind: params.kind }}
       />
 
       {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
@@ -144,7 +211,7 @@ export default async function ExportRegisterPage({ searchParams }) {
         <>
           <AsOf asOf={readAt} />
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
+            <table className="w-full min-w-[54rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Exports produced by {selected.organizationName ?? 'this organisation'}, newest first
               </caption>
@@ -163,6 +230,9 @@ export default async function ExportRegisterPage({ searchParams }) {
                     Stored
                   </th>
                   <th scope="col" className="py-2 pr-4 font-semibold">
+                    Requested by
+                  </th>
+                  <th scope="col" className="py-2 pr-4 font-semibold">
                     Produced
                   </th>
                 </tr>
@@ -173,11 +243,12 @@ export default async function ExportRegisterPage({ searchParams }) {
                     <th scope="row" className="py-3 pr-4 font-medium text-indigo-night-900">
                       {artifact.kind}
                     </th>
-                    <td className="py-3 pr-4">{STATE_LABELS[artifact.state] ?? artifact.state}</td>
+                    <td className="py-3 pr-4">{stateLabel(artifact.state)}</td>
                     <td className="py-3 pr-4">{contains(artifact.subjectCount)}</td>
                     <td className="py-3 pr-4">
                       {artifact.stored ? 'Yes' : 'No — streamed and not kept'}
                     </td>
+                    <td className="py-3 pr-4 break-all">{requestedBy(artifact.requestedById)}</td>
                     <td className="py-3 pr-4 tabular-nums">{day(artifact.generatedAt)}</td>
                   </tr>
                 ))}

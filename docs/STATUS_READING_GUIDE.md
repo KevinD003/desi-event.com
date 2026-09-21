@@ -21,7 +21,7 @@ source report is right and this file is stale** — tell somebody.
 | Project Phase 2 (commerce)           | `COMPLETE` against its twenty internal gates                   |
 | Phase 3 — Phase 1 (privacy auth)     | `PARTIAL` by documented reporting choice; merged               |
 | Phase 3 — Phase 2 (redaction engine) | `COMPLETE` against its stated scope; merged                    |
-| Phase 3 — Phase 3 (UI, retention)    | `NOT STARTED`                                                  |
+| Phase 3 — Phase 3 (UI, retention)    | `PARTIAL` — merged, then completed on a follow-up branch       |
 | Phase 3 — Phase 4 (Connect, final)   | `NOT STARTED`                                                  |
 | Real Stripe                          | `EXTERNAL VERIFICATION PENDING`                                |
 | Real Stripe Connect                  | `EXTERNAL VERIFICATION PENDING`                                |
@@ -55,14 +55,14 @@ implementation.
 
 ## Current phase index
 
-| Phase             | Scope                                                        | Status                                                                      | Authoritative report                          | Commit                | CI evidence                         |
-| ----------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- | --------------------------------------------- | --------------------- | ----------------------------------- |
-| Project Phase 1   | Catalogue, holds, checkout, tickets                          | `COMPLETE against Phase 1 scope`                                            | `PHASE1_IMPLEMENTATION_REPORT.md`             | —                     | see that report                     |
-| Project Phase 2   | Commerce, refunds, ledger, disputes, payouts, CI             | `COMPLETE against its 20 internal gates`                                    | `PHASE2_STATUS.md`                            | —                     | see §2 of that report               |
-| Phase 3 — Phase 1 | Privacy authorization, step-up policy, schema foundation     | `PARTIAL` — implemented scope complete; named deviation and deferral remain | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8        |
-| Phase 3 — Phase 2 | Redaction service, immutable evidence, data integrity, holds | `COMPLETE against its stated scope; merged`                                 | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | `35248621822` att. 2 — success, 8/8 |
-| Phase 3 — Phase 3 | Privacy UI, exports, retention worker, operations            | `NOT STARTED`                                                               | none — file does not exist                    | —                     | —                                   |
-| Phase 3 — Phase 4 | Connect mock, sandbox readiness, adversarial verification    | `NOT STARTED`                                                               | none — file does not exist                    | —                     | —                                   |
+| Phase             | Scope                                                        | Status                                                                         | Authoritative report                          | Commit                | CI evidence                         |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ | --------------------------------------------- | --------------------- | ----------------------------------- |
+| Project Phase 1   | Catalogue, holds, checkout, tickets                          | `COMPLETE against Phase 1 scope`                                               | `PHASE1_IMPLEMENTATION_REPORT.md`             | —                     | see that report                     |
+| Project Phase 2   | Commerce, refunds, ledger, disputes, payouts, CI             | `COMPLETE against its 20 internal gates`                                       | `PHASE2_STATUS.md`                            | —                     | see §2 of that report               |
+| Phase 3 — Phase 1 | Privacy authorization, step-up policy, schema foundation     | `PARTIAL` — implemented scope complete; named deviation and deferral remain    | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8        |
+| Phase 3 — Phase 2 | Redaction service, immutable evidence, data integrity, holds | `COMPLETE against its stated scope; merged`                                    | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | `35248621822` att. 2 — success, 8/8 |
+| Phase 3 — Phase 3 | Privacy UI, exports, retention worker, operations            | `PARTIAL` — see §6B for what an audit found missing and §6E for what closed it | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | PR #10 + follow-up    | see that report                     |
+| Phase 3 — Phase 4 | Connect mock, sandbox readiness, adversarial verification    | `NOT STARTED`                                                                  | none — file does not exist                    | —                     | —                                   |
 
 `PARTIAL` on Phase 3's Phase 1 is a **reporting convention** about named
 deviations and deferrals, not a claim that its code is half-finished. Read its
@@ -127,6 +127,30 @@ all still apply.
 **What is not built:** any privacy **user interface** (this is API-only), export
 invalidation or deletion (`ExportArtifact` is schema), and retention **execution**
 (nothing creates a `RetentionSweep` row at all). Those are Phase 3's Phase 3.
+
+> **Update — 2026-09-21.** Phase 3's Phase 3 happened, so the paragraph above is
+> now a record rather than a status. Corrected here, in the document whose whole
+> job is to stop a figure being quoted from the wrong place:
+>
+> - **Nine operations is now ten.** `GET …/privacy/exports` joined with the
+>   export register. Five reads and five commands, over eight distinct paths.
+>   Everything else in this section holds: all ten require `privacy:redact`, the
+>   five commands additionally require a fresh `PRIVACY_ERASURE` step-up, and
+>   the five reads do not.
+> - **There is a privacy user interface**, five screens of it, all read-only
+>   except the request and hold commands.
+> - **Export invalidation is implemented** and `ExportArtifact` has two writers.
+>   What is still absent is the _subject link_, and that absence is a finding
+>   rather than a gap: both exports are aggregates and contain nobody, so there
+>   is nothing to link — which a repository-wide source scan now enforces.
+> - **Retention rehearsals write rows**, one per evaluated class.
+>
+> **The three sentences at the top of this document are unchanged, and they are
+> the ones that matter:** no personal data has been redacted by this system, no
+> retention deletion has ever run, and no real Stripe call has ever been made.
+> Nothing in this update touches any of them. There is still no deletion path
+> anywhere in this repository, and the durations remain
+> `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`.
 
 ---
 

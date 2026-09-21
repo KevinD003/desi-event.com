@@ -86,7 +86,7 @@ export const RETENTION_NOT_EVALUATED = Object.freeze([
     proposedDays: 7,
     approval: RETENTION_APPROVAL,
     reason:
-      'Nothing in this repository has ever written an ExportArtifact row, so the table is empty by construction. A count over it would report "no writer exists" while looking like "nothing is old enough".',
+      'The proposed seven days is a duration for export BYTES, and no bytes are kept: both CSV routes stream to the caller and record the artefact with ephemeral true and no storage key. What the table holds is the record that an export happened, which is evidence the privacy surface exists to keep — sweeping it would delete the answer to "was an export taken", not a working copy anybody could regenerate.',
   }),
 ])
 
@@ -107,4 +107,80 @@ export function retentionApprovalFor(retentionClass) {
     RETENTION_NOT_EVALUATED.find((entry) => entry.retentionClass === retentionClass)
 
   return known?.approval ?? RETENTION_APPROVAL
+}
+
+/**
+ * Why a rehearsal failed, from a closed vocabulary.
+ *
+ * `RetentionSweep.failureCode` is a nullable string in the database, which
+ * means the column will hold whatever is put in it — and the obvious thing to
+ * put in it is the driver's message. That would be wrong twice over. A driver
+ * message is not a vocabulary an operator can filter, group or write a runbook
+ * entry against; and a message from a failed query against a table of personal
+ * data is exactly the kind of string that arrives carrying a fragment of a row.
+ *
+ * So the codes say **which step of the rehearsal gave way**, and nothing about
+ * what the database said while giving way. The underlying error is logged by
+ * the worker, where an operator with access to the logs can read it, and is not
+ * written to a row that a screen renders.
+ *
+ * `UNEXPECTED` is deliberately part of the vocabulary rather than a gap in it.
+ * A failure nobody anticipated still has to produce a row, because the
+ * alternative is the failure producing nothing — and an empty table is the one
+ * answer this whole surface exists to stop being ambiguous.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const RETENTION_FAILURE_CODES = Object.freeze({
+  /** Counting the candidates for a class did not complete. */
+  CANDIDATE_COUNT_FAILED: 'CANDIDATE_COUNT_FAILED',
+  /** Counting the holds that bear on a class did not complete. */
+  HOLD_COUNT_FAILED: 'HOLD_COUNT_FAILED',
+  /** The counting worked and writing the evidence row did not. */
+  EVIDENCE_WRITE_FAILED: 'EVIDENCE_WRITE_FAILED',
+  /** Something else. Recorded rather than swallowed. */
+  UNEXPECTED: 'UNEXPECTED',
+})
+
+/**
+ * Every failure code, as a list.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const RETENTION_FAILURE_CODE_VALUES = Object.freeze(Object.values(RETENTION_FAILURE_CODES))
+
+/**
+ * What a failure code means to somebody reading the sweep table.
+ *
+ * Held beside the codes rather than in the web package, because the worker
+ * writes them, the API serves them and the browser renders them, and a wording
+ * that lived in only one of those three would be a wording the other two had to
+ * guess at.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const RETENTION_FAILURE_DESCRIPTIONS = Object.freeze({
+  CANDIDATE_COUNT_FAILED:
+    'The count of rows this class would reach did not complete. Nothing was examined and nothing was changed.',
+  HOLD_COUNT_FAILED:
+    'The candidates were counted, but the count of holds protecting them did not complete. The run stopped rather than record a figure it could not qualify.',
+  EVIDENCE_WRITE_FAILED:
+    'The counting completed and writing it down did not. Whatever this class would have reported is lost; the counting itself changed nothing.',
+  UNEXPECTED:
+    'The rehearsal failed for a reason the worker does not have a code for. See the worker logs.',
+})
+
+/**
+ * The wording for a failure code, falling back to the code itself.
+ *
+ * Never invents a reassuring sentence for a code it does not know: an
+ * unrecognised code is shown as it was stored, so an operator can quote it.
+ *
+ * @param {string|null} failureCode The code on the row.
+ * @returns {string|null} Its wording, or null when the row did not fail.
+ */
+export function retentionFailureDescription(failureCode) {
+  if (typeof failureCode !== 'string' || failureCode === '') return null
+
+  return RETENTION_FAILURE_DESCRIPTIONS[failureCode] ?? failureCode
 }

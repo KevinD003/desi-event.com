@@ -118,7 +118,50 @@ describe('what the register shows', () => {
       pagination: null,
     })
 
-    expect(screen.getByText('Invalidated by an erasure')).toBeInTheDocument()
+    // Scoped to the cell. The filter form now offers the artefact states too —
+    // it used to offer privacy *request* states, which is the defect this
+    // collision is the evidence of — so an unscoped query matches the row and
+    // the dropdown option both.
+    const cell = screen
+      .getAllByText('Invalidated by an erasure')
+      .find((node) => node.tagName === 'TD')
+
+    expect(cell).toBeInTheDocument()
+  })
+
+  it('says who asked, because that is half of what the register claims to answer', async () => {
+    // The register's own documentation says it answers "who pulled an export,
+    // and when". `requestedById` was in the payload and on no screen, so that
+    // was true of the API and false of the thing anybody looks at.
+    await renderPage({
+      data: [artifact({ requestedById: 'usr00000000000000000042' })],
+      pagination: null,
+    })
+
+    expect(screen.getByRole('columnheader', { name: 'Requested by' })).toBeInTheDocument()
+    expect(screen.getByText('usr00000000000000000042')).toBeInTheDocument()
+  })
+
+  it('shows an account id and not a name, and holds no other staff detail', async () => {
+    // Deliberate. Resolving the id would mean this screen read a User row to
+    // render a staff member's name — the export register acquiring personal
+    // data about staff in order to record that it holds none about anybody
+    // else. The id is what the audit trail carries and what a ticket can name.
+    const { container } = await renderPage({
+      data: [artifact({ requestedById: 'usr00000000000000000042' })],
+      pagination: null,
+    })
+
+    expect(container.textContent).not.toMatch(/@/u)
+    expect(container.textContent).not.toMatch(/Owner/u)
+  })
+
+  it('says "Not recorded" rather than leaving the cell blank', async () => {
+    // A blank cell in this column reads as "nobody", which is a different and
+    // far more comfortable claim than "we did not write it down".
+    await renderPage({ data: [artifact({ requestedById: null })], pagination: null })
+
+    expect(screen.getByText('Not recorded')).toBeInTheDocument()
   })
 
   it('renders an unknown state rather than blanking the cell', async () => {

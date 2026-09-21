@@ -47,9 +47,9 @@ inventory, pricing and checkout. Every route is registered from a descriptor in
 `@desi-event/api-contract`, which is also what generates the OpenAPI document,
 so the published contract and the enforced contract are the same artefact.
 
-**`apps/worker`** consumes four BullMQ queues. The one that matters to
+**`apps/worker`** consumes five BullMQ queues. The one that matters to
 correctness is the hold sweep; the rest are transactional email, ticket
-issuance and search indexing.
+issuance, search indexing and retention rehearsals.
 
 ## A request, end to end
 
@@ -104,10 +104,33 @@ this morning loses access this morning, not when their seven-day token lapses.
 Redis is the queue transport and nothing else today. Being precise about that
 matters more than the diagram:
 
-- **The worker** opens the only Redis connection in the system. It creates four
-  queues (`email`, `holds`, `tickets`, `search`), one `Worker` per queue, and
-  upserts a job scheduler that enqueues an `expire-holds` job every
+- **The worker** opens the only Redis connection in the system. It creates five
+  queues (`email`, `holds`, `tickets`, `search`, `retention`) and upserts a job
+  scheduler that enqueues an `expire-holds` job every
   `EXPIRE_HOLDS_INTERVAL_MS` (30 seconds by default).
+
+  **One `Worker` per job, not per queue**, and the distinction is
+  load-bearing rather than pedantic. `createWorkers` is
+  `Object.values(JOB_NAMES).filter((jobName) => processors?.[jobName])`, so the
+  count is the number of jobs carrying a processor — six in production, because
+  `createProcessors` covers every job name and
+  `apps/worker/src/processors/index-event.test.js` asserts it. Two of those six
+  share the `email` queue: `send-email` and `drain-outbox`.
+
+  Why it matters: **every `Worker` duplicates the shared connection for a
+  blocking read.** A job added to the processor map is another blocking reader
+  competing for the same cores, which is how CI run 35319113778 went red on a
+  commit whose diff was two web pages. The Redis integration suite therefore
+  starts **three** workers rather than six — only the jobs it actually drives —
+  and `apps/worker/tests/redis-integration.test.js` guards that reduced number
+  against drifting back up. That guard pins the _suite's_ count, not
+  production's; the two are different numbers for different reasons, and
+  reading one as the other is what the guard's own comment exists to prevent.
+
+  The `retention` queue is pinned to a concurrency of one, in `concurrencyFor`.
+  A rehearsal is not work to get through; a second one running beside the first
+  buys nothing and doubles the blocking readers.
+
 - **The API does not currently talk to Redis.** `buildApp()` accepts an
   optional ioredis-compatible client for the `/health` probe, but `server.js`
   injects none, so `GET /health` reports `checks.database` only. Rate limiting
@@ -128,6 +151,22 @@ five times because SMTP providers blip, ticket issuance retries eight times and
 keeps a month of history because a buyer has paid and has no tickets until it
 succeeds, the hold sweep retries three times because a missed sweep is picked
 up whole by the next one a minute later.
+
+Retention retries **twice**, and that number is worth reading as what it is: a
+repository invariant requires more than one attempt, and one is what this queue
+would otherwise want. A second delivery of a rehearsal that already ran would
+write a second set of evidence rows, so the processor derives each row's primary
+key from the run instant, the class and the kind of evidence — a redelivery
+loses on the key it already holds. The alternative, making the job
+single-attempt, would have meant arguing with the invariant instead of making
+the job safe to deliver twice.
+
+**Nothing schedules a retention rehearsal, and that is not an oversight.** The
+scheduler upserts `expire-holds` and `drain-outbox` and nothing else; a test in
+`apps/worker/src/queues.test.js` asserts that `scheduler.js` never so much as
+mentions the retention job. A sweep that runs on a timer is the first step
+towards a sweep that deletes on a timer, and the durations it would apply are
+proposals nobody has approved.
 
 ## Checkout and the hold lifecycle
 

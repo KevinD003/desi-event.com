@@ -106,10 +106,18 @@ rather than a design.
 
 ## Authorization
 
-37 capabilities, derived from the caller's `Membership` role **in a named
-organisation**. Nothing is derived from a global role except the five
+38 capabilities, derived from the caller's `Membership` role **in a named
+organisation**. Nothing is derived from a global role except the six
 platform-only capabilities, listed explicitly in
 `PLATFORM_ONLY_CAPABILITIES`.
+
+> **Correction — 2026-09-21.** This paragraph read "37 capabilities" and "the
+> five platform-only capabilities". Both were undercounts by one from the
+> moment `retention:view` was added, and neither number is derived — they were
+> restated here by hand, which is how they drifted. The figures above come from
+> `ALL_CAPABILITIES.length` and `PLATFORM_ONLY_CAPABILITIES.length` in
+> `packages/permissions/src/capabilities.js`; if this paragraph disagrees with
+> them again, they are right and it is wrong.
 
 The thirty-seventh is `privacy:redact`, added in Phase 3 and granted to the
 organisation `OWNER` and to nobody else — the narrowest grant the table can
@@ -120,6 +128,24 @@ standing test in `packages/permissions/src/capabilities.test.js` asserts that
 exactly one organisation role holds it. Why it is not folded into
 `organization:manage` or `platform:admin`, and why a step-up window alone is not
 sufficient authority for it, are in `docs/PRIVACY_AND_RETENTION.md`.
+
+The thirty-eighth is `retention:view`, and it went the other way: it is in
+`PLATFORM_ONLY_CAPABILITIES` rather than in any organisation role, because the
+thing it reads is platform-wide. `RetentionSweep` has no `organizationId` and a
+rehearsal counts across every tenant at once, so there is no honest per-tenant
+figure to derive from it — an organisation role that could read it would be an
+organiser reading counts drawn from other people's data.
+
+That is asserted rather than reviewed for: `ORG_ROLE_CAPABILITIES` is checked at
+**module load** against `PLATFORM_ONLY_CAPABILITIES`, so an organisation role
+that acquired `retention:view` would fail the import of the permissions package
+rather than one test that might be skipped.
+
+It also pushes on the inversion described under NF-05 below, in the safe
+direction. `sessionCan(session, capability)` with no organisation asks the
+_platform_ list — which is backwards for `privacy:redact` and exactly right for
+`retention:view`. The route asserts it with an empty context for that reason,
+and `apps/api/src/routes/retention.js` says so at the call site.
 
 ### NF-05, and why it has a standing test
 
