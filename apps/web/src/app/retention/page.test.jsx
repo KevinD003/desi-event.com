@@ -257,3 +257,123 @@ describe('filters reach the server rather than the browser', () => {
     })
   })
 })
+
+describe('the rollup, which says what the table cannot', () => {
+  /**
+   * One `summary` entry.
+   *
+   * @param {string} retentionClass Which class.
+   * @param {object|null} latest Its most recent run, or null.
+   * @param {number} [runCount] How many runs it has.
+   * @returns {object} The entry.
+   */
+  function standing(retentionClass, latest, runCount = latest ? 1 : 0) {
+    return { retentionClass, latest, runCount }
+  }
+
+  it('names a class no rehearsal has ever covered, in words', async () => {
+    // The gap the table cannot show. A class with no run is absent from every
+    // page, which looks exactly like a class whose last run was four pages
+    // back — and an absence rendered as an empty cell is a finding nobody
+    // reads.
+    await renderPage({
+      data: [sweep()],
+      pagination: null,
+      notEvaluated: NOT_EVALUATED,
+      summary: [standing('session', null)],
+    })
+
+    expect(screen.getByTestId('retention-standing')).toHaveTextContent(
+      /No rehearsal has ever covered this class/i,
+    )
+  })
+
+  it('reports a class whose last run counted', async () => {
+    await renderPage({
+      data: [sweep()],
+      pagination: null,
+      notEvaluated: NOT_EVALUATED,
+      summary: [standing('login_attempt', sweep({ examinedCount: 12, heldCount: 2 }), 3)],
+    })
+
+    const rollup = screen.getByTestId('retention-standing')
+
+    expect(rollup).toHaveTextContent(/counted 12, of which 2 held back/i)
+    expect(rollup).toHaveTextContent(/3 runs recorded/i)
+  })
+
+  it('reports a class whose last run declined, without calling it a failure', async () => {
+    await renderPage({
+      data: [sweep()],
+      pagination: null,
+      notEvaluated: NOT_EVALUATED,
+      summary: [standing('session', sweep({ state: 'SKIPPED_DISABLED', examinedCount: 0 }))],
+    })
+
+    const rollup = screen.getByTestId('retention-standing')
+
+    expect(rollup).toHaveTextContent(/declined/i)
+    expect(rollup).toHaveTextContent(/not activated/i)
+    expect(rollup).not.toHaveTextContent(/failed/i)
+  })
+
+  it('explains a failure rather than printing only its code', async () => {
+    await renderPage({
+      data: [sweep()],
+      pagination: null,
+      notEvaluated: NOT_EVALUATED,
+      summary: [
+        standing(
+          'session',
+          sweep({ state: 'FAILED', failureCode: 'HOLD_COUNT_FAILED', examinedCount: 0 }),
+        ),
+      ],
+    })
+
+    expect(screen.getByTestId('retention-standing')).toHaveTextContent(
+      /count of holds protecting them did not complete/i,
+    )
+  })
+
+  it('renders nothing at all when the response carries no rollup', async () => {
+    // `summary` is optional in the contract, so its absence is a shape this
+    // page has to handle rather than a case it can assume away.
+    await renderPage({ data: [sweep()], pagination: null, notEvaluated: NOT_EVALUATED })
+
+    expect(screen.queryByTestId('retention-standing')).toBeNull()
+    // And the rest of the page is unaffected.
+    expect(screen.getByRole('heading', { name: 'Retention rehearsals' })).toBeInTheDocument()
+  })
+
+  it('keeps the approval label on the rollup too', async () => {
+    // A number lifted out of this section into a ticket has to bring its status
+    // with it, exactly as it does from the table.
+    await renderPage({
+      data: [sweep()],
+      pagination: null,
+      notEvaluated: NOT_EVALUATED,
+      summary: [standing('login_attempt', sweep({ examinedCount: 9 }))],
+    })
+
+    expect(screen.getByTestId('retention-standing')).toHaveTextContent(
+      /REQUIRES LEGAL\/PRIVACY REVIEW/i,
+    )
+  })
+})
+
+describe('a failed row in the table', () => {
+  it('says what the code means as well as what it is', async () => {
+    // The wording is what an operator reads; the code is what they quote into
+    // a ticket. A screen with only prose makes them retype an approximation.
+    await renderPage({
+      data: [sweep({ state: 'FAILED', failureCode: 'CANDIDATE_COUNT_FAILED', examinedCount: 0 })],
+      pagination: null,
+      notEvaluated: NOT_EVALUATED,
+    })
+
+    expect(
+      screen.getByText(/count of rows this class would reach did not complete/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText('CANDIDATE_COUNT_FAILED')).toBeInTheDocument()
+  })
+})

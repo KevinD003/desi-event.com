@@ -695,6 +695,82 @@ async function probeConstraints(prisma) {
     ),
   )
 
+  // A sweep cannot claim it reached more than it looked at. Unlike the probe
+  // above this one is not about DRY_RUN — it holds for an EXECUTE row too, and
+  // nothing in this repository writes one. It is checked precisely because
+  // nothing does: the day something adds an execute path, this is the
+  // constraint standing between a bug and a deletion count nobody can explain.
+  results.push(
+    await probe(
+      prisma,
+      'a retention sweep cannot affect more rows than it examined',
+      /retention_sweep_affected_within_examined/,
+      (tx) =>
+        tx.retentionSweep.create({
+          data: {
+            retentionClass: 'login_attempt',
+            mode: 'EXECUTE',
+            olderThan: new Date(),
+            examinedCount: 1,
+            affectedCount: 2,
+          },
+        }),
+    ),
+  )
+
+  // No negative counts. A count is a count of rows, and a negative one is a
+  // bug that would otherwise be stored and later rendered to an operator as a
+  // figure they would have to decide how to interpret.
+  //
+  // It is `heldCount` that is negative here, and that choice is the point. The
+  // obvious probe sets `examinedCount: -1`, which trips
+  // `retention_sweep_affected_within_examined` instead — `affectedCount: 0` is
+  // not `<= -1` — and PostgreSQL reports whichever constraint it evaluates
+  // first. The probe would have passed while naming a constraint it never
+  // reached. `heldCount` appears in the non-negative check and in no other, so
+  // this row can only fail the one it claims to be about.
+  results.push(
+    await probe(
+      prisma,
+      'a retention sweep cannot record a negative count',
+      /retention_sweep_counts_non_negative/,
+      (tx) =>
+        tx.retentionSweep.create({
+          data: {
+            retentionClass: 'login_attempt',
+            mode: 'DRY_RUN',
+            olderThan: new Date(),
+            examinedCount: 0,
+            affectedCount: 0,
+            heldCount: -1,
+          },
+        }),
+    ),
+  )
+
+  // Half a lease. Nothing writes `leaseOwner` or `leaseExpiresAt` — the
+  // retention rehearsal deliberately has no lease, because it counts and then
+  // inserts an already-finished row, so there is no window for a second worker
+  // to steal. This is the constraint that would catch a future lease written
+  // badly: an owner with no expiry is a claim nobody can ever time out.
+  results.push(
+    await probe(
+      prisma,
+      'a retention sweep lease cannot have an owner without an expiry',
+      /retention_sweep_lease_has_owner/,
+      (tx) =>
+        tx.retentionSweep.create({
+          data: {
+            retentionClass: 'login_attempt',
+            mode: 'DRY_RUN',
+            state: 'CLAIMED',
+            olderThan: new Date(),
+            leaseOwner: 'worker-probe',
+          },
+        }),
+    ),
+  )
+
   // A hold with no reference to the matter outside this system blocks a
   // person's redaction indefinitely and gives nobody a way to resolve it.
   results.push(

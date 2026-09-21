@@ -19,7 +19,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { apiRoutes } from '@desi-event/api-contract'
-import { RETENTION_APPROVAL, RETENTION_NOT_EVALUATED } from '@desi-event/schemas'
+import {
+  RETENTION_APPROVAL,
+  RETENTION_CLASS_PROPOSALS,
+  RETENTION_FAILURE_CODE_VALUES,
+  RETENTION_NOT_EVALUATED,
+} from '@desi-event/schemas'
 
 import { bearer, createTestApp, signIn } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
@@ -262,5 +267,106 @@ describe('the API cannot start or execute a sweep', () => {
     // No scope: an organisation-scoped assertion would ask the wrong question
     // of a table that has no organisation.
     expect(route.capabilityScope).toBeUndefined()
+  })
+})
+
+describe('the rollup, which is what a filtered page cannot tell you', () => {
+  it('answers for every evaluated class, whatever the page shows', async () => {
+    // The question the list cannot answer. It is paginated and newest-first,
+    // so a class whose last rehearsal was four pages ago looks exactly like a
+    // class that has never been rehearsed — both are simply not on the page.
+    const harness = await withSweeps([
+      sweep({ retentionClass: 'login_attempt', examinedCount: 12 }),
+      sweep({ retentionClass: 'session', examinedCount: 3 }),
+    ])
+
+    const body = (await listSweeps(harness)).json()
+
+    expect(body.summary.map((entry) => entry.retentionClass)).toEqual(
+      RETENTION_CLASS_PROPOSALS.map((proposal) => proposal.retentionClass),
+    )
+  })
+
+  it('says null for a class nothing has ever rehearsed, rather than omitting it', async () => {
+    // "No rehearsal has ever covered this class" is a finding. A class dropped
+    // from the array would be indistinguishable from one the rollup forgot.
+    const harness = await withSweeps([sweep({ retentionClass: 'login_attempt' })])
+
+    const body = (await listSweeps(harness)).json()
+    const bare = body.summary.filter((entry) => entry.latest === null)
+
+    expect(bare.map((entry) => entry.retentionClass).sort()).toEqual([
+      'notification_recipient',
+      'session',
+      'session_metadata',
+    ])
+    for (const entry of bare) expect(entry.runCount).toBe(0)
+  })
+
+  it('ignores the caller filters, which is the entire point of it', async () => {
+    // Filter the list to FAILED and every row on screen is a failure — a view
+    // on which every class looks broken. The rollup is the fixed reference the
+    // narrowed view is read against, so it must not narrow with it.
+    const harness = await withSweeps([
+      sweep({ retentionClass: 'login_attempt', state: 'COMPLETED' }),
+      sweep({
+        retentionClass: 'session',
+        state: 'FAILED',
+        failureCode: 'CANDIDATE_COUNT_FAILED',
+        examinedCount: 0,
+      }),
+    ])
+
+    const body = (await listSweeps(harness, '?state=FAILED')).json()
+
+    expect(body.data).toHaveLength(1)
+    expect(body.data[0].state).toBe('FAILED')
+
+    const login = body.summary.find((entry) => entry.retentionClass === 'login_attempt')
+
+    // Still COMPLETED in the rollup, though no COMPLETED row is on the page.
+    expect(login.latest.state).toBe('COMPLETED')
+  })
+
+  it('carries the failure code through, so a red class says why', async () => {
+    const harness = await withSweeps([
+      sweep({
+        retentionClass: 'session',
+        state: 'FAILED',
+        failureCode: 'HOLD_COUNT_FAILED',
+        examinedCount: 0,
+      }),
+    ])
+
+    const body = (await listSweeps(harness)).json()
+    const session = body.summary.find((entry) => entry.retentionClass === 'session')
+
+    expect(session.latest.state).toBe('FAILED')
+    expect(session.latest.failureCode).toBe('HOLD_COUNT_FAILED')
+    expect(RETENTION_FAILURE_CODE_VALUES).toContain(session.latest.failureCode)
+  })
+
+  it('counts the runs, so "once, months ago" reads differently from "every week"', async () => {
+    const harness = await withSweeps([
+      sweep({ retentionClass: 'login_attempt' }),
+      sweep({ retentionClass: 'login_attempt' }),
+      sweep({ retentionClass: 'login_attempt' }),
+    ])
+
+    const body = (await listSweeps(harness)).json()
+    const login = body.summary.find((entry) => entry.retentionClass === 'login_attempt')
+
+    expect(login.runCount).toBe(3)
+  })
+
+  it('withholds the worker name from the rollup as well as from the rows', async () => {
+    // The rollup goes through the same presenter, and this asserts that rather
+    // than assuming it: `leaseOwner` names a worker process, which is
+    // infrastructure a reader cannot act on and an attacker would rather have.
+    const harness = await withSweeps([sweep({ leaseOwner: 'worker-4711' })])
+
+    const body = (await listSweeps(harness)).json()
+
+    expect(JSON.stringify(body.summary)).not.toContain('worker-4711')
   })
 })

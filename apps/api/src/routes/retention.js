@@ -33,11 +33,31 @@
  * `leaseOwner` is dropped on the way out. It names a worker process, which is
  * infrastructure a reader cannot act on and an attacker would rather have.
  *
+ * ## Why there is no per-sweep detail route
+ *
+ * There was going to be one, and the case for it did not survive being written
+ * down. Everything a detail view would show is already on the list row: the
+ * class, the mode, the state, the cut-off, the three counts, the failure code
+ * and the timestamps. The two fields that looked like new content —
+ * `proposedDays` and `basis` — are compile-time constants in
+ * `RETENTION_CLASS_PROPOSALS`, which the browser already imports.
+ *
+ * So the route would have added a pair of schemas, a contract entry, a
+ * regenerated `openapi.json` and a regenerated route manifest, in exchange for
+ * a second way to read fields that are already served. The only honest
+ * remaining argument is a deep-linkable URL for one sweep, and nobody has asked
+ * to link to one. Surface without safety is the thing this phase keeps finding
+ * and removing; adding some here would be strange.
+ *
+ * What was worth building from that plan is the rollup below, which answers a
+ * question the list genuinely cannot.
+ *
  * @module @desi-event/api/routes/retention
  */
 
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import {
+  RETENTION_CLASS_PROPOSALS,
   RETENTION_NOT_EVALUATED,
   buildPaginationMeta,
   retentionApprovalFor,
@@ -90,6 +110,50 @@ function toRetentionSweep(row) {
 }
 
 /**
+ * Where every evaluated class stands, whatever page is being read.
+ *
+ * ## Why this is computed and not filtered
+ *
+ * Deliberately ignores the caller's `retentionClass` and `state` filters. The
+ * rollup exists precisely for the reader who has narrowed the list: filter to
+ * `FAILED` and the page shows only failures, which is a screen on which every
+ * class looks broken. The rollup is the fixed reference the filtered view is
+ * read against.
+ *
+ * ## Why a query per class rather than one clever one
+ *
+ * A `DISTINCT ON` or a window function would be one round trip instead of
+ * eight, and would have to be raw SQL to express in Prisma. There are four
+ * classes and this table grows by four rows per rehearsal, which is not on a
+ * timer — the query count is a constant, not a function of anything. Raw SQL
+ * against the retention tables is exactly what the rest of this surface avoids,
+ * and buying a round trip with it would be a poor trade.
+ *
+ * @param {object} prisma The Prisma client.
+ * @returns {Promise<Array<object>>} One entry per evaluated class.
+ */
+async function classSummary(prisma) {
+  return Promise.all(
+    RETENTION_CLASS_PROPOSALS.map(async (proposal) => {
+      const where = { retentionClass: proposal.retentionClass }
+      const [latest, runCount] = await Promise.all([
+        prisma.retentionSweep.findFirst({ where, orderBy: SWEEP_ORDER }),
+        prisma.retentionSweep.count({ where }),
+      ])
+
+      return {
+        retentionClass: proposal.retentionClass,
+        // Null rather than absent. "No rehearsal has ever covered this class"
+        // is a finding, and a class dropped from the array would be
+        // indistinguishable from one the rollup forgot.
+        latest: latest ? toRetentionSweep(latest) : null,
+        runCount,
+      }
+    }),
+  )
+}
+
+/**
  * Register the retention routes.
  *
  * @param {object} app The Fastify instance.
@@ -116,9 +180,10 @@ export function registerRetentionRoutes(app, { prisma }) {
         ...(state ? { state } : {}),
       }
 
-      const [rows, total] = await Promise.all([
+      const [rows, total, summary] = await Promise.all([
         prisma.retentionSweep.findMany({ where, orderBy: SWEEP_ORDER, skip, take }),
         prisma.retentionSweep.count({ where }),
+        classSummary(prisma),
       ])
 
       return {
@@ -127,6 +192,7 @@ export function registerRetentionRoutes(app, { prisma }) {
         // Sent with every page, including an empty one. A reader who filtered
         // to nothing still needs to know which classes no sweep ever covers.
         notEvaluated: RETENTION_NOT_EVALUATED.map((entry) => ({ ...entry })),
+        summary,
       }
     },
   })
