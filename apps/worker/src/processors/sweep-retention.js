@@ -88,7 +88,7 @@
 
 import { JOB_NAMES, sweepRetentionJobSchema } from '@desi-event/schemas/jobs'
 
-import { parseJobPayload } from '../errors.js'
+import { PermanentJobError, WORKER_ERROR_CODES, parseJobPayload } from '../errors.js'
 import { failureCodeFor } from '../retention/failures.js'
 import { RETENTION_CLASSES, cutOffFor, rehearseClass } from '../retention/classes.js'
 import { SWEEP_ROW_KINDS, sweepRowId } from '../retention/run-key.js'
@@ -176,7 +176,21 @@ export function createRetentionSweepProcessor({
       // A class the caller named but this worker does not evaluate. Refusing
       // loudly beats rehearsing everything and reporting it as though the
       // narrowing had been honoured.
-      throw new Error(`no retention class named ${only} is evaluated`)
+      //
+      // Permanent, not retryable, and that distinction cost a thirty-second
+      // test timeout to notice. This is a statement about the payload: the
+      // named class will not be evaluated on the second attempt either, so a
+      // plain `Error` here burns a retry and a whole fixed backoff on a job
+      // that can never succeed — and leaves the job sitting in `waiting` for
+      // half a minute while an operator wonders whether it was picked up.
+      throw new PermanentJobError(`no retention class named ${only} is evaluated`, {
+        code: WORKER_ERROR_CODES.INVALID_JOB_PAYLOAD,
+        jobName: JOB_NAMES.SWEEP_RETENTION,
+        details: {
+          retentionClass: only,
+          evaluated: RETENTION_CLASSES.map((entry) => entry.retentionClass),
+        },
+      })
     }
 
     const sweeps = []

@@ -267,6 +267,26 @@ describe('narrowing to one class', () => {
 
     expect(prisma.created).toHaveLength(0)
   })
+
+  it('refuses it permanently, rather than retrying a payload that cannot improve', async () => {
+    // Found by the real-Redis test, which sat for thirty seconds waiting for a
+    // job that had already failed. A plain `Error` tells BullMQ the failure may
+    // be transient, so the queue's fixed thirty-second backoff scheduled a
+    // second attempt against a payload naming a class that will never be
+    // evaluated — and the job stayed in `waiting` while an operator wondered
+    // whether it had been picked up at all.
+    const failure = await createRetentionSweepProcessor({
+      prisma: sweepingPrisma(),
+      logger: recordingLogger(),
+      activated: true,
+      clock: () => NOW,
+    })({ data: { retentionClass: 'export_artifact' } }).catch((error) => error)
+
+    expect(failure.name).toBe('PermanentJobError')
+    expect(failure.code).toBe('INVALID_JOB_PAYLOAD')
+    // Names what it *does* evaluate, so the fix does not need a code read.
+    expect(failure.details.evaluated).toContain('login_attempt')
+  })
 })
 
 describe('the clock', () => {
