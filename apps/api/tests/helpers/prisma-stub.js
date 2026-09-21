@@ -578,6 +578,11 @@ const UNIQUE_FIELDS = {
   ticketTransfer: ['tokenHash', 'resultTicketId'],
   payout: ['idempotencyKey'],
   transfer: ['idempotencyKey'],
+  // One connected account per organisation. The stub already models the
+  // compound `(provider, providerAccountId)` key below but not this one, so
+  // before it was added a test asserting "two concurrent first-starts collapse
+  // to one row" passed against a stub that cheerfully stored two.
+  connectedAccount: ['organizationId'],
 }
 
 /**

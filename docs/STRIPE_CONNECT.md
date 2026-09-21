@@ -419,23 +419,51 @@ would be the exact false claim this design exists to prevent.
   it is the one an implementer would otherwise generalise wrongly.
 - Neither request body carries an `organizationId`, `actorId`, `state`,
   `capability`, `stepUp` or `idempotencyKey` field. The guard reads
-  `params.organizationId` and the upsert reads that same value — a guard on the
+  `params.id` and the upsert reads that same value — a guard on the
   path and a writer on the body would be a cross-tenant write, which is why the
   two must be the one field. `payouts.schedule` scopes on `body.organizationId`
   and is the counter-precedent that makes saying so necessary. The invariant at
   `apps/api/tests/security-regression.test.js:239` that forbids those fields is
-  filtered to the `privacy` tag, so this change widens the filter to cover the
-  connect surface rather than leaving the rule merely asserted here.
+  filtered to the `privacy` tag, so this change widens it to cover the connect
+  surface rather than leaving the rule merely asserted here. Widen it **by route
+  id** — `!route.tags.includes('privacy') && !route.id.startsWith('connect.')` —
+  never by tag. Widening to the `finance` tag or to `MONEY_TAGS` trips
+  immediately on `payouts.schedule`, whose body legitimately carries both
+  `organizationId` and `idempotencyKey`.
 - Both routes carry the **`finance`** tag. That is load-bearing, not cosmetic:
   `MONEY_TAGS` at `apps/api/tests/security-regression.test.js:56` is
   `{analytics, finance, refunds}`, and every route carrying one must declare a
   step-up. Tagging them `finance` puts both under that invariant automatically.
   A new `connect` tag would have placed a money-adjacent surface outside it
   without anyone deciding that, and was rejected for exactly that reason.
+- **Both routes refuse unless the deployment is in mock mode.** The scope says
+  "mock mode only", and before this that was an intention rather than a
+  property: nothing in the design gated the routes, so in a legitimately-booted
+  `PAYMENT_MODE=stripe_test` deployment they would have simulated happily. The
+  guard is `app.payments.mode === PAYMENT_MODES.MOCK` **and**
+  `providers.payments.name === 'in-memory-payments'`, refused with a closed
+  error code. Both halves, because the repository holds two independent notions
+  of payment mode that can disagree — the boot gate's resolution, and the
+  provider-name sniff at `finance.js:176`, `finance.js:178` and
+  `analytics.js:269` that reaches buyers through `money-figure.jsx:41`. The
+  authoritative one for this surface is the boot gate; the provider-name check
+  is the second lock, and it is what stops `connect.start` minting mock rows
+  after someone wires a real adapter into `server.js:46` — which is closure item
+  1, the whole point of the sequence this phase sits in.
+- The row the mock writes names its own nature explicitly, never by default.
+  `providerMode: 'mock'` is written on every branch: the column defaults to
+  `"test"`, so a writer that merely omits it produces a row that reads, in the
+  database, as a real Stripe **test-mode** connected account — the exact
+  misreading the whole design exists to prevent. `provider` is written as
+  `providers.payments.name` (`'in-memory-payments'`), which is already the
+  convention for `Payment.provider`, is self-describing, and keeps the mock out
+  of the real provider's `@@unique([provider, providerAccountId])` namespace.
+  Both values are asserted on a row created through `connect.start`, not merely
+  intended.
 - The screen picks its organisation the way every comparable screen does:
   `connectOrganizations(session)` in `apps/web/src/lib/session.js`, filtered on
   `connect:manage`, then
-  `organizations.find((o) => o.organizationId === params.organizationId) ?? organizations[0]`
+  `organizations.find((o) => o.organizationId === params.id) ?? organizations[0]`
   — the shape used at `apps/web/src/app/privacy/page.jsx:70` and three siblings.
   The API's 403 is the control; the intersection is what stops the screen from
   provoking one. The new web API module applies `encodeURIComponent` to the
@@ -564,6 +592,54 @@ returns to the control that opened the confirmation, as the privacy screens do.
 Errors land in a `role="alert"` region; state changes are announced in a polite
 live region.
 
+**Which house style.** The privacy screens, not the finance ones. Import
+`{ AsOf, Empty, Failure, Forbidden }` from `components/page-state.jsx`: render
+`Forbidden` when `connectOrganizations(session)` is empty
+(`apps/web/src/app/privacy/page.jsx:65-67`), `Failure` on a refusal (`:108`),
+`Empty` for `NOT_STARTED`, and `AsOf` for the read timestamp (`:89`, `:119`).
+`/finance` does not use `page-state.jsx` at all — it hand-rolls its own alert,
+duplicating `Failure`'s wording verbatim, and hand-rolls "not for you" instead
+of using `Forbidden`. Being finance-tagged, this screen would otherwise copy the
+nearest file, which is the wrong one.
+
+**Focus restoration.** Copy `apps/web/src/app/privacy/request-actions.jsx:77-90`
+— restore by effect against a live node — and ship the matching test modelled on
+`request-actions.test.jsx:295-307`. Do **not** copy the finance components'
+version: its `dismiss()` focuses a node React has already unmounted, so Cancel
+strands focus on `document.body`. That is a pre-existing defect in those files,
+recorded here so it is not propagated, and out of scope to repair.
+
+**Loading.** There is no page-level pending state to render: every screen is
+`force-dynamic` and server-rendered, the shared `Loading` component is dead
+code, and there is no `loading.jsx` or `Suspense` anywhere in the web app. The
+loading state on this screen is the action button's disabled-plus-busy label
+(`request-actions.jsx:306-309`), and the finished transition is announced
+through the polite live region — not through a spinner nobody hears.
+
+**Browser tests.** The behaviour spec is
+`apps/web/e2e/detail-connect.spec.js`. The name is the whole mechanism: it is
+collected by `apps/web/playwright.detail.config.js:65` and runs in the existing
+"Browser — commerce and operations detail" job, so there is no new matrix entry
+in `.github/workflows/ci.yml` and therefore no ninth required context. Any other
+name is silently collected by the default config and runs in "Browser — public
+catalogue", whose config deliberately does not start the API, so an API-backed
+spec placed there fails on its first CI run. Do **not** "fix" that by adding a
+`'**/connect-*.spec.js'` entry to the default config's `testIgnore`: that
+produces a spec collected by none of the seven configs, so CI stays green and
+the surface has no browser coverage at all — worse than a loud failure. The
+`'**/detail-*.spec.js'` entry already at `apps/web/playwright.config.js:49`
+covers the new file for free.
+
+**Sweep cases, enumerated**, because "covered by the sweep" is not a plan:
+three cases inside the `VIEWPORTS` loop, each `setViewportSize` → `goto` →
+expect a heading matched **by name** (never a bare `level: 1`, or a refusal page
+would pass) → `scan()` length 0 → `sidewaysOverflow() <= 1`; the route added to
+the 200%-zoom array; the Connect path added to the focus-visible case and to the
+24px target-size case, since this screen is the one introducing new buttons and
+axe runs the WCAG 2.1 tag set, which does not include 2.2's 2.5.8 target size;
+and a `ConnectedAccount` seed in `e2e/support` with matching cleanup, so states
+past `NOT_STARTED` can be scanned at all.
+
 **Reach.** axe clean at the sweep's viewports, no sideways overflow at 320px, no
 loss of function at 200% zoom, every control reachable and operable by keyboard
 with a visible focus ring, and no motion that ignores `prefers-reduced-motion`.
@@ -617,7 +693,11 @@ implementer reading the schema would otherwise store requirement strings.
 No onboarding URL, redirect handler, return handler, hosted link, login link,
 account lookup, provider webhook trigger, background reconciler or provider
 synchronisation. No re-onboarding from `DISABLED`. No transfer currency check.
-No change to payout behaviour when an account is absent.
+No change to payout behaviour when an account is absent — and, for the presence
+case this phase creates for the first time, no change to _which_ account
+`payouts.schedule` picks: it keeps taking the most recent row for the
+organisation with no filter on lifecycle state. Adding one is an owner decision,
+recorded above.
 
 ### Owner decisions this does not take
 
@@ -639,3 +719,53 @@ left exactly as it is: granting `connect:manage` to `FINANCE_ADMIN` widens a
 platform authority, which is a separate, named change with its own review and
 not a side effect of a mock-mode phase. Recorded here so the asymmetry is a
 decision somebody took rather than one nobody noticed.
+
+**A mock connected account becomes a real payout destination, in every
+lifecycle state.** `apps/api/src/routes/finance.js:277-280` looks up
+`connectedAccount.findFirst({ where: { organizationId } })` with no filter on
+`onboardingStatus`, `payoutsEnabled` or `providerMode`, and attaches whatever it
+finds; `payouts.send` then hands that row's `providerAccountId` to the provider
+as the destination. Nothing on the payout path reads `payoutsEnabled`,
+`chargesEnabled` or `providerMode` at all — so the lifecycle invariant above
+("`COMPLETE` implies both true, every other state implies both false") and the
+`providerMode: 'mock'` honesty marker buy exactly nothing at the one place they
+would matter. A `DISABLED` mock account is as much a payout destination as a
+`COMPLETE` one.
+
+Three observable changes follow, all of them first-time: payouts begin carrying
+a non-null `connectedAccountId`; the repaired `desi_payout_currency_matches`
+stops taking its early return and begins comparing currencies; and
+`presenters.js:443`/`:468` begin returning a non-null `connectedAccountId` to
+organiser screens.
+
+The owner decides which of two it is. Filtering the lookup to
+`payoutsEnabled: true` is a change to real payout behaviour and needs
+authorisation. Leaving it is defensible in mock mode, where no money moves — but
+then it is pinned by a test so the next phase inherits it knowingly rather than
+silently. This phase does neither on its own: it records the behaviour and adds
+the **presence** case to the non-goals, which until now covered only absence.
+
+**Out of scope, reported rather than repaired: the `paymentsOverride` hole in
+`apps/api/src/app.js:87`.** `const payments = paymentsOverride ?? gated`
+replaces the gate's result wholesale. The comment four lines above it claims the
+opposite — "The supplied resolution replaces the _result_, never the check, and
+it cannot name a mode the gate would have refused" — and both clauses are false.
+The only residual checks are `payments.live === true` and mode membership
+(`:89`), so an override carrying `live: false` and `mode: 'STRIPE_TEST'` boots in
+an environment where the gate itself would have refused. It also carries
+`label`, `message` and `credentials` through verbatim, supplying `credentials`
+_enumerably_ and so defeating the non-enumerable attachment
+`payment-mode.js:509-523` exists to provide against log and serialise leakage.
+Downstream, `webhooks.js:92-97` would flip both endpoints from refuse-every-delivery
+to accept-signed against the fabricated secret, and `health.js:84-90` would
+republish `mode`, `label` and `message` on the unauthenticated liveness probe.
+
+It is not reachable in any deployment: only an in-process `buildApp` caller can
+set it and `server.js:48-57` does not, and no call site in the repository passes
+it — `payment-kill-switch.test.js` does not exercise the option at all. It is
+named here because payment mode is a protected area under this phase's
+authorisation, so the rule is stop, show the evidence, and wait. The repair
+would be to re-apply the gate to the override rather than replace the result
+with it — refuse when `paymentsOverride.mode !== gated.mode`, refuse an override
+carrying a `credentials` bag the gate did not produce, correct or delete the
+comment, and add the missing invariant to `payment-kill-switch.test.js`.
