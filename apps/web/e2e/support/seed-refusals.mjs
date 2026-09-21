@@ -73,10 +73,25 @@ export async function seedRefusals(tag) {
   /**
    * Give a user the second factor their role requires.
    *
+   * Idempotent, to match the upsert below rather than quietly undermining it.
+   * The users are upserted because a fixture user is no longer deletable and
+   * Playwright re-runs `beforeAll` in a fresh worker after a failure — but an
+   * unconditional `create` here meant the second run added a *second* confirmed
+   * TOTP factor to the same person rather than failing on the unique index,
+   * because `seal` picks a fresh nonce each time and `@@unique([userId, type,
+   * secretSealed])` therefore never matches. Harmless, since both factors
+   * carry the same secret, and still not what the file says it does.
+   *
    * @param {string} userId The user.
    * @returns {Promise<void>} Resolves when enrolled.
    */
   async function enrol(userId) {
+    const already = await prisma.mfaFactor.findFirst({
+      where: { userId, type: 'TOTP', confirmedAt: { not: null } },
+    })
+
+    if (already) return
+
     await prisma.mfaFactor.create({
       data: {
         userId,
@@ -137,6 +152,36 @@ export async function seedRefusals(tag) {
   const alpha = await organisationWithOwner('Alpha Collective', 'alpha', true)
   const beta = await organisationWithOwner('Beta Collective', 'beta', true)
   const unverified = await organisationWithOwner('Unverified Collective', 'unverified', false)
+
+  // A platform reader, because `retention:view` cannot be granted any other
+  // way. `PLATFORM_ONLY_CAPABILITIES` lists it, and that list is asserted at
+  // module load never to appear in an organisation role — so no membership,
+  // however senior, reaches `/retention`. `SUPER_ADMIN` is the only platform
+  // role that carries it.
+  //
+  // That is a lot of authority for a screen that renders counts, and it is
+  // worth saying why the seed accepts it rather than inventing a narrower
+  // fixture role: the alternative is adding a platform role to the product so
+  // that a test can sign in, which would be a permissions change driven by
+  // test convenience. The account is tagged, exists only for the run, and is
+  // used by exactly one journey and one sweep.
+  //
+  // Upserted for the same reason the owners are: a fixture user is no longer
+  // deletable, and Playwright re-runs `beforeAll` in a fresh worker after a
+  // failure.
+  const platformIdentity = {
+    passwordHash,
+    displayName: 'Platform Reader',
+    role: 'SUPER_ADMIN',
+    emailVerified: true,
+  }
+  const platformReader = await prisma.user.upsert({
+    where: { email: `platform-reader-${tag}@desi-event.test` },
+    update: platformIdentity,
+    create: { email: `platform-reader-${tag}@desi-event.test`, ...platformIdentity },
+  })
+
+  await enrol(platformReader.id)
 
   /**
    * A venue for one organisation.
@@ -269,6 +314,8 @@ export async function seedRefusals(tag) {
     draftMapVersionId: draftVersion.id,
     draftMapName: map.name,
     alphaVenueId: alphaVenue.id,
+    platformReaderEmail: platformReader.email,
+    platformReaderId: platformReader.id,
   }
 }
 
