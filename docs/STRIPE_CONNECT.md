@@ -336,8 +336,23 @@ is carried in three other places, none of which is the state name:
 3. The screen never prints the raw enum. It prints mock-qualified wording, and a
    standing block saying what the state does **not** mean.
 
-The transitions, all server-authoritative, all driven by an action from a closed
-vocabulary — never by a state supplied in a request body:
+All four actions arrive on `connect.start`, which is the **one** state-changing
+route this phase adds; `connect.status` is a read and changes nothing. `action`
+is a closed enum validated in the contract, and it is the only field either body
+carries. The destination state is never in the request: the server reads the
+current row, looks the pair up in the table below, and refuses anything absent
+from it.
+
+That is a weaker claim than "never a state supplied in a request body", and the
+weaker claim is the true one. The vocabulary maps one-to-one onto destination
+states, so a body saying `SIMULATE_READY` is a body asking for `COMPLETE` — the
+one state that sets `chargesEnabled` and `payoutsEnabled` true. What actually
+holds the line is that the _legality_ of the move is decided server-side from
+the row, not the spelling of the field. The forbidden-body-field list in
+"Scoping" bans `state`; it deliberately does not ban `action`, and this is why.
+
+The transitions, every pair applied as a compare-and-set against the state it
+was validated against:
 
 | From               | Action                  | To                 |
 | ------------------ | ----------------------- | ------------------ |
@@ -353,6 +368,33 @@ Every other pair is invalid and refused with a closed reason code. In
 particular `DISABLED` is terminal in this phase: re-onboarding a disabled
 account is a real-provider concern, and inventing a mock path for it would be
 inventing policy.
+
+**A table of legal pairs is not a state machine unless every write is
+conditional on the state it was read against.** Under a read-then-update
+handler — the shape an implementer writes when nothing says otherwise — two
+individually legal actions compose into a pair that is not in the table. Run
+concurrently against one `IN_PROGRESS` row, `SIMULATE_DISABLE` and
+`SIMULATE_READY` land on `COMPLETE` with both flags true: the account passed
+through `DISABLED` and came back out, which is `DISABLED` → `COMPLETE`, unlisted,
+and the end of the terminality asserted a paragraph above.
+
+So every transition is written as
+`updateMany({ where: { id, onboardingStatus: <from> }, data: { onboardingStatus: <to>, ...derived } })`
+with `count === 1` as the success test and a 409 otherwise. The repository
+already has this shape — `apps/api/src/lib/payouts.js:155-167` `transition()` —
+but its `where` hardcodes `status`, so this surface takes a small column
+parameter on that helper rather than growing a second copy of it.
+
+`START` is the exception, and it is create-only rather than an upsert. An upsert
+looked right — one account per organisation, keyed on `organizationId @unique` —
+but its update branch is unconditional, so a replayed `START` against a
+`COMPLETE` row rewrites it to `IN_PROGRESS` while leaving `chargesEnabled` and
+`payoutsEnabled` true: an unlisted transition _and_ a row whose flags contradict
+its own state, which is the one thing the derivation rule below exists to
+prevent. It ends `DISABLED`'s terminality by the same route. Putting the state
+in the upsert's `where` does not rescue it — Prisma then leaves the native
+upsert path, attempts a create, and raises P2002. `START` therefore creates,
+catches P2002, re-reads and returns the existing row **unchanged**.
 
 `chargesEnabled` and `payoutsEnabled` are derived from the state, never set
 independently — `COMPLETE` implies both true, every other state implies both
@@ -412,8 +454,16 @@ would be the exact false claim this design exists to prevent.
   refuses every Connect delivery outside `STRIPE_TEST`) and is recorded here as
   a known gap for whoever adds real webhooks, not repaired in this phase.
 - Both routes require `connect:manage`, organisation-scoped from the path.
-- Both routes require a fresh **`PAYOUT`** step-up (5 minutes,
-  `packages/auth/src/sessions.js:87`).
+- `connect.start` requires a fresh **`PAYOUT`** step-up (5 minutes,
+  `packages/auth/src/sessions.js:87`); `connect.status` requires a fresh
+  **`FINANCE_VIEW`** one (15 minutes, `:83`). Both are gated — leaving the read
+  ungated would make it the only money-adjacent read in the repository without a
+  step-up — but they are gated at the tier the repository already uses for each
+  kind of call. Every finance read carries `FINANCE_VIEW` (eight routes,
+  `packages/api-contract/src/routes.js:1823` and on); every finance action
+  carries `PAYOUT` (`:2091`, `:2136`, `:2160`). An earlier draft put `PAYOUT` on
+  both, which would have made a five-minute window the gate on simply opening
+  the page.
 - Both routes declare `API_ERRORS.stepUpRequired`, so the screen's
   retry-after-step-up path is discoverable from the contract rather than by
   trial. The contract checker does not require this of a step-up route, so it
@@ -472,6 +522,54 @@ Rows carry **no** request body, no free text, no provider payload, no financial
 figure and no identity field — there are none to carry, because none is
 collected.
 
+### The screen
+
+The design critique found this section missing entirely, which meant an
+implementer had nothing to build against and a reviewer nothing to review
+against. It is specified here.
+
+**Route and files.** `apps/web/src/app/finance/connect/page.jsx`, a
+`dynamic = 'force-dynamic'` server component, plus a client component beside it
+for the actions. It sits under `/finance` because `connect:manage` travels with
+the finance roles and the nav grouping already exists.
+
+**Degrading, not recovering.** The `h1` renders **outside** the `try`, and the
+gated read sits inside it, so a stale step-up produces a page with its heading,
+its description and a refusal in the body — never a thrown page. That is exactly
+what `apps/web/src/app/finance/page.jsx:88-98` does, which is why `/finance` is
+already in the accessibility sweep and passes: `page.goto('/finance')` always
+finds `heading "Finance" level 1` whether or not the window is fresh. The same
+shape makes a Connect case safe anywhere in the sweep file, at any runner speed,
+with no step-up machinery in the spec and no dependence on case ordering.
+Recovery on the _action_ is `StepUpPrompt` plus `router.refresh()`, the pair
+already used at `apps/web/src/components/reconciliation-actions.jsx:242` and
+`apps/web/src/app/privacy/request-actions.jsx:150`.
+
+**There is no link to send anybody to.** In mock mode the screen's only outbound
+action is a POST to `connect.start`. `What would close the pending items` item 2
+describes a screen that "sends somebody to the hosted onboarding link"; that
+describes the real-provider phase, not this one, and the non-goals below forbid
+it outright. Nothing on this screen navigates off-site.
+
+**Structure.** One `h1`, "Payout onboarding". Sections below it as `h2` with
+`aria-labelledby`, matching the finance screens. The five
+`ConnectOnboardingStatus` values each render as a named state with
+mock-qualified wording, never the raw enum, and every state carries the standing
+block saying what it does **not** mean.
+
+**Actions.** Each is a button, never a link, because each is a POST. A
+state-changing action is confirmed before it fires, and `SIMULATE_DISABLE` is
+confirmed with its own wording because it is terminal. On completion focus
+returns to the control that opened the confirmation, as the privacy screens do.
+Errors land in a `role="alert"` region; state changes are announced in a polite
+live region.
+
+**Reach.** axe clean at the sweep's viewports, no sideways overflow at 320px, no
+loss of function at 200% zoom, every control reachable and operable by keyboard
+with a visible focus ring, and no motion that ignores `prefers-reduced-motion`.
+The case lives in `apps/web/e2e/accessibility-sweep.spec.js` itself, because
+`playwright.sweep.config.js` pins `testMatch` to that one file.
+
 ### Data minimisation
 
 The screen has **no inputs**. No bank details, tax identifiers, government IDs,
@@ -493,8 +591,26 @@ implementer reading the schema would otherwise store requirement strings.
   product from "Demonstration data" to "Sandbox data". The Connect surface is
   added as methods on the existing provider object, not as a new provider.
 - No Stripe SDK import, no Stripe URL, no network call, no credential read.
-- Payout semantics are unchanged. Nothing here creates, schedules, executes,
-  reverses or reconciles a movement of money.
+- Nothing here creates, schedules, executes, reverses or reconciles a movement
+  of money.
+- Payout semantics are **not** unchanged, and an earlier draft claiming they
+  were was wrong. `apps/api/src/routes/finance.js:277-287` already looks up the
+  organisation's connected account and stamps `connectedAccountId` onto every
+  payout it schedules. There are no `ConnectedAccount` rows in this repository
+  today, so that lookup has always returned null and the currency trigger has
+  always taken its early return. This phase mints the first such rows, so from
+  here on a payout for an onboarded organisation carries an account id and is
+  subject to the trigger this change just repaired.
+
+  That is why the mock writer leaves `defaultCurrency` **NULL**. It is the
+  migration's own documented "declares no currency, so there is nothing to
+  compare against" path, already covered by the new suite. Storing a fabricated
+  currency instead would arm the repaired trigger against real payout rows: the
+  seed ships a CAD organisation (`packages/db/scripts/seed.mjs:395`) beside INR
+  ones, a PL/pgSQL `RAISE` is not a Prisma `P2002` and is not caught anywhere in
+  the payout path, so a mismatch would surface as a bare 500. Adding a mapped
+  422 in `payouts.schedule` would also work and was rejected: it changes real
+  payout behaviour to accommodate a mock, which is the wrong direction.
 
 ### Non-goals
 
