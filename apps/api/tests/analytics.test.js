@@ -450,6 +450,67 @@ describe('GET /v1/analytics/export.csv', () => {
     expect(header).toBe('Section,Item,Code,Quantity,Amount (minor units),Currency,Note')
   })
 
+  it('carries no buyer, no address and no provider reference', async () => {
+    // The finance export has had this test since it was written; the analytics
+    // one had only a check on its column *names*. Those are different claims.
+    // A header allow list proves no column is called `buyerEmail`. It proves
+    // nothing about what is in `Item`, which is free text sourced from whatever
+    // the breakdowns are grouped by — and the first person to group a breakdown
+    // by buyer would ship a spreadsheet of names under a column named `Item`
+    // with every existing assertion still green.
+    //
+    // The world this runs against has a buyer on purpose: `Priya Sharma`,
+    // `priya@example.com`, on a PAID order that every sales breakdown reads.
+    const { app, ids } = await worldWithSales()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/export.csv?organizationId=${ids.organization.id}&currency=INR`,
+      headers: await asUser(app, OWNER),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    // Non-empty, so the scan below is scanning something. A route that returned
+    // an empty body would satisfy every needle.
+    expect(response.body.split('\r\n').length).toBeGreaterThan(10)
+
+    // The same needles the sibling summary test uses at :412, so the JSON and
+    // the CSV are held to one standard rather than two, plus the three this
+    // fixture makes specific: the buyer's own values and the order reference
+    // that would identify their purchase.
+    expectNoNeedles(expect, response.body, [
+      'priya',
+      'buyeremail',
+      'buyername',
+      'pi_',
+      'card',
+      'cvc',
+      'pan',
+      'sharma',
+      '@example.com',
+      'DE-ANALYT',
+    ])
+  })
+
+  it('exports the aggregate that the buyer is inside, so the scan is not vacuous', async () => {
+    // The paired assertion. Without it, the test above would keep passing if
+    // the sales sections stopped being exported altogether — no buyer, because
+    // no sales. What must be true is that the rows the buyer's order feeds are
+    // present and carry only the aggregate.
+    const { app, ids } = await worldWithSales()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/export.csv?organizationId=${ids.organization.id}&currency=INR`,
+      headers: await asUser(app, OWNER),
+    })
+
+    expect(response.body).toContain('Sales by event')
+    expect(response.body).toContain('Sales by ticket type')
+    // Three bought, one refunded — the order is in there as a quantity.
+    expect(response.body).toMatch(/Sales by ticket type,[^\r\n]*,3,/u)
+  })
+
   it('neutralises an organiser-supplied title that begins like a formula', async () => {
     const { app, ids } = await worldWithSales()
 

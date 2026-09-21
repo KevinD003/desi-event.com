@@ -19,7 +19,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { apiRoutes } from '@desi-event/api-contract'
-import { RETENTION_APPROVAL } from '@desi-event/schemas'
+import { RETENTION_APPROVAL, RETENTION_NOT_EVALUATED } from '@desi-event/schemas'
 
 import { bearer, createTestApp, signIn } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
@@ -166,6 +166,40 @@ describe('what the payload says, and what it withholds', () => {
     expect(body.data).toHaveLength(0)
     expect(body.notEvaluated.map((entry) => entry.retentionClass)).toContain('export_artifact')
     for (const entry of body.notEvaluated) expect(entry.approval).toBe(RETENTION_APPROVAL)
+  })
+
+  it('serves the reason verbatim, so the string is operator-visible and not decoration', () => {
+    // Written because the coupling did not exist, and its absence had a cost.
+    //
+    // `RETENTION_NOT_EVALUATED[0].reason` is the sentence the `/retention`
+    // screen prints beside a class it does not sweep. It said that nothing in
+    // this repository had ever written an `ExportArtifact` row — true when it
+    // was written, false a few commits later when the export register landed
+    // and both CSV routes began recording one. It was wrong in front of
+    // operators for as long as it took somebody to read it against the code,
+    // and no test anywhere connected the string to a reader: the web test mocks
+    // the API and hardcodes its own fixture, and the API cases asserted
+    // `retentionClass` and `approval` and never looked at `reason`.
+    //
+    // This is that connection. It does not judge the wording — a test that
+    // restated the sentence would just be the same claim written twice — it
+    // asserts that whatever the shared vocabulary says is exactly what the
+    // route serves, so there is one place to correct rather than two.
+    const [source] = RETENTION_NOT_EVALUATED
+
+    expect(typeof source.reason).toBe('string')
+    expect(source.reason.length).toBeGreaterThan(80)
+    // The one thing it may not say again.
+    expect(source.reason).not.toMatch(/has ever written an ExportArtifact row/u)
+
+    return withSweeps([]).then((harness) =>
+      listSweeps(harness).then((response) => {
+        const [served] = response.json().notEvaluated
+
+        expect(served.retentionClass).toBe(source.retentionClass)
+        expect(served.reason).toBe(source.reason)
+      }),
+    )
   })
 
   it('distinguishes a refusal from a silence', async () => {

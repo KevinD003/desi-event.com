@@ -54,7 +54,12 @@ const NOT_EVALUATED = [
     retentionClass: 'export_artifact',
     proposedDays: 7,
     approval: RETENTION_APPROVAL,
-    reason: 'Nothing in this repository has ever written an ExportArtifact row.',
+    // Deliberately an independent literal and not the shared constant: this
+    // file tests *rendering*, and a fixture that imported the real string would
+    // assert that a value equals itself. It does have to stay true, though —
+    // this one was the old claim that the export register falsified, and a
+    // false sentence left lying in a fixture is a sentence somebody copies.
+    reason: 'The proposed seven days is a duration for export BYTES, and no bytes are kept.',
   },
 ]
 
@@ -130,7 +135,10 @@ describe('what a row shows', () => {
     await renderPage({ data: [sweep()], pagination: null, notEvaluated: NOT_EVALUATED })
 
     expect(screen.getByRole('heading', { name: 'Not evaluated' })).toBeInTheDocument()
-    expect(screen.getByText(/has ever written an ExportArtifact row/i)).toBeInTheDocument()
+    // Whatever the reason says, it reaches the screen — that is the property.
+    // Matched on the fixture's own words rather than on the shared constant,
+    // for the reason given where the fixture is defined.
+    expect(screen.getByText(/duration for export BYTES/iu)).toBeInTheDocument()
   })
 })
 
