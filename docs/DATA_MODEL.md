@@ -242,6 +242,29 @@ narrower than "this is done":
 >
 > Four reads and five commands. The two original read routes are the first two
 > rows; the command and hold operations came with Phase 3's Phase 2.
+
+> **Update — 2026-09-21, after Phase 3's Phase 3 remainder.** Two sentences in
+> the block above have gone out of date, and they are corrected here rather than
+> rewritten, because the block is the record of what was observed on 2026-09-17.
+>
+> **"Nothing anywhere creates a `RetentionSweep` row, so the model is schema
+> only" is no longer true.** `apps/worker/src/processors/sweep-retention.js`
+> writes one row per evaluated class on every rehearsal, and writes a
+> `SKIPPED_DISABLED` row when enforcement is not activated, which is the
+> expected state everywhere today. What remains true is the sentence beside it,
+> and it is the one that matters: **no scheduled retention job deletes
+> anything.** There is no deletion path in this repository, the sweep issues
+> `count` queries and nothing else, and
+> `retention_sweep_dry_run_changes_nothing` refuses to record a rehearsal that
+> claims otherwise.
+>
+> **"Nine operations" is now ten.** `GET /v1/organizations/:id/privacy/exports`
+> joined the privacy tag with the export register. Five reads and five commands,
+> counted the same way from `packages/api-contract/src/route-manifest.js`.
+>
+> **Every one of the ten remains constrained** exactly as the block says. The
+> export register read requires `privacy:redact` like the others and adds no
+> command.
 >
 > **Every one of the nine remains constrained** by the controls that were already
 > in place. All nine — the reads included — require `privacy:redact`, which is
@@ -379,6 +402,18 @@ policy — see `docs/PRIVACY_AND_RETENTION.md`.
 > a negative probe in `packages/db/scripts/verify-fresh-database.mjs` that expects
 > rejection and rolls back. The constraint above is real and enforced; it
 > constrains rows that nothing yet inserts.
+
+> **Update — 2026-09-21.** The last sentence of the block above is no longer
+> true. `apps/worker/src/processors/sweep-retention.js` inserts one row per
+> evaluated class, naming `mode: 'DRY_RUN'` explicitly — which is exactly what
+> the correction above says a writer would have to do, because the column has no
+> default. So the constraint now constrains rows that something does insert, and
+> `apps/worker/tests/retention-postgres.test.js` checks it against real
+> PostgreSQL rather than only against the negative probe.
+>
+> The point the original block was making survives intact: `DRY_RUN` is not a
+> column default, a writer must say what it is doing, and the database refuses a
+> rehearsal that claims to have changed something.
 
 ---
 

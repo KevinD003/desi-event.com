@@ -4,22 +4,22 @@
 Scopes B (export governance), C (dry-run retention) and D (documentation and
 runbooks) are **partially** implemented, with every gap named in §6B below.
 
-Three things this phase set out to do are **not** done and must not be read as
+Two things this phase set out to do are **not** done and must not be read as
 done:
 
-- **Browser and accessibility suites for the new screens.** Blocker 3 below: a
-  new browser job would imply a ninth required CI status context, and branch
-  protection pins eight with `bypass_actors: []`. Changing branch protection is
-  out of scope. Folding the privacy journeys into an existing browser job is the
-  remaining work.
 - **Everything the ten owner decisions in §4 block**, plus the four added in
   §6A. Those are decisions, not engineering, and the safe defaults remain
-  applied.
-- **The gaps in §6B.** Chief among them: nothing anywhere writes an
-  `ExportArtifactSubject` row, so the export-invalidation path cannot match in
-  production; the retention worker has no lease and no idempotency; there is no
-  real-Redis or real-PostgreSQL retention test; and six of the ten documents
-  this phase was to update were never touched.
+  applied. Decision 14 is now settled and recorded in `docs/DECISIONS.md`; see
+  §6E.
+- **Nothing links an export to a subject**, so the export-invalidation path
+  matches nothing in production. That is a finding rather than a gap — both
+  exports are aggregates and contain nobody — and it is now held down by a
+  repository-wide source scan rather than by a comment. §6E.
+
+Closed since, on the follow-up branch and recorded in §6E: the browser and
+accessibility coverage, the retention worker's idempotency and failure path,
+the real-Redis and real-PostgreSQL tests, and the seven documents §6B lists as
+never touched.
 
 Written against `main` at `650a1fda4749afdfdf90b483d13d8385549e1658`, which
 direct CI run `35304257349` proved green 8/8.
@@ -443,6 +443,120 @@ raised, no retry, sleep, serial mode, skip or quarantine added, no assertion
 relaxed, and nothing removed from the processor map. A guard test pins the
 count, and against the unfixed setup it reports `expected [ …(6) ] to have a
 length of 3 but got 6` — which is also the evidence for the diagnosis.
+
+## 6E. The remainder, on a follow-up branch — 2026-09-21
+
+§6B is the record of what the audit found missing on 2026-09-18 and is left as
+written. This section records what was done about it, on the branch
+`claude/phase3-retention-worker-export-governance` after PR #10 merged.
+
+### An arithmetic error in §1, corrected
+
+§1 said "six of the ten documents this phase was to update were never touched".
+§6B's own lists give three delivered and **seven** never touched, which is ten.
+Six was wrong by one, and it is recorded here rather than silently fixed because
+this repository has a `STATUS_READING_GUIDE.md` devoted to figures quoted from
+the wrong place. The §1 bullet has been rewritten; §6B has not.
+
+### Export governance
+
+- **The subject-link invariant is now an invariant.** It was a claim about one
+  function: a test that called `recordExport` twice and checked a stub. It is
+  now a source scan over every shipped file in the repository, covering three
+  doors — the model accessor, a nested write through the `subjects` relation,
+  and raw SQL — with comments blanked first, because two modules explain the
+  rule in prose and a scan that cannot tell an explanation from a write teaches
+  people to stop explaining. Two guards on the guard: it asserts it read more
+  than two hundred files, and it fails when a workspace exists on disk that the
+  root list does not name.
+- **The analytics export now has the body-level test finance always had.** A
+  column allow list proves no column is _called_ `buyerEmail`; it proves nothing
+  about what is in `Item`, which is free text from whatever the breakdowns group
+  by. Verified by routing the fixture's buyer name into that column.
+- **Two dead filters on the export register.** The form was written for the
+  request queue and hard-coded both its action and its state vocabulary, so
+  Apply navigated the operator to a different screen and offered states no
+  export artefact can be in. Fixing the action exposed a second defect behind
+  the first: the register also filters by `kind`, which the form has no control
+  for, so a corrected Apply would have silently cleared it.
+- **The register now shows who asked.** Its own documentation said it answers
+  "who pulled an export, and when", which was true of the API and false of the
+  screen. An account id and not a name: resolving it would mean the export
+  register read a `User` row, acquiring personal data about staff in order to
+  record that it holds none about anybody else.
+- **`EXPORT_GOVERNANCE.md` was deliberately not created.** §5B of
+  `PRIVACY_AND_RETENTION.md` already is that document, and
+  `apps/api/src/lib/export-register.js` carries the same reasoning at the point
+  of change. A third file could only duplicate §5B or split the export story in
+  two — and a file that exists gets cited as the authority.
+
+### Retention worker
+
+- **No lease, decided rather than deferred.** Recorded in the schema's doc
+  comments, the processor's header and `docs/DECISIONS.md`. The columns stay
+  unwritten; dropping them costs a migration and takes a constraint and an index
+  with it for no gain.
+- **Idempotency without a migration.** `RetentionSweep.id` is
+  `@id @default(cuid())`, and a Prisma default applies only when the writer
+  omits the value — so supplying a derived id turns the primary key into the
+  unique constraint this needed. The id namespaces the _kind of evidence_, not
+  just the run: keying on (instant, class) alone collapses a run that declined
+  and a run that counted into one row, first writer wins, and the screen then
+  reports `ALL_DECLINED` about a run that examined rows.
+- **A failure now leaves evidence, per class, and does not abort the run.**
+  Aborting would leave the remaining classes with no row, which renders with the
+  same words as "never rehearsed" — a fourth ambiguity on a surface built to
+  remove three.
+- **A real defect the Redis test found.** The refusal for an unevaluated class
+  threw a plain `Error`, so BullMQ scheduled a second attempt behind a
+  thirty-second backoff against a payload that can never succeed. It is a
+  `PermanentJobError` now.
+- **Real Redis and real PostgreSQL tests**, the former in its own file with one
+  worker — the existing suite's worker count is pinned by a guard because
+  adding workers is what caused the CI failure in §6D.
+- **No per-sweep detail route.** Everything it would show is already on the list
+  row; the two fields that looked like new content are compile-time constants
+  the browser already imports. What was worth building from that plan was the
+  rollup: the most recent run per class, computed without the caller's filters,
+  because a paginated filtered list cannot distinguish "last swept four pages
+  ago" from "never swept". It is an **optional** response field, because making
+  a new field required on a live response schema is a breaking change to it.
+
+### Browser and accessibility
+
+The hazard §6B records — that `playwright.config.js` matches `**/*.spec.js` and
+would run a new privacy spec in a job with no API — is avoided by the file's
+name. `detail-privacy.spec.js` is collected by the detail config and ignored by
+the default one, both through globs that already exist. **No ninth CI context,
+no new matrix entry, and no renamed job**, which matters because the required
+status contexts are the rendered job names.
+
+Nine sweep cases across three screens at three widths, plus two structural cases
+axe cannot make: a table's accessible name and its header scopes (axe requires
+neither, so deleting both leaves a clean scan), and the reflow container. Ten
+authorization journeys in the new detail spec. Sweep 44 → 53, detail 27 → 37.
+
+`/retention` needed a platform reader in the seed, because `retention:view` is
+in `PLATFORM_ONLY_CAPABILITIES` and no organisation role can reach it.
+
+### Documentation
+
+All seven documents §6B lists as never touched are now correct, except
+`EXPORT_GOVERNANCE.md`, which is deliberately not created. Four of them carried
+claims this phase had made false:
+
+| Document          | What was false                                                               |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `DATA_MODEL.md`   | "Nothing anywhere creates a `RetentionSweep` row" — twice                    |
+| `SECURITY.md`     | "37 capabilities", "the five platform-only capabilities" — both under by one |
+| `api.md`          | "118 operations across 18 tags"; `privacy` had no row; `holds` stale         |
+| `architecture.md` | "four BullMQ queues", "one `Worker` per queue" — five queues, one per job    |
+| `UX.md`           | "no such screen exists: … a data erasure request" — five of them do          |
+
+Every dated block in those documents is left standing with a dated note
+appended, which is this repository's house rule for a record.
+
+---
 
 ## 7. What is explicitly not claimed
 

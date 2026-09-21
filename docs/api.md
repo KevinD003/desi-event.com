@@ -219,23 +219,35 @@ rather than per cluster.
 
 ## Endpoints
 
-**118 operations across 18 tags.** This page describes the ones whose behaviour
+**129 operations across 19 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
 validates with, and CI fails on a difference.
 
-| Tag            | Ops | Tag          | Ops |
-| -------------- | --- | ------------ | --- |
-| `events`       | 23  | `finance`    | 10  |
-| `auth`         | 18  | `tickets`    | 8   |
-| `venues`       | 12  | `refunds`    | 7   |
-| `operations`   | 11  | `teams`      | 6   |
-| `ticket-types` | 5   | `organizers` | 4   |
-| `orders`       | 3   | `holds`      | 2   |
-| `sessions`     | 2   | `webhooks`   | 2   |
-| `analytics`    | 2   | `payments`   | 1   |
-| `health`       | 1   | `waitlist`   | 1   |
+| Tag          | Ops | Tag            | Ops |
+| ------------ | --- | -------------- | --- |
+| `events`     | 23  | `finance`      | 10  |
+| `auth`       | 18  | `privacy`      | 10  |
+| `venues`     | 12  | `tickets`      | 8   |
+| `operations` | 12  | `refunds`      | 7   |
+| `teams`      | 6   | `ticket-types` | 5   |
+| `organizers` | 4   | `holds`        | 3   |
+| `orders`     | 3   | `sessions`     | 2   |
+| `webhooks`   | 2   | `analytics`    | 2   |
+| `payments`   | 1   | `health`       | 1   |
+| `waitlist`   | 1   |                |     |
+
+> **Correction — 2026-09-21.** This table said "118 operations across 18 tags",
+> and three of its rows were wrong. `privacy` was a nineteenth tag with no row
+> at all; `operations` had gained the retention read; and `holds` was already
+> stale at 2 before any of this phase's work. The figures above are counted from
+> `apps/api/openapi.json`, which is regenerated from the contract and checked by
+> CI — so where this table and that file disagree, the file is right.
+>
+> The last row carries one tag and two empty cells rather than being balanced
+> by moving something, because nineteen does not divide into two columns and a
+> reordering to make it look tidy would break the descending-count reading.
 
 `Auth` is the mode described above.
 
@@ -533,6 +545,80 @@ same commands the ordinary path uses. A resolution the provider's answer does
 not support is refused: `CONFLICT` and `UNKNOWN` permit none.
 
 Full reasoning: `docs/RECONCILIATION_RUNBOOK.md`.
+
+### Privacy
+
+Ten operations under `/v1/organizations/:id/privacy`, and the striking thing
+about them is how little the authority varies: **every one of them requires
+`privacy:redact`**, including the five reads. Reading who has asked to be
+erased is not a lesser act than erasing them — the list of people who have
+asked is itself a list of people — so it is not a lesser permission.
+`privacy:redact` is granted to the organisation `OWNER` and to nobody else.
+
+| Method | Path                                    | Step-up           | Purpose                                    |
+| ------ | --------------------------------------- | ----------------- | ------------------------------------------ |
+| GET    | `…/privacy/requests`                    | —                 | The queue, newest first                    |
+| GET    | `…/privacy/requests/:requestId`         | —                 | One request, with the scope it would touch |
+| GET    | `…/privacy/requests/:requestId/events`  | —                 | Its immutable audit trail                  |
+| GET    | `…/privacy/holds`                       | —                 | What is holding people's data in place     |
+| GET    | `…/privacy/exports`                     | —                 | The export register                        |
+| POST   | `…/privacy/requests`                    | `PRIVACY_ERASURE` | Raise a request. Does not erase anything   |
+| POST   | `…/privacy/requests/:requestId/confirm` | `PRIVACY_ERASURE` | Perform the erasure                        |
+| POST   | `…/privacy/requests/:requestId/cancel`  | `PRIVACY_ERASURE` | Withdraw it                                |
+| POST   | `…/privacy/holds`                       | `PRIVACY_ERASURE` | Place a hold, naming the matter            |
+| POST   | `…/privacy/holds/:holdId/release`       | `PRIVACY_ERASURE` | Release one                                |
+
+**The five commands need a fresh second factor; the five reads do not.** That
+is the line the step-up policy draws — a step-up proves somebody is still at
+the keyboard, which is worth asking for before an irreversible act and is not
+worth asking for before a list.
+
+**Confirmation is not the same as step-up, and both are required.** Nothing
+consumes a step-up, so one would otherwise authorise every command inside its
+two-minute window. The confirmation is single-use and server-issued, which is
+what makes "they meant _this_ one" checkable.
+
+**The export register records that an export happened and never what was in
+it.** `storageKey` is reduced to a boolean on the way out, and there is no route
+that serves an export's bytes — every export is streamed to whoever asked and
+nothing is kept. `subjectCount` is 0 for every artefact this system produces,
+because both exports are aggregates; `docs/PRIVACY_AND_RETENTION.md` §5B
+explains why that is a finding rather than an unimplemented feature.
+
+Full reasoning: `docs/PRIVACY_AND_RETENTION.md`.
+
+### Retention
+
+One operation, and it is a `GET`.
+
+| Method | Path                              | Auth             | Purpose                                       |
+| ------ | --------------------------------- | ---------------- | --------------------------------------------- |
+| GET    | `/v1/operations/retention/sweeps` | `retention:view` | What a rehearsal counted, and changed nothing |
+
+Tagged `operations` rather than `privacy`, because it is platform-wide:
+`RetentionSweep` has no `organizationId`, and `retention:view` is in
+`PLATFORM_ONLY_CAPABILITIES`, so no organisation role reaches it however senior.
+
+**There is no route that starts a sweep, and that absence is the design.** The
+API holds no queue client — nothing in `apps/api` enqueues a BullMQ job — so
+adding one to gain a "run it now" button would mean the one surface reachable
+from a browser had acquired the ability to start a job whose durations nobody
+has approved. A rehearsal is enqueued against the worker by somebody with
+access to it.
+
+**Every duration in the response carries
+`PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`, per row rather than once in a
+heading**, so a figure copied into a ticket brings its status with it. The
+response also carries `notEvaluated`, naming classes the policy lists that no
+rehearsal covers and why, and an optional `summary` giving the most recent run
+per class regardless of the filters — because a paginated, filtered list cannot
+distinguish "this class was last swept four pages ago" from "this class has
+never been swept".
+
+`leaseOwner` is dropped on the way out: it names a worker process, which is
+infrastructure a reader cannot act on and an attacker would rather have.
+
+Full reasoning: `docs/RETENTION_RUNBOOK.md`.
 
 ### Waitlist
 

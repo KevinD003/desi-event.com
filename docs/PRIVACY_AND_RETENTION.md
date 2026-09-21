@@ -89,6 +89,41 @@ ONLY`", is no longer the whole story: the privacy surface is now nine
 > No compliance claim is made here for GDPR, CCPA/CPRA, PCI DSS, HIPAA or any
 > other regime.
 
+> **Update — 2026-09-21, after Phase 3's Phase 3 remainder.** Three of the
+> bullets above have gone out of date. They are corrected here rather than
+> rewritten, because the block is the record of what was true when it was
+> written, and this document's own house rule is that a dated record gets a
+> dated correction.
+>
+> **"Not implemented: any privacy user interface" is no longer true.** Five
+> screens exist: the request queue, a request's detail, holds, the export
+> register and the retention rehearsal log. All of them are read-only except
+> the request and hold commands, and none of them can start a retention sweep
+> or activate enforcement — see §5C.
+>
+> **"Not implemented: export governance" is half true and the half that changed
+> is the important one.** `recordExport` writes an `ExportArtifact` row, called
+> from both CSV routes before the body is returned, and
+> `invalidateExportsForSubject` runs inside the redaction transaction. What is
+> still absent is the _subject link_: no export links a person, because both
+> exports are aggregates — so invalidation matches nothing today, and a source
+> scan in `apps/api/tests/export-register.test.js` asserts that nothing shipped
+> in this repository writes an `ExportArtifactSubject` row. That absence is a
+> finding rather than a gap, and §5B says why at length.
+>
+> **"Not implemented: retention execution. Nothing anywhere creates a
+> `RetentionSweep` row" is no longer true.** The worker writes one row per
+> evaluated class. What the bullet was protecting is intact and is worth
+> restating in the narrower form: **nothing is scheduled and nothing deletes.**
+> There is no deletion path anywhere in this repository, the API holds no queue
+> client so no browser can start a sweep, no repeatable job exists and a test
+> asserts the scheduler never mentions the job.
+>
+> The three bullets that did **not** change are the three that matter most: the
+> durations remain `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`, historic
+> `AuditLog` rows remain unredactable, and **no personal data has been redacted
+> by this system outside test fixtures.**
+
 | Thing                                              | Status                                |
 | -------------------------------------------------- | ------------------------------------- |
 | `privacy:redact` capability, granted to OWNER only | `IMPLEMENTED`, `AUTOMATICALLY TESTED` |
@@ -370,6 +405,14 @@ a number lifted into a ticket or a screenshot brings `PROPOSED — REQUIRES
 LEGAL/PRIVACY REVIEW` with it.
 
 ### 5B. The export register — added 2026-09-18, Phase 3 / Phase 3
+
+**This section is the export-governance document.** A separate
+`docs/EXPORT_GOVERNANCE.md` was named in the Phase 3–3 brief and deliberately
+not created: it could only duplicate what is below or split the export story
+across two files, and in a repository that keeps a `STATUS_READING_GUIDE.md` to
+stop figures being quoted from the wrong place, a thin redirect is worse than no
+file — because a file that exists gets cited as the authority. The reasoning at
+the point of change is in `apps/api/src/lib/export-register.js`.
 
 §8 below says a downloaded export cannot be recalled. That is still true. What
 has changed is that the system now knows an export happened.
