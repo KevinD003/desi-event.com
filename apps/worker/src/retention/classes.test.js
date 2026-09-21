@@ -241,14 +241,35 @@ describe('what is not evaluated is said, not omitted', () => {
     expect(NOT_EVALUATED_CLASSES.map((entry) => entry.retentionClass)).toContain('export_artifact')
   })
 
-  it('explains why, in terms of writers rather than emptiness', () => {
-    // The distinction the reason has to carry: the table is empty because
-    // nothing writes it, not because nothing in it is old enough. Those are
-    // different findings and only one of them is about retention.
+  it('explains why in terms of bytes, which is what the duration is for', () => {
+    // The proposed seven days is a duration for export *bytes*. None are kept:
+    // every row is written ephemeral with a null storage key. So the table
+    // holds the record that an export happened, and sweeping it would delete
+    // evidence rather than a working copy.
     const [entry] = NOT_EVALUATED_CLASSES
 
-    expect(entry.reason).toMatch(/has ever written/iu)
-    expect(entry.reason).toMatch(/no writer exists/iu)
+    expect(entry.reason).toMatch(/bytes/iu)
+    expect(entry.reason).toMatch(/ephemeral|storage key/iu)
+    expect(entry.reason).toMatch(/evidence/iu)
+  })
+
+  it('no longer claims nothing writes the table, because something does', () => {
+    // This is a regression guard, not a restatement. Until the export register
+    // landed, the reason read "nothing in this repository has ever written an
+    // ExportArtifact row, so the table is empty by construction" — and that
+    // string rendered verbatim on the /retention screen. Both CSV export routes
+    // now call recordExport, so it became false while still being shown to
+    // operators. The conclusion survived the change; the reason did not.
+    //
+    // A reason that is merely out of date is worse here than no reason at all:
+    // it is the sentence an operator uses to decide whether the zero in front
+    // of them means "nothing to do" or "nobody looked".
+    const [entry] = NOT_EVALUATED_CLASSES
+
+    expect(entry.reason).not.toMatch(/has ever written/iu)
+    expect(entry.reason).not.toMatch(/no writer exists/iu)
+    expect(entry.reason).not.toMatch(/empty by construction/iu)
+    expect(entry.reason).not.toMatch(/registers? nothing/iu)
   })
 })
 

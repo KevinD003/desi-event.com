@@ -37,13 +37,19 @@
  *
  * ## What is deliberately absent
  *
- * `export_artifact`. Nothing in the repository has ever written an
- * `ExportArtifact` row — both export routes stream CSV straight to the caller
- * and register nothing — so a sweep over that table would report an emptiness
- * meaning "no writer exists" rather than "nothing is old enough". Reporting
- * that as a retention finding would be a vacuous measurement, which is a
- * mistake this project has already made once and corrected. The class is listed
- * as `NOT_EVALUATED` instead.
+ * `export_artifact`, and the reason changed under it. Until the export register
+ * landed, nothing had ever written an `ExportArtifact` row and a sweep would
+ * have reported an emptiness meaning "no writer exists". Both CSV routes now
+ * record one, so that reason is no longer true — but the conclusion is, for a
+ * better reason.
+ *
+ * The proposed seven days is a duration for export **bytes**. No bytes are
+ * kept: `recordExport` writes every row with `ephemeral: true` and a null
+ * `storageKey`, because each export is streamed to whoever asked and nothing is
+ * stored. So the table holds the record *that* an export happened, and a sweep
+ * over it would delete the answer to "was an export taken, by whom, when" —
+ * evidence the privacy surface exists to keep, not a working copy anybody could
+ * regenerate. The class stays `NOT_EVALUATED`.
  *
  * @module worker/retention/classes
  */

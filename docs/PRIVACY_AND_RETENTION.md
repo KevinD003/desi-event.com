@@ -341,10 +341,21 @@ The table above proposes different durations for a session row (30 days) and for
 the security metadata on it (90 days), and the two expire on different clocks;
 folding them into one class would sweep one of them on the wrong proposal.
 
-`export_artifact` is reported **NOT EVALUATED** rather than swept. Nothing in the
-repository has ever written an `ExportArtifact` row for bytes, so a count there
-would report an emptiness meaning "no writer exists" while reading as "nothing is
-old enough". Those are different findings and only one is about retention.
+`export_artifact` is reported **NOT EVALUATED** rather than swept. The proposed
+seven days is a duration for export **bytes**, and no bytes are kept: both CSV
+routes stream to the caller and record the artefact with `ephemeral: true` and a
+null `storageKey`. The table holds the record _that_ an export happened, and
+sweeping it would delete evidence rather than a working copy.
+
+> **Correction — 2026-09-21.** This paragraph originally read "Nothing in the
+> repository has ever written an `ExportArtifact` row for bytes, so a count
+> there would report an emptiness meaning 'no writer exists'". That was written
+> in the same pull request that added the export register, and the register
+> falsified it immediately — §5B above describes both CSV routes writing a row.
+> The conclusion is unchanged and the reason is replaced. Recorded rather than
+> silently swapped because the same sentence had been copied into
+> `packages/schemas/src/retention.js`, where it rendered verbatim on the
+> `/retention` operator screen until 2026-09-21.
 
 #### Reading a rehearsal
 

@@ -86,7 +86,7 @@ export const RETENTION_NOT_EVALUATED = Object.freeze([
     proposedDays: 7,
     approval: RETENTION_APPROVAL,
     reason:
-      'Nothing in this repository has ever written an ExportArtifact row, so the table is empty by construction. A count over it would report "no writer exists" while looking like "nothing is old enough".',
+      'The proposed seven days is a duration for export BYTES, and no bytes are kept: both CSV routes stream to the caller and record the artefact with ephemeral true and no storage key. What the table holds is the record that an export happened, which is evidence the privacy surface exists to keep — sweeping it would delete the answer to "was an export taken", not a working copy anybody could regenerate.',
   }),
 ])
 

@@ -160,6 +160,25 @@ deleted:
   over it would report a zero that means "no writer exists", not "nothing is old
   enough". Reporting that zero as a retention finding would be the vacuous
   measurement this project has already been bitten by once.
+
+  > **Correction — 2026-09-21.** The bullet above is left as written because it
+  > is the record of what was true when §3 was observed. It stopped being true
+  > later in the same phase: Scope B added the export register, and both CSV
+  > routes now call `recordExport`. The class is still `NOT EVALUATED`, and the
+  > reason is now that the proposed seven days is a duration for export **bytes**
+  > while no bytes are kept — every row is written `ephemeral: true` with a null
+  > `storageKey`, so the table holds the record that an export happened, and
+  > sweeping it would delete evidence rather than a working copy.
+  >
+  > This mattered beyond the report. The same sentence had been copied into
+  > `packages/schemas/src/retention.js` as the `reason` field, which the
+  > `/retention` screen renders verbatim, so operators were shown a false
+  > explanation for a correct conclusion. Corrected there, in
+  > `apps/worker/src/retention/classes.js`, in `PRIVACY_AND_RETENTION.md` §5A and
+  > in `RETENTION_RUNBOOK.md`, with a regression guard in
+  > `apps/worker/src/retention/classes.test.js` asserting the reason no longer
+  > claims nothing writes the table.
+
 - **A known gap inside `notification_recipient`.** Pre-fix `NotificationOutbox`
   rows carry a null `organizationId` and are therefore unreachable by any
   organisation-scoped sweep. The candidate query above excludes them explicitly
