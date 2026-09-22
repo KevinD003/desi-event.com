@@ -644,3 +644,36 @@ at than a laptop.
 The language policy applies unchanged: Expo, JSX, no TypeScript. Anything
 native that React Native genuinely cannot reach — a Kotlin or Swift module —
 needs an entry in `docs/language-exceptions.json` before it merges.
+
+## Where the simulated connected-account lifecycle lives — 2026-09-22
+
+Four layers, and the split is the usual one with one addition worth naming.
+
+`packages/schemas/src/connect.js` is the vocabulary: states, actions, the
+transition table, the derivation of the capability flags, the per-state
+disclaimers and the forbidden-phrase list. It holds no Prisma, no model name and
+no query, because a module holding both the words and the writer is one bad edit
+away from being able to mutate an account. It is reachable as the subpath
+`@desi-event/schemas/connect`, and the web side imports it that way rather than
+through the barrel — the barrel re-exports `entities.js`, `requests.js` and
+`responses.js`, so importing it from anything a client component reaches would
+ship every model's column names to the browser.
+
+`apps/api/src/lib/connect.js` is the lifecycle: the create-only start, the
+compare-and-set advance, the presenter and the audit writer. Everything that
+decides anything is here rather than in a handler, because a handler is where
+somebody adds a second copy of a rule.
+
+`apps/api/src/routes/connect.js` is thin, and what it owns is the boundary: the
+mock-mode guard runs first in both routes and needs `app.payments` and the
+provider registry, which is why it is there rather than in the library.
+
+`apps/web/src/app/finance/connect/` is the screen, split server/client the way
+the privacy screens are — the server component reads and renders, the client
+component confirms and posts.
+
+The compare-and-set itself is not new machinery. `transition()` in
+`apps/api/src/lib/payouts.js` already had the right shape for the three payout
+machines; it gained a `column` parameter so the same function can drive
+`onboardingStatus`, and the twelve existing call sites pass exactly what they
+passed before.

@@ -424,3 +424,57 @@ strips unknown keys, and the generated route manifest carries a path, a method
 and two booleans. A field name in this document is a server contract, and
 `scripts/scan-browser-bundle.mjs` asserts that the shipped bundle does not
 contain the ones the browser has no need for.
+
+## `ConnectedAccount`, as first populated — 2026-09-22
+
+Until 2026-09-22 this table held no rows in any environment. The simulated
+payout-setup surface writes the first ones, and what it writes is constrained
+more tightly than the schema is:
+
+- `organizationId` is `@unique`, so there is one row per organisation and two
+  concurrent first-starts collapse at the database rather than in application
+  logic. `apps/api/tests/helpers/prisma-stub.js` now models this; before this
+  change it did not, so a unit test asserting the collapse would have passed
+  against a stub that stored two rows.
+- `providerMode` is written `'mock'` **explicitly**, never left to the column
+  default. The default is `"test"`, which reads as a real provider's test
+  mode — an account that exists somewhere with a dashboard behind it — so a
+  writer that merely omitted the field would produce exactly the row this
+  surface must never produce.
+- `provider` is `'in-memory-payments'`, matching the convention `Payment.provider`
+  already uses, which also keeps the simulated row out of a real provider's
+  `@@unique([provider, providerAccountId])` namespace.
+- `providerAccountId` is `mockacct_` followed by a digest of the organisation
+  id. Derived rather than random so that a replayed create computes the same
+  value and a `P2002` is unambiguously "this organisation already has one", and
+  prefixed so it cannot be mistaken for a Stripe account id.
+- `defaultCurrency` is **NULL**, and that is load-bearing rather than lazy — see
+  `docs/PAYMENTS.md`.
+- `chargesEnabled` and `payoutsEnabled` are derived from `onboardingStatus` on
+  every write, never set independently. `COMPLETE` implies both; every other
+  state implies neither.
+- `requirementsDue` holds a count's worth of placeholder and never a real
+  requirement string, because a list of outstanding requirements is a list of
+  things a real provider would want to know about a real person.
+
+`onboardingStatus` uses the existing `ConnectOnboardingStatus` enum unchanged. A
+parallel `MOCK_*` vocabulary was considered and rejected: it would need a
+migration to store and a mapping back to the real one to read, which is two
+vocabularies for one column.
+
+### `desi_payout_currency_matches`, repaired
+
+The trigger installed by `20260916130000_commerce_services` read a column called
+`"payoutCurrency"` from `"ConnectedAccount"`. No such column exists — the
+account's currency is `"defaultCurrency"` — and plpgsql plans a function body at
+execution rather than at creation, so the migration applied cleanly and the
+mistake waited in the schema until a payout fired it.
+
+The effect was worse than a guard that failed open. The bad `SELECT` sits after
+the early return for a payout with no connected account, so a payout without one
+was accepted having skipped the lookup, and a payout naming **any** connected
+account was refused outright with SQLSTATE 42703 whatever its currency. The
+comparison the trigger exists to make had never run once.
+`20260921090000_payout_currency_trigger_repair` corrects the column name and
+changes nothing else. No backfill is needed, because no row naming a connected
+account could ever have been written while the broken body was installed.

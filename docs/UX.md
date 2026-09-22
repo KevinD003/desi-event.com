@@ -274,3 +274,67 @@ gained a field.
 
 Automated scanning at AA is a floor. It is what has been done, and it is not the
 same as a page being good to use.
+
+## The payout-setup screen — 2026-09-22
+
+`/finance/connect`. One `h1`, "Payout setup", and a standing notice directly
+under it saying that everything on the page is simulated, that no payment
+provider has been contacted, that no account exists at one, and that there is no
+setup link to follow because in this mode there is nowhere for one to lead.
+
+### Degrading rather than throwing
+
+The heading renders **outside** the try and the gated read inside it, so a
+lapsed step-up window produces a page with its heading, its notice and a refusal
+in the body — never a thrown page. That is what `/finance` already does, which is
+why `/finance` survives the accessibility sweep whatever the session's age, and
+it is what lets a Connect case sit anywhere in the sweep file at any runner
+speed without step-up machinery in the spec.
+
+The sweep asserts the heading **by name** rather than a bare `level: 1`, because
+a bare assertion would pass against the degraded page and call an unscanned
+screen clean.
+
+### Wording
+
+No state name is ever rendered raw. `COMPLETE` becomes "Final simulated step
+reached", because "complete" is what an organiser reads as "I am done and can be
+paid". Every state carries the sentence saying what it does not mean. The two
+derived capability flags render as "Simulated as available" or "Not simulated",
+never as enabled.
+
+Eight phrases are forbidden outright and checked by machine rather than by
+care — `Stripe verified`, `provider verified`, `KYC complete`, `payouts enabled`,
+`live account`, `live onboarding`, `real onboarding link`, `real account
+created`. The check runs over the vocabulary in a unit test, over every API
+response in the API suite, over every string the client component can render in
+its own test, and over the whole rendered body in the browser.
+
+### Interaction
+
+Each action is a button and never a link, because each is a POST. Each is
+confirmed before it fires, and the last step has its own wording because it is
+terminal. Focus moves into the confirmation panel when it opens and returns to
+the exact trigger when it is dismissed — restored by effect against a live node,
+never against one captured on the way in, because opening the panel unmounts the
+triggers and focusing a detached node silently does nothing.
+
+There is no page-level loading state, and that is a fact about this application
+rather than an omission: every screen is `force-dynamic` and server-rendered, the
+shared `Loading` component is dead code, and there is no `loading.jsx` or
+`Suspense` anywhere. The pending state is the button's own disabled-and-busy
+label, and the outcome is announced through a polite live region.
+
+### What the sweep found
+
+`scrollable-region-focusable`, serious, on the first run. Every other scrolling
+table in this product has links or buttons in its cells, so a keyboard user
+reaches the scroll by tabbing into the content; this table is entirely static
+text, which left the container unreachable — at 320px the second column sits
+off-screen with no way to bring it into view without a pointer. It is now
+focusable and named.
+
+The target-size case (WCAG 2.2, 2.5.8) moved to this screen, because it is the
+one introducing new buttons and axe runs the 2.1 tag set, which does not contain
+that criterion. The focus-ring case now runs over this screen as well as the
+event list, for the same reason.

@@ -769,3 +769,123 @@ would be to re-apply the gate to the override rather than replace the result
 with it — refuse when `paymentsOverride.mode !== gated.mode`, refuse an override
 carrying a `credentials` bag the gate did not produce, correct or delete the
 comment, and add the missing invariant to `payment-kill-switch.test.js`.
+
+## Mock-mode Connect foundation — as built, 2026-09-22
+
+The design section above was written first, critiqued adversarially, and
+corrected where the critique proved it wrong. This section records what was
+actually built, including the two places where building it changed the design
+again.
+
+### What exists now
+
+| Thing                                                                        | Where                                                                               |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| The vocabulary: states, actions, transitions, disclaimers, forbidden phrases | `packages/schemas/src/connect.js`, subpath `@desi-event/schemas/connect`            |
+| The lifecycle: create-only start, compare-and-set advance, presenter, audit  | `apps/api/src/lib/connect.js`                                                       |
+| The two routes                                                               | `apps/api/src/routes/connect.js`, contract at `packages/api-contract/src/routes.js` |
+| The organiser screen                                                         | `apps/web/src/app/finance/connect/page.jsx` and `connect-actions.jsx`               |
+| The trigger repair                                                           | `packages/db/prisma/migrations/20260921090000_payout_currency_trigger_repair/`      |
+
+Nothing above imports a payment SDK, names a provider host, reads a credential
+or opens a socket. `apps/api/tests/payment-kill-switch.test.js` holds that as a
+repository-wide property rather than a promise made in a comment, and this
+change widened it: the host scan now covers `connect.stripe.com`,
+`dashboard.stripe.com`, `js.stripe.com` and `files.stripe.com`, and the
+SDK-import check now matches `@stripe/stripe-js` and `@stripe/react-stripe-js`
+as well as the bare `stripe` specifier. Before that widening, a browser Stripe
+SDK import in a web component was caught by no guard at all.
+
+### What the wire carries, and what it does not
+
+`connect.status` returns exactly ten fields: `simulated` (always `true`,
+server-set, with no branch that omits it), `state`, `stateDescription`,
+`terminal`, `accountExists`, `simulatedChargesEnabled`,
+`simulatedPayoutsEnabled`, `detailsSubmitted`, `requirementsDueCount` and
+`updatedAt`.
+
+The absences are the specification. There is no `providerAccountId`, because a
+provider-shaped identifier in a payload is one in a log and it names nothing
+anyway. No `provider` or `providerMode`, which describe how this deployment is
+wired rather than anything an organiser can act on. No `defaultCurrency`, which
+a simulated row deliberately leaves null. No `country` and no `disabledReason`,
+both of which would have to be fabricated. `requirementsDue` is reduced to a
+count, because a list of outstanding requirements is a list of things a real
+provider would want to know about a real person.
+
+The two capability flags carry `simulated` in their names. They correspond to
+real columns, but a payload field called `payoutsEnabled` is one copy-and-paste
+from a screen reading "Payouts enabled", which is a claim about a real provider
+that nothing here is entitled to make.
+
+This is proved rather than asserted: the allow-list-presenter invariant at
+`apps/api/tests/security-regression.test.js` now covers the connect presenter,
+with the mint prefix, a requirement string and a currency added to its `NEVER`
+list. Adding `providerAccountId` back to the presenter fails it by name.
+
+### The two design changes that building it forced
+
+**Signing in _is_ a step-up.** `apps/api/src/lib/sessions.js:258` sets
+`mfaSatisfiedAt` when the sign-in presented a factor, and every account holding
+`connect:manage` is privileged enough to be required one. So "signed in but
+never stepped up" is not a state that exists, and the first two step-up tests
+written against this surface were wrong before they were right — they now move
+the clock instead. It also settles what the design worried about: a freshly
+signed-in organiser has a fresh window, so a refusal is not the screen's
+ordinary first state. It remains a state the screen has to be able to be in, and
+it is, by degrading rather than throwing.
+
+**The audit vocabulary belongs in `AUDIT_ACTIONS`.** The source scanner in
+`apps/api/tests/audit.test.js` caught the new writes, and was right to, but for
+the wrong reason: its pattern matched the tail of
+`CONNECT_AUDIT_ACTIONS.MOCK_STATE_ADVANCED` and demanded an
+`AUDIT_ACTIONS.MOCK_STATE_ADVANCED` that was never meant to exist. That is a
+scanner reporting a defect it invented, which costs as much attention as a real
+one. It now has a lookbehind, a companion scan covers the connect map by name,
+and `AUDIT_ACTIONS` carries four `CONNECT_MOCK_*` entries whose values come from
+the shared module rather than being spelled twice.
+
+### The accessibility defect the sweep found
+
+`scrollable-region-focusable`, serious, on the first run. Every other scrolling
+table in this product has links or buttons in its cells, so a keyboard user
+reaches the scroll by tabbing into the content. This screen's table is entirely
+static text, which left the container unreachable — at 320px the second column
+sits off-screen with no way to bring it into view without a pointer. It is now
+focusable and named. Reasoning would not have found it.
+
+### Coverage
+
+| Suite                                                            | What it proves                                                                                                                                                        |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/schemas/src/connect.test.js` (38)                      | The transition table, the derivations, and the wording — every disclaimer and refusal string checked against the forbidden-phrase list                                |
+| `apps/api/tests/connect.test.js` (30)                            | Capability, both step-up tiers, the closed action vocabulary, the payload absences by name, the audit metadata shape by name, and the mock-mode guard from both sides |
+| `apps/api/tests/connect-lifecycle-integration.test.js` (10)      | Real PostgreSQL: the unique constraint, the replay, two concurrent first-starts, two concurrent conflicting actions, and a real payout left unaffected                |
+| `apps/api/tests/payout-currency-trigger.test.js` (6)             | Real PostgreSQL: the repaired trigger, including a structural case naming the column                                                                                  |
+| `apps/web/src/app/finance/connect/connect-actions.test.jsx` (15) | Which buttons each state offers, the body's single field, focus restoration, and every string the screen can render                                                   |
+| `apps/web/e2e/detail-connect.spec.js` (11)                       | The screen in a browser: who may open it, what it says, the confirmation, and two states moved                                                                        |
+| `apps/web/e2e/accessibility-sweep.spec.js` (56 total)            | axe at three viewports, 200% zoom, focus rings, and 24px targets                                                                                                      |
+
+Each structural guard was falsified once with the bad design it exists to
+prevent: the upsert (replay regresses `COMPLETE` to `IN_PROGRESS`, and ends
+`DISABLED`'s terminality), the read-then-write (both concurrent actions succeed
+and the account passes through `DISABLED` and back out), the captured focus node
+(focus lands on the document body), the barrel import (the import-graph guard
+names the full chain), and a leaked `providerAccountId` (the presenter invariant
+names the value it found).
+
+### Still not true, and still not claimed
+
+```
+PAYMENT_MODE=MOCK
+Production payments disabled
+Real Stripe = EXTERNAL VERIFICATION PENDING
+Real Stripe Connect = EXTERNAL VERIFICATION PENDING
+```
+
+No Stripe account exists. No Stripe Connect account exists. No onboarding link,
+login link, account link or redirect was created. No webhook was sent, received,
+signed, verified or registered. No provider was polled or synchronised. No
+payout, transfer, charge, refund or balance operation happened. No credential
+was read. No KYC, KYB, AML, sanctions, tax or PCI position was established or
+checked. Nothing here was verified by anybody outside this repository.

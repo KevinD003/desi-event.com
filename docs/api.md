@@ -666,3 +666,39 @@ Adding an endpoint means adding a descriptor to
 `defineRoute(app, '<id>', …)`. The server's contract test asserts the two lists
 match, so an endpoint added to one and forgotten in the other fails the suite
 rather than 404ing in production.
+
+## The simulated connected-account routes — 2026-09-22
+
+| Route            | Method | Path                                  | Capability                      | Step-up        |
+| ---------------- | ------ | ------------------------------------- | ------------------------------- | -------------- |
+| `connect.status` | GET    | `/v1/organizations/:id/connect`       | `connect:manage` on `params.id` | `FINANCE_VIEW` |
+| `connect.start`  | POST   | `/v1/organizations/:id/connect/start` | `connect:manage` on `params.id` | `PAYOUT`       |
+
+Both are tagged `finance`, and the tag is load-bearing rather than cosmetic:
+`MONEY_TAGS` in `apps/api/tests/security-regression.test.js` drives the invariant
+that every money route declares a step-up. A new `connect` tag would have placed
+a money-adjacent surface outside that invariant without anybody deciding it.
+
+Both declare `API_ERRORS.stepUpRequired` rather than `API_ERRORS.forbidden`,
+because a route may document each status only once and both are 403 — the
+contract validator rejects the pair with `DUPLICATE_ERROR_STATUS`.
+
+`connect.start` takes one body field, `action`, from the closed vocabulary
+`START`, `SIMULATE_REQUIREMENTS`, `SIMULATE_READY`, `SIMULATE_DISABLE`. There is
+no `state` field, so a caller cannot name a destination: the server reads the
+row, looks the pair up in a fixed table and refuses anything absent from it. The
+vocabulary does map one-to-one onto destination states, so what holds the line is
+that _legality_ is decided server-side from the row, not the spelling of the
+field.
+
+`START` is create-only and idempotent — a replay returns the existing row
+unchanged rather than walking a later state backwards. Every other action is a
+compare-and-set against the state it was read in and answers 409 when it loses.
+
+`connect.status` answers `NOT_STARTED` for an organisation with no row rather
+than 404, because "nothing has been simulated yet" is the answer. Its payload is
+a ten-field allow list; see `docs/STRIPE_CONNECT.md` for what is deliberately
+absent and why.
+
+Both refuse with `NOT_MOCK_MODE` unless the deployment is running the in-memory
+mock. Neither contacts a payment provider in any mode.

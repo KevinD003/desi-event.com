@@ -387,3 +387,65 @@ No compliance claim is made for GDPR, CCPA/CPRA, PCI DSS, HIPAA or any other
 regime. Retention durations are `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`. A
 data subject cannot truthfully be told their erasure is complete while historic
 immutable audit rows stand.
+
+---
+
+## Reading the simulated connected-account surface — 2026-09-22
+
+A payout-setup screen exists at `/finance/connect`, and two API routes back it.
+This section exists because the words on that screen are borrowed from a real
+payment product, and somebody skimming this repository could reasonably
+misread what shipped.
+
+### What is true
+
+A state machine over a database row, with five states, four actions and seven
+legal moves. An organiser can advance it, the server decides whether each move
+is legal, and every move and refusal is recorded as evidence. It is covered by
+110 tests across six suites, including real-PostgreSQL cases for the unique
+constraint and for two kinds of concurrency.
+
+A defect in `desi_payout_currency_matches` is repaired. It had never once run its
+comparison: installed reading a column that does not exist, it accepted every
+payout with no connected account and refused every payout naming one, whatever
+the currency.
+
+### What is not true, and is not claimed anywhere
+
+```
+PAYMENT_MODE=MOCK
+Production payments disabled
+Real Stripe = EXTERNAL VERIFICATION PENDING
+Real Stripe Connect = EXTERNAL VERIFICATION PENDING
+```
+
+No Stripe account exists. No Stripe Connect account exists. No onboarding link,
+login link, account link or redirect was created. No webhook was sent, received,
+signed, verified or registered. No provider was contacted, polled or
+synchronised. No payout, transfer, charge, refund or balance operation happened.
+No credential was read. No KYC, KYB, AML, sanctions, tax or PCI position was
+established or checked.
+
+A row reaching the state this surface calls "final" means a simulation reached
+its last step. It does not mean an account was verified, that payments can be
+accepted, or that money can move. Nothing on the payout path reads the
+capability flags that state sets.
+
+### How to tell, from the outside
+
+- Every state on the screen is rendered with a mock-qualified label and the
+  sentence saying what it does not mean. The raw enum never reaches a screen.
+- Eight phrases are forbidden by machine across the vocabulary, every API
+  response, every string the client can render, and the whole rendered body.
+- Both routes refuse unless the deployment is running the in-memory mock.
+- The repository-wide guards refuse a Stripe SDK import (including the two
+  browser packages), a Stripe host including `connect.stripe.com`, and the
+  schemas barrel reaching a client component.
+
+### Still outstanding, and still an owner's
+
+Whether a connected account should gate real payout eligibility; whether
+`paymentsOverride` should re-apply the boot gate; and every external question
+that has always been outstanding — credentials, jurisdictions, account type,
+eligibility, KYC/KYB, tax, sanctions, dispute and refund obligations, webhook
+and incident ownership, and legal review.
