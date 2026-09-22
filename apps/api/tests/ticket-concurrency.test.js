@@ -763,6 +763,39 @@ when()('ownership after a handover', () => {
 
     expect(recipientWallet).toHaveLength(1)
     expect(recipientWallet[0].id).toBe(minted[0].id)
+
+    // The settlement property, asked of the line the race ran on.
+    //
+    // This is the shape that broke the reliability check: the winner mints onto
+    // the buyer's own order item, so the line legitimately holds more rows than
+    // it sold. What must stay true is not the row count but the count of
+    // *current* chains — tickets on this line with no successor on this line —
+    // and of usable passes. One of each, for one sold, however the race went.
+    //
+    // Counted here rather than by calling `checkInvariants`, which asks the
+    // whole database: `settlement-invariants.test.js` is what proves the query
+    // right, and a database-wide assertion in this file would answer for rows
+    // that a concurrently running suite owns. What this case has to establish is
+    // that a raced accept leaves one current chain, and that is a question about
+    // this line.
+    const onTheLine = await prisma.ticket.findMany({
+      where: { orderItemId: world.orderItem.id },
+      select: { id: true, supersedesTicketId: true, credentialHash: true },
+    })
+
+    const superseded = new Set(onTheLine.map((row) => row.supersedesTicketId).filter(Boolean))
+    const current = onTheLine.filter((row) => !superseded.has(row.id))
+    const usable = onTheLine.filter((row) => row.credentialHash !== null)
+
+    expect(onTheLine.length, 'the predecessor is kept, so the lineage is auditable').toBe(2)
+    expect(
+      current.map((row) => row.id),
+      'one current chain for one sold',
+    ).toEqual([minted[0].id])
+    expect(
+      usable.map((row) => row.id),
+      'one way in for one sold',
+    ).toEqual([minted[0].id])
   })
 
   it('does not let a declined invitation move ownership', async () => {
