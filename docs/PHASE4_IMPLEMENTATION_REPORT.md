@@ -985,7 +985,7 @@ _Reliability smoke test_:
 | 12  | Second correction, `2e22e15b917d49134ecfbb94ce43db9c34b6b47c`: three checks rather than one, and failure messages that name the offending rows.                                                                   |
 | 13  | A fourteen-case suite written against real PostgreSQL. Three defects in the **test harness** were found and fixed before it could be trusted — recorded below, because each would have read as a product failure. |
 | 14  | Mutation testing across five mutations. One mutation survived the suite; case 8b was added to catch it, and only then did every clause have a case that isolates it.                                              |
-| 15  | Exact-SHA CI run **35776856187** on `2e22e15`.                                                                                                                                                                    |
+| 15  | Exact-SHA CI run **35776856187** on `2e22e15`: **all eight jobs green, attempt 1**, step 27 included.                                                                                                             |
 
 #### What the old invariant was for, and what it got wrong
 
@@ -1281,6 +1281,76 @@ _Reliability smoke test_ among them — the step that failed on `0532905` — fr
 failure artefacts_ and the seven _Upload Playwright artefacts_, which are
 `if: failure()` uploads. **Nothing was silently unrun:** a skipped upload is an
 upload that had nothing to upload, and is not a skipped test.
+
+#### Exact-SHA CI, the second correction
+
+**Run 35776856187, `2e22e15b917d49134ecfbb94ce43db9c34b6b47c`,
+`workflow_dispatch`, attempt 1: SUCCESS.** All eight jobs green, 8m 07s.
+
+| Job                                      | Result  | The step that matters                                               |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------- |
+| Policy, lint, contract, tests, build     | success | step 27 _Reliability smoke test_ — **success**, 20:00:54 → 20:01:29 |
+| Browser — public catalogue               | success |                                                                     |
+| Browser — production build               | success |                                                                     |
+| Browser — event lifecycle                | success |                                                                     |
+| Browser — organiser venue maps           | success |                                                                     |
+| Browser — refusals                       | success |                                                                     |
+| Browser — accessibility sweep            | success |                                                                     |
+| Browser — commerce and operations detail | success |                                                                     |
+
+All 27 substantive steps of the main job reported `success`, in order, with no
+cancellation and no step left unrun. Step 16 _Test_ passed; step 17 _Refuse an
+undeclared skipped test_ passed against the reports that step wrote; step 18
+_Coverage thresholds_ passed; step 26 _Production payments are unreachable_
+passed; and step 27, the step that failed on `0532905`, passed.
+
+The only steps whose conclusion is `skipped` are step 28 _Upload failure
+artefacts_ and the seven per-job _Upload Playwright artefacts_. Every one is an
+`if: failure()` upload, so a skip means there was nothing to upload. **No test,
+suite or check was skipped, and nothing was silently unrun.**
+
+All seven browser configurations ran and passed on this SHA, which is the
+condition the browser-config exemption was granted against. **CI reported no
+discrepancy**, so there was nothing to investigate beyond the classification.
+
+---
+
+## Phase 2: closure
+
+Ten separate outcomes, because "Phase 2" is not one thing and a single verdict
+over it would hide both the parts that are finished and the parts that are not.
+
+| Requirement                          | Classification                              | On what evidence                                                                                                                                                                                                                                       |
+| ------------------------------------ | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Wallet response and UI               | **COMPLETE**                                | `GET /v1/tickets` carries event, venue, tier, seat, holder relationship and admissibility; the page renders four disjoint sections. 60 API cases, 19 browser cases at seven widths, `wallet.test.js` for the bucketing.                                |
+| Current-holder filtering             | **COMPLETE**                                | The ten-state ownership matrix, including the guest order where both columns are null. `heldByTheBuyer` throws rather than guessing when a column was not selected.                                                                                    |
+| Purchase-history representation      | **COMPLETE**                                | `purchaserHolding` is an enum derived from status, not from `ownerUserId !== order.userId`; `supersededByLaterTicket` stops a hand-out-and-back reading as two tickets against a quantity of one.                                                      |
+| Cross-holder data leak               | **FIXED**                                   | A recipient's wallet row carries no `orderReference` and no buyer identity; asserted positively and by absence of the order reference anywhere in the serialized response.                                                                             |
+| Secure-pass API                      | **COMPLETE**                                | Holder-only, uniform 404, `no-store, private`, credential absent from every log sink and from the redaction net's newly added keys. Twelve threat areas assessed above.                                                                                |
+| QR presentation                      | **DEFERRED — QR ENCODER DECISION REQUIRED** | No encoder is present and the human-readable ticket code is **not** rendered as an admission credential. Per owner decision 2, the feature is stopped rather than substituted; the blocker is named and nothing insecure ships.                        |
+| Reliability transfer-chain invariant | **FIXED**                                   | Three checks, fourteen real-PostgreSQL cases, five mutations, each clause isolated by exactly one case. The failing run is preserved above as a real regression.                                                                                       |
+| Reserved-seat transfer               | **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT**   | Finding S-1, now demonstrated rather than asserted: case 14 makes the write and shows `Ticket_eventSeatId_key` refusing it. Fixing it needs seat-inventory reasoning and its own concurrency proof.                                                    |
+| Group booking                        | **NOT IMPLEMENTED**                         | Per owner decision 6, `OrderItem.quantity` is not dressed up as a group-booking system. There is no group model, no lead booker, no per-attendee assignment. Backend not implemented, and not claimed.                                                 |
+| Production Stripe and Stripe Connect | **EXTERNAL VERIFICATION PENDING**           | `PAYMENT_MODE=MOCK` throughout. No real charge, payout, transfer, refund, webhook or provider credential was exercised, and the kill-switch suite asserts the production path stays unreachable. Nothing here is evidence about live Stripe behaviour. |
+
+### What this closure does not claim
+
+Phase 2 is **not** marked complete as a whole, and the four preconditions the
+owner set are what this section is answering, not a formality. The two
+correctness defects that remain open in this area — S-1 (reserved-seat transfer)
+and S-2 (an accept racing a check-in) — are recorded in the findings table
+above, are not fixed, and are not diminished by the invariant work: the
+invariant measures what the database holds, and cannot make a transfer path
+correct.
+
+`PAYMENT_MODE` was never set, and `packages/providers/src/payment-mode.js`
+resolves an unset value to `MOCK` — `const mode = requested ?? PAYMENT_MODES.MOCK`.
+So mock mode was in force for every run cited in this report, by default rather
+than by assertion, and `payment-kill-switch.test.js` checks it directly:
+**12 cases, all passing**, including that `app.payments.mode` is `MOCK` and that
+the production path stays unreachable. No real Stripe or Stripe Connect
+operation, no production payment path, no external provider credential and no
+destructive retention was enabled at any point.
 
 ---
 
