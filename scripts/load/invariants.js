@@ -105,11 +105,31 @@ async function noDoubleSoldSeat(prisma) {
  * @returns {Promise<{name: string, ok: boolean, detail: string}>} The result.
  */
 async function noDuplicateSettlement(prisma) {
+  // Ticket rows are not the unit here; supersession chains are.
+  //
+  // `acceptTransfer` mints the recipient's ticket onto the **buyer's order
+  // item** — same `orderItemId`, new row, `supersedesTicketId` pointing back at
+  // the one it replaced — so that the chain from the original purchase stays
+  // unbroken. An order line for one ticket that has been handed on therefore
+  // holds two rows, and one handed on and back holds three, all legitimately.
+  //
+  // Counting rows called that duplicate settlement. It is not: what was settled
+  // once is still one admission, and exactly one row in each chain is the live
+  // head. So the count is of heads — tickets no other ticket on the line
+  // supersedes — which is the number of people who can actually get in.
+  //
+  // Overselling is still caught, and that is the property worth keeping: two
+  // tickets issued independently against a quantity of one supersede nothing,
+  // so both are heads and both count.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT oi."id", oi."quantity", count(t."id")::int AS issued
      FROM "OrderItem" oi
      JOIN "Order" o ON o."id" = oi."orderId"
-     LEFT JOIN "Ticket" t ON t."orderItemId" = oi."id"
+     LEFT JOIN "Ticket" t
+       ON t."orderItemId" = oi."id"
+      AND NOT EXISTS (
+        SELECT 1 FROM "Ticket" later WHERE later."supersedesTicketId" = t."id"
+      )
      WHERE o."status" IN ('PAID', 'REFUNDED')
      GROUP BY oi."id", oi."quantity"
      HAVING count(t."id") > oi."quantity"`,
@@ -120,8 +140,8 @@ async function noDuplicateSettlement(prisma) {
     ok: rows.length === 0,
     detail:
       rows.length === 0
-        ? 'no order line holds more tickets than it bought'
-        : `${rows.length} line(s) hold more tickets than they bought`,
+        ? 'no order line admits more people than it sold'
+        : `${rows.length} line(s) admit more people than they sold`,
   }
 }
 
