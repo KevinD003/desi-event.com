@@ -84,6 +84,14 @@ export default async function FinanceLayout({ children }) {
             </li>
             <li>
               <Link
+                href="/finance/connect"
+                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              >
+                Payout setup
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/operations"
                 className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
               >

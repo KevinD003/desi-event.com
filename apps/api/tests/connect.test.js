@@ -499,9 +499,9 @@ describe('the payment-mode guard', () => {
     const headers = await authorized(app, OWNER)
 
     expect((await readStatus(app, ids.organization.id, headers)).statusCode).toBe(403)
-    expect(
-      (await act(app, ids.organization.id, headers, CONNECT_ACTIONS.START)).statusCode,
-    ).toBe(403)
+    expect((await act(app, ids.organization.id, headers, CONNECT_ACTIONS.START)).statusCode).toBe(
+      403,
+    )
 
     await app.close()
   })

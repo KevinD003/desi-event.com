@@ -109,6 +109,31 @@ export function privacyOrganizations(session) {
 }
 
 /**
+ * The organisations this session may manage payout setup in.
+ *
+ * Membership-scoped for the reason `privacyOrganizations` gives, and the set is
+ * wider than it looks: `connect:manage` is granted to FINANCE and inherited by
+ * ADMIN and OWNER, so filtering on the capability rather than on a role is what
+ * keeps an owner from being locked out of a screen they are the natural person
+ * to use.
+ *
+ * This only decides what the screens offer. The API authorises again, per
+ * organisation, with a step-up window on top.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Array<{organizationId: string, organizationName: string|null, role: string}>} The memberships.
+ */
+export function connectOrganizations(session) {
+  return (session?.memberships ?? [])
+    .filter((membership) => (membership.capabilities ?? []).includes('connect:manage'))
+    .map((membership) => ({
+      organizationId: membership.organizationId,
+      organizationName: membership.organizationName ?? null,
+      role: membership.role,
+    }))
+}
+
+/**
  * The organisations this session may author venues in.
  *
  * @param {object|null} session The session payload.
