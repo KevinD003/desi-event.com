@@ -13,6 +13,13 @@ Status of this document: **IN PROGRESS.** Phase 1 is complete and fully
 verified — its exact-SHA CI run is green, recorded below. Phases 2, 3 and 4 are
 not yet implemented and are not described here as though they were.
 
+_Status, 2026-09-22, at the Phase 3 closure. The sentence above is left as
+written._ Still **IN PROGRESS**. Phase 1 is complete and verified. Phase 2 is
+closed on ten separate outcomes, and Phase 3 on fourteen, each recorded below
+with its own classification. Neither phase is described as complete as a
+whole. Phase 4 is not yet implemented, and is not described here as though it
+were.
+
 ---
 
 ## Starting repository state
@@ -1354,6 +1361,716 @@ destructive retention was enabled at any point.
 
 ---
 
+## Phase 3 — organizer and admission operations
+
+The door, end to end: an organiser's steward presents a ticket — a scanned QR
+pass or a typed printed code — the server looks it up without changing
+anything, the steward sees who it is, and only an explicit **Admit** records
+one admission. The frontend decides none of it. Alongside it, four defects this
+phase was asked to close and one it found: colleagues' addresses on the team
+list, an operator retry that stole a worker's lease, reserved-seat transfer
+that was "blocked" only in a report, an acceptance that could commit nothing,
+and the per-address pass budget every browser shared.
+
+Authorised starting state: `21af69a6065608cc592ef30b9db86999286e9d03` (Phase 2
+closure), remediation `2e22e15b917d49134ecfbb94ce43db9c34b6b47c`, exact-SHA run
+`35776856187`. Branch unchanged: `claude/phase4-frontend-ui-ux-completion`.
+Nothing was moved, cherry-picked, rebased or duplicated onto any other branch.
+
+### 0. The fresh-report command, first
+
+`pnpm verify:tests:fresh` (`scripts/verify-tests-fresh.mjs`), committed in
+`8ccbb81` before any Phase 3 feature work, as required. It is the only thing
+that produces or judges test reports: CI's test step runs it and nothing else,
+and `ci:check` refuses a workflow that writes `vitest-report.json` or runs the
+skip checker any other way.
+
+What it guarantees, each with a regression case in
+`packages/config/tests/verify-tests-fresh.test.js` (31 cases):
+
+| #   | Property                                                                                                                                                  | Case that fails without it                                                                                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| 1   | Every existing report is deleted before anything runs                                                                                                     | "removes every existing report"                                                                           |
+| 2   | The run's start is recorded; a report's modification time must be after it (2 s allowance for coarse filesystems, and no more)                            | "allows a modification time a coarse filesystem rounded down, and no more"                                |
+| 3   | A report's own `startTime` must be after it — catches a cache restoring old contents with a fresh timestamp                                               | "refuses a report restored with a fresh timestamp and old contents"; "refuses a report with no startTime" |
+| 4   | Turborepo runs with `--force`, before the `--`; Vitest gets only its own reporter flags after it                                                          | "gives Turborepo its own flags and Vitest its own"                                                        |
+| 5   | A missing report is refused — what a cache hit leaves                                                                                                     | "refuses a missing report"; "refuses a cached result that leaves an old report unchanged"                 |
+| 6   | An empty, malformed, or not-a-report file is refused                                                                                                      | three cases                                                                                               |
+| 7   | The expected packages come from Turborepo's own dry-run plan; a package that should report and did not, or a report where none was expected, is refused   | two cases, plus the plan parser                                                                           |
+| 8   | A skipped, pending or todo case is refused unless allow-listed with a reason                                                                              | three cases                                                                                               |
+| 9   | A failed case is refused even if the run exited zero; a package, or one file, with no cases is refused; counters that disagree with the cases are refused | four cases                                                                                                |
+| 10  | Totals are printed per package and overall                                                                                                                | "prints a table and an OK line"                                                                           |
+| 11  | One child process, awaited on `close`; nothing polled                                                                                                     | "awaits one child process and polls nothing"                                                              |
+| 12  | `REQUIRE_DATABASE` and `TEST_DATABASE_URL` are declared in `turbo.json`'s `globalEnv`, so they reach the suites                                           | "declares the variables the suites read" — see the correction below                                       |
+
+The earlier incidents — the cached report read as fresh in Phase 1, `--force`
+handed to Vitest, one report instead of sixteen, and the `pgrep -f` waiter
+that waited on itself — are recorded in the Phase 1 and Phase 2 sections and
+are not rewritten; this command is the permanent answer to all four.
+
+### 1. Commits
+
+| SHA       | What                                                                                                                                                                                                                                   |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `8ccbb81` | `pnpm verify:tests:fresh` — the permanent stale-report fix, first as required                                                                                                                                                          |
+| `298a70a` | Event-scoped door authority, the non-mutating preview, the revalidating confirmation, the migration                                                                                                                                    |
+| `29f9b7e` | Member-email protection; notification retry/cancel kept off a worker's lease                                                                                                                                                           |
+| `485fe4b` | Reserved-seat transfer blocked for real; an acceptance that lost a race now rolls back (S-2)                                                                                                                                           |
+| `739cc58` | QR pass for the holder, the camera scanner, the check-in workspace, browser and sweep coverage                                                                                                                                         |
+| `821c167` | Found by running the verify job locally: the migration classified for the upgrade check, the new suites added to the fresh-database check, a test secret marked as fake                                                                |
+| `48185a1` | Found by running the browser suites locally: the shared sign-in helper waits out the credential limiter instead of racing it. **The Phase 3 SHA** — full `48185a17c7b4fb23c8419ce33e781a09e80c4e07`. Its exact-SHA run failed; see §17 |
+| `16357f3` | Found by that run: the door form lost a code typed before the page's script arrived. The workspace now takes up what is already in the field. **The remediation SHA** — full `16357f38e50b1f0aa556bb3708c94f0464d9a954`                |
+
+### 2. Files and migrations
+
+90 files changed across the first five commits: 29 added, 61 modified. The new
+ones that carry the design:
+
+| Area                    | Files                                                                                                    |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| Door policy             | `packages/permissions/src/admission.js` (+ test)                                                         |
+| Door service            | `apps/api/src/lib/admission.js`                                                                          |
+| Operator outbox actions | `apps/api/src/lib/notification-operations.js`                                                            |
+| Migration               | `packages/db/prisma/migrations/20260922200000_admission_scope_and_method/migration.sql`                  |
+| Decision record         | `docs/adr/0005-reserved-seat-transfer.md`                                                                |
+| QR                      | `apps/web/src/lib/qr.js`, `qr-decode.js`, `pass-shape.js`                                                |
+| Screens                 | `components/ticket-pass.jsx`, `door-camera.jsx`, `door-workspace.jsx`, `app/organizer/check-in/page.jsx` |
+| Fresh reports           | `scripts/verify-tests-fresh.mjs`, `scripts/lib/vitest-reports.mjs`                                       |
+| Real-PostgreSQL suites  | `admission-integration`, `notification-lease-integration`, `seat-transfer-block-integration`             |
+| Browser                 | `e2e/detail-organizer-checkin.spec.js`, `e2e/support/seed-door.mjs`                                      |
+
+**The migration**, one file, four changes, each with its rollback written
+beside it in the SQL:
+
+1. `ALTER TYPE "CheckInMethod" RENAME VALUE 'MANUAL_LOOKUP' TO 'MANUAL_CODE'` —
+   in place, so every existing row keeps its meaning. Prisma's generated
+   version dropped and recreated the enum inside its own `BEGIN`/`COMMIT`.
+   Rollback: the reverse `RENAME VALUE`.
+2. Scopes naming an event that no longer exists are deleted, then
+   `ScannerScope.eventId` becomes a real foreign key with `ON DELETE CASCADE`.
+   Before it, a scope could point at nothing. Rollback: drop the constraint;
+   the deleted rows granted nothing, because nothing read them.
+3. Scopes naming another organisation's event are deleted, and a trigger,
+   `desi_scanner_scope_same_organization`, refuses one on insert or update
+   with `check_violation`. Rollback: drop the trigger and function.
+4. No data is rewritten beyond those two deletions.
+
+Verified on a fresh database and an upgraded one (`db:verify:fresh`,
+`db:verify:upgrade`, below), and by `prisma migrate diff` from the migrated
+database to the schema: the only remaining lines are the two pre-existing
+index drifts (`Event_languages_gin_idx`, `TicketType_eventId_name_key`), which
+predate this phase and are not this migration's.
+
+### 3. API contracts
+
+134 operations across 120 paths (was 132 across 118).
+
+| Route                                                    | Change                                                                                                                                                                                                                                                                                                                                                      |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/tickets/admission/events`                       | **New.** The events this account may admit to, each with `authority` (`ORGANIZATION_ROLE` / `EVENT_SCOPE`) and `role`. Read from the database per request. `private, no-store`.                                                                                                                                                                             |
+| `POST /v1/tickets/admission/preview`                     | **New.** Strict body: exactly one of `credential` / `code`, optional `expectedEventId`. Writes no `CheckIn`, no status, no credential. Rate-limited per account. `private, no-store`.                                                                                                                                                                       |
+| `POST /v1/tickets/check-in`                              | **Revised.** Strict body: the same presentation plus `previewReference`; optional `gate`, `deviceId`, `expectedEventId`. `method`, `checkedInAt`, `force`, `eventSessionId` are 400s. Response is a named presenter: `outcome`, `checkedInAt`, `method`, `checkedInByYou`, event, tier, seat, attendee name. Refusals are 409 with a closed `error.reason`. |
+| every error body                                         | `error.reason` forwarded when a service attached a closed-vocabulary code (an upper-case identifier only).                                                                                                                                                                                                                                                  |
+| `GET /v1/organizations/:id/members`                      | Discriminated on `emailVisibility`: `FULL` entries carry `email`; `MASKED` entries carry `emailMasked` and no `email`.                                                                                                                                                                                                                                      |
+| `POST /v1/invitations/accept`                            | The forwarded-link refusal names the invited address masked.                                                                                                                                                                                                                                                                                                |
+| `GET /v1/tickets/:id`                                    | Adds `transferBlockedReason` (`RESERVED_SEAT` or null).                                                                                                                                                                                                                                                                                                     |
+| `POST /v1/tickets/:id/transfers`                         | 422 `RESERVED_SEAT` for a seated ticket.                                                                                                                                                                                                                                                                                                                    |
+| `POST /v1/ticket-transfers/accept`                       | 409 `RESERVED_SEAT` for a seated invitation; 409 `TICKET_CHANGED` when the ticket changed underneath (rolled back).                                                                                                                                                                                                                                         |
+| `POST /v1/operations/notifications/:id/retry` / `cancel` | Starting states explicit; 409 reasons `LEASED`, `NOT_RETRYABLE`, `NOT_CANCELLABLE`, `REDACTED`, `CHANGED`.                                                                                                                                                                                                                                                  |
+
+`apps/api/openapi.json` and the route manifest are regenerated from the
+contract; both drift gates pass.
+
+### 4. ScannerScope policy
+
+`packages/permissions/src/admission.js`, one function, `admissionAuthorityFor`,
+used by the preview, inside the confirmation, and by the events list — so the
+three cannot disagree.
+
+| Caller                               | Admits to                          | Why                                                                                                                                                                                          |
+| ------------------------------------ | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OWNER, ADMIN                         | every event of their organisation  | They hold `team:role_manage` and can grant any scope themselves; requiring one would be ceremony.                                                                                            |
+| MANAGER, STAFF, SCANNER              | only events a `ScannerScope` names | STAFF and MANAGER hold `ticket:check_in` only by inheriting SCANNER. The inherited capability used to be the whole check, so a STAFF member could admit to every event the organisation ran. |
+| VIEWER, EVENT_MANAGER, FINANCE       | nothing, scope or not              | They do not hold `ticket:check_in`; a scope row does not give it to them.                                                                                                                    |
+| Platform roles, SUPER_ADMIN included | nothing                            | Door authority comes from a membership. A platform attempt is refused 403 **and audited** (`PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY`). No cross-organisation bypass exists.                      |
+| Removed membership, expired session  | nothing                            | The membership is read from the database on every preview and inside every confirmation; the session guard answers 401 before the door is reached.                                           |
+| Deleted or revoked scope             | nothing, from the next request     | Read per request; inside the confirmation it is locked `FOR SHARE` until the admission commits.                                                                                              |
+
+A module-load assertion (`assertAdmissionPolicy`) refuses a role table in
+which any role holding `ticket:check_in` is not classified exactly once, in
+which a wide role cannot grant scopes, or in which a scoped role can.
+
+The team routes now keep scopes for all three scoped roles (only SCANNER's were
+kept before, which would have left STAFF and MANAGER unable to admit anybody),
+refuse a foreign event id with 422 instead of dropping it silently, and lock
+the membership before touching its scopes.
+
+The eleven required negatives, each against real PostgreSQL, each asserting
+the refusal **and** that no `CheckIn` row exists
+(`admission-integration.test.js`, "scanner authorisation"):
+
+| #   | Negative                                                 | Answer                                                                                                                                         |
+| --- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Scoped to A, previews B                                  | uniform 404, byte-identical to a code that does not exist                                                                                      |
+| 2   | Scoped to A, checks in B with a validly signed reference | 403                                                                                                                                            |
+| 3   | Organisation A's owner, organisation B's ticket          | 404 on preview, 403 on a signed confirmation                                                                                                   |
+| 4   | No scope                                                 | 404 / 403                                                                                                                                      |
+| 5   | Membership removed, caller still holding the old actor   | 404 / 403                                                                                                                                      |
+| 6   | Expired or revoked session                               | 401 (route test); an actor with no memberships is 403 before any read                                                                          |
+| 7   | Missing capability, scope row present                    | 403                                                                                                                                            |
+| 8   | Browser sends a conflicting event id                     | authority is the ticket's event: 404 when the browser's event is the only one scoped; `WRONG_EVENT` when the scanner is scoped to the real one |
+| 9   | Scope added after the session began                      | the same actor object is admitted on the next request                                                                                          |
+| 10  | Scope revoked before confirmation                        | 403                                                                                                                                            |
+| 11  | Scope or role changed between preview and check-in       | 403 for a scope moved to another event, 403 for a demotion to VIEWER with the scope left behind                                                |
+
+Reintroducing "trust the preview" in the confirmation (mutation M1) fails seven
+of them.
+
+### 5. Preview threat model
+
+| Threat                                     | Answer                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The preview becomes an authorisation token | It is not one. The confirmation re-derives ticket, status, event, organisation, membership, scope and existing check-in inside its own transaction. A validly **signed** reference for a caller who has since lost authority admits nobody (negatives 2, 3, 10, 11).                                                                                                                           |
+| Forged or replayed reference               | HMAC-SHA256 under `HKDF(AUTH_SECRET, "admission-preview-v1")`, compared in constant time before the body is trusted. Bound to ticket, event, organisation, the previewing account and the presentation method; two-minute expiry. Another scanner's reference, a tampered one, one confirmed with a different pass or method, or an expired one are each refused with their own closed reason. |
+| Existence oracle                           | Resolve first, authorise second, uniform 404 for both "no such pass" and "not yours". Before this phase an unknown pass answered 404 and a real one 403 naming the owning organisation. A caller with no door authority anywhere is refused 403 before any lookup — a statement about the caller, identical for real and invented codes.                                                       |
+| Timing side channel                        | Residual: a real code costs one more query than an invented one. Mitigated by the per-account budget (120 a minute, keyed on the account because every browser request arrives through the web proxy), and recorded under limitations.                                                                                                                                                         |
+| Over-disclosure                            | Named presenters with listed fields; response schemas strip everything else, proved by hostile-payload tests (credential digest, buyer email, totals, provider ids, transfer token, internal note, metadata — none survive). No buyer, recipient or member email; no order, payment or totals; no other attendee.                                                                              |
+| Caching                                    | `private, no-store` on all three door routes, and on the pass.                                                                                                                                                                                                                                                                                                                                 |
+| Logging and audit                          | The credential, the code and the reference are never written to an audit row or a log line; `previewReference` joined `credential` in the logger's redaction keys. Previews and refusals are audited against the ticket.                                                                                                                                                                       |
+| Mutation through a preview                 | Asserted directly: the ticket row is byte-identical before and after, and no `CheckIn` exists, against the stub and against PostgreSQL.                                                                                                                                                                                                                                                        |
+
+### 6. Method derivation
+
+`QR_SCAN` when the secure credential was presented, `MANUAL_CODE` when the
+printed code was. The server cannot see whether a camera or a keyboard produced
+a credential; it records which secret was presented, and the door screen's
+manual mode sends only the printed code. `ASSISTED` exists in the enum and is
+never written: nothing here implements an assisted or organiser override, and
+none is exposed. A client-sent `method` is a 400; the reference is bound to the
+method it was issued for, so a code preview cannot be confirmed as a QR scan.
+
+### 7. Exactly-once evidence
+
+Real PostgreSQL, `admission-integration.test.js`, "admission races". One
+`CheckIn` row at most in every case, a truthful answer for the loser, and no
+error that is not one of the door's own:
+
+| #   | Race                                               | Result                                                                        |
+| --- | -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 1   | Two simultaneous confirmations of one preview      | one `ADMITTED`, one `ALREADY_CHECKED_IN`, same instant, both `checkedInByYou` |
+| 2   | Two stewards at once                               | one admits; the other is told `ALREADY_CHECKED_IN`, `checkedInByYou: false`   |
+| 3   | QR scan racing a typed code                        | one row; its method is the winner's                                           |
+| 4   | A preview overtaken by another steward's admission | `ALREADY_CHECKED_IN`                                                          |
+| 5   | Scope withdrawal in flight                         | the confirmation waits on the membership lock, then sees the scope gone: 403  |
+| 6   | Revocation in flight                               | the confirmation waits on the ticket lock, then refuses `REVOKED`             |
+| 7   | Refunded after preview                             | `REFUNDED`, by pass and by code                                               |
+| 8   | Transfer accepted after preview                    | old pass and old code refused `TRANSFERRED`; the recipient's new pass admits  |
+| 9   | Same confirmation submitted three times            | one admission, two `ALREADY_CHECKED_IN` with the same instant                 |
+| 10  | Network retry while the first is in flight         | four at once: one admission, all `checkedInByYou`, one instant                |
+| +   | Confirmation against member removal, five rounds   | no deadlock; each round is one of the two outcomes                            |
+
+There is no idempotency key on this route: the confirmation is idempotent on
+the ticket itself, and a retry is answered with the original admission.
+
+Cases 5 and 6 force the interleaving rather than hoping for it: one
+transaction holds the lock, and the test waits until **PostgreSQL reports the
+other blocked** (`pg_stat_activity.wait_event_type = 'Lock'`) before releasing
+it. Removing the confirmation's row locks (mutation M2) fails both.
+
+The browser proves the same from the other end: a double-pressed **Admit** on
+a slow line sends one request; an admission whose answer is dropped after the
+server committed is shown as uncertain, and the retry reports it as already
+admitted by this steward — one row, read from PostgreSQL.
+
+The load suite's check-in scenario now previews and confirms, alternating QR
+and typed code for the same tickets, at sixteen workers; its database
+invariants hold. (Before this phase it sent codes only, and never exercised a
+credential.)
+
+### 8. QR decision
+
+A dependency was adopted only after each question the brief asks was answered.
+The research was done against the npm registry on 2026-09-22; tarball
+integrity was checked against `dist.integrity`, and trees were resolved in a
+scratch directory before anything touched the repository.
+
+|                        | Encoder: `uqr`                                                                                                                                         | Decoder: `jsqr`                                                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Version                | **0.1.3**, pinned exactly                                                                                                                              | **1.4.0**, pinned exactly                                                                                                                                                                   |
+| Licence                | MIT                                                                                                                                                    | Apache-2.0                                                                                                                                                                                  |
+| Maintenance            | UnJS; two maintainers; last release 2026-04-03 after a ~2.5-year gap                                                                                   | two maintainers; **last release 2021-04-24**. Feature-complete port of ZXing's QR reader; the risk is recorded, not waved away                                                              |
+| Transitive packages    | 0                                                                                                                                                      | 0                                                                                                                                                                                           |
+| Install scripts        | none                                                                                                                                                   | none                                                                                                                                                                                        |
+| Known advisories       | 0 (`npm audit`; `pnpm audit` after install: none)                                                                                                      | 0                                                                                                                                                                                           |
+| Provenance attestation | none                                                                                                                                                   | none                                                                                                                                                                                        |
+| Network calls          | none                                                                                                                                                   | none — no worker, no WebAssembly, no `eval`                                                                                                                                                 |
+| Bundle effect          | about 19.9 KB minified, 7.2 KB gzip, on `/tickets/[id]` only (that route's chunk with the pass component: 33.3 KB / 11.1 KB); **not** on the door page | its own chunk, 130.0 KB minified / 45.8 KB gzip, in no route's manifest — loaded by dynamic `import()` only when a steward starts the camera. The door page's own chunk is 27.2 KB / 8.8 KB |
+| JS-only policy         | ships `.d.ts` inside `node_modules`, which `docs/language-policy.md` permits; `policy:check` passes                                                    | same                                                                                                                                                                                        |
+
+**Why not the platform, and why not the others.** `BarcodeDetector` does not
+exist in Firefox, needs a flag in Safari, is absent from desktop Chrome on
+Linux and Windows, and is absent from the Chromium this repository tests in —
+so a scanner built on it would not work on most door devices and could not be
+tested. `@zxing/library` ≥ 0.22 refuses to install on this repository's Node 22
+under `engine-strict`; `zxing-wasm` and `barcode-detector` fetch WebAssembly
+from a third-party CDN by default; `qr-scanner` depends on a `@types` package
+at runtime and runs a `blob:` worker; `qrcode` pulls 28 packages for a command
+line nobody uses. No existing dependency encodes or decodes QR.
+
+**No homegrown encoder or decoder.** The encoder's output is verified by the
+independent decoder (40 pass-shaped strings in the unit suite; the full
+browser round trip below).
+
+Two settings are not left to defaults: error correction `M` rather than `L`,
+and a four-module quiet zone rather than one. The pass-shape check lives in its
+own module so the door page never loads the encoder.
+
+**One lockfile side effect**, recorded because it is not one of the two
+packages: pnpm re-resolved `next` and `styled-jsx`'s optional `@babel/core`
+peer to the `7.29.7` already in the lockfile. No package was added by it.
+
+### 9. Credential handling
+
+- **Holder side.** `/tickets/:id` offers **Show my entry pass** to the holder of
+  a ticket that admits. The pass is fetched from the holder-only, `no-store`
+  endpoint on request, encoded, and the string dropped: the component keeps
+  the drawing, never the text. It is not in the markup, an attribute, a title,
+  a label, storage or the address — asserted in the browser by decoding the
+  drawing and searching the page, storage and URL for the result. It goes
+  away on **Hide**, on leaving, when the page is hidden, and on `pagehide`. No
+  animation. Next to it: whoever holds this code — on a screen, printed or as a
+  screenshot — can use it once. Nothing claims screenshots can be prevented.
+- **Not on lists.** The wallet list never calls the pass endpoint.
+- **Door side.** The camera starts only on a press; frames go to one
+  off-screen canvas, are decoded locally and overwritten; nothing is uploaded
+  or kept; every track stops on **Stop**, on switching to typing, on leaving,
+  on hide. A decode is a lookup; decoding pauses while the preview is up, so a
+  pass held in front of the camera is looked up once (asserted: one preview
+  request in a second of continuous frames). A non-pass QR is reported and
+  never sent. The scanned credential is held in memory from lookup to
+  admission or clearing — never in the page, the URL, the title, storage or a
+  log.
+- **Test artefacts.** The browser spec turns screenshots, traces and video
+  off; the sweep's pass case closes its context in `finally` so no failure
+  screenshot can capture a live pass.
+- **Bundle.** `credentialVersion` is on the browser-bundle scan's forbidden
+  list, so the pass component does not read it. The scan passes and now
+  requires both door paths to ship.
+- **Rate limit.** The pass budget is now keyed on the holder, not the address:
+  behind the web proxy every holder shared the web server's thirty a minute.
+
+### 10. Member-email matrix
+
+Decided by the server (`emailVisibilityFor`, `teams.js`) and enforced by the
+response schema — not by a stylesheet.
+
+| Caller                                | `teams.list` | Entries carry                                              |
+| ------------------------------------- | ------------ | ---------------------------------------------------------- |
+| OWNER, ADMIN, MANAGER                 | `FULL`       | `email`                                                    |
+| Platform SUPER_ADMIN                  | `FULL`       | `email` (unscoped capabilities; MFA required for the role) |
+| VIEWER, STAFF, EVENT_MANAGER, FINANCE | `MASKED`     | `emailMasked` only — no `email` key                        |
+| SCANNER                               | 403          | —                                                          |
+| Another organisation's member         | 403          | —                                                          |
+
+The masked shape has no `email` key, so an address a presenter leaves in is
+stripped; `emailMasked` must contain `*`, so a full address in its place fails
+serialization rather than leaking. Every masked case also searches the whole
+response body for every member's and invitee's address. The forwarded-invitation
+refusal names the address masked (it named it in full, and a test pinned
+that). Door responses carry no address at all.
+
+### 11. Notification retry lease
+
+The defect: retry's transition check allowed `CLAIMED → QUEUED` and its update
+was conditional on status alone, so pressing retry mid-send wiped a live lease
+and let a second worker send the message again; the first worker's completion
+then matched nothing and its provider id was lost. Cancel had the same gap on a
+lapsed lease that a worker re-claimed between read and write.
+
+Now, in `lib/notification-operations.js`: retry only from `DEAD_LETTER`,
+`FAILED` or `RETRY_SCHEDULED`, never from `CLAIMED` (live or lapsed — a lapsed
+lease is reclaimed by the worker on its own); cancel of a `CLAIMED` row only
+once its lease has lapsed. **Every condition is in the `UPDATE`'s `WHERE`** —
+status, no lease owner, not redacted; for a lapsed lease, the same owner and
+expiry that were read — so a claim that commits first wins and the operator
+gets a 409 with a closed reason. Redacted dead letters can no longer be
+requeued. Routes stay platform-only (`reconciliation:manage`, OPERATIONS
+step-up).
+
+Real PostgreSQL, racing the dispatcher's own claim and completion:
+ordinary failed retry; retry while leased (lease untouched, worker's completion
+still lands); retry after lease expiry (refused, then reclaimed by a worker);
+cancel while leased; cancel of a lapsed lease racing a re-claim; retry racing a
+worker's claim; retry racing a worker's completion; two simultaneous retries
+(one requeue, one audit row); redacted row; audit rows free of recipient,
+payload and dedupe key. An organiser — even the owner of the message's
+organisation — is refused (route test). Rows are scheduled around 2100, so the
+worker suite's concurrent drain on the shared database cannot touch them.
+Restoring the old code fails four cases.
+
+### 12. Reserved-seat transfer decision
+
+`docs/adr/0005-reserved-seat-transfer.md`. **Still BLOCKED — UNIQUE-SEAT
+TRANSFER DEFECT.** The right fix is a partial unique index over live statuses,
+but it is only safe together with serialising acceptance against refund on the
+order line, changing analytics' definition of a live ticket, teaching the stub
+predicate uniqueness and four new race proofs — not narrow.
+
+What changed is that the block is now real. Before: the invitation was sent,
+the ticket moved to `TRANSFER_PENDING`, the screen offered the transfer, and
+every acceptance was a 500 until the sender withdrew it. Now: 422 at the start,
+409 at acceptance for an invitation sent before the change (withdrawable), and
+the ticket screen says reserved-seat tickets cannot be handed on yet instead of
+offering it. Proved on PostgreSQL, including that the full unique index is
+still there, so whoever fixes S-1 must change that case on purpose.
+
+**S-2 is FIXED** (correcting its row in the Phase 2 findings table, which is
+left as written): `acceptTransfer` returned when the ticket changed underneath
+it, committing `ACCEPTED` with no successor; it now throws `TICKET_CHANGED` and
+the whole acceptance rolls back. Restoring the `return` fails its case.
+
+A latent defect on the same index is recorded in the ADR, found by reading and
+not fixed: a `RESELL` refund frees the seat but leaves the pointer on the
+refunded ticket, so reselling that seat would fail settlement after capture.
+
+### 13. Accessibility evidence
+
+In `accessibility-sweep.spec.js`, axe with WCAG 2.0/2.1 A and AA and no rule
+disabled, plus sideways overflow ≤ 1 px:
+
+- the check-in screen at **320, 375, 390, 768, 1024, 1280 and 1440**, idle and
+  with a preview of a ticket carrying an 85-character name, focus asserted on
+  the preview heading each time;
+- the check-in screen at 200% zoom (640 px), added to the zoom loop;
+- the check-in screen with the camera refused;
+- the check-in screen with motion reduced: no running animation, nothing at
+  opacity 0;
+- the holder's drawn pass at 320 and 1440.
+
+In `detail-organizer-checkin.spec.js`: keyboard only (type, Enter, focus on the
+answer, Enter on Cancel, focus back on the field); high latency (1.5 s delayed
+admission, three presses, one request); a slow page (every script held back
+3 s, the code typed before it arrives, then looked up — added by the
+remediation, §17); repeated scans (the camera sees the same pass continuously;
+one lookup); camera denied, unavailable and absent; the long-name ticket.
+
+Live regions: a polite status region for routine updates; `role="alert"` only
+for outcomes a steward must act on — do not admit, already in, no answer.
+Deterministic focus: each answer's heading, the result's heading, back to the
+code field after clearing; the pass's **Hide** button after showing, the
+**Show** button after hiding.
+
+### 14. Local verification
+
+Every step of the CI `verify` job, in its order, on this tree, by a script
+that mirrors it (`rm -rf .turbo` first). Two steps failed the first time and
+are the reason for commit `821c167`; both were fixed and re-run, and the
+failures are recorded rather than dropped.
+
+| Step                             | Result                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Language policy                  | 744 files, no violations                                                                                                                                                                                                                                                  |
+| CI invariants                    | 2 workflows; 2 test variables reach the suites; reports only from `verify:tests:fresh`                                                                                                                                                                                    |
+| Secret scan                      | **failed first**: a test-only secret in `admission.test.js` did not say so. Marked; 743 files, clean                                                                                                                                                                      |
+| Format, lint                     | pass                                                                                                                                                                                                                                                                      |
+| API contract                     | 134 routes, 134 operations, 120 paths                                                                                                                                                                                                                                     |
+| `verify:tests:fresh`             | **5,754 cases across 16 packages, 0 failed, 0 skipped, 0 undeclared**; 19/19 tasks, 0 cached; 16 reports deleted beforehand and all 16 proved fresh                                                                                                                       |
+| Coverage thresholds              | 18/18 tasks, 0 cached, no threshold lowered                                                                                                                                                                                                                               |
+| `db:verify:fresh`                | 99/99 checks; now also runs the three new real-PostgreSQL suites (11 API integration files, 168 cases)                                                                                                                                                                    |
+| `db:verify:upgrade`              | **failed first**: the admission migration was unclassified and would have run before the schema it was written against. Classified: 26/26 checks, the migration applied over existing rows, the upgraded database identical to a fresh one across 1,488 catalogue entries |
+| Build                            | 3/3                                                                                                                                                                                                                                                                       |
+| OpenAPI and route-manifest drift | none                                                                                                                                                                                                                                                                      |
+| Bundle scan                      | 362 browser-deliverable files, nothing server-only; both door paths present                                                                                                                                                                                               |
+| Dependency audit                 | no known vulnerabilities                                                                                                                                                                                                                                                  |
+| Payment kill switch              | 12/12                                                                                                                                                                                                                                                                     |
+| Reliability smoke                | GA hold contention 2,888 calls, seat hold contention 4,125, check-in concurrency 1,841 (previewing and confirming); every database invariant held                                                                                                                         |
+
+Per package, from the fresh reports: api 1,439 · api-contract 191 · auth 356 ·
+config 72 · db 102 · inventory 291 · ledger 33 · logger 65 · notifications 56 ·
+permissions 612 · pricing 116 · providers 494 · schemas 734 · ui 97 · web 790 ·
+worker 306.
+
+**Again at the remediation SHA** (`16357f3`), the whole mirror from a
+clean `.turbo`: all 18 steps passed the first time. `verify:tests:fresh`
+**5,756 cases across 16 packages, 0 failed, 0 skipped, 0 undeclared** — web
+792, the two new component cases; every other package unchanged. Coverage
+18/18 with 0 cached; the web build ran inside that run for this tree (a cache
+miss) and the build step replayed it; bundle scan 362 files; db fresh and
+upgrade, drift, audit, kill switch 12/12 and the three reliability scenarios
+all passed.
+
+`REQUIRE_DATABASE=1` reached every suite this time — see the correction below
+for why that sentence could not honestly be written before `8ccbb81`.
+
+Four checks were run against the code they guard by breaking it on purpose,
+and each broke: trusting the preview in the confirmation (7 cases fail),
+dropping the confirmation's row locks (2), restoring the lease-wiping retry
+(4), and restoring the returning acceptance and the unblocked seated start
+(2).
+
+### 15. Playwright collection and results
+
+Collected by `playwright test --config <c> --list`, then run.
+
+| Configuration                     |       Collected | Result                                                                          |
+| --------------------------------- | --------------: | ------------------------------------------------------------------------------- |
+| `playwright.detail.config.js`     | **78** (was 67) | 78 passed on the second run; see below. **79** at the remediation SHA — see §17 |
+| `playwright.sweep.config.js`      | **63** (was 59) | 63 passed                                                                       |
+| `playwright.events.config.js`     |              20 | 20 passed                                                                       |
+| `playwright.organizer.config.js`  |              13 | 13 passed                                                                       |
+| `playwright.refusals.config.js`   |               4 | 4 passed                                                                        |
+| `playwright.config.js`            |             118 | 118 passed                                                                      |
+| `playwright.production.config.js` |              19 | 19 passed                                                                       |
+| **Total**                         |         **315** | **315 passed** (316 at the remediation SHA)                                     |
+
+`detail-organizer-checkin.spec.js` is 11 of the detail configuration's 78 (12
+of 79 at the remediation SHA) and is collected by nothing else; the four new sweep cases are in the pinned
+`accessibility-sweep.spec.js`. No new configuration, no new CI job.
+
+**The first detail run failed one case**, `detail-connect.spec.js` › "the last
+step warns that nothing moves out of it", on a sign-in that never left the
+form. The API log showed `POST /api/v1/auth/login 429`. Root cause: the detail
+world now signs six accounts in before the first spec (two through a second
+factor, two requests each), and `detail-connect` signs the owner in twice more
+inside the same minute — twelve credential requests against a limit of ten. The
+limiter was right. The shared helper now recognises its refusal, waits the
+`Retry in N seconds` the server states, and tries once (`48185a1`); on the
+re-run the limiter refused once more and the helper waited it out, as
+designed.
+
+No waiter here used `pgrep -f`; every wait was on a file the run itself
+wrote.
+
+### 16. Exact-SHA CI
+
+**Run `35793993188`**: `workflow_dispatch` on
+`claude/phase4-frontend-ui-ux-completion`, attempt 1. Its `head_sha`, read
+back from the run rather than assumed, is
+`16357f38e50b1f0aa556bb3708c94f0464d9a954`, the remediation SHA and the
+branch head when it was dispatched. It ran from 22:44:48 to 22:54:27 UTC.
+Conclusion: **success**, with all eight jobs green.
+
+| Job                                      | Job id         | Conclusion | Cases                                                                                |
+| ---------------------------------------- | -------------- | ---------- | ------------------------------------------------------------------------------------ |
+| Policy, lint, contract, tests, build     | `106968884970` | success    | every step succeeded; the failure-artefact upload was skipped because nothing failed |
+| Browser — production build               | `106968885148` | success    | 19 passed                                                                            |
+| Browser — public catalogue               | `106968885284` | success    | 118 passed                                                                           |
+| Browser — event lifecycle                | `106968885314` | success    | 20 passed                                                                            |
+| Browser — organiser venue maps           | `106968885333` | success    | 13 passed                                                                            |
+| Browser — refusals                       | `106968885331` | success    | 4 passed                                                                             |
+| Browser — accessibility sweep            | `106968885377` | success    | 63 passed                                                                            |
+| Browser — commerce and operations detail | `106968885417` | success    | 79 passed, including all 12 door cases and the new slow-page case                    |
+
+That is **316 browser cases passed in CI**, the same number collected locally.
+Each browser job's summary line reads `N passed` and nothing else: nothing
+failed, was skipped or was flaky, and no job re-ran.
+
+The verify job's steps, in order, each **success**: refuse a stale task
+cache; language policy; CI invariants; secret scan; format; lint; API
+contract; create the test database; apply migrations; test with fresh reports
+and no undeclared skip; coverage thresholds; fresh-database verification;
+upgrade-database verification; build; OpenAPI drift; route-manifest drift;
+browser bundle scan; dependency audit; production payments are unreachable;
+reliability smoke test. That job's case counts are not quoted from CI. Its log
+was read here by step conclusion only. The counts in §14 come from the same
+command, run on the same tree.
+
+**Runs on this phase's commits, all of them:** `35789914694` on `48185a1`,
+failed (§17). `35793993188` on `16357f3`, success. No SHA was run twice.
+
+### 17. Failed and remediated runs
+
+**Run `35789914694` on `48185a1` failed. It is preserved and was not re-run.**
+Six of the eight jobs passed: verify (every step), production build, event
+lifecycle, refusals, organiser venue maps, public catalogue. Two failed. Every
+failing case was on the check-in screen, and every one failed the same way:
+
+| Job                                                       | Case                                                                                 | What the log shows                                                                                                                                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser — accessibility sweep (`106955683187`)            | "the check-in screen does not move, and hides nothing, when motion is reduced"       | Code typed into the field; **Look up** resolved as `<button disabled>` for the whole 90 s test timeout. 61 passed, this one failed, and the pass case after it did not run (the file is serial) |
+| Browser — commerce and operations detail (`106955683206`) | "sends one admission however often Admit is pressed on a slow line"                  | The same: **Look up** disabled for 90 s after the code was filled in                                                                                                                            |
+| same                                                      | "reports an admission whose answer was lost as uncertain, and the retry admits once" | The same                                                                                                                                                                                        |
+| same                                                      | "works from the keyboard alone, with focus where the next action is"                 | A lookup _was_ sent, and answered `404` — a code that matched nothing — so no preview appeared                                                                                                  |
+
+**Root cause: a defect in the door form, not in the tests.** The code is React
+state, and **Look up** is enabled from that state. A code typed into the
+server-drawn field before React can take it stays in the browser but never
+reaches the state. React replays an input event that arrives during hydration
+only if it can hydrate that field at that moment, and drops it otherwise. Input
+that arrives before React's root exists has nothing to receive it. The field
+then shows the code while **Look up** stays disabled beside it, and stays that
+way: React records the text already in the field as its starting point, so
+nothing counts as a change until another key is pressed. The next render then
+writes the empty state back into the field. That is how the keyboard case sent
+only the end of its code and got a `404`.
+
+A steward on a slow phone would meet this: type the code while the page is
+still arriving, and **Look up** does not work.
+
+**Reproduced here.** With every script held back three seconds and the code
+typed before they arrived, the field held the full code and **Look up** stayed
+disabled (`lookUpDisabled: true`), which is exactly the CI symptom. Two things
+were _not_ reproduced, and the record says so. On this machine every script
+arrives before the load event. And with the CPU throttled twenty-fold, React
+still hydrated the field in time to replay the typing. So the CI runner's exact
+path to the dropped input is inferred, not observed. The run's artefacts, which
+would show the page at the moment of failure, could not be downloaded from here
+(the proxy refuses the artefact store). What is established: the symptom, a
+mechanism that produces exactly that symptom, and that the fix removes it.
+
+**Fix, `16357f3`.** When it mounts, the workspace takes up whatever is
+already in the code field and the event list (`door-workspace.jsx`). Evidence:
+
+- two component cases hydrate server-rendered HTML that already holds a typed
+  code or a chosen event. Each fails when its half of the fix is removed, and
+  only that one;
+- one browser case, "keeps a code typed before the page's script arrived, and
+  looks it up". It holds every script back 3 s and types before they arrive.
+  It checks that **Look up** is still disabled at that point, which is the
+  premise seen as a steward sees it. Then it checks that the button becomes
+  enabled and the lookup works. Without the fix it fails with the CI symptom
+  (`toBeEnabled`);
+- the keyboard case now waits for **Look up** to be enabled before it presses
+  Enter. An Enter pressed before the page's script arrives submits nothing,
+  because the server-drawn button is disabled. That is a precondition a
+  keyboard user shares, not a relaxed assertion. Every assertion in that case
+  is unchanged.
+
+No timeout was raised, no retry was added, no assertion was weakened, and no
+case was skipped. The four cases that failed are otherwise unchanged. The
+other three forms that disable their submit while a field is empty
+(moderation decision, lifecycle command, privacy confirmation) show that
+field only after a press, so after hydration; they are not exposed.
+
+Re-run locally: the detail configuration, 79 collected and 79 passed; the
+sweep, 63 and 63; and the full `verify` mirror on the remediation tree,
+recorded in §14. The commit was pushed while that mirror was still running,
+because a push to this branch starts no CI. The exact-SHA run was dispatched
+only after the mirror came back clean.
+
+**Run `35793993188` on `16357f3` succeeded, with all eight jobs green (§16).**
+The four cases that failed in `35789914694` passed: the sweep's
+reduced-motion check of the door screen, and in the detail job "sends one
+admission however often Admit is pressed on a slow line" (2.6 s), "reports
+an admission whose answer was lost as uncertain…" (1.1 s) and "works from the
+keyboard alone…" (789 ms). The new slow-page case passed in 3.8 s.
+
+### 18. Limitations
+
+- **Proxy-shared global rate limit.** The API's global limiter (300 a minute)
+  is keyed by address, and every browser request arrives from the web server's
+  address. The door and pass budgets were re-keyed on the account; the global
+  one was not, because doing it safely means the proxy forwarding a client
+  address the API trusts — a change to the trust boundary this phase was not
+  asked to make. At a busy venue with several stewards the global budget could
+  throttle the door.
+- **Timing.** A real code costs one query more than an invented one in the
+  preview; mitigated by the per-account budget, not removed.
+- **Lease clocks.** Lease expiry is judged by each host's clock against an
+  instant the worker computed on its own; the worker's completion does not
+  check its lease is still live; `sentAt` is the claim instant; leases are not
+  renewed during a send.
+- **Invitation scopes.** An invitation's `eventIds` are recorded but not applied
+  on acceptance; an invited door role starts with no scope (which admits
+  nobody) and is scoped by a role change.
+- **jsqr maintenance.** Last released 2021. Pinned, lazily loaded, and its
+  output is only ever a lookup request the server validates.
+- **Database trigger breadth.** `desi_ticket_status_transition` allows
+  `CHECKED_IN → REFUNDED/CANCELLED`, which the application's table forbids.
+  Recorded, not changed.
+- **Seeds.** Some seeded `CHECKED_IN` tickets have no `CheckIn` row; the door
+  answers them from the ticket's own `checkedInAt`, which is why that field is
+  nullable in the confirmation response.
+- **The CI failure's exact timing** (§17) was inferred from its symptom and
+  a reproduction, not observed; the artefacts could not be fetched here.
+- **Admission window.** No event carries an admission window, so none is
+  enforced; the door refuses cancelled events and lists events from a day
+  before they end.
+
+### 19. Deferred work
+
+Reserved-seat transfer (ADR 0005, option B, with the refund-path lock and the
+resale collision); applying invitation scopes on acceptance; a trusted
+client-address path through the web proxy; admission windows; group booking;
+offline admission (explicitly not implemented).
+
+### 20. External systems
+
+`PAYMENT_MODE` was never set and resolves to `MOCK`, as `payment-kill-switch.test.js` asserts — 12 of 12 locally, and in the CI step named below.
+No real Stripe or Stripe Connect operation, no production payment path, no
+external provider credential, no external financial operation and no
+destructive retention was enabled at any point in this phase.
+
+### Corrections to earlier sections
+
+**`REQUIRE_DATABASE` did not reach the suites that `turbo` ran — in CI
+included — until `8ccbb81`.** Phase 1's closure condition 11 says "`REQUIRE_DATABASE:
+'1'` is set workflow-wide, so a suite that skipped for want of a database would
+have **failed**", and the Phase 2 local-verification sections and the fifteen
+settlement cases say the same of their runs. The flag was set; it was not
+delivered. Turborepo's strict environment mode passes a task only the variables
+`turbo.json` declares, and neither `REQUIRE_DATABASE` nor `TEST_DATABASE_URL`
+was declared, so every test process `pnpm run test` started saw neither. The
+database suites still ran — the default connection string matched the CI
+service and the local database, so they connected and executed, and the
+recorded counts of tests that ran stand — but had the database been
+unreachable they would have **skipped**, not failed. The guarantee those
+sentences state did not exist. `8ccbb81` declares both in `globalEnv`, and
+`ci:check` now refuses a `turbo.json` without them. Proved with a probe task
+before and after. The sentences above are left as written, and this is the
+correction to them.
+
+**S-2 is fixed**, in `485fe4b` — its row in the Phase 2 findings table is left
+as written.
+
+**QR presentation is no longer deferred.** The Phase 2 classification
+"DEFERRED — QR ENCODER DECISION REQUIRED" was accurate when written; the
+decision is §8 above.
+
+**The ticket page's "handed over once"** described a rule the API never had —
+the pass is derived again for its holder on every request. Corrected in
+`docs/CHECK_IN.md` and on the page itself.
+
+## Phase 3: closure
+
+Fourteen separate outcomes. As with Phase 2, "Phase 3" is not one thing, and
+this closure does not describe the ticketing product as complete. "VERIFIED ON
+`16357f3`" means that the evidence cited ran in exact-SHA run `35793993188`
+and that all eight of its jobs were green.
+
+| Requirement                        | Classification                            | On what evidence                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Event-scoped scanner authorisation | **COMPLETE — VERIFIED ON `16357f3`**      | One policy function used by the preview, the confirmation and the events list; a module-load assertion over the role table; the eleven required negatives against real PostgreSQL, each checking that no `CheckIn` row was written (§4). Mutation M1 fails seven of them.                                                                                                                                                                              |
+| Non-mutating preview               | **COMPLETE — VERIFIED ON `16357f3`**      | Writes no `CheckIn`, status or credential: the ticket row is byte-identical before and after, on the stub and on PostgreSQL. `private, no-store`; uniform 404; rate-limited per account; strict Zod request and response schemas with a named presenter; hostile-payload tests (§3, §5).                                                                                                                                                               |
+| Preview-to-check-in revalidation   | **COMPLETE — VERIFIED ON `16357f3`**      | The confirmation re-derives everything inside its own transaction, with locks taken in one order. A validly signed reference for a caller who has since lost authority admits nobody. The reference is HMAC-bound to ticket, event, organisation, account and method, and expires after two minutes (§5, negatives 2, 3, 10, 11).                                                                                                                      |
+| Exactly-once check-in              | **COMPLETE — VERIFIED ON `16357f3`**      | Ten races and a deadlock check on real PostgreSQL. Two of them force the interleaving by waiting on `pg_stat_activity`. Mutation M2 fails both. In the browser, a double press sends one request and a lost answer retries without a second row (§7).                                                                                                                                                                                                  |
+| Manual admission                   | **COMPLETE — VERIFIED ON `16357f3`**      | `MANUAL_CODE` is derived, never chosen by the client. The door screen covers typed lookup, preview, **Admit**, already-in, not-found, uncertain and retry, keyboard-only use, and a code typed before the page's script arrives (§6, §13, §17).                                                                                                                                                                                                        |
+| QR attendee pass                   | **COMPLETE — VERIFIED ON `16357f3`**      | `uqr@0.1.3`, pinned. Shown to the holder only, on request, from a `no-store` endpoint. The component keeps the drawing, never the string. The pass is absent from markup, storage, URL, lists and test artefacts, and cleared on hide, `pagehide` and leaving. The page gives bearer guidance and does not claim screenshots can be prevented (§8, §9).                                                                                                |
+| QR scanner                         | **COMPLETE — VERIFIED ON `16357f3`**      | `jsqr@1.4.0`, pinned and loaded only when the camera starts. The camera starts only on a press; decoding is local; nothing is uploaded or kept; tracks stop. The order is decode, then preview, then confirm. Denied, unavailable and absent cameras each have their own message. Proved by a real round trip in Chromium with a synthetic camera stream. Physical devices and other browsers were not tested. `BarcodeDetector` is not used (§8, §9). |
+| Organiser check-in UI              | **COMPLETE — VERIFIED ON `16357f3`**      | `/organizer/check-in` for members whose role carries `ticket:check_in`. It is not the authorisation boundary: every decision above is the server's. The sweep covers seven widths, 200% zoom, reduced motion and a refused camera; the detail spec covers behaviour, with admissions read from PostgreSQL (§13, §15). No offline admission.                                                                                                            |
+| Member-email protection            | **FIXED — VERIFIED ON `16357f3`**         | The server decides `FULL` or `MASKED` per caller, and a discriminated response schema enforces it. `emailMasked` must contain `*`. The matrix covers owner, admin, manager, staff, viewer, scanner and platform admin, with hostile-payload tests and whole-body address searches (§10).                                                                                                                                                               |
+| Notification retry lease           | **FIXED — VERIFIED ON `16357f3`**         | Every condition is in the `UPDATE`'s `WHERE`. Eleven real-PostgreSQL cases race the dispatcher's own claim and completion. Routes stay platform-only; audit rows carry no body or recipient. Restoring the old code fails four cases (§11).                                                                                                                                                                                                            |
+| Reserved-seat transfer             | **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT** | Not fixed, and not marked fixed. ADR 0005 records the decision. What changed is that the block is now enforced: 422 at the start, 409 at acceptance, and the ticket screen no longer advertises it. S-2, a neighbouring defect, is fixed (§12).                                                                                                                                                                                                        |
+| Offline admission                  | **NOT IMPLEMENTED**                       | Deliberately, as the brief required. Offline, the door screen says there is no offline admission, and looks nothing up.                                                                                                                                                                                                                                                                                                                                |
+| Group booking                      | **NOT IMPLEMENTED**                       | Unchanged from Phase 2: no group model, no lead booker, no per-attendee assignment.                                                                                                                                                                                                                                                                                                                                                                    |
+| Real Stripe and Stripe Connect     | **EXTERNAL VERIFICATION PENDING**         | `PAYMENT_MODE` resolved to `MOCK` throughout. The payment kill-switch suite passed 12 of 12 locally and in the CI step "Production payments are unreachable". No real charge, payout, transfer, refund, webhook or provider credential was exercised (§20).                                                                                                                                                                                            |
+
+### What this closure does not claim
+
+The ticketing product is not complete, and this closure does not say it is.
+Reserved-seat transfer is still blocked, and offline admission and group
+booking do not exist. The limitations in §18 stand: the proxy-shared global
+rate limit, the preview's timing residue, the lease clocks, invitation scopes
+not being applied, `jsqr`'s maintenance, the trigger's breadth, the admission
+window, and the CI failure's inferred timing. Every live-payment question is
+still external.
+
+`PAYMENT_MODE` stayed `MOCK`. No real Stripe or Stripe Connect operation, no
+production payment path, no external provider credential, no external
+financial operation and no destructive retention was enabled at any point.
+
+---
+
 ## Sections still to be written
 
 Phases 3 and 4, and the following report requirements, are not yet
@@ -1366,3 +2083,11 @@ inventory; accessibility and responsive evidence; Playwright collection proof;
 security regression results; known limitations; deferred owner decisions;
 external verification pending items; and the per-requirement classification
 table.
+
+_Update, 2026-09-22, at the Phase 3 closure. The paragraph above is left as
+written._ For the admission path, Phase 3's section now answers the migrations
+and constraints, the API and response-schema changes, the authorisation
+changes, the credential and QR threat model, the scanner's preview and
+check-in flow, and the accessibility, Playwright-collection, limitation,
+deferred-work, external-verification and classification items. Phase 4, and
+every one of those items for the product as a whole, is still unwritten.
