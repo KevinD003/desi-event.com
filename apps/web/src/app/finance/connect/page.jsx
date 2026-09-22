@@ -156,7 +156,21 @@ export default async function ConnectPage({ searchParams }) {
               What the simulation records
             </h2>
 
-            <div className="mt-3 overflow-x-auto">
+            {/*
+              Focusable, and named. Every other scrolling table in this product
+              has links or buttons in its cells, so a keyboard user reaches the
+              scroll by tabbing into the content. This one is entirely static
+              text, which leaves the container unreachable — axe's
+              `scrollable-region-focusable`, and a real defect rather than a rule
+              being pedantic: at 320px the second column is off-screen with no
+              way to bring it into view without a pointer.
+            */}
+            <div
+              className="mt-3 overflow-x-auto focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              tabIndex={0}
+              role="region"
+              aria-labelledby="detail-heading"
+            >
               <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
                 <caption className="sr-only">
                   Simulated payout-setup details for{' '}
