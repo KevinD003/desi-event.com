@@ -705,13 +705,14 @@ database holds only its digest.
 
 ### Tests added
 
-| Where                                       | Cases | What they are for                                                              |
-| ------------------------------------------- | ----: | ------------------------------------------------------------------------------ |
-| `apps/api/tests/ticket-wallet.test.js`      |    44 | ownership regression, wallet shape, ten authorisation scenarios, pass security |
-| `apps/api/tests/ticket-concurrency.test.js` |    +3 | ownership across a real handover, two accepts racing, a decline                |
-| `apps/web/src/lib/wallet.test.js`           |    20 | bucketing, ordering, timezone, seat and venue text                             |
-| `apps/web/e2e/detail-ticket-wallet.spec.js` |    15 | the rendered wallet, seven widths, 200% reflow, keyboard, reduced motion       |
-| `apps/web/e2e/accessibility-sweep.spec.js`  |    +4 | the wallet under axe at three viewports, and at 200% zoom                      |
+| Where                                          | Cases | What they are for                                                              |
+| ---------------------------------------------- | ----: | ------------------------------------------------------------------------------ |
+| `apps/api/tests/ticket-wallet.test.js`         |    60 | ownership regression, wallet shape, ten authorisation scenarios, pass security |
+| `apps/api/tests/ticket-concurrency.test.js`    |    +3 | ownership across a real handover, two accepts racing, a decline                |
+| `apps/api/tests/settlement-invariants.test.js` |    14 | the transfer-lineage settlement invariant — see the remediation section below  |
+| `apps/web/src/lib/wallet.test.js`              |    27 | bucketing, ordering, timezone, seat and venue text                             |
+| `apps/web/e2e/detail-ticket-wallet.spec.js`    |    19 | the rendered wallet, seven widths, 200% reflow, keyboard, reduced motion       |
+| `apps/web/e2e/accessibility-sweep.spec.js`     |    +3 | the wallet under axe at phone, tablet and desktop                              |
 
 **The regression was falsified twice.** Reverting `toOrder` to
 `items.flatMap((item) => item.tickets ?? [])`:
@@ -724,7 +725,7 @@ database holds only its digest.
 
 A second, independent gate showed up in the same experiment: with the filter
 reverted the checkout route answers **500** rather than leaking, because
-`orderTicketSchema` requires `transferredAway` and the bare rows do not have it.
+`orderTicketSchema` requires `purchaserHolding` and the bare rows do not have it.
 Two gates, and the test asserts on the first.
 
 The ten authorisation scenarios the brief named, and where each is proven:
@@ -949,11 +950,343 @@ nor an actor with `ticket:revoke`.
 | S-11 | ~~An organiser reading a buyer's order cannot reach the recipient's ticket id to revoke it.~~ **Withdrawn — this was wrong, and adversarial verification caught it.** The order carries the sender's ticket id; `tickets.get` accepts it from any actor holding `ticket:revoke`; and its `transfers[]` carries the ACCEPTED transfer whose `resultTicketId` _is_ the recipient's ticket. The path existed over the API the whole time. The real gap was narrower: the detail page did not render `resultTicketId`, so the hop was not clickable. **Fixed this phase** — the transfer history now links to the ticket a transfer became. |
 | S-12 | `buyerEmail` is a declared field of `orderSchema` and is returned on the order response to the buyer and to any holder of `order:view`. By design, and out of the wallet's scope — the wallet response does not carry it, and the Prisma select does not even fetch it.                                                                                                                                                                                                                                                                                                                                                                 | Changing a long-standing declared contract field needs owner authorization.                                                                              |
 
+### Exact-SHA CI, Phase 2 — a real regression, and two corrections
+
+**Run 35762869262, `0532905118c344342e29066a71a2a35d6ac19d91`, `workflow_dispatch`,
+attempt 1: FAILURE.** This is a genuine Phase 2 regression and is recorded here
+permanently. It was not a flake, not an environmental effect, and not something
+a rerun would have cleared; it was deterministic, it was caused by this branch,
+and it was root-caused from the logs rather than by dispatching the same SHA
+again.
+
+Seven of eight jobs were green, including all seven browser configurations. The
+eighth, **Policy, lint, contract, tests, build**, failed at step 27,
+_Reliability smoke test_:
+
+```
+✗ INVARIANT BROKEN — no duplicate settlement: 31 line(s) hold more tickets than they bought
+```
+
+#### The chronology, in order
+
+| #   | What happened                                                                                                                                                                                                     |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Phase 2 pushed as `0532905118c344342e29066a71a2a35d6ac19d91`.                                                                                                                                                     |
+| 2   | Exact-SHA CI run **35762869262** dispatched on it. Seven of eight jobs green, all seven browser configurations among them — 300 collected, 300 run, 300 passed.                                                   |
+| 3   | The eighth job failed at step 27, _Reliability smoke test_, on `no duplicate settlement`.                                                                                                                         |
+| 4   | Root-caused from the job logs. The SHA was **not** re-dispatched to see whether it would pass.                                                                                                                    |
+| 5   | Reproduced locally at the first attempt, which is what established it as deterministic rather than a race.                                                                                                        |
+| 6   | Measured rather than assumed: 62 tickets across the 31 offending lines, of which **exactly 31** carry `supersedesTicketId` — one transfer-minted row per line, and no row any other story explains.               |
+| 7   | First correction, `dbb5957c5a15e359b84b4677383ff78260da09d4`: count terminal members of a supersession chain instead of ticket rows.                                                                              |
+| 8   | Falsified both ways — the scenario passes against a database holding 31 real chains, and fails the moment a planted non-superseding second ticket is inserted on a quantity-1 line. Probe deleted.                |
+| 9   | Exact-SHA CI run **35772861864** on `dbb5957`: **all eight jobs green, attempt 1.**                                                                                                                               |
+| 10  | The owner declined to accept that as sufficient and asked whether counting terminal members is the correct business invariant or merely a query that makes the current fixture pass.                              |
+| 11  | Re-examination found **three holes in that correction**, set out below. They were found by mutating the query and watching which cases stayed green, not by reasoning about it.                                   |
+| 12  | Second correction, `2e22e15b917d49134ecfbb94ce43db9c34b6b47c`: three checks rather than one, and failure messages that name the offending rows.                                                                   |
+| 13  | A fourteen-case suite written against real PostgreSQL. Three defects in the **test harness** were found and fixed before it could be trusted — recorded below, because each would have read as a product failure. |
+| 14  | Mutation testing across five mutations. One mutation survived the suite; case 8b was added to catch it, and only then did every clause have a case that isolates it.                                              |
+| 15  | Exact-SHA CI run **35776856187** on `2e22e15`.                                                                                                                                                                    |
+
+#### What the old invariant was for, and what it got wrong
+
+The check was not gratuitous and its intention was right: it exists to catch
+**duplicate settlement** — an order line paid for once that somehow issued
+admission more than once. That is a real hazard and the check still guards it.
+
+What it did was count ticket **rows** against `OrderItem.quantity`. That was a
+correct implementation of the intention _before transfers existed_, when a line
+held exactly the rows checkout issued. It became false when transfers shipped.
+`acceptTransfer` mints the recipient's ticket onto the **buyer's** order item —
+same `orderItemId`, new row, `supersedesTicketId` naming the row it replaces —
+so that the lineage back to the original purchase stays unbroken and auditable.
+A line for one ticket handed on once therefore holds two rows, and one handed on
+and back holds three, every one of them legitimate.
+
+So the defect is precise: the query **incorrectly treated historical transfer
+rows as independent purchased admissions**. It did not have the wrong goal; it
+had a measure that stopped tracking the goal the day the lineage model arrived.
+
+It had been wrong since transfers shipped. What changed in Phase 2 is that it
+finally had a deterministic accepted transfer in front of it: the pre-existing
+concurrency tests only ever _raced_ an accept against a check-in or a refund, so
+the accept frequently lost and minted nothing, while the Phase 2 tests assert
+that exactly one accept succeeds. That is the difference between a database with
+no accepted transfers in it and one with 31.
+
+#### Vocabulary
+
+Stated once, in `scripts/load/invariants.js` and used identically in the tests,
+because an ambiguous word here becomes a settlement or admission defect later.
+
+| Term                                       | Meaning                                                                                      |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| **chain root**                             | The ticket issued by checkout. Its `supersedesTicketId` is null.                             |
+| **predecessor**                            | A ticket that another ticket supersedes.                                                     |
+| **successor**                              | The ticket minted to replace a predecessor; its `supersedesTicketId` names that predecessor. |
+| **terminal member** (= **current member**) | A ticket with no successor. It is the row that represents the lineage now.                   |
+
+**"Chain head" is deliberately not used.** Nothing else in this repository
+defines the word, and it reads as the _root_ to as many people as it reads as
+the terminal. The first correction's commit message used it, and that is exactly
+the ambiguity the owner warned would cause a future settlement or admission
+defect.
+
+#### The safety property being asserted
+
+> For each purchased order line, the number of independent current ticket chains
+> — and therefore the greatest number of tickets that could carry current
+> admission authority — must not exceed the quantity purchased.
+
+#### The three holes in the first correction
+
+**H-1 — the successor lookup was not scoped to the line.** A successor anywhere
+in the table marked a ticket historical. A line holding three independent
+tickets against two sold, one of which was reached across from another line,
+therefore reported two current tickets and passed — while holding three ways in.
+The lookup now requires predecessor and successor to sit on the **same order
+item**.
+
+**H-2 — a lineage cycle reported no current member and passed.**
+`Ticket_supersedesTicketId_key` stops two successors sharing a predecessor and
+`Ticket_supersedesTicketId_fkey` stops a dangling reference, but neither forbids
+A superseding B while B supersedes A. Every member then has a successor, the
+line reports **zero** terminal members, and zero is not greater than the
+quantity. A paid line holding tickets and no current member is now a failure in
+its own right, reported in its own sentence.
+
+**H-3 — a place in a lineage is not what opens a door.** `findTicketForScan`
+resolves a presented pass by `credentialHash`, so **any** row holding a digest
+admits somebody. Two live digests inside one lineage is two admissions for one
+purchase and exactly one terminal member, so the terminal count reports one and
+passes. `no surplus admission authority` counts what can actually be scanned.
+
+Cross-line supersession is additionally named as itself rather than left to
+surface as an odd count, because "this line oversold" and "this lineage crossed
+purchases" need different answers from whoever reads the failure.
+
+#### The fifteen cases, and where each is proved
+
+`apps/api/tests/settlement-invariants.test.js`, against real PostgreSQL —
+`REQUIRE_DATABASE=1`, so an unreachable database fails rather than skips.
+
+| #   | Case                                                    | Outcome required                       | Where                                                    |
+| --- | ------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------- |
+| 1   | One bought, never transferred                           | pass                                   | case 1                                                   |
+| 2   | One bought, transferred once                            | pass                                   | case 2                                                   |
+| 3   | One bought, transferred repeatedly                      | pass                                   | case 3                                                   |
+| 4   | Quantity 2, each unit with its own valid chain          | pass                                   | case 4                                                   |
+| 5   | Two independent current tickets against a quantity of 1 | **reject**                             | case 5                                                   |
+| 6   | A branching successor                                   | **impossible**                         | case 6/7 — `Ticket_supersedesTicketId_key`               |
+| 7   | Two successors sharing one predecessor                  | **impossible**                         | case 6/7 — the same unique index; one write, one refusal |
+| 8   | A successor on another purchased line                   | **reject**                             | case 8 — `no cross-lineage supersession`                 |
+| 8b  | A line's own over-issue concealed by a reach across     | **reject**                             | case 8b — the case that isolates the scoping             |
+| 10  | A successor naming a ticket that does not exist         | **impossible**                         | case 10 — `Ticket_supersedesTicketId_fkey`               |
+| 10b | Deleting a predecessor                                  | sets the reference null, never orphans | case 10b — the same key, `ON DELETE SET NULL`            |
+| 11  | A lineage cycle                                         | **reject**                             | case 11, reported as a cycle and not as a surplus        |
+| 12  | Two usable credentials inside one lineage               | **reject**                             | case 12 — `no surplus admission authority`               |
+| 13  | A refunded lineage                                      | pass, and no usable pass left          | case 13                                                  |
+| 14  | A reserved-seat lineage                                 | **unconstructable** — see below        | case 14                                                  |
+| 15  | Concurrent transfer acceptance                          | one current chain, one usable pass     | `ticket-concurrency.test.js`, the raced accept           |
+
+#### Schema constraints cited, and demonstrated rather than assumed
+
+Three of the enumerated cases are not the invariant's job because the table does
+not permit them. Each is proved by a regression test that makes the write and
+asserts the exact constraint name, so a migration that dropped one would fail
+here rather than silently widen what the invariant has to catch.
+
+| Constraint                       | Declared in                                                                 | What it guarantees                                                                                                             | Proved by     |
+| -------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------- |
+| `Ticket_supersedesTicketId_key`  | `20260915010000_phase2_commerce_and_operations/migration.sql`, unique index | At most one successor per predecessor. Cases 6 and 7 are the same write, and it is refused.                                    | case 6/7      |
+| `Ticket_supersedesTicketId_fkey` | the same migration, `FOREIGN KEY … ON DELETE SET NULL`                      | A successor cannot name a ticket that does not exist, and deleting a predecessor nulls the reference rather than stranding it. | cases 10, 10b |
+| `Ticket_eventSeatId_key`         | the same migration, unique index                                            | Two tickets cannot hold one seat — which is what makes a reserved-seat transfer impossible.                                    | case 14       |
+
+Neither of the first two forbids a cross-item supersession or a cycle, which is
+precisely why H-1 and H-2 are the invariant's work and not the schema's.
+
+#### Case 14 does not conceal the reserved-seat defect
+
+`acceptTransfer` mints the successor with `eventSeatId: ticket.eventSeatId`
+while the predecessor still holds that seat, and nothing on the predecessor
+clears it — the transition writes only `credentialHash` and `credentialVersion`.
+Because `Ticket.eventSeatId` is unique, the create violates
+`Ticket_eventSeatId_key` and the whole transfer transaction aborts. This is
+finding S-1, and case 14 demonstrates it against real PostgreSQL rather than
+asserting it from a reading of the code.
+
+The consequence for the invariant has to be said plainly: **no seated lineage of
+more than one member can exist in the table**, so the settlement checks never
+meet one, and their passing on seated lines says nothing whatever about whether
+reserved-seat transfer is correct. It is not coverage. A case that built a
+seated chain by hand and watched the invariant accept it would read as though
+this worked, which is the one thing case 14 must not do. When S-1 is fixed, case
+14 fails — and that is the point: whoever fixes it is told that the invariant
+now has a shape to check.
+
+#### Mutation testing: does each clause earn its place?
+
+A suite that passes proves nothing on its own. Each clause of the corrected
+check was removed or reverted in turn and the suite re-run, to see which cases
+go red. The good file was restored from a copy taken beforehand and verified by
+checksum after each round, because `git checkout` would have discarded the
+uncommitted work — a mistake already made once this session.
+
+| Mutation                                             | Cases that fail                     | Reading                                                                                                                                                                                                   |
+| ---------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A** — count ticket rows, as before the remediation | 9 of 14, including cases 1–4 and 13 | Reproduces the original CI failure against this database. The acceptance cases fail because the check is database-wide and the shared database holds real transfer chains.                                |
+| **B** — successor lookup unscoped                    | 8b only                             | Initially **nothing failed.** Case 8 passes either way, because the line reached across drops to no current member and the cycle clause catches it. Case 8b was written to isolate the scoping, and does. |
+| **C** — no cycle clause                              | 11 only                             | H-2 is isolated.                                                                                                                                                                                          |
+| **D** — admission-authority check disabled           | 12 only                             | H-3 is isolated.                                                                                                                                                                                          |
+| **E** — cross-lineage check disabled                 | 8 only                              | The separate check is isolated.                                                                                                                                                                           |
+
+Mutation B is the one worth keeping. It is exactly the failure mode the owner
+was asking about: a suite that passes, a clause that looks justified, and no
+case that actually depends on it. Had the mutation run not been done, case 8
+would have stood in the report as evidence for a scoping rule it does not test.
+
+#### Three defects in the test harness, found before the suite could be trusted
+
+Each would have read as a product failure to anybody looking at the output.
+
+**Colliding identifiers.** The id generator padded a variable stem out to 25
+characters with zeroes, which made `…event1` and `…event10` the same string.
+That is a duplicate-key failure two hundred rows into the run, reported against
+`Event_pkey` and `OrderItem_pkey`, and it looks like anything but an identifier
+bug. The counter now sits at the end at a fixed width.
+
+**Twenty-five seconds per invariant run.** Every case timed out at the 30-second
+limit. Timing each check individually showed `noOverselling` at **24.9 s** of a
+25.0 s total — it walks every ticket type in the catalogue one aggregate at a
+time, 12,907 of them in this database — against 130 ms for the settlement check,
+35 ms for admission authority and 11 ms for cross-lineage. It already accepts a
+scope, so the suite passes one; the settlement checks stay database-wide, which
+is the question they exist to ask. The suite now runs in **2.8 s**. The N+1 is a
+pre-existing property of a passing check and is recorded as a deferred task
+rather than changed here.
+
+**Order dependence.** The checks are database-wide and the rejection cases plant
+violations on purpose, so a case that left its rows behind answered the next
+case's question for it. Teardown is per case, not per file. That is stricter
+than the sibling real-database suites, which leave everything because the test
+database is disposable — and it is not optional here, because CI runs the same
+checks again in the reliability step _after_ the suite, and a planted row left
+behind would fail that step on a defect that does not exist. Verified: after a
+full run of the API suite, zero rows carrying this suite's prefix remain, and
+all nine invariants pass database-wide.
+
+What teardown deliberately does **not** remove is case 14's seat layout. A
+published `VenueMapVersion` is frozen by `desi_seat_frozen_and_coherent` and
+cannot be unpublished by `desi_map_version_publish_once`, so its seats, rows,
+sections and venue cannot be deleted — correctly, because people have bought
+against that plan. No invariant reads any of it.
+
+#### Local verification of the remediation
+
+| Gate                                       | Result                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `settlement-invariants.test.js`            | **14 passed**, real PostgreSQL, 2.8 s                                                      |
+| `ticket-concurrency.test.js`               | **14 passed**, including the raced accept's new lineage assertions                         |
+| API suite                                  | **67 files, 1,335 cases, all passed**                                                      |
+| `npx turbo run test --force`               | **19/19 tasks, 0 cached**                                                                  |
+| skipped-test detection                     | **5,538 cases across 16 reports, 0 skipped, 0 allow-listed, 0 undeclared** — fresh reports |
+| reliability, `ga-hold-contention`          | PASS — 3,017 calls, p95 60.5 ms                                                            |
+| reliability, `seat-hold-contention`        | PASS — 4,428 calls, p95 39.3 ms                                                            |
+| reliability, `check-in-concurrency`        | PASS — 3,691 calls, p95 45.9 ms                                                            |
+| `format:check`                             | pass                                                                                       |
+| `lint`                                     | pass                                                                                       |
+| invariants, database-wide, after the suite | all **9** pass                                                                             |
+
+5,538 is 5,524 plus the fourteen new settlement cases, exactly. Case 15 added
+assertions to an existing case rather than a new one, so it moves no count — the
+arithmetic is the check that the figure is this run's and not a cached one.
+
+The reports were deleted before the run and regenerated with the reporter flags
+CI uses, and their timestamps were read afterwards to confirm it. **No cached or
+stale report is cited anywhere above.**
+
+#### Why the seven browser configurations were not re-run locally
+
+The owner's exemption applies, and its conditions are met. The diff from
+`dbb5957` to `2e22e15` is **three files**:
+
+```
+apps/api/tests/settlement-invariants.test.js   (new, test)
+apps/api/tests/ticket-concurrency.test.js      (test)
+scripts/load/invariants.js                     (reliability script)
+```
+
+No file under `apps/web/src`, `apps/web/public`, `packages/ui` or
+`packages/schemas`; no `apps/api/src`; no Prisma schema or migration; no OpenAPI
+artefact; no `package.json`, no lockfile; no CSS, no JSX. Nothing generated was
+altered. The 300/300 result on `0532905` stands as recorded, and the seven
+browser jobs run in exact-SHA CI on this SHA regardless. **If CI reports any
+discrepancy, it is investigated rather than dismissed on the strength of this
+classification.**
+
+#### Two reliability tasks deferred to Phase 4, with acceptance criteria
+
+Both are real. Neither is done here, because each materially expands a
+remediation the owner asked to keep narrow, and each needs its own evidence.
+
+**R-1 — a single fresh-report verification command.** Today the local sequence
+is `rm` the reports, then `npx turbo run test --force -- --reporter=default
+--reporter=json --outputFile.json=vitest-report.json`, then run
+`check-skipped-tests.mjs` over what that wrote. It works, and it is three
+commands and a piece of folklore about which `--force` reaches which tool. A
+`pnpm verify:tests:fresh` should exist. Accepted only when it guarantees, and is
+shown to guarantee:
+
+1. every test task runs, with no task served from the turbo cache;
+2. every `vitest-report.json` is deleted before the run and rewritten by it;
+3. the reporter flags are the ones CI's `Test` step passes, not a local variant;
+4. the skipped-test gate reads only reports written by that run;
+5. it fails, loudly, if any report is older than the run;
+6. it fails if the report count does not match the number of reporting tasks;
+7. a CI-parity test asserts the command's flags equal the workflow's, so the two
+   cannot drift.
+
+Falsification required: a deliberately stale report must make it fail, and a
+deliberately cached task must make it fail.
+
+**R-2 — `noOverselling` is an N+1 over the whole catalogue.** One `findMany`
+over `TicketType` followed by one `aggregate` per type: 12,907 queries and 24.9 s
+against this database, growing with the catalogue, paid three times per CI
+reliability step. The check passes and has always passed; this is cost and
+scaling, not correctness. Accepted when it is a single grouped query, returns
+byte-identical results on a database holding a known oversell and one without,
+completes in under a second here, and keeps the `scope.eventId` behaviour.
+
+#### Exact-SHA CI, the first correction
+
+**Run 35772861864, `dbb5957c5a15e359b84b4677383ff78260da09d4`,
+`workflow_dispatch`, attempt 1: SUCCESS.** All eight jobs green. Recorded even
+though `2e22e15` supersedes it, because it is what the owner provisionally
+accepted and because a superseded green run is still evidence about what the
+first correction did.
+
+| Job                                      | Result  |
+| ---------------------------------------- | ------- |
+| Policy, lint, contract, tests, build     | success |
+| Browser — public catalogue               | success |
+| Browser — production build               | success |
+| Browser — event lifecycle                | success |
+| Browser — organiser venue maps           | success |
+| Browser — refusals                       | success |
+| Browser — accessibility sweep            | success |
+| Browser — commerce and operations detail | success |
+
+Every one of the main job's 27 substantive steps reported `success`, step 27
+_Reliability smoke test_ among them — the step that failed on `0532905` — from
+19:24:33 to 19:25:08. The only steps with conclusion `skipped` are _Upload
+failure artefacts_ and the seven _Upload Playwright artefacts_, which are
+`if: failure()` uploads. **Nothing was silently unrun:** a skipped upload is an
+upload that had nothing to upload, and is not a skipped test.
+
 ---
 
 ## Sections still to be written
 
-Phases 2, 3 and 4, and the following report requirements, are not yet
+Phases 3 and 4, and the following report requirements, are not yet
 answerable and are deliberately left unwritten rather than filled with
 placeholders: final repository state; architecture and data-flow changes;
 database migrations and constraints; API and response-schema changes;
