@@ -275,8 +275,15 @@ describe('the repository', () => {
       if (file.endsWith('package.json') || file.endsWith('pnpm-lock.yaml')) continue
 
       const source = readFileSync(path.join(repoRoot, file), 'utf8')
+      // `connect.stripe.com`, `dashboard.stripe.com` and the two asset hosts are
+      // here because a Connect onboarding phase is exactly where a hosted link
+      // gets pasted in — the mock-mode design forbids one, and this is what
+      // makes the promise enforceable rather than written down. All four are
+      // clean today, so the rule only ever fails on a new offender.
       if (
-        /api\.stripe\.com|api\.razorpay\.com|checkout\.stripe\.com|api\.adyen\.com/.test(source)
+        /api\.stripe\.com|api\.razorpay\.com|checkout\.stripe\.com|api\.adyen\.com|connect\.stripe\.com|dashboard\.stripe\.com|js\.stripe\.com|files\.stripe\.com/.test(
+          source,
+        )
       ) {
         offenders.push(file)
       }
@@ -292,7 +299,12 @@ describe('the repository', () => {
     const importers = tracked.filter((file) => {
       if (!/\.(js|mjs|cjs|jsx)$/.test(file)) return false
 
-      return /from 'stripe'|import\('stripe'\)|require\('stripe'\)/.test(
+      // The browser SDKs count too. `@stripe/stripe-js` and
+      // `@stripe/react-stripe-js` sit on the permitted-dependency allow-list, so
+      // before this widening `import { loadStripe } from '@stripe/stripe-js'` in
+      // a web component was caught by no guard at all while the phase scope said
+      // "no Stripe SDK import".
+      return /from '(stripe|@stripe\/[a-z-]+)'|import\('(stripe|@stripe\/[a-z-]+)'\)|require\('(stripe|@stripe\/[a-z-]+)'\)/.test(
         readFileSync(path.join(repoRoot, file), 'utf8'),
       )
     })

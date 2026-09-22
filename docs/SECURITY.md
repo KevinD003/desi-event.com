@@ -376,3 +376,89 @@ else.
 
 `docs/PHASE2_THREAT_MODEL.md` — the assets, the actors, what each could try, and
 what stops them.
+
+---
+
+## The simulated connected-account surface — 2026-09-22
+
+Two routes, `connect.status` and `connect.start`, both organisation-scoped under
+`/v1/organizations/:id/connect`.
+
+### Authorization
+
+Both require `connect:manage`, scoped `params.id`. The effective holder set is
+`FINANCE`, and `ADMIN` and `OWNER` through inheritance, plus `SUPER_ADMIN`
+platform-wide — the capability, not a role, is what the screen filters on, which
+is what keeps an owner from being locked out of a screen they are the natural
+person to use. `MANAGER` and `EVENT_MANAGER` are excluded by the same
+separation-of-duties rule that keeps "can publish" and "can move money" apart.
+
+Step-up is split by tier, matching what the rest of the finance surface already
+does: `FINANCE_VIEW` (15 minutes) on the read, `PAYOUT` (5 minutes) on the
+action. Eight finance reads already carry the first and three finance actions
+the second. A ten-minute-old second factor reads and cannot act, and there is a
+test that says so — without it the split would be a claim in a document.
+
+An earlier draft of the design proposed a `CONNECT_ONBOARDING` step-up instead.
+That is not a step-up policy: it is an `AuthTokenPurpose` lifetime
+(`packages/auth/src/tokens.js:44`), `STEP_UP_POLICIES` has ten members and that
+is not one of them, and because `apps/api/src/lib/register.js:75` resolves the
+window at registration rather than per request, the API would not have booted.
+Adding a member to `STEP_UP_POLICIES` was considered and rejected: it changes a
+shared security table, and it would put one string on two unrelated controls —
+the collision `packages/auth/src/sessions.test.js:343-348` already records for
+`PRIVACY_ERASURE` against `CREDENTIAL`.
+
+### Tenancy
+
+The organisation in the path is refused with 403 whether it belongs to another
+tenant or does not exist, with identical status, code and message template, so
+the refusal is not an existence oracle. That is the rule for a path
+organisation and **not** the rule for an identifier nested under one; a nested id
+would follow `apps/api/src/routes/privacy.js:166-168` and answer a 404
+indistinguishable from a nonexistent id. `ConnectedAccount` is keyed on
+`organizationId` alone, so this surface has no nested subject today.
+
+Neither body carries an `organizationId`, `actorId`, `state`, `capability`,
+`stepUp` or `idempotencyKey`. The guard reads `params.id` and the writer reads
+the same value — a guard on the path and a writer on the body is a cross-tenant
+write. The invariant at `apps/api/tests/security-regression.test.js` that forbids
+those fields is widened **by route id**, never by tag: widening to `finance` or
+to `MONEY_TAGS` trips immediately on `payouts.schedule`, whose body legitimately
+carries both `organizationId` and `idempotencyKey`.
+
+### Mode boundary
+
+Both routes refuse unless `app.payments.mode === MOCK` **and**
+`providers.payments.name === 'in-memory-payments'`. See `docs/PAYMENTS.md` for
+why both halves.
+
+### Guards widened by this change
+
+| Guard                                                 | What it did not cover before                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/src/lib/browser-bundle.js`                  | The `@desi-event/schemas` barrel, which re-exports `entities.js`, `requests.js` and `responses.js` — so one status constant imported from it shipped every model's column names to the browser. The auth and inventory barrels were already forbidden; schemas was the inconsistency. |
+| The Stripe host scan in `payment-kill-switch.test.js` | `connect.stripe.com`, `dashboard.stripe.com`, `js.stripe.com`, `files.stripe.com`                                                                                                                                                                                                     |
+| The SDK-import check in the same file                 | `@stripe/stripe-js` and `@stripe/react-stripe-js`, both on the permitted-dependency allow-list, so a browser Stripe import was caught by nothing                                                                                                                                      |
+| The presenter allow-list `it.each`                    | The connect presenter; its `NEVER` list gains the mint prefix, a requirement string and a currency                                                                                                                                                                                    |
+| The audit-action source scan                          | Its pattern matched the tail of `CONNECT_AUDIT_ACTIONS.X` and demanded an `AUDIT_ACTIONS.X` that was never meant to exist. Now has a lookbehind, plus a companion scan covering the connect map by name.                                                                              |
+
+### Reported, not repaired: the `paymentsOverride` gate bypass
+
+`apps/api/src/app.js:87` reads `const payments = paymentsOverride ?? gated`,
+which replaces the boot gate's result wholesale. The comment four lines above
+claims the opposite — "The supplied resolution replaces the _result_, never the
+check, and it cannot name a mode the gate would have refused" — and both clauses
+are false. The only residual checks are `payments.live === true` and mode
+membership, so an override carrying `live: false` and `mode: 'STRIPE_TEST'` boots
+in an environment where the gate would have refused. It also passes `label`,
+`message` and `credentials` through verbatim, supplying `credentials`
+_enumerably_ and so defeating the non-enumerable attachment
+`payment-mode.js:509-523` exists to provide against log and serialise leakage.
+
+It is not reachable in any deployment: only an in-process `buildApp` caller can
+set it, `server.js:48-57` does not, and no call site in the repository passes it.
+It is recorded here rather than fixed because payment mode is a protected area
+under this phase's authorisation. The repair would be to re-apply the gate to
+the override rather than replace the result with it, correct or delete the
+comment, and add the missing invariant to `payment-kill-switch.test.js`.

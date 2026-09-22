@@ -414,6 +414,25 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
     })
 
+    test(`the payout-setup screen is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/finance/connect')
+      // Matched by name, never a bare `level: 1`. The read behind this screen
+      // is gated on a step-up window, so the page degrades to a heading plus a
+      // refusal rather than throwing — and a bare level-1 assertion would pass
+      // against that degraded page and call an unscanned screen clean.
+      await expect(page.getByRole('heading', { name: 'Payout setup', level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      // The one table here is the detail list, scrolled inside its own region
+      // rather than widening the document.
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
     test(`the finance overview is clean at ${viewport.name}`, async () => {
       const page = organiser
 
@@ -762,32 +781,37 @@ test.describe.serial('the Phase 2 screens, swept', () => {
   test('every focusable control shows where the focus is', async () => {
     const page = organiser
 
-    await page.goto('/organizer/events')
+    // Two screens, because this phase's new controls are on the second one.
+    // The event list alone would have proved nothing about buttons that did not
+    // exist when the case was written.
+    for (const path of ['/organizer/events', '/finance/connect']) {
+      await page.goto(path)
 
-    // A focus ring removed without a replacement is the single most common way
-    // a keyboard user is left unable to tell where they are.
-    const unmarked = await page.evaluate(() => {
-      const offenders = []
-      const focusable = document.querySelectorAll(
-        'main a[href], main button:not([disabled]), main input:not([disabled]), main select:not([disabled])',
-      )
+      // A focus ring removed without a replacement is the single most common way
+      // a keyboard user is left unable to tell where they are.
+      const unmarked = await page.evaluate(() => {
+        const offenders = []
+        const focusable = document.querySelectorAll(
+          'main a[href], main button:not([disabled]), main input:not([disabled]), main select:not([disabled])',
+        )
 
-      for (const element of focusable) {
-        element.focus()
+        for (const element of focusable) {
+          element.focus()
 
-        const style = getComputedStyle(element)
-        const ring =
-          style.outlineStyle !== 'none' ||
-          style.boxShadow !== 'none' ||
-          style.borderStyle !== 'none'
+          const style = getComputedStyle(element)
+          const ring =
+            style.outlineStyle !== 'none' ||
+            style.boxShadow !== 'none' ||
+            style.borderStyle !== 'none'
 
-        if (!ring) offenders.push(element.outerHTML.slice(0, 80))
-      }
+          if (!ring) offenders.push(element.outerHTML.slice(0, 80))
+        }
 
-      return offenders
-    })
+        return offenders
+      })
 
-    expect(unmarked).toEqual([])
+      expect(unmarked, path).toEqual([])
+    }
   })
 
   test('the moderation queue and decision screen are clean', async () => {
@@ -822,6 +846,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
 
     for (const [path, heading] of [
       ['/analytics', /analytics/i],
+      ['/finance/connect', /payout setup/i],
       [`/operations/reconciliation/${commerce.reconciliationTaskId}`, /payment timeout/i],
       [`/finance/refunds/${commerce.refundId}`, /refund on/i],
       [`/tickets/${commerce.ticketIds[0]}`, null],
@@ -938,7 +963,10 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     const page = organiser
 
     await page.setViewportSize({ width: 320, height: 720 })
-    await page.goto('/organizer/events')
+    // The payout-setup screen is the one introducing new buttons, and axe runs
+    // the WCAG 2.1 tag set, which does not contain 2.5.8 — so nothing else in
+    // this file would have measured them.
+    await page.goto('/finance/connect')
 
     // 24 CSS pixels is WCAG 2.2's minimum (2.5.8). Inline links in prose are
     // exempt by the criterion itself, so they are excluded here rather than

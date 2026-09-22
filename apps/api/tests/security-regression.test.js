@@ -33,6 +33,7 @@ import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
 
 import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
+import { toConnectStatus } from '../src/lib/connect.js'
 import { toDispute, toEvidence, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
 
@@ -236,8 +237,14 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
       'skipHolds',
     ]
 
+    // Widened by route id, never by tag. Widening to `finance` or to MONEY_TAGS
+    // would trip immediately on `payouts.schedule`, whose body legitimately
+    // carries `organizationId` — its capability guard scopes on
+    // `body.organizationId` — and `idempotencyKey`, which is what makes a
+    // retried payout a no-op. The connect routes carry the `finance` tag for the
+    // step-up invariant's sake and are named here by id for this one.
     for (const route of apiRoutes) {
-      if (!route.tags.includes('privacy')) continue
+      if (!route.tags.includes('privacy') && !route.id.startsWith('connect.')) continue
       if (!route.body) continue
 
       const keys = Object.keys(route.body.shape ?? {})
@@ -392,8 +399,21 @@ describe('allow-list presenters: what a money payload carries', () => {
     createdAt: new Date('2026-09-01T10:00:00Z'),
   })
 
-  /** What must never appear in any of the four payloads. */
-  const NEVER = ['priya@example.com', 'Priya Sharma', '4242', 'everything the provider sent']
+  /** What must never appear in any of these payloads. */
+  const NEVER = [
+    'priya@example.com',
+    'Priya Sharma',
+    '4242',
+    'everything the provider sent',
+    // The simulated connected account's own three. A provider-shaped identifier
+    // in a payload is one in a log; the provider name and mode describe how this
+    // deployment is wired rather than anything a caller can act on; and the
+    // currency is a column a simulated row deliberately leaves null, so a
+    // payload carrying one would be carrying a fabrication.
+    'mockacct_',
+    'individual.id_number',
+    'CAD',
+  ]
 
   it.each([
     [
@@ -448,6 +468,25 @@ describe('allow-list presenters: what a money payload carries', () => {
         currency: 'INR',
         status: 'OPENED',
         fundsWithheld: true,
+      }),
+    ],
+    [
+      'connect status',
+      toConnectStatus,
+      rowWith({
+        id: 'c1',
+        organizationId: 'c2',
+        provider: 'in-memory-payments',
+        providerAccountId: 'mockacct_deadbeefdeadbeefdeadbeef',
+        providerMode: 'mock',
+        country: 'IN',
+        defaultCurrency: 'CAD',
+        onboardingStatus: 'REQUIREMENTS_DUE',
+        chargesEnabled: false,
+        payoutsEnabled: false,
+        detailsSubmitted: false,
+        disabledReason: 'requirements.past_due',
+        requirementsDue: ['individual.id_number'],
       }),
     ],
   ])('the %s presenter drops what it was not asked for', (_name, present, row) => {

@@ -256,3 +256,636 @@ task, described in `docs/RECONCILIATION_RUNBOOK.md`.
 
 Items 2 and 3 are code this repository could write today; item 1 is the external
 dependency, and item 4 needs all three.
+
+---
+
+## Mock-mode Connect foundation — design, 2026-09-21
+
+The design for the repository-owned half of the closure plan above: items 2 and
+3, built in **mock mode only**. Recorded before implementation, and critiqued
+adversarially before any code was written.
+
+Nothing in this section describes a Stripe integration. It describes a
+simulation this repository runs against itself, and the whole point of writing
+it down first is that a simulation which _looks_ like onboarding is the easiest
+thing in this project to mistake for the real thing.
+
+### What exists already, and what does not
+
+Established by reading the code rather than this document, because four of this
+document's own claims were found stale while doing so (corrected below).
+
+| Piece                                                                | State                                                                                                                                                                                                                        |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ConnectedAccount` model, constraints, relations                     | Exists. `organizationId` is `@unique`                                                                                                                                                                                        |
+| `ConnectOnboardingStatus` enum, five members                         | Exists. **Written by nothing**                                                                                                                                                                                               |
+| `connect:manage` capability                                          | Exists. Held by `FINANCE`, and by `ADMIN` and `OWNER` through inheritance; `SUPER_ADMIN` platform-wide. **Used by nothing**                                                                                                  |
+| A `CONNECT_ONBOARDING` step-up policy                                | **Does not exist.** `CONNECT_ONBOARDING` is an `AuthTokenPurpose` lifetime (`packages/auth/src/tokens.js:44`), not a step-up policy. The policy for this surface is `PAYOUT`, 5 minutes (`packages/auth/src/sessions.js:87`) |
+| Adapter methods (`createConnectedAccount`, `getConnectedAccount`, …) | Exist on the Stripe adapter only                                                                                                                                                                                             |
+| The in-memory provider's Connect surface                             | **Does not exist**                                                                                                                                                                                                           |
+| Any writer that can create a `ConnectedAccount` row                  | **Does not exist**                                                                                                                                                                                                           |
+| `connect.start` / `connect.status` routes                            | **Do not exist**                                                                                                                                                                                                             |
+| Any organiser Connect screen                                         | **Does not exist**                                                                                                                                                                                                           |
+
+The last four are what this work adds. The first four are why it is mostly
+wiring.
+
+### The one blocking defect, and why it is repaired here
+
+`desi_payout_currency_matches` reads `"payoutCurrency"` from `ConnectedAccount`.
+That column does not exist; the column is `defaultCurrency`. PL/pgSQL plans
+function bodies lazily, so the migration applied cleanly and the trigger has
+never executed.
+
+It has never executed because its first statement returns early when
+`connectedAccountId` is null — and no payout has ever carried one, because
+nothing could create a `ConnectedAccount` row. **This phase is precisely what
+makes that path reachable.** Verified by execution against PostgreSQL 16: an
+INSERT on `Payout` with a non-null `connectedAccountId` fails with SQLSTATE
+42703, `column "payoutCurrency" does not exist`, from the function's line 9.
+
+The repair is a new forward migration replacing the function body, one
+identifier. The early return is preserved, the invariant is preserved, and the
+trigger is not broadened.
+
+Two adjacent facts recorded rather than fixed, because fixing them would be the
+financial-policy redesign this work is not:
+
+- The same migration's comment says the rule covers "a transfer or payout", but
+  `CREATE TRIGGER` attaches to `"Payout"` only. **Transfers have no currency
+  check at all.** Owner decision.
+- The trigger compares currencies with `<>` and does not case-fold. The writer
+  added here normalises to upper case, matching the Stripe adapter's existing
+  precedent, so the comparison is safe from _this_ writer. A future writer that
+  stores `inr` would trip it. Owner decision.
+
+### The lifecycle, and why it reuses the existing vocabulary
+
+`ConnectOnboardingStatus` is already a closed, server-authoritative, indexed
+Prisma enum. Minting a parallel `MOCK_*` vocabulary would cost a migration, a
+second enum for readers to learn, and a parity test — to express the same five
+states.
+
+So the states are the existing five. What makes them unmistakably a simulation
+is carried in three other places, none of which is the state name:
+
+1. `ConnectedAccount.providerMode` is written `'mock'`. The row itself records
+   that it is not a real account.
+2. The API response carries a server-authoritative `simulated: true` the UI is
+   required to render. It is not derived in the browser.
+3. The screen never prints the raw enum. It prints mock-qualified wording, and a
+   standing block saying what the state does **not** mean.
+
+All four actions arrive on `connect.start`, which is the **one** state-changing
+route this phase adds; `connect.status` is a read and changes nothing. `action`
+is a closed enum validated in the contract, and it is the only field either body
+carries. The destination state is never in the request: the server reads the
+current row, looks the pair up in the table below, and refuses anything absent
+from it.
+
+That is a weaker claim than "never a state supplied in a request body", and the
+weaker claim is the true one. The vocabulary maps one-to-one onto destination
+states, so a body saying `SIMULATE_READY` is a body asking for `COMPLETE` — the
+one state that sets `chargesEnabled` and `payoutsEnabled` true. What actually
+holds the line is that the _legality_ of the move is decided server-side from
+the row, not the spelling of the field. The forbidden-body-field list in
+"Scoping" bans `state`; it deliberately does not ban `action`, and this is why.
+
+The transitions, every pair applied as a compare-and-set against the state it
+was validated against:
+
+| From               | Action                  | To                 |
+| ------------------ | ----------------------- | ------------------ |
+| `NOT_STARTED`      | `START`                 | `IN_PROGRESS`      |
+| `IN_PROGRESS`      | `SIMULATE_REQUIREMENTS` | `REQUIREMENTS_DUE` |
+| `IN_PROGRESS`      | `SIMULATE_READY`        | `COMPLETE`         |
+| `REQUIREMENTS_DUE` | `SIMULATE_READY`        | `COMPLETE`         |
+| `COMPLETE`         | `SIMULATE_DISABLE`      | `DISABLED`         |
+| `REQUIREMENTS_DUE` | `SIMULATE_DISABLE`      | `DISABLED`         |
+| `IN_PROGRESS`      | `SIMULATE_DISABLE`      | `DISABLED`         |
+
+Every other pair is invalid and refused with a closed reason code. In
+particular `DISABLED` is terminal in this phase: re-onboarding a disabled
+account is a real-provider concern, and inventing a mock path for it would be
+inventing policy.
+
+**A table of legal pairs is not a state machine unless every write is
+conditional on the state it was read against.** Under a read-then-update
+handler — the shape an implementer writes when nothing says otherwise — two
+individually legal actions compose into a pair that is not in the table. Run
+concurrently against one `IN_PROGRESS` row, `SIMULATE_DISABLE` and
+`SIMULATE_READY` land on `COMPLETE` with both flags true: the account passed
+through `DISABLED` and came back out, which is `DISABLED` → `COMPLETE`, unlisted,
+and the end of the terminality asserted a paragraph above.
+
+So every transition is written as
+`updateMany({ where: { id, onboardingStatus: <from> }, data: { onboardingStatus: <to>, ...derived } })`
+with `count === 1` as the success test and a 409 otherwise. The repository
+already has this shape — `apps/api/src/lib/payouts.js:155-167` `transition()` —
+but its `where` hardcodes `status`, so this surface takes a small column
+parameter on that helper rather than growing a second copy of it.
+
+`START` is the exception, and it is create-only rather than an upsert. An upsert
+looked right — one account per organisation, keyed on `organizationId @unique` —
+but its update branch is unconditional, so a replayed `START` against a
+`COMPLETE` row rewrites it to `IN_PROGRESS` while leaving `chargesEnabled` and
+`payoutsEnabled` true: an unlisted transition _and_ a row whose flags contradict
+its own state, which is the one thing the derivation rule below exists to
+prevent. It ends `DISABLED`'s terminality by the same route. Putting the state
+in the upsert's `where` does not rescue it — Prisma then leaves the native
+upsert path, attempts a create, and raises P2002. `START` therefore creates,
+catches P2002, re-reads and returns the existing row **unchanged**.
+
+`chargesEnabled` and `payoutsEnabled` are derived from the state, never set
+independently — `COMPLETE` implies both true, every other state implies both
+false. A mock that could report "payouts enabled" in any state but `COMPLETE`
+would be the exact false claim this design exists to prevent.
+
+### Scoping, authorization and step-up
+
+- One `ConnectedAccount` per organisation, enforced by `organizationId @unique`
+  at the database. The writer is an upsert keyed on it.
+- Reads and writes are organisation-scoped from the path, resolved server-side.
+  The organisation in the path is **refused with 403** whether it belongs to
+  another tenant or does not exist at all — identical status, code and message
+  template either way, so the refusal is not an existence oracle. That is the
+  repository's rule for a path organisation (`apps/api/tests/privacy.test.js:120-137`)
+  and it is **not** the rule for an identifier nested underneath one. Should a
+  nested id ever be added here, it follows `apps/api/src/routes/privacy.js:166-168`
+  instead and answers a **404 indistinguishable from a nonexistent id**, because
+  "not yours" and "not there" must not be tellable apart below the tenant
+  boundary. `ConnectedAccount` is keyed on `organizationId` alone, so this
+  surface has no nested subject today; the distinction is written down because
+  it is the one an implementer would otherwise generalise wrongly.
+- Neither request body carries an `organizationId`, `actorId`, `state`,
+  `capability`, `stepUp` or `idempotencyKey` field. The guard reads
+  `params.id` and the upsert reads that same value — a guard on the
+  path and a writer on the body would be a cross-tenant write, which is why the
+  two must be the one field. `payouts.schedule` scopes on `body.organizationId`
+  and is the counter-precedent that makes saying so necessary. The invariant at
+  `apps/api/tests/security-regression.test.js:239` that forbids those fields is
+  filtered to the `privacy` tag, so this change widens it to cover the connect
+  surface rather than leaving the rule merely asserted here. Widen it **by route
+  id** — `!route.tags.includes('privacy') && !route.id.startsWith('connect.')` —
+  never by tag. Widening to the `finance` tag or to `MONEY_TAGS` trips
+  immediately on `payouts.schedule`, whose body legitimately carries both
+  `organizationId` and `idempotencyKey`.
+- Both routes carry the **`finance`** tag. That is load-bearing, not cosmetic:
+  `MONEY_TAGS` at `apps/api/tests/security-regression.test.js:56` is
+  `{analytics, finance, refunds}`, and every route carrying one must declare a
+  step-up. Tagging them `finance` puts both under that invariant automatically.
+  A new `connect` tag would have placed a money-adjacent surface outside it
+  without anyone deciding that, and was rejected for exactly that reason.
+- **Both routes refuse unless the deployment is in mock mode.** The scope says
+  "mock mode only", and before this that was an intention rather than a
+  property: nothing in the design gated the routes, so in a legitimately-booted
+  `PAYMENT_MODE=stripe_test` deployment they would have simulated happily. The
+  guard is `app.payments.mode === PAYMENT_MODES.MOCK` **and**
+  `providers.payments.name === 'in-memory-payments'`, refused with a closed
+  error code. Both halves, because the repository holds two independent notions
+  of payment mode that can disagree — the boot gate's resolution, and the
+  provider-name sniff at `finance.js:176`, `finance.js:178` and
+  `analytics.js:269` that reaches buyers through `money-figure.jsx:41`. The
+  authoritative one for this surface is the boot gate; the provider-name check
+  is the second lock, and it is what stops `connect.start` minting mock rows
+  after someone wires a real adapter into `server.js:46` — which is closure item
+  1, the whole point of the sequence this phase sits in.
+- The row the mock writes names its own nature explicitly, never by default.
+  `providerMode: 'mock'` is written on every branch: the column defaults to
+  `"test"`, so a writer that merely omits it produces a row that reads, in the
+  database, as a real Stripe **test-mode** connected account — the exact
+  misreading the whole design exists to prevent. `provider` is written as
+  `providers.payments.name` (`'in-memory-payments'`), which is already the
+  convention for `Payment.provider`, is self-describing, and keeps the mock out
+  of the real provider's `@@unique([provider, providerAccountId])` namespace.
+  Both values are asserted on a row created through `connect.start`, not merely
+  intended.
+- The screen picks its organisation the way every comparable screen does:
+  `connectOrganizations(session)` in `apps/web/src/lib/session.js`, filtered on
+  `connect:manage`, then
+  `organizations.find((o) => o.organizationId === params.id) ?? organizations[0]`
+  — the shape used at `apps/web/src/app/privacy/page.jsx:70` and three siblings.
+  The API's 403 is the control; the intersection is what stops the screen from
+  provoking one. The new web API module applies `encodeURIComponent` to the
+  organisation id before putting it in a path, as `apps/web/src/lib/organizer-api.js:84`
+  does. `apps/web/src/lib/privacy-api.js` interpolates unencoded at `:77`, `:88`,
+  `:110`, `:133` and `:194`; the value it passes is server-resolved from session
+  memberships rather than caller-supplied, so it is not reachable today, but the
+  new module does not copy the pattern. Fixing the privacy module is a change to
+  a surface this phase was not asked to touch and is noted, not made.
+- The mock mints a `providerAccountId` unique per organisation and prefixed so
+  it **cannot be mistaken for a Stripe account id** — not `acct_`. These are the
+  first `ConnectedAccount` rows this repository has ever held, and the Connect
+  webhook handler at `apps/api/src/lib/webhook-handlers.js:330` matches on
+  `providerAccountId` alone, with no provider, mode or organisation in the
+  `where`. That unscoped match is inert today (`apps/api/src/routes/webhooks.js:93`
+  refuses every Connect delivery outside `STRIPE_TEST`) and is recorded here as
+  a known gap for whoever adds real webhooks, not repaired in this phase.
+- Both routes require `connect:manage`, organisation-scoped from the path.
+- `connect.start` requires a fresh **`PAYOUT`** step-up (5 minutes,
+  `packages/auth/src/sessions.js:87`); `connect.status` requires a fresh
+  **`FINANCE_VIEW`** one (15 minutes, `:83`). Both are gated — leaving the read
+  ungated would make it the only money-adjacent read in the repository without a
+  step-up — but they are gated at the tier the repository already uses for each
+  kind of call. Every finance read carries `FINANCE_VIEW` (eight routes,
+  `packages/api-contract/src/routes.js:1823` and on); every finance action
+  carries `PAYOUT` (`:2091`, `:2136`, `:2160`). An earlier draft put `PAYOUT` on
+  both, which would have made a five-minute window the gate on simply opening
+  the page.
+- Both routes declare `API_ERRORS.stepUpRequired`, so the screen's
+  retry-after-step-up path is discoverable from the contract rather than by
+  trial. The contract checker does not require this of a step-up route, so it
+  has to be done deliberately.
+
+**Correction, made during design critique.** An earlier draft of this section
+proposed a `CONNECT_ONBOARDING` step-up instead, on the reasoning that it "has
+its own 10-minute window and is named for this surface". That reasoning was
+wrong, and the fact it rested on was false. `CONNECT_ONBOARDING` is an
+`AuthTokenPurpose` lifetime (`packages/auth/src/tokens.js:44`) — the expiry of a
+single-use `AuthToken` — and not a step-up policy at all. `STEP_UP_POLICIES`
+(`packages/auth/src/sessions.js:81-146`) contains ten members and that is not one
+of them, so `stepUpWindowFor('CONNECT_ONBOARDING')` throws and, because
+`apps/api/src/lib/register.js:75` resolves the window at registration rather than
+per request, the API would have failed to boot. `PAYOUT` is not merely the
+fallback: its docstring reads "A payout, **or a change to a connected account's
+payout destination**", which is this surface exactly, and it is what closure
+item 2, `docs/PHASE3_IMPLEMENTATION_PLAN.md:191-193`, `PHASE2_STATUS.md:1146` and
+`docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md:945` have each already said.
+
+Two consequences worth stating, because both cut against the earlier draft:
+the approved window is _shorter_ (5 minutes, not 10) on the surface that decides
+where an organiser's money lands, and the read is gated too. Putting
+`connect.status` behind capability alone would have made it the only
+money-adjacent read in the repository with no step-up — every one of the ten
+finance-tagged routes carries one.
+
+Adding a `CONNECT_ONBOARDING` member to `STEP_UP_POLICIES` was considered and
+rejected. It is a change to a shared security table outside this phase's scope,
+and it would put one string on two unrelated controls — the precise collision
+`packages/auth/src/sessions.test.js:343-348` records for `PRIVACY_ERASURE`
+against `CREDENTIAL`.
+
+### Idempotency and concurrency
+
+`START` on an account already past `NOT_STARTED` returns the current state and
+records nothing new — the same answer a first call would give, so a replay is
+indistinguishable from a repeat. The upsert on a unique organisation id makes
+two concurrent first-starts collapse to one row at the database rather than in
+application logic.
+
+### Audit evidence
+
+Closed action and reason vocabularies. A row carries the actor in `actorId`,
+the account in `entityType`/`entityId`, and the organisation, from-state,
+to-state and action in `metadata`. The organisation goes in `metadata` because
+`AuditLog` has **no `organizationId` column** (`packages/db/prisma/schema.prisma:809-822`:
+id, actorId, action, entityType, entityId, metadata, createdAt) and the only
+migration this scope authorises is the trigger repair. That is also what the
+existing finance writer does — `apps/api/src/routes/finance.js:337-344` puts
+`organizationId` in `metadata`. No schema change is required, and an earlier
+draft of this section that said rows "carry the organisation" without saying
+where would have invited one.
+
+Rows carry **no** request body, no free text, no provider payload, no financial
+figure and no identity field — there are none to carry, because none is
+collected.
+
+### The screen
+
+The design critique found this section missing entirely, which meant an
+implementer had nothing to build against and a reviewer nothing to review
+against. It is specified here.
+
+**Route and files.** `apps/web/src/app/finance/connect/page.jsx`, a
+`dynamic = 'force-dynamic'` server component, plus a client component beside it
+for the actions. It sits under `/finance` because `connect:manage` travels with
+the finance roles and the nav grouping already exists.
+
+**Degrading, not recovering.** The `h1` renders **outside** the `try`, and the
+gated read sits inside it, so a stale step-up produces a page with its heading,
+its description and a refusal in the body — never a thrown page. That is exactly
+what `apps/web/src/app/finance/page.jsx:88-98` does, which is why `/finance` is
+already in the accessibility sweep and passes: `page.goto('/finance')` always
+finds `heading "Finance" level 1` whether or not the window is fresh. The same
+shape makes a Connect case safe anywhere in the sweep file, at any runner speed,
+with no step-up machinery in the spec and no dependence on case ordering.
+Recovery on the _action_ is `StepUpPrompt` plus `router.refresh()`, the pair
+already used at `apps/web/src/components/reconciliation-actions.jsx:242` and
+`apps/web/src/app/privacy/request-actions.jsx:150`.
+
+**There is no link to send anybody to.** In mock mode the screen's only outbound
+action is a POST to `connect.start`. `What would close the pending items` item 2
+describes a screen that "sends somebody to the hosted onboarding link"; that
+describes the real-provider phase, not this one, and the non-goals below forbid
+it outright. Nothing on this screen navigates off-site.
+
+**Structure.** One `h1`, "Payout onboarding". Sections below it as `h2` with
+`aria-labelledby`, matching the finance screens. The five
+`ConnectOnboardingStatus` values each render as a named state with
+mock-qualified wording, never the raw enum, and every state carries the standing
+block saying what it does **not** mean.
+
+**Actions.** Each is a button, never a link, because each is a POST. A
+state-changing action is confirmed before it fires, and `SIMULATE_DISABLE` is
+confirmed with its own wording because it is terminal. On completion focus
+returns to the control that opened the confirmation, as the privacy screens do.
+Errors land in a `role="alert"` region; state changes are announced in a polite
+live region.
+
+**Which house style.** The privacy screens, not the finance ones. Import
+`{ AsOf, Empty, Failure, Forbidden }` from `components/page-state.jsx`: render
+`Forbidden` when `connectOrganizations(session)` is empty
+(`apps/web/src/app/privacy/page.jsx:65-67`), `Failure` on a refusal (`:108`),
+`Empty` for `NOT_STARTED`, and `AsOf` for the read timestamp (`:89`, `:119`).
+`/finance` does not use `page-state.jsx` at all — it hand-rolls its own alert,
+duplicating `Failure`'s wording verbatim, and hand-rolls "not for you" instead
+of using `Forbidden`. Being finance-tagged, this screen would otherwise copy the
+nearest file, which is the wrong one.
+
+**Focus restoration.** Copy `apps/web/src/app/privacy/request-actions.jsx:77-90`
+— restore by effect against a live node — and ship the matching test modelled on
+`request-actions.test.jsx:295-307`. Do **not** copy the finance components'
+version: its `dismiss()` focuses a node React has already unmounted, so Cancel
+strands focus on `document.body`. That is a pre-existing defect in those files,
+recorded here so it is not propagated, and out of scope to repair.
+
+**Loading.** There is no page-level pending state to render: every screen is
+`force-dynamic` and server-rendered, the shared `Loading` component is dead
+code, and there is no `loading.jsx` or `Suspense` anywhere in the web app. The
+loading state on this screen is the action button's disabled-plus-busy label
+(`request-actions.jsx:306-309`), and the finished transition is announced
+through the polite live region — not through a spinner nobody hears.
+
+**Browser tests.** The behaviour spec is
+`apps/web/e2e/detail-connect.spec.js`. The name is the whole mechanism: it is
+collected by `apps/web/playwright.detail.config.js:65` and runs in the existing
+"Browser — commerce and operations detail" job, so there is no new matrix entry
+in `.github/workflows/ci.yml` and therefore no ninth required context. Any other
+name is silently collected by the default config and runs in "Browser — public
+catalogue", whose config deliberately does not start the API, so an API-backed
+spec placed there fails on its first CI run. Do **not** "fix" that by adding a
+`'**/connect-*.spec.js'` entry to the default config's `testIgnore`: that
+produces a spec collected by none of the seven configs, so CI stays green and
+the surface has no browser coverage at all — worse than a loud failure. The
+`'**/detail-*.spec.js'` entry already at `apps/web/playwright.config.js:49`
+covers the new file for free.
+
+**Sweep cases, enumerated**, because "covered by the sweep" is not a plan:
+three cases inside the `VIEWPORTS` loop, each `setViewportSize` → `goto` →
+expect a heading matched **by name** (never a bare `level: 1`, or a refusal page
+would pass) → `scan()` length 0 → `sidewaysOverflow() <= 1`; the route added to
+the 200%-zoom array; the Connect path added to the focus-visible case and to the
+24px target-size case, since this screen is the one introducing new buttons and
+axe runs the WCAG 2.1 tag set, which does not include 2.2's 2.5.8 target size;
+and a `ConnectedAccount` seed in `e2e/support` with matching cleanup, so states
+past `NOT_STARTED` can be scanned at all.
+
+**Reach.** axe clean at the sweep's viewports, no sideways overflow at 320px, no
+loss of function at 200% zoom, every control reachable and operable by keyboard
+with a visible focus ring, and no motion that ignores `prefers-reduced-motion`.
+The case lives in `apps/web/e2e/accessibility-sweep.spec.js` itself, because
+`playwright.sweep.config.js` pins `testMatch` to that one file.
+
+### Data minimisation
+
+The screen has **no inputs**. No bank details, tax identifiers, government IDs,
+dates of birth, addresses, legal names, payout instructions or documents are
+collected, stored, rendered or logged, because a mock that collected them would
+have acquired the exact risk it exists to avoid carrying.
+
+`requirementsDue` stores **counts**, never contents — matching the only existing
+writer. This document said so already; `schema.prisma`'s own comment said the
+opposite ("stored verbatim") and is corrected in this change, because an
+implementer reading the schema would otherwise store requirement strings.
+
+### What must not move
+
+- `providers.payments.name` stays `'in-memory-payments'`. `finance.js:176`,
+  `finance.js:178` and `analytics.js:269` sniff that exact string to decide the
+  payment mode, and `money-figure.jsx:41` turns the result into wording shown to
+  **buyers**: renaming the provider would relabel every money figure in the
+  product from "Demonstration data" to "Sandbox data". The Connect surface is
+  added as methods on the existing provider object, not as a new provider.
+- No Stripe SDK import, no Stripe URL, no network call, no credential read.
+- Nothing here creates, schedules, executes, reverses or reconciles a movement
+  of money.
+- Payout semantics are **not** unchanged, and an earlier draft claiming they
+  were was wrong. `apps/api/src/routes/finance.js:277-287` already looks up the
+  organisation's connected account and stamps `connectedAccountId` onto every
+  payout it schedules. There are no `ConnectedAccount` rows in this repository
+  today, so that lookup has always returned null and the currency trigger has
+  always taken its early return. This phase mints the first such rows, so from
+  here on a payout for an onboarded organisation carries an account id and is
+  subject to the trigger this change just repaired.
+
+  That is why the mock writer leaves `defaultCurrency` **NULL**. It is the
+  migration's own documented "declares no currency, so there is nothing to
+  compare against" path, already covered by the new suite. Storing a fabricated
+  currency instead would arm the repaired trigger against real payout rows: the
+  seed ships a CAD organisation (`packages/db/scripts/seed.mjs:395`) beside INR
+  ones, a PL/pgSQL `RAISE` is not a Prisma `P2002` and is not caught anywhere in
+  the payout path, so a mismatch would surface as a bare 500. Adding a mapped
+  422 in `payouts.schedule` would also work and was rejected: it changes real
+  payout behaviour to accommodate a mock, which is the wrong direction.
+
+### Non-goals
+
+No onboarding URL, redirect handler, return handler, hosted link, login link,
+account lookup, provider webhook trigger, background reconciler or provider
+synchronisation. No re-onboarding from `DISABLED`. No transfer currency check.
+No change to payout behaviour when an account is absent — and, for the presence
+case this phase creates for the first time, no change to _which_ account
+`payouts.schedule` picks: it keeps taking the most recent row for the
+organisation with no filter on lifecycle state. Adding one is an owner decision,
+recorded above.
+
+### Owner decisions this does not take
+
+Real Stripe credentials and account setup; jurisdictions; Connect account type;
+organiser eligibility; payout countries and currencies; KYC/KYB; tax reporting;
+sanctions and AML; dispute and refund obligations; privacy and retention
+implications of connected-account data; webhook, incident and reconciliation
+ownership; legal review and launch criteria. Plus the two trigger-adjacent
+decisions recorded above, and one more that the design critique surfaced:
+
+**The `FINANCE_ADMIN` platform role can move payouts it cannot see the account
+for.** `FINANCE_ADMIN` holds `payout:manage` (`packages/permissions/src/capabilities.js:537`)
+but not `connect:manage` (`:533-542`), while `payouts.schedule` authorizes on
+`payout:manage` scoped to the body's organisation, which a platform grant
+satisfies for any organisation. So a platform finance administrator can
+schedule, send and reverse an organisation's payouts while being refused the
+connected-account state those payouts depend on. This is pre-existing and is
+left exactly as it is: granting `connect:manage` to `FINANCE_ADMIN` widens a
+platform authority, which is a separate, named change with its own review and
+not a side effect of a mock-mode phase. Recorded here so the asymmetry is a
+decision somebody took rather than one nobody noticed.
+
+**A mock connected account becomes a real payout destination, in every
+lifecycle state.** `apps/api/src/routes/finance.js:277-280` looks up
+`connectedAccount.findFirst({ where: { organizationId } })` with no filter on
+`onboardingStatus`, `payoutsEnabled` or `providerMode`, and attaches whatever it
+finds; `payouts.send` then hands that row's `providerAccountId` to the provider
+as the destination. Nothing on the payout path reads `payoutsEnabled`,
+`chargesEnabled` or `providerMode` at all — so the lifecycle invariant above
+("`COMPLETE` implies both true, every other state implies both false") and the
+`providerMode: 'mock'` honesty marker buy exactly nothing at the one place they
+would matter. A `DISABLED` mock account is as much a payout destination as a
+`COMPLETE` one.
+
+Three observable changes follow, all of them first-time: payouts begin carrying
+a non-null `connectedAccountId`; the repaired `desi_payout_currency_matches`
+stops taking its early return and begins comparing currencies; and
+`presenters.js:443`/`:468` begin returning a non-null `connectedAccountId` to
+organiser screens.
+
+The owner decides which of two it is. Filtering the lookup to
+`payoutsEnabled: true` is a change to real payout behaviour and needs
+authorisation. Leaving it is defensible in mock mode, where no money moves — but
+then it is pinned by a test so the next phase inherits it knowingly rather than
+silently. This phase does neither on its own: it records the behaviour and adds
+the **presence** case to the non-goals, which until now covered only absence.
+
+**Out of scope, reported rather than repaired: the `paymentsOverride` hole in
+`apps/api/src/app.js:87`.** `const payments = paymentsOverride ?? gated`
+replaces the gate's result wholesale. The comment four lines above it claims the
+opposite — "The supplied resolution replaces the _result_, never the check, and
+it cannot name a mode the gate would have refused" — and both clauses are false.
+The only residual checks are `payments.live === true` and mode membership
+(`:89`), so an override carrying `live: false` and `mode: 'STRIPE_TEST'` boots in
+an environment where the gate itself would have refused. It also carries
+`label`, `message` and `credentials` through verbatim, supplying `credentials`
+_enumerably_ and so defeating the non-enumerable attachment
+`payment-mode.js:509-523` exists to provide against log and serialise leakage.
+Downstream, `webhooks.js:92-97` would flip both endpoints from refuse-every-delivery
+to accept-signed against the fabricated secret, and `health.js:84-90` would
+republish `mode`, `label` and `message` on the unauthenticated liveness probe.
+
+It is not reachable in any deployment: only an in-process `buildApp` caller can
+set it and `server.js:48-57` does not, and no call site in the repository passes
+it — `payment-kill-switch.test.js` does not exercise the option at all. It is
+named here because payment mode is a protected area under this phase's
+authorisation, so the rule is stop, show the evidence, and wait. The repair
+would be to re-apply the gate to the override rather than replace the result
+with it — refuse when `paymentsOverride.mode !== gated.mode`, refuse an override
+carrying a `credentials` bag the gate did not produce, correct or delete the
+comment, and add the missing invariant to `payment-kill-switch.test.js`.
+
+## Mock-mode Connect foundation — as built, 2026-09-22
+
+The design section above was written first, critiqued adversarially, and
+corrected where the critique proved it wrong. This section records what was
+actually built, including the two places where building it changed the design
+again.
+
+### What exists now
+
+| Thing                                                                        | Where                                                                               |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| The vocabulary: states, actions, transitions, disclaimers, forbidden phrases | `packages/schemas/src/connect.js`, subpath `@desi-event/schemas/connect`            |
+| The lifecycle: create-only start, compare-and-set advance, presenter, audit  | `apps/api/src/lib/connect.js`                                                       |
+| The two routes                                                               | `apps/api/src/routes/connect.js`, contract at `packages/api-contract/src/routes.js` |
+| The organiser screen                                                         | `apps/web/src/app/finance/connect/page.jsx` and `connect-actions.jsx`               |
+| The trigger repair                                                           | `packages/db/prisma/migrations/20260921090000_payout_currency_trigger_repair/`      |
+
+Nothing above imports a payment SDK, names a provider host, reads a credential
+or opens a socket. `apps/api/tests/payment-kill-switch.test.js` holds that as a
+repository-wide property rather than a promise made in a comment, and this
+change widened it: the host scan now covers `connect.stripe.com`,
+`dashboard.stripe.com`, `js.stripe.com` and `files.stripe.com`, and the
+SDK-import check now matches `@stripe/stripe-js` and `@stripe/react-stripe-js`
+as well as the bare `stripe` specifier. Before that widening, a browser Stripe
+SDK import in a web component was caught by no guard at all.
+
+### What the wire carries, and what it does not
+
+`connect.status` returns exactly ten fields: `simulated` (always `true`,
+server-set, with no branch that omits it), `state`, `stateDescription`,
+`terminal`, `accountExists`, `simulatedChargesEnabled`,
+`simulatedPayoutsEnabled`, `detailsSubmitted`, `requirementsDueCount` and
+`updatedAt`.
+
+The absences are the specification. There is no `providerAccountId`, because a
+provider-shaped identifier in a payload is one in a log and it names nothing
+anyway. No `provider` or `providerMode`, which describe how this deployment is
+wired rather than anything an organiser can act on. No `defaultCurrency`, which
+a simulated row deliberately leaves null. No `country` and no `disabledReason`,
+both of which would have to be fabricated. `requirementsDue` is reduced to a
+count, because a list of outstanding requirements is a list of things a real
+provider would want to know about a real person.
+
+The two capability flags carry `simulated` in their names. They correspond to
+real columns, but a payload field called `payoutsEnabled` is one copy-and-paste
+from a screen reading "Payouts enabled", which is a claim about a real provider
+that nothing here is entitled to make.
+
+This is proved rather than asserted: the allow-list-presenter invariant at
+`apps/api/tests/security-regression.test.js` now covers the connect presenter,
+with the mint prefix, a requirement string and a currency added to its `NEVER`
+list. Adding `providerAccountId` back to the presenter fails it by name.
+
+### The two design changes that building it forced
+
+**Signing in _is_ a step-up.** `apps/api/src/lib/sessions.js:258` sets
+`mfaSatisfiedAt` when the sign-in presented a factor, and every account holding
+`connect:manage` is privileged enough to be required one. So "signed in but
+never stepped up" is not a state that exists, and the first two step-up tests
+written against this surface were wrong before they were right — they now move
+the clock instead. It also settles what the design worried about: a freshly
+signed-in organiser has a fresh window, so a refusal is not the screen's
+ordinary first state. It remains a state the screen has to be able to be in, and
+it is, by degrading rather than throwing.
+
+**The audit vocabulary belongs in `AUDIT_ACTIONS`.** The source scanner in
+`apps/api/tests/audit.test.js` caught the new writes, and was right to, but for
+the wrong reason: its pattern matched the tail of
+`CONNECT_AUDIT_ACTIONS.MOCK_STATE_ADVANCED` and demanded an
+`AUDIT_ACTIONS.MOCK_STATE_ADVANCED` that was never meant to exist. That is a
+scanner reporting a defect it invented, which costs as much attention as a real
+one. It now has a lookbehind, a companion scan covers the connect map by name,
+and `AUDIT_ACTIONS` carries four `CONNECT_MOCK_*` entries whose values come from
+the shared module rather than being spelled twice.
+
+### The accessibility defect the sweep found
+
+`scrollable-region-focusable`, serious, on the first run. Every other scrolling
+table in this product has links or buttons in its cells, so a keyboard user
+reaches the scroll by tabbing into the content. This screen's table is entirely
+static text, which left the container unreachable — at 320px the second column
+sits off-screen with no way to bring it into view without a pointer. It is now
+focusable and named. Reasoning would not have found it.
+
+### Coverage
+
+| Suite                                                            | What it proves                                                                                                                                                        |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/schemas/src/connect.test.js` (38)                      | The transition table, the derivations, and the wording — every disclaimer and refusal string checked against the forbidden-phrase list                                |
+| `apps/api/tests/connect.test.js` (30)                            | Capability, both step-up tiers, the closed action vocabulary, the payload absences by name, the audit metadata shape by name, and the mock-mode guard from both sides |
+| `apps/api/tests/connect-lifecycle-integration.test.js` (10)      | Real PostgreSQL: the unique constraint, the replay, two concurrent first-starts, two concurrent conflicting actions, and a real payout left unaffected                |
+| `apps/api/tests/payout-currency-trigger.test.js` (6)             | Real PostgreSQL: the repaired trigger, including a structural case naming the column                                                                                  |
+| `apps/web/src/app/finance/connect/connect-actions.test.jsx` (15) | Which buttons each state offers, the body's single field, focus restoration, and every string the screen can render                                                   |
+| `apps/web/e2e/detail-connect.spec.js` (11)                       | The screen in a browser: who may open it, what it says, the confirmation, and two states moved                                                                        |
+| `apps/web/e2e/accessibility-sweep.spec.js` (56 total)            | axe at three viewports, 200% zoom, focus rings, and 24px targets                                                                                                      |
+
+Each structural guard was falsified once with the bad design it exists to
+prevent: the upsert (replay regresses `COMPLETE` to `IN_PROGRESS`, and ends
+`DISABLED`'s terminality), the read-then-write (both concurrent actions succeed
+and the account passes through `DISABLED` and back out), the captured focus node
+(focus lands on the document body), the barrel import (the import-graph guard
+names the full chain), and a leaked `providerAccountId` (the presenter invariant
+names the value it found).
+
+### Still not true, and still not claimed
+
+```
+PAYMENT_MODE=MOCK
+Production payments disabled
+Real Stripe = EXTERNAL VERIFICATION PENDING
+Real Stripe Connect = EXTERNAL VERIFICATION PENDING
+```
+
+No Stripe account exists. No Stripe Connect account exists. No onboarding link,
+login link, account link or redirect was created. No webhook was sent, received,
+signed, verified or registered. No provider was polled or synchronised. No
+payout, transfer, charge, refund or balance operation happened. No credential
+was read. No KYC, KYB, AML, sanctions, tax or PCI position was established or
+checked. Nothing here was verified by anybody outside this repository.

@@ -9,6 +9,8 @@
  * @module @desi-event/api/lib/audit
  */
 
+import { CONNECT_AUDIT_ACTIONS } from '@desi-event/schemas'
+
 /** Actions the audit trail records. */
 export const AUDIT_ACTIONS = Object.freeze({
   HOLD_CREATED: 'hold.created',
@@ -92,6 +94,15 @@ export const AUDIT_ACTIONS = Object.freeze({
   PRIVACY_EXPORT_INVALIDATED: 'privacy.export_invalidated',
   PRIVACY_EXPORT_DELETED: 'privacy.export_deleted',
   PRIVACY_RETENTION_SWEEP_RAN: 'privacy.retention_sweep_ran',
+  // The simulated connected-account lifecycle. The strings come from
+  // `@desi-event/schemas/connect` rather than being spelled again here, because
+  // the same closed vocabulary is what the shared module asserts is closed — two
+  // copies would be two things to keep in step, and the first symptom of them
+  // drifting would be an audit query that quietly matches nothing.
+  CONNECT_MOCK_ACCOUNT_CREATED: CONNECT_AUDIT_ACTIONS.MOCK_ACCOUNT_CREATED,
+  CONNECT_MOCK_STATE_ADVANCED: CONNECT_AUDIT_ACTIONS.MOCK_STATE_ADVANCED,
+  CONNECT_MOCK_ACTION_REFUSED: CONNECT_AUDIT_ACTIONS.MOCK_ACTION_REFUSED,
+  CONNECT_MOCK_START_REPLAYED: CONNECT_AUDIT_ACTIONS.MOCK_START_REPLAYED,
 })
 
 /**
