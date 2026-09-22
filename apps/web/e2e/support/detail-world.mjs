@@ -66,13 +66,33 @@ export async function cleanupDetailWorld(tag) {
 }
 
 /**
- * Sign one seeded account in, through a second factor only if it has one.
+ * The refusal the credential limiter answers with, as the sign-in form shows it.
+ *
+ * @type {RegExp}
+ */
+const RATE_LIMITED = /Too many requests\. Retry in (\d+) seconds?/u
+
+/**
+ * Wait for the first of several outcomes on the sign-in page.
+ *
+ * @param {object} page The page.
+ * @param {Record<string, function(): Promise<unknown>>} outcomes Named waits.
+ * @returns {Promise<string>} The name of the one that happened first.
+ */
+function firstOf(page, outcomes) {
+  return Promise.any(Object.entries(outcomes).map(([name, wait]) => wait().then(() => name))).catch(
+    () => 'nothing',
+  )
+}
+
+/**
+ * One attempt at signing in.
  *
  * @param {object} page The page to sign in on.
  * @param {string} email Which account.
- * @returns {Promise<void>} Resolves once signed in.
+ * @returns {Promise<{ok: true}|{ok: false, retryIn: number|null}>} What happened.
  */
-export async function signIn(page, email) {
+async function attemptSignIn(page, email) {
   await forgetCodeUse()
 
   await page.goto('/sign-in')
@@ -81,22 +101,73 @@ export async function signIn(page, email) {
   await page.getByRole('button', { name: 'Sign in' }).click()
 
   const code = page.getByLabel(/^Six-digit code/)
+  const refused = page.getByText(RATE_LIMITED)
+  const left = () =>
+    page.waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 15_000 })
 
-  // Waited for rather than probed. `isVisible()` answers about the DOM as it is
-  // this instant, and this instant is between the first submit and the form
-  // re-rendering — so it says "no factor" for an account that has one, and the
-  // sign-in silently half-finishes. A bounded wait asks the right question:
-  // does the challenge appear at all?
-  const challenged = await code
-    .waitFor({ state: 'visible', timeout: 5_000 })
-    .then(() => true)
-    .catch(() => false)
+  // Waited for rather than probed. `isVisible()` answers about the DOM as it
+  // is this instant, and this instant is between the first submit and the
+  // form re-rendering — so it says "no factor" for an account that has one.
+  // Three outcomes are possible, and the first to happen decides.
+  let happened = await firstOf(page, {
+    challenged: () => code.waitFor({ state: 'visible', timeout: 15_000 }),
+    signedIn: left,
+    refused: () => refused.waitFor({ state: 'visible', timeout: 15_000 }),
+  })
 
-  if (challenged) {
+  if (happened === 'challenged') {
     await code.fill(currentCode())
     await page.getByRole('button', { name: 'Sign in' }).click()
+
+    happened = await firstOf(page, {
+      signedIn: left,
+      refused: () => refused.waitFor({ state: 'visible', timeout: 15_000 }),
+    })
   }
 
-  await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 15_000 })
-  await expect(page).not.toHaveURL(/\/sign-in/)
+  if (happened === 'signedIn') return { ok: true }
+
+  if (happened === 'refused') {
+    const [, seconds] = (await refused.textContent()).match(RATE_LIMITED)
+
+    return { ok: false, retryIn: Number(seconds) }
+  }
+
+  return { ok: false, retryIn: null }
+}
+
+/**
+ * Sign one seeded account in, through a second factor only if it has one.
+ *
+ * ## The credential limiter is honoured, not widened
+ *
+ * `/v1/auth/login` allows ten attempts a minute per address, and every
+ * request from the browser arrives from the same address. The world signs six
+ * accounts in before the first spec runs — the owner and the other
+ * organisation's owner through a second factor, two requests each — and a spec
+ * that signs somebody in again inside the same minute can be refused. That is
+ * the limiter working, so the answer is to do what it says: when the form
+ * shows "Retry in N seconds", wait N seconds, measured by the server, and try
+ * once more. A second refusal fails.
+ *
+ * @param {object} page The page to sign in on.
+ * @param {string} email Which account.
+ * @returns {Promise<void>} Resolves once signed in.
+ */
+export async function signIn(page, email) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const outcome = await attemptSignIn(page, email)
+
+    if (outcome.ok) {
+      await expect(page).not.toHaveURL(/\/sign-in/)
+
+      return
+    }
+
+    if (outcome.retryIn === null || attempt === 2) break
+
+    await page.waitForTimeout((outcome.retryIn + 1) * 1_000)
+  }
+
+  throw new Error(`Could not sign ${email} in, even after waiting out the credential limiter.`)
 }
