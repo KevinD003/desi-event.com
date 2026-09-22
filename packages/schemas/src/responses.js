@@ -820,7 +820,10 @@ export const connectStatusSchema = z.object({
   simulatedPayoutsEnabled: z.boolean(),
   detailsSubmitted: z.boolean(),
   requirementsDueCount: z.number().int().min(0),
-  updatedAt: z.date().nullable(),
+  // `timestampSchema`, not `z.date()`. A Date has no JSON Schema
+  // representation, which `index.test.js` catches — and the OpenAPI document is
+  // the point of that check, not a formality.
+  updatedAt: timestampSchema.nullable(),
 })
 
 /** `GET /organizations/:id/connect`, and the action that returns one status. */
