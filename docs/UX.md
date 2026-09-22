@@ -173,15 +173,15 @@ different servers. Case counts are from `--list`:
 | Configuration                     | Cases   | What it covers                                                                                     |
 | --------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
 | `playwright.config.js` (default)  | 118     | Public catalogue, event, venue, checkout, filters, focus, reduced motion, structural accessibility |
-| `playwright.sweep.config.js`      | 53      | The responsive and accessibility sweep                                                             |
-| `playwright.detail.config.js`     | 37      | The five detail surfaces, as behaviour rather than as markup                                       |
+| `playwright.sweep.config.js`      | 56      | The responsive and accessibility sweep                                                             |
+| `playwright.detail.config.js`     | 48      | The six detail surfaces, as behaviour rather than as markup                                        |
 | `playwright.events.config.js`     | 20      | The event lifecycle end to end                                                                     |
 | `playwright.production.config.js` | 19      | Not-found behaviour in a production build                                                          |
 | `playwright.organizer.config.js`  | 13      | Venue maps and versions                                                                            |
 | `playwright.refusals.config.js`   | 4       | Four product refusals (below)                                                                      |
-| **Total**                         | **264** |                                                                                                    |
+| **Total**                         | **278** |                                                                                                    |
 
-**264 browser cases is not "264 of the required journeys".** Passing a number of
+**278 browser cases is not "278 of the required journeys".** Passing a number of
 Playwright cases is not the same as passing a specific list of required
 journeys, and this document does not use the first as evidence for the second.
 The per-journey status lives in `PHASE2_STATUS.md` and nowhere else.
@@ -191,6 +191,19 @@ The per-journey status lives in `PHASE2_STATUS.md` and nowhere else.
 > table is from `npx playwright test --config <file> --list`, run against the
 > working tree rather than remembered — which is the only way a count in a
 > document stays true, and is why the three unchanged rows were re-run too.
+
+> **Update — 2026-09-22.** The sweep went 53 → 56 and the detail suite 37 → 48,
+> for the simulated payout-setup screen; the total is 278, and the detail row now
+> covers **six** surfaces rather than five. The deltas are exactly what PR #12
+> added: eleven journeys in `apps/web/e2e/detail-connect.spec.js`, and one sweep
+> case multiplied by the three viewports the loop runs. Every figure was re-read
+> from `npx playwright test --config <file> --list` against this commit, the four
+> unchanged rows included.
+>
+> The 2026-09-21 block above is left as written, including its "the total is
+> 264", because it was true on its date. Two dated blocks disagreeing about a
+> total is the house rule working: the later one is current, and the earlier one
+> still records what was counted when.
 
 The detail configuration runs four specs that are also separately runnable —
 `test:e2e:analytics`, `test:e2e:reconciliation`, `test:e2e:refunds`,

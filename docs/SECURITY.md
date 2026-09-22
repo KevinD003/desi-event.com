@@ -395,9 +395,24 @@ separation-of-duties rule that keeps "can publish" and "can move money" apart.
 
 Step-up is split by tier, matching what the rest of the finance surface already
 does: `FINANCE_VIEW` (15 minutes) on the read, `PAYOUT` (5 minutes) on the
-action. Eight finance reads already carry the first and three finance actions
-the second. A ten-minute-old second factor reads and cannot act, and there is a
-test that says so — without it the split would be a claim in a document.
+action. Seven finance reads carried the first and three finance actions the
+second before this surface existed; with `connect.status` and `connect.start`
+the counts are eight and four. A ten-minute-old second factor reads and cannot
+act, and there is a test that says so — without it the split would be a claim in
+a document.
+
+> **Correction — 2026-09-22.** This paragraph read "Eight finance reads already
+> carry the first and three finance actions the second", and the two halves
+> counted differently: the eight included `connect.status`, which this very
+> change added, while the three excluded `connect.start`, which it added
+> alongside. "Already" was therefore false of one number and true of the other.
+> Counted from the contract: eight finance-tagged routes carry `FINANCE_VIEW`
+> (`finance.balance`, `finance.summary`, `finance.export`, `payouts.list`,
+> `payouts.get`, `transfers.list`, `disputes.list`, `connect.status`) and four
+> carry `PAYOUT` (`payouts.schedule`, `payouts.send`, `payouts.reverse`,
+> `connect.start`). Thirteen routes in total carry `FINANCE_VIEW` once
+> non-finance-tagged ones are included, which is a different question from the
+> one this paragraph asks.
 
 An earlier draft of the design proposed a `CONNECT_ONBOARDING` step-up instead.
 That is not a step-up policy: it is an `AuthTokenPurpose` lifetime
