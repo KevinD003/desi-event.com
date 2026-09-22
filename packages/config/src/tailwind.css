@@ -64,7 +64,15 @@
   /* Ink. Body text, secondary text, and text that must not compete. */
   --color-ink: oklch(0.283 0.106 288.7);
   --color-ink-muted: oklch(0.47 0.031 287);
-  --color-ink-subtle: oklch(0.607 0.024 287);
+  /*
+   * Darkened from L=0.607, where it was 3.86:1 on white — below AA for text of
+   * any size under 18.66px, and the nav sheet's group headings are 12px. The
+   * browser sweep never caught it because it never opens the narrow-viewport
+   * disclosure, so those headings are not on a page axe has ever scanned.
+   * At L=0.53 it is 5.31:1 on surface, 5.10:1 on canvas and 4.82:1 on
+   * canvas-muted.
+   */
+  --color-ink-subtle: oklch(0.53 0.024 287);
   --color-ink-inverse: oklch(1 0 0);
 
   /* Lines. Hairlines, and the heavier rule that separates regions. */
@@ -73,7 +81,22 @@
 
   /* Accent. The editorial register's single voice. */
   --color-accent: oklch(0.672 0.169 58.7);
-  --color-accent-strong: oklch(0.567 0.148 48.6);
+  /*
+   * Darker than marigold-700, which is where this started.
+   *
+   * The Phase 1 accessibility sweep caught `text-accent-strong` on
+   * `bg-accent-soft` at 4.43:1, against the 4.5:1 that WCAG 2 AA requires for
+   * 14px text. A real failure, and one that reached CI because the browser
+   * suites had not been run locally.
+   *
+   * L=0.52 would have cleared that one pairing at 5.42:1 and still failed the
+   * hover ground — `text-accent-strong` on `bg-accent-line` — at 4.37:1. axe
+   * never hovers, so that second failure would have shipped unseen. At L=0.47
+   * the two are 6.71:1 and 5.40:1: margins rather than rounding errors.
+   *
+   * `token-contrast.test.js` now pins both, and every other declared pairing.
+   */
+  --color-accent-strong: oklch(0.47 0.148 48.6);
   --color-accent-soft: oklch(0.977 0.032 82.5);
   --color-accent-line: oklch(0.912 0.114 82);
 
@@ -88,7 +111,8 @@
    */
   --color-status-success: oklch(0.462 0.101 153.8);
   --color-status-success-soft: oklch(0.966 0.024 153);
-  --color-status-pending: oklch(0.567 0.148 48.6);
+  /* 4.45:1 on its own soft ground at L=0.567; 6.71:1 at L=0.47. */
+  --color-status-pending: oklch(0.47 0.148 48.6);
   --color-status-pending-soft: oklch(0.977 0.032 82.5);
   --color-status-warning: oklch(0.542 0.121 68);
   --color-status-warning-soft: oklch(0.973 0.037 80);

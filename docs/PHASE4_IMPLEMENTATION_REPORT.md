@@ -204,8 +204,86 @@ Run on the branch at `209cba6`, with PostgreSQL and Redis available.
 Neither produces a run on the exact commit. `workflow_dispatch` does, so it was
 used.
 
-**To be completed when run `35744421565` is terminal.** Recording it before it
-finishes would be projecting a result.
+|            |                                                                      |
+| ---------- | -------------------------------------------------------------------- |
+| Run ID     | `35744421565`                                                        |
+| URL        | https://github.com/KevinD003/desi-event.com/actions/runs/35744421565 |
+| Trigger    | `workflow_dispatch`                                                  |
+| Attempt    | **1** — no job was rerun                                             |
+| head_sha   | `209cba6c3eca9a682db7771783ae80f0325e3e40` on all 8 jobs             |
+| Conclusion | **failure**                                                          |
+
+| Job                                      | Conclusion  |
+| ---------------------------------------- | ----------- |
+| Policy, lint, contract, tests, build     | success     |
+| Browser — production build               | success     |
+| Browser — public catalogue               | success     |
+| Browser — organiser venue maps           | success     |
+| Browser — event lifecycle                | success     |
+| Browser — refusals                       | success     |
+| Browser — commerce and operations detail | success     |
+| **Browser — accessibility sweep**        | **failure** |
+
+Skipped steps, and why: `Upload failure artefacts` and `Upload Playwright
+artefacts` are conditional on failure and report `skipped` on every job that
+passed. A skip there means the suite passed. In the one job that failed, that
+step ran and uploaded artefact `10701163599`. No other step was skipped.
+
+**No failed job was rerun.** The run is attempt 1 throughout and the failure was
+root-caused from its logs.
+
+#### Root cause: a contrast failure I introduced
+
+```text
+color-contrast (serious): Elements must meet minimum color contrast ratio thresholds
+  .border-accent-line
+  foreground #b9560d, background #fff6e0, 14px normal
+  contrast 4.43, expected 4.5:1
+  <a class="inline-flex min-h-11..." href="/sign-in">
+  at apps/web/e2e/accessibility-sweep.spec.js:413
+```
+
+That is the Sign in button added in this phase: `text-accent-strong` on
+`bg-accent-soft`. `--color-accent-strong` was `oklch(0.567 0.148 48.6)`, which
+is marigold-700, and against `--color-accent-soft` it measures 4.43:1 where AA
+requires 4.5:1 for text under 18.66px. A real failure, not a flake: `1 failed,
+53 did not run, 2 passed`, deterministic, and caused by this commit.
+
+**Why local verification missed it.** Phase 1 ran `format:check`,
+`policy:check`, `ci:check`, `secrets:scan`, `lint`, `contract:check`, `test`,
+`check-skipped-tests`, `build` and `bundle:scan` — and none of the seven browser
+configurations. The accessibility sweep is the only gate that measures rendered
+contrast, and it was not run before pushing. That is a process failure, not an
+environment one.
+
+#### The fix, and two further failures it uncovered
+
+A contrast model was written and checked against the figure axe actually
+produced: at `L=0.567` it computes 4.447, reproducing axe's 4.43 to rounding.
+Only then was it used to choose a replacement.
+
+The first candidate, `L=0.52`, cleared the reported pairing at 5.42:1 **and
+still failed the hover ground** — the same text on `bg-accent-line` — at 4.37:1.
+axe never hovers, so that second failure would have shipped unseen. `L=0.47`
+gives 6.71:1 and 5.40:1.
+
+`packages/config/tests/token-contrast.test.js` now parses `tailwind.css` at run
+time and checks every declared pairing, hover grounds included. It found two
+more failures already in the tree from this phase:
+
+| Pairing                                   | Was        | Now    |
+| ----------------------------------------- | ---------- | ------ |
+| `accent-strong` on `accent-soft`          | 4.43:1     | 6.71:1 |
+| `accent-strong` on `accent-line` (hover)  | 4.37:1     | 5.40:1 |
+| `ink-subtle` on `surface`                 | **3.86:1** | 5.31:1 |
+| `status-pending` on `status-pending-soft` | **4.45:1** | 6.71:1 |
+
+`ink-subtle` on `surface` is the nav sheet's group headings at 12px. The browser
+sweep never caught it and never could: axe scans the page as rendered, and the
+narrow-viewport disclosure is closed on every page it has ever scanned.
+
+The test reproduces axe's own measurement as one of its cases, so a model that
+drifts from the browser fails rather than quietly reporting comfort.
 
 ---
 
