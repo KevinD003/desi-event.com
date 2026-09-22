@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event — event discovery and ticketing platform for the South Asian community. JavaScript-only monorepo.",
+  "description": "Desi-Event \u2014 event discovery and ticketing platform for the South Asian community. JavaScript-only monorepo.",
   "license": "UNLICENSED",
   "packageManager": "pnpm@10.33.0",
   "engines": {
@@ -46,7 +46,7 @@
     "bundle:scan": "node scripts/scan-browser-bundle.mjs",
     "manifest:emit": "pnpm --filter @desi-event/api-contract run manifest:emit",
     "test:e2e:refusals": "pnpm --filter @desi-event/web run test:e2e:refusals",
-    "test:report": "turbo run test -- --reporter=json --outputFile=vitest-report.json",
+    "verify:tests:fresh": "node scripts/verify-tests-fresh.mjs",
     "skips:check": "node scripts/check-skipped-tests.mjs",
     "test:e2e:sweep": "pnpm --filter @desi-event/web run test:e2e:sweep",
     "test:e2e:detail": "pnpm --filter @desi-event/web run test:e2e:detail",

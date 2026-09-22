@@ -148,37 +148,38 @@ it reads the root `.env` itself — but the rest need the export.
 
 Run from the repository root.
 
-| Script                   | What it does                                                                                    |
-| ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `pnpm dev`               | Start api, web and worker in watch mode (`turbo run dev`)                                       |
-| `pnpm build`             | Build every workspace: Prisma client, `openapi.json`, `next build`                              |
-| `pnpm start`             | Run the built applications                                                                      |
-| `pnpm lint`              | ESLint across the whole repository                                                              |
-| `pnpm lint:fix`          | The same, with `--fix`                                                                          |
-| `pnpm format`            | Prettier over js/jsx/json/md/css/yaml                                                           |
-| `pnpm format:check`      | Prettier in check mode                                                                          |
-| `pnpm test`              | Vitest in every workspace                                                                       |
-| `pnpm test:watch`        | Vitest in watch mode                                                                            |
-| `pnpm test:coverage`     | Vitest with coverage and thresholds                                                             |
-| `pnpm test:e2e`          | Playwright end-to-end suite (`@desi-event/web`)                                                 |
-| `pnpm policy:check`      | Enforce the JavaScript-only language policy                                                     |
-| `pnpm secrets:scan`      | Scan every tracked file for credentials                                                         |
-| `pnpm bundle:scan`       | Refuse server contract that leaked into a browser artefact                                      |
-| `pnpm skips:check`       | Fail an undeclared skipped test                                                                 |
-| `pnpm contract:check`    | Structurally validate the API contract and OpenAPI document                                     |
-| `pnpm verify`            | `policy:check` → `secrets:scan` → `format:check` → `lint` → `test` → `build`. The pre-push gate |
-| `pnpm db:generate`       | `prisma generate`                                                                               |
-| `pnpm db:migrate`        | `prisma migrate dev` — create and apply a migration                                             |
-| `pnpm db:migrate:deploy` | `prisma migrate deploy` — apply existing migrations                                             |
-| `pnpm db:reset`          | Drop, recreate, migrate and re-seed the database                                                |
-| `pnpm db:seed`           | Idempotent development seed                                                                     |
-| `pnpm db:studio`         | Prisma Studio                                                                                   |
-| `pnpm db:verify:fresh`   | Migrate a disposable database and run every concurrency suite                                   |
-| `pnpm db:verify:upgrade` | Apply migrations onto a populated database                                                      |
-| `pnpm openapi:emit`      | Regenerate `apps/api/openapi.json` from the contract                                            |
-| `pnpm manifest:emit`     | Regenerate the browser route manifest from the contract                                         |
-| `pnpm load`              | The load and reliability suite (see the caveats it carries)                                     |
-| `pnpm clean`             | Remove node_modules, .next, .turbo, dist, coverage and test output                              |
+| Script                    | What it does                                                                                                      |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                | Start api, web and worker in watch mode (`turbo run dev`)                                                         |
+| `pnpm build`              | Build every workspace: Prisma client, `openapi.json`, `next build`                                                |
+| `pnpm start`              | Run the built applications                                                                                        |
+| `pnpm lint`               | ESLint across the whole repository                                                                                |
+| `pnpm lint:fix`           | The same, with `--fix`                                                                                            |
+| `pnpm format`             | Prettier over js/jsx/json/md/css/yaml                                                                             |
+| `pnpm format:check`       | Prettier in check mode                                                                                            |
+| `pnpm test`               | Vitest in every workspace                                                                                         |
+| `pnpm test:watch`         | Vitest in watch mode                                                                                              |
+| `pnpm test:coverage`      | Vitest with coverage and thresholds                                                                               |
+| `pnpm test:e2e`           | Playwright end-to-end suite (`@desi-event/web`)                                                                   |
+| `pnpm policy:check`       | Enforce the JavaScript-only language policy                                                                       |
+| `pnpm secrets:scan`       | Scan every tracked file for credentials                                                                           |
+| `pnpm bundle:scan`        | Refuse server contract that leaked into a browser artefact                                                        |
+| `pnpm skips:check`        | Fail an undeclared skipped test                                                                                   |
+| `pnpm verify:tests:fresh` | Delete every report, run every test task with the cache refused, refuse any report not proved fresh. What CI runs |
+| `pnpm contract:check`     | Structurally validate the API contract and OpenAPI document                                                       |
+| `pnpm verify`             | `policy:check` → `secrets:scan` → `format:check` → `lint` → `test` → `build`. The pre-push gate                   |
+| `pnpm db:generate`        | `prisma generate`                                                                                                 |
+| `pnpm db:migrate`         | `prisma migrate dev` — create and apply a migration                                                               |
+| `pnpm db:migrate:deploy`  | `prisma migrate deploy` — apply existing migrations                                                               |
+| `pnpm db:reset`           | Drop, recreate, migrate and re-seed the database                                                                  |
+| `pnpm db:seed`            | Idempotent development seed                                                                                       |
+| `pnpm db:studio`          | Prisma Studio                                                                                                     |
+| `pnpm db:verify:fresh`    | Migrate a disposable database and run every concurrency suite                                                     |
+| `pnpm db:verify:upgrade`  | Apply migrations onto a populated database                                                                        |
+| `pnpm openapi:emit`       | Regenerate `apps/api/openapi.json` from the contract                                                              |
+| `pnpm manifest:emit`      | Regenerate the browser route manifest from the contract                                                           |
+| `pnpm load`               | The load and reliability suite (see the caveats it carries)                                                       |
+| `pnpm clean`              | Remove node_modules, .next, .turbo, dist, coverage and test output                                                |
 
 The end-to-end suites need their own Playwright configurations, because they
 need different fixtures and different servers: `pnpm test:e2e`,
@@ -257,6 +258,14 @@ A suite that runs nothing fails. `scripts/check-skipped-tests.mjs` refuses an
 undeclared skipped test _and_ a report containing zero cases — a test command
 that matches no files prints a green summary and exits zero, and a required
 check that can pass by running nothing eventually will.
+
+A report that is not this run's fails too. `pnpm verify:tests:fresh` deletes
+every Vitest report, runs every test task with Turborepo's cache refused, and
+then refuses any report older than the run — by modification time and by the
+`startTime` Vitest writes inside it — as well as any package that wrote none,
+any failed case, and any skipped, pending or todo case not allow-listed. CI
+runs exactly this command, and `pnpm ci:check` refuses a workflow that produces
+or judges reports any other way.
 
 **The current figures**: **4,642** unit
 and integration cases across 173 files, and **242** browser cases across seven

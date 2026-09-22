@@ -1,11 +1,18 @@
 /**
- * Two invariants about how CI is wired, both learned from runs that failed.
+ * Invariants about how CI is wired, each learned from something that failed.
  *
- * Neither is expressible as a unit test, because neither is about application
- * behaviour: one is a property of `.github/workflows/*.yml`, the other of the
- * Turborepo task graph. Both went wrong on this pull request, and in both cases
- * the failure was invisible on a green run — which is the argument for checking
+ * None is expressible as a unit test, because none is about application
+ * behaviour: they are properties of `.github/workflows/*.yml` and of the
+ * Turborepo task graph. Each went wrong at least once, and in each case the
+ * failure was invisible on a green run — which is the argument for checking
  * them on every run rather than noticing again later.
+ *
+ * The third, fresh test reports, has two halves. CI must produce and judge its
+ * Vitest reports through `pnpm run verify:tests:fresh` and no other route, so
+ * that the local command and the CI step cannot drift. And `turbo.json` must
+ * declare the variables the test suites read, because Turborepo's strict
+ * environment mode silently removes every undeclared one: `REQUIRE_DATABASE`,
+ * set workflow-wide in CI, reached no test process at all until it was declared.
  *
  * Run: `pnpm run ci:check`
  *
@@ -28,6 +35,37 @@ const FORBIDDEN_IN_ARTEFACT_NAME = ['"', ':', '<', '>', '|', '*', '?', '\r', '\n
 
 /** Task names whose commands run tests, and so import generated clients. */
 const TEST_TASKS = ['test', 'test:coverage']
+
+/**
+ * Variables the test suites read that Turborepo must pass through.
+ *
+ * Declared in `globalEnv` rather than a pass-through list, because each one
+ * changes what a test run means — a suite that skips for want of a database and
+ * one that fails for it are different results, and a cached result for one must
+ * not be replayed for the other.
+ */
+const TEST_ENVIRONMENT = ['REQUIRE_DATABASE', 'TEST_DATABASE_URL']
+
+/** The one command CI may use to produce and judge Vitest reports. */
+const FRESH_REPORT_COMMAND = 'pnpm run verify:tests:fresh'
+
+/**
+ * Shapes that produce or read Vitest reports outside that command.
+ *
+ * Each is a route by which a report this run did not write gets judged as
+ * though it had: reporter flags handed to a plain test run, or the checker
+ * pointed at whatever `find` turns up on disk.
+ */
+const FORBIDDEN_REPORT_ROUTES = [
+  {
+    pattern: /outputFile(\.json)?=vitest-report\.json/,
+    what: 'writes Vitest reports outside verify:tests:fresh',
+  },
+  {
+    pattern: /check-skipped-tests\.mjs\s+\$\(find/,
+    what: "judges whatever reports are on disk rather than this run's",
+  },
+]
 
 /**
  * Every problem found. Empty means the invariants hold.
@@ -201,6 +239,55 @@ function checkTaskOrdering() {
   }
 }
 
+/**
+ * Check that the test suites can see the variables they read.
+ *
+ * @returns {void}
+ */
+function checkTestEnvironment() {
+  const file = 'turbo.json'
+  const declared = JSON.parse(readFileSync(file, 'utf8')).globalEnv ?? []
+
+  for (const name of TEST_ENVIRONMENT) {
+    if (!declared.includes(name)) {
+      fail(
+        file,
+        `"${name}" is not in globalEnv, so Turborepo's strict environment mode removes it from ` +
+          `every test process and a workflow that sets it changes nothing`,
+      )
+    }
+  }
+}
+
+/**
+ * Check that CI produces and judges reports only through the fresh-report command.
+ *
+ * @param {Array<{file: string, source: string}>} files The workflow files.
+ * @returns {void}
+ */
+function checkFreshReports(files) {
+  const ci = files.find(({ file }) => file.endsWith('ci.yml'))
+
+  if (!ci) {
+    fail(workflowDirectory, 'ci.yml not found, so the fresh-report command cannot be checked')
+
+    return
+  }
+
+  if (!ci.source.includes(FRESH_REPORT_COMMAND)) {
+    fail(
+      ci.file,
+      `does not run "${FRESH_REPORT_COMMAND}", so CI's test reports are not proved to be this run's`,
+    )
+  }
+
+  for (const { file, source } of files) {
+    for (const route of FORBIDDEN_REPORT_ROUTES) {
+      if (route.pattern.test(source)) fail(file, `a step ${route.what}`)
+    }
+  }
+}
+
 const workflowDirectory = '.github/workflows'
 const workflows = readdirSync(workflowDirectory).filter(
   (file) => file.endsWith('.yml') || file.endsWith('.yaml'),
@@ -210,14 +297,16 @@ if (workflows.length === 0) {
   fail(workflowDirectory, 'no workflow files found, so no artefact name could be checked')
 }
 
-for (const file of workflows) {
-  checkArtefactNames(
-    join(workflowDirectory, file),
-    readFileSync(join(workflowDirectory, file), 'utf8'),
-  )
-}
+const sources = workflows.map((file) => ({
+  file: join(workflowDirectory, file),
+  source: readFileSync(join(workflowDirectory, file), 'utf8'),
+}))
+
+for (const { file, source } of sources) checkArtefactNames(file, source)
 
 checkTaskOrdering()
+checkTestEnvironment()
+checkFreshReports(sources)
 
 if (problems.length > 0) {
   console.error('CI invariants failed:\n')
@@ -228,5 +317,6 @@ if (problems.length > 0) {
 
 console.log(
   `CI invariants hold: ${workflows.length} workflow file(s) produce only uploadable artefact names, ` +
-    `and ${TEST_TASKS.length} test tasks order their own build.`,
+    `${TEST_TASKS.length} test tasks order their own build, ${TEST_ENVIRONMENT.length} test ` +
+    `variables reach the suites, and reports come only from ${FRESH_REPORT_COMMAND}.`,
 )

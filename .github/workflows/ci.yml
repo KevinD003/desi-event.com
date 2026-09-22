@@ -135,15 +135,16 @@ jobs:
           pnpm run db:migrate:deploy
           DATABASE_URL="$TEST_DATABASE_URL" pnpm run db:migrate:deploy
 
-      # Unit and integration tests, with a JSON report per package so the
-      # skipped-test check below has something to read.
-      - name: Test
-        run: pnpm run test -- --reporter=default --reporter=json --outputFile.json=vitest-report.json
-
-      # A skipped test is neither a pass nor a failure, and "0 failed" is read
-      # as success by everybody who does not count the other column.
-      - name: Refuse an undeclared skipped test
-        run: node scripts/check-skipped-tests.mjs $(find . -name vitest-report.json -not -path '*/node_modules/*')
+      # Unit and integration tests, and the verdict on their reports, as one
+      # command — the same one a contributor runs locally. It deletes every
+      # report first, runs every test task with Turborepo's cache refused, and
+      # then refuses any report it cannot prove this run wrote, any package that
+      # wrote none, and any case that failed, skipped or was left as a todo
+      # without an allow-list entry. `ci:check` refuses a workflow that produces
+      # or judges reports any other way, so the local command and this step
+      # cannot drift apart. See scripts/verify-tests-fresh.mjs.
+      - name: Test, with fresh reports and no undeclared skip
+        run: pnpm run verify:tests:fresh
 
       # The pure-logic packages carry coverage thresholds, and a threshold
       # nothing runs is a decoration. This step is here because the thresholds
