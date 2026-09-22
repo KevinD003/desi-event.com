@@ -268,8 +268,19 @@ still failed the hover ground** — the same text on `bg-accent-line` — at 4.3
 axe never hovers, so that second failure would have shipped unseen. `L=0.47`
 gives 6.71:1 and 5.40:1.
 
-`packages/config/tests/token-contrast.test.js` now parses `tailwind.css` at run
-time and checks every declared pairing, hover grounds included. It found two
+`packages/config/tests/token-contrast.test.js` reads the **real token source**
+and cannot drift from it. It opens `packages/config/src/tailwind.css` with
+`readFileSync` at run time and pulls every `--color-*: oklch(...)` declaration
+out with a regular expression, so the values it checks are literally the values
+the application ships. The alternative — a table of hex strings copied into the
+test — passes happily while the palette it is meant to guard moves underneath
+it, which is the failure mode that makes a colour test worthless.
+
+Two further consequences of reading the source rather than the page. The
+pairings are declared by hand, because only a person knows which token is put on
+which ground, and that list is the record of what the design system claims is
+legible; and a pairing that exists only on `:hover` is as checkable as a resting
+one, which is the whole reason the `L=0.52` candidate was caught. It found two
 more failures already in the tree from this phase:
 
 | Pairing                                   | Was        | Now    |
@@ -283,8 +294,11 @@ more failures already in the tree from this phase:
 sweep never caught it and never could: axe scans the page as rendered, and the
 narrow-viewport disclosure is closed on every page it has ever scanned.
 
-The test reproduces axe's own measurement as one of its cases, so a model that
-drifts from the browser fails rather than quietly reporting comfort.
+The test reproduces axe's own measurement as one of its cases — it computes
+4.447 for `oklch(0.567 0.148 48.6)` on `accent-soft`, against the 4.43 axe
+reported — so a model that drifts from the browser fails rather than quietly
+reporting comfort. That case is the anchor: without it, the other twenty-two
+would only be proving the test agrees with itself.
 
 #### Local verification, `0c5267d`
 
@@ -307,9 +321,14 @@ let the Phase 1 failure reach CI.
 
 #### Exact-SHA CI, Phase 1 — the remediation run
 
-The failure above is **superseded, not deleted**. Run `35744421565` on
-`209cba6` failed, that is a permanent fact about that commit, and the record of
-it stays. What follows is the run that closes Phase 1's verification.
+**Run `35744421565` on `209cba6` failed, and that is a permanent record of a
+real Phase 1 defect.** It was not a flake, not an environmental failure and not
+an infrastructure problem: a colour pairing this phase introduced measured
+4.43:1 where WCAG 2 AA requires 4.5:1, deterministically, on a commit this phase
+pushed. The result above, its root cause and its remediation stay in this
+document unchanged. Nothing below replaces them.
+
+What follows is the successor run on the remediation commit.
 
 |            |                                                                      |
 | ---------- | -------------------------------------------------------------------- |
@@ -376,7 +395,40 @@ test step and no verification step was skipped.**
 records. The green did not come from retrying anything; it came from a new
 commit that fixed the defect.
 
-With this run green on the exact commit, **Phase 1 is fully verified.**
+#### The twelve closure conditions
+
+Each was checked against this run rather than assumed.
+
+| #   | Condition                                                     | Evidence                                                                                                                                                                                                                                                                                                                      |
+| --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `head_sha` equals the remediation SHA exactly                 | `0c5267ded463e3b5a5d29988206882282d51a83b` read from the run and from all eight job records                                                                                                                                                                                                                                   |
+| 2   | Attempt 1                                                     | `run_attempt: 1` on the run and on every job                                                                                                                                                                                                                                                                                  |
+| 3   | All eight required jobs succeed                               | the table above; eight of eight `success`                                                                                                                                                                                                                                                                                     |
+| 4   | No job cancelled                                              | every job's conclusion is `success`; none is `cancelled`                                                                                                                                                                                                                                                                      |
+| 5   | Every skipped step identified and explained                   | exactly one step name skips anywhere in the run — the failure-artefact upload, in all eight jobs                                                                                                                                                                                                                              |
+| 6   | Failure-only uploads distinguished from skipped tests         | `Upload failure artefacts` / `Upload Playwright artefacts` are guarded by a failure condition, so a skip there _is_ the pass signal. **No test step, gate or verification step skipped.**                                                                                                                                     |
+| 7   | Nothing silently fails to run                                 | the seventeen gates are enumerated above with the job each ran in; the seven browser configs each ran their pinned suite                                                                                                                                                                                                      |
+| 8   | The accessibility sweep runs and passes                       | `Browser — accessibility sweep`, step `Run accessibility sweep`, `success` — the job that failed on `209cba6`                                                                                                                                                                                                                 |
+| 9   | The production-build job builds fresh                         | `test:e2e:prod` is `pnpm run build && playwright test --config playwright.production.config.js`; the build runs inside the job, on a clean checkout, every time                                                                                                                                                               |
+| 10  | The payment kill switch is enforced                           | `Production payments are unreachable` runs `payment-kill-switch.test.js`; `success`                                                                                                                                                                                                                                           |
+| 11  | Database and real-service tests ran with PostgreSQL and Redis | both job groups declare `postgres:16` and `redis:7` service containers with health checks; `Create the test database` and `Apply migrations` succeeded in all eight jobs; `REQUIRE_DATABASE: '1'` is set workflow-wide, so a suite that skipped for want of a database would have **failed**                                  |
+| 12  | The skipped-test detector reads fresh reports                 | `Refuse a stale task cache` runs `rm -rf .turbo */.turbo */*/.turbo` at step 7, **before** `Test` at step 16; `Refuse an undeclared skipped test` then consumes the `vitest-report.json` files that step 16 has just written. Fresh by construction, not by luck — this is the trap that caught the local run during Phase 1. |
+
+Condition 12 is worth dwelling on, because the local equivalent failed during
+this phase: turbo served eighteen of nineteen cached reports and the skip gate
+read a stale picture in which 215 service tests appeared to pass. CI does not
+have that failure mode, because it deletes the cache before the run rather than
+after.
+
+## Phase 1: **COMPLETE — VERIFIED ON REMEDIATION SHA**
+
+`0c5267ded463e3b5a5d29988206882282d51a83b`, by run `35748439090`,
+`workflow_dispatch`, attempt 1, eight of eight jobs green.
+
+The failed run `35744421565` on `209cba6` remains recorded above as a real
+Phase 1 defect. Phase 1 is complete because the defect was found, root-caused
+from its logs, fixed on a new commit, and verified there — not because the
+failure was reinterpreted.
 
 ---
 
