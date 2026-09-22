@@ -1,5 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { hydrateRoot } from 'react-dom/client'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -273,6 +275,67 @@ describe('DoorWorkspace: looking up, then admitting', () => {
 
     expect(screen.getByLabelText(/event you are admitting to/iu)).toBeTruthy()
     expect(screen.queryByLabelText(/printed ticket code/iu)).toBeNull()
+  })
+
+  it('keeps a code typed into the server-drawn field before the script arrived', async () => {
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(<DoorWorkspace events={[ENTRY]} />)
+    document.body.append(container)
+
+    try {
+      // Typed while the page was only HTML: nothing was listening, no event
+      // reached React, and the browser kept the text anyway.
+      const field = within(container).getByLabelText(/printed ticket code/iu)
+
+      field.value = 'det-abc123xyz'
+
+      await act(async () => {
+        root = hydrateRoot(container, <DoorWorkspace events={[ENTRY]} />)
+      })
+
+      const button = within(container).getByRole('button', { name: /look up/iu })
+
+      expect(field.value).toBe('det-abc123xyz')
+      expect(button.disabled).toBe(false)
+
+      apiFetch.mockResolvedValueOnce(answer(200, ADMISSIBLE))
+      await userEvent.setup().click(button)
+
+      expect(sent(0)).toEqual({ code: 'DET-ABC123XYZ', expectedEventId: EVENT.id })
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('keeps an event chosen in the server-drawn list before the script arrived', async () => {
+    const other = {
+      ...ENTRY,
+      event: { ...EVENT, id: 'eventbbbbbbbbbbbbbbbbbbbb', title: 'Diwali Mela' },
+    }
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(<DoorWorkspace events={[ENTRY, other]} />)
+    document.body.append(container)
+
+    try {
+      within(container).getByLabelText(/event you are admitting to/iu).value = other.event.id
+
+      await act(async () => {
+        root = hydrateRoot(container, <DoorWorkspace events={[ENTRY, other]} />)
+      })
+
+      expect(within(container).getByLabelText(/event you are admitting to/iu).value).toBe(
+        other.event.id,
+      )
+      expect(within(container).getByLabelText(/printed ticket code/iu)).toBeTruthy()
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
   })
 })
 

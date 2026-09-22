@@ -106,11 +106,25 @@ export function DoorWorkspace({ events }) {
   const previewReference = useRef(null)
   const headingRef = useRef(null)
   const codeField = useRef(null)
+  const eventField = useRef(null)
   const focusTarget = useRef(null)
   const answerId = useId()
 
   const selected = events.find((entry) => entry.event.id === eventId) ?? null
   const busy = stage === 'looking' || stage === 'confirming'
+
+  // On a slow connection the page arrives before this script does, and a
+  // steward chooses an event or types a code into it. The browser keeps what
+  // they did; React never saw it, so the form would disagree with the screen —
+  // Look up disabled beside a filled field — and the next render would undo
+  // it. Take up whatever is already there.
+  useEffect(() => {
+    const chosen = eventField.current?.value
+    const typed = codeField.current?.value
+
+    if (chosen) setEventId(chosen)
+    if (typed) setCode(typed)
+  }, [])
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine !== false)
@@ -351,6 +365,7 @@ export function DoorWorkspace({ events }) {
         ) : (
           <FormField label="Event you are admitting to" className="mt-3 max-w-xl">
             <Select
+              ref={eventField}
               value={eventId}
               onChange={(changed) => {
                 setEventId(changed.target.value)

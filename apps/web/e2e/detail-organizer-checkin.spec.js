@@ -292,6 +292,9 @@ test.describe('the door screen', () => {
 
     await scanner.getByLabel('Printed ticket code').focus()
     await scanner.keyboard.type(ids().doorCodes[4])
+    // What a keyboard user waits for too: the form is ready when Look up is.
+    // An Enter pressed before the page's script has arrived submits nothing.
+    await expect(scanner.getByRole('button', { name: 'Look up' })).toBeEnabled()
     await scanner.keyboard.press('Enter')
 
     await expect(
@@ -303,6 +306,37 @@ test.describe('the door screen', () => {
     await scanner.keyboard.press('Enter')
 
     await expect(scanner.getByLabel('Printed ticket code')).toBeFocused()
+    expect(await admissions(ids().doorTicketIds[4])).toEqual([])
+  })
+
+  test('keeps a code typed before the page’s script arrived, and looks it up', async ({
+    scanner,
+  }) => {
+    // A door on a slow connection: the page is drawn, and typed into, before
+    // its script arrives. Holding every script back three seconds makes the
+    // typing land first on any machine. Before this was handled, the field
+    // showed the code while Look up stayed disabled beside it for good.
+    await scanner.route(/\/_next\/.*\.js/u, async (route) => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 3_000)
+      })
+      await route.continue()
+    })
+    await scanner.goto('/organizer/check-in', { waitUntil: 'commit' })
+
+    const lookUp = scanner.getByRole('button', { name: 'Look up' })
+
+    await scanner.getByLabel('Printed ticket code').fill(ids().doorCodes[4])
+    // The premise, seen as a steward sees it: nothing is listening yet.
+    expect(await lookUp.isDisabled()).toBe(true)
+
+    await expect(lookUp).toBeEnabled()
+    await lookUp.click()
+
+    await expect(
+      scanner.getByRole('heading', { name: 'Check the ticket, then admit' }),
+    ).toBeFocused()
+    await scanner.getByRole('button', { name: 'Cancel' }).click()
     expect(await admissions(ids().doorTicketIds[4])).toEqual([])
   })
 })

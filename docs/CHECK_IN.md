@@ -276,6 +276,10 @@ A ticket is presented by typing its printed code or by scanning its QR pass:
   as exactly that — it may or may not have admitted them — with a retry that
   cannot admit twice and says which it was.
 - **No offline admission.** Offline, the screen says so and looks nothing up.
+- **A slow connection keeps what was typed.** The field is usable before the
+  page's script arrives; whatever was typed or chosen by then is taken up
+  when it does, rather than left on screen beside a disabled **Look up**.
+  Until then **Look up** is disabled, so nothing is sent early.
 
 The pass or code in hand lives in memory from lookup to admission or clearing;
 the recent list holds a name, a tier and an outcome for the session, in memory
