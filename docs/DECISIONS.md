@@ -18,6 +18,7 @@ cannot be trusted about what was known at the time.
 | [0002](adr/0002-polyglot-exception-process.md)  | When another language may enter the repository | Accepted, 2026-09-14                            |
 | [0003](adr/0003-stripe-connect-charge-model.md) | Stripe Connect charge model                    | Accepted for Phase 2 (sandbox only), 2026-09-15 |
 | [0004](adr/0004-plpgsql-in-migrations.md)       | Procedural SQL inside migrations               | Accepted, 2026-09-15                            |
+| [0005](adr/0005-reserved-seat-transfer.md)      | Reserved-seat transfer stays blocked           | Accepted for Phase 4, 2026-09-22                |
 
 Nothing is superseded. Nothing is deprecated.
 

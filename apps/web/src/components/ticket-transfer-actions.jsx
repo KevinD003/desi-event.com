@@ -52,6 +52,7 @@ const OFFERABLE = Object.freeze(['VALID'])
  * @property {Array<object>} transfers Its transfers, oldest first.
  * @property {boolean} holder Whether the caller is the person holding it.
  * @property {boolean} mayRevoke Whether the caller may withdraw it.
+ * @property {string|null} [transferBlockedReason] The server's reason it may not be offered whatever its state.
  */
 
 /**
@@ -60,7 +61,13 @@ const OFFERABLE = Object.freeze(['VALID'])
  * @param {TicketTransferActionsProps} props Component props.
  * @returns {JSX.Element} The rendered panel.
  */
-export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) {
+export function TicketTransferActions({
+  ticket,
+  transfers,
+  holder,
+  mayRevoke,
+  transferBlockedReason = null,
+}) {
   const router = useRouter()
   const [pending, setPending] = useState(null)
   const [toEmail, setToEmail] = useState('')
@@ -74,7 +81,11 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
   const returnFocus = useRef(null)
 
   const outstanding = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
-  const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding
+  // The server says when a ticket may not be offered whatever its state — a
+  // reserved seat, until seated transfer exists. The button is not drawn, so
+  // the screen does not offer something the server would refuse.
+  const seatBlocked = transferBlockedReason === 'RESERVED_SEAT'
+  const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding && !seatBlocked
   const withdrawable = holder && Boolean(outstanding)
 
   /**
@@ -199,7 +210,14 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
             </li>
           ) : null}
 
-          {!offerable && !withdrawable && !mayRevoke ? (
+          {holder && seatBlocked && OFFERABLE.includes(ticket.status) && !outstanding ? (
+            <li className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on
+              yet. It stays yours and still admits you.
+            </li>
+          ) : null}
+
+          {!offerable && !withdrawable && !mayRevoke && !(holder && seatBlocked) ? (
             <li className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
               There is nothing to do with this ticket. A ticket that has been handed on, withdrawn,
               refunded or already admitted cannot be offered again.

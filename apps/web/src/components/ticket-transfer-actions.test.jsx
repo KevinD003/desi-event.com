@@ -56,6 +56,37 @@ beforeEach(() => {
 })
 
 describe('what a holder is offered', () => {
+  it('does not offer a reserved-seat ticket, and says why', () => {
+    // Seated transfer is blocked on the server; a button here would only lead
+    // to a refusal.
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        transferBlockedReason="RESERVED_SEAT"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: /offer this ticket/i })).toBeNull()
+    expect(screen.getByText(/reserved-seat tickets cannot be handed on yet/i)).toBeTruthy()
+  })
+
+  it('still lets the holder withdraw an offer made before seated transfers were refused', () => {
+    render(
+      <TicketTransferActions
+        ticket={ticket({ status: 'TRANSFER_PENDING' })}
+        transfers={[transfer()]}
+        holder
+        mayRevoke={false}
+        transferBlockedReason="RESERVED_SEAT"
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /withdraw the offer/i })).toBeTruthy()
+  })
+
   it('offers a transfer on a ticket that still admits them', () => {
     render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
 

@@ -43208,6 +43208,19 @@
                         "holder": {
                           "type": "boolean"
                         },
+                        "transferBlockedReason": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "RESERVED_SEAT"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "transfers": {
                           "type": "array",
                           "items": {
@@ -43330,6 +43343,7 @@
                         "event",
                         "organizationId",
                         "holder",
+                        "transferBlockedReason",
                         "transfers"
                       ],
                       "additionalProperties": false

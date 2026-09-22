@@ -116,6 +116,36 @@ export const ADMISSIBLE_STATES = Object.freeze([
 export const TRANSFER_TTL_HOURS = 72
 
 /**
+ * Why a ticket may not be handed on, when the reason is not its state.
+ *
+ * `RESERVED_SEAT`: `Ticket.eventSeatId` is unique over every row, ever, so a
+ * successor ticket for the same seat cannot be inserted while its predecessor
+ * keeps the pointer — and the predecessor must keep it, or the seat drops out
+ * of the sender's history. Until the index becomes one-live-ticket-per-seat
+ * (see `docs/adr/0005-reserved-seat-transfer.md`), a seated ticket is refused
+ * at the start of a transfer, and an invitation started before this refusal
+ * existed is refused at acceptance, rather than failing with a 500 on every
+ * attempt the way it used to.
+ *
+ * @type {Readonly<{RESERVED_SEAT: string}>}
+ */
+export const TRANSFER_BLOCKED_REASONS = Object.freeze({ RESERVED_SEAT: 'RESERVED_SEAT' })
+
+/**
+ * Why this ticket may not be handed on regardless of its state, or null.
+ *
+ * @param {{eventSeatId?: string|null}} ticket The ticket.
+ * @returns {string|null} A value of {@link TRANSFER_BLOCKED_REASONS}, or null.
+ */
+export function transferBlockedReason(ticket) {
+  return ticket?.eventSeatId ? TRANSFER_BLOCKED_REASONS.RESERVED_SEAT : null
+}
+
+/** What a steward or a holder is told about a seated ticket's transfer. */
+const RESERVED_SEAT_SENTENCE =
+  'Reserved-seat tickets cannot be handed on yet. The ticket stays yours and still admits you.'
+
+/**
  * Whether one ticket state may become another.
  *
  * @param {string} from The current state.
@@ -403,10 +433,16 @@ export async function admit(tx, params) {
  * @param {string|null} [params.requestId] For the audit trail.
  * @param {Date} params.now The instant.
  * @returns {Promise<{transfer: object|null, started: boolean}>} What was written.
- * @throws {Error} 422 when the ticket is being sent to whoever already holds it.
+ * @throws {Error} 422 when the ticket is being sent to whoever already holds it, or holds a reserved seat.
  */
 export async function startTransfer(tx, params) {
   const { ticket, toEmail, fromUserId, tokenHash, expiresAt, requestId = null, now } = params
+
+  // Before anything is written or sent: a seated ticket cannot be accepted, so
+  // it must not be offered. See TRANSFER_BLOCKED_REASONS.
+  if (transferBlockedReason(ticket)) {
+    throw unprocessable(RESERVED_SEAT_SENTENCE, { reason: TRANSFER_BLOCKED_REASONS.RESERVED_SEAT })
+  }
 
   const holder = fromUserId ? await tx.user.findUnique({ where: { id: fromUserId } }) : null
 
@@ -482,6 +518,14 @@ export async function acceptTransfer(tx, params) {
     now,
   } = params
 
+  // An invitation for a seated ticket started before the refusal in
+  // startTransfer existed. Refused before anything is written; the sender can
+  // withdraw it. It used to reach the insert below and fail on the unique seat
+  // index with a 500, on every attempt, until the invitation lapsed.
+  if (transferBlockedReason(ticket)) {
+    throw conflict(RESERVED_SEAT_SENTENCE, { reason: TRANSFER_BLOCKED_REASONS.RESERVED_SEAT })
+  }
+
   // Conditional on the transfer still being PENDING. Two people cannot accept
   // one invitation, and the same person clicking twice accepts once.
   const { count } = await tx.ticketTransfer.updateMany({
@@ -503,7 +547,18 @@ export async function acceptTransfer(tx, params) {
     },
   })
 
-  if (!moved) return { accepted: false, ticket: null, credential: null }
+  // Thrown, not returned. The invitation was marked ACCEPTED two statements
+  // ago; returning would commit that with no successor ticket behind it — an
+  // accepted transfer that handed nobody anything, and a ticket still sitting
+  // with the sender. That happened when the ticket was read before this
+  // transaction and was admitted, revoked or refunded in between. Throwing
+  // rolls the whole acceptance back.
+  if (!moved) {
+    throw conflict('That ticket changed while the transfer was being accepted. Nothing was handed on.', {
+      reason: 'TICKET_CHANGED',
+      ticketId: ticket.id,
+    })
+  }
 
   const issued = await tx.ticket.create({
     data: {

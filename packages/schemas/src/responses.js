@@ -354,6 +354,11 @@ export const ticketDetailResponseSchema = z.object({
     organizationId: cuidSchema,
     /** Whether the caller is the person holding it, rather than the organiser. */
     holder: z.boolean(),
+    /**
+     * Why this ticket may not be handed on whatever its state, or null.
+     * `RESERVED_SEAT` until seated transfer is supported.
+     */
+    transferBlockedReason: z.enum(['RESERVED_SEAT']).nullable(),
     /** Every transfer this ticket has been through, oldest first. */
     transfers: z.array(ticketTransferSchema),
   }),

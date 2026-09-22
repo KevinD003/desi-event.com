@@ -112,7 +112,7 @@ export default async function TicketDetailPage({ params }) {
     )
   }
 
-  const { ticket, event, transfers, holder, organizationId } = detail
+  const { ticket, event, transfers, holder, organizationId, transferBlockedReason } = detail
   const status = STATUS[ticket.status] ?? { label: ticket.status, admits: false }
   // Scoped, with the organisation the payload named. Asked without one this
   // would be a platform question, which is how NF-05 gets in.
@@ -231,6 +231,7 @@ export default async function TicketDetailPage({ params }) {
           transfers={transfers}
           holder={holder}
           mayRevoke={mayRevoke}
+          transferBlockedReason={transferBlockedReason ?? null}
         />
       </section>
 

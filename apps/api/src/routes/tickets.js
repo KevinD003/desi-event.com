@@ -46,6 +46,7 @@ import {
   mintTransferToken,
   revokeTicket,
   startTransfer,
+  transferBlockedReason,
   transferTokenDigest,
 } from '../lib/tickets.js'
 import { confirmAdmission, listAdmissionEvents, previewAdmission } from '../lib/admission.js'
@@ -223,6 +224,9 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
           },
           organizationId: event.organizationId,
           holder,
+          // Why it may not be offered whatever its state — today only a reserved
+          // seat — so the screen does not offer what the server will refuse.
+          transferBlockedReason: transferBlockedReason(ticket),
           transfers: transfers.map(toTicketTransfer),
         },
       }
