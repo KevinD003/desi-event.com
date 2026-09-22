@@ -103,7 +103,7 @@ describe('workspaceItems', () => {
     expect(platform.map((item) => item.href)).toContain('/retention')
   })
 
-  it('offers every destination to a platform administrator', () => {
+  it('offers every destination but the door to a platform administrator', () => {
     // SUPER_ADMIN is `[...ALL_CAPABILITIES]` (packages/permissions/src/capabilities.js:543),
     // so a real platform administrator arrives with every capability spelled
     // out rather than with `platform:admin` standing in for them. The offer is
@@ -132,6 +132,27 @@ describe('workspaceItems', () => {
       '/retention',
       '/moderation/events',
     ])
+    // Not check-in: the API refuses a platform role at the door, so offering
+    // the link would offer a door that does not open.
+    expect(items.map((item) => item.href)).not.toContain('/organizer/check-in')
+  })
+
+  it('offers check-in to a member whose role carries ticket:check_in, and to nobody else', () => {
+    const scanner = workspaceItems(
+      session({
+        memberships: [
+          { organizationId: 'org_1', role: 'SCANNER', capabilities: ['ticket:check_in'] },
+        ],
+      }),
+    )
+    const viewer = workspaceItems(
+      session({
+        memberships: [{ organizationId: 'org_1', role: 'VIEWER', capabilities: ['report:view'] }],
+      }),
+    )
+
+    expect(scanner.map((item) => item.href)).toEqual(['/organizer/check-in'])
+    expect(viewer.map((item) => item.href)).not.toContain('/organizer/check-in')
   })
 })
 

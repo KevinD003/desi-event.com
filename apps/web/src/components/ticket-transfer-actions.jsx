@@ -212,8 +212,8 @@ export function TicketTransferActions({
 
           {holder && seatBlocked && OFFERABLE.includes(ticket.status) && !outstanding ? (
             <li className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on
-              yet. It stays yours and still admits you.
+              This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on yet.
+              It stays yours and still admits you.
             </li>
           ) : null}
 

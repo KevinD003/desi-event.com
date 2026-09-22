@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
+import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
 import {
   PASSWORD,
   cleanupRefusals,
@@ -89,6 +90,12 @@ let seeded
  * @type {object}
  */
 let commerce
+/**
+ * The door's people and tickets.
+ *
+ * @type {object}
+ */
+let door
 /** @type {object} */
 let organiserContext
 /**
@@ -335,6 +342,38 @@ async function signInPlatform(page, email) {
   await expect(page.getByLabel(/^Six-digit code/)).toBeHidden()
 }
 
+/**
+ * Sign in an account that holds no second factor.
+ *
+ * A ticket holder and a SCANNER are not privileged roles, so nothing compels
+ * enrolment and the form never asks. {@link signIn} waits for the challenge,
+ * which would never come.
+ *
+ * @param {object} page The page to sign in.
+ * @param {string} email Who to sign in as.
+ * @returns {Promise<void>} Resolves once signed in.
+ */
+async function signInWithoutFactor(page, email) {
+  await page.goto('/sign-in')
+  await page.getByLabel('Email address').fill(email)
+  await page.getByLabel('Password').fill(PASSWORD)
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.waitForURL((url) => !url.pathname.startsWith('/sign-in'), { timeout: 15_000 })
+}
+
+/**
+ * Every width the door screen is checked at.
+ *
+ * The sweep's three, plus the four the Phase 3 brief names: 375 and 390 are
+ * the phones a steward is most likely to be holding, 1024 a tablet held
+ * landscape at a desk, 1440 a laptop at a box office.
+ *
+ * @type {ReadonlyArray<{width: number, height: number}>}
+ */
+const DOOR_WIDTHS = Object.freeze(
+  [320, 375, 390, 768, 1024, 1280, 1440].map((width) => ({ width, height: 900 })),
+)
+
 test.describe.serial('the Phase 2 screens, swept', () => {
   test.beforeAll(async ({ browser }) => {
     seeded = await seedRefusals(TAG)
@@ -343,6 +382,11 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       organizationId: seeded.alphaOrganizationId,
       eventId: seeded.alphaEventId,
       ownerUserId: seeded.alphaOwnerId,
+    })
+    door = await seedDoor({
+      tag: TAG,
+      organizationId: seeded.alphaOrganizationId,
+      eventId: seeded.alphaEventId,
     })
 
     organiserContext = await browser.newContext()
@@ -363,6 +407,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     await platformContext?.close()
     // Before the refusals cleanup, which deletes the events these rows hang
     // from.
+    await cleanupDoor(TAG)
     await cleanupDetailScreens(TAG)
     await cleanupRefusals(TAG)
   })
@@ -869,6 +914,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       [`/finance/refunds/${commerce.refundId}`, /refund on/i],
       [`/tickets/${commerce.ticketIds[0]}`, null],
       ['/tickets', /my tickets/i],
+      ['/organizer/check-in', /check-in/i],
     ]) {
       await page.goto(path)
 
@@ -1008,5 +1054,133 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     })
 
     expect(tooSmall).toEqual([])
+  })
+
+  test('the check-in screen is clean at every door width, idle and with a long name on it', async () => {
+    const page = organiser
+    // The last door ticket carries the long name. Looked up, never admitted:
+    // a lookup writes nothing, so this file changes no ticket.
+    const longNameCode = door.doorCodes[DOOR_TICKETS - 1]
+
+    for (const size of DOOR_WIDTHS) {
+      await page.setViewportSize(size)
+      await page.goto('/organizer/check-in')
+      await expect(page.getByRole('heading', { name: 'Check-in', level: 1 })).toBeVisible()
+
+      let violations = await scan(page)
+
+      expect(violations, `idle at ${size.width}\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page), `idle at ${size.width}`).toBeLessThanOrEqual(1)
+
+      await page.getByLabel('Printed ticket code').fill(longNameCode)
+      await page.getByRole('button', { name: 'Look up' }).click()
+      await expect(
+        page.getByRole('heading', { name: 'Check the ticket, then admit' }),
+      ).toBeFocused()
+      await expect(page.getByText(LONG_NAME, { exact: true })).toBeVisible()
+
+      violations = await scan(page)
+
+      expect(violations, `preview at ${size.width}\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page), `preview at ${size.width}`).toBeLessThanOrEqual(1)
+
+      await page.getByRole('button', { name: 'Cancel' }).click()
+    }
+  })
+
+  test('the check-in screen is clean when no camera can be had', async ({ browser }) => {
+    const context = await browser.newContext()
+    const page = await context.newPage()
+
+    await page.addInitScript(() => {
+      navigator.mediaDevices.getUserMedia = async () => {
+        throw new DOMException('refused by the sweep', 'NotAllowedError')
+      }
+    })
+    await signInWithoutFactor(page, door.scannerEmail)
+    await page.setViewportSize({ width: 320, height: 720 })
+    await page.goto('/organizer/check-in')
+    await page.getByRole('button', { name: 'Scan the QR pass' }).click()
+    await page.getByRole('button', { name: 'Start camera' }).click()
+    await expect(page.getByText(/camera permission was refused/iu)).toBeVisible()
+
+    const violations = await scan(page)
+
+    expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+    expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+
+    await context.close()
+  })
+
+  test('the check-in screen does not move, and hides nothing, when motion is reduced', async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ reducedMotion: 'reduce' })
+    const page = await context.newPage()
+
+    await signInWithoutFactor(page, door.scannerEmail)
+    await page.goto('/organizer/check-in')
+    await page.getByLabel('Printed ticket code').fill(door.doorCodes[DOOR_TICKETS - 1])
+    await page.getByRole('button', { name: 'Look up' }).click()
+    await expect(page.getByRole('heading', { name: 'Check the ticket, then admit' })).toBeVisible()
+
+    const moving = await page.evaluate(
+      () =>
+        document
+          .getAnimations()
+          .filter(
+            (animation) =>
+              animation.playState === 'running' && !(animation instanceof CSSTransition),
+          ).length,
+    )
+    const invisible = await page.evaluate(
+      () =>
+        [...document.querySelectorAll('main *')].filter((element) => {
+          const rect = element.getBoundingClientRect()
+          const style = getComputedStyle(element)
+
+          return (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            style.visibility !== 'hidden' &&
+            Number(style.opacity) === 0
+          )
+        }).length,
+    )
+
+    expect(moving).toBe(0)
+    expect(invisible).toBe(0)
+
+    await context.close()
+  })
+
+  test('the holder’s pass is clean, at the narrowest width and the widest', async ({ browser }) => {
+    // The page carries a live pass while it is scanned. This configuration
+    // screenshots a failing test's pages, and a screenshot of a pass is a
+    // ticket — so the context is closed in `finally`, before Playwright's
+    // teardown looks for a page to capture, whatever happens above it.
+    const context = await browser.newContext()
+
+    try {
+      const page = await context.newPage()
+
+      await signInWithoutFactor(page, door.holderEmail)
+
+      for (const width of [320, 1440]) {
+        await page.setViewportSize({ width, height: 900 })
+        await page.goto(`/tickets/${door.doorTicketIds[0]}`)
+        await page.getByRole('button', { name: 'Show my entry pass' }).click()
+        await expect(page.getByRole('img', { name: /entry pass, as a qr code/iu })).toBeVisible()
+
+        const violations = await scan(page)
+
+        expect(violations, `pass at ${width}\n  ${describe(violations)}`).toHaveLength(0)
+        expect(await sidewaysOverflow(page), `pass at ${width}`).toBeLessThanOrEqual(1)
+
+        await page.getByRole('button', { name: 'Hide pass' }).click()
+      }
+    } finally {
+      await context.close()
+    }
   })
 })

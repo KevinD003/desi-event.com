@@ -224,10 +224,21 @@ admit** in words before any colour says it. Recipient addresses are masked to
 `p****a@example.com`: enough for the sender to recognise who they offered it to,
 not enough for anybody to collect them.
 
-**No screen renders a pass.** A pass on a page is a pass in a screenshot, and a
-screenshot of a QR code is a ticket. `GET /v1/tickets/:id` carries no
-credential, no digest and no token, and a browser case asserts the markup
-contains none of the three names they go by.
+**One screen renders a pass, on request, to its holder.** The ticket's own
+page (`/tickets/:id`) offers **Show my entry pass** to the person holding a
+ticket that admits. Pressing it fetches the credential from the holder-only,
+`no-store` endpoint and draws it as a QR code on the device; the text is
+encoded and dropped, never placed in the markup, an attribute, storage or the
+address, and the drawing is removed when the holder hides it, leaves the page
+or the page is hidden. Next to it, in plain words: whoever holds this code,
+including as a screenshot, can use it once. Nothing here pretends screenshots
+can be prevented. The wallet list and the organiser's view of the same page
+never draw one.
+
+> **Correction — 2026-09-22.** This paragraph said "No screen renders a pass",
+> and the ticket page said the pass is "handed over once". The first became
+> false with the Phase 4 QR work; the second was never true of the API, which
+> derives the pass again for its holder on every request.
 
 The same screen serves two readers, and the API branches on which: the person
 holding the ticket asks whether it still gets them in, the organiser asks
@@ -238,6 +249,37 @@ Offers lapse after **72 hours** (`TRANSFER_TTL_HOURS`). A lapsed offer returns
 the ticket to `VALID`; accepting one is refused with `transferExpired`.
 
 ---
+
+## The door screen
+
+`/organizer/check-in`, linked from the organiser navigation for members whose
+role carries `ticket:check_in` — never for a platform role, which the door
+refuses. It lists what `GET /v1/tickets/admission/events` returns: the events
+this account may admit to and the authority each rests on ("Assigned to this
+event (scanner)", "Every event of Rangoli (owner)"). An account with none is
+told so and given nothing to press.
+
+A ticket is presented by typing its printed code or by scanning its QR pass:
+
+- **The camera** starts only when the steward presses **Start camera**. Frames
+  are decoded on the device (`jsqr`, loaded only then), never uploaded or
+  kept, and the camera stops — every track — when it is stopped, when the
+  steward switches to typing, when the page is left or hidden. A refused
+  permission, a device with no usable camera and a browser with no camera API
+  each say so and point at the printed code. A QR code that is not a pass is
+  reported and never sent.
+- **A decode is a lookup, not an admission.** It becomes a preview; decoding
+  pauses while the preview is on screen, so the same pass held in front of the
+  camera is looked up once.
+- **Admit** is a separate press. It is disabled while in flight, so a double
+  press sends one request. An admission whose answer never arrives is reported
+  as exactly that — it may or may not have admitted them — with a retry that
+  cannot admit twice and says which it was.
+- **No offline admission.** Offline, the screen says so and looks nothing up.
+
+The pass or code in hand lives in memory from lookup to admission or clearing;
+the recent list holds a name, a tier and an outcome for the session, in memory
+only.
 
 ## `CHECKED_IN` is terminal
 
@@ -287,4 +329,6 @@ reachable by a single-threaded test.
 | Who may admit, and to what?     | `packages/permissions/src/admission.js`        |
 | Preview and confirmation        | `apps/api/src/lib/admission.js`                |
 | How is a pass derived?          | `apps/api/src/lib/ticket-credentials.js`       |
+| How is a pass drawn and read?   | `apps/web/src/lib/qr.js`, `lib/qr-decode.js`   |
+| The door screen                 | `apps/web/src/components/door-workspace.jsx`   |
 | What does the database enforce? | `packages/db/prisma/migrations/` (the trigger) |

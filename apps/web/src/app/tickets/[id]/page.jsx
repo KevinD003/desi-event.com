@@ -9,20 +9,27 @@
  * else; this page renders what came back and asks a scoped capability — with
  * the organisation the payload named — to decide whether to offer withdrawal.
  *
+ * ## The pass, only when asked, only to the holder
+ *
+ * The page is rendered without the pass. The holder of a ticket that still
+ * admits can ask for it, and `TicketPass` fetches it from the holder-only,
+ * `no-store` endpoint and draws it as a QR code on this device — the text of
+ * the credential never reaches the markup. The organiser reading the same page
+ * is never offered it.
+ *
  * ## What never appears on it
  *
- * The pass, and any invitation code. A credential is derived once and handed
- * over once; a screen that displayed one would put it in a screenshot, and a
- * screenshot of a QR code is a ticket. An invitation code is a bearer secret
- * and lives in exactly one place — the message sent to the person it was
- * offered to. Recipient addresses are masked: enough to recognise who you sent
- * it to, not enough for anybody else to harvest.
+ * Any invitation code, and the credential as text. An invitation code is a
+ * bearer secret and lives in exactly one place — the message sent to the
+ * person it was offered to. Recipient addresses are masked: enough to
+ * recognise who you sent it to, not enough for anybody else to harvest.
  *
  * @module app/tickets/id/page
  */
 
 import Link from 'next/link'
 
+import { TicketPass } from '../../../components/ticket-pass.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
 import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
 import { getTicket } from '../../../lib/organizer-api.js'
@@ -166,13 +173,16 @@ export default async function TicketDetailPage({ params }) {
             </div>
           ) : null}
         </dl>
-
-        <p className="mt-3 text-sm text-slate-600">
-          The pass itself is not shown here. It is handed over once, when the ticket is issued or
-          accepted — a pass on a page is a pass in a screenshot, and a screenshot of one is a
-          ticket.
-        </p>
       </section>
+
+      {holder && status.admits ? (
+        <section aria-labelledby="pass-heading" className="mt-8">
+          <h2 id="pass-heading" className="text-lg font-semibold text-indigo-night-900">
+            Your entry pass
+          </h2>
+          <TicketPass ticketId={ticket.id} />
+        </section>
+      ) : null}
 
       <section aria-labelledby="history-heading" className="mt-8">
         <h2 id="history-heading" className="text-lg font-semibold text-indigo-night-900">

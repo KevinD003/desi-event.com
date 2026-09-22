@@ -80,6 +80,51 @@ export const test = base.extend({
     await use(await context.newPage())
     await context.close()
   },
+
+  /**
+   * A SCANNER of the alpha organisation, scoped to the alpha event only.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  scanner: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('scanner') })
+
+    await use(await context.newPage())
+    await context.close()
+  },
+
+  /**
+   * A STAFF member of the alpha organisation with no door scope.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  steward: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('steward') })
+
+    await use(await context.newPage())
+    await context.close()
+  },
+
+  /**
+   * The attendee holding the door tickets.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  holder: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('holder') })
+
+    await use(await context.newPage())
+    await context.close()
+  },
 })
 
 export { expect } from '@playwright/test'

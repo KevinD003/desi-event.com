@@ -390,3 +390,17 @@ export async function getTicket(id) {
 
   return body.data
 }
+
+/**
+ * The events this account may admit people to, with the authority for each.
+ *
+ * `GET /v1/tickets/admission/events`. Asked of the server on every request:
+ * a door scope granted or withdrawn a moment ago is already reflected.
+ *
+ * @returns {Promise<Array<object>>} The entries.
+ */
+export async function getAdmissionEvents() {
+  const body = await callApi('/v1/tickets/admission/events')
+
+  return body.data
+}

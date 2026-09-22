@@ -554,10 +554,13 @@ export async function acceptTransfer(tx, params) {
   // transaction and was admitted, revoked or refunded in between. Throwing
   // rolls the whole acceptance back.
   if (!moved) {
-    throw conflict('That ticket changed while the transfer was being accepted. Nothing was handed on.', {
-      reason: 'TICKET_CHANGED',
-      ticketId: ticket.id,
-    })
+    throw conflict(
+      'That ticket changed while the transfer was being accepted. Nothing was handed on.',
+      {
+        reason: 'TICKET_CHANGED',
+        ticketId: ticket.id,
+      },
+    )
   }
 
   const issued = await tx.ticket.create({

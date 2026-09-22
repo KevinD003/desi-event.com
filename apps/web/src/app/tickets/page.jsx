@@ -9,20 +9,16 @@
  * one of those was two or three relations away and none of it was being read.
  * The response carries them now, and this page is what they were for.
  *
- * ## The pass is still not here
+ * ## The pass is not on this page
  *
- * A credential is a bearer secret: whoever shows it gets in. There is a
- * holder-only endpoint that will hand one over — derived rather than stored, so
- * an attendee who closed the tab has not lost their ticket — and this page
- * deliberately does not call it. Rendering the credential as text would be a
- * substitute for the QR code that cannot be drawn yet, and a worse one: it is
- * as screenshot-able as a QR and useless at a turnstile.
+ * A credential is a bearer secret: whoever shows it gets in. It is drawn as a
+ * QR code on one ticket's own page, on request, by `TicketPass`, from the
+ * holder-only endpoint — and never on a list, where every ticket's pass would
+ * be one screenshot. This page does not call that endpoint.
  *
- * So the wallet says nothing about the pass at all. Not "your pass is ready",
- * because that is a sentence somebody would reasonably expect to be able to act
- * on and there is nothing here to act on yet. The reference code is on the card
- * and is what a steward asks for; it admits nobody by itself, which is why it
- * is safe to print and why it is not the credential.
+ * The reference code is on the card and is what a steward types when a pass
+ * will not scan. It is looked up only by somebody the server lets admit to that
+ * event, and it is not the credential.
  *
  * ## Four sections, and no ticket in two of them
  *

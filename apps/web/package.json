@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event web app \u2014 Next.js App Router, React and JSX, styled with Tailwind CSS.",
+  "description": "Desi-Event web app — Next.js App Router, React and JSX, styled with Tailwind CSS.",
   "scripts": {
     "dev": "next dev --port ${WEB_PORT:-3000}",
     "build": "NODE_ENV=production next build",
@@ -34,9 +34,11 @@
     "@desi-event/ui": "workspace:*",
     "clsx": "^2.1.1",
     "framer-motion": "^13.3.0",
+    "jsqr": "1.4.0",
     "next": "^16.3.5",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "uqr": "0.1.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {

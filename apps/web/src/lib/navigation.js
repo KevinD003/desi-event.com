@@ -75,7 +75,7 @@ export const PUBLIC_ITEMS = Object.freeze([
  * Every capability named here is one the API declares or asserts; none is
  * invented for the navigation's convenience.
  *
- * @type {ReadonlyArray<{href: string, label: string, description: string, capability: string, scope: string}>}
+ * @type {ReadonlyArray<{href: string, label: string, description: string, capability: string, scope: string, membershipOnly?: boolean}>}
  */
 const WORKSPACE_DESTINATIONS = Object.freeze([
   {
@@ -84,6 +84,17 @@ const WORKSPACE_DESTINATIONS = Object.freeze([
     description: 'Create, edit and publish what you are putting on',
     capability: 'event:create',
     scope: 'organization',
+  },
+  {
+    href: '/organizer/check-in',
+    label: 'Check-in',
+    description: 'Look tickets up and admit people at the door',
+    capability: 'ticket:check_in',
+    scope: 'organization',
+    // Door authority comes only from a membership: the API refuses a platform
+    // role at the door, so the platform-administrator shortcut in
+    // `canInAnyOrganization` would offer a door that does not open.
+    membershipOnly: true,
   },
   {
     href: '/organizer/venues',
@@ -185,11 +196,17 @@ export function accountItems(session) {
 export function workspaceItems(session) {
   if (!session) return []
 
-  return WORKSPACE_DESTINATIONS.filter((destination) =>
-    destination.scope === 'platform'
-      ? sessionCan(session, destination.capability)
-      : canInAnyOrganization(session, destination.capability),
-  ).map(({ href, label, description }) => ({ href, label, description }))
+  return WORKSPACE_DESTINATIONS.filter((destination) => {
+    if (destination.scope === 'platform') return sessionCan(session, destination.capability)
+
+    if (destination.membershipOnly) {
+      return (session.memberships ?? []).some((membership) =>
+        (membership.capabilities ?? []).includes(destination.capability),
+      )
+    }
+
+    return canInAnyOrganization(session, destination.capability)
+  }).map(({ href, label, description }) => ({ href, label, description }))
 }
 
 /**

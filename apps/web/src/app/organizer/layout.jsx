@@ -54,6 +54,14 @@ export default async function OrganizerLayout({ children }) {
             </li>
             <li>
               <Link
+                href="/organizer/check-in"
+                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              >
+                Check-in
+              </Link>
+            </li>
+            <li>
+              <Link
                 href="/organizer/venues"
                 className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
               >

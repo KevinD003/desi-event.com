@@ -37,7 +37,7 @@ export const WORLD_FILE = path.join(STATE_DIR, 'world.json')
 /**
  * The path a signed-in account's session is saved to.
  *
- * @param {string} who One of `owner`, `beta`, `viewer`.
+ * @param {string} who One of `owner`, `beta`, `viewer`, `scanner`, `steward`, `holder`.
  * @returns {string} A file path.
  */
 export function statePath(who) {
@@ -69,6 +69,9 @@ export default async function globalSetup(config) {
       ['owner', world.alphaOwnerEmail],
       ['beta', world.betaOwnerEmail],
       ['viewer', world.viewerEmail],
+      ['scanner', world.scannerEmail],
+      ['steward', world.stewardEmail],
+      ['holder', world.holderEmail],
     ]) {
       const context = await browser.newContext({ baseURL })
       const page = await context.newPage()

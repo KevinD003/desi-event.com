@@ -93,6 +93,10 @@ const SEEDS = Object.freeze([
   },
   { file: 'seed-organizer.mjs' },
   { file: 'seed-detail-screens.mjs' },
+  {
+    file: 'seed-door.mjs',
+    cleanup: Object.freeze([/ticket\s*\.deleteMany/u, /order\s*\.delete\b/u]),
+  },
 ])
 
 /**

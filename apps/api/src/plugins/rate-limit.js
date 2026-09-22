@@ -66,11 +66,23 @@ export function admissionRateLimit(overrides = {}) {
 /**
  * Build the per-route `config.rateLimit` object for admission-pass retrieval.
  *
+ * Keyed on the signed-in holder, like the door budget, and for the same
+ * reason. Every browser request reaches the API through the web app's
+ * same-origin proxy, so keyed by address the whole audience shared one budget
+ * of thirty passes a minute — the web server's — and one holder refreshing
+ * their pass could spend everybody's.
+ *
  * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
- * @returns {{max: number, timeWindow: string|number}} The effective pass limit.
+ * @returns {object} The effective pass limit.
  */
 export function passRateLimit(overrides = {}) {
-  return { ...DEFAULT_PASS_LIMIT, ...overrides }
+  return {
+    ...DEFAULT_PASS_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    keyGenerator: (request) =>
+      request.actor?.id ? `actor:${request.actor.id}` : `ip:${request.ip}`,
+  }
 }
 
 /**

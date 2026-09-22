@@ -1,5 +1,5 @@
 /**
- * The world the four detail suites share.
+ * The world the detail suites share.
  *
  * One seed, one sign-in helper, one teardown. Written once because four specs
  * each building their own would be four chances for them to drift apart about
@@ -20,6 +20,7 @@
 import { expect } from '@playwright/test'
 
 import { cleanupDetailScreens, seedDetailScreens } from './seed-detail-screens.mjs'
+import { cleanupDoor, seedDoor } from './seed-door.mjs'
 import {
   PASSWORD,
   cleanupRefusals,
@@ -43,7 +44,13 @@ export async function seedDetailWorld(tag) {
     ownerUserId: seeded.alphaOwnerId,
   })
 
-  return { ...seeded, ...commerce }
+  const door = await seedDoor({
+    tag,
+    organizationId: seeded.alphaOrganizationId,
+    eventId: seeded.alphaEventId,
+  })
+
+  return { ...seeded, ...commerce, ...door }
 }
 
 /**
@@ -53,6 +60,7 @@ export async function seedDetailWorld(tag) {
  * @returns {Promise<void>} Resolves when done.
  */
 export async function cleanupDetailWorld(tag) {
+  await cleanupDoor(tag)
   await cleanupDetailScreens(tag)
   await cleanupRefusals(tag)
 }

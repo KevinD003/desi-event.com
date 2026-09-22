@@ -310,6 +310,10 @@ const REQUIRED = [
   ['reconciliation action path', '/v1/operations/reconciliation/'],
   ['refund action path', '/v1/refunds/'],
   ['ticket transfer path', '/v1/ticket-transfers/'],
+  // The door. Both halves must ship: a build with the lookup and no admission
+  // would be a screen that shows who is at the door and can never let them in.
+  ['door lookup path', '/v1/tickets/admission/preview'],
+  ['door admission path', '/v1/tickets/check-in'],
 ]
 
 /**

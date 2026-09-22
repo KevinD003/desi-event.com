@@ -13,12 +13,12 @@ import { expect, test, world } from './support/detail-fixtures.mjs'
  *
  * ## The pass is not on this page, and that is deliberate
  *
- * There is a holder-only endpoint that will hand a credential over. This screen
- * does not call it, because the QR code it would be drawn into cannot be
- * rendered yet and showing the raw credential as text would be a substitute for
- * it — as screenshot-able as a QR and useless at a turnstile. So every case
- * below also asserts the negative: no credential, no digest, no derivation
- * label anywhere in the markup.
+ * There is a holder-only endpoint that will hand a credential over. This list
+ * does not call it: the pass is drawn as a QR code on one ticket's own page, on
+ * request (`detail-organizer-checkin.spec.js` covers that), never on a list
+ * where every pass would be one screenshot. So every case below also asserts
+ * the negative: no credential, no digest, no derivation label anywhere in the
+ * markup.
  *
  * ## Why this file restores what it changes
  *
