@@ -503,6 +503,24 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
     })
 
+    test(`the ticket wallet is clean at ${viewport.name}`, async () => {
+      // Phase 4 rewrote this screen: status chips on their own soft grounds, a
+      // definition list per card, section headings, and a link whose underline
+      // is drawn in `accent-line`. Every one of those is a colour pairing the
+      // token-contrast unit test can only check in the abstract — this is the
+      // one that measures what a browser actually painted.
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto('/tickets')
+      await expect(page.getByRole('heading', { name: 'My tickets', level: 1 })).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
     test(`the ticket detail screen is clean at ${viewport.name}`, async () => {
       const page = organiser
 
@@ -850,6 +868,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       [`/operations/reconciliation/${commerce.reconciliationTaskId}`, /payment timeout/i],
       [`/finance/refunds/${commerce.refundId}`, /refund on/i],
       [`/tickets/${commerce.ticketIds[0]}`, null],
+      ['/tickets', /my tickets/i],
     ]) {
       await page.goto(path)
 

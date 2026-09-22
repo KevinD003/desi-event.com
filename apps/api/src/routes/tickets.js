@@ -326,16 +326,20 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit }) {
         include: TICKET_INCLUDE,
       })
 
-      // `assertHolds` answers 404 rather than 403 for somebody who is not the
-      // holder, which is what makes this endpoint useless as an oracle: a
-      // ticket that exists and is not yours reads exactly like one that does
-      // not exist. An organiser gets the same answer as a stranger, because
-      // `ticket:revoke` is the power to withdraw a ticket, not to be admitted
-      // on it, and a pass is the one thing on a ticket nobody but its holder
-      // has any business reading.
-      if (!ticket) throw notFound('No such ticket.')
+      // One answer for every way this can fail to be yours, and `assertHolds`
+      // is deliberately **not** used for it. That helper is written for the
+      // transfer routes, where a ticket bought without an account is worth a
+      // distinct 403 telling somebody to claim it — and on this route that 403
+      // is an oracle: a guest ticket's id answers differently from an id
+      // nobody has ever used, so anybody can learn which identifiers name a
+      // real unclaimed ticket. Here the three cases collapse into one.
+      //
+      // An organiser gets the same 404 as a stranger, because `ticket:revoke`
+      // is the power to withdraw a ticket, not to be admitted on it, and a pass
+      // is the one thing on a ticket nobody but its holder may read.
+      const passHolder = Boolean(ticket?.ownerUserId) && ticket.ownerUserId === request.actor.id
 
-      assertHolds(request.actor, ticket)
+      if (!passHolder) throw notFound('No such ticket.')
 
       const order = ticket.orderItem?.order ?? null
       const refusal = admissionRefusal(ticket, order)
@@ -351,7 +355,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit }) {
       // through `admissionRefusal`, and it is checked anyway, because the thing
       // on the other side of this branch is a bearer secret.
       if (!ticket.credentialHash) {
-        throw conflict('This ticket has no pass. Ask the organiser to reissue it.', {
+        throw conflict('This ticket has no pass.', {
           status: ticket.status,
         })
       }
@@ -373,7 +377,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit }) {
           'derived ticket credential does not match the stored digest',
         )
 
-        throw conflict('This pass cannot be verified. Ask the organiser to reissue it.', {
+        throw conflict('This pass cannot be verified.', {
           status: ticket.status,
         })
       }

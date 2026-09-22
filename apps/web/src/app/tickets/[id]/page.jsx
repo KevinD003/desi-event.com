@@ -200,6 +200,18 @@ export default async function TicketDetailPage({ params }) {
                     </>
                   ) : null}
                 </p>
+                {transfer.resultTicketId ? (
+                  <p className="mt-1 text-sm text-slate-700">
+                    It became{' '}
+                    <Link
+                      href={`/tickets/${transfer.resultTicketId}`}
+                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                    >
+                      a new ticket
+                    </Link>
+                    , which is the one that admits anybody now.
+                  </p>
+                ) : null}
               </li>
             ))}
           </ol>

@@ -1,11 +1,37 @@
 /**
  * The tickets somebody holds.
  *
- * No pass is here, and there is no pass on the detail screen either. A
- * credential is derived at the moment a ticket is issued or accepted and handed
- * over once; a list that returned one would put it in every cache between the
- * server and the phone, and a list that *showed* one would put it in every
- * screenshot.
+ * ## What this page could not say before
+ *
+ * `GET /v1/tickets` returned the ticket's own columns and nothing else, so a
+ * row could show a status and a reference code: "Ready to use — DE-8F3K2Q".
+ * Not which event. Not when, not where, not which tier, not which seat. Every
+ * one of those was two or three relations away and none of it was being read.
+ * The response carries them now, and this page is what they were for.
+ *
+ * ## The pass is still not here
+ *
+ * A credential is a bearer secret: whoever shows it gets in. There is a
+ * holder-only endpoint that will hand one over — derived rather than stored, so
+ * an attendee who closed the tab has not lost their ticket — and this page
+ * deliberately does not call it. Rendering the credential as text would be a
+ * substitute for the QR code that cannot be drawn yet, and a worse one: it is
+ * as screenshot-able as a QR and useless at a turnstile.
+ *
+ * So the wallet says nothing about the pass at all. Not "your pass is ready",
+ * because that is a sentence somebody would reasonably expect to be able to act
+ * on and there is nothing here to act on yet. The reference code is on the card
+ * and is what a steward asks for; it admits nobody by itself, which is why it
+ * is safe to print and why it is not the credential.
+ *
+ * ## Four sections, and no ticket in two of them
+ *
+ * Coming up, given to you, handed on, past. They are disjoint by construction —
+ * `sectionFor` returns exactly one — because a wallet that listed a transferred-in
+ * ticket under both "coming up" and "given to you" would tell somebody they hold
+ * more tickets than they do, and the arithmetic on a page about admission has to
+ * be right. The figure above the sections counts what still admits, across all
+ * of them, which is the number somebody actually came here for.
  *
  * @module app/tickets/page
  */
@@ -14,27 +40,162 @@ import Link from 'next/link'
 
 import { Empty, Failure } from '../../components/page-state.jsx'
 import { getMyTickets } from '../../lib/organizer-api.js'
+import {
+  REACHABLE_STATUSES,
+  groupTickets,
+  usableCount,
+  seatText,
+  whenText,
+  whereText,
+} from '../../lib/wallet.js'
 
 export const dynamic = 'force-dynamic'
 
 export const metadata = { robots: { index: false, follow: false } }
 
 /**
- * How each status reads to the person holding the ticket.
+ * How each reachable status reads, and how it is dressed.
  *
- * @type {Readonly<Record<string, string>>}
+ * Six entries, not nine. `VOID`, `SUPERSEDED` and `CANCELLED` are declared by
+ * the database enum and written by no application code anywhere — see
+ * {@link REACHABLE_STATUSES} for the audit — so a sentence for each of them
+ * would describe a product that does not exist. Anything not in this table
+ * renders as its raw value, which is what a demo database's seeded `VOID` gets.
+ *
+ * The sentence is the wallet's own wording; whether a ticket admits anybody
+ * comes from the server, on the row, from the same function the door runs. This
+ * table never decides that — a table that did would be a second opinion on the
+ * one question a wallet must not get wrong.
+ *
+ * @type {Readonly<Record<string, {label: string, tone: string}>>}
  */
 const STATUS = Object.freeze({
-  VALID: 'Ready to use',
-  TRANSFER_PENDING: 'Offered to somebody — still yours until they accept',
-  TRANSFERRED: 'Handed on. This one no longer admits anybody',
-  CHECKED_IN: 'Used — you went in',
-  REVOKED: 'Withdrawn by the organiser',
-  REFUNDED: 'Refunded',
-  CANCELLED: 'Cancelled',
-  SUPERSEDED: 'Replaced by a newer ticket',
-  VOID: 'Void',
+  VALID: { label: 'Ready to use', tone: 'success' },
+  TRANSFER_PENDING: { label: 'Offered — still yours until they accept', tone: 'pending' },
+  TRANSFERRED: { label: 'Handed on', tone: 'info' },
+  CHECKED_IN: { label: 'Used — you went in', tone: 'info' },
+  REVOKED: { label: 'Withdrawn by the organiser', tone: 'danger' },
+  REFUNDED: { label: 'Refunded', tone: 'info' },
 })
+
+/** Chip classes per tone, from the semantic token layer. */
+const TONE = Object.freeze({
+  success: 'bg-status-success-soft text-status-success',
+  pending: 'bg-status-pending-soft text-status-pending',
+  info: 'bg-status-info-soft text-status-info',
+  danger: 'bg-status-danger-soft text-status-danger',
+})
+
+/**
+ * A status chip.
+ *
+ * The word carries the meaning; the colour only repeats it. Somebody who cannot
+ * tell the two greens apart reads the same sentence as everybody else.
+ *
+ * @param {object} props Component props.
+ * @param {string} props.status The ticket status.
+ * @returns {JSX.Element} The chip.
+ */
+function StatusChip({ status }) {
+  // A status the application cannot produce keeps its own name. The reachable
+  // set is asserted against this table in `wallet.test.js`, so the two cannot
+  // drift apart without something going red.
+  const known = REACHABLE_STATUSES.includes(status)
+  const meaning = known ? STATUS[status] : { label: status, tone: 'info' }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+        TONE[meaning.tone]
+      }`}
+    >
+      {meaning.label}
+    </span>
+  )
+}
+
+/**
+ * One line of a card's detail list, omitted entirely when there is nothing to say.
+ *
+ * An empty definition list row is worse than a missing one: it reads as a fact
+ * the system failed to look up rather than one that does not apply.
+ *
+ * @param {object} props Component props.
+ * @param {string} props.term What it is.
+ * @param {string} props.children The value.
+ * @returns {JSX.Element|null} The row, or nothing.
+ */
+function Detail({ term, children }) {
+  if (!children) return null
+
+  return (
+    <div className="flex flex-wrap gap-x-2">
+      <dt className="text-ink-subtle">{term}</dt>
+      <dd className="font-medium text-ink">{children}</dd>
+    </div>
+  )
+}
+
+/**
+ * One ticket.
+ *
+ * The event's title is the link and the heading, because the thing somebody is
+ * looking for is the night out, not the reference code. The code is still here,
+ * in a monospace run, because it is what a steward asks for.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.ticket A row from `GET /v1/tickets`.
+ * @returns {JSX.Element} The card.
+ */
+function TicketCard({ ticket }) {
+  const when = whenText(ticket)
+  const where = whereText(ticket)
+  const seat = seatText(ticket)
+
+  return (
+    <li className="rounded-card border border-line bg-surface p-4 transition-shadow duration-(--duration-base) focus-within:ring-2 focus-within:ring-focus sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <h3 className="text-base font-semibold text-ink sm:text-lg">
+          <Link
+            href={`/tickets/${ticket.id}`}
+            className="rounded-sm underline decoration-accent-line underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            {ticket.event.title}
+          </Link>
+        </h3>
+        <StatusChip status={ticket.status} />
+      </div>
+
+      <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+        <Detail term="When">{when}</Detail>
+        <Detail term="Where">{where}</Detail>
+        <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
+        <Detail term="Seat">{seat}</Detail>
+        <Detail term="Attendee">{ticket.attendeeName ?? ''}</Detail>
+        <Detail term="Reference">
+          <span className="font-mono">{ticket.code}</span>
+        </Detail>
+        <Detail term="Order">{ticket.orderReference ?? ''}</Detail>
+      </dl>
+
+      {ticket.pendingTransfer ? (
+        <p className="mt-3 text-sm text-ink-muted">
+          Offered to{' '}
+          <span className="font-medium text-ink">{ticket.pendingTransfer.toEmailMasked}</span>. It
+          is still yours until they accept.
+        </p>
+      ) : null}
+
+      {ticket.admissionRefusal ? (
+        <p className="mt-3 text-sm text-ink-muted">{ticket.admissionRefusal}</p>
+      ) : null}
+
+      {ticket.revokedReason ? (
+        <p className="mt-1 text-sm text-ink-muted">Reason given: {ticket.revokedReason}</p>
+      ) : null}
+    </li>
+  )
+}
 
 /**
  * The list.
@@ -51,10 +212,13 @@ export default async function MyTicketsPage() {
     failure = error?.message ?? null
   }
 
+  const groups = groupTickets(tickets)
+  const usable = usableCount(groups)
+
   return (
     <div>
-      <h1 className="text-2xl font-bold text-indigo-night-900">My tickets</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="text-2xl font-bold text-ink">My tickets</h1>
+      <p className="mt-2 text-ink-muted">
         Everything issued to this account. Open one to show it at the door, hand it on, or see where
         it has been.
       </p>
@@ -69,28 +233,24 @@ export default async function MyTicketsPage() {
       ) : null}
 
       {tickets.length > 0 ? (
-        <ul className="mt-6 space-y-3">
-          {tickets.map((ticket) => (
-            <li
-              key={ticket.id}
-              className="rounded-card border border-slate-200 bg-white p-4 focus-within:ring-2 focus-within:ring-marigold-500"
-            >
-              <p className="font-medium text-indigo-night-900">
-                <Link
-                  href={`/tickets/${ticket.id}`}
-                  className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
-                >
-                  {ticket.attendeeName ?? 'Ticket'}{' '}
-                  <span className="font-mono text-sm text-slate-600">{ticket.code}</span>
-                </Link>
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                {STATUS[ticket.status] ?? ticket.status}
-              </p>
-            </li>
-          ))}
-        </ul>
+        <p className="mt-4 text-sm text-ink-muted">
+          {usable === 1 ? 'One ticket still gets you in.' : `${usable} tickets still get you in.`}
+        </p>
       ) : null}
+
+      {groups.map((group) => (
+        <section key={group.id} aria-labelledby={`wallet-${group.id}`} className="mt-8">
+          <h2 id={`wallet-${group.id}`} className="text-lg font-semibold text-ink">
+            {group.label}
+          </h2>
+          <p className="mt-1 text-sm text-ink-muted">{group.description}</p>
+          <ul className="mt-4 grid gap-3">
+            {group.tickets.map((ticket) => (
+              <TicketCard key={ticket.id} ticket={ticket} />
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   )
 }

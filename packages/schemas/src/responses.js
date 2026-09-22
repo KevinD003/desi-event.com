@@ -179,8 +179,14 @@ export const ticketTransferSchema = z.object({
   id: cuidSchema,
   ticketId: cuidSchema,
   fromUserId: cuidSchema.nullable(),
-  /** `p****a@example.com`. Enough to recognise, not enough to harvest. */
-  toEmailMasked: z.string(),
+  /**
+   * `p****a@example.com`. Enough to recognise, not enough to harvest.
+   *
+   * Constrained rather than declared: the masking is one call in one presenter,
+   * and a schema that accepted an unmasked address would notice nothing if that
+   * call were ever dropped.
+   */
+  toEmailMasked: z.string().regex(/\*|^\(none\)$/u, 'Expected a masked address'),
   status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'EXPIRED']),
   expiresAt: timestampSchema,
   acceptedAt: timestampSchema.nullable(),
@@ -350,7 +356,16 @@ export const walletTicketSchema = ticketSchema.extend({
   pendingTransfer: z
     .object({
       id: cuidSchema,
-      toEmailMasked: z.string(),
+      /**
+       * Masked, and the schema insists rather than trusting the presenter.
+       *
+       * `z.string()` would accept a fully spelled-out address just as happily,
+       * so the one line that calls `maskRecipient` was the only thing between a
+       * recipient list and somebody harvesting it. Requiring the mask puts a
+       * second, structural check behind that line: a presenter that stopped
+       * masking would 500 rather than leak.
+       */
+      toEmailMasked: z.string().regex(/\*|^\(none\)$/u, 'Expected a masked address'),
       expiresAt: timestampSchema,
     })
     .nullable(),

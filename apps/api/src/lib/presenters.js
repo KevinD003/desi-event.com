@@ -215,10 +215,17 @@ export function toOrder(order) {
   // The buyer's own transferred-away ticket stays. It is their purchase
   // history, and dropping it would replace one untruth with another —
   // `transferredAway` says what happened instead.
-  const tickets = items
-    .flatMap((item) => item.tickets ?? [])
+  const onThisOrder = items.flatMap((item) => item.tickets ?? [])
+
+  // Which rows a later ticket replaced. Every accepted transfer mints a new row
+  // on the same order item pointing back at the one it replaced, so a ticket
+  // handed out and handed back leaves three rows against a quantity of one.
+  // Read from the rows already loaded rather than queried for.
+  const superseded = new Set(onThisOrder.map((ticket) => ticket.supersedesTicketId).filter(Boolean))
+
+  const tickets = onThisOrder
     .filter((ticket) => heldByTheBuyer(ticket, order))
-    .map((ticket) => toOrderTicket(ticket))
+    .map((ticket) => toOrderTicket(ticket, superseded))
 
   return {
     ...rest,
@@ -428,16 +435,32 @@ export function toWalletTicket(ticket, { viewerUserId }) {
  * @returns {boolean} True when the ticket is the buyer's own.
  */
 export function heldByTheBuyer(ticket, order) {
-  return (ticket.ownerUserId ?? null) === (order?.userId ?? null)
+  // Both columns must have been *selected*, not merely be absent. The
+  // comparison normalises `undefined` to `null` on both sides, so a row fetched
+  // with a `select` that omitted `ownerUserId` would read as a guest's and sail
+  // through the filter — reopening the exact leak the strict form closes, and
+  // silently, because the function takes plain objects and could assert nothing
+  // about them. `WALLET_INCLUDE` already selects a narrow order, so this is a
+  // pattern the codebase has rather than a hypothetical.
+  if (!('ownerUserId' in ticket)) {
+    throw new TypeError('heldByTheBuyer needs a ticket whose ownerUserId was selected.')
+  }
+
+  if (!order || !('userId' in order)) {
+    throw new TypeError('heldByTheBuyer needs an order whose userId was selected.')
+  }
+
+  return (ticket.ownerUserId ?? null) === (order.userId ?? null)
 }
 
 /**
  * One of the buyer's tickets, as it appears on their order.
  *
  * @param {object} ticket A `Ticket` row belonging to the order's buyer.
+ * @param {Set<string>} superseded Ids that a later ticket on the same order replaced.
  * @returns {object} A payload satisfying `orderTicketSchema`.
  */
-function toOrderTicket(ticket) {
+function toOrderTicket(ticket, superseded) {
   const {
     // Never outbound. The response schema would strip them anyway; naming them
     // here means a reader of this function can see that it was deliberate
@@ -446,10 +469,20 @@ function toOrderTicket(ticket) {
     credentialVersion: _credentialVersion,
     credentialIssuedAt: _credentialIssuedAt,
     ownerUserId: _ownerUserId,
+    supersedesTicketId: _supersedesTicketId,
     ...rest
   } = ticket
 
-  return { ...rest, transferredAway: ticket.status === TRANSFERRED }
+  return {
+    ...rest,
+    // From the status, and deliberately not from `ownerUserId !== order.userId`.
+    // `acceptTransfer` never rewrites the old row's owner, so the owner columns
+    // are *equal* on a ticket the buyer has given away — the predicate that
+    // correctly answers "whose row is this" answers "has this been handed on"
+    // wrongly, in exactly the states where it matters.
+    purchaserHolding: ticket.status === TRANSFERRED ? 'TRANSFERRED_AWAY' : 'HELD',
+    supersededByLaterTicket: superseded.has(ticket.id),
+  }
 }
 
 /**

@@ -803,6 +803,54 @@ when()('a refund racing a ticket transfer', () => {
   })
 })
 
+when()('the pass on a refunded ticket', () => {
+  it('stops resolving, the way a revoked one does', async () => {
+    // The asymmetry this closes. `revokeTicket` has always nulled the digest
+    // and bumped the version, so a revoked ticket's QR matches no row at all.
+    // The refund path wrote only the status, so a refunded ticket kept a
+    // credential that still resolved to its row by digest. Every gate refused
+    // it — `admissionRefusal`, the check-in trigger, the pass route's 409 — so
+    // this was an asymmetry rather than an open door, and it sat in exactly the
+    // place a reader would assume symmetry.
+    //
+    // It matters most for a ticket transferred away before the refund: the
+    // refund allocator selects by order item and status and never reads
+    // ownership, so the row that gets refunded can be the *recipient's*, and
+    // nothing notifies them. Leaving their pass resolvable is the worst version
+    // of that.
+    const world = await buildPaidOrder({ seats: 2 })
+    const line = world.order.items[0]
+    const ticket = await prisma.ticket.findFirst({ where: { orderItemId: line.id } })
+
+    expect(ticket.credentialHash, 'the fixture issued no pass').toBeTruthy()
+
+    const versionBefore = ticket.credentialVersion
+
+    const { refund } = await ask(world, {
+      lines: [{ orderItemId: line.id, quantity: line.quantity }],
+      key: `${RUN}-pass-dies`,
+    })
+
+    await pushThrough(world, refund)
+
+    const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
+
+    expect(after.status).toBe('REFUNDED')
+    expect(after.credentialHash).toBeNull()
+    // Bumped as well as cleared, so the credential cannot be re-derived to the
+    // same string if the digest is ever restored.
+    expect(after.credentialVersion).toBe(versionBefore + 1)
+
+    // And the scanner's own lookup finds nothing, which is the property that
+    // actually matters at a door.
+    const byDigest = await prisma.ticket.findFirst({
+      where: { credentialHash: ticket.credentialHash },
+    })
+
+    expect(byDigest).toBeNull()
+  })
+})
+
 when()('a refund racing a check-in', () => {
   it('never turns an admitted ticket into a refunded one', async () => {
     const world = await buildPaidOrder({ seats: 2 })

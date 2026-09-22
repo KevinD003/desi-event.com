@@ -72,6 +72,14 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   'otp',
   'cvv',
   'cardNumber',
+  // The admission pass. `credential` is the plaintext a QR carries and
+  // `credentialHash` its digest; neither is a password, so neither was caught
+  // by any entry above. The digest is not a secret in the sense the others are
+  // — it opens nothing — but it identifies a ticket by a value only its holder
+  // should know, and this net exists precisely for the handler that logs a
+  // whole row by accident.
+  'credential',
+  'credentialHash',
 ])
 
 /**
@@ -91,6 +99,9 @@ export const WILDCARD_KEYS = Object.freeze([
   'secret',
   'apiKey',
   'key_secret',
+  // `{ ticket: { credential } }` is the shape a handler logging a scan result
+  // would produce, and the check-in route takes the credential in its body.
+  'credential',
 ])
 
 /**

@@ -708,7 +708,22 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
       // quietly turned into a refunded one behind the person at the door.
       const { count } = await tx.ticket.updateMany({
         where: { id: ticket.id, status: ticket.status },
-        data: { status: 'REFUNDED', revokedAt: now, revokedReason: `refund:${refund.id}` },
+        data: {
+          status: 'REFUNDED',
+          revokedAt: now,
+          revokedReason: `refund:${refund.id}`,
+          // The pass dies with the ticket. `revokeTicket` has always cleared
+          // the digest and bumped the version; this path did not, so a refunded
+          // ticket kept a credential that still resolved to its row by digest.
+          // Every gate that matters refused it — `admissionRefusal`, the
+          // check-in trigger and the pass route's own 409 — so this was an
+          // asymmetry rather than an open door, and an asymmetry in exactly the
+          // place a reader would assume symmetry. It matters most for a ticket
+          // that was transferred away before the refund: the person holding a
+          // live-looking pass is then somebody who was never told.
+          credentialHash: null,
+          credentialVersion: { increment: 1 },
+        },
       })
 
       if (count === 0) continue

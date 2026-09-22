@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Desi-Event web app — Next.js App Router, React and JSX, styled with Tailwind CSS.",
+  "description": "Desi-Event web app \u2014 Next.js App Router, React and JSX, styled with Tailwind CSS.",
   "scripts": {
     "dev": "next dev --port ${WEB_PORT:-3000}",
     "build": "NODE_ENV=production next build",
@@ -23,6 +23,7 @@
     "test:e2e:analytics": "DETAIL_E2E_SPEC=**/detail-analytics.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:reconciliation": "DETAIL_E2E_SPEC=**/detail-reconciliation.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:refunds": "DETAIL_E2E_SPEC=**/detail-refunds.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:ticket-wallet": "DETAIL_E2E_SPEC=**/detail-ticket-wallet.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:transfers": "DETAIL_E2E_SPEC=**/detail-transfers.spec.js playwright test --config playwright.detail.config.js"
   },
   "dependencies": {

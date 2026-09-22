@@ -13,8 +13,12 @@ import {
   orderResponseSchema,
   organizationResponseSchema,
   paginationMetaSchema,
+  myTicketListResponseSchema,
+  ticketPassResponseSchema,
   ticketTypeListResponseSchema,
+  walletTicketSchema,
 } from './responses.js'
+import { orderTicketSchema } from './entities.js'
 import { ValidationError, parseOrThrow } from './errors.js'
 
 const ids = {
@@ -345,5 +349,186 @@ describe('simple envelopes', () => {
         },
       }).success,
     ).toBe(true)
+  })
+})
+
+describe('what the response schemas refuse to carry', () => {
+  /** Every forbidden item, planted on one hostile payload. */
+  const FORBIDDEN = Object.freeze({
+    ownerUserId: 'usr_somebody',
+    credential: 'THE-ACTUAL-BEARER-SECRET',
+    credentialHash: 'd'.repeat(64),
+    credentialVersion: 7,
+    credentialIssuedAt: '2026-01-01T00:00:00.000Z',
+    buyerEmail: 'buyer@example.test',
+    transferToken: 'RAW-TRANSFER-TOKEN',
+    tokenHash: 'e'.repeat(64),
+    guestToken: 'RAW-GUEST-TOKEN',
+    guestTokenHash: 'f'.repeat(64),
+    providerRef: 'pi_live_should_never_be_here',
+    connectedAccountId: 'acct_should_never_be_here',
+    providerPayoutId: 'po_should_never_be_here',
+    internalNotes: 'an internal note',
+    auditMetadata: { actorId: 'usr_admin' },
+  })
+
+  /** A minimal valid wallet row, so only the planted keys are in question. */
+  const wallet = {
+    id: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+    orderItemId: 'c1bbbbbbbbbbbbbbbbbbbbbbb',
+    code: 'DE-ABCD-1234',
+    attendeeName: 'Priya Sharma',
+    status: 'VALID',
+    checkedInAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    holderRelationship: 'PURCHASED',
+    admits: true,
+    admissionRefusal: null,
+    orderReference: 'DE-BUYER1',
+    event: {
+      id: 'c1ccccccccccccccccccccccc',
+      slug: 'garba-night',
+      title: 'Garba Night',
+      startsAt: '2026-10-01T14:00:00.000Z',
+      endsAt: '2026-10-01T19:00:00.000Z',
+      timezone: 'Asia/Kolkata',
+      status: 'ON_SALE',
+      cancelledAt: null,
+    },
+    venue: { name: 'Hall', city: 'Pune', region: 'MH', country: 'IN' },
+    isOnline: false,
+    tier: { id: 'c1ddddddddddddddddddddddd', name: 'General admission' },
+    seat: null,
+    pendingTransfer: null,
+    revokedAt: null,
+    revokedReason: null,
+  }
+
+  it('strips every forbidden key from a wallet row', () => {
+    // Not "the presenter does not add them" — this is the second layer. Even a
+    // presenter that regressed and handed the raw row through would produce a
+    // payload with none of these on it, because Zod strips what it does not
+    // declare rather than erroring on it.
+    const parsed = walletTicketSchema.parse({ ...wallet, ...FORBIDDEN })
+
+    for (const key of Object.keys(FORBIDDEN)) {
+      expect(parsed[key], `${key} survived the schema`).toBeUndefined()
+    }
+
+    expect(JSON.stringify(parsed)).not.toContain('THE-ACTUAL-BEARER-SECRET')
+    expect(JSON.stringify(parsed)).not.toContain('RAW-TRANSFER-TOKEN')
+    expect(JSON.stringify(parsed)).not.toContain('buyer@example.test')
+  })
+
+  it('strips them from the list response, not merely from one row', () => {
+    const parsed = myTicketListResponseSchema.parse({
+      data: [{ ...wallet, ...FORBIDDEN }],
+      pagination: {
+        page: 1,
+        perPage: 20,
+        total: 1,
+        totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
+      },
+    })
+
+    expect(JSON.stringify(parsed)).not.toContain('THE-ACTUAL-BEARER-SECRET')
+    expect(parsed.data[0].credentialHash).toBeUndefined()
+  })
+
+  it('strips a raw token planted inside the pending transfer', () => {
+    const parsed = walletTicketSchema.parse({
+      ...wallet,
+      pendingTransfer: {
+        id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
+        toEmailMasked: 'p****a@example.com',
+        expiresAt: '2026-02-01T00:00:00.000Z',
+        token: 'RAW-TRANSFER-TOKEN',
+        tokenHash: 'e'.repeat(64),
+        toEmail: 'priya@example.com',
+      },
+    })
+
+    expect(parsed.pendingTransfer.token).toBeUndefined()
+    expect(parsed.pendingTransfer.tokenHash).toBeUndefined()
+    expect(parsed.pendingTransfer.toEmail).toBeUndefined()
+    expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+  })
+
+  it('refuses an unmasked recipient address outright', () => {
+    // The one place the schema does more than strip. Masking is a single call
+    // in a single presenter; a schema that accepted `z.string()` would notice
+    // nothing at all if that call were dropped, and the failure would be a
+    // harvestable recipient list. Now it is a 500 instead.
+    const unmasked = walletTicketSchema.safeParse({
+      ...wallet,
+      pendingTransfer: {
+        id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
+        toEmailMasked: 'priya@example.com',
+        expiresAt: '2026-02-01T00:00:00.000Z',
+      },
+    })
+
+    expect(unmasked.success).toBe(false)
+  })
+
+  it('strips every forbidden key from an order ticket', () => {
+    const parsed = orderTicketSchema.parse({
+      id: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+      orderItemId: 'c1bbbbbbbbbbbbbbbbbbbbbbb',
+      code: 'DE-ABCD-1234',
+      attendeeName: null,
+      status: 'TRANSFERRED',
+      checkedInAt: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      purchaserHolding: 'TRANSFERRED_AWAY',
+      supersededByLaterTicket: false,
+      ...FORBIDDEN,
+    })
+
+    for (const key of Object.keys(FORBIDDEN)) {
+      expect(parsed[key], `${key} survived the schema`).toBeUndefined()
+    }
+  })
+
+  it('will not accept an ownership classification it does not know', () => {
+    // A Boolean could be flipped by a typo and stay valid. An enum cannot.
+    const wrong = orderTicketSchema.safeParse({
+      id: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+      orderItemId: 'c1bbbbbbbbbbbbbbbbbbbbbbb',
+      code: 'DE-ABCD-1234',
+      status: 'VALID',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      purchaserHolding: 'MAYBE',
+      supersededByLaterTicket: false,
+    })
+
+    expect(wrong.success).toBe(false)
+  })
+
+  it('carries no credential on the pass response beyond the one field that is its job', () => {
+    const parsed = ticketPassResponseSchema.parse({
+      data: {
+        ticketId: 'c1aaaaaaaaaaaaaaaaaaaaaaa',
+        credential: 'THE-ACTUAL-BEARER-SECRET',
+        credentialVersion: 2,
+        issuedAt: '2026-01-01T00:00:00.000Z',
+        credentialHash: 'd'.repeat(64),
+        ownerUserId: 'usr_somebody',
+        attendeeName: 'Priya Sharma',
+      },
+    })
+
+    expect(parsed.data.credential).toBe('THE-ACTUAL-BEARER-SECRET')
+    // Everything else about the ticket is somewhere else. A payload that mixed
+    // a secret with the things a screen wants to show is a payload something
+    // eventually caches.
+    expect(parsed.data.credentialHash).toBeUndefined()
+    expect(parsed.data.ownerUserId).toBeUndefined()
+    expect(parsed.data.attendeeName).toBeUndefined()
   })
 })

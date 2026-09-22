@@ -677,7 +677,12 @@ when()('ownership after a handover', () => {
 
     expect(ids).toEqual([ticket.id])
     expect(ids).not.toContain(minted.id)
-    expect(order.tickets[0].transferredAway).toBe(true)
+    expect(order.tickets[0].purchaserHolding).toBe('TRANSFERRED_AWAY')
+    // Derived from the status, which is the only column that moved. The
+    // sender's row still carries their own id in `ownerUserId` after an
+    // accepted transfer, so a predicate over the owner columns would call this
+    // ticket theirs — against a real database, not just in the stub.
+    expect(order.tickets[0].supersededByLaterTicket).toBe(true)
     expect(JSON.stringify(order)).not.toContain(minted.code)
 
     const senderWallet = await readWallet(world.holder.id)

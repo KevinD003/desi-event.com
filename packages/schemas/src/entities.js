@@ -400,6 +400,37 @@ export const eventWithRelationsSchema = eventSchema.extend({
 })
 
 /**
+ * Whether the order's buyer still holds a particular ticket on it.
+ *
+ * ## Why this is an enum and not `transferredAway: boolean`
+ *
+ * A Boolean here is not ambiguous about its *answer* — it is ambiguous about
+ * its *question*, which is worse, because the wrong question has a plausible
+ * implementation that is wrong in only four states. The tempting predicate is
+ * `ticket.ownerUserId !== order.userId`, and it is a sound test of "whose row
+ * is this" and a **useless** test of "has this ticket been handed on":
+ * `acceptTransfer` never rewrites the old row's owner, so after an accepted
+ * transfer the buyer's own row still has `ownerUserId === order.userId` while
+ * its status is `TRANSFERRED`. The same holds after a transfer back, after a
+ * revocation with an invitation outstanding, and after a revocation following
+ * an accepted transfer.
+ *
+ * Naming the values forces the question to be asked out loud.
+ *
+ * `HELD` — this row is the buyer's and they have not handed it on. It says
+ * nothing about whether it opens a door: a refunded or revoked ticket the buyer
+ * still owns is `HELD`. Admission is a different axis, and `Ticket.status` is
+ * the only thing that answers it.
+ *
+ * `TRANSFERRED_AWAY` — the buyer handed this row to somebody else and the
+ * recipient accepted. Derived from `Ticket.status`, never from the owner
+ * columns.
+ *
+ * @type {object}
+ */
+export const purchaserHoldingSchema = z.enum(['HELD', 'TRANSFERRED_AWAY'])
+
+/**
  * A ticket as it appears on the order that bought it.
  *
  * ## The distinction this draws
@@ -408,23 +439,38 @@ export const eventWithRelationsSchema = eventSchema.extend({
  * item** — same `orderItemId`, new row, new owner. So "the tickets on this
  * order" and "the tickets this buyer holds" stopped being the same set the
  * moment transfers existed, and a presenter that flattened `item.tickets`
- * handed the buyer a stranger's ticket: their code, their name, their status.
+ * handed whoever read the order a stranger's ticket: their code, their name,
+ * the name printed on it.
  *
- * What an order shows is therefore the buyer's own line — including one they
+ * What an order shows is therefore the buyer's own rows — including one they
  * have since handed on, because that is their purchase history and erasing it
- * would be its own kind of lie. `transferredAway` marks it.
+ * would be its own kind of lie.
  *
  * @type {object}
  */
 export const orderTicketSchema = ticketSchema.extend({
   /**
-   * True when the buyer no longer holds this ticket.
+   * Whether the buyer still holds this row.
    *
-   * Viewer-agnostic: it is a fact about the ticket and the order, not about
-   * who is reading. A presenter whose output depends on the reader is a
-   * presenter that leaks the first time somebody forgets to pass the reader.
+   * Viewer-agnostic: a fact about the ticket and the order, not about who is
+   * reading. A presenter whose output depends on the reader is a presenter that
+   * leaks the first time somebody forgets to pass the reader.
    */
-  transferredAway: z.boolean(),
+  purchaserHolding: purchaserHoldingSchema,
+  /**
+   * Whether a later ticket on this order replaced this one.
+   *
+   * Every accepted transfer mints a new row on the same order item, so a ticket
+   * handed out and handed back leaves **three** rows against a quantity of one:
+   * the buyer's original (`TRANSFERRED_AWAY`), the recipient's (not the
+   * buyer's, and absent from this payload), and the buyer's replacement
+   * (`HELD`). Without this flag an order for one ticket appears to list two,
+   * and a screen counting rows would say so.
+   *
+   * Computed from the rows already on the order — a later ticket whose
+   * `supersedesTicketId` names this one — so it costs no extra query.
+   */
+  supersededByLaterTicket: z.boolean(),
 })
 
 /**

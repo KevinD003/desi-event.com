@@ -89,3 +89,19 @@ describe('buildRedactOptions', () => {
     expect(Object.isFrozen(options.paths)).toBe(false)
   })
 })
+
+describe('the admission pass', () => {
+  it('is redacted by name, so a handler logging a whole ticket row cannot leak it', () => {
+    // This net exists because a handler eventually logs a row rather than a
+    // field. Every other bearer secret in the system was already named here;
+    // the ticket credential was not, and it is the one a QR code carries.
+    expect(SENSITIVE_FIELD_KEYS).toContain('credential')
+    expect(SENSITIVE_FIELD_KEYS).toContain('credentialHash')
+  })
+
+  it('is redacted one level down as well, which is the shape a scan produces', () => {
+    // `{ ticket: { credential } }`, and the check-in route takes the credential
+    // as a body field — `req.body.credential`.
+    expect(WILDCARD_KEYS).toContain('credential')
+  })
+})
