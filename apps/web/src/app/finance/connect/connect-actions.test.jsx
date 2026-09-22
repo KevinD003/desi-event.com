@@ -25,9 +25,8 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: 
 
 const { apiFetch } = await import('../../../lib/api-fetch.js')
 const { ConnectActions } = await import('./connect-actions.jsx')
-const { CONNECT_ACTION_BUTTONS, describeConnectRefusal } = await import(
-  '../../../lib/connect-vocabulary.js'
-)
+const { CONNECT_ACTION_BUTTONS, describeConnectRefusal } =
+  await import('../../../lib/connect-vocabulary.js')
 const { forbiddenLifecyclePhrasesIn } = await import('@desi-event/schemas/connect')
 
 /** The organisation these tests act in. */
@@ -146,7 +145,9 @@ describe('the confirmation', () => {
     // The specific trigger, not merely "something has focus". Restoring to the
     // wrong button is as disorienting as restoring to nothing.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: /simulate reaching the final step/iu })).toHaveFocus(),
+      expect(
+        screen.getByRole('button', { name: /simulate reaching the final step/iu }),
+      ).toHaveFocus(),
     )
   })
 })
