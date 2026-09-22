@@ -113,6 +113,37 @@ export async function createTestApp(options = {}) {
  * @throws {Error} When sign-in fails, so a broken fixture surfaces immediately.
  */
 /**
+ * Claim a guest purchase for an account, the way a real claim would.
+ *
+ * Checkout sets `ownerUserId` from `order.userId`, so the two are in step in
+ * every state the system produces. A fixture that moved only the ticket would
+ * rehearse a state that does not exist — an order with no buyer whose tickets
+ * have an owner — and the ownership rules read both columns.
+ *
+ * @param {object} prisma The stub, for its `_store`.
+ * @param {Array<{id: string}>} tickets The tickets from the checkout response.
+ * @param {string} userId Who now holds them, and bought them.
+ * @returns {void} Nothing.
+ */
+export function claim(prisma, tickets, userId) {
+  const orderIds = new Set()
+
+  for (const ticket of tickets) {
+    const row = prisma._store.ticket.find((candidate) => candidate.id === ticket.id)
+
+    row.ownerUserId = userId
+
+    const item = prisma._store.orderItem.find((candidate) => candidate.id === row.orderItemId)
+
+    if (item) orderIds.add(item.orderId)
+  }
+
+  for (const order of prisma._store.order) {
+    if (orderIds.has(order.id)) order.userId = userId
+  }
+}
+
+/**
  * A valid one-time code for an enrolled fixture account, or undefined.
  *
  * @param {object} app The test instance, carrying the enrolled set and the store.

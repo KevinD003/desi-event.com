@@ -47,6 +47,8 @@ export const AUDIT_ACTIONS = Object.freeze({
   TICKET_TRANSFER_STARTED: 'ticket.transfer_started',
   TICKET_TRANSFER_ACCEPTED: 'ticket.transfer_accepted',
   TICKET_TRANSFER_ENDED: 'ticket.transfer_ended',
+  /// A holder asked for their own admission pass. The credential is not in the row.
+  TICKET_PASS_ISSUED: 'ticket.pass_issued',
   NOTIFICATION_REQUEUED: 'notification.requeued',
   NOTIFICATION_CANCELLED: 'notification.cancelled',
   REFUND_REQUESTED: 'refund.requested',

@@ -42,7 +42,10 @@ import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { conflict, databaseErrorCode, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
-import { maskRecipient } from '../lib/presenters.js'
+import { passRateLimit } from '../plugins/rate-limit.js'
+import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
+import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
+import { WALLET_INCLUDE, maskRecipient, toWalletTicket } from '../lib/presenters.js'
 import {
   TICKET_STATES,
   TRANSFER_TTL_HOURS,
@@ -99,9 +102,10 @@ function toTicketTransfer(row) {
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.env The parsed API environment.
  * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit; supplied by tests.
  * @returns {void} Nothing.
  */
-export function registerTicketRoutes(app, { prisma, env, deliver }) {
+export function registerTicketRoutes(app, { prisma, env, deliver, passLimit }) {
   defineRoute(app, 'tickets.checkIn', {
     handler: async (request) => {
       const { credential, code, eventId, eventSessionId, checkedInAt, deviceId, gate } =
@@ -248,12 +252,18 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
           orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           skip,
           take,
+          include: WALLET_INCLUDE,
         }),
         prisma.ticket.count({ where }),
       ])
 
       return {
-        data: rows,
+        // `where` already scopes every row to this account. The presenter is
+        // told who is reading anyway, because whether an order reference is
+        // theirs to see is a question about the reader, and a presenter that
+        // infers the reader from the query that fetched the rows is one filter
+        // away from being wrong.
+        data: rows.map((row) => toWalletTicket(row, { viewerUserId: request.actor.id })),
         pagination: buildPaginationMeta({ page, perPage, total }),
       }
     },
@@ -303,6 +313,102 @@ export function registerTicketRoutes(app, { prisma, env, deliver }) {
           organizationId: event.organizationId,
           holder,
           transfers: transfers.map(toTicketTransfer),
+        },
+      }
+    },
+  })
+
+  defineRoute(app, 'tickets.pass', {
+    config: { rateLimit: passRateLimit(passLimit) },
+    handler: async (request, reply) => {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: request.params.id },
+        include: TICKET_INCLUDE,
+      })
+
+      // `assertHolds` answers 404 rather than 403 for somebody who is not the
+      // holder, which is what makes this endpoint useless as an oracle: a
+      // ticket that exists and is not yours reads exactly like one that does
+      // not exist. An organiser gets the same answer as a stranger, because
+      // `ticket:revoke` is the power to withdraw a ticket, not to be admitted
+      // on it, and a pass is the one thing on a ticket nobody but its holder
+      // has any business reading.
+      if (!ticket) throw notFound('No such ticket.')
+
+      assertHolds(request.actor, ticket)
+
+      const order = ticket.orderItem?.order ?? null
+      const refusal = admissionRefusal(ticket, order)
+
+      // Transferred away, revoked, refunded, cancelled, void, superseded, or on
+      // an unpaid order. The sentence is the door's own, from the same pure
+      // function, so a holder is never told their pass is fine by one part of
+      // the system and refused by another.
+      if (refusal) throw conflict(refusal, { status: ticket.status })
+
+      // A ticket whose digest was cleared has no pass. Accepting a transfer
+      // clears it; so does revocation. This should already be unreachable
+      // through `admissionRefusal`, and it is checked anyway, because the thing
+      // on the other side of this branch is a bearer secret.
+      if (!ticket.credentialHash) {
+        throw conflict('This ticket has no pass. Ask the organiser to reissue it.', {
+          status: ticket.status,
+        })
+      }
+
+      const credential = mintTicketCredential({
+        secret: env.AUTH_SECRET,
+        ticketId: ticket.id,
+        version: ticket.credentialVersion,
+      })
+
+      // Derived, then checked against what is stored. Without this the endpoint
+      // would hand somebody a string that looks like a pass and opens nothing —
+      // after a secret rotation, or a version that drifted from its digest —
+      // and they would find out at the door. Constant-time, because the
+      // comparison is against a digest.
+      if (!credentialMatches(credential, ticket.credentialHash)) {
+        request.log.error(
+          { ticketId: ticket.id, credentialVersion: ticket.credentialVersion },
+          'derived ticket credential does not match the stored digest',
+        )
+
+        throw conflict('This pass cannot be verified. Ask the organiser to reissue it.', {
+          status: ticket.status,
+        })
+      }
+
+      await recordAudit(prisma, {
+        action: AUDIT_ACTIONS.TICKET_PASS_ISSUED,
+        entityType: 'Ticket',
+        entityId: ticket.id,
+        actorId: request.actor.id,
+        // The version and the instant, so a holder can be shown when their pass
+        // was last taken out and an investigation can see how often. Not the
+        // credential: an audit row is read by more people than a response is,
+        // and a secret in one is a secret in every export of it.
+        metadata: {
+          requestId: request.id,
+          at: new Date().toISOString(),
+          credentialVersion: ticket.credentialVersion,
+        },
+      })
+
+      // Not by a browser, not by a proxy, not by anything in between. `private`
+      // alone would still let the browser keep it; `no-store` is what stops a
+      // pass surviving in the back button after somebody hands their phone over.
+      reply.header('cache-control', 'no-store, private')
+      reply.header('pragma', 'no-cache')
+
+      // Nothing is logged here. `request.log` records the route and the status,
+      // which is what an operator needs; the body is the one place this value
+      // is allowed to exist.
+      return {
+        data: {
+          ticketId: ticket.id,
+          credential,
+          credentialVersion: ticket.credentialVersion,
+          issuedAt: ticket.credentialIssuedAt ?? null,
         },
       }
     },

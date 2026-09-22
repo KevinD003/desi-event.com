@@ -32,7 +32,7 @@ import {
   transferTokenDigest,
 } from '../src/lib/tickets.js'
 import { credentialDigest, mintTicketCredential } from '../src/lib/ticket-credentials.js'
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
 import { TEST_AUTH_SECRET } from './helpers/fixtures.js'
 
 /** Whoever bought the tickets. */
@@ -77,9 +77,12 @@ async function withOwnedTickets() {
 
   // Claimed by the buyer's account. Checkout does not do this for a guest
   // purchase, and a ticket with no owner is deliberately untransferable.
-  for (const ticket of tickets) {
-    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
-  }
+  //
+  // The order's buyer moves with them. Checkout sets `ownerUserId` from
+  // `order.userId`, so the two columns are in step in every state this system
+  // produces; a fixture that set only one would be rehearsing a state that does
+  // not exist, and the ownership rules read both.
+  claim(prisma, tickets, ids.attendee.id)
 
   return { ...harness, tickets }
 }
@@ -344,9 +347,7 @@ describe('POST /v1/ticket-transfers/accept', () => {
 
     const tickets = response.json().data.tickets
 
-    for (const ticket of tickets) {
-      prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
-    }
+    claim(prisma, tickets, ids.attendee.id)
 
     return { ...harness, tickets, delivered }
   }
@@ -626,7 +627,7 @@ describe('a transferred-away ticket at the door', () => {
     })
     const [ticket] = order.json().data.tickets
 
-    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
+    claim(prisma, [ticket], ids.attendee.id)
 
     const oldCredential = mintTicketCredential({
       secret: TEST_AUTH_SECRET,
@@ -815,7 +816,7 @@ describe('GET /v1/tickets/:id', () => {
 
     const [ticket] = order.json().data.tickets
 
-    prisma._store.ticket.find((row) => row.id === ticket.id).ownerUserId = ids.attendee.id
+    claim(prisma, [ticket], ids.attendee.id)
 
     const token = await signIn(app, BUYER)
 

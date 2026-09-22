@@ -60,6 +60,11 @@ const RELATIONS = {
   },
   ticket: {
     orderItem: { kind: 'one', model: 'orderItem', from: 'orderItemId', to: 'id' },
+    // The wallet walks both of these: the seat, so a reserved ticket can say
+    // which one, and the outstanding invitation, so a ticket that has been
+    // offered to somebody says so without a second query per row.
+    eventSeat: { kind: 'one', model: 'eventSeat', from: 'eventSeatId', to: 'id' },
+    transfers: { kind: 'many', model: 'ticketTransfer', from: 'id', to: 'ticketId' },
   },
   // "Is this person somebody this organisation holds data about?" is asked by
   // walking a waitlist entry to its event, which is how a subject who only ever

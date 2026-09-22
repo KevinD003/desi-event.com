@@ -12,10 +12,14 @@
 import { RECONCILIATION_EVIDENCE_KEYS } from '@desi-event/schemas'
 
 import { agingBand } from './reconciliation.js'
+import { admissionRefusal } from './tickets.js'
 import { BADGED_STATES } from './verification.js'
 
 /** `TicketTypeStatus.ON_SALE`, inlined to avoid importing the database client. */
 const ON_SALE = 'ON_SALE'
+
+/** `TicketStatus.TRANSFERRED`, inlined for the same reason. */
+const TRANSFERRED = 'TRANSFERRED'
 
 /**
  * The lean event shape used by listings and cards.
@@ -200,7 +204,21 @@ export function toOrder(order) {
   const { items = [], event = null, ...rest } = order
 
   const lineItems = items.map(({ tickets: _tickets, ticketType: _ticketType, ...item }) => item)
-  const tickets = items.flatMap((item) => item.tickets ?? [])
+
+  // Only the buyer's own. Accepting a transfer mints the recipient's ticket
+  // onto this same order item — `acceptTransfer` reuses `ticket.orderItemId` —
+  // so flattening `item.tickets` handed whoever read this order a stranger's
+  // ticket: their code, their name, the name printed on it. The buyer saw it in
+  // their own order history; an organiser reading the order saw it attributed
+  // to the wrong person.
+  //
+  // The buyer's own transferred-away ticket stays. It is their purchase
+  // history, and dropping it would replace one untruth with another —
+  // `transferredAway` says what happened instead.
+  const tickets = items
+    .flatMap((item) => item.tickets ?? [])
+    .filter((ticket) => heldByTheBuyer(ticket, order))
+    .map((ticket) => toOrderTicket(ticket))
 
   return {
     ...rest,
@@ -208,6 +226,230 @@ export function toOrder(order) {
     tickets,
     event: event ? toEventSummary(event) : null,
   }
+}
+
+/**
+ * Everything {@link toWalletTicket} needs in order to be worth showing.
+ *
+ * Four relations deep, because that is how far a ticket is from the event it
+ * admits to: ticket → order item → order → event → venue. The tier hangs off
+ * the order line and the seat off the ticket. None of this is a new column and
+ * none of it needs a migration; it was all reachable and simply never read.
+ *
+ * `transfers` is narrowed to the outstanding invitation. Fetching the whole
+ * history for a list would be a query per row for information a list cannot
+ * show, and the masked recipient of a *resolved* transfer is not something a
+ * list needs to carry.
+ *
+ * It lives here rather than in the route because it is half of the presenter's
+ * contract: `toWalletTicket` reads exactly these relations, and a join declared
+ * somewhere else drifts from the projection that depends on it. The tests read
+ * this constant too, so what they exercise is the join the route actually makes.
+ *
+ * @type {object}
+ */
+export const WALLET_INCLUDE = Object.freeze({
+  orderItem: {
+    include: {
+      ticketType: { select: { id: true, name: true } },
+      order: {
+        select: {
+          userId: true,
+          reference: true,
+          status: true,
+          event: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              startsAt: true,
+              endsAt: true,
+              timezone: true,
+              status: true,
+              cancelledAt: true,
+              isOnline: true,
+              venue: {
+                select: { name: true, city: true, region: true, country: true },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  eventSeat: {
+    select: {
+      seat: {
+        select: {
+          label: true,
+          accessible: true,
+          section: { select: { name: true } },
+          row: { select: { label: true } },
+        },
+      },
+    },
+  },
+  transfers: {
+    where: { status: 'PENDING' },
+    orderBy: { createdAt: 'desc' },
+    take: 1,
+    select: { id: true, status: true, toEmail: true, expiresAt: true },
+  },
+})
+
+/**
+ * One row of somebody's ticket wallet.
+ *
+ * ## Why a ticket row is not enough
+ *
+ * A `Ticket` knows its code, its status and the order line it came from. It
+ * does not know which event it admits to, when, where, or at what tier — all of
+ * that is two or three relations away. `GET /tickets` returned bare rows, so
+ * the wallet screen could say "VALID — ABC-123" and nothing a person could act
+ * on. This presenter is the join, projected.
+ *
+ * ## Holder relationship, and why the order reference is conditional
+ *
+ * Accepting a transfer mints the recipient's ticket onto the *buyer's* order
+ * item. The recipient therefore reaches a `Order` they never placed. So the
+ * reference is returned only when this account is that buyer; for a received
+ * ticket it is null, because nothing about somebody else's order is the
+ * recipient's to see.
+ *
+ * ## What is not here
+ *
+ * The admission credential, its digest, its version and its issue time. The
+ * buyer's email. Payment identifiers. Anybody else's ticket on the same order.
+ * The transfer token. `walletTicketSchema` declares none of them, so Zod would
+ * strip them even if this function were wrong — but this function is not wrong
+ * on purpose rather than by accident.
+ *
+ * @param {object} ticket A `Ticket` row with `orderItem.order.event.venue`, `orderItem.ticketType`, `eventSeat.seat` and any pending `transfers`.
+ * @param {object} options Options.
+ * @param {string} options.viewerUserId The signed-in account the wallet belongs to.
+ * @returns {object} A payload satisfying `walletTicketSchema`.
+ */
+export function toWalletTicket(ticket, { viewerUserId }) {
+  const {
+    credentialHash: _credentialHash,
+    credentialVersion: _credentialVersion,
+    credentialIssuedAt: _credentialIssuedAt,
+    ownerUserId: _ownerUserId,
+    supersedesTicketId: _supersedesTicketId,
+    orderItem = null,
+    eventSeat = null,
+    transfers = [],
+    ...rest
+  } = ticket
+
+  const order = orderItem?.order ?? null
+  const event = order?.event ?? null
+  const venue = event?.venue ?? null
+  // The same comparison the order presenter makes, from the other side. The
+  // wallet query already scoped every row to this account, so "the buyer is
+  // this account" and "the holder bought it" are one question here.
+  const purchased = Boolean(order?.userId) && order.userId === viewerUserId
+
+  // The same function the door uses, so a wallet saying "ready to use" and a
+  // scanner saying "refunded" cannot both be running.
+  const refusal = admissionRefusal(ticket, order)
+
+  // Only one, and only an outstanding one. The token is not in the row and
+  // never was — the database holds its digest.
+  const pending = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
+
+  return {
+    ...rest,
+    holderRelationship: purchased ? 'PURCHASED' : 'RECEIVED',
+    admits: refusal === null,
+    admissionRefusal: refusal,
+    orderReference: purchased ? order.reference : null,
+    event: {
+      id: event.id,
+      slug: event.slug,
+      title: event.title,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      timezone: event.timezone,
+      status: event.status,
+      cancelledAt: event.cancelledAt ?? null,
+    },
+    venue: venue
+      ? {
+          name: venue.name,
+          city: venue.city,
+          region: venue.region,
+          country: venue.country,
+        }
+      : null,
+    isOnline: Boolean(event.isOnline),
+    tier: orderItem?.ticketType
+      ? { id: orderItem.ticketType.id, name: orderItem.ticketType.name }
+      : null,
+    seat: eventSeat?.seat
+      ? {
+          section: eventSeat.seat.section?.name ?? 'Unnamed section',
+          row: eventSeat.seat.row?.label ?? null,
+          label: eventSeat.seat.label,
+          accessible: Boolean(eventSeat.seat.accessible),
+        }
+      : null,
+    pendingTransfer: pending
+      ? {
+          id: pending.id,
+          toEmailMasked: maskRecipient(pending.toEmail),
+          expiresAt: pending.expiresAt,
+        }
+      : null,
+    revokedAt: ticket.revokedAt ?? null,
+    revokedReason: ticket.revokedReason ?? null,
+  }
+}
+
+/**
+ * Whether a ticket on an order item is held by the person who bought the order.
+ *
+ * One comparison, exported to everything that needs it, because the order
+ * presenter and the wallet presenter ask the same question from opposite sides
+ * and two spellings of it would eventually disagree.
+ *
+ * A looser form — "both owners are known and they differ" — was tried first and
+ * is wrong. It treats an order with no buyer account as matching anybody, so a
+ * ticket transferred to somebody else stays visible on a guest order. That is
+ * the leak, still open, in the one case nobody would think to test.
+ *
+ * Checkout keeps the two columns in step: `ownerUserId: order.userId ?? null`.
+ * Anything that later gives an unclaimed guest purchase an owner has to set the
+ * order's buyer too, or the order genuinely has no buyer for the ticket to
+ * belong to.
+ *
+ * @param {object} ticket A `Ticket` row.
+ * @param {object|null} order The `Order` the item belongs to.
+ * @returns {boolean} True when the ticket is the buyer's own.
+ */
+export function heldByTheBuyer(ticket, order) {
+  return (ticket.ownerUserId ?? null) === (order?.userId ?? null)
+}
+
+/**
+ * One of the buyer's tickets, as it appears on their order.
+ *
+ * @param {object} ticket A `Ticket` row belonging to the order's buyer.
+ * @returns {object} A payload satisfying `orderTicketSchema`.
+ */
+function toOrderTicket(ticket) {
+  const {
+    // Never outbound. The response schema would strip them anyway; naming them
+    // here means a reader of this function can see that it was deliberate
+    // rather than lucky.
+    credentialHash: _credentialHash,
+    credentialVersion: _credentialVersion,
+    credentialIssuedAt: _credentialIssuedAt,
+    ownerUserId: _ownerUserId,
+    ...rest
+  } = ticket
+
+  return { ...rest, transferredAway: ticket.status === TRANSFERRED }
 }
 
 /**

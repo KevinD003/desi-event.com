@@ -219,7 +219,7 @@ rather than per cluster.
 
 ## Endpoints
 
-**131 operations across 19 tags.** This page describes the ones whose behaviour
+**132 operations across 19 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -229,7 +229,7 @@ validates with, and CI fails on a difference.
 | ------------ | --- | -------------- | --- |
 | `events`     | 23  | `finance`      | 12  |
 | `auth`       | 18  | `privacy`      | 10  |
-| `venues`     | 12  | `tickets`      | 8   |
+| `venues`     | 12  | `tickets`      | 9   |
 | `operations` | 12  | `refunds`      | 7   |
 | `teams`      | 6   | `ticket-types` | 5   |
 | `organizers` | 4   | `holds`        | 3   |
@@ -248,6 +248,13 @@ validates with, and CI fails on a difference.
 > The last row carries one tag and two empty cells rather than being balanced
 > by moving something, because nineteen does not divide into two columns and a
 > reordering to make it look tidy would break the descending-count reading.
+
+> **Correction — 2026-09-22 (second).** The total read "131 operations" and
+> `tickets` read 8. `GET /v1/tickets/:id/pass` was added in Phase 4, so the
+> total is 132 across **118** paths and `tickets` is 9. The columns now sum to
+> 133 against a stated 132, for the `sessions.hold` reason the note below
+> gives. Counted from `apps/api/openapi.json` and cross-checked against
+> `apiRoutes.length`.
 
 > **Correction — 2026-09-22.** The total read "129 operations" and `finance`
 > read 10. Both were stale from the moment `connect.status` and `connect.start`
@@ -441,6 +448,7 @@ placed under.
 | POST   | `/v1/tickets/check-in`             | bearer | Scan a ticket at the door. Requires `ticket:check_in`                                     |
 | GET    | `/v1/tickets`                      | bearer | The caller's own tickets                                                                  |
 | GET    | `/v1/tickets/:id`                  | bearer | One ticket, its event, and every transfer it has been through                             |
+| GET    | `/v1/tickets/:id/pass`             | bearer | The holder's own admission credential. Holder only, never cached, rate-limited            |
 | POST   | `/v1/tickets/:id/transfers`        | bearer | Offer a ticket to an email address                                                        |
 | POST   | `/v1/ticket-transfers/accept`      | bearer | Accept an offer, by its one-time token                                                    |
 | POST   | `/v1/ticket-transfers/decline`     | bearer | Decline an offer                                                                          |

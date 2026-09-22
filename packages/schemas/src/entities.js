@@ -399,10 +399,43 @@ export const eventWithRelationsSchema = eventSchema.extend({
   revision: z.int().min(0).default(0),
 })
 
-/** An order with its line items and, once paid, its issued tickets. */
+/**
+ * A ticket as it appears on the order that bought it.
+ *
+ * ## The distinction this draws
+ *
+ * Accepting a transfer mints the recipient's ticket onto the **buyer's order
+ * item** — same `orderItemId`, new row, new owner. So "the tickets on this
+ * order" and "the tickets this buyer holds" stopped being the same set the
+ * moment transfers existed, and a presenter that flattened `item.tickets`
+ * handed the buyer a stranger's ticket: their code, their name, their status.
+ *
+ * What an order shows is therefore the buyer's own line — including one they
+ * have since handed on, because that is their purchase history and erasing it
+ * would be its own kind of lie. `transferredAway` marks it.
+ *
+ * @type {object}
+ */
+export const orderTicketSchema = ticketSchema.extend({
+  /**
+   * True when the buyer no longer holds this ticket.
+   *
+   * Viewer-agnostic: it is a fact about the ticket and the order, not about
+   * who is reading. A presenter whose output depends on the reader is a
+   * presenter that leaks the first time somebody forgets to pass the reader.
+   */
+  transferredAway: z.boolean(),
+})
+
+/**
+ * An order with its line items and, once paid, the buyer's own tickets.
+ *
+ * `tickets` is the buyer's, not the order item's — see {@link orderTicketSchema}
+ * for why those stopped being the same set.
+ */
 export const orderWithItemsSchema = orderSchema.extend({
   items: z.array(orderItemSchema).default([]),
-  tickets: z.array(ticketSchema).optional(),
+  tickets: z.array(orderTicketSchema).optional(),
   event: eventSummarySchema.nullish(),
 })
 

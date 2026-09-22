@@ -251,10 +251,152 @@ export const acceptedTicketResponseSchema = z.object({
   }),
 })
 
+/**
+ * How the caller came to hold a ticket.
+ *
+ * Two facts that the ticket row alone cannot distinguish, because a transfer
+ * mints the recipient's ticket onto the *buyer's* order item. Without this, a
+ * received ticket and a bought one are indistinguishable in a wallet, and the
+ * order reference attached to a received ticket belongs to somebody else.
+ *
+ * `PURCHASED` — this account's order bought it.
+ * `RECEIVED` — somebody handed it over; the order behind it is not this
+ * account's, and nothing about that order is in the payload.
+ *
+ * @type {object}
+ */
+export const holderRelationshipSchema = z.enum(['PURCHASED', 'RECEIVED'])
+
+/**
+ * A row in somebody's ticket wallet.
+ *
+ * ## Why this exists rather than `ticketSchema`
+ *
+ * `ticketSchema` is the ticket's own columns: id, code, attendee name, status,
+ * check-in time. A wallet built from that can say "VALID — ABC-123" and nothing
+ * else — not which event, not when, not where, not which tier, not which seat.
+ * `GET /tickets` returned exactly that, and the wallet screen showed exactly
+ * that, which is why this schema exists.
+ *
+ * ## What is deliberately absent
+ *
+ * The admission credential and its digest: a list endpoint that carried a
+ * bearer secret would put one in every cache between the server and the phone,
+ * and `ticketSchema` does not declare `credentialHash`, so Zod strips it before
+ * anything can leak it. The buyer's email, payment provider identifiers,
+ * internal notes, audit metadata, guest tokens, and any other attendee on the
+ * same order are all absent for the same reason: none of them is needed to show
+ * somebody the ticket they hold.
+ *
+ * `orderReference` is present only for a ticket this account bought. For a
+ * received one it is null, because the order it descends from belongs to
+ * whoever handed the ticket over.
+ *
+ * @type {object}
+ */
+export const walletTicketSchema = ticketSchema.extend({
+  /** Bought by this account, or handed to it. */
+  holderRelationship: holderRelationshipSchema,
+  /** Whether this ticket would open a door right now. */
+  admits: z.boolean(),
+  /**
+   * Why it would not, in a sentence, or null when it would.
+   *
+   * The same sentence the door would give, from the same pure function, so a
+   * wallet and a scanner cannot disagree about what a ticket is.
+   */
+  admissionRefusal: z.string().nullable(),
+  /** The buyer's order, for a ticket this account bought. Null otherwise. */
+  orderReference: orderReferenceSchema.nullable(),
+  event: z.object({
+    id: cuidSchema,
+    slug: z.string(),
+    title: z.string(),
+    startsAt: timestampSchema,
+    endsAt: timestampSchema,
+    timezone: z.string(),
+    status: z.string(),
+    /** Set when the organiser cancelled it, so a wallet can say why. */
+    cancelledAt: timestampSchema.nullable(),
+  }),
+  /** Where it is. Null for an online event, or a venue not yet chosen. */
+  venue: z
+    .object({
+      name: z.string(),
+      city: z.string(),
+      region: z.string(),
+      country: z.string(),
+    })
+    .nullable(),
+  /** Whether it happens online rather than at the venue. */
+  isOnline: z.boolean(),
+  /** The tier bought, from the order line. */
+  tier: z.object({ id: cuidSchema, name: z.string() }).nullable(),
+  /** The reserved seat, for reserved seating. Null for general admission. */
+  seat: z
+    .object({
+      section: z.string(),
+      row: z.string().nullable(),
+      label: z.string(),
+      accessible: z.boolean(),
+    })
+    .nullable(),
+  /**
+   * The invitation standing against this ticket, if one is.
+   *
+   * Only an outstanding one, and never its token — the token went to the
+   * recipient once and the database holds only its digest.
+   */
+  pendingTransfer: z
+    .object({
+      id: cuidSchema,
+      toEmailMasked: z.string(),
+      expiresAt: timestampSchema,
+    })
+    .nullable(),
+  /** When the organiser withdrew it, and why they said they did. */
+  revokedAt: timestampSchema.nullable(),
+  revokedReason: z.string().nullable(),
+})
+
 /** `GET /tickets`. */
 export const myTicketListResponseSchema = z.object({
-  data: z.array(ticketSchema),
+  data: z.array(walletTicketSchema),
   pagination: paginationMetaSchema,
+})
+
+/**
+ * `GET /tickets/:id/pass` — the holder's admission credential.
+ *
+ * ## The one route that returns a bearer secret on demand
+ *
+ * Everywhere else a credential appears exactly once, at the moment it is
+ * derived. That made a ticket unshowable on a second device, which is a real
+ * problem for a real attendee: close the tab, lose the ticket.
+ *
+ * This is safe to repeat only because of how the credential is built. It is
+ * `HMAC(HKDF(AUTH_SECRET, "ticket-pass-v1"), ticketId:version)` — derived, not
+ * generated, so the server can recompute it without having stored it, and the
+ * database still holds nothing but a SHA-256. Bumping `credentialVersion`
+ * changes the credential and therefore the digest, which is why a transfer
+ * kills the former holder's pass rather than merely marking it stale.
+ *
+ * The response carries no event, no attendee and no order. A pass is a secret,
+ * and a payload that mixed a secret with the things a screen wants to show is a
+ * payload something eventually caches.
+ *
+ * @type {object}
+ */
+export const ticketPassResponseSchema = z.object({
+  data: z.object({
+    ticketId: cuidSchema,
+    /** The bearer credential. 43 base64url characters, 256 bits. */
+    credential: z.string().min(1),
+    /** Bumped on every rotation, so a stale pass is provably stale. */
+    credentialVersion: z.int().min(1),
+    /** When this version was first issued. */
+    issuedAt: timestampSchema.nullable(),
+  }),
 })
 
 /** `POST /tickets/:id/revoke`. */

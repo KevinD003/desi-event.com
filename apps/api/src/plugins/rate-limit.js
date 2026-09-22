@@ -18,6 +18,28 @@ export const DEFAULT_GLOBAL_LIMIT = Object.freeze({ max: 300, timeWindow: '1 min
 export const DEFAULT_AUTH_LIMIT = Object.freeze({ max: 10, timeWindow: '1 minute' })
 
 /**
+ * Admission-pass budget.
+ *
+ * What is being rationed here is neither bandwidth nor password guesses: it is
+ * how fast somebody who has taken over a session can harvest passes. A holder
+ * opening their own ticket does it a handful of times before a door; thirty a
+ * minute is far above that and far below useful for a scraper.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_PASS_LIMIT = Object.freeze({ max: 30, timeWindow: '1 minute' })
+
+/**
+ * Build the per-route `config.rateLimit` object for admission-pass retrieval.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
+ * @returns {{max: number, timeWindow: string|number}} The effective pass limit.
+ */
+export function passRateLimit(overrides = {}) {
+  return { ...DEFAULT_PASS_LIMIT, ...overrides }
+}
+
+/**
  * Build the per-route `config.rateLimit` object for the auth endpoints.
  *
  * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
