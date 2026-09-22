@@ -116,6 +116,12 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // remove, which is exactly the difference the catalogue comparison below
   // reported.
   '20260921090000_payout_currency_trigger_repair',
+  // The Phase 4 admission work: renames a `CheckInMethod` label in place, makes
+  // `ScannerScope.eventId` a real foreign key, and adds a trigger refusing a
+  // scope that names another organisation's event. It deletes scope rows that
+  // name no event or a foreign one before adding either, and applying it over a
+  // populated database is exactly the claim this group exists to check.
+  '20260922200000_admission_scope_and_method',
 ])
 
 /**

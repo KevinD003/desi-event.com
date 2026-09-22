@@ -75,7 +75,7 @@ describe('the preview reference', () => {
   it('is refused under another deployment’s secret', () => {
     expect(
       readPreviewReference({
-        secret: 'a-different-secret-that-is-long-enough',
+        secret: 'test-only-a-different-deployment-secret-32',
         reference: reference(),
         now: NOW,
       }),

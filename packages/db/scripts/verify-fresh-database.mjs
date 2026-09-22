@@ -964,6 +964,12 @@ async function main() {
         'tests/privacy-redaction-integration.test.js',
         'tests/privacy-lifecycle-integration.test.js',
         'tests/payout-currency-trigger.test.js',
+        // The door, the operator's outbox actions, and the seat-transfer block:
+        // each depends on a lock, a trigger or a constraint only a real, freshly
+        // migrated database has.
+        'tests/admission-integration.test.js',
+        'tests/notification-lease-integration.test.js',
+        'tests/seat-transfer-block-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),
