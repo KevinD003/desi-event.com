@@ -21,6 +21,8 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import { CONNECT_AUDIT_ACTIONS } from '@desi-event/schemas'
+
 import { AUDIT_ACTIONS, recordAudit } from '../src/lib/audit.js'
 import { createPrismaStub, cuid } from './helpers/prisma-stub.js'
 
@@ -124,7 +126,13 @@ describe('AUDIT_ACTIONS', () => {
     for (const file of sourceFiles(SOURCE_ROOT)) {
       const source = readFileSync(file, 'utf8')
 
-      for (const match of source.matchAll(/AUDIT_ACTIONS\.([A-Z][A-Z0-9_]*)/g)) {
+      // The lookbehind matters. Without it the pattern also matches the tail of
+      // `CONNECT_AUDIT_ACTIONS.MOCK_STATE_ADVANCED`, and it then demands
+      // `AUDIT_ACTIONS.MOCK_STATE_ADVANCED` — a name that was never meant to
+      // exist. That is a scanner reporting a defect it invented, which costs
+      // exactly as much attention as a real one. The companion test below
+      // covers the other map by name rather than by accident.
+      for (const match of source.matchAll(/(?<![A-Z0-9_])AUDIT_ACTIONS\.([A-Z][A-Z0-9_]*)/g)) {
         used.add(match[1])
       }
     }
@@ -135,6 +143,46 @@ describe('AUDIT_ACTIONS', () => {
 
     expect(missing, `referenced but not defined: ${missing.join(', ')}`).toEqual([])
     expect(used.size).toBeGreaterThan(20)
+  })
+
+  it('resolves every CONNECT_AUDIT_ACTIONS constant the API writes', () => {
+    // The same check for the shared connect vocabulary, which `audit.js` reads
+    // to build its own `CONNECT_MOCK_*` entries. Sharpening the pattern above
+    // would otherwise have left this map scanned by nothing.
+    const used = new Set()
+
+    for (const file of sourceFiles(SOURCE_ROOT)) {
+      const source = readFileSync(file, 'utf8')
+
+      for (const match of source.matchAll(/CONNECT_AUDIT_ACTIONS\.([A-Z][A-Z0-9_]*)/g)) {
+        used.add(match[1])
+      }
+    }
+
+    const missing = [...used]
+      .filter((name) => typeof CONNECT_AUDIT_ACTIONS[name] !== 'string')
+      .sort()
+
+    expect(missing, `referenced but not defined: ${missing.join(', ')}`).toEqual([])
+    expect(used.size).toBeGreaterThan(0)
+  })
+
+  it('carries the simulated connected-account vocabulary, sourced from the shared module', () => {
+    // Two maps, one set of strings. A literal spelled again in audit.js would
+    // be a second thing to keep in step, and the first symptom of it drifting
+    // would be an audit query that quietly matches nothing.
+    expect(AUDIT_ACTIONS.CONNECT_MOCK_ACCOUNT_CREATED).toBe(
+      CONNECT_AUDIT_ACTIONS.MOCK_ACCOUNT_CREATED,
+    )
+    expect(AUDIT_ACTIONS.CONNECT_MOCK_STATE_ADVANCED).toBe(
+      CONNECT_AUDIT_ACTIONS.MOCK_STATE_ADVANCED,
+    )
+    expect(AUDIT_ACTIONS.CONNECT_MOCK_ACTION_REFUSED).toBe(
+      CONNECT_AUDIT_ACTIONS.MOCK_ACTION_REFUSED,
+    )
+    expect(AUDIT_ACTIONS.CONNECT_MOCK_START_REPLAYED).toBe(
+      CONNECT_AUDIT_ACTIONS.MOCK_START_REPLAYED,
+    )
   })
 
   it('spells every action as a dotted subject and verb phrase', () => {

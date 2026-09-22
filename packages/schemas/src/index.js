@@ -28,6 +28,7 @@ export * from './payments-wire.js'
 export * from './responses.js'
 export * from './privacy.js'
 export * from './retention.js'
+export * from './connect.js'
 
 // `env.js` and `jobs.js` are deliberately NOT re-exported here — finding NF-16.
 //

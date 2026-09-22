@@ -149,20 +149,35 @@ export function canTransition(table, from, to) {
  * @param {string} params.to The new state.
  * @param {object} [params.data] Extra columns.
  * @param {string} [params.label] What to call it in a refusal message.
+ * @param {string} [params.column] Which column holds the state; defaults to `status`.
  * @returns {Promise<boolean>} Whether this call performed the transition.
  * @throws {Error} 409 when the transition is not in the table.
  */
-export async function transition(tx, { delegate, table, row, to, data = {}, label = 'row' }) {
-  if (!canTransition(table, row.status, to)) {
+export async function transition(
+  tx,
+  { delegate, table, row, to, data = {}, label = 'row', column = 'status' },
+) {
+  // `column` exists so the mock connected-account lifecycle can use this same
+  // compare-and-set rather than grow a second copy of it: its state lives in
+  // `onboardingStatus`. Everything else about the function is unchanged, and the
+  // default keeps every existing caller — six here, four in tickets.js, two in
+  // reconciliation.js — passing exactly what it passed before.
+  const from = row[column]
+
+  if (!canTransition(table, from, to)) {
     throw conflict(
-      `A ${row.status.toLowerCase().replace(/_/g, ' ')} ${label} cannot become ${to.toLowerCase().replace(/_/g, ' ')}.`,
-      { from: row.status, to },
+      `A ${String(from).toLowerCase().replace(/_/g, ' ')} ${label} cannot become ${to.toLowerCase().replace(/_/g, ' ')}.`,
+      { from, to },
     )
   }
 
+  // The `where` names the state it was read against, which is what makes this a
+  // compare-and-set. Two concurrent callers both pass the table check; only the
+  // one whose read is still true updates a row, and `count === 1` is how the
+  // caller learns which it was.
   const { count } = await delegate.updateMany({
-    where: { id: row.id, status: row.status },
-    data: { status: to, ...data },
+    where: { id: row.id, [column]: from },
+    data: { [column]: to, ...data },
   })
 
   return count === 1

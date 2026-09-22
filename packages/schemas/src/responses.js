@@ -18,7 +18,7 @@ import {
   orderReferenceSchema,
   timestampSchema,
 } from './primitives.js'
-import { eventCategorySchema, logLevelSchema } from './enums.js'
+import { connectOnboardingStatusSchema, eventCategorySchema, logLevelSchema } from './enums.js'
 import { PAYMENT_MODES } from './payments.js'
 import {
   eventSummarySchema,
@@ -784,4 +784,46 @@ export const refundableResponseSchema = z.object({
     ),
     refunds: z.array(refundSchema),
   }),
+})
+
+/**
+ * The simulated connected-account status.
+ *
+ * Written out by hand, and the absences are the specification rather than an
+ * oversight. The declared response schema is the only allow list on this
+ * payload — Fastify serialises against it, so a field not named here cannot
+ * leave — and what is deliberately unnamed is: `providerAccountId`, because a
+ * provider-shaped identifier in a payload is one in a log and it names nothing
+ * anyway; `provider` and `providerMode`, which describe how this deployment is
+ * wired rather than anything an organiser can act on; `defaultCurrency`, which a
+ * simulated row leaves null on purpose; `country` and `disabledReason`, both of
+ * which would have to be fabricated.
+ *
+ * The two capability flags carry `simulated` in their names. They correspond to
+ * real columns, but a payload field called `payoutsEnabled` is one copy-and-paste
+ * away from a screen reading "Payouts enabled", which is a claim about a real
+ * provider that nothing here is entitled to make.
+ *
+ * `requirementsDue` is a count and never a list: a list of outstanding
+ * requirements is a list of things a real provider would want to know about a
+ * real person.
+ */
+export const connectStatusSchema = z.object({
+  /** Always true, set by the server. There is no branch that omits it. */
+  simulated: z.literal(true),
+  state: connectOnboardingStatusSchema,
+  /** What this state does *not* mean, from the shared vocabulary. */
+  stateDescription: z.string(),
+  terminal: z.boolean(),
+  accountExists: z.boolean(),
+  simulatedChargesEnabled: z.boolean(),
+  simulatedPayoutsEnabled: z.boolean(),
+  detailsSubmitted: z.boolean(),
+  requirementsDueCount: z.number().int().min(0),
+  updatedAt: z.date().nullable(),
+})
+
+/** `GET /organizations/:id/connect`, and the action that returns one status. */
+export const connectStatusResponseSchema = z.object({
+  data: connectStatusSchema,
 })

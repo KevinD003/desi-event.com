@@ -784,6 +784,22 @@ export const apiRouteManifest = Object.freeze([
     query: true,
   },
   {
+    id: 'connect.status',
+    method: 'GET',
+    path: '/v1/organizations/:id/connect',
+    auth: 'session',
+    body: false,
+    query: false,
+  },
+  {
+    id: 'connect.start',
+    method: 'POST',
+    path: '/v1/organizations/:id/connect/start',
+    auth: 'session',
+    body: true,
+    query: false,
+  },
+  {
     id: 'moderation.queue',
     method: 'GET',
     path: '/v1/moderation/events',

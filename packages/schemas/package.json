@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Zod runtime schemas \u2014 the single source of truth for validation across API, web and worker.",
+  "description": "Zod runtime schemas — the single source of truth for validation across API, web and worker.",
   "main": "./src/index.js",
   "exports": {
     ".": "./src/index.js",
@@ -11,6 +11,7 @@
     "./jobs": "./src/jobs.js",
     "./lifecycle": "./src/lifecycle.js",
     "./payments": "./src/payments.js",
+    "./connect": "./src/connect.js",
     "./package.json": "./package.json"
   },
   "files": [

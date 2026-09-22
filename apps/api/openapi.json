@@ -34181,6 +34181,342 @@
         ]
       }
     },
+    "/v1/organizations/{id}/connect": {
+      "get": {
+        "operationId": "connect.status",
+        "summary": "The simulated payout-setup state for one organisation",
+        "description": "Where this organisation has reached in a **simulated** payout-setup sequence that exists entirely inside this deployment. No payment provider is contacted by this route or by the one that advances the state, no provider account exists, and nothing here has been verified by anybody. `simulated` is server-set and constant, and `stateDescription` carries the sentence saying what the state does not mean, because the state names are borrowed words a reader arrives at with the wrong expectations. The two capability flags are named `simulatedChargesEnabled` and `simulatedPayoutsEnabled` and are derived from the state rather than stored independently — a simulation that could claim a capability in a state that does not mean it is the thing this surface exists to prevent. Deliberately absent from the payload: the provider account identifier, the provider name and mode, the default currency, the country and any disabled reason. `requirementsDue` is reduced to a count, because a list of outstanding requirements is a list of things a real provider would want about a real person. An organisation with no row reads as `NOT_STARTED` rather than 404, because “nothing has been simulated yet” is the answer. Requires `connect:manage` on the organisation in the path and a second factor confirmed within the `FINANCE_VIEW` window, which is the tier every other finance read uses.\n\nRequires the `connect:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "finance"
+        ],
+        "responses": {
+          "200": {
+            "description": "The simulated payout-setup state for one organisation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "simulated": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "NOT_STARTED",
+                            "IN_PROGRESS",
+                            "REQUIREMENTS_DUE",
+                            "COMPLETE",
+                            "DISABLED"
+                          ]
+                        },
+                        "stateDescription": {
+                          "type": "string"
+                        },
+                        "terminal": {
+                          "type": "boolean"
+                        },
+                        "accountExists": {
+                          "type": "boolean"
+                        },
+                        "simulatedChargesEnabled": {
+                          "type": "boolean"
+                        },
+                        "simulatedPayoutsEnabled": {
+                          "type": "boolean"
+                        },
+                        "detailsSubmitted": {
+                          "type": "boolean"
+                        },
+                        "requirementsDueCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {},
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "simulated",
+                        "state",
+                        "stateDescription",
+                        "terminal",
+                        "accountExists",
+                        "simulatedChargesEnabled",
+                        "simulatedPayoutsEnabled",
+                        "detailsSubmitted",
+                        "requirementsDueCount",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/organizations/{id}/connect/start": {
+      "post": {
+        "operationId": "connect.start",
+        "summary": "Advance the simulated payout-setup state",
+        "description": "Moves the **simulated** payout-setup state one step. This creates no Stripe account and no account of any kind at a payment provider, produces no onboarding link, login link or redirect, contacts no provider, and enables no payments, transfers or payouts. Nothing it writes can be used to move money: the row it creates carries `providerMode` “mock”, a `mockacct_` identifier that is not a provider identifier, and a null currency, and nothing on the payout path reads the capability flags. The body carries one field, `action`, from a closed vocabulary — there is no `state`, so a caller cannot name a destination; the server reads the row, looks the pair up in a fixed table, and refuses anything absent from it with a closed reason code. `START` is create-only and idempotent: a replay against an existing row returns it unchanged rather than walking a later state backwards. Every other action is a compare-and-set against the state it was read in, so two concurrent actions cannot compose into a path the table does not contain. The disabled state is terminal here, because re-onboarding is a real-provider concern with real-provider rules and inventing a simulated path for it would be inventing the rules. Refused outright unless this deployment is running the in-memory mock. Requires `connect:manage` on the organisation in the path and a fresh `PAYOUT` step-up, the policy that already covers a change to a connected account’s payout destination.\n\nRequires the `connect:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "finance"
+        ],
+        "responses": {
+          "200": {
+            "description": "Advance the simulated payout-setup state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "simulated": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "NOT_STARTED",
+                            "IN_PROGRESS",
+                            "REQUIREMENTS_DUE",
+                            "COMPLETE",
+                            "DISABLED"
+                          ]
+                        },
+                        "stateDescription": {
+                          "type": "string"
+                        },
+                        "terminal": {
+                          "type": "boolean"
+                        },
+                        "accountExists": {
+                          "type": "boolean"
+                        },
+                        "simulatedChargesEnabled": {
+                          "type": "boolean"
+                        },
+                        "simulatedPayoutsEnabled": {
+                          "type": "boolean"
+                        },
+                        "detailsSubmitted": {
+                          "type": "boolean"
+                        },
+                        "requirementsDueCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "updatedAt": {
+                          "anyOf": [
+                            {},
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "simulated",
+                        "state",
+                        "stateDescription",
+                        "terminal",
+                        "accountExists",
+                        "simulatedChargesEnabled",
+                        "simulatedPayoutsEnabled",
+                        "detailsSubmitted",
+                        "requirementsDueCount",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "START",
+                      "SIMULATE_REQUIREMENTS",
+                      "SIMULATE_READY",
+                      "SIMULATE_DISABLE"
+                    ]
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/moderation/events": {
       "get": {
         "operationId": "moderation.queue",

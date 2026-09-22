@@ -42,6 +42,7 @@ import {
   refundStatusSchema,
   ticketTypeStatusSchema,
 } from './enums.js'
+import { connectActionSchema } from './connect.js'
 import { eventPoliciesSchema } from './entities.js'
 import { venueAccessibilitySchema } from './venues.js'
 
@@ -1018,3 +1019,18 @@ export const eventSessionParamSchema = z.object({ id: cuidSchema, sessionId: cui
 
 /** Path parameters for a route addressing one ticket type of one event. */
 export const eventTierParamSchema = z.object({ id: cuidSchema, tierId: cuidSchema })
+
+/**
+ * Advancing the simulated connected-account setup.
+ *
+ * One field, and that is the whole shape. There is no `state`, so a caller
+ * cannot name a destination; no `organizationId`, because the organisation is
+ * the path segment the capability guard reads and a second copy in the body is
+ * how a guard on one and a writer on the other becomes a cross-tenant write; no
+ * `reason`, because free text from a browser has no business in an audit row;
+ * and no `idempotencyKey`, because `START` is idempotent by being create-only
+ * and the other actions are compare-and-set.
+ */
+export const connectActionRequestSchema = z.object({
+  action: connectActionSchema,
+})
