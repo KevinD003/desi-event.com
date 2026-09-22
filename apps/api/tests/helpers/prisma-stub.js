@@ -743,6 +743,9 @@ function matchesCondition(value, condition) {
       case 'startsWith':
         if (typeof value !== 'string' || !fold(value).startsWith(fold(operand))) return false
         break
+      case 'endsWith':
+        if (typeof value !== 'string' || !fold(value).endsWith(fold(operand))) return false
+        break
       case 'gt':
         if (!(toComparable(value) > toComparable(operand))) return false
         break

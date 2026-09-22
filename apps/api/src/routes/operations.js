@@ -24,11 +24,10 @@
  * @module @desi-event/api/routes/operations
  */
 
-import { OUTBOX_STATES, canTransition, leaseHasLapsed } from '@desi-event/notifications'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
-import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
-import { conflict, notFound } from '../lib/errors.js'
+import { notFound } from '../lib/errors.js'
+import { cancelNotification, retryNotification } from '../lib/notification-operations.js'
 import { toOperatorNotification } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 
@@ -85,61 +84,16 @@ export function registerOperationsRoutes(app, { prisma }) {
     },
   })
 
+  // The rules — which states each operation may start from, and why the
+  // conditions live in the UPDATE rather than in a check before it — are in
+  // ../lib/notification-operations.js.
   defineRoute(app, 'notifications.retry', {
     handler: async (request) => {
-      const now = new Date()
-
-      const updated = await prisma.$transaction(async (tx) => {
-        const row = await tx.notificationOutbox.findUnique({ where: { id: request.params.id } })
-
-        if (!row) throw notFound('No such notification.')
-
-        if (!canTransition(row.status, OUTBOX_STATES.QUEUED)) {
-          throw conflict(
-            `A ${row.status.toLowerCase().replace('_', ' ')} message cannot be put back in the queue.`,
-            { status: row.status },
-          )
-        }
-
-        // Conditional on the status the check above was made against. Two
-        // operators pressing retry at the same moment produce one requeue, and
-        // the second is told what the first did.
-        const { count } = await tx.notificationOutbox.updateMany({
-          where: { id: row.id, status: row.status },
-          data: {
-            status: OUTBOX_STATES.QUEUED,
-            // Due now, and the attempts start again: an operator requeuing a
-            // dead letter has decided the cause is fixed, and leaving the
-            // counter spent would dead-letter it again on the first hiccup.
-            scheduledFor: now,
-            attempts: 0,
-            failureCategory: null,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-          },
-        })
-
-        if (count === 0) {
-          throw conflict('Somebody else changed this message while you were looking at it.')
-        }
-
-        await recordAudit(tx, {
-          action: AUDIT_ACTIONS.NOTIFICATION_REQUEUED,
-          entityType: 'NotificationOutbox',
-          entityId: row.id,
-          actorId: request.actor?.id ?? null,
-          metadata: {
-            requestId: request.id,
-            at: now.toISOString(),
-            previousStatus: row.status,
-            newStatus: OUTBOX_STATES.QUEUED,
-            attemptsBefore: row.attempts,
-            template: row.template,
-            reason: request.body.reason,
-          },
-        })
-
-        return tx.notificationOutbox.findUnique({ where: { id: row.id } })
+      const updated = await retryNotification(prisma, {
+        id: request.params.id,
+        actorId: request.actor?.id ?? null,
+        reason: request.body.reason,
+        requestId: request.id,
       })
 
       return { data: toOperatorNotification(updated) }
@@ -148,60 +102,11 @@ export function registerOperationsRoutes(app, { prisma }) {
 
   defineRoute(app, 'notifications.cancel', {
     handler: async (request) => {
-      const now = new Date()
-
-      const updated = await prisma.$transaction(async (tx) => {
-        const row = await tx.notificationOutbox.findUnique({ where: { id: request.params.id } })
-
-        if (!row) throw notFound('No such notification.')
-
-        // A live lease means a worker may be mid-send. Cancelling now would
-        // leave the row saying one thing and the provider having done another,
-        // which is worse than waiting for the lease to resolve.
-        if (row.status === OUTBOX_STATES.CLAIMED && !leaseHasLapsed(row, now)) {
-          throw conflict('A worker is sending this message. Try again in a moment.', {
-            leaseExpiresAt: row.leaseExpiresAt?.toISOString() ?? null,
-          })
-        }
-
-        const from = row.status === OUTBOX_STATES.CLAIMED ? OUTBOX_STATES.QUEUED : row.status
-
-        if (!canTransition(from, OUTBOX_STATES.CANCELLED)) {
-          throw conflict(
-            `A ${row.status.toLowerCase().replace('_', ' ')} message cannot be withdrawn.`,
-            { status: row.status },
-          )
-        }
-
-        const { count } = await tx.notificationOutbox.updateMany({
-          where: { id: row.id, status: row.status },
-          data: {
-            status: OUTBOX_STATES.CANCELLED,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-          },
-        })
-
-        if (count === 0) {
-          throw conflict('Somebody else changed this message while you were looking at it.')
-        }
-
-        await recordAudit(tx, {
-          action: AUDIT_ACTIONS.NOTIFICATION_CANCELLED,
-          entityType: 'NotificationOutbox',
-          entityId: row.id,
-          actorId: request.actor?.id ?? null,
-          metadata: {
-            requestId: request.id,
-            at: now.toISOString(),
-            previousStatus: row.status,
-            newStatus: OUTBOX_STATES.CANCELLED,
-            template: row.template,
-            reason: request.body.reason,
-          },
-        })
-
-        return tx.notificationOutbox.findUnique({ where: { id: row.id } })
+      const updated = await cancelNotification(prisma, {
+        id: request.params.id,
+        actorId: request.actor?.id ?? null,
+        reason: request.body.reason,
+        requestId: request.id,
       })
 
       return { data: toOperatorNotification(updated) }

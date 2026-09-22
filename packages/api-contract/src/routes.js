@@ -780,7 +780,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/organizations/:id/members',
       summary: 'List the team',
       description:
-        "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and address and nothing else about their account: managing a team is not the same as reading a colleague's profile.",
+        "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and nothing else about their account. Addresses are decided by the server and carried in one of two shapes told apart by `emailVisibility`: `FULL` for callers who manage the team (MANAGER, ADMIN, OWNER, or a platform super-administrator), `MASKED` for every other member who may read the list (VIEWER, STAFF, EVENT_MANAGER, FINANCE), whose entries carry `emailMasked` and no `email` at all. SCANNER cannot read the list.",
       tags: ['teams'],
       auth: 'session',
       capability: 'organization:view_members',
@@ -822,7 +822,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/invitations/accept',
       summary: 'Accept an invitation',
       description:
-        'Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.',
+        'Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key, and the refusal names that address only masked. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.',
       tags: ['teams'],
       auth: 'session',
       capability: null,
@@ -1775,7 +1775,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/operations/notifications/:id/retry',
       summary: 'Put a failed message back in the queue',
       description:
-        'Moves a dead-lettered or failed message back to QUEUED, due now, with its attempt counter reset. Refused for a message that was already sent or cancelled, because neither is a thing to try again. Requires a reason and a recent step-up: this sends real mail.',
+        'Moves a dead-lettered, failed or retry-scheduled message back to QUEUED, due now, with its attempt counter reset. Refused (409, `error.reason`) for a message a worker holds — `LEASED`, whether its lease is live or has lapsed, because a lapsed lease is reclaimed by the next worker on its own; for one already sent or cancelled — `NOT_RETRYABLE`; for one redacted for privacy — `REDACTED`; and for one a worker claimed while the operator was looking — `CHANGED`. The conditions are in the update itself, so a claim that lands first wins. Requires a reason and a recent step-up: this sends real mail.',
       tags: ['operations'],
       auth: 'session',
       capability: 'reconciliation:manage',
@@ -1799,7 +1799,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/operations/notifications/:id/cancel',
       summary: 'Withdraw a message that has not gone out',
       description:
-        'Terminal. Refused for a message already sent, and refused while a worker holds a live lease on it \u2014 cancelling something mid-send would leave the row saying one thing and the provider having done another. Requires a reason and a recent step-up.',
+        'Terminal. Refused for a message already sent, and refused while a worker holds a live lease on it (`LEASED`) \u2014 cancelling something mid-send would leave the row saying one thing and the provider having done another. A lapsed lease may be withdrawn, conditional on the same owner and expiry that were read, so a worker that reclaims it first wins (`CHANGED`). Requires a reason and a recent step-up.',
       tags: ['operations'],
       auth: 'session',
       capability: 'reconciliation:manage',

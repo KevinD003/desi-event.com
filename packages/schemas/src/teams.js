@@ -77,13 +77,14 @@ export const removeMemberRequestSchema = z.object({
 })
 
 /**
- * A member, as their colleagues see them.
+ * A member, as somebody who manages the team sees them.
  *
- * Carries the person's name and address because a team list without them is
- * unusable, and nothing else about their account: not their phone number, not
- * their platform role, not when they last signed in. Somebody who can manage a
- * team can see who is on it, which is not the same as being able to read their
- * profile.
+ * Carries the person's name and address because managing a team without them
+ * is unworkable, and nothing else about their account: not their phone number,
+ * not their platform role, not when they last signed in. Somebody who can
+ * manage a team can see who is on it, which is not the same as being able to
+ * read their profile. A colleague who cannot manage it gets
+ * `maskedMemberSummarySchema` instead.
  */
 export const memberSummarySchema = z.object({
   id: cuidSchema,
@@ -110,16 +111,70 @@ export const invitationSummarySchema = z.object({
   createdAt: timestampSchema,
 })
 
-/** `GET /v1/organizations/:id/members`. */
+/**
+ * How much of an address a team list carries.
+ *
+ * `FULL` for a caller who manages the team — holds `team:invite` in the
+ * organisation (MANAGER, ADMIN, OWNER) or is a platform super-administrator.
+ * `MASKED` for everybody else who may see the list at all: VIEWER, STAFF,
+ * EVENT_MANAGER, FINANCE. SCANNER cannot see the list.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EMAIL_VISIBILITIES = Object.freeze(['FULL', 'MASKED'])
+
+/**
+ * An address with most of its local part replaced by `*`.
+ *
+ * Enforced by pattern, not trusted to the presenter: a value with no `*` in it
+ * is refused, so a full address cannot reach a masked list by accident.
+ */
+export const maskedEmailSchema = z
+  .string()
+  .max(254)
+  .regex(/\*|^\(none\)$/u, 'Expected a masked address')
+
+/**
+ * A member, as a colleague who does not manage the team sees them.
+ *
+ * The same fields as `memberSummarySchema` with `email` replaced by
+ * `emailMasked`. The object schema strips unknown keys, so an `email` a
+ * presenter left in is removed before the response is written.
+ */
+export const maskedMemberSummarySchema = memberSummarySchema
+  .omit({ email: true })
+  .extend({ emailMasked: maskedEmailSchema })
+
+/** An invitation, as a colleague who does not manage the team sees it. */
+export const maskedInvitationSummarySchema = invitationSummarySchema
+  .omit({ email: true })
+  .extend({ emailMasked: maskedEmailSchema })
+
+/**
+ * `GET /v1/organizations/:id/members`.
+ *
+ * Two shapes, told apart by `emailVisibility`, so which one a caller gets is
+ * decided by the server and enforced by this schema rather than by a
+ * stylesheet hiding a column.
+ */
 export const memberListResponseSchema = z.object({
-  data: z.object({
-    members: z.array(memberSummarySchema),
-    invitations: z.array(invitationSummarySchema),
-    // The roles this caller may grant, computed from what they hold. A UI that
-    // renders the full list and lets the server refuse is a UI that teaches
-    // people the product is broken.
-    assignableRoles: z.array(orgRoleSchema),
-  }),
+  data: z.discriminatedUnion('emailVisibility', [
+    z.object({
+      emailVisibility: z.literal('FULL'),
+      members: z.array(memberSummarySchema),
+      invitations: z.array(invitationSummarySchema),
+      // The roles this caller may grant, computed from what they hold. A UI
+      // that renders the full list and lets the server refuse is a UI that
+      // teaches people the product is broken.
+      assignableRoles: z.array(orgRoleSchema),
+    }),
+    z.object({
+      emailVisibility: z.literal('MASKED'),
+      members: z.array(maskedMemberSummarySchema),
+      invitations: z.array(maskedInvitationSummarySchema),
+      assignableRoles: z.array(orgRoleSchema),
+    }),
+  ]),
 })
 
 /** `POST /v1/organizations/:id/invitations`. */

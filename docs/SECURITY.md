@@ -182,6 +182,29 @@ Finding NF-10. Granting or removing a role, changing a password, enrolling or
 removing a factor — each rotates or revokes the affected sessions, so a
 privilege that was taken away is taken away from the tab that already has it.
 
+### Colleagues' addresses on the team list
+
+`GET /v1/organizations/:id/members` needs `organization:view_members`, which
+VIEWER holds and every organisation role but SCANNER inherits. Until the
+Phase 4 work it returned every member's and every invitee's full address to all
+of them, including VIEWER and STAFF sessions that need no second factor. The
+server now decides, and the response schema enforces, one of two shapes:
+
+| Caller                                     | `emailVisibility` | What each entry carries                      |
+| ------------------------------------------ | ----------------- | -------------------------------------------- |
+| OWNER, ADMIN, MANAGER (hold `team:invite`) | `FULL`            | `email`                                      |
+| Platform `SUPER_ADMIN`                     | `FULL`            | `email` — unscoped capabilities, MFA-gated   |
+| VIEWER, STAFF, EVENT_MANAGER, FINANCE      | `MASKED`          | `emailMasked` (must contain `*`), no `email` |
+| SCANNER                                    | —                 | 403: no `organization:view_members`          |
+| A member of another organisation           | —                 | 403                                          |
+
+The masked shape has no `email` key at all, so an address a presenter left in
+is stripped by the serializer; and `emailMasked` must contain a `*`, so a full
+address put in its place is a serialization failure rather than a leak. The
+forwarded-invitation refusal on `POST /v1/invitations/accept` names the
+invited address masked, where it used to name it in full. Door responses carry
+no address of any kind.
+
 ---
 
 ## What leaves the server

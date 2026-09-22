@@ -40,8 +40,43 @@ import {
 
 import { recordAudit } from '../lib/audit.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
+import { maskRecipient } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 import { authRateLimit } from '../plugins/rate-limit.js'
+
+/**
+ * How much of each address a caller may see on the team list.
+ *
+ * Full addresses go to the people who manage the team — whoever holds
+ * `team:invite` in this organisation (MANAGER, ADMIN, OWNER), and a platform
+ * super-administrator, whose capabilities are unscoped. Everybody else who may
+ * read the list (VIEWER, STAFF, EVENT_MANAGER, FINANCE) sees them masked. A
+ * VIEWER or STAFF session needs no second factor and lives longer than a
+ * privileged one; the whole roster's addresses were the most useful thing in it
+ * for anybody who took one over.
+ *
+ * @param {object} actor The request actor.
+ * @param {string} organizationId The organisation.
+ * @returns {'FULL'|'MASKED'} The visibility.
+ */
+export function emailVisibilityFor(actor, organizationId) {
+  return can(actor, CAPABILITIES.TEAM_INVITE, { organizationId }) ? 'FULL' : 'MASKED'
+}
+
+/**
+ * The address field of a member or invitation, at a visibility.
+ *
+ * The only place a team response decides whether an address is shown. The
+ * response schema enforces the decision again: a masked entry has no `email`
+ * key, and its `emailMasked` must contain a `*`.
+ *
+ * @param {string} address The stored address.
+ * @param {'FULL'|'MASKED'} visibility From {@link emailVisibilityFor}.
+ * @returns {{email: string}|{emailMasked: string}} The field.
+ */
+function addressAt(address, visibility) {
+  return visibility === 'FULL' ? { email: address } : { emailMasked: maskRecipient(address) }
+}
 
 /** How long an invitation stays acceptable. */
 export const INVITATION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000
@@ -227,12 +262,15 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
         }),
       ])
 
+      const emailVisibility = emailVisibilityFor(request.actor, organization.id)
+
       return {
         data: {
+          emailVisibility,
           members: memberships.map((membership) => ({
             id: membership.id,
             userId: membership.userId,
-            email: membership.user.email,
+            ...addressAt(membership.user.email, emailVisibility),
             displayName: membership.user.displayName,
             role: membership.role,
             capabilities: [
@@ -252,7 +290,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
           })),
           invitations: invitations.map((invitation) => ({
             id: invitation.id,
-            email: invitation.email,
+            ...addressAt(invitation.email, emailVisibility),
             role: invitation.role,
             status: invitation.status,
             invitedByName: invitation.invitedBy?.displayName ?? null,
@@ -379,7 +417,11 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
       // bearer-payable to whoever holds the link.
       if (invitation.email.toLowerCase() !== request.currentUser.email.toLowerCase()) {
         throw forbidden(
-          `This invitation was sent to a different address. Sign in as ${invitation.email} to accept it.`,
+          // Masked: whoever holds a forwarded link is by definition not the
+          // person it was addressed to, and the address is not theirs to learn.
+          // Enough of it survives for the right person to recognise which of
+          // their accounts to use.
+          `This invitation was sent to a different address. Sign in as ${maskRecipient(invitation.email)} to accept it.`,
         )
       }
 

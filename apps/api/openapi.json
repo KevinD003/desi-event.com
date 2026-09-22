@@ -2438,7 +2438,7 @@
       "get": {
         "operationId": "teams.list",
         "summary": "List the team",
-        "description": "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and address and nothing else about their account: managing a team is not the same as reading a colleague's profile.\n\nRequires the `organization:view_members` capability.",
+        "description": "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and nothing else about their account. Addresses are decided by the server and carried in one of two shapes told apart by `emailVisibility`: `FULL` for callers who manage the team (MANAGER, ADMIN, OWNER, or a platform super-administrator), `MASKED` for every other member who may read the list (VIEWER, STAFF, EVENT_MANAGER, FINANCE), whose entries carry `emailMasked` and no `email` at all. SCANNER cannot read the list.\n\nRequires the `organization:view_members` capability.",
         "tags": [
           "teams"
         ],
@@ -2451,175 +2451,358 @@
                   "type": "object",
                   "properties": {
                     "data": {
-                      "type": "object",
-                      "properties": {
-                        "members": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "maxLength": 64,
-                                "pattern": "^[a-z][a-z0-9]{7,31}$"
-                              },
-                              "userId": {
-                                "type": "string",
-                                "maxLength": 64,
-                                "pattern": "^[a-z][a-z0-9]{7,31}$"
-                              },
-                              "email": {
-                                "type": "string",
-                                "maxLength": 254,
-                                "format": "email",
-                                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
-                              },
-                              "displayName": {
-                                "type": "string",
-                                "minLength": 1,
-                                "maxLength": 500
-                              },
-                              "role": {
-                                "type": "string",
-                                "enum": [
-                                  "OWNER",
-                                  "ADMIN",
-                                  "EVENT_MANAGER",
-                                  "FINANCE",
-                                  "MANAGER",
-                                  "STAFF",
-                                  "SCANNER",
-                                  "VIEWER"
-                                ]
-                              },
-                              "capabilities": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "minLength": 1
-                                }
-                              },
-                              "scopedEventIds": {
-                                "type": "array",
-                                "items": {
-                                  "type": "string",
-                                  "maxLength": 64,
-                                  "pattern": "^[a-z][a-z0-9]{7,31}$"
-                                }
-                              },
-                              "joinedAt": {
-                                "type": "string",
-                                "format": "date-time",
-                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                              },
-                              "self": {
-                                "type": "boolean"
-                              }
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "emailVisibility": {
+                              "type": "string",
+                              "const": "FULL"
                             },
-                            "required": [
-                              "id",
-                              "userId",
-                              "email",
-                              "displayName",
-                              "role",
-                              "capabilities",
-                              "scopedEventIds",
-                              "joinedAt",
-                              "self"
-                            ],
-                            "additionalProperties": false
-                          }
-                        },
-                        "invitations": {
-                          "type": "array",
-                          "items": {
-                            "type": "object",
-                            "properties": {
-                              "id": {
-                                "type": "string",
-                                "maxLength": 64,
-                                "pattern": "^[a-z][a-z0-9]{7,31}$"
-                              },
-                              "email": {
-                                "type": "string",
-                                "maxLength": 254,
-                                "format": "email",
-                                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
-                              },
-                              "role": {
-                                "type": "string",
-                                "enum": [
-                                  "OWNER",
-                                  "ADMIN",
-                                  "EVENT_MANAGER",
-                                  "FINANCE",
-                                  "MANAGER",
-                                  "STAFF",
-                                  "SCANNER",
-                                  "VIEWER"
-                                ]
-                              },
-                              "status": {
-                                "type": "string",
-                                "minLength": 1
-                              },
-                              "invitedByName": {
-                                "anyOf": [
-                                  {
+                            "members": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  "userId": {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  "email": {
+                                    "type": "string",
+                                    "maxLength": 254,
+                                    "format": "email",
+                                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                                  },
+                                  "displayName": {
                                     "type": "string",
                                     "minLength": 1,
                                     "maxLength": 500
                                   },
-                                  {
-                                    "type": "null"
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "OWNER",
+                                      "ADMIN",
+                                      "EVENT_MANAGER",
+                                      "FINANCE",
+                                      "MANAGER",
+                                      "STAFF",
+                                      "SCANNER",
+                                      "VIEWER"
+                                    ]
+                                  },
+                                  "capabilities": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "scopedEventIds": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 64,
+                                      "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                    }
+                                  },
+                                  "joinedAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "self": {
+                                    "type": "boolean"
                                   }
-                                ]
-                              },
-                              "expiresAt": {
-                                "type": "string",
-                                "format": "date-time",
-                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                              },
-                              "createdAt": {
-                                "type": "string",
-                                "format": "date-time",
-                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "required": [
+                                  "id",
+                                  "userId",
+                                  "email",
+                                  "displayName",
+                                  "role",
+                                  "capabilities",
+                                  "scopedEventIds",
+                                  "joinedAt",
+                                  "self"
+                                ],
+                                "additionalProperties": false
                               }
                             },
-                            "required": [
-                              "id",
-                              "email",
-                              "role",
-                              "status",
-                              "expiresAt",
-                              "createdAt"
-                            ],
-                            "additionalProperties": false
-                          }
+                            "invitations": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  "email": {
+                                    "type": "string",
+                                    "maxLength": 254,
+                                    "format": "email",
+                                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                                  },
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "OWNER",
+                                      "ADMIN",
+                                      "EVENT_MANAGER",
+                                      "FINANCE",
+                                      "MANAGER",
+                                      "STAFF",
+                                      "SCANNER",
+                                      "VIEWER"
+                                    ]
+                                  },
+                                  "status": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "invitedByName": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 500
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "expiresAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "createdAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "email",
+                                  "role",
+                                  "status",
+                                  "expiresAt",
+                                  "createdAt"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "assignableRoles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "OWNER",
+                                  "ADMIN",
+                                  "EVENT_MANAGER",
+                                  "FINANCE",
+                                  "MANAGER",
+                                  "STAFF",
+                                  "SCANNER",
+                                  "VIEWER"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "emailVisibility",
+                            "members",
+                            "invitations",
+                            "assignableRoles"
+                          ],
+                          "additionalProperties": false
                         },
-                        "assignableRoles": {
-                          "type": "array",
-                          "items": {
-                            "type": "string",
-                            "enum": [
-                              "OWNER",
-                              "ADMIN",
-                              "EVENT_MANAGER",
-                              "FINANCE",
-                              "MANAGER",
-                              "STAFF",
-                              "SCANNER",
-                              "VIEWER"
-                            ]
-                          }
+                        {
+                          "type": "object",
+                          "properties": {
+                            "emailVisibility": {
+                              "type": "string",
+                              "const": "MASKED"
+                            },
+                            "members": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  "userId": {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  "displayName": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 500
+                                  },
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "OWNER",
+                                      "ADMIN",
+                                      "EVENT_MANAGER",
+                                      "FINANCE",
+                                      "MANAGER",
+                                      "STAFF",
+                                      "SCANNER",
+                                      "VIEWER"
+                                    ]
+                                  },
+                                  "capabilities": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    }
+                                  },
+                                  "scopedEventIds": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string",
+                                      "maxLength": 64,
+                                      "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                    }
+                                  },
+                                  "joinedAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "self": {
+                                    "type": "boolean"
+                                  },
+                                  "emailMasked": {
+                                    "type": "string",
+                                    "maxLength": 254,
+                                    "pattern": "\\*|^\\(none\\)$"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "userId",
+                                  "displayName",
+                                  "role",
+                                  "capabilities",
+                                  "scopedEventIds",
+                                  "joinedAt",
+                                  "self",
+                                  "emailMasked"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "invitations": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "maxLength": 64,
+                                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                  },
+                                  "role": {
+                                    "type": "string",
+                                    "enum": [
+                                      "OWNER",
+                                      "ADMIN",
+                                      "EVENT_MANAGER",
+                                      "FINANCE",
+                                      "MANAGER",
+                                      "STAFF",
+                                      "SCANNER",
+                                      "VIEWER"
+                                    ]
+                                  },
+                                  "status": {
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "invitedByName": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 500
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "expiresAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "createdAt": {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  "emailMasked": {
+                                    "type": "string",
+                                    "maxLength": 254,
+                                    "pattern": "\\*|^\\(none\\)$"
+                                  }
+                                },
+                                "required": [
+                                  "id",
+                                  "role",
+                                  "status",
+                                  "expiresAt",
+                                  "createdAt",
+                                  "emailMasked"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "assignableRoles": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "enum": [
+                                  "OWNER",
+                                  "ADMIN",
+                                  "EVENT_MANAGER",
+                                  "FINANCE",
+                                  "MANAGER",
+                                  "STAFF",
+                                  "SCANNER",
+                                  "VIEWER"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "emailVisibility",
+                            "members",
+                            "invitations",
+                            "assignableRoles"
+                          ],
+                          "additionalProperties": false
                         }
-                      },
-                      "required": [
-                        "members",
-                        "invitations",
-                        "assignableRoles"
-                      ],
-                      "additionalProperties": false
+                      ]
                     }
                   },
                   "required": [
@@ -2892,7 +3075,7 @@
       "post": {
         "operationId": "teams.accept",
         "summary": "Accept an invitation",
-        "description": "Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.",
+        "description": "Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key, and the refusal names that address only masked. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.",
         "tags": [
           "teams"
         ],
@@ -22100,7 +22283,7 @@
       "post": {
         "operationId": "notifications.retry",
         "summary": "Put a failed message back in the queue",
-        "description": "Moves a dead-lettered or failed message back to QUEUED, due now, with its attempt counter reset. Refused for a message that was already sent or cancelled, because neither is a thing to try again. Requires a reason and a recent step-up: this sends real mail.\n\nRequires the `reconciliation:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Moves a dead-lettered, failed or retry-scheduled message back to QUEUED, due now, with its attempt counter reset. Refused (409, `error.reason`) for a message a worker holds — `LEASED`, whether its lease is live or has lapsed, because a lapsed lease is reclaimed by the next worker on its own; for one already sent or cancelled — `NOT_RETRYABLE`; for one redacted for privacy — `REDACTED`; and for one a worker claimed while the operator was looking — `CHANGED`. The conditions are in the update itself, so a claim that lands first wins. Requires a reason and a recent step-up: this sends real mail.\n\nRequires the `reconciliation:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "operations"
         ],
@@ -22366,7 +22549,7 @@
       "post": {
         "operationId": "notifications.cancel",
         "summary": "Withdraw a message that has not gone out",
-        "description": "Terminal. Refused for a message already sent, and refused while a worker holds a live lease on it — cancelling something mid-send would leave the row saying one thing and the provider having done another. Requires a reason and a recent step-up.\n\nRequires the `reconciliation:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Terminal. Refused for a message already sent, and refused while a worker holds a live lease on it (`LEASED`) — cancelling something mid-send would leave the row saying one thing and the provider having done another. A lapsed lease may be withdrawn, conditional on the same owner and expiry that were read, so a worker that reclaims it first wins (`CHANGED`). Requires a reason and a recent step-up.\n\nRequires the `reconciliation:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "operations"
         ],

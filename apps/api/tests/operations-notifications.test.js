@@ -281,6 +281,55 @@ describe('POST /v1/operations/notifications/:id/retry', () => {
     await app.close()
   })
 
+  it('refuses a message a worker holds, with its lease left alone', async () => {
+    // The defect: retry accepted CLAIMED, wiped the lease, and let a second
+    // worker send the same message. The race itself is proved against real
+    // PostgreSQL in notification-lease-integration.test.js.
+    const leaseExpiresAt = new Date(Date.now() + 60_000)
+    const { app, prisma, messageId } = await worldWithMessage({
+      status: OUTBOX_STATES.CLAIMED,
+      leaseOwner: 'worker-7',
+      leaseExpiresAt,
+    })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/operations/notifications/${messageId}/retry`,
+      headers: await asOperator(app),
+      payload: { reason: 'looks stuck to me' },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.reason).toBe('LEASED')
+    expect(prisma._store.notificationOutbox[0]).toMatchObject({
+      status: 'CLAIMED',
+      leaseOwner: 'worker-7',
+      leaseExpiresAt,
+    })
+
+    await app.close()
+  })
+
+  it('is closed to an organiser, even the owner of the organisation the message is about', async () => {
+    const world = await worldWithMessage()
+
+    world.prisma._store.notificationOutbox[0].organizationId = world.ids.organization.id
+
+    const response = await world.app.inject({
+      method: 'POST',
+      url: `/v1/operations/notifications/${world.messageId}/retry`,
+      headers: bearer(await signIn(world.app, 'owner@rangoli.example')),
+      payload: { reason: 'our own message' },
+    })
+
+    // Platform-only by design: reconciliation:manage cannot be granted by any
+    // organisation role, and a module-load check refuses a table that tries.
+    expect(response.statusCode).toBe(403)
+    expect(world.prisma._store.notificationOutbox[0].status).toBe('DEAD_LETTER')
+
+    await world.app.close()
+  })
+
   it('demands a reason', async () => {
     const { app, messageId } = await worldWithMessage()
 

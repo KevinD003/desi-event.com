@@ -166,10 +166,20 @@ three. Notifications go through `NotificationOutbox` — claimed under a lease,
 retried with a recorded time, categorised on failure — so the delivery guarantee
 is **at-least-once with a durable record**, not "we called an API and hoped".
 
-A dead-lettered message can be requeued or cancelled from the operations board,
-both under a step-up, because requeuing a cancellation notice sends real mail to
-real people and cancelling one means somebody is never told something they were
-promised.
+A dead-lettered message can be requeued or cancelled through the operations
+API (`notifications.retry`, `notifications.cancel`), both under a step-up,
+because requeuing a cancellation notice sends real mail to real people and
+cancelling one means somebody is never told something they were promised.
+Neither touches a message a worker holds: retry refuses any `CLAIMED` row, and
+cancel refuses one whose lease is live. The conditions are in the `UPDATE`
+itself, so a worker's claim that lands first wins. See
+`apps/api/src/lib/notification-operations.js`.
+
+> **Correction — 2026-09-22.** This paragraph said "from the operations
+> board". The board at `/operations` performs no actions; the two operations
+> exist only as API routes. And until the Phase 4 work, retry accepted a
+> `CLAIMED` row with a live lease, wiping it and letting a second worker send
+> the same message.
 
 Storage is in-memory, so uploaded media does not survive a restart. Stated
 because a demo that loses an image is confusing if you expected otherwise.
