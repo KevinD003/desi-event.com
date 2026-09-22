@@ -3,30 +3,19 @@
  *
  * ## Scanning
  *
- * A pass is the primary key at the door. `credential` is the bearer secret
- * inside the QR code; the server hashes it and looks the digest up, so a
- * database that leaks does not leak passes and a scanner never sends a
- * guessable identifier. `code` — the printed reference — is the fallback for a
- * pass that will not scan, and it is deliberately the fallback: the schema says
- * it "admits nobody by itself", and it is accepted only from somebody who
- * already holds `ticket:check_in` in the organisation that owns the event.
+ * Preview, then confirm, then exactly one admission. `../lib/admission.js`
+ * holds the whole of it; this file wires three routes to it:
  *
- * ## Idempotence
+ * - `GET /v1/tickets/admission/events` — the events this account may admit to.
+ * - `POST /v1/tickets/admission/preview` — resolve and show, write nothing.
+ * - `POST /v1/tickets/check-in` — present the same pass with the preview's
+ *   reference; everything is re-checked inside the admitting transaction.
  *
- * A door scanner on venue Wi-Fi retries. A steward scans the same pass twice
- * because the first beep was drowned out. Neither must produce a second
- * check-in, and neither must stall the queue with an error the steward has to
- * think about.
- *
- * So a re-scan is a no-op that reports itself: the response carries the
- * **original** `checkedInAt` and `alreadyCheckedIn: true`, which is what a
- * scanner app shows as "already admitted at 19:42". Exactly one `CheckIn` row
- * is ever written per ticket, and its unique index is what makes that true when
- * two scanners race rather than merely when one retries.
- *
- * A ticket that was refunded, revoked, transferred away or cancelled is a
- * different matter — those are 409s, because letting that person in is wrong
- * rather than redundant.
+ * A re-scan of an admitted ticket is a duplicate, not an error: it answers 200
+ * with `ALREADY_CHECKED_IN` and the original instant. A ticket that must not be
+ * admitted is a 409 carrying a reason from a closed vocabulary. Exactly one
+ * `CheckIn` row is ever written per ticket; its unique index and the row lock
+ * the confirmation takes are what make that true when two scanners race.
  *
  * ## Transfers
  *
@@ -40,9 +29,9 @@ import { isSuppressible } from '@desi-event/notifications'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
-import { conflict, databaseErrorCode, forbidden, notFound, unprocessable } from '../lib/errors.js'
+import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
-import { passRateLimit } from '../plugins/rate-limit.js'
+import { admissionRateLimit, passRateLimit } from '../plugins/rate-limit.js'
 import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { WALLET_INCLUDE, maskRecipient, toWalletTicket } from '../lib/presenters.js'
@@ -51,16 +40,15 @@ import {
   TRANSFER_TTL_HOURS,
   acceptTransfer,
   admissionRefusal,
-  admit,
   assertHolds,
   endTransfer,
-  findTicketForScan,
   loadTransferByToken,
   mintTransferToken,
   revokeTicket,
   startTransfer,
   transferTokenDigest,
 } from '../lib/tickets.js'
+import { confirmAdmission, listAdmissionEvents, previewAdmission } from '../lib/admission.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Everything a scan needs in order to authorise itself. */
@@ -103,134 +91,57 @@ function toTicketTransfer(row) {
  * @param {object} deps.env The parsed API environment.
  * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit; supplied by tests.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door rate limit; supplied by tests and the load suite.
  * @returns {void} Nothing.
  */
-export function registerTicketRoutes(app, { prisma, env, deliver, passLimit }) {
-  defineRoute(app, 'tickets.checkIn', {
-    handler: async (request) => {
-      const { credential, code, eventId, eventSessionId, checkedInAt, deviceId, gate } =
-        request.body
-      const now = checkedInAt ? new Date(checkedInAt) : new Date()
+export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, admissionLimit }) {
+  // The door. The reasoning — resolve first, authorise against the ticket's own
+  // event, preview without writing, confirm inside one locked transaction —
+  // lives in ../lib/admission.js; what is here is only the wiring.
+  defineRoute(app, 'tickets.admissionEvents', {
+    handler: async (request, reply) => {
+      // Which doors this account stands at is about the account, and a shared
+      // cache is the wrong place for it.
+      reply.header('cache-control', 'private, no-store')
 
-      const ticket = await findTicketForScan(prisma, {
-        credential,
-        code,
-        include: TICKET_INCLUDE,
-      })
+      return { data: await listAdmissionEvents({ prisma, actor: request.actor }) }
+    },
+  })
 
-      // The same answer for a pass that names nothing and a pass that is not a
-      // pass. Distinguishing them would turn the endpoint into an oracle for
-      // whether a guessed credential named something real.
-      if (!ticket) throw notFound('No ticket with that pass.')
-
-      const order = ticket.orderItem?.order
-      const event = order?.event
-
-      if (!event) throw notFound('No ticket with that pass.')
-
-      assertCan(request.actor, CAPABILITIES.TICKET_CHECK_IN, {
-        organizationId: event.organizationId,
-      })
-
-      if (eventId && eventId !== event.id) {
-        throw conflict('This ticket belongs to a different event.', {
-          ticketEventId: event.id,
-          scannedEventId: eventId,
-        })
-      }
-
-      const refusal = admissionRefusal(ticket, order)
-
-      if (refusal) throw conflict(refusal, { status: ticket.status })
-
-      // There is no `force`. It used to re-stamp `checkedInAt`, and with a
-      // `CheckIn` row that is unique per ticket the only thing it could mean
-      // now is "rewrite the admission record" — and a record that whoever is
-      // holding the scanner can rewrite is not a record. A correction is a
-      // different action with a different audit trail, not a boolean on a scan.
-      if (ticket.status === TICKET_STATES.CHECKED_IN) {
-        request.log.info(
-          { ticketCode: ticket.code, deviceId, checkedInAt: ticket.checkedInAt },
-          'duplicate check-in ignored',
-        )
-
-        return {
-          data: {
-            ticket: stripRelations(ticket),
-            alreadyCheckedIn: true,
-            checkedInAt: ticket.checkedInAt,
-            attendeeName: ticket.attendeeName ?? null,
-          },
-        }
-      }
-
-      const outcome = await prisma
-        .$transaction((tx) =>
-          admit(tx, {
-            ticket,
-            eventSessionId: eventSessionId ?? order.eventSessionId ?? null,
-            scannedByUserId: request.actor.id,
-            // What the scanner calls itself, recorded in the audit trail and
-            // not in `CheckIn.deviceId` — that column is a foreign key to a
-            // device this system issued, and a string from the field is not one.
-            scannerId: deviceId ?? null,
-            gate: gate ?? null,
-            now,
-          }),
-        )
-        .catch(async (error) => {
-          // Two ways the database refuses a racing scan, and both are ordinary
-          // at a door with a queue behind it:
-          //
-          //   - `P2002`, the `CheckIn` unique index: somebody else admitted
-          //     this ticket between the read and the write.
-          //   - `P0001`, `desi_check_in_ticket_admissible`: the ticket's status
-          //     moved between the read and the insert. The trigger is a BEFORE
-          //     INSERT, so it fires before the index does and this is the more
-          //     likely of the two.
-          //
-          // Neither is a 500. The load suite found the second one at a 1.7%
-          // error rate under sixteen concurrent scanners, which is a real
-          // failure at a real door and is exactly what that suite is for.
-          //
-          // What it becomes depends on what the ticket now *is*, re-read rather
-          // than assumed: already admitted is a duplicate and answers 200, and
-          // anything else is a refusal that the person scanning needs to see.
-          // Read from wherever Prisma put it. A trigger's `P0001` is nested
-          // under the driver adapter's cause and the outer code is Prisma's
-          // own — checking only the outer one is how this reached a door as a
-          // 500 in the first place.
-          const code = databaseErrorCode(error)
-
-          if (code !== 'P2002' && code !== 'P0001') throw error
-
-          const current = await prisma.ticket.findUnique({ where: { id: ticket.id } })
-
-          if (current?.status !== TICKET_STATES.CHECKED_IN) {
-            throw conflict(
-              admissionRefusal(current ?? ticket, order) ??
-                'That ticket changed while it was being scanned. Scan it again.',
-              { status: current?.status ?? ticket.status },
-            )
-          }
-
-          return { admitted: false, checkIn: null }
-        })
-
-      const after = await prisma.ticket.findUnique({ where: { id: ticket.id } })
-
-      request.log.info(
-        { ticketCode: after.code, eventId: event.id, deviceId, admitted: outcome.admitted },
-        outcome.admitted ? 'ticket checked in' : 'ticket was already in',
-      )
+  defineRoute(app, 'tickets.previewAdmission', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      // A preview names an attendee. Nothing between the server and the door
+      // keeps it: not a browser cache, not a shared proxy.
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
 
       return {
-        data: {
-          ticket: after,
-          alreadyCheckedIn: !outcome.admitted,
-          checkedInAt: after.checkedInAt,
-          attendeeName: after.attendeeName ?? null,
-        },
+        data: await previewAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
+      }
+    },
+  })
+
+  defineRoute(app, 'tickets.checkIn', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
+
+      return {
+        data: await confirmAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
       }
     },
   })
@@ -342,7 +253,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit }) {
       if (!passHolder) throw notFound('No such ticket.')
 
       const order = ticket.orderItem?.order ?? null
-      const refusal = admissionRefusal(ticket, order)
+      const refusal = admissionRefusal(ticket, order, order?.event ?? null)
 
       // Transferred away, revoked, refunded, cancelled, void, superseded, or on
       // an unpaid order. The sentence is the door's own, from the same pure

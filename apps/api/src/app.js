@@ -37,7 +37,7 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {object} [redis] An ioredis-compatible client, probed by `GET /health`.
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
- * @property {{global?: object, auth?: object, pass?: object}} [rateLimit] Rate-limit overrides.
+ * @property {{global?: object, auth?: object, pass?: object, admission?: object}} [rateLimit] Rate-limit overrides.
  * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
  */
 
@@ -124,6 +124,7 @@ export async function buildApp(options) {
     payments,
     authLimit: rateLimit.auth,
     passLimit: rateLimit.pass,
+    admissionLimit: rateLimit.admission,
     deliver,
     processInline,
   })

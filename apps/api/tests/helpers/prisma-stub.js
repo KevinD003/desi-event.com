@@ -65,6 +65,8 @@ const RELATIONS = {
     // offered to somebody says so without a second query per row.
     eventSeat: { kind: 'one', model: 'eventSeat', from: 'eventSeatId', to: 'id' },
     transfers: { kind: 'many', model: 'ticketTransfer', from: 'id', to: 'ticketId' },
+    // The door reads the admission back after writing it, to say when and how.
+    checkIn: { kind: 'one', model: 'checkIn', from: 'id', to: 'ticketId' },
   },
   // "Is this person somebody this organisation holds data about?" is asked by
   // walking a waitlist entry to its event, which is how a subject who only ever

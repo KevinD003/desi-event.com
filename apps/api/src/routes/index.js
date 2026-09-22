@@ -46,6 +46,7 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {object} [deps.payments] The resolved payment mode, reported by the health endpoint.
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the credential-endpoint rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door (preview and check-in) rate limit.
  * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
  * @returns {void} Nothing.
  */

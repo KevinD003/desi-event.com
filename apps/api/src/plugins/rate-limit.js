@@ -30,6 +30,40 @@ export const DEFAULT_AUTH_LIMIT = Object.freeze({ max: 10, timeWindow: '1 minute
 export const DEFAULT_PASS_LIMIT = Object.freeze({ max: 30, timeWindow: '1 minute' })
 
 /**
+ * Door budget: previews and confirmations, per scanner.
+ *
+ * Keyed on the signed-in account rather than the address. A venue's scanners
+ * usually share one uplink, so an address key would make every steward at a
+ * door draw on one budget — and would give a single misbehaving device the
+ * power to throttle all of them. Run at `preHandler`, after the session guard,
+ * so the actor is known; an unauthenticated request is refused before it
+ * spends anything.
+ *
+ * Two requests per attendee, one every couple of seconds at a busy door, is
+ * about sixty a minute per steward. A hundred and twenty leaves room for
+ * re-scans and is far below what probing printed codes would need.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_ADMISSION_LIMIT = Object.freeze({ max: 120, timeWindow: '1 minute' })
+
+/**
+ * Build the per-route `config.rateLimit` object for the door routes.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests and the load suite.
+ * @returns {object} The effective admission limit.
+ */
+export function admissionRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_ADMISSION_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    keyGenerator: (request) =>
+      request.actor?.id ? `actor:${request.actor.id}` : `ip:${request.ip}`,
+  }
+}
+
+/**
  * Build the per-route `config.rateLimit` object for admission-pass retrieval.
  *
  * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.

@@ -80,6 +80,10 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   // whole row by accident.
   'credential',
   'credentialHash',
+  // A door's preview reference binds a confirmation to a preview. It grants
+  // nothing by itself, but it names a ticket, a scanner and an instant, and it
+  // belongs in neither a log nor an audit row.
+  'previewReference',
 ])
 
 /**
@@ -102,6 +106,8 @@ export const WILDCARD_KEYS = Object.freeze([
   // `{ ticket: { credential } }` is the shape a handler logging a scan result
   // would produce, and the check-in route takes the credential in its body.
   'credential',
+  // `req.body.previewReference`, from the check-in confirmation.
+  'previewReference',
 ])
 
 /**

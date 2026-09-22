@@ -41658,17 +41658,176 @@
         }
       }
     },
-    "/v1/tickets/check-in": {
-      "post": {
-        "operationId": "tickets.checkIn",
-        "summary": "Check a ticket in",
-        "description": "Scans a ticket at the door. Re-scanning an already-admitted ticket answers 200 with `alreadyCheckedIn: true` rather than an error, so a flaky scanner never blocks the queue. Requires `ticket:check_in`.",
+    "/v1/tickets/admission/events": {
+      "get": {
+        "operationId": "tickets.admissionEvents",
+        "summary": "Events I may admit to",
+        "description": "The events this account may admit people to, each with the authority it rests on. OWNER and ADMIN see every current event of their organisation; MANAGER, STAFF and SCANNER see only the events a scope names; a platform role sees nothing, because door authority comes from an organisation membership. Read from the database on every request, so a scope granted or withdrawn a moment ago is already reflected.",
         "tags": [
           "tickets"
         ],
         "responses": {
           "200": {
-            "description": "Check a ticket in",
+            "description": "Events I may admit to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "event": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "title": {
+                                "type": "string"
+                              },
+                              "startsAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              "endsAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "timezone": {
+                                "type": "string"
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "DRAFT",
+                                  "REVIEW_PENDING",
+                                  "CHANGES_REQUIRED",
+                                  "APPROVED",
+                                  "PUBLISHED",
+                                  "ON_SALE",
+                                  "SALES_PAUSED",
+                                  "SOLD_OUT",
+                                  "COMPLETED",
+                                  "POSTPONED",
+                                  "CANCELLED",
+                                  "REJECTED",
+                                  "ARCHIVED"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "title",
+                              "startsAt",
+                              "endsAt",
+                              "timezone",
+                              "status"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "organization": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "maxLength": 64,
+                                "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "authority": {
+                            "type": "string",
+                            "enum": [
+                              "ORGANIZATION_ROLE",
+                              "EVENT_SCOPE"
+                            ]
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "OWNER",
+                              "ADMIN",
+                              "EVENT_MANAGER",
+                              "FINANCE",
+                              "MANAGER",
+                              "STAFF",
+                              "SCANNER",
+                              "VIEWER"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "event",
+                          "organization",
+                          "authority",
+                          "role"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tickets/admission/preview": {
+      "post": {
+        "operationId": "tickets.previewAdmission",
+        "summary": "Look a ticket up at the door",
+        "description": "Resolves a scanned pass or a printed code and says what a door needs to decide: the event and its time, the tier, the seat, the attendee's name, whether the ticket is already in, and a closed refusal reason when it may not be admitted. Writes nothing to the ticket: no check-in, no status change, no credential rotation. The ticket is resolved first and the caller authorised against the ticket's own event, never an event id from the browser; a caller not authorised for it receives the same 404 as a caller who presented nothing real. An admissible ticket carries a short-lived `previewReference` bound to this scanner and this way of presenting it, which a confirmation must return. Rate-limited per scanner, never cached, and the presented pass is never logged or audited.",
+        "tags": [
+          "tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Look a ticket up at the door",
             "content": {
               "application/json": {
                 "schema": {
@@ -41677,7 +41836,47 @@
                     "data": {
                       "type": "object",
                       "properties": {
-                        "ticket": {
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "ADMISSIBLE",
+                            "ALREADY_CHECKED_IN",
+                            "REFUSED"
+                          ]
+                        },
+                        "refusal": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "REFUNDED",
+                                "REVOKED",
+                                "TRANSFERRED",
+                                "CANCELLED",
+                                "SUPERSEDED",
+                                "VOID",
+                                "NOT_ADMISSIBLE",
+                                "ORDER_NOT_PAID",
+                                "EVENT_CANCELLED",
+                                "WRONG_EVENT",
+                                "PREVIEW_EXPIRED",
+                                "PREVIEW_INVALID",
+                                "PREVIEW_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": [
+                            "QR_SCAN",
+                            "MANUAL_CODE"
+                          ]
+                        },
+                        "event": {
                           "type": "object",
                           "properties": {
                             "id": {
@@ -41685,45 +41884,15 @@
                               "maxLength": 64,
                               "pattern": "^[a-z][a-z0-9]{7,31}$"
                             },
-                            "orderItemId": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "startsAt": {
                               "type": "string",
-                              "maxLength": 64,
-                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
                             },
-                            "code": {
-                              "type": "string",
-                              "minLength": 6,
-                              "maxLength": 64,
-                              "pattern": "^[A-Z0-9-]+$"
-                            },
-                            "attendeeName": {
-                              "anyOf": [
-                                {
-                                  "type": "string",
-                                  "minLength": 1,
-                                  "maxLength": 500
-                                },
-                                {
-                                  "type": "null"
-                                }
-                              ]
-                            },
-                            "status": {
-                              "default": "VALID",
-                              "type": "string",
-                              "enum": [
-                                "VALID",
-                                "TRANSFER_PENDING",
-                                "REVOKED",
-                                "CHECKED_IN",
-                                "VOID",
-                                "REFUNDED",
-                                "TRANSFERRED",
-                                "SUPERSEDED",
-                                "CANCELLED"
-                              ]
-                            },
-                            "checkedInAt": {
+                            "endsAt": {
                               "anyOf": [
                                 {
                                   "type": "string",
@@ -41735,28 +41904,76 @@
                                 }
                               ]
                             },
-                            "createdAt": {
-                              "type": "string",
-                              "format": "date-time",
-                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                            },
-                            "updatedAt": {
-                              "type": "string",
-                              "format": "date-time",
-                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            "timezone": {
+                              "type": "string"
                             }
                           },
                           "required": [
                             "id",
-                            "orderItemId",
-                            "code",
-                            "status"
+                            "title",
+                            "startsAt",
+                            "endsAt",
+                            "timezone"
                           ],
                           "additionalProperties": false
                         },
-                        "alreadyCheckedIn": {
-                          "default": false,
-                          "type": "boolean"
+                        "tier": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seat": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "section": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "row": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "section",
+                                "row",
+                                "label"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "attendeeName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
                         },
                         "checkedInAt": {
                           "anyOf": [
@@ -41764,6 +41981,287 @@
                               "type": "string",
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "previewReference": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "previewExpiresAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "outcome",
+                        "refusal",
+                        "method",
+                        "event",
+                        "tier",
+                        "seat",
+                        "attendeeName",
+                        "checkedInAt",
+                        "previewReference",
+                        "previewExpiresAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "credential": {
+                    "type": "string",
+                    "minLength": 16,
+                    "maxLength": 200,
+                    "pattern": "^[A-Za-z0-9_-]+$"
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 6,
+                    "maxLength": 64,
+                    "pattern": "^[A-Z0-9-]+$"
+                  },
+                  "expectedEventId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/tickets/check-in": {
+      "post": {
+        "operationId": "tickets.checkIn",
+        "summary": "Admit a previewed ticket",
+        "description": "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. Rate-limited per scanner and never cached.",
+        "tags": [
+          "tickets"
+        ],
+        "responses": {
+          "200": {
+            "description": "Admit a previewed ticket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "ADMITTED",
+                            "ALREADY_CHECKED_IN"
+                          ]
+                        },
+                        "checkedInAt": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "method": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "QR_SCAN",
+                                "MANUAL_CODE"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "checkedInByYou": {
+                          "type": "boolean"
+                        },
+                        "event": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "maxLength": 64,
+                              "pattern": "^[a-z][a-z0-9]{7,31}$"
+                            },
+                            "title": {
+                              "type": "string"
+                            },
+                            "startsAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "endsAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "timezone": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "startsAt",
+                            "endsAt",
+                            "timezone"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "tier": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "seat": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "section": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "row": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "label": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "section",
+                                "row",
+                                "label"
+                              ],
+                              "additionalProperties": false
                             },
                             {
                               "type": "null"
@@ -41778,9 +42276,13 @@
                         }
                       },
                       "required": [
-                        "ticket",
-                        "alreadyCheckedIn",
+                        "outcome",
                         "checkedInAt",
+                        "method",
+                        "checkedInByYou",
+                        "event",
+                        "tier",
+                        "seat",
                         "attendeeName"
                       ],
                       "additionalProperties": false
@@ -41843,6 +42345,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "requestBody": {
@@ -41864,32 +42376,32 @@
                     "maxLength": 64,
                     "pattern": "^[A-Z0-9-]+$"
                   },
-                  "eventId": {
+                  "expectedEventId": {
                     "type": "string",
                     "maxLength": 64,
                     "pattern": "^[a-z][a-z0-9]{7,31}$"
                   },
-                  "eventSessionId": {
+                  "previewReference": {
                     "type": "string",
-                    "maxLength": 64,
-                    "pattern": "^[a-z][a-z0-9]{7,31}$"
-                  },
-                  "checkedInAt": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                  },
-                  "deviceId": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 500
+                    "minLength": 20,
+                    "maxLength": 600,
+                    "pattern": "^[A-Za-z0-9_.-]+$"
                   },
                   "gate": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 60
+                  },
+                  "deviceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
                   }
-                }
+                },
+                "required": [
+                  "previewReference"
+                ],
+                "additionalProperties": false
               }
             }
           }
@@ -44158,6 +44670,10 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "reason": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
               },
               "requestId": {
                 "type": "string",

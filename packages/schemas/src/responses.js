@@ -18,7 +18,18 @@ import {
   orderReferenceSchema,
   timestampSchema,
 } from './primitives.js'
-import { connectOnboardingStatusSchema, eventCategorySchema, logLevelSchema } from './enums.js'
+import {
+  admissionAuthoritySchema,
+  admissionPreviewOutcomeSchema,
+  admissionRefusalReasonSchema,
+  checkInOutcomeSchema,
+  connectOnboardingStatusSchema,
+  eventCategorySchema,
+  eventStatusSchema,
+  logLevelSchema,
+  orgRoleSchema,
+  recordedCheckInMethodSchema,
+} from './enums.js'
 import { PAYMENT_MODES } from './payments.js'
 import {
   eventSummarySchema,
@@ -98,6 +109,16 @@ export const errorResponseSchema = z.object({
      * a 422 said "that is not coherent" and nothing else.
      */
     problems: z.array(z.string()).optional(),
+    /**
+     * Why a business rule refused, as a code from the closed vocabulary the
+     * route documents — `ADMISSION_REFUSAL_REASONS` at the door. Present only
+     * on refusals that have one; a client branches on this, never on
+     * `message`, which is written for people and may be reworded.
+     */
+    reason: z
+      .string()
+      .regex(/^[A-Z][A-Z0-9_]{1,63}$/u)
+      .optional(),
     requestId: z.string().min(1).max(64).optional(),
   }),
 })
@@ -154,16 +175,113 @@ export const holdResponseSchema = z.object({
   }),
 })
 
-/** Response to a door scan. */
+/**
+ * The event, as a door needs to see it: which one, and when.
+ *
+ * Not the event entity. A scanner has no business with an event's pricing,
+ * description, moderation state or venue address, and a door screen that could
+ * render them would be a screen that could leak them.
+ */
+export const admissionEventSchema = z.object({
+  id: cuidSchema,
+  title: z.string(),
+  startsAt: timestampSchema,
+  endsAt: timestampSchema.nullable(),
+  timezone: z.string(),
+})
+
+/** Where the ticket sits, for reserved seating. Null for general admission. */
+export const admissionSeatSchema = z
+  .object({
+    section: z.string().nullable(),
+    row: z.string().nullable(),
+    label: z.string(),
+  })
+  .nullable()
+
+/**
+ * What a door is told about a ticket before admitting it.
+ *
+ * ## What is here, and why each thing is
+ *
+ * The event and its time, so a steward notices a ticket for tomorrow. The tier
+ * and seat, so they can point somebody to the right door. The attendee's name,
+ * because checking it against an identity document is often the point. Whether
+ * the ticket is already in, and when. A closed reason when it is refused.
+ *
+ * ## What is not, and never will be
+ *
+ * The credential or its digest. The buyer's or recipient's email. Anything
+ * about payment: order totals, provider references, connected accounts. The
+ * transfer token. Internal notes. Audit metadata. Any other attendee. None of
+ * those helps a door decide, and every one of them is something a lost scanner
+ * would otherwise be carrying.
+ *
+ * `previewReference` is present only when the outcome is `ADMISSIBLE`: there is
+ * nothing to confirm otherwise. It is short-lived, bound to this scanner and
+ * this presentation, and grants nothing by itself — confirmation re-checks
+ * everything, and still needs the pass.
+ */
+export const admissionPreviewResponseSchema = z.object({
+  data: z.object({
+    outcome: admissionPreviewOutcomeSchema,
+    refusal: admissionRefusalReasonSchema.nullable(),
+    method: recordedCheckInMethodSchema,
+    event: admissionEventSchema,
+    tier: z.object({ name: z.string() }).nullable(),
+    seat: admissionSeatSchema,
+    attendeeName: z.string().nullable(),
+    checkedInAt: timestampSchema.nullable(),
+    previewReference: z.string().nullable(),
+    previewExpiresAt: timestampSchema.nullable(),
+  }),
+})
+
+/**
+ * What a confirmed admission did.
+ *
+ * `ADMITTED` means this request wrote the admission. `ALREADY_CHECKED_IN` means
+ * somebody had — perhaps this scanner, on a request whose answer was lost — and
+ * carries the original instant rather than now. A refusal is not a 200: it is a
+ * 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`.
+ *
+ * `method` is the method the admission was *recorded* with, which for a
+ * duplicate is the original's, not this request's.
+ */
 export const checkInResponseSchema = z.object({
   data: z.object({
-    ticket: ticketSchema,
-    alreadyCheckedIn: z.boolean().default(false),
-    /** When it was first admitted, for a re-scan. */
+    outcome: checkInOutcomeSchema,
+    /**
+     * When the ticket was admitted. Null only for a ticket already marked
+     * admitted with no recorded instant — rows the demo seed writes directly —
+     * which is better reported as unknown than invented.
+     */
     checkedInAt: timestampSchema.nullable(),
-    /** Who it says on the ticket, so a door can match a face to a name. */
+    method: recordedCheckInMethodSchema.nullable(),
+    checkedInByYou: z.boolean(),
+    event: admissionEventSchema,
+    tier: z.object({ name: z.string() }).nullable(),
+    seat: admissionSeatSchema,
     attendeeName: z.string().nullable(),
   }),
+})
+
+/**
+ * The events this account may admit to, and on what authority.
+ *
+ * Derived from memberships and scopes read at request time. A scanner is shown
+ * the events its scopes name and nothing else, so the door screen cannot even
+ * offer an event the server would refuse.
+ */
+export const admissionEventsResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      event: admissionEventSchema.extend({ status: eventStatusSchema }),
+      organization: z.object({ id: cuidSchema, name: z.string() }),
+      authority: admissionAuthoritySchema,
+      role: orgRoleSchema,
+    }),
+  ),
 })
 
 /**

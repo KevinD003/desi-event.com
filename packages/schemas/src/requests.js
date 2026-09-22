@@ -357,40 +357,107 @@ export const createOrderRequestSchema = z
     })
   })
 
-/** Scan a ticket at the door. */
-export const checkInRequestSchema = z
+/**
+ * The pass from a QR code: base64url, and bounded.
+ *
+ * A scanner sends what it read, and an unbounded string from a device at a door
+ * is a hashing job somebody else chose the size of.
+ */
+const admissionCredentialSchema = z
+  .string()
+  .trim()
+  .min(16)
+  .max(200)
+  .regex(/^[A-Za-z0-9_-]+$/u)
+
+/**
+ * Exactly one way of presenting a ticket.
+ *
+ * The admission method is derived from which one arrives — the credential is a
+ * QR scan, the printed reference is manual entry — so both at once is refused
+ * rather than resolved by a precedence rule nobody can see from the outside.
+ *
+ * @param {{credential?: string, code?: string}} value The parsed body.
+ * @param {object} ctx The Zod refinement context.
+ * @returns {void}
+ */
+function exactlyOnePresentation(value, ctx) {
+  const presented = [value.credential, value.code].filter(Boolean).length
+
+  if (presented === 0) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['credential'],
+      message: 'Send the scanned pass, or the printed code.',
+    })
+  }
+
+  if (presented === 2) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['code'],
+      message: 'Send the scanned pass or the printed code, not both.',
+    })
+  }
+}
+
+/**
+ * Look a ticket up at the door without admitting it.
+ *
+ * Strict, so an unknown key is a 400 rather than silently dropped. The fields a
+ * scanner might be tempted to send — a method, a time, a session — are not
+ * inputs the server takes from a device, and saying so plainly is better than
+ * accepting and ignoring them.
+ */
+export const admissionPreviewRequestSchema = z
   .object({
-    /**
-     * The pass from a QR code.
-     *
-     * Base64url, and bounded: a scanner sends what it read, and an unbounded
-     * string from a device at a door is a hashing job somebody else chose the
-     * size of.
-     */
-    credential: z
-      .string()
-      .trim()
-      .min(16)
-      .max(200)
-      .regex(/^[A-Za-z0-9_-]+$/u)
-      .optional(),
+    credential: admissionCredentialSchema.optional(),
     /** The printed reference, for when a pass will not scan. */
     code: ticketCodeSchema.optional(),
-    eventId: cuidSchema.optional(),
-    eventSessionId: cuidSchema.optional(),
-    checkedInAt: timestampSchema.optional(),
-    deviceId: nonEmptyStringSchema.optional(),
+    /**
+     * The event this door is admitting to, as the scanner believes it.
+     *
+     * An expectation, never an authority. The server resolves the ticket's
+     * event from the database and authorises against that; this only turns a
+     * ticket for the event next door into a named refusal instead of an
+     * admission.
+     */
+    expectedEventId: cuidSchema.optional(),
+  })
+  .strict()
+  .superRefine(exactlyOnePresentation)
+
+/**
+ * Admit a ticket that was previewed.
+ *
+ * The same presentation again — a preview is not a token — plus the reference
+ * the preview returned, which binds this confirmation to that preview, this
+ * scanner and this method. Everything is checked again inside the transaction
+ * that writes the admission.
+ *
+ * There is no `checkedInAt`: the recorded instant is the server's. There is no
+ * `method`: it follows from what was presented. There is no `eventSessionId`:
+ * it follows from the order.
+ */
+export const checkInRequestSchema = z
+  .object({
+    credential: admissionCredentialSchema.optional(),
+    code: ticketCodeSchema.optional(),
+    expectedEventId: cuidSchema.optional(),
+    /** From the preview. Opaque to the scanner; meaningless without the pass. */
+    previewReference: z
+      .string()
+      .trim()
+      .min(20)
+      .max(600)
+      .regex(/^[A-Za-z0-9_.-]+$/u),
+    /** Which door, when the venue distinguishes them. Recorded as-is. */
     gate: z.string().trim().min(1).max(60).optional(),
+    /** What the scanner calls itself. Audit only, and labelled self-reported. */
+    deviceId: nonEmptyStringSchema.optional(),
   })
-  .superRefine((value, ctx) => {
-    if (!value.credential && !value.code) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['credential'],
-        message: 'Send the scanned pass, or the printed code.',
-      })
-    }
-  })
+  .strict()
+  .superRefine(exactlyOnePresentation)
 
 /**
  * Offering a ticket to somebody.

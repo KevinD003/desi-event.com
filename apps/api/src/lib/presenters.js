@@ -358,8 +358,9 @@ export function toWalletTicket(ticket, { viewerUserId }) {
   const purchased = Boolean(order?.userId) && order.userId === viewerUserId
 
   // The same function the door uses, so a wallet saying "ready to use" and a
-  // scanner saying "refunded" cannot both be running.
-  const refusal = admissionRefusal(ticket, order)
+  // scanner saying "refunded" cannot both be running. The event is passed,
+  // because a ticket for a cancelled event admits nobody at the door either.
+  const refusal = admissionRefusal(ticket, order, event)
 
   // Only one, and only an outstanding one. The token is not in the row and
   // never was — the database holds its digest.

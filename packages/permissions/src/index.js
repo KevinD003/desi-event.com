@@ -36,3 +36,12 @@ export {
 } from './can.js'
 
 export { PermissionError } from './errors.js'
+
+export {
+  ADMISSION_AUTHORITIES,
+  EVENT_SCOPED_ADMISSION_ROLES,
+  ORGANIZATION_WIDE_ADMISSION_ROLES,
+  admissionAuthorityFor,
+  assertAdmissionPolicy,
+  requiresAdmissionScope,
+} from './admission.js'

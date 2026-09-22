@@ -696,31 +696,86 @@ describe('changing a role', () => {
   it('scopes a scanner to events, and only to its own organisation events', async () => {
     const { app, ids, prisma, team } = await createTeamApp()
     const token = await signIn(app, 'owner@rangoli.example')
+    const url = `/v1/organizations/${org(ids)}/members/${team.scanner.membershipId}`
+    const scopesNow = () =>
+      prisma._store.scannerScope
+        .filter((scope) => scope.membershipId === team.scanner.membershipId)
+        .map((scope) => scope.eventId)
 
-    const response = await app.inject({
+    const own = await app.inject({
       method: 'PATCH',
-      url: `/v1/organizations/${org(ids)}/members/${team.scanner.membershipId}`,
+      url,
       headers: bearer(token),
-      payload: {
-        role: 'SCANNER',
-        eventIds: [ids.publishedEvent.id, ids.otherOrganization.id],
-      },
+      payload: { role: 'SCANNER', eventIds: [ids.publishedEvent.id] },
     })
 
-    expect(response.statusCode).toBe(200)
+    expect(own.statusCode).toBe(200)
+    expect(scopesNow()).toEqual([ids.publishedEvent.id])
 
-    const scopes = prisma._store.scannerScope.filter(
-      (scope) => scope.membershipId === team.scanner.membershipId,
-    )
+    // Another organisation's event, alongside one of ours. It used to be
+    // dropped without a word and the route answered 200, so an administrator
+    // could believe a scanner was scoped somewhere it was not and find out at
+    // the door. Now the whole request is refused and nothing changes.
+    const foreign = await app.inject({
+      method: 'PATCH',
+      url,
+      headers: bearer(token),
+      payload: { role: 'SCANNER', eventIds: [ids.publishedEvent.id, ids.onlineEvent.id] },
+    })
 
-    // One scope, for the event that belongs here. The other id was somebody
-    // else's and produced nothing rather than pointing a scanner at their door.
-    expect(scopes.map((scope) => scope.eventId)).toEqual([ids.publishedEvent.id])
+    expect(foreign.statusCode).toBe(422)
+    expect(foreign.body).not.toContain(ids.onlineEvent.title)
+    expect(scopesNow()).toEqual([ids.publishedEvent.id])
 
     await app.close()
   })
 
-  it('clears scanner scopes when the role stops being SCANNER', async () => {
+  it('keeps scopes for every event-scoped door role, and none for a role that cannot use them', async () => {
+    const { app, ids, prisma, team } = await createTeamApp()
+    const token = await signIn(app, 'owner@rangoli.example')
+    const url = `/v1/organizations/${org(ids)}/members/${team.scanner.membershipId}`
+    const scopesNow = () =>
+      prisma._store.scannerScope.filter((scope) => scope.membershipId === team.scanner.membershipId)
+
+    // MANAGER, STAFF and SCANNER admit only where a scope says so, so a scope
+    // given to any of them is kept.
+    for (const role of ['MANAGER', 'STAFF', 'SCANNER']) {
+      const response = await app.inject({
+        method: 'PATCH',
+        url,
+        headers: bearer(token),
+        payload: { role, eventIds: [ids.publishedEvent.id] },
+      })
+
+      expect(response.statusCode, role).toBe(200)
+      expect(scopesNow(), role).toHaveLength(1)
+    }
+
+    // ADMIN admits everywhere and VIEWER nowhere; a scope would mean nothing
+    // for either, and left behind it would be re-inherited on a later demotion.
+    for (const role of ['ADMIN', 'VIEWER']) {
+      await app.inject({
+        method: 'PATCH',
+        url,
+        headers: bearer(token),
+        payload: { role: 'SCANNER', eventIds: [ids.publishedEvent.id] },
+      })
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url,
+        headers: bearer(token),
+        payload: { role, eventIds: [ids.publishedEvent.id] },
+      })
+
+      expect(response.statusCode, role).toBe(200)
+      expect(scopesNow(), role).toHaveLength(0)
+    }
+
+    await app.close()
+  })
+
+  it('replaces the scopes on every role change, so a change that names none leaves none', async () => {
     const { app, ids, prisma, team } = await createTeamApp()
     const token = await signIn(app, 'owner@rangoli.example')
     const url = `/v1/organizations/${org(ids)}/members/${team.scanner.membershipId}`
@@ -738,8 +793,8 @@ describe('changing a role', () => {
       payload: { role: 'STAFF' },
     })
 
-    // Otherwise a promotion leaves scopes lying around to be re-inherited if the
-    // person is ever made a scanner again.
+    // A role change states the whole door assignment: role and scopes together.
+    // Otherwise a change leaves scopes lying around that nobody chose this time.
     expect(
       prisma._store.scannerScope.filter(
         (scope) => scope.membershipId === team.scanner.membershipId,

@@ -274,7 +274,7 @@ async function noCrossLineageSupersession(prisma) {
  * More ways in than were sold.
  *
  * The property the count of terminal members approximates and does not
- * actually measure. What opens a door is a credential: `findTicketForScan`
+ * actually measure. What opens a door is a credential: the admission service
  * resolves a presented pass by `credentialHash`, so a row holding a digest is a
  * row somebody can be admitted on, whatever its place in a lineage.
  *

@@ -400,6 +400,9 @@ export async function makeWorld(overrides = {}) {
     onlineUrl: null,
     languages: ['Gujarati', 'Hindi'],
     publishedAt: new Date('2025-02-01T00:00:00.000Z'),
+    // Spelled out because seeded rows bypass the stub's defaults, and a query
+    // for events that are not cancelled asks for exactly this column to be null.
+    cancelledAt: null,
     createdAt: new Date('2025-02-01T00:00:00.000Z'),
     updatedAt: new Date('2025-02-01T00:00:00.000Z'),
     // Publication refuses an event with no entry, refund and conduct rules,
@@ -576,14 +579,27 @@ export async function makeWorld(overrides = {}) {
     }
   }
 
+  // Door staff admit only where a scope says so. The published event is the
+  // one every door test scans at; the manager deliberately has no scope, so the
+  // world holds a door role that the policy refuses as well as one it admits.
+  const staffMembership = membership(staff, organization, 'STAFF')
+
   const seed = {
     user: [attendee, owner, manager, staff, viewer, outsider, platformAdmin, moderator],
     membership: [
       membership(owner, organization, 'OWNER'),
       membership(manager, organization, 'MANAGER'),
-      membership(staff, organization, 'STAFF'),
+      staffMembership,
       membership(viewer, organization, 'VIEWER'),
       membership(outsider, otherOrganization, 'OWNER'),
+    ],
+    scannerScope: [
+      {
+        id: cuid(),
+        membershipId: staffMembership.id,
+        eventId: publishedEvent.id,
+        createdAt: new Date('2025-02-01T00:00:00.000Z'),
+      },
     ],
     organization: [organization, otherOrganization],
     venue: [venue, otherVenue],

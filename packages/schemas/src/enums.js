@@ -292,7 +292,62 @@ export const TICKET_TRANSFER_STATUSES = Object.freeze([
   'EXPIRED',
 ])
 
-export const CHECK_IN_METHODS = Object.freeze(['QR_SCAN', 'MANUAL_LOOKUP', 'ASSISTED'])
+/**
+ * Every value the database's `CheckInMethod` type declares.
+ *
+ * `MANUAL_CODE` was `MANUAL_LOOKUP` until the Phase 4 admission work renamed it
+ * in place, so existing rows kept their meaning. `ASSISTED` is declared and
+ * written by nothing: the server cannot tell a code a steward read aloud from
+ * one they typed, so there is no truthful way to record it. See
+ * {@link RECORDED_CHECK_IN_METHODS}.
+ */
+export const CHECK_IN_METHODS = Object.freeze(['QR_SCAN', 'MANUAL_CODE', 'ASSISTED'])
+
+/**
+ * The methods an admission can actually be recorded with.
+ *
+ * Derived by the server from what was presented — the secure credential from a
+ * pass, or the printed reference — and never chosen by the client. A browser
+ * that could label its own admissions could call a typed code a QR scan.
+ */
+export const RECORDED_CHECK_IN_METHODS = Object.freeze(['QR_SCAN', 'MANUAL_CODE'])
+
+/**
+ * Why a door refused a ticket, in words a scanner can branch on.
+ *
+ * A closed vocabulary rather than sentences, so a scanner screen can choose its
+ * own wording and an audit query can count refusals by kind. The first seven
+ * come from the ticket, its order or its event; the last four from the
+ * admission workflow itself.
+ */
+export const ADMISSION_REFUSAL_REASONS = Object.freeze([
+  'REFUNDED',
+  'REVOKED',
+  'TRANSFERRED',
+  'CANCELLED',
+  'SUPERSEDED',
+  'VOID',
+  'NOT_ADMISSIBLE',
+  'ORDER_NOT_PAID',
+  'EVENT_CANCELLED',
+  'WRONG_EVENT',
+  'PREVIEW_EXPIRED',
+  'PREVIEW_INVALID',
+  'PREVIEW_MISMATCH',
+])
+
+/** What an admission preview found. */
+export const ADMISSION_PREVIEW_OUTCOMES = Object.freeze([
+  'ADMISSIBLE',
+  'ALREADY_CHECKED_IN',
+  'REFUSED',
+])
+
+/** What a confirmed admission did. Refusals are 409s and carry a reason instead. */
+export const CHECK_IN_OUTCOMES = Object.freeze(['ADMITTED', 'ALREADY_CHECKED_IN'])
+
+/** Where the authority for an admission came from. */
+export const ADMISSION_AUTHORITIES = Object.freeze(['ORGANIZATION_ROLE', 'EVENT_SCOPE'])
 
 export const NOTIFICATION_CHANNELS = Object.freeze(['EMAIL', 'SMS', 'PUSH'])
 
@@ -421,6 +476,21 @@ export const ticketTransferStatusSchema = z.enum([...TICKET_TRANSFER_STATUSES])
 
 /** `CHECK_IN_METHODS` as a Zod enum. */
 export const checkInMethodSchema = z.enum([...CHECK_IN_METHODS])
+
+/** `RECORDED_CHECK_IN_METHODS` as a Zod enum. */
+export const recordedCheckInMethodSchema = z.enum([...RECORDED_CHECK_IN_METHODS])
+
+/** `ADMISSION_REFUSAL_REASONS` as a Zod enum. */
+export const admissionRefusalReasonSchema = z.enum([...ADMISSION_REFUSAL_REASONS])
+
+/** `ADMISSION_PREVIEW_OUTCOMES` as a Zod enum. */
+export const admissionPreviewOutcomeSchema = z.enum([...ADMISSION_PREVIEW_OUTCOMES])
+
+/** `CHECK_IN_OUTCOMES` as a Zod enum. */
+export const checkInOutcomeSchema = z.enum([...CHECK_IN_OUTCOMES])
+
+/** `ADMISSION_AUTHORITIES` as a Zod enum. */
+export const admissionAuthoritySchema = z.enum([...ADMISSION_AUTHORITIES])
 
 /** `NOTIFICATION_CHANNELS` as a Zod enum. */
 export const notificationChannelSchema = z.enum([...NOTIFICATION_CHANNELS])

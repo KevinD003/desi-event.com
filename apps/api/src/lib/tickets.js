@@ -45,7 +45,7 @@ import { createHash, randomBytes } from 'node:crypto'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { conflict, forbidden, httpError, notFound, unprocessable } from './errors.js'
-import { credentialDigest, issueTicketCredential } from './ticket-credentials.js'
+import { issueTicketCredential } from './ticket-credentials.js'
 
 /**
  * Every state a ticket can be in that this module drives.
@@ -127,34 +127,89 @@ export function canTransition(from, to) {
 }
 
 /**
- * Why a ticket cannot be admitted, or null when it can.
+ * Why a ticket cannot be admitted, as a closed code, or null when it can.
  *
- * Pure, so the rule is readable without a database and so the door's answer and
- * the organiser's screen cannot disagree about it.
+ * Pure, so the rule is readable without a database, and shared, so the door,
+ * the wallet and the holder's pass cannot disagree about it: all three read
+ * this function.
+ *
+ * ## The event, since Phase 4
+ *
+ * Before the admission work this looked only at the ticket and its order, and a
+ * ticket for a **cancelled event** admitted: cancelling an event writes
+ * `cancelledAt` and raises refunds, and never touches a ticket row, so every
+ * ticket on it stayed VALID. When the event is supplied, a cancelled one now
+ * refuses. There is still no admission *window* — nothing in this system has
+ * ever defined one, and inventing it here would be a product decision made by
+ * a function.
+ *
+ * `CHECKED_IN` is not a refusal: a second scan is a duplicate, answered with the
+ * original admission rather than an error.
  *
  * @param {object} ticket The ticket.
  * @param {object|null} order Its order.
- * @returns {string|null} A sentence for the person holding the scanner, or null.
+ * @param {object|null} [event] Its event, with `status` and `cancelledAt`.
+ * @returns {string|null} One of `ADMISSION_REFUSAL_REASONS`, or null.
  */
-export function admissionRefusal(ticket, order) {
+export function admissionRefusalCode(ticket, order, event = null) {
   if (!ADMISSIBLE_STATES.includes(ticket.status)) {
     if (ticket.status === TICKET_STATES.CHECKED_IN) return null
 
-    const reasons = {
-      [TICKET_STATES.REFUNDED]: 'This ticket was refunded.',
-      [TICKET_STATES.REVOKED]: 'This ticket was withdrawn by the organiser.',
-      [TICKET_STATES.TRANSFERRED]: 'This ticket was handed to somebody else.',
-      [TICKET_STATES.CANCELLED]: 'This event was cancelled.',
-      [TICKET_STATES.SUPERSEDED]: 'This pass was replaced. Ask for the current one.',
-      [TICKET_STATES.VOID]: 'This ticket is void.',
+    const codes = {
+      [TICKET_STATES.REFUNDED]: 'REFUNDED',
+      [TICKET_STATES.REVOKED]: 'REVOKED',
+      [TICKET_STATES.TRANSFERRED]: 'TRANSFERRED',
+      [TICKET_STATES.CANCELLED]: 'CANCELLED',
+      [TICKET_STATES.SUPERSEDED]: 'SUPERSEDED',
+      [TICKET_STATES.VOID]: 'VOID',
     }
 
-    return reasons[ticket.status] ?? 'This ticket cannot be admitted.'
+    return codes[ticket.status] ?? 'NOT_ADMISSIBLE'
   }
 
-  if (order && order.status !== 'PAID') return 'The order for this ticket is not paid.'
+  if (order && order.status !== 'PAID') return 'ORDER_NOT_PAID'
+
+  if (event && (event.status === 'CANCELLED' || event.cancelledAt)) return 'EVENT_CANCELLED'
 
   return null
+}
+
+/**
+ * The sentence a person reads for each refusal code.
+ *
+ * The wallet and the pass route show these; the door returns the code and lets
+ * the scanner screen choose its own words.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
+  REFUNDED: 'This ticket was refunded.',
+  REVOKED: 'This ticket was withdrawn by the organiser.',
+  TRANSFERRED: 'This ticket was handed to somebody else.',
+  CANCELLED: 'This event was cancelled.',
+  SUPERSEDED: 'This pass was replaced. Ask for the current one.',
+  VOID: 'This ticket is void.',
+  NOT_ADMISSIBLE: 'This ticket cannot be admitted.',
+  ORDER_NOT_PAID: 'The order for this ticket is not paid.',
+  EVENT_CANCELLED: 'This event was cancelled.',
+  WRONG_EVENT: 'This ticket is for a different event.',
+  PREVIEW_EXPIRED: 'That check took too long. Look the ticket up again.',
+  PREVIEW_INVALID: 'That check could not be confirmed. Look the ticket up again.',
+  PREVIEW_MISMATCH: 'The pass presented is not the one that was checked. Look it up again.',
+})
+
+/**
+ * Why a ticket cannot be admitted, as a sentence, or null when it can.
+ *
+ * @param {object} ticket The ticket.
+ * @param {object|null} order Its order.
+ * @param {object|null} [event] Its event, with `status` and `cancelledAt`.
+ * @returns {string|null} A sentence for the person holding the ticket or the scanner, or null.
+ */
+export function admissionRefusal(ticket, order, event = null) {
+  const code = admissionRefusalCode(ticket, order, event)
+
+  return code === null ? null : ADMISSION_REFUSAL_SENTENCES[code]
 }
 
 /**
@@ -236,6 +291,7 @@ export async function transition(tx, { ticket, to, data = {} }) {
  * @param {string|null} [params.scannerId] What the scanner calls itself. Audit only.
  * @param {string} [params.method] A `CheckInMethod`.
  * @param {string|null} [params.gate] The door.
+ * @param {string|null} [params.authority] `ORGANIZATION_ROLE` or `EVENT_SCOPE`.
  * @param {Date} params.now The instant.
  * @returns {Promise<{admitted: boolean, checkIn: object|null}>} What happened.
  */
@@ -254,6 +310,9 @@ export async function admit(tx, params) {
     scannerId = null,
     method = 'QR_SCAN',
     gate = null,
+    // Where the scanner's authority came from — an organisation-wide role or an
+    // event scope. Recorded so a reviewer can tell the two apart afterwards.
+    authority = null,
     now,
   } = params
 
@@ -298,6 +357,7 @@ export async function admit(tx, params) {
   // keeps the two facts from disagreeing.
   if (!moved) {
     throw conflict('That ticket changed while it was being scanned. Scan it again.', {
+      reason: 'NOT_ADMISSIBLE',
       ticketId: ticket.id,
       readStatus: ticket.status,
     })
@@ -318,6 +378,7 @@ export async function admit(tx, params) {
       scannerId,
       method,
       gate,
+      authority,
       previousStatus: ticket.status,
     },
   })
@@ -604,34 +665,6 @@ export async function revokeTicket(tx, { ticket, reason, actorId, requestId = nu
   })
 
   return true
-}
-
-/**
- * Find a ticket by the pass a scanner presented, or by its printed code.
- *
- * The digest is looked up rather than every ticket being compared, because a
- * scan happens at a door with a queue behind it. The comparison is still
- * constant-time where it matters: the digest is a lookup key and the credential
- * it came from is never revealed by the answer.
- *
- * @param {object} prisma A Prisma client or transaction client.
- * @param {object} params Inputs.
- * @param {string} [params.credential] The pass from a QR code.
- * @param {string} [params.code] The printed reference.
- * @param {object} [params.include] Relations to load.
- * @returns {Promise<object|null>} The ticket, or null.
- */
-export async function findTicketForScan(prisma, { credential, code, include }) {
-  if (credential) {
-    return prisma.ticket.findUnique({
-      where: { credentialHash: credentialDigest(credential) },
-      ...(include ? { include } : {}),
-    })
-  }
-
-  if (code) return prisma.ticket.findUnique({ where: { code }, ...(include ? { include } : {}) })
-
-  return null
 }
 
 /**

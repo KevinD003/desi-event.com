@@ -214,17 +214,40 @@ export const SCENARIOS = Object.freeze([
   {
     key: 'check-in-concurrency',
     title: 'Check-in concurrency',
-    asks: 'Do two scanners on one pass produce one admission?',
+    asks: 'Do stewards racing on one pass, by QR and by printed code, produce one admission?',
     async run(context) {
-      const codes = context.world.ticketCodes
+      const { doorPasses, doorHeaders } = context.world
+      const pass = doorPasses[context.iteration % doorPasses.length]
+      // Alternating between the secure pass and the printed code, so a QR
+      // scan and a typed code race each other for the same ticket — the
+      // method-level race the unique `CheckIn.ticketId` has to settle.
+      const presentation =
+        context.iteration % 2 === 0 ? { credential: pass.credential } : { code: pass.code }
+
+      const looked = await attempt(
+        context,
+        {
+          method: 'POST',
+          path: '/v1/tickets/admission/preview',
+          body: presentation,
+          headers: doorHeaders,
+        },
+        EXPECTED.read,
+      )
+
+      // A preview that found the ticket already in carries no reference: the
+      // door has its answer, and that answer is the product working.
+      const previewReference = looked.body?.data?.previewReference
+
+      if (!looked.ok || !previewReference) return looked
 
       return attempt(
         context,
         {
           method: 'POST',
           path: '/v1/tickets/check-in',
-          body: { code: codes[context.iteration % codes.length] },
-          headers: context.world.doorHeaders,
+          body: { ...presentation, previewReference },
+          headers: doorHeaders,
         },
         EXPECTED.contention,
       )

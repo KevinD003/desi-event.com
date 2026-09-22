@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_PAGE, DEFAULT_PER_PAGE, MAX_PER_PAGE } from './primitives.js'
 import {
+  admissionPreviewRequestSchema,
   checkInRequestSchema,
   createEventRequestSchema,
   createHoldRequestSchema,
@@ -549,36 +550,105 @@ describe('createOrderRequestSchema', () => {
   })
 })
 
-describe('checkInRequestSchema', () => {
-  it('upper-cases the scanned code', () => {
-    // `force` used to default here and is gone: with an attendance row that is
-    // unique per ticket, the only thing it could mean is "rewrite the admission
-    // record", and a record whoever holds the scanner can rewrite is not one.
-    expect(checkInRequestSchema.parse({ code: 'de-8f3k2q-01' })).toEqual({
+describe('admissionPreviewRequestSchema', () => {
+  const credential = 'a'.repeat(43)
+
+  it('upper-cases the printed code', () => {
+    expect(admissionPreviewRequestSchema.parse({ code: 'de-8f3k2q-01' })).toEqual({
       code: 'DE-8F3K2Q-01',
     })
   })
 
-  it('accepts the scanned pass on its own', () => {
-    const credential = 'a'.repeat(43)
-
-    expect(checkInRequestSchema.parse({ credential })).toEqual({ credential })
+  it('accepts the secure pass on its own, with the event the door expects', () => {
+    expect(admissionPreviewRequestSchema.parse({ credential, expectedEventId: EVENT_ID })).toEqual({
+      credential,
+      expectedEventId: EVENT_ID,
+    })
   })
 
-  it('rejects an empty code', () => {
-    expect(checkInRequestSchema.safeParse({ code: '' }).success).toBe(false)
+  it('refuses a request that presents nothing, or presents both', () => {
+    // Exactly one: two presentations would leave the server choosing which to
+    // believe, and the method it records follows from the choice.
+    expect(admissionPreviewRequestSchema.safeParse({}).success).toBe(false)
+    expect(
+      admissionPreviewRequestSchema.safeParse({ credential, code: 'DE-8F3K2Q-01' }).success,
+    ).toBe(false)
   })
 
-  it('rejects a request that presents nothing', () => {
-    expect(checkInRequestSchema.safeParse({ gate: 'North' }).success).toBe(false)
-  })
-
-  it('rejects a pass that is not base64url', () => {
+  it('refuses a pass that is not base64url and an empty code', () => {
     // The scanner sends what it read. Anything else is either a broken device
     // or somebody probing, and neither should reach a database lookup.
-    expect(checkInRequestSchema.safeParse({ credential: `${'a'.repeat(40)}+/=` }).success).toBe(
-      false,
-    )
+    expect(
+      admissionPreviewRequestSchema.safeParse({ credential: `${'a'.repeat(40)}+/=` }).success,
+    ).toBe(false)
+    expect(admissionPreviewRequestSchema.safeParse({ code: '' }).success).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'QR_SCAN' }],
+    ['eventId', { eventId: EVENT_ID }],
+    ['previewReference', { previewReference: 'x'.repeat(40) }],
+  ])('refuses %s rather than ignoring it', (_key, extra) => {
+    // Strict, so a client that thinks it can choose one of these is told so.
+    expect(
+      admissionPreviewRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', ...extra }).success,
+    ).toBe(false)
+  })
+})
+
+describe('checkInRequestSchema', () => {
+  const credential = 'a'.repeat(43)
+  const previewReference = `${'a'.repeat(40)}.${'b'.repeat(43)}`
+
+  it('needs the reference the preview returned', () => {
+    expect(checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01' }).success).toBe(false)
+    expect(checkInRequestSchema.parse({ code: 'de-8f3k2q-01', previewReference })).toEqual({
+      code: 'DE-8F3K2Q-01',
+      previewReference,
+    })
+  })
+
+  it('accepts the secure pass with a gate and a self-reported device name', () => {
+    expect(
+      checkInRequestSchema.parse({
+        credential,
+        previewReference,
+        gate: 'North',
+        deviceId: 'ipad-3',
+      }),
+    ).toEqual({ credential, previewReference, gate: 'North', deviceId: 'ipad-3' })
+  })
+
+  it('refuses a request that presents nothing, or presents both', () => {
+    expect(checkInRequestSchema.safeParse({ previewReference, gate: 'North' }).success).toBe(false)
+    expect(
+      checkInRequestSchema.safeParse({ credential, code: 'DE-8F3K2Q-01', previewReference })
+        .success,
+    ).toBe(false)
+  })
+
+  it('refuses a reference with characters a signed one never has', () => {
+    expect(
+      checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference: 'a b.c' }).success,
+    ).toBe(false)
+    expect(
+      checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference: 'short' }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'MANUAL_CODE' }],
+    ['checkedInAt', { checkedInAt: '2026-01-01T10:00:00.000Z' }],
+    ['force', { force: true }],
+    ['eventSessionId', { eventSessionId: EVENT_ID }],
+    ['eventId', { eventId: EVENT_ID }],
+  ])('refuses %s: the server decides it, not the client', (_key, extra) => {
+    // `force` used to re-stamp an admission, `checkedInAt` to backdate one, and
+    // a client-chosen method would make the record say whatever the scanner
+    // liked. Each was stripped silently once; now each is a 400.
+    expect(
+      checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference, ...extra }).success,
+    ).toBe(false)
   })
 })
 

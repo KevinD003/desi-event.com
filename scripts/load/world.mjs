@@ -252,7 +252,7 @@ export async function buildWorld(prisma, app, tag) {
     seatedEventId: seated.eventId,
     seatedSessionId: seated.sessionId,
     seatIds: seated.seatIds,
-    ticketCodes: door.codes,
+    doorPasses: door.passes,
     doorHeaders,
     operatorHeaders,
     financeHeaders: operatorHeaders,
@@ -430,13 +430,20 @@ async function buildDoorTickets(prisma, { tag, event, session, roomy, authSecret
     },
   })
 
-  await prisma.membership.create({
+  const membership = await prisma.membership.create({
     data: {
       id: id(tag, 'membership'),
       userId: scanner.id,
       organizationId: event.organizationId,
       role: 'STAFF',
     },
+  })
+
+  // STAFF admits only where a door scope says so. Without this row every
+  // preview in the check-in scenario is the uniform 404 and the scenario
+  // measures a refusal, not an admission.
+  await prisma.scannerScope.create({
+    data: { id: id(tag, 'door-scope'), membershipId: membership.id, eventId: event.id },
   })
 
   const order = await prisma.order.create({
@@ -466,12 +473,15 @@ async function buildDoorTickets(prisma, { tag, event, session, roomy, authSecret
     },
   })
 
-  const codes = []
+  // Held in memory for the run and never written anywhere: the check-in
+  // scenario presents each pass the way a scanner would, which it could not do
+  // with only the digests the database keeps.
+  const passes = []
 
   for (let index = 0; index < DOOR_TICKETS; index += 1) {
     const ticketId = id(tag, `door-ticket-${index}`)
     const code = `DET-LOAD${tag.toUpperCase().slice(0, 4)}${index}`
-    const { credentialHash } = issueTicketCredential({
+    const { credential, credentialHash } = issueTicketCredential({
       secret:
         process.env.AUTH_SECRET ?? process.env.JWT_SECRET ?? 'load-suite-secret-32-characters-x',
       ticketId,
@@ -490,7 +500,7 @@ async function buildDoorTickets(prisma, { tag, event, session, roomy, authSecret
       },
     })
 
-    codes.push(code)
+    passes.push({ code, credential })
   }
 
   // The platform operator is privileged and cannot sign in without a factor.
@@ -501,7 +511,7 @@ async function buildDoorTickets(prisma, { tag, event, session, roomy, authSecret
   await enrol(prisma, tag, scanner, authSecret)
 
   return {
-    codes,
+    passes,
     scannerEmail: scanner.email,
     scannerEnrolled: true,
     operatorEmail: operator.email,

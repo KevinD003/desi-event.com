@@ -43,6 +43,21 @@ export const AUDIT_ACTIONS = Object.freeze({
   DISPUTE_WON: 'dispute.won',
   DISPUTE_LOST: 'dispute.lost',
   TICKET_CHECKED_IN: 'ticket.checked_in',
+  /**
+   * A door looked a ticket up without admitting it.
+   *
+   * Written for every preview the caller was authorised to make, whatever it
+   * found, so a scanner that previews hundreds of tickets it never admits is
+   * visible. The presented pass or code is never recorded.
+   */
+  TICKET_ADMISSION_PREVIEWED: 'ticket.admission_previewed',
+  /**
+   * A door was refused — for want of authority, or because the ticket may not
+   * be admitted. Recorded against the ticket when one resolved, so a refused
+   * attempt on a real ticket by somebody out of scope is on that ticket's record
+   * even though the somebody was told nothing.
+   */
+  TICKET_ADMISSION_REFUSED: 'ticket.admission_refused',
   TICKET_REVOKED: 'ticket.revoked',
   TICKET_TRANSFER_STARTED: 'ticket.transfer_started',
   TICKET_TRANSFER_ACCEPTED: 'ticket.transfer_accepted',

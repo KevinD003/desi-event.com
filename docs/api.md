@@ -219,7 +219,7 @@ rather than per cluster.
 
 ## Endpoints
 
-**132 operations across 19 tags.** This page describes the ones whose behaviour
+**134 operations across 19 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -229,7 +229,7 @@ validates with, and CI fails on a difference.
 | ------------ | --- | -------------- | --- |
 | `events`     | 23  | `finance`      | 12  |
 | `auth`       | 18  | `privacy`      | 10  |
-| `venues`     | 12  | `tickets`      | 9   |
+| `venues`     | 12  | `tickets`      | 11  |
 | `operations` | 12  | `refunds`      | 7   |
 | `teams`      | 6   | `ticket-types` | 5   |
 | `organizers` | 4   | `holds`        | 3   |
@@ -248,6 +248,14 @@ validates with, and CI fails on a difference.
 > The last row carries one tag and two empty cells rather than being balanced
 > by moving something, because nineteen does not divide into two columns and a
 > reordering to make it look tidy would break the descending-count reading.
+
+> **Correction — 2026-09-22 (third).** The total read "132 operations" and
+> `tickets` read 9. Phase 4's admission work added
+> `GET /v1/tickets/admission/events` and `POST /v1/tickets/admission/preview`,
+> so the total is 134 across **120** paths and `tickets` is 11. The columns sum
+> to 135 against a stated 134, for the `sessions.hold` reason given below.
+> Counted from `apps/api/openapi.json` and cross-checked against
+> `apiRoutes.length`.
 
 > **Correction — 2026-09-22 (second).** The total read "131 operations" and
 > `tickets` read 8. `GET /v1/tickets/:id/pass` was added in Phase 4, so the
@@ -445,7 +453,9 @@ placed under.
 
 | Method | Path                               | Auth   | Purpose                                                                                   |
 | ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
-| POST   | `/v1/tickets/check-in`             | bearer | Scan a ticket at the door. Requires `ticket:check_in`                                     |
+| GET    | `/v1/tickets/admission/events`     | bearer | The events this account may admit to, and on what authority                               |
+| POST   | `/v1/tickets/admission/preview`    | bearer | Look a pass or printed code up at the door. Writes nothing to the ticket                  |
+| POST   | `/v1/tickets/check-in`             | bearer | Admit a previewed ticket, exactly once. Needs the preview's `previewReference`            |
 | GET    | `/v1/tickets`                      | bearer | The caller's own tickets                                                                  |
 | GET    | `/v1/tickets/:id`                  | bearer | One ticket, its event, and every transfer it has been through                             |
 | GET    | `/v1/tickets/:id/pass`             | bearer | The holder's own admission credential. Holder only, never cached, rate-limited            |
@@ -455,17 +465,36 @@ placed under.
 | POST   | `/v1/tickets/:id/transfers/cancel` | bearer | Withdraw an offer you made                                                                |
 | POST   | `/v1/tickets/:id/revoke`           | bearer | Withdraw a ticket, with a reason. Requires `ticket:revoke`, under an `OPERATIONS` step-up |
 
-**Scanning takes `credential` or `code`.** `credential` is the bearer secret from
-the QR: the server hashes it and looks up the digest, so a scanner never
-transmits a guessable identifier. `code` is the printed reference and is the
-deliberate fallback — it admits nobody by itself, and is accepted only from
-somebody who already holds `ticket:check_in` in the owning organisation.
+**Admission is preview, then confirm.** Both take exactly one of `credential`
+(the holder's secure pass, which the server hashes and looks up by digest) or
+`code` (the printed reference, typed by a steward). The preview resolves the
+ticket, authorises the caller against _the ticket's own event_, and answers
+with what a door needs — event, tier, seat, attendee name, whether it is
+already in, and a closed refusal code — plus a two-minute `previewReference`
+when the ticket is admissible. It writes no check-in, changes no status and
+rotates nothing. The confirmation presents the same pass or code with that
+reference and re-derives everything inside the admitting transaction. The
+reference is bound to the scanner and the way the pass was presented; it is
+not an authorisation token.
 
-Re-scanning an already-admitted ticket answers **200 with
-`data.alreadyCheckedIn: true`** and the **original** `checkedInAt`, not an
-error, so a flaky scanner never blocks the queue. A refunded, revoked,
-transferred or cancelled ticket answers **409** — that one is wrong rather than
-redundant.
+**Who may admit.** OWNER and ADMIN, to any event of their organisation.
+MANAGER, STAFF and SCANNER, only to events a door scope names (set with
+`PATCH /v1/organizations/:id/members/:memberId`). Platform roles, including
+`SUPER_ADMIN`, to none: door authority comes from a membership, and a
+platform attempt is refused and audited. A caller not authorised for the
+ticket's event receives the same 404 as a caller who presented nothing real.
+See [`CHECK_IN.md`](./CHECK_IN.md).
+
+**The method is recorded, not chosen.** `QR_SCAN` when the secure pass was
+presented, `MANUAL_CODE` when the printed code was. The request schemas are
+strict: a `method`, `checkedInAt`, `force` or `eventSessionId` is a 400.
+
+A confirmation for an already-admitted ticket — a network retry, or a second
+steward — answers **200 with `outcome: "ALREADY_CHECKED_IN"`**, the
+**original** instant, and `checkedInByYou`, and writes nothing. A ticket that
+may not be admitted answers **409** with `error.reason` from
+`ADMISSION_REFUSAL_REASONS` (`REFUNDED`, `REVOKED`, `WRONG_EVENT`,
+`PREVIEW_EXPIRED`, …); a client branches on that, never on the message.
 
 **A transfer is an invitation, not a handover.** Offering does not move the
 ticket; the current holder can still walk in. Offers lapse after 72 hours. The

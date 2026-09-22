@@ -655,14 +655,14 @@ describe('a transferred-away ticket at the door', () => {
     const doorToken = await signIn(app, DOOR)
     const scan = await app.inject({
       method: 'POST',
-      url: '/v1/tickets/check-in',
+      url: '/v1/tickets/admission/preview',
       headers: bearer(doorToken),
       payload: { credential: oldCredential },
     })
 
     // 404, not 409. The digest was cleared, so the old pass names nothing —
     // which is a stronger guarantee than a status check the scanner has to
-    // remember to make.
+    // remember to make. A door cannot confirm what it could not preview.
     expect(scan.statusCode).toBe(404)
 
     await app.close()
@@ -714,12 +714,20 @@ describe('POST /v1/tickets/:id/revoke', () => {
     const { app, prisma, tickets } = await withOwnedTickets()
     const doorToken = await signIn(app, DOOR)
 
-    await app.inject({
+    const preview = await app.inject({
       method: 'POST',
-      url: '/v1/tickets/check-in',
+      url: '/v1/tickets/admission/preview',
       headers: bearer(doorToken),
       payload: { code: tickets[0].code },
     })
+    const admitted = await app.inject({
+      method: 'POST',
+      url: '/v1/tickets/check-in',
+      headers: bearer(doorToken),
+      payload: { code: tickets[0].code, previewReference: preview.json().data.previewReference },
+    })
+
+    expect(admitted.json().data.outcome).toBe('ADMITTED')
 
     const managerToken = await signIn(app, MANAGER)
     const response = await app.inject({

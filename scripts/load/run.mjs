@@ -303,8 +303,13 @@ async function main() {
     logger,
     // The limiter is the one thing a load run has to be exempt from: it would
     // otherwise measure the limiter rather than the application, and the
-    // limiter's own behaviour is tested where it belongs.
-    rateLimit: { global: { max: 1_000_000, timeWindow: '1 minute' } },
+    // limiter's own behaviour is tested where it belongs. The door has its own
+    // per-scanner budget on top of the global one, and one load scanner makes
+    // every door request, so it is lifted the same way.
+    rateLimit: {
+      global: { max: 1_000_000, timeWindow: '1 minute' },
+      admission: { max: 1_000_000, timeWindow: '1 minute' },
+    },
   })
 
   await app.ready()

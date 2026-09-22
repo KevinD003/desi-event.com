@@ -35,6 +35,7 @@ import {
   orgRoleFor,
   CAPABILITIES,
   can,
+  requiresAdmissionScope,
 } from '@desi-event/permissions'
 
 import { recordAudit } from '../lib/audit.js'
@@ -154,30 +155,53 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
   }
 
   /**
-   * Replace a member's scanner scopes.
+   * Replace a member's event scopes.
    *
-   * Scopes only mean anything for a `SCANNER`; any other role gets none, so that
-   * a promotion from scanner to manager does not leave a set of event scopes
-   * behind to be re-inherited if they are ever demoted again.
+   * Scopes are kept for the event-scoped door roles — MANAGER, STAFF and
+   * SCANNER — and for nobody else. Those three may admit only to the events a
+   * scope names; OWNER and ADMIN admit across the organisation and need none;
+   * every other role cannot admit at all. So a promotion to ADMIN, or a demotion
+   * to VIEWER, leaves no scopes behind to be re-inherited later. See
+   * `@desi-event/permissions/admission` for the policy.
+   *
+   * Until the admission work only SCANNER kept scopes, which was harmless while
+   * nothing read them. Now that the door enforces them, STAFF and MANAGER would
+   * otherwise have been unable to admit anybody at all.
+   *
+   * ## A requested event that is not this organisation's is refused
+   *
+   * It used to be dropped without a word and the route answered `{ ok: true }`,
+   * so an administrator could believe a scanner was scoped to an event it was
+   * not — and find out at the door. The table now refuses such a row too
+   * (`desi_scanner_scope_same_organization`); this is the readable version of
+   * that refusal.
    *
    * @param {object} tx A transaction client.
    * @param {object} options Options.
-   * @param {object} options.membership The membership row.
+   * @param {object} options.membership The membership row, already updated.
    * @param {string[]} options.eventIds Events to scope to.
    * @param {string} options.organizationId The organisation, for scoping the event lookup.
-   * @returns {Promise<string[]>} The event ids actually scoped.
+   * @returns {Promise<string[]>} The event ids scoped.
+   * @throws {Error} A 422 when a requested event is not one of this organisation's.
    */
   async function setScannerScopes(tx, { membership, eventIds, organizationId }) {
+    const wanted = requiresAdmissionScope(membership.role) ? [...new Set(eventIds)] : []
+
+    const events = wanted.length
+      ? await tx.event.findMany({
+          where: { id: { in: wanted }, organizationId },
+          select: { id: true },
+        })
+      : []
+
+    if (events.length !== wanted.length) {
+      throw unprocessable(
+        `${wanted.length - events.length} of the requested events are not events of this organisation. ` +
+          'A door scope can only name one of your own events.',
+      )
+    }
+
     await tx.scannerScope.deleteMany({ where: { membershipId: membership.id } })
-
-    if (membership.role !== 'SCANNER' || eventIds.length === 0) return []
-
-    // Scoped to this organisation's events: otherwise a scanner could be pointed
-    // at somebody else's door by supplying their event id.
-    const events = await tx.event.findMany({
-      where: { id: { in: eventIds }, organizationId },
-      select: { id: true },
-    })
 
     for (const event of events) {
       await tx.scannerScope.create({ data: { membershipId: membership.id, eventId: event.id } })
@@ -533,6 +557,12 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
             'This is the only owner of the organisation. Make somebody else an owner first.',
           )
         }
+
+        // The membership row is locked before its scopes are touched. A door
+        // confirmation locks the same two rows in the same order — membership,
+        // then scope — so the two cannot deadlock: whichever starts first
+        // finishes, and the other sees what it did.
+        await tx.$queryRaw`SELECT "id" FROM "Membership" WHERE "id" = ${membership.id} FOR UPDATE`
 
         // Scopes go with the membership. Prisma's cascade would handle it, and
         // doing it explicitly means the behaviour does not depend on a schema

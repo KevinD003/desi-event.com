@@ -992,6 +992,22 @@ export const apiRouteManifest = Object.freeze([
     query: false,
   },
   {
+    id: 'tickets.admissionEvents',
+    method: 'GET',
+    path: '/v1/tickets/admission/events',
+    auth: 'session',
+    body: false,
+    query: false,
+  },
+  {
+    id: 'tickets.previewAdmission',
+    method: 'POST',
+    path: '/v1/tickets/admission/preview',
+    auth: 'session',
+    body: true,
+    query: false,
+  },
+  {
     id: 'tickets.checkIn',
     method: 'POST',
     path: '/v1/tickets/check-in',

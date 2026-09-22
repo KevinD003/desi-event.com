@@ -36,15 +36,16 @@ in between — a person admitted against a ticket the system says was withdrawn.
 
 ## A re-scan is a no-op that says so
 
-Venue Wi-Fi drops. A steward scans twice because the first beep was drowned out.
+Venue Wi-Fi drops. A steward taps twice because the first beep was drowned out.
 Neither may produce a second check-in, and neither may stall a queue with an
 error a steward has to think about.
 
-So a second scan returns `200` with `alreadyCheckedIn: true` and the
-**original** `checkedInAt` — which is what a scanner app shows as _"already
-admitted at 19:42"_. A ticket that was refunded, revoked, transferred away or
-cancelled is different: that is a `409`, because letting that person in is wrong
-rather than redundant, and the message says which of those it was.
+So a repeated confirmation returns `200` with `outcome: "ALREADY_CHECKED_IN"`,
+the **original** `checkedInAt`, and `checkedInByYou` — which is what the door
+screen shows as _"already admitted at 19:42, by you"_ or _"… by another
+steward"_. A ticket that was refunded, revoked, transferred away or cancelled is
+different: that is a `409` whose `error.reason` names which, because letting
+that person in is wrong rather than redundant.
 
 ### The error that made this necessary
 
@@ -82,32 +83,103 @@ against somebody who has both.
 
 ---
 
-## Scanning: the pass first, the code second
+## Admission: preview, then confirm
 
 ```
-POST /v1/tickets/check-in   { credential } | { code }
+POST /v1/tickets/admission/preview   { credential } | { code }            → what the door needs, and a previewReference
+POST /v1/tickets/check-in            { credential } | { code } + previewReference → one CheckIn, or the truth about why not
+GET  /v1/tickets/admission/events                                           → where this account may admit
 ```
 
-`credential` is the primary path — the server hashes what was sent and looks up
-the digest, so a scanner never transmits a guessable identifier.
+A steward sees who is in front of them before anything is written. The preview
+resolves the pass or code, checks the caller against the ticket's own event,
+and answers with the event, its time and timezone, the tier, the seat, the
+attendee's name, whether the ticket is already in, and a closed refusal code.
+It writes **no** `CheckIn`, changes **no** status and rotates **no** credential.
+An admissible ticket carries a `previewReference` that lapses after two
+minutes.
 
-`code`, the printed reference, is the deliberate fallback for a pass that will
-not scan. Its schema says it "admits nobody by itself", and it is accepted only
-from somebody who already holds `ticket:check_in` in the organisation that owns
-the event. The capability is the authorisation; the code is only the lookup.
+The confirmation presents the same pass or code again, with that reference, and
+re-derives every fact inside the transaction that writes the admission. A
+preview is **not** an authorisation token: a validly signed reference for a
+caller who has since lost their scope admits nobody.
+
+### Who may admit
+
+Decided by `admissionAuthorityFor` in `packages/permissions/src/admission.js`,
+read from the database on every preview and inside every confirmation:
+
+| Caller                                  | Admits to                                                                                   |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| OWNER, ADMIN                            | Any event of their organisation. They can grant scopes themselves, so a scope adds nothing. |
+| MANAGER, STAFF, SCANNER                 | Only events a `ScannerScope` names. No scope, no admission.                                 |
+| VIEWER, EVENT_MANAGER, FINANCE          | Nothing. They do not hold `ticket:check_in`, and a scope row does not give it to them.      |
+| Platform roles, including `SUPER_ADMIN` | Nothing. Door authority comes from a membership. An attempt is refused and audited.         |
+| A member of another organisation        | Nothing, and they are told nothing: the same 404 as a pass that does not exist.             |
+
+STAFF and MANAGER hold `ticket:check_in` only because they inherit SCANNER.
+Before this work that inheritance was the whole check, so a STAFF member could
+admit to every event the organisation ran. A module-load assertion now refuses
+a role table in which any role holding `ticket:check_in` is not classified as
+exactly one of the two groups.
+
+### Resolve first, authorise second
+
+The ticket is resolved from what was presented, and its event and organisation
+are read from the database. Only then is the caller's authority checked —
+against that event, never against an event id the browser sent. An
+`expectedEventId` from the browser is compared afterwards and produces a
+`WRONG_EVENT` refusal; it never grants anything. A caller not authorised for the
+ticket's event receives the same 404, byte for byte, as a caller who presented
+nothing real. Before this work an unknown pass answered 404 and a real one 403 —
+with the owning organisation in the message.
+
+### Locks, in one order everywhere
+
+The confirmation locks the ticket row, then the caller's membership, then the
+scope — `FOR UPDATE`, `FOR SHARE`, `FOR SHARE` — before reading any of them. The
+team routes lock the membership before touching its scopes. So a scope
+withdrawal or a member removal that is in flight holds the confirmation until
+it commits, and the confirmation then sees it gone; a refund or revocation in
+flight does the same through the ticket row. The real-PostgreSQL suite proves
+each interleaving by holding one lock and waiting until PostgreSQL reports the
+other transaction blocked on it.
+
+### The method is recorded, not chosen
+
+`QR_SCAN` when the secure pass was presented, `MANUAL_CODE` when the printed
+code was. The server cannot see whether a camera or a keyboard produced a
+credential; what it records is which secret was presented, and the door
+screen's manual mode sends only the printed code. `ASSISTED` exists in the enum
+and is never written: nothing in this application implements an assisted or
+override admission, and none is exposed.
 
 ### What a scanner may not decide
 
-`eventId` and `eventSessionId` are **narrowing filters**, not authority: a scan
-that names the wrong event is refused rather than redirected. `checkedInAt` from
-a request is accepted only as the recorded instant of an offline scan, never as
-a reason to admit.
+The request schemas are strict. A `method`, a `checkedInAt`, a `force` or an
+`eventSessionId` is a 400, not a field quietly ignored. The admission instant is
+the server's.
 
 `deviceId` and `gate` are free text from the scanner, and they go into the
 **audit metadata** as `scannerId` and `gate` — not into `CheckIn.deviceId`.
 That column is a foreign key to a registered device, and a client-supplied
-string arriving in it was a guaranteed 500 at a door. Found by writing the
-load suite; fixed before it ran.
+string arriving in it was a guaranteed 500 at a door.
+
+### What is never recorded
+
+The presented credential, the presented code, and the preview reference: not in
+an audit row, not in a log line. `@desi-event/logger` redacts `credential` and
+`previewReference` by key in case a handler slips.
+
+> **Correction — 2026-09-22.** This section used to say that `code` "admits
+> nobody by itself" and is "accepted only from somebody who already holds
+> `ticket:check_in` in the organisation that owns the event", and that
+> `checkedInAt` from a request is "accepted only as the recorded instant of an
+> offline scan". The first was true of the capability and false of the scope:
+> any STAFF member could admit to any of the organisation's events. The second
+> let a client backdate an admission. Both are gone: authority is now the
+> event-scoped policy above, and the request schema refuses `checkedInAt`.
+> Offline admission is not implemented.
 
 ---
 
@@ -191,9 +263,16 @@ that has not been used can be taken back; one that has, cannot.
 ## Under contention
 
 `apps/api/tests/ticket-concurrency.test.js` runs eleven races against real
-PostgreSQL, wired into `pnpm run db:verify:fresh`. The load suite's **check-in
-concurrency** scenario runs the same property at sixteen concurrent scanners and
-asserts against the database that no ticket was admitted twice.
+PostgreSQL, wired into `pnpm run db:verify:fresh`.
+`apps/api/tests/admission-integration.test.js` adds the preview-and-confirm
+workflow: eleven authorisation refusals, ten admission races (two
+confirmations, two stewards, a QR scan against a typed code, a scope withdrawal,
+a revocation, a refund and a transfer landing between preview and confirmation,
+repeated and in-flight retries), and a deadlock check against member removal.
+The load suite's **check-in concurrency** scenario previews and confirms at
+sixteen concurrent scanners, alternating the secure pass and the printed code
+for the same tickets, and asserts against the database that no ticket was
+admitted twice.
 
 Both were what found the nested-error bug and the ordering bug above. Neither is
 reachable by a single-threaded test.
@@ -205,6 +284,7 @@ reachable by a single-threaded test.
 | Question                        | File                                           |
 | ------------------------------- | ---------------------------------------------- |
 | What may a ticket become?       | `apps/api/src/lib/tickets.js`                  |
-| Who may scan?                   | `apps/api/src/routes/tickets.js`               |
+| Who may admit, and to what?     | `packages/permissions/src/admission.js`        |
+| Preview and confirmation        | `apps/api/src/lib/admission.js`                |
 | How is a pass derived?          | `apps/api/src/lib/ticket-credentials.js`       |
 | What does the database enforce? | `packages/db/prisma/migrations/` (the trigger) |

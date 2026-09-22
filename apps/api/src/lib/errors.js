@@ -74,6 +74,8 @@ const JWT_ERROR_CODES = new Set([
  * @property {string} code Machine-readable code carried in `error.code`.
  * @property {string} message Human-readable message safe to send to a client.
  * @property {Array<{path: string, code: string, message: string}>} [issues] Field-level validation issues.
+ * @property {string[]} [problems] Business-rule reasons, for a 4xx.
+ * @property {string} [reason] A closed-vocabulary refusal code, for a 4xx.
  * @property {boolean} expected Whether this is an anticipated 4xx rather than a bug.
  */
 
@@ -161,6 +163,9 @@ export function normaliseError(error, options = {}) {
       normalised.problems = problems.map(String)
     }
 
+    const reason = refusalReasonOf(error)
+    if (reason && statusCode < 500) normalised.reason = reason
+
     // A provider wiring mistake is a 500: do not leak the adapter's own words.
     if (statusCode >= 500 && !exposeInternals) {
       normalised.message = INTERNAL_ERROR_MESSAGE
@@ -217,7 +222,30 @@ export function normaliseError(error, options = {}) {
     normalised.problems = problems.map(String)
   }
 
+  const reason = refusalReasonOf(error)
+  if (reason) normalised.reason = reason
+
   return normalised
+}
+
+/**
+ * The machine-readable refusal code a service attached, if it is one.
+ *
+ * A door scanner has to branch on *why* a ticket was refused — refunded, wrong
+ * event, preview expired — and a sentence is not something to branch on. The
+ * services that refuse from a closed vocabulary (`ADMISSION_REFUSAL_REASONS`,
+ * `CONNECT_REFUSAL_REASONS`) put the code in `details.reason`; it used to stop
+ * there, in the log. Only a bare upper-case identifier is forwarded, so a
+ * free-text reason somebody passes as detail one day cannot reach a client by
+ * this route.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {string|null} The code, or null.
+ */
+function refusalReasonOf(error) {
+  const reason = /** @type {{details?: {reason?: unknown}}} */ (error)?.details?.reason
+
+  return typeof reason === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/u.test(reason) ? reason : null
 }
 
 /**
@@ -225,7 +253,7 @@ export function normaliseError(error, options = {}) {
  *
  * @param {NormalisedError} normalised The normalised error.
  * @param {string} [requestId] The request id, echoed so a user can quote it in a support ticket.
- * @returns {{error: {code: string, message: string, statusCode: number, issues?: object[], requestId?: string}}} The response body.
+ * @returns {{error: {code: string, message: string, statusCode: number, issues?: object[], problems?: string[], reason?: string, requestId?: string}}} The response body.
  */
 export function toErrorBody(normalised, requestId) {
   /** @type {Record<string, unknown>} */
@@ -237,6 +265,7 @@ export function toErrorBody(normalised, requestId) {
 
   if (normalised.issues) error.issues = normalised.issues
   if (normalised.problems) error.problems = normalised.problems
+  if (normalised.reason) error.reason = normalised.reason
   if (requestId) error.requestId = String(requestId).slice(0, 64)
 
   return { error: /** @type {never} */ (error) }

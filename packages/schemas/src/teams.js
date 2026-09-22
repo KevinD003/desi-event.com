@@ -38,8 +38,13 @@ export const assignableOrgRoleSchema = orgRoleSchema.exclude(['OWNER'])
 export const inviteMemberRequestSchema = z.object({
   email: emailSchema,
   role: assignableOrgRoleSchema,
-  // Only meaningful for SCANNER, whose authority is "admit this ticket" in the
-  // events it is scoped to and nothing else. Empty for every other role.
+  // Door scopes. Only meaningful for MANAGER, STAFF and SCANNER, who may admit
+  // only to the events a scope names; see `@desi-event/permissions/admission`.
+  //
+  // Recorded on the invitation's audit row and not yet applied on acceptance —
+  // an invited door role starts with no scope, which admits nobody, and is
+  // scoped by a role change afterwards. Known, and listed in the Phase 4
+  // report's limitations.
   eventIds: z.array(cuidSchema).max(200).optional(),
 })
 
@@ -55,6 +60,9 @@ export const acceptInvitationRequestSchema = z.object({
 /** `PATCH /v1/organizations/:id/members/:memberId`. */
 export const updateMemberRequestSchema = z.object({
   role: assignableOrgRoleSchema,
+  // Replaces the member's door scopes. Kept for MANAGER, STAFF and SCANNER;
+  // cleared for every other role. An id that is not this organisation's event
+  // refuses the whole change with a 422.
   eventIds: z.array(cuidSchema).max(200).optional(),
 })
 

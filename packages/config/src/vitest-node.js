@@ -25,7 +25,7 @@ export const strictCoverageThresholds = {
  *
  * Vitest's default is five seconds, and that is wrong for this repository in a
  * way that took two failed verification runs to see. `pnpm run test` fans
- * seventeen Vitest projects out through Turborepo at once; several of them —
+ * sixteen Vitest projects out through Turborepo at once; several of them —
  * the refund, reserved-seat and ticket concurrency suites — run *deliberately
  * contended* transactions against real PostgreSQL, taking row locks and racing
  * each other on purpose. On a four-core machine, with sixteen other projects

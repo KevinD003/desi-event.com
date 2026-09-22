@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   authResponseSchema,
   buildPaginationMeta,
+  admissionEventsResponseSchema,
+  admissionPreviewResponseSchema,
   checkInResponseSchema,
   errorResponseSchema,
   eventDetailResponseSchema,
@@ -218,7 +220,7 @@ describe('ticketTypeListResponseSchema', () => {
   })
 })
 
-describe('holdResponseSchema and checkInResponseSchema', () => {
+describe('holdResponseSchema', () => {
   it('describes a hold', () => {
     const parsed = holdResponseSchema.parse({
       data: {
@@ -230,28 +232,159 @@ describe('holdResponseSchema and checkInResponseSchema', () => {
     })
     expect(parsed.data.expiresAt).toBe('2026-08-10T12:10:00.000Z')
   })
+})
 
-  it('describes a door scan, defaulting alreadyCheckedIn', () => {
-    const parsed = checkInResponseSchema.parse({
+/**
+ * What a door is shown. Each test also sends fields a careless presenter might
+ * spread in — a credential digest, the buyer, the money, a provider id — and
+ * checks they are gone after parsing: the schema is the last thing between a
+ * row and the wire.
+ */
+const HOSTILE = {
+  credentialHash: 'f'.repeat(64),
+  credential: 'a'.repeat(43),
+  code: 'DE-8F3K2Q-01',
+  buyerEmail: 'priya@example.com',
+  email: 'priya@example.com',
+  totalCents: 150_000,
+  connectedAccountId: 'acct_123',
+  providerPaymentId: 'pi_123',
+  transferToken: 'tok_123',
+  internalNote: 'VIP — comp from the promoter',
+  metadata: { anything: true },
+}
+
+const admissionEvent = {
+  id: ids.event,
+  title: 'Navratri Nights 2026',
+  startsAt: '2026-10-01T13:00:00.000Z',
+  endsAt: '2026-10-01T18:00:00.000Z',
+  timezone: 'Asia/Kolkata',
+}
+
+describe('admissionPreviewResponseSchema', () => {
+  it('describes an admissible ticket, and nothing a door has no use for', () => {
+    const parsed = admissionPreviewResponseSchema.parse({
       data: {
-        ticket: { id: ids.ticket, orderItemId: ids.orderItem, code: 'DE-8F3K2Q-01' },
-        // Both required and both nullable: a door always gets an answer to
-        // "when was this first admitted" and "who does it say", even when the
-        // answer is "it has not been" and "nobody wrote a name".
+        ...HOSTILE,
+        outcome: 'ADMISSIBLE',
+        refusal: null,
+        method: 'QR_SCAN',
+        event: { ...admissionEvent, organizationId: ids.org, ...HOSTILE },
+        tier: { name: 'General admission', priceCents: 150_000 },
+        seat: { section: 'Stalls', row: 'C', label: 'C12', seatId: 'x' },
+        attendeeName: 'Priya Sharma',
         checkedInAt: null,
-        attendeeName: null,
+        previewReference: `${'a'.repeat(40)}.${'b'.repeat(43)}`,
+        previewExpiresAt: new Date('2026-10-01T13:02:00Z'),
       },
     })
-    expect(parsed.data.alreadyCheckedIn).toBe(false)
-    expect(parsed.data.ticket.status).toBe('VALID')
+
+    expect(Object.keys(parsed.data).sort()).toEqual([
+      'attendeeName',
+      'checkedInAt',
+      'event',
+      'method',
+      'outcome',
+      'previewExpiresAt',
+      'previewReference',
+      'refusal',
+      'seat',
+      'tier',
+    ])
+    expect(Object.keys(parsed.data.event).sort()).toEqual([
+      'endsAt',
+      'id',
+      'startsAt',
+      'timezone',
+      'title',
+    ])
+    expect(parsed.data.tier).toEqual({ name: 'General admission' })
+    expect(parsed.data.seat).toEqual({ section: 'Stalls', row: 'C', label: 'C12' })
+
+    const wire = JSON.stringify(parsed)
+
+    for (const value of [
+      'f'.repeat(64),
+      'a'.repeat(43),
+      'DE-8F3K2Q-01',
+      'priya@example.com',
+      'acct_123',
+      'pi_123',
+      'tok_123',
+      'promoter',
+    ]) {
+      expect(wire).not.toContain(value)
+    }
   })
 
-  it('carries the first admission time on a re-scan', () => {
+  it('carries a refusal only from the closed vocabulary', () => {
+    const refused = {
+      outcome: 'REFUSED',
+      refusal: 'REFUNDED',
+      method: 'MANUAL_CODE',
+      event: admissionEvent,
+      tier: null,
+      seat: null,
+      attendeeName: null,
+      checkedInAt: null,
+      previewReference: null,
+      previewExpiresAt: null,
+    }
+
+    expect(admissionPreviewResponseSchema.parse({ data: refused }).data.refusal).toBe('REFUNDED')
+    expect(
+      admissionPreviewResponseSchema.safeParse({ data: { ...refused, refusal: 'Refunded, sorry' } })
+        .success,
+    ).toBe(false)
+    expect(
+      admissionPreviewResponseSchema.safeParse({ data: { ...refused, method: 'ASSISTED' } })
+        .success,
+    ).toBe(false)
+  })
+})
+
+describe('checkInResponseSchema', () => {
+  it('describes an admission, and nothing a door has no use for', () => {
     const parsed = checkInResponseSchema.parse({
       data: {
-        ticket: { id: ids.ticket, orderItemId: ids.orderItem, code: 'DE-8F3K2Q-01' },
-        alreadyCheckedIn: true,
+        ...HOSTILE,
+        outcome: 'ADMITTED',
+        checkedInAt: new Date('2026-10-01T13:01:00Z'),
+        method: 'MANUAL_CODE',
+        checkedInByYou: true,
+        event: { ...admissionEvent, ...HOSTILE },
+        tier: { name: 'General admission' },
+        seat: null,
+        attendeeName: 'Priya Sharma',
+        scannedByUserId: ids.user,
+      },
+    })
+
+    expect(Object.keys(parsed.data).sort()).toEqual([
+      'attendeeName',
+      'checkedInAt',
+      'checkedInByYou',
+      'event',
+      'method',
+      'outcome',
+      'seat',
+      'tier',
+    ])
+    expect(parsed.data.checkedInAt).toBe('2026-10-01T13:01:00.000Z')
+    expect(JSON.stringify(parsed)).not.toContain(ids.user)
+  })
+
+  it('carries the first admission time when the ticket was already in', () => {
+    const parsed = checkInResponseSchema.parse({
+      data: {
+        outcome: 'ALREADY_CHECKED_IN',
         checkedInAt: '2026-09-16T18:30:00.000Z',
+        method: 'QR_SCAN',
+        checkedInByYou: false,
+        event: admissionEvent,
+        tier: null,
+        seat: null,
         attendeeName: 'Priya Sharma',
       },
     })
@@ -259,7 +392,67 @@ describe('holdResponseSchema and checkInResponseSchema', () => {
     // What the person on the door actually needs when a pass scans twice: when
     // it went through the first time, not merely that it did.
     expect(parsed.data.checkedInAt).toBe('2026-09-16T18:30:00.000Z')
-    expect(parsed.data.attendeeName).toBe('Priya Sharma')
+    expect(parsed.data.checkedInByYou).toBe(false)
+  })
+
+  it('refuses an outcome outside the vocabulary', () => {
+    expect(
+      checkInResponseSchema.safeParse({
+        data: {
+          outcome: 'FORCED',
+          checkedInAt: null,
+          method: null,
+          checkedInByYou: false,
+          event: admissionEvent,
+          tier: null,
+          seat: null,
+          attendeeName: null,
+        },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('admissionEventsResponseSchema', () => {
+  it('names each event with its organisation and the authority it rests on', () => {
+    const parsed = admissionEventsResponseSchema.parse({
+      data: [
+        {
+          event: { ...admissionEvent, status: 'ON_SALE', ...HOSTILE },
+          organization: { id: ids.org, name: 'Rangoli', ...HOSTILE },
+          authority: 'EVENT_SCOPE',
+          role: 'SCANNER',
+          ...HOSTILE,
+        },
+      ],
+    })
+
+    expect(Object.keys(parsed.data[0]).sort()).toEqual([
+      'authority',
+      'event',
+      'organization',
+      'role',
+    ])
+    expect(parsed.data[0].organization).toEqual({ id: ids.org, name: 'Rangoli' })
+    expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [{ ...parsed.data[0], authority: 'PLATFORM' }],
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('errorResponseSchema reason', () => {
+  it('accepts a closed refusal code and refuses prose in its place', () => {
+    const base = { code: 'CONFLICT', message: 'This ticket was refunded.', statusCode: 409 }
+
+    expect(errorResponseSchema.parse({ error: { ...base, reason: 'REFUNDED' } }).error.reason).toBe(
+      'REFUNDED',
+    )
+    expect(
+      errorResponseSchema.safeParse({ error: { ...base, reason: 'it was refunded' } }).success,
+    ).toBe(false)
   })
 })
 
