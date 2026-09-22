@@ -219,7 +219,7 @@ rather than per cluster.
 
 ## Endpoints
 
-**129 operations across 19 tags.** This page describes the ones whose behaviour
+**131 operations across 19 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
@@ -227,7 +227,7 @@ validates with, and CI fails on a difference.
 
 | Tag          | Ops | Tag            | Ops |
 | ------------ | --- | -------------- | --- |
-| `events`     | 23  | `finance`      | 10  |
+| `events`     | 23  | `finance`      | 12  |
 | `auth`       | 18  | `privacy`      | 10  |
 | `venues`     | 12  | `tickets`      | 8   |
 | `operations` | 12  | `refunds`      | 7   |
@@ -248,6 +248,19 @@ validates with, and CI fails on a difference.
 > The last row carries one tag and two empty cells rather than being balanced
 > by moving something, because nineteen does not divide into two columns and a
 > reordering to make it look tidy would break the descending-count reading.
+
+> **Correction — 2026-09-22.** The total read "129 operations" and `finance`
+> read 10. Both were stale from the moment `connect.status` and `connect.start`
+> merged in PR #12: two finance-tagged routes, so the total is 131 and `finance`
+> is 12. Counted from `apps/api/openapi.json`, which reports 131 operations
+> across 117 paths, and cross-checked against `apiRoutes.length`, also 131.
+>
+> One thing this table cannot show, and which explains why its columns sum to
+> 132 rather than 131: `sessions.hold` carries two tags, `sessions` and `holds`,
+> so it is counted twice. That was true before this correction as well — the
+> previous figures summed to 130 against a stated 129 for the same reason. The
+> per-tag rows are counts of tag membership; the total is a count of operations,
+> and the two are not the same arithmetic.
 
 `Auth` is the mode described above.
 
