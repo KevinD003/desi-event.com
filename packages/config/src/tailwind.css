@@ -37,6 +37,90 @@
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   --radius-card: 1rem;
+
+  /*
+   * The semantic layer — Phase 4.
+   *
+   * Everything above is the brand ramp: literal colour, named for what it *is*.
+   * Everything below is named for what it is *for*. Components consume only
+   * these, so a surface can be restyled without touching the ramp and the ramp
+   * can be extended without hunting for every literal that used it.
+   *
+   * Two visual registers share one vocabulary, which is the point of doing it
+   * this way. `surface`/`accent` carry the editorial register used by public
+   * discovery and event pages; `canvas`/`line` carry the quieter register used
+   * by account, organiser, finance, privacy, retention, moderation and
+   * operations screens. Neither introduces a new hue — both resolve to the
+   * marigold, indigo-night and henna already defined above, or to a neutral.
+   */
+
+  /* Surfaces. `canvas` is the operations ground; `surface` is the page. */
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.985 0.006 82.5);
+  --color-surface-raised: oklch(1 0 0);
+  --color-canvas: oklch(0.986 0.002 286);
+  --color-canvas-muted: oklch(0.967 0.003 286);
+
+  /* Ink. Body text, secondary text, and text that must not compete. */
+  --color-ink: oklch(0.283 0.106 288.7);
+  --color-ink-muted: oklch(0.47 0.031 287);
+  --color-ink-subtle: oklch(0.607 0.024 287);
+  --color-ink-inverse: oklch(1 0 0);
+
+  /* Lines. Hairlines, and the heavier rule that separates regions. */
+  --color-line: oklch(0.922 0.008 286);
+  --color-line-strong: oklch(0.858 0.014 286);
+
+  /* Accent. The editorial register's single voice. */
+  --color-accent: oklch(0.672 0.169 58.7);
+  --color-accent-strong: oklch(0.567 0.148 48.6);
+  --color-accent-soft: oklch(0.977 0.032 82.5);
+  --color-accent-line: oklch(0.912 0.114 82);
+
+  /*
+   * Status. Every one of these is paired with an icon and a word in the UI —
+   * colour is never the only carrier, because it cannot be for a colour-blind
+   * reader and is not allowed to be under WCAG 1.4.1.
+   *
+   * `mock` is its own status deliberately. A simulated payout state is not a
+   * success, not a warning and not informational; conflating it with any of
+   * them is how a simulation starts looking like a real one.
+   */
+  --color-status-success: oklch(0.462 0.101 153.8);
+  --color-status-success-soft: oklch(0.966 0.024 153);
+  --color-status-pending: oklch(0.567 0.148 48.6);
+  --color-status-pending-soft: oklch(0.977 0.032 82.5);
+  --color-status-warning: oklch(0.542 0.121 68);
+  --color-status-warning-soft: oklch(0.973 0.037 80);
+  --color-status-danger: oklch(0.505 0.183 27.5);
+  --color-status-danger-soft: oklch(0.969 0.021 24);
+  --color-status-refusal: oklch(0.44 0.089 288);
+  --color-status-refusal-soft: oklch(0.955 0.012 287);
+  --color-status-info: oklch(0.417 0.161 288.1);
+  --color-status-info-soft: oklch(0.962 0.018 285.9);
+  --color-status-mock: oklch(0.47 0.031 287);
+  --color-status-mock-soft: oklch(0.967 0.003 286);
+  --color-status-neutral: oklch(0.607 0.024 287);
+  --color-status-neutral-soft: oklch(0.967 0.003 286);
+
+  /* Focus. One ring everywhere, so keyboard position is never ambiguous. */
+  --color-focus: oklch(0.672 0.169 58.7);
+
+  /*
+   * Motion. Three durations and one easing, and nothing else — a product with
+   * a dozen timings reads as a dozen products. The range is 120-250ms because
+   * below that a transition is not perceived as motion and above it the
+   * interface feels like it is deciding whether to obey.
+   *
+   * These are plain custom properties rather than Tailwind `--transition-*`
+   * tokens so that a component can hand them to `transition-duration` directly
+   * and a reduced-motion reader still gets the override at the bottom of this
+   * file.
+   */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 250ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* Respect users who ask the platform for reduced motion. Framer Motion reads
