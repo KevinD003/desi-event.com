@@ -96,3 +96,24 @@ take.
   during a migration is a failing check rather than a quiet regression.
 - A future non-JavaScript _service_ still requires the full section 6 process.
   This ADR does not open that door; it documents a floorboard.
+
+> **Addendum — 2026-09-22.** This ADR contradicts itself, and did so on the day
+> it was accepted rather than by going stale. Its "Decision" section counts "ten
+> plpgsql functions, wired to twelve triggers"; its "Consequences" section argues
+> against "thirteen trigger functions". Ten and thirteen cannot both describe the
+> same tree, and neither matches it now: the migrations hold **21 distinct
+> trigger functions wired to 23 triggers**, counted from
+> `packages/db/prisma/migrations/` and confirmed against `pg_proc`/`pg_trigger`
+> in a fully migrated database.
+>
+> The body is left exactly as written. Its decision — that integrity rules which
+> two writers could otherwise disagree about belong in the database — is
+> unaffected by either number, and rewriting an accepted ADR to make its
+> arithmetic agree would hide that it never did. What the numbers were for was
+> scale, and the scale argument holds more strongly at 21 than it did at ten.
+>
+> Counting method, so the next reader need not guess: distinct functions are
+> `grep -c 'CREATE OR REPLACE FUNCTION desi_'` across the migration directory
+> deduplicated by name; triggers are `CREATE TRIGGER` occurrences. One function,
+> `desi_map_version_frozen`, is wired to three triggers, which is why the two
+> figures differ by more than the three privacy triggers added since this ADR.
