@@ -9,8 +9,9 @@ is terminal. Nothing below is projected, and no earlier entry is rewritten when
 a later phase changes something — a correction is added beside the original,
 dated, in keeping with the repository's house rule.
 
-Status of this document: **IN PROGRESS.** Phases 2, 3 and 4 are not yet
-implemented and are not described here as though they were.
+Status of this document: **IN PROGRESS.** Phase 1 is complete and fully
+verified — its exact-SHA CI run is green, recorded below. Phases 2, 3 and 4 are
+not yet implemented and are not described here as though they were.
 
 ---
 
@@ -284,6 +285,98 @@ narrow-viewport disclosure is closed on every page it has ever scanned.
 
 The test reproduces axe's own measurement as one of its cases, so a model that
 drifts from the browser fails rather than quietly reporting comfort.
+
+#### Local verification, `0c5267d`
+
+Run on the branch at the fix commit, with PostgreSQL and Redis available, and
+this time **including all seven browser configurations** — the omission that
+let the Phase 1 failure reach CI.
+
+| Gate                  | Result                                                  |
+| --------------------- | ------------------------------------------------------- |
+| Seven browser configs | 118 + 56 + 48 + 20 + 19 + 13 + 4 = **278**, all passing |
+| — accessibility sweep | **56/56**                                               |
+| `format:check`        | pass                                                    |
+| `policy:check`        | 710 files scanned, no violations                        |
+| `secrets:scan`        | 709 tracked files, nothing credential-shaped            |
+| `lint`                | pass                                                    |
+| `test --force`        | 19/19 tasks                                             |
+| `check-skipped-tests` | **5,424 cases, 0 skipped**, up from 5,401               |
+| `build --force`       | 3/3 tasks                                               |
+| `bundle:scan`         | **349** browser-deliverable files                       |
+
+#### Exact-SHA CI, Phase 1 — the remediation run
+
+The failure above is **superseded, not deleted**. Run `35744421565` on
+`209cba6` failed, that is a permanent fact about that commit, and the record of
+it stays. What follows is the run that closes Phase 1's verification.
+
+|            |                                                                      |
+| ---------- | -------------------------------------------------------------------- |
+| Run ID     | `35748439090`                                                        |
+| URL        | https://github.com/KevinD003/desi-event.com/actions/runs/35748439090 |
+| Trigger    | `workflow_dispatch`                                                  |
+| Attempt    | **1** — no job was rerun                                             |
+| head_sha   | `0c5267ded463e3b5a5d29988206882282d51a83b` on all 8 jobs             |
+| Started    | 2026-09-22T15:35:35Z                                                 |
+| Finished   | 2026-09-22T15:43:24Z                                                 |
+| Conclusion | **success**                                                          |
+
+| Job                                      | Conclusion  | Attempt |
+| ---------------------------------------- | ----------- | ------- |
+| Policy, lint, contract, tests, build     | **success** | 1       |
+| Browser — production build               | **success** | 1       |
+| Browser — public catalogue               | **success** | 1       |
+| Browser — organiser venue maps           | **success** | 1       |
+| Browser — event lifecycle                | **success** | 1       |
+| Browser — refusals                       | **success** | 1       |
+| Browser — commerce and operations detail | **success** | 1       |
+| Browser — accessibility sweep            | **success** | 1       |
+
+`head_sha` was read from every one of the eight job records and is
+`0c5267ded463e3b5a5d29988206882282d51a83b` on each. The branch head is the same
+commit, so the run measured what is on the branch and not a merge ref.
+
+**Every named check that ran against the exact SHA.** Seventeen gates, all in
+the `Policy, lint, contract, tests, build` job unless the job column says
+otherwise, each reported `success`:
+
+| #   | Step                                | Job               |
+| --- | ----------------------------------- | ----------------- |
+| 1   | Refuse a stale task cache           | Policy/lint/tests |
+| 2   | Language policy                     | Policy/lint/tests |
+| 3   | CI invariants                       | Policy/lint/tests |
+| 4   | Secret scan                         | Policy/lint/tests |
+| 5   | Format check                        | Policy/lint/tests |
+| 6   | Lint                                | Policy/lint/tests |
+| 7   | Validate API contract               | Policy/lint/tests |
+| 8   | Test                                | Policy/lint/tests |
+| 9   | Refuse an undeclared skipped test   | Policy/lint/tests |
+| 10  | Coverage thresholds                 | Policy/lint/tests |
+| 11  | Fresh-database verification         | Policy/lint/tests |
+| 12  | Upgrade-database verification       | Policy/lint/tests |
+| 13  | OpenAPI drift                       | Policy/lint/tests |
+| 14  | Route-manifest drift                | Policy/lint/tests |
+| 15  | Browser bundle scan                 | Policy/lint/tests |
+| 16  | Dependency audit                    | Policy/lint/tests |
+| 17  | Production payments are unreachable | Policy/lint/tests |
+
+Also green in that job: `Build` and `Reliability smoke test`. The seven browser
+jobs each ran `Install Chromium`, `Create the test database`, `Apply migrations`
+and their one pinned Playwright configuration, all `success`.
+
+**Every skipped step, and why.** Exactly one step name reports `skipped`
+anywhere in the run: the failure-artefact upload — `Upload failure artefacts` in
+the first job, `Upload Playwright artefacts` in each of the seven browser jobs.
+Each is guarded by a failure condition, so a skip there is the positive signal
+that the suite passed. Eight skipped steps, eight passing suites. **No gate, no
+test step and no verification step was skipped.**
+
+**No failed job was rerun.** `run_attempt` is 1 on the run and on all eight job
+records. The green did not come from retrying anything; it came from a new
+commit that fixed the defect.
+
+With this run green on the exact commit, **Phase 1 is fully verified.**
 
 ---
 
