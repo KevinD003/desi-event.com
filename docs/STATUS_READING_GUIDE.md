@@ -15,19 +15,19 @@ source report is right and this file is stale** — tell somebody.
 
 ## Current status at a glance
 
-| Scope                                | State                                                          |
-| ------------------------------------ | -------------------------------------------------------------- |
-| Project Phase 1                      | `COMPLETE` against Phase 1 scope                               |
-| Project Phase 2 (commerce)           | `COMPLETE` against its twenty internal gates                   |
-| Phase 3 — Phase 1 (privacy auth)     | `PARTIAL` by documented reporting choice; merged               |
-| Phase 3 — Phase 2 (redaction engine) | `COMPLETE` against its stated scope; merged                    |
-| Phase 3 — Phase 3 (UI, retention)    | `PARTIAL` — merged, then completed on a follow-up branch       |
-| Phase 3 — Phase 4 (Connect, final)   | `NOT STARTED`                                                  |
-| Real Stripe                          | `EXTERNAL VERIFICATION PENDING`                                |
-| Real Stripe Connect                  | `EXTERNAL VERIFICATION PENDING`                                |
-| Payment mode                         | `MOCK` — production payment processing `DISABLED`              |
-| Retention durations                  | `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`                     |
-| Personal data redacted in production | **None.** Every redaction has run against disposable test data |
+| Scope                                | State                                                            |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| Project Phase 1                      | `COMPLETE` against Phase 1 scope                                 |
+| Project Phase 2 (commerce)           | `COMPLETE` against its twenty internal gates                     |
+| Phase 3 — Phase 1 (privacy auth)     | `PARTIAL` by documented reporting choice; merged                 |
+| Phase 3 — Phase 2 (redaction engine) | `COMPLETE` against its stated scope; merged                      |
+| Phase 3 — Phase 3 (UI, retention)    | `PARTIAL` — merged, then completed on a follow-up branch         |
+| Phase 3 — Phase 4 (Connect, final)   | `COMPLETE WITH EXPLICIT OWNER DECISIONS` — merged, then verified |
+| Real Stripe                          | `EXTERNAL VERIFICATION PENDING`                                  |
+| Real Stripe Connect                  | `EXTERNAL VERIFICATION PENDING`                                  |
+| Payment mode                         | `MOCK` — production payment processing `DISABLED`                |
+| Retention durations                  | `PROPOSED — REQUIRES LEGAL/PRIVACY REVIEW`                       |
+| Personal data redacted in production | **None.** Every redaction has run against disposable test data   |
 
 **No personal data has been redacted by this system. No retention deletion has
 ever run. No real Stripe or Stripe Connect call has ever been made from this
@@ -55,39 +55,42 @@ implementation.
 
 ## Current phase index
 
-| Phase             | Scope                                                        | Status                                                                         | Authoritative report                          | Commit                | CI evidence                         |
-| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------ | --------------------------------------------- | --------------------- | ----------------------------------- |
-| Project Phase 1   | Catalogue, holds, checkout, tickets                          | `COMPLETE against Phase 1 scope`                                               | `PHASE1_IMPLEMENTATION_REPORT.md`             | —                     | see that report                     |
-| Project Phase 2   | Commerce, refunds, ledger, disputes, payouts, CI             | `COMPLETE against its 20 internal gates`                                       | `PHASE2_STATUS.md`                            | —                     | see §2 of that report               |
-| Phase 3 — Phase 1 | Privacy authorization, step-up policy, schema foundation     | `PARTIAL` — implemented scope complete; named deviation and deferral remain    | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8        |
-| Phase 3 — Phase 2 | Redaction service, immutable evidence, data integrity, holds | `COMPLETE against its stated scope; merged`                                    | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | `35248621822` att. 2 — success, 8/8 |
-| Phase 3 — Phase 3 | Privacy UI, exports, retention worker, operations            | `PARTIAL` — see §6B for what an audit found missing and §6E for what closed it | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | PR #10 + follow-up    | see that report                     |
-| Phase 3 — Phase 4 | Connect mock, sandbox readiness, adversarial verification    | `NOT STARTED`                                                                  | none — file does not exist                    | —                     | —                                   |
+| Phase             | Scope                                                        | Status                                                                                                                                                         | Authoritative report                          | Commit                | CI evidence                         |
+| ----------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | --------------------- | ----------------------------------- |
+| Project Phase 1   | Catalogue, holds, checkout, tickets                          | `COMPLETE against Phase 1 scope`                                                                                                                               | `PHASE1_IMPLEMENTATION_REPORT.md`             | —                     | see that report                     |
+| Project Phase 2   | Commerce, refunds, ledger, disputes, payouts, CI             | `COMPLETE against its 20 internal gates`                                                                                                                       | `PHASE2_STATUS.md`                            | —                     | see §2 of that report               |
+| Phase 3 — Phase 1 | Privacy authorization, step-up policy, schema foundation     | `PARTIAL` — implemented scope complete; named deviation and deferral remain                                                                                    | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md` | `aeb65d6` + `d177e2d` | `35189099797` — success, 8/8        |
+| Phase 3 — Phase 2 | Redaction service, immutable evidence, data integrity, holds | `COMPLETE against its stated scope; merged`                                                                                                                    | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md` | `0508da1` + `723f7af` | `35248621822` att. 2 — success, 8/8 |
+| Phase 3 — Phase 3 | Privacy UI, exports, retention worker, operations            | `PARTIAL` — see §6B for what an audit found missing and §6E for what closed it                                                                                 | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` | PR #10 + follow-up    | see that report                     |
+| Phase 3 — Phase 4 | Connect mock, sandbox readiness, adversarial verification    | `COMPLETE WITH EXPLICIT OWNER DECISIONS` — the simulation and its verification; sandbox readiness is not engineering and stays `EXTERNAL VERIFICATION PENDING` | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`    | PR #12 — `e054b08`    | `35674923613` — success, 8/8        |
 
 `PARTIAL` on Phase 3's Phase 1 is a **reporting convention** about named
 deviations and deferrals, not a claim that its code is half-finished. Read its
 own report rather than this row.
 
-"No report file exists" is the evidence for `NOT STARTED`, and it is checkable:
-`docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` and
-`docs/PHASE3_FINAL_VERIFICATION_REPORT.md` are both absent from the tree.
+The Phase 3 — Phase 4 row once read `NOT STARTED`, on the evidence that no
+report file existed.
+Both files exist now — `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md` since
+2026-09-18 and `docs/PHASE3_FINAL_VERIFICATION_REPORT.md` since 2026-09-22 — so
+no row above rests on a missing file any more. The dated correction at the end
+of this guide records what four rows said before today, and why each changed.
 
 ---
 
 ## Authority map
 
-| Scope                        | Current state                                       | Authoritative source                                                      | Supporting evidence                                                 | Historical / superseded                                                                                                                                                                                                                                      |
-| ---------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Project Phase 1              | `COMPLETE`                                          | `PHASE1_IMPLEMENTATION_REPORT.md`                                         | `PHASE1_FINAL_CLOSURE_REPORT.md` §7 (its ten remaining limitations) | `POST_EFDA577_CORRECTIVE_REPORT.md` — its own header retracts its `PARTIAL` verdict                                                                                                                                                                          |
-| Project Phase 2 / commerce   | `COMPLETE`, 20/20 gates                             | `PHASE2_STATUS.md`                                                        | `PHASE2_GATE17_CLOSURE_REPORT.md` §13 (gate 17 evidence)            | `PHASE2_IMPLEMENTATION_REPORT.md`, `PHASE2_COMPLETION_REPORT.md`, `PHASE2_COMMERCE_CYCLE_REPORT.md`, `PHASE2_FINAL_VERIFICATION_REPORT.md`, `PHASE2_FINAL_CLOSEOUT_REPORT.md`, `PHASE2_POST_CLOSEOUT_VERIFICATION.md`, `PHASE2_REQUIREMENTS_TRACEABILITY.md` |
-| Phase 3 — Phase 1            | `PARTIAL` by reporting choice                       | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md`                             | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3                           | —                                                                                                                                                                                                                                                            |
-| Phase 3 — Phase 2            | `COMPLETE` against scope; merged                    | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`                             | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3A, §3.0 and §3.0.1         | —                                                                                                                                                                                                                                                            |
-| Phase 3 — Phase 3            | `NOT STARTED`                                       | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3                                 | scope in `docs/PHASE3_IMPLEMENTATION_PLAN.md` §15                   | its report file does not exist                                                                                                                                                                                                                               |
-| Phase 3 — Phase 4            | `NOT STARTED`                                       | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3                                 | subject matter in `docs/STRIPE_CONNECT.md`                          | its report file does not exist                                                                                                                                                                                                                               |
-| Privacy policy and retention | policy current; §2 and §4 tables superseded in part | `docs/PRIVACY_AND_RETENTION.md` §8 and "Phase 2: what is now implemented" | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`                       | §2 and §4 status columns — labelled in place                                                                                                                                                                                                                 |
-| Real Stripe / Connect        | `EXTERNAL VERIFICATION PENDING`                     | `docs/STRIPE_CONNECT.md`, `docs/PAYMENTS.md`                              | `PHASE2_STATUS.md`                                                  | —                                                                                                                                                                                                                                                            |
-| Production payment readiness | `DISABLED`, not verified, not production-ready      | `PHASE2_STATUS.md` header                                                 | `apps/api/tests/payment-kill-switch.test.js`                        | —                                                                                                                                                                                                                                                            |
-| Journey 14 CI investigation  | `NOT REPRODUCED — ROOT CAUSE STILL UNKNOWN`         | `docs/CI_RUN_35248621822_EVENT_LIFECYCLE_EVIDENCE.md`                     | `docs/POST_MERGE_CI_RELIABILITY_FIX_REPORT.md`                      | that file's own §8, superseded in part by its §7A                                                                                                                                                                                                            |
+| Scope                        | Current state                                            | Authoritative source                                                      | Supporting evidence                                                 | Historical / superseded                                                                                                                                                                                                                                      |
+| ---------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Project Phase 1              | `COMPLETE`                                               | `PHASE1_IMPLEMENTATION_REPORT.md`                                         | `PHASE1_FINAL_CLOSURE_REPORT.md` §7 (its ten remaining limitations) | `POST_EFDA577_CORRECTIVE_REPORT.md` — its own header retracts its `PARTIAL` verdict                                                                                                                                                                          |
+| Project Phase 2 / commerce   | `COMPLETE`, 20/20 gates                                  | `PHASE2_STATUS.md`                                                        | `PHASE2_GATE17_CLOSURE_REPORT.md` §13 (gate 17 evidence)            | `PHASE2_IMPLEMENTATION_REPORT.md`, `PHASE2_COMPLETION_REPORT.md`, `PHASE2_COMMERCE_CYCLE_REPORT.md`, `PHASE2_FINAL_VERIFICATION_REPORT.md`, `PHASE2_FINAL_CLOSEOUT_REPORT.md`, `PHASE2_POST_CLOSEOUT_VERIFICATION.md`, `PHASE2_REQUIREMENTS_TRACEABILITY.md` |
+| Phase 3 — Phase 1            | `PARTIAL` by reporting choice                            | `docs/PHASE3_PHASE1_IMPLEMENTATION_REPORT.md`                             | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3                           | —                                                                                                                                                                                                                                                            |
+| Phase 3 — Phase 2            | `COMPLETE` against scope; merged                         | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`                             | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3A, §3.0 and §3.0.1         | —                                                                                                                                                                                                                                                            |
+| Phase 3 — Phase 3            | `PARTIAL` — merged, then completed on a follow-up branch | `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md`                             | `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3                           | —                                                                                                                                                                                                                                                            |
+| Phase 3 — Phase 4            | `COMPLETE WITH EXPLICIT OWNER DECISIONS`                 | `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`                                | `docs/STRIPE_CONNECT.md` as-built section; `docs/DECISIONS.md`      | —                                                                                                                                                                                                                                                            |
+| Privacy policy and retention | policy current; §2 and §4 tables superseded in part      | `docs/PRIVACY_AND_RETENTION.md` §8 and "Phase 2: what is now implemented" | `docs/PHASE3_PHASE2_IMPLEMENTATION_REPORT.md`                       | §2 and §4 status columns — labelled in place                                                                                                                                                                                                                 |
+| Real Stripe / Connect        | `EXTERNAL VERIFICATION PENDING`                          | `docs/STRIPE_CONNECT.md`, `docs/PAYMENTS.md`                              | `PHASE2_STATUS.md`                                                  | —                                                                                                                                                                                                                                                            |
+| Production payment readiness | `DISABLED`, not verified, not production-ready           | `PHASE2_STATUS.md` header                                                 | `apps/api/tests/payment-kill-switch.test.js`                        | —                                                                                                                                                                                                                                                            |
+| Journey 14 CI investigation  | `NOT REPRODUCED — ROOT CAUSE STILL UNKNOWN`              | `docs/CI_RUN_35248621822_EVENT_LIFECYCLE_EVIDENCE.md`                     | `docs/POST_MERGE_CI_RELIABILITY_FIX_REPORT.md`                      | that file's own §8, superseded in part by its §7A                                                                                                                                                                                                            |
 
 ---
 
@@ -183,14 +186,15 @@ such: `README.md`, `docs/architecture.md`, `docs/api.md`,
 Every correction in this repository is labelled in place rather than applied
 silently. These are the current ones:
 
-| Where                                          | Was                                       | Now                                                                  |
-| ---------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------- |
-| `PHASE2_STATUS.md` line 3                      | "Phase 3 has not been started"            | Labelled current-status update; Phase 2's own verdict untouched      |
-| `PHASE2_STATUS.md` §12.3                       | Phase 3 prerequisites read as current     | Labelled `HISTORICAL STATUS — SUPERSEDED`                            |
-| `docs/DATA_MODEL.md`                           | "no redaction command"; "two read routes" | Labelled update: engine exists; nine operations, itemised            |
-| `docs/PRIVACY_AND_RETENTION.md` §2             | Two rows read `NOT IMPLEMENTED`           | Labelled superseded in part; the four rows still true are named      |
-| `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3      | Phase 2 row read `not started`            | Corrected, with §3.0 and §3.0.1 explaining the merges and current CI |
-| `docs/CI_RUN_…_EVENT_LIFECYCLE_EVIDENCE.md` §8 | Journey 14 called "deterministic on CI"   | Withdrawn in §7A; the failure is intermittent                        |
+| Where                                          | Was                                                                 | Now                                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `PHASE2_STATUS.md` line 3                      | "Phase 3 has not been started"                                      | Labelled current-status update; Phase 2's own verdict untouched      |
+| `PHASE2_STATUS.md` §12.3                       | Phase 3 prerequisites read as current                               | Labelled `HISTORICAL STATUS — SUPERSEDED`                            |
+| `docs/DATA_MODEL.md`                           | "no redaction command"; "two read routes"                           | Labelled update: engine exists; nine operations, itemised            |
+| `docs/PRIVACY_AND_RETENTION.md` §2             | Two rows read `NOT IMPLEMENTED`                                     | Labelled superseded in part; the four rows still true are named      |
+| `docs/PHASE3_IMPLEMENTATION_REPORT.md` §3      | Phase 2 row read `not started`                                      | Corrected, with §3.0 and §3.0.1 explaining the merges and current CI |
+| `docs/CI_RUN_…_EVENT_LIFECYCLE_EVIDENCE.md` §8 | Journey 14 called "deterministic on CI"                             | Withdrawn in §7A; the failure is intermittent                        |
+| This guide, four rows and one sentence         | Phase 3's Phase 3 and Phase 4 `NOT STARTED`, on absent report files | Corrected in place, and recorded in the dated section at the end     |
 
 ### Known and deliberately left alone
 
@@ -449,3 +453,39 @@ Whether a connected account should gate real payout eligibility; whether
 that has always been outstanding — credentials, jurisdictions, account type,
 eligibility, KYC/KYB, tax, sanctions, dispute and refund obligations, webhook
 and incident ownership, and legal review.
+
+---
+
+## Correction — 2026-09-22 — four rows this guide carried past their truth
+
+This guide says a source report beats it whenever the two disagree. Four of its
+own rows had been disagreeing for a while, and one sentence offered a check that
+anybody could run and that would have failed. They are corrected above; what
+they said is recorded here rather than deleted.
+
+| Row                                           | Said                                            | Says now                                                                           | Why it changed                                                                               |
+| --------------------------------------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Current status at a glance, Phase 3 — Phase 4 | `NOT STARTED`                                   | `COMPLETE WITH EXPLICIT OWNER DECISIONS` — merged, then verified                   | The simulated connected-account surface merged in PR #12 at `e054b08`                        |
+| Current phase index, Phase 3 — Phase 4        | `NOT STARTED`, "none — file does not exist"     | ported from `docs/PHASE3_FINAL_VERIFICATION_REPORT.md`, with PR #12's CI run       | Same merge; the report named in that cell now exists                                         |
+| Authority map, Phase 3 — Phase 3              | `NOT STARTED`, "its report file does not exist" | `PARTIAL`, authoritative source `docs/PHASE3_PHASE3_IMPLEMENTATION_REPORT.md`      | That file has existed since `017f707`, 2026-09-18, and two other tables here already said so |
+| Authority map, Phase 3 — Phase 4              | `NOT STARTED`, "its report file does not exist" | `COMPLETE WITH EXPLICIT OWNER DECISIONS`, sourced to the final verification report | Same merge, same reason                                                                      |
+
+The Authority map row for Phase 3's Phase 3 is the one worth pausing on. It said
+`NOT STARTED` and "its report file does not exist" while the _Current phase
+index_, twenty lines above it, said `PARTIAL` and named that same file as the
+authoritative report. One document, two tables, opposite answers, for four days.
+A reader who scrolled far enough to reach the Authority map got the wrong one.
+
+The sentence under the phase index was worse, because it invited the check and
+got it wrong: it said the two report files were "both absent from the tree" and
+offered that as the evidence for `NOT STARTED`. One of them had been present for
+four days. Evidence that is checkable is only a virtue while somebody checks it,
+so this one is now checked by machine:
+`packages/config/tests/status-guide-consistency.test.js` fails if these three
+tables ever disagree again about a phase, and fails if this guide names a
+document that is not in the tree.
+
+Nothing about the underlying system changed here. No status was invented: each
+new cell is ported from the report named beside it. The `EXTERNAL VERIFICATION
+PENDING` rows, the `MOCK` payment mode, the proposed retention durations and
+every open owner decision stand exactly as they did.
