@@ -39,6 +39,7 @@ import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { getMyTickets } from '../../lib/organizer-api.js'
 import {
   REACHABLE_STATUSES,
+  TICKET_STATUS_WORDS,
   groupTickets,
   usableCount,
   seatText,
@@ -48,32 +49,23 @@ import {
 
 export const dynamic = 'force-dynamic'
 
+/**
+ * As many tickets as the API gives in one page. The wallet used to read the
+ * default twenty and say nothing about the rest; somebody with more than that
+ * lost sight of their oldest tickets without being told.
+ */
+const WALLET_PAGE_SIZE = 100
+
 export const metadata = { robots: { index: false, follow: false } }
 
-/**
- * How each reachable status reads, and how it is dressed.
- *
- * Six entries, not nine. `VOID`, `SUPERSEDED` and `CANCELLED` are declared by
- * the database enum and written by no application code anywhere — see
- * {@link REACHABLE_STATUSES} for the audit — so a sentence for each of them
- * would describe a product that does not exist. Anything not in this table
- * renders as its raw value, which is what a demo database's seeded `VOID` gets.
- *
- * The sentence is the wallet's own wording; whether a ticket admits anybody
- * comes from the server, on the row, from the same function the door runs. This
- * table never decides that — a table that did would be a second opinion on the
- * one question a wallet must not get wrong.
- *
- * @type {Readonly<Record<string, {label: string, tone: string}>>}
+/*
+ * How each reachable status reads is `TICKET_STATUS_WORDS` in `lib/wallet.js`,
+ * shared with the ticket's and the order's pages. Six entries, not nine:
+ * `VOID`, `SUPERSEDED` and `CANCELLED` are declared by the database enum and
+ * written by no application code anywhere — see {@link REACHABLE_STATUSES} for
+ * the audit — so anything not in that table renders as its raw value, which is
+ * what a demo database's seeded `VOID` gets.
  */
-const STATUS = Object.freeze({
-  VALID: { label: 'Ready to use', tone: 'success' },
-  TRANSFER_PENDING: { label: 'Offered — still yours until they accept', tone: 'pending' },
-  TRANSFERRED: { label: 'Handed on', tone: 'info' },
-  CHECKED_IN: { label: 'Used — you went in', tone: 'info' },
-  REVOKED: { label: 'Withdrawn by the organiser', tone: 'danger' },
-  REFUNDED: { label: 'Refunded', tone: 'info' },
-})
 
 /** Chip classes per tone, from the semantic token layer. */
 const TONE = Object.freeze({
@@ -98,7 +90,7 @@ function StatusChip({ status }) {
   // set is asserted against this table in `wallet.test.js`, so the two cannot
   // drift apart without something going red.
   const known = REACHABLE_STATUSES.includes(status)
-  const meaning = known ? STATUS[status] : { label: status, tone: 'info' }
+  const meaning = known ? TICKET_STATUS_WORDS[status] : { label: status, tone: 'info' }
 
   return (
     <span
@@ -201,10 +193,11 @@ function TicketCard({ ticket }) {
  */
 export default async function MyTicketsPage() {
   let tickets = []
+  let pagination = null
   let failure = null
 
   try {
-    ;({ tickets } = await getMyTickets())
+    ;({ tickets, pagination } = await getMyTickets({ perPage: WALLET_PAGE_SIZE }))
   } catch (error) {
     // A privileged account with no second factor is refused even its own
     // wallet; `ReadRefusal` sends it to set one up rather than printing the
@@ -229,9 +222,16 @@ export default async function MyTicketsPage() {
 
       {!failure && tickets.length === 0 ? (
         <Empty
-          title="No tickets yet"
+          title="No tickets on this account"
           description="Anything you buy, or anything somebody hands to you, appears here."
         />
+      ) : null}
+
+      {pagination?.hasNextPage ? (
+        <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
+          This page shows the {tickets.length} most recently issued of the {pagination.total}{' '}
+          tickets on this account. Older ones are not listed here.
+        </p>
       ) : null}
 
       {tickets.length > 0 ? (

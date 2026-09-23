@@ -23,8 +23,10 @@
  * - `bg-black` behind the door camera's video. It is the letterbox of a live
  *   camera feed, not an interface colour, and it must not change with the
  *   register.
- * - The QR code's `#ffffff` and `#000000`. A scanner needs maximum contrast
- *   between modules, and a themed QR code is one a door phone fails to read.
+ * - A QR code's `#ffffff` and `#000000`, on the ticket pass and on the
+ *   two-step sign-in set-up. A scanner needs maximum contrast between modules,
+ *   and a themed QR code is one a door phone or an authenticator app fails to
+ *   read.
  * - Hex in the few places a stylesheet cannot reach: `global-error.jsx`,
  *   which renders when the root layout itself has failed, and the browser's
  *   own chrome colour (`themeColor`), which is metadata rather than CSS. Every
@@ -112,6 +114,7 @@ const OKLCH = /oklch\(([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\)/g
 const ALLOWED = Object.freeze({
   'apps/web/src/components/door-camera.jsx': { classes: ['bg-black'] },
   'apps/web/src/components/ticket-pass.jsx': { hex: ['#ffffff', '#000000'] },
+  'apps/web/src/app/account/security/two-step.jsx': { hex: ['#ffffff', '#000000'] },
   'apps/web/src/app/global-error.jsx': { hex: 'tokens-only' },
   'apps/web/src/app/layout.jsx': { hex: 'tokens-only' },
   'apps/web/src/components/poster.jsx': { hex: ['#ffffff'], oklch: 'ramp-only' },

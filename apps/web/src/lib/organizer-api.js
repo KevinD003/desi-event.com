@@ -373,12 +373,14 @@ export async function getRefund(id) {
 }
 
 /**
- * The tickets the signed-in caller holds.
+ * The tickets the signed-in caller holds, newest first.
  *
+ * @param {object} [options] Options.
+ * @param {number} [options.perPage] How many to read; the API allows up to 100 and defaults to 20.
  * @returns {Promise<{tickets: object[], pagination: object|null}>} Their tickets.
  */
-export async function getMyTickets() {
-  const body = await callApi('/v1/tickets')
+export async function getMyTickets({ perPage } = {}) {
+  const body = await callApi(perPage ? `/v1/tickets?perPage=${perPage}` : '/v1/tickets')
 
   return { tickets: body.data ?? [], pagination: body.pagination ?? null }
 }

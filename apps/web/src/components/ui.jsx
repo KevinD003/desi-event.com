@@ -34,6 +34,7 @@ export {
   FormField,
   Input,
   Select,
+  StatusIcon,
   Textarea,
   VisuallyHidden,
 } from '@desi-event/ui'

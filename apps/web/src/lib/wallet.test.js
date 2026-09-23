@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   REACHABLE_STATUSES,
+  TICKET_STATUS_WORDS,
   eventIsOver,
   groupTickets,
   seatText,
@@ -279,6 +280,10 @@ describe('REACHABLE_STATUSES', () => {
       'TRANSFER_PENDING',
       'VALID',
     ])
+  })
+
+  it('has words for exactly those six, and no others', () => {
+    expect(Object.keys(TICKET_STATUS_WORDS).sort()).toEqual([...REACHABLE_STATUSES].sort())
   })
 
   it('excludes the three the database declares and nothing writes', () => {

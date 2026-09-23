@@ -89,6 +89,28 @@ export const REACHABLE_STATUSES = Object.freeze([
 ])
 
 /**
+ * How each reachable ticket status reads, in one place.
+ *
+ * The wallet, a ticket's page and an order's page all name a ticket's state,
+ * and they used to keep their own copies of these words; a copy is a word that
+ * changes in one place and not the other. Keyed by {@link REACHABLE_STATUSES},
+ * and a test holds the two sets equal.
+ *
+ * The sentence is the words only. Whether a ticket admits anybody comes from
+ * the server, on the row, from the same function the door runs.
+ *
+ * @type {Readonly<Record<string, {label: string, tone: string}>>}
+ */
+export const TICKET_STATUS_WORDS = Object.freeze({
+  VALID: { label: 'Ready to use', tone: 'success' },
+  TRANSFER_PENDING: { label: 'Offered — still yours until they accept', tone: 'pending' },
+  TRANSFERRED: { label: 'Handed on', tone: 'info' },
+  CHECKED_IN: { label: 'Used — you went in', tone: 'info' },
+  REVOKED: { label: 'Withdrawn by the organiser', tone: 'danger' },
+  REFUNDED: { label: 'Refunded', tone: 'info' },
+})
+
+/**
  * Whether the event this ticket is for has finished.
  *
  * `endsAt` rather than `startsAt`, because a ticket does not become a souvenir
@@ -177,7 +199,11 @@ export function groupTickets(tickets, now = new Date()) {
     {
       id: 'handedOn',
       label: 'Handed on',
-      description: 'You bought these and gave them to somebody else. They no longer admit you.',
+      // Every handed-on ticket lands here, bought or received, so the sentence
+      // cannot say "you bought these": for a ticket somebody gave you and you
+      // passed on, it was false.
+      description:
+        'Tickets you handed to somebody else, who accepted them. They no longer admit you.',
       tickets: byStart(buckets.handedOn, -1),
     },
     {

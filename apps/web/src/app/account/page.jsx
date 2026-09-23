@@ -101,10 +101,34 @@ export default async function AccountPage() {
             </Link>
           </li>
           <li>
-            <Link href="/tickets/accept" className={CARD}>
-              <span className="block font-semibold text-ink">Accept a ticket</span>
+            <Link href="/account/orders" className={CARD}>
+              <span className="block font-semibold text-ink">Orders</span>
               <span className="mt-1 block text-sm text-ink-muted">
-                Somebody offered you a ticket and gave you a code for it.
+                What you bought, what it cost, and the tickets each order gave you.
+              </span>
+            </Link>
+          </li>
+          <li>
+            <Link href="/account/transfers" className={CARD}>
+              <span className="block font-semibold text-ink">Transfers</span>
+              <span className="mt-1 block text-sm text-ink-muted">
+                Tickets you are offering, have handed on, or were given — and where to accept one.
+              </span>
+            </Link>
+          </li>
+          <li>
+            <Link href="/account/security" className={CARD}>
+              <span className="block font-semibold text-ink">Security</span>
+              <span className="mt-1 block text-sm text-ink-muted">
+                Your password, two-step sign-in, and where you are signed in.
+              </span>
+            </Link>
+          </li>
+          <li>
+            <Link href="/account/privacy" className={CARD}>
+              <span className="block font-semibold text-ink">Privacy</span>
+              <span className="mt-1 block text-sm text-ink-muted">
+                What is kept about you, who sees it, and what you can change.
               </span>
             </Link>
           </li>
