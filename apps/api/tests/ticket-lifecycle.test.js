@@ -179,10 +179,14 @@ describe('POST /v1/tickets/:id/transfers', () => {
     const { data } = response.json()
 
     expect(data.status).toBe('PENDING')
-    // Masked, not whole: a transfer record is read by the sender and shown on a
-    // screen, and the address is enough to recognise rather than to harvest.
-    expect(data.toEmailMasked).toMatch(/^r\*+l@dhol\.example$/)
+    // The domain and nothing of the local part: the sender typed the address,
+    // so the domain tells them nothing new and lets them tell offers apart.
+    // The old mask, `r***l@`, kept the first and last characters and the
+    // length; none of that is here.
+    expect(data.toEmailMasked).toBe('••••@dhol.example')
     expect(response.body).not.toContain(RECIPIENT)
+    expect(response.body).not.toContain('rival')
+    expect(response.body).not.toMatch(/r\*+l/u)
 
     // The token is not in the response. It is a bearer secret, and a response
     // carrying it would put it wherever the sender's browser keeps responses.
@@ -862,15 +866,61 @@ describe('GET /v1/tickets/:id', () => {
 
     expect(data.transfers).toHaveLength(1)
     expect(data.transfers[0].status).toBe('PENDING')
-    // Masked, not omitted: the sender typed the address and should recognise
-    // it, and nobody should be able to harvest it from here.
-    expect(data.transfers[0].toEmailMasked).toMatch(/\*/u)
-    expect(data.transfers[0].toEmailMasked).not.toBe(RECIPIENT)
+    // The holder sent the offer: the domain alone, and nothing of the local
+    // part, so nobody else who opens the page can reconstruct the address.
+    expect(data.transfers[0].toEmailMasked).toBe('••••@dhol.example')
+    expect(response.body).not.toContain('rival')
 
     // The three things that must never come back.
     expect(response.body).not.toContain(invitation)
     expect(response.body).not.toContain('credentialHash')
     expect(response.body).not.toContain('tokenHash')
+
+    await app.close()
+  })
+
+  it('shows an organiser that a transfer happened, and nothing of whom it was to', async () => {
+    const harness = await createTestApp({ deliver: async () => {} })
+    const { app, prisma, ids } = harness
+
+    const order = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+
+    const [ticket] = order.json().data.tickets
+
+    claim(prisma, [ticket], ids.attendee.id)
+
+    const offered = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    expect(offered.statusCode, offered.body).toBe(201)
+
+    // The organiser may read the ticket (they hold `ticket:revoke`) and is
+    // asking whether it should still admit. The recipient's address does not
+    // answer that, so not even its domain is sent.
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${ticket.id}`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.holder).toBe(false)
+    expect(response.json().data.transfers[0].toEmailMasked).toBe('Hidden email')
+    expect(response.body).not.toContain('rival')
+    expect(response.body).not.toContain('dhol.example')
 
     await app.close()
   })

@@ -67,7 +67,9 @@ export async function captureOutsideTransaction(payments, order) {
       amountCents: order.totalCents,
       currency: order.currency,
       orderId: order.id,
-      metadata: { reference: order.reference, buyerEmail: order.buyerEmail },
+      // Identifiers only, as the provider adapters require. The buyer's address
+      // was here, and a real provider would have stored it on its side.
+      metadata: { reference: order.reference },
     })
 
     const captured = await payments.capture(intent.id, {

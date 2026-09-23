@@ -205,6 +205,50 @@ forwarded-invitation refusal on `POST /v1/invitations/accept` names the
 invited address masked, where it used to name it in full. Door responses carry
 no address of any kind.
 
+_Corrected 2026-09-23, first Phase 4 commit. The table and paragraph above are
+left as written; they described the rule after Phase 3._ The masked form kept
+the first and last characters of the local part and one `*` for each of the
+rest, so it gave away the local part's length and both its ends. The owner
+asked for it to go. The list now has three shapes, and none of the two without
+addresses carries any part of one:
+
+| Caller                                                                      | `emailVisibility`  | What each entry carries                       |
+| --------------------------------------------------------------------------- | ------------------ | --------------------------------------------- |
+| OWNER, ADMIN: `team:role_manage` through their own membership, stepped up   | `FULL`             | `email`                                       |
+| The same, with no second factor confirmed in the `MEMBER_EMAIL_VIEW` window | `STEP_UP_REQUIRED` | no address field                              |
+| MANAGER, EVENT_MANAGER, FINANCE, STAFF, VIEWER                              | `HIDDEN`           | no address field                              |
+| Platform `SUPER_ADMIN` who is not a member                                  | `HIDDEN`           | no address field: this is not an audited path |
+| SCANNER; a member of another organisation                                   | —                  | 403                                           |
+
+- **Step-up.** `MEMBER_EMAIL_VIEW` is ten minutes. Signing in with a second
+  factor counts. A `STEP_UP_REQUIRED` list is still the list, without
+  addresses; a step-up and a second request show them.
+- **Names.** On the two shapes without addresses, an address in a display name
+  or an inviter's name is replaced with `Hidden email`, and the schema refuses
+  one that gets through.
+- **The forwarded invitation.** The refusal names no part of the address now.
+- **Transfers.** A recipient is `••••@example.com` to the parties: four bullets,
+  whatever the local part, so two recipients at one domain read the same. An
+  organiser reading the ticket gets `Hidden email`. The schema accepts nothing
+  else.
+- **The operations queue.** No recipient in any form. An address in a stored
+  error is replaced, and the schema refuses one that gets through.
+- **Orders.** An organisation reading an order (`order:view`, VIEWER and up) no
+  longer gets the buyer's address. The buyer's own reads do.
+- **The door.** An address typed as a name reaches the door as `Hidden email`.
+- **Audit rows.** A transfer's audit rows no longer copy the recipient's
+  address. Audit rows are immutable and outside what a privacy redaction
+  rewrites, so an address there outlived its erasure. Rows written before this
+  change still hold one.
+- **Logs.** The logger redacts `email`, `toEmail`, `buyerEmail` and
+  `recipient`. The worker's email job keeps the recipient out of its log line,
+  its result and its errors.
+- **Payment metadata.** Identifiers only. It carried the buyer's address, which
+  the adapters' own rule forbids.
+- **Sign-in.** The form posts. It has named fields and no method, so a press
+  before the page's script arrived would have put the address and the password
+  in the URL.
+
 ---
 
 ## What leaves the server
@@ -241,6 +285,9 @@ quietly deleted:
   address coming back. Retargeted at `maskRecipient`: if the masking function
   ever reached the browser, the raw address must have reached it first. The
   masked value is asserted at runtime instead, where a value can be read.
+  _Updated 2026-09-23:_ `maskRecipient` no longer exists. The needle is now
+  `transferRecipient`, which replaced it, and `maskRecipient` stays a needle so
+  the old masker cannot come back unnoticed.
 
 The rule that survives both: **a needle is removed only when it cannot express
 its property, and only with a replacement that can.** Neither was deleted to

@@ -27,55 +27,112 @@
  * @module @desi-event/api/routes/teams
  */
 
-import { hashToken, issueToken, tokenUsable } from '@desi-event/auth'
+import {
+  hashToken,
+  issueToken,
+  stepUpSatisfied,
+  stepUpWindowFor,
+  tokenUsable,
+} from '@desi-event/auth'
 import {
   ORG_ROLE_ORDER,
   assertCan,
   canAssignOrgRole,
+  orgCapabilitiesFor,
   orgRoleFor,
   CAPABILITIES,
   can,
   requiresAdmissionScope,
 } from '@desi-event/permissions'
+import { withoutAddresses } from '@desi-event/schemas'
 
 import { recordAudit } from '../lib/audit.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
-import { maskRecipient } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 import { authRateLimit } from '../plugins/rate-limit.js'
 
 /**
+ * The step-up policy that stands between a team manager and full addresses.
+ *
+ * Its window is in `@desi-event/auth`, with every other policy's.
+ */
+export const MEMBER_EMAIL_STEP_UP = 'MEMBER_EMAIL_VIEW'
+
+/**
  * How much of each address a caller may see on the team list.
  *
- * Full addresses go to the people who manage the team — whoever holds
- * `team:invite` in this organisation (MANAGER, ADMIN, OWNER), and a platform
- * super-administrator, whose capabilities are unscoped. Everybody else who may
- * read the list (VIEWER, STAFF, EVENT_MANAGER, FINANCE) sees them masked. A
- * VIEWER or STAFF session needs no second factor and lives longer than a
- * privileged one; the whole roster's addresses were the most useful thing in it
- * for anybody who took one over.
+ * `FULL` needs two things, and both are read on the server:
+ *
+ * 1. **Authority to manage the membership, held through the caller's own
+ *    membership of this organisation.** That is `team:role_manage`, which
+ *    ADMIN holds and OWNER inherits. It is read from the membership alone
+ *    (`orgCapabilitiesFor`), not from `can`, because `can` also answers yes to
+ *    a platform role that holds the capability everywhere. A platform
+ *    administrator reading an organisation's team is not managing it, and this
+ *    list is not the explicit, audited path such a person would need. MANAGER
+ *    can invite, but does not manage who stays, so it is not enough either.
+ * 2. **A second factor confirmed within the `MEMBER_EMAIL_VIEW` window.**
+ *    Signing in with one counts. Without it the answer is `STEP_UP_REQUIRED`:
+ *    the same list with no addresses, which a screen can follow with the
+ *    step-up prompt and a second request.
+ *
+ * Everybody else who may read the list gets `HIDDEN`: no address field at
+ * all. That is VIEWER, STAFF, EVENT_MANAGER, FINANCE and MANAGER, and a
+ * platform administrator who is not a member. A VIEWER or STAFF session needs
+ * no second factor and lives longer than a privileged one, and a roster of
+ * addresses is the most useful thing on this page to whoever takes one over.
  *
  * @param {object} actor The request actor.
  * @param {string} organizationId The organisation.
- * @returns {'FULL'|'MASKED'} The visibility.
+ * @param {object|null|undefined} session The request's session row.
+ * @param {Date} [now] The current time.
+ * @returns {'FULL'|'STEP_UP_REQUIRED'|'HIDDEN'} The visibility.
  */
-export function emailVisibilityFor(actor, organizationId) {
-  return can(actor, CAPABILITIES.TEAM_INVITE, { organizationId }) ? 'FULL' : 'MASKED'
+export function emailVisibilityFor(actor, organizationId, session, now = new Date()) {
+  const managesMembership = orgCapabilitiesFor(actor, organizationId).includes(
+    CAPABILITIES.TEAM_ROLE_MANAGE,
+  )
+
+  if (!managesMembership) return 'HIDDEN'
+
+  const confirmed = stepUpSatisfied(session, {
+    now,
+    windowMs: stepUpWindowFor(MEMBER_EMAIL_STEP_UP),
+  })
+
+  return confirmed ? 'FULL' : 'STEP_UP_REQUIRED'
 }
 
 /**
  * The address field of a member or invitation, at a visibility.
  *
- * The only place a team response decides whether an address is shown. The
- * response schema enforces the decision again: a masked entry has no `email`
- * key, and its `emailMasked` must contain a `*`.
+ * The only place a team response decides whether an address is shown. At any
+ * visibility but `FULL` it returns no field, not a stand-in: the list does not
+ * need even the domain. The response schema enforces the decision again: the
+ * hidden shapes have no field that could carry an address, and refuse a name
+ * that does.
  *
  * @param {string} address The stored address.
- * @param {'FULL'|'MASKED'} visibility From {@link emailVisibilityFor}.
- * @returns {{email: string}|{emailMasked: string}} The field.
+ * @param {'FULL'|'STEP_UP_REQUIRED'|'HIDDEN'} visibility From {@link emailVisibilityFor}.
+ * @returns {{email: string}|{}} The field, or nothing.
  */
 function addressAt(address, visibility) {
-  return visibility === 'FULL' ? { email: address } : { emailMasked: maskRecipient(address) }
+  return visibility === 'FULL' ? { email: address } : {}
+}
+
+/**
+ * A name shown on the team list, at a visibility.
+ *
+ * Names are free text, and somebody may have typed their address as theirs.
+ * On a list whose addresses are hidden, that would hand back what the list
+ * withholds, so any address in a name is replaced with `Hidden email` first.
+ *
+ * @param {string|null|undefined} name The stored name.
+ * @param {'FULL'|'STEP_UP_REQUIRED'|'HIDDEN'} visibility From {@link emailVisibilityFor}.
+ * @returns {string|null|undefined} The name to show.
+ */
+function nameAt(name, visibility) {
+  return visibility === 'FULL' ? name : withoutAddresses(name)
 }
 
 /** How long an invitation stays acceptable. */
@@ -262,7 +319,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
         }),
       ])
 
-      const emailVisibility = emailVisibilityFor(request.actor, organization.id)
+      const emailVisibility = emailVisibilityFor(request.actor, organization.id, request.session)
 
       return {
         data: {
@@ -271,7 +328,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
             id: membership.id,
             userId: membership.userId,
             ...addressAt(membership.user.email, emailVisibility),
-            displayName: membership.user.displayName,
+            displayName: nameAt(membership.user.displayName, emailVisibility),
             role: membership.role,
             capabilities: [
               ...new Set(
@@ -293,7 +350,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
             ...addressAt(invitation.email, emailVisibility),
             role: invitation.role,
             status: invitation.status,
-            invitedByName: invitation.invitedBy?.displayName ?? null,
+            invitedByName: nameAt(invitation.invitedBy?.displayName ?? null, emailVisibility),
             expiresAt: invitation.expiresAt.toISOString(),
             createdAt: invitation.createdAt.toISOString(),
           })),
@@ -417,11 +474,11 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
       // bearer-payable to whoever holds the link.
       if (invitation.email.toLowerCase() !== request.currentUser.email.toLowerCase()) {
         throw forbidden(
-          // Masked: whoever holds a forwarded link is by definition not the
-          // person it was addressed to, and the address is not theirs to learn.
-          // Enough of it survives for the right person to recognise which of
-          // their accounts to use.
-          `This invitation was sent to a different address. Sign in as ${maskRecipient(invitation.email)} to accept it.`,
+          // No part of the address. Whoever holds a forwarded link is by
+          // definition not the person it was sent to, and the address is not
+          // theirs to learn. The right person does not need it repeated: the
+          // link reached them at that address.
+          'This invitation was sent to a different address. Sign in with the address it was sent to, then open the link again.',
         )
       }
 

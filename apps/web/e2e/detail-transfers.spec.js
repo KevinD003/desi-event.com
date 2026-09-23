@@ -5,7 +5,8 @@ import { expect, test, world } from './support/detail-fixtures.mjs'
  *
  * This is the suite that can make claims nothing else can: that offering a
  * ticket writes a real pending transfer, that the recipient's address comes
- * back masked, that the invitation code never reaches the address bar, that a
+ * back as its domain alone, with nothing of the local part anywhere in the
+ * page's source, that the invitation code never reaches the address bar, that a
  * ticket already out on offer is not offerable again, and that withdrawing an
  * offer puts it back where it was.
  *
@@ -53,10 +54,10 @@ test.describe.serial('the ticket and transfer screens', () => {
     }
   })
 
-  test('offers a ticket, and shows the recipient masked afterwards', async ({ owner }) => {
+  test('offers a ticket, and shows the recipient by domain alone afterwards', async ({ owner }) => {
     await owner.goto(`/tickets/${ids().ticketIds[0]}`)
     await owner.getByRole('button', { name: /offer this ticket/i }).click()
-    await owner.getByLabel(/their email address/i).fill('recipient@elsewhere.test')
+    await owner.getByLabel(/their email address/i).fill('harsha.offered+tickets@elsewhere.test')
     await owner.getByRole('button', { name: /send the offer/i }).click()
 
     await expect(owner.getByText(/offered\. they have been sent an invitation/i)).toBeVisible()
@@ -67,10 +68,14 @@ test.describe.serial('the ticket and transfer screens', () => {
     const html = await owner.content()
 
     expect(rendered).toMatch(/offered, not yet answered/i)
-    // Masked, not omitted: the sender typed the address and should recognise
-    // it, and nobody else should be able to collect it from here.
-    expect(rendered).toMatch(/\*+.*@elsewhere\.test/u)
-    expect(html).not.toContain('recipient@elsewhere.test')
+    // The domain, so the sender can tell their offers apart, and nothing of the
+    // local part: not its length, not its ends, not its suffix. Searched in the
+    // page's whole source, serialised props included, so no stylesheet or
+    // hidden element is doing the hiding.
+    expect(rendered).toContain('••••@elsewhere.test')
+    expect(html).not.toContain('harsha')
+    expect(html).not.toContain('+tickets')
+    expect(html).not.toMatch(/\*+@elsewhere/u)
   })
 
   test('will not offer a ticket that is already out on offer', async ({ owner }) => {

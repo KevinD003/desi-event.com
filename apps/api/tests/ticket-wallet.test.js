@@ -579,7 +579,7 @@ describe('GET /v1/tickets — the wallet', () => {
     await app.close()
   })
 
-  it('names the outstanding invitation, masked, and never its token', async () => {
+  it('names the outstanding invitation by its domain alone, and never its token', async () => {
     const world = await withWallet()
     const { app, tickets } = world
 
@@ -596,8 +596,13 @@ describe('GET /v1/tickets — the wallet', () => {
     expect(offered.status).toBe('TRANSFER_PENDING')
     // An invitation is not a handover: the sender can still walk in.
     expect(offered.admits).toBe(true)
-    expect(offered.pendingTransfer.toEmailMasked).toMatch(/\*/)
-    expect(offered.pendingTransfer.toEmailMasked).not.toBe(RECIPIENT)
+    // Four bullets and the domain: nothing of the local part, its length or
+    // its ends, which the old `r***l@` form kept.
+    expect(offered.pendingTransfer.toEmailMasked).toBe(
+      `••••@${RECIPIENT.slice(RECIPIENT.indexOf('@') + 1)}`,
+    )
+    expect(response.body).not.toContain(RECIPIENT)
+    expect(response.body).not.toContain(RECIPIENT.slice(0, RECIPIENT.indexOf('@')))
     expect(response.body).not.toContain(token)
 
     await app.close()

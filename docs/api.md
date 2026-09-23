@@ -513,6 +513,10 @@ The payload carries no pass, no token and no credential digest, and recipient
 addresses come back masked to `p****a@example.com` — enough for the sender to
 recognise, not enough for anybody to harvest.
 
+_Corrected 2026-09-23._ The recipient is now `••••@example.com` for the holder
+who sent the offer: the domain, and nothing of the local part. An organiser
+reading the ticket gets `Hidden email`.
+
 Full reasoning: `docs/CHECK_IN.md`.
 
 ### Refunds

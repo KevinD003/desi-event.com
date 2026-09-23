@@ -116,9 +116,44 @@ describe('redaction', () => {
     const line = stream.last()
     expect(line.req.method).toBe('POST')
     expect(line.req.headers['content-type']).toBe('application/json')
-    expect(line.req.body.buyerEmail).toBe('ticket@example.com')
     expect(line.user.id).toBe('usr_1')
     expect(line.msg).toBe('order created')
+  })
+
+  it('redacts an address by any of the names this codebase gives one', () => {
+    const stream = createCaptureStream()
+    const log = createLogger({ destination: stream, env: {} })
+
+    log.info(SECRET_PAYLOAD, 'order created')
+    log.info(
+      {
+        email: 'root@example.com',
+        toEmail: 'offered@example.com',
+        recipient: 'queued@example.com',
+        user: { id: 'usr_2', email: 'member@example.com' },
+        order: { buyerEmail: 'row@example.com', reference: 'DE-1' },
+      },
+      'a handler logged whole rows',
+    )
+
+    const raw = stream.raw()
+
+    for (const address of [
+      'ticket@example.com',
+      'root@example.com',
+      'offered@example.com',
+      'queued@example.com',
+      'member@example.com',
+      'row@example.com',
+    ]) {
+      expect(raw, address).not.toContain(address)
+    }
+
+    const line = stream.last()
+
+    expect(line.email).toBe(REDACTION_CENSOR)
+    expect(line.user).toEqual({ id: 'usr_2', email: REDACTION_CENSOR })
+    expect(line.order).toEqual({ buyerEmail: REDACTION_CENSOR, reference: 'DE-1' })
   })
 
   it('applies service-specific extra paths', () => {

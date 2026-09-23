@@ -68,7 +68,7 @@ import {
   admissionAuthorityFor,
   requiresAdmissionScope,
 } from '@desi-event/permissions'
-import { ADMISSION_REFUSAL_REASONS } from '@desi-event/schemas'
+import { ADMISSION_REFUSAL_REASONS, withoutAddresses } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { conflict, databaseErrorCode, forbidden, notFound } from './errors.js'
@@ -334,7 +334,7 @@ export function toAdmissionPreview({
     event: toAdmissionEvent(ticket.orderItem.order.event),
     tier: ticket.orderItem.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
     seat: toAdmissionSeat(ticket),
-    attendeeName: ticket.attendeeName ?? null,
+    attendeeName: doorName(ticket.attendeeName),
     checkedInAt: ticket.checkedInAt ?? null,
     previewReference,
     previewExpiresAt,
@@ -363,8 +363,23 @@ export function toAdmissionResult({ ticket, outcome, actorId }) {
     event: toAdmissionEvent(ticket.orderItem.order.event),
     tier: ticket.orderItem.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
     seat: toAdmissionSeat(ticket),
-    attendeeName: ticket.attendeeName ?? null,
+    attendeeName: doorName(ticket.attendeeName),
   }
+}
+
+/**
+ * The name on a ticket, as the door sees it.
+ *
+ * Free text, copied from what the buyer typed as their name or from the
+ * recipient's display name, so it can be an address. A steward matches a face
+ * to a name and has no use for an address, so any address in it is replaced
+ * with `Hidden email` before it reaches the door.
+ *
+ * @param {string|null|undefined} name The stored name.
+ * @returns {string|null} The name to show.
+ */
+function doorName(name) {
+  return withoutAddresses(name ?? null)
 }
 
 /**

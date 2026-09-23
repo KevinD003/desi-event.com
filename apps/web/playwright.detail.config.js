@@ -6,7 +6,8 @@
  * reconciliation item shows both sides of its evidence and no provider payload,
  * that a refund screen never asks for a card and offers only the step its state
  * allows, and that offering a ticket creates a real pending transfer whose
- * recipient is masked and whose invitation never reaches a web address.
+ * recipient is shown by its domain alone and whose invitation never reaches a
+ * web address.
  *
  * Four specs, one config. Four Playwright configs would mean four API processes
  * and four Next servers on a two-core runner, which is the failure mode the

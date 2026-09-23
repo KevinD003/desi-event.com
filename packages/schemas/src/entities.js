@@ -38,6 +38,7 @@ import {
   timezoneSchema,
   urlSchema,
 } from './primitives.js'
+import { addressFree } from './addresses.js'
 import { venueAccessibilitySchema } from './venues.js'
 import {
   eventCategorySchema,
@@ -252,7 +253,12 @@ export const orderSchema = z.object({
   reference: orderReferenceSchema,
   eventId: cuidSchema,
   userId: cuidSchema.nullish(),
-  buyerEmail: emailSchema,
+  /**
+   * Present on the buyer's own reads only. An organisation reading the order
+   * (`order:view`, VIEWER and up) gets no address: nothing it does with an
+   * order needs one, and the platform, not the organiser, writes to buyers.
+   */
+  buyerEmail: emailSchema.optional(),
   buyerName: nonEmptyStringSchema,
   status: orderStatusSchema.default('PENDING'),
   currency: currencySchema.default('INR'),
@@ -488,18 +494,17 @@ export const orderWithItemsSchema = orderSchema.extend({
 /**
  * One outbox row, as an operator sees it.
  *
- * Not as it is stored. The recipient is reduced to a masked form and the
- * payload is dropped entirely: an operations queue is read by people who need
- * to know whether a message went, not who it was to or what it said. Everything
- * here is a status, a count or an instant.
+ * Not as it is stored. The recipient and the payload are both dropped: an
+ * operations queue is read by people who need to know whether a message went,
+ * not who it was to or what it said. Everything here is a status, a count or
+ * an instant. Retrying or cancelling a message needs none of the recipient,
+ * not even its domain, so this carries no stand-in for it either.
  */
 export const notificationSummarySchema = z.object({
   id: cuidSchema,
   template: z.string(),
   channel: notificationChannelSchema,
   status: notificationStatusSchema,
-  /** `p****a@example.com`. Enough to recognise, not enough to contact. */
-  recipientMasked: z.string(),
   businessEvent: z.string().nullable(),
   templateVersion: z.number().int(),
   attempts: z.number().int(),
@@ -508,8 +513,12 @@ export const notificationSummarySchema = z.object({
   sentAt: timestampSchema.nullable(),
   lastAttemptAt: timestampSchema.nullable(),
   failureCategory: z.enum(['PERMANENT', 'TRANSIENT']).nullable(),
-  /** Already redacted when it was written. Repeated here for the same reason. */
-  lastError: z.string().nullable(),
+  /**
+   * Redacted when it was written, and again by the presenter. This refuses a
+   * value that still carries an address, so a provider error quoting its
+   * recipient cannot reach the screen even if both of those were skipped.
+   */
+  lastError: addressFree(z.string()).nullable(),
   leaseExpiresAt: timestampSchema.nullable(),
   suppressible: z.boolean(),
   createdAt: timestampSchema,

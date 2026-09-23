@@ -143,6 +143,16 @@ export const STEP_UP_POLICIES = Object.freeze({
    * particular subject.
    */
   PRIVACY_ERASURE: 2 * 60 * 1000,
+  /**
+   * Reading colleagues' full email addresses on a team list.
+   *
+   * Ten minutes. It is a read, like the finance view, but of personal data
+   * about third parties, and a roster of addresses is the most useful thing on
+   * a team page to whoever has picked up a session left open. Long enough to
+   * work through the page, short enough that a session walked away from stops
+   * showing them. Without it the list is still served, with no addresses.
+   */
+  MEMBER_EMAIL_VIEW: 10 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */

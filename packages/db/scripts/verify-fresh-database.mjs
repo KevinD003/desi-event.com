@@ -970,6 +970,9 @@ async function main() {
         'tests/admission-integration.test.js',
         'tests/notification-lease-integration.test.js',
         'tests/seat-transfer-block-integration.test.js',
+        // Who sees a colleague's address: real sessions, memberships and
+        // second factors, read from their rows.
+        'tests/team-email-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

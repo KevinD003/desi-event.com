@@ -187,11 +187,14 @@ const FORBIDDEN = [
       // `startTicketTransferRequestSchema`, so a screen that offers a ticket has
       // to name it in the request body, and a scan for the string cannot tell
       // that from the stored address coming back. What it *can* check is that
-      // masking stays a server concern — if `maskRecipient` ever reached the
-      // browser, the raw address would have had to reach it first, which is the
-      // failure the needle is for. The masked value itself is asserted in
-      // `ticket-lifecycle.test.js`, where a runtime value can actually be read.
-      ['transfer recipient masking', 'maskRecipient'],
+      // masking stays a server concern — if `transferRecipient` ever reached
+      // the browser, the raw address would have had to reach it first, which
+      // is the failure the needle is for. It replaced `maskRecipient`, which
+      // stays a needle so the old masker cannot come back unnoticed. The value
+      // itself is asserted in `ticket-lifecycle.test.js`, where a runtime value
+      // can actually be read.
+      ['transfer recipient stand-in', 'transferRecipient'],
+      ['the old recipient masker', 'maskRecipient'],
     ],
   },
   {

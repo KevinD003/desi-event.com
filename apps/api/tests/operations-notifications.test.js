@@ -160,7 +160,7 @@ describe('GET /v1/operations/notifications', () => {
     await app.close()
   })
 
-  it('masks the recipient and never returns the payload', async () => {
+  it('returns no recipient in any form, and never the payload', async () => {
     const { app } = await worldWithMessage()
 
     const response = await app.inject({
@@ -169,12 +169,40 @@ describe('GET /v1/operations/notifications', () => {
       headers: await asOperator(app),
     })
 
+    expect(response.statusCode).toBe(200)
     expect(response.body).not.toContain(RECIPIENT)
     expect(response.body).not.toContain('never-shown-to-an-operator')
     expect(response.body).not.toContain('secretNote')
     // The dedupe key carries the address, so it is not returned either.
     expect(response.body).not.toContain('priya.sharma')
-    expect(response.json().data[0].recipientMasked).toBe('p**********a@example.com')
+    // Not a stand-in either: the old mask kept the local part's ends and its
+    // length, and retrying a message needs not even the domain.
+    expect(response.json().data[0]).not.toHaveProperty('recipientMasked')
+    expect(response.body).not.toContain('example.com')
+    expect(response.body).not.toContain('@')
+
+    await app.close()
+  })
+
+  it('takes an address out of a stored error, even one the worker did not redact', async () => {
+    const { app, messageId: id } = await worldWithMessage({
+      lastError: 'SEND_FAILED: 550 <priya.sharma+events@example.com>: mailbox unavailable',
+    })
+    const headers = await asOperator(app)
+
+    for (const url of ['/v1/operations/notifications', `/v1/operations/notifications/${id}`]) {
+      const response = await app.inject({ method: 'GET', url, headers })
+
+      expect(response.statusCode, url).toBe(200)
+      expect(response.body, url).not.toContain('priya.sharma')
+      expect(response.body, url).not.toContain('@')
+
+      const row = Array.isArray(response.json().data)
+        ? response.json().data[0]
+        : response.json().data
+
+      expect(row.lastError, url).toBe('SEND_FAILED: 550 <Hidden email>: mailbox unavailable')
+    }
 
     await app.close()
   })

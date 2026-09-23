@@ -265,12 +265,14 @@ test.describe.serial('the ticket wallet', () => {
   })
 
   test.describe('when a ticket is out on offer', () => {
-    test('shows it as offered, with the recipient masked, and puts it back', async ({ owner }) => {
+    test('shows it as offered, with the recipient by domain alone, and puts it back', async ({
+      owner,
+    }) => {
       const ticketId = ids().ticketIds[1]
 
       await owner.goto(`/tickets/${ticketId}`)
       await owner.getByRole('button', { name: /offer this ticket/i }).click()
-      await owner.getByLabel(/their email address/i).fill('wallet-recipient@elsewhere.test')
+      await owner.getByLabel(/their email address/i).fill('meenakshi.wallet+x@elsewhere.test')
       await owner.getByRole('button', { name: /send the offer/i }).click()
       await expect(owner.getByText(/offered\. they have been sent an invitation/i)).toBeVisible()
 
@@ -281,10 +283,12 @@ test.describe.serial('the ticket wallet', () => {
         const html = await owner.content()
 
         expect(offered).toMatch(/offered/iu)
-        // Masked in the wallet as well as on the detail screen. A list that
-        // printed the address in full would be a list somebody harvests.
-        expect(offered).toMatch(/\*+.*@elsewhere\.test/u)
-        expect(html).not.toContain('wallet-recipient@elsewhere.test')
+        // The domain alone in the wallet as well as on the detail screen, and
+        // nothing of the local part anywhere in the page's source. A list that
+        // printed more would be a list somebody harvests.
+        expect(offered).toContain('••••@elsewhere.test')
+        expect(html).not.toContain('meenakshi')
+        expect(html).not.toMatch(/\*+@elsewhere/u)
 
         // An invitation is not a handover: it is still under "coming up" — the
         // section for tickets this account bought and still holds.

@@ -224,6 +224,11 @@ admit** in words before any colour says it. Recipient addresses are masked to
 `p****a@example.com`: enough for the sender to recognise who they offered it to,
 not enough for anybody to collect them.
 
+_Corrected 2026-09-23._ Recipient addresses are now shown as their domain alone,
+`••••@example.com`, to the holder who made the offer, and as `Hidden email` to
+an organiser. Nothing of the local part reaches the page, not even in its
+source.
+
 **One screen renders a pass, on request, to its holder.** The ticket's own
 page (`/tickets/:id`) offers **Show my entry pass** to the person holding a
 ticket that admits. Pressing it fetches the credential from the holder-only,

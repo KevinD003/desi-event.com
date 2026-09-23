@@ -42,11 +42,14 @@ describe('createSendEmailProcessor', () => {
 
     expect(result).toMatchObject({
       template: 'ORDER_CONFIRMATION',
-      to: 'buyer@example.com',
       orderId: ORDER_ID,
       provider: 'in-memory-email',
     })
     expect(result.providerRef).toBe(message.id)
+    // BullMQ keeps a completed job's result in Redis, and it is logged on
+    // completion, so the recipient is not in it.
+    expect(result).not.toHaveProperty('to')
+    expect(JSON.stringify(result)).not.toContain('buyer@example.com')
   })
 
   it('renders a waitlist notification carrying the claim link', async () => {
@@ -136,6 +139,19 @@ describe('createSendEmailProcessor', () => {
     // transient by our mapping, so this must be retryable rather than fatal.
     expect(error.name).toBe('RetryableJobError')
     expect(error.code).toBe('PROVIDER_UNAVAILABLE')
+    // The error is logged, and BullMQ keeps its message as the job's failed
+    // reason. The provider quotes the address it bounced; none of it survives,
+    // in the message, the details, or the cause.
+    for (const said of [
+      error.message,
+      JSON.stringify(error.details),
+      error.cause?.message,
+      error.cause?.stack,
+      JSON.stringify(error.cause?.details ?? {}),
+    ]) {
+      expect(said).not.toContain(EMAIL_BOUNCE_ADDRESS)
+    }
+    expect(error.message).toContain('[address]')
   })
 
   it('retries a transient provider failure', async () => {

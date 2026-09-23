@@ -19,6 +19,7 @@
 
 import { z } from 'zod'
 
+import { addressFree } from './addresses.js'
 import { orgRoleSchema } from './enums.js'
 import { cuidSchema, emailSchema, nonEmptyStringSchema, timestampSchema } from './primitives.js'
 
@@ -83,8 +84,7 @@ export const removeMemberRequestSchema = z.object({
  * is unworkable, and nothing else about their account: not their phone number,
  * not their platform role, not when they last signed in. Somebody who can
  * manage a team can see who is on it, which is not the same as being able to
- * read their profile. A colleague who cannot manage it gets
- * `maskedMemberSummarySchema` instead.
+ * read their profile. Everybody else gets `hiddenMemberSummarySchema`.
  */
 export const memberSummarySchema = z.object({
   id: cuidSchema,
@@ -114,48 +114,47 @@ export const invitationSummarySchema = z.object({
 /**
  * How much of an address a team list carries.
  *
- * `FULL` for a caller who manages the team — holds `team:invite` in the
- * organisation (MANAGER, ADMIN, OWNER) or is a platform super-administrator.
- * `MASKED` for everybody else who may see the list at all: VIEWER, STAFF,
- * EVENT_MANAGER, FINANCE. SCANNER cannot see the list.
+ * - `FULL`: the caller holds `team:role_manage` in this organisation through
+ *   their own membership (ADMIN, OWNER) **and** confirmed their second factor
+ *   within the `MEMBER_EMAIL_VIEW` window.
+ * - `STEP_UP_REQUIRED`: the same caller, without the recent confirmation. No
+ *   addresses; a screen can offer the step-up and ask again.
+ * - `HIDDEN`: everybody else who may read the list. That is VIEWER, STAFF,
+ *   EVENT_MANAGER, FINANCE and MANAGER, and a platform administrator reading
+ *   another organisation's team. No addresses, and no way to get them here.
+ *
+ * SCANNER cannot read the list at all.
  *
  * @type {ReadonlyArray<string>}
  */
-export const EMAIL_VISIBILITIES = Object.freeze(['FULL', 'MASKED'])
+export const EMAIL_VISIBILITIES = Object.freeze(['FULL', 'STEP_UP_REQUIRED', 'HIDDEN'])
 
 /**
- * An address with most of its local part replaced by `*`.
+ * A member, on a list whose addresses are hidden.
  *
- * Enforced by pattern, not trusted to the presenter: a value with no `*` in it
- * is refused, so a full address cannot reach a masked list by accident.
+ * `memberSummarySchema` without `email`, and with no stand-in in its place: the
+ * default for a view that does not need an address is no field at all. The
+ * object schema strips unknown keys, so an `email` or `emailMasked` a presenter
+ * left in is removed before the response is written. The display name must not
+ * carry an address either, because a name somebody typed their address into
+ * would otherwise put back exactly what the list withholds.
  */
-export const maskedEmailSchema = z
-  .string()
-  .max(254)
-  .regex(/\*|^\(none\)$/u, 'Expected a masked address')
-
-/**
- * A member, as a colleague who does not manage the team sees them.
- *
- * The same fields as `memberSummarySchema` with `email` replaced by
- * `emailMasked`. The object schema strips unknown keys, so an `email` a
- * presenter left in is removed before the response is written.
- */
-export const maskedMemberSummarySchema = memberSummarySchema
+export const hiddenMemberSummarySchema = memberSummarySchema
   .omit({ email: true })
-  .extend({ emailMasked: maskedEmailSchema })
+  .extend({ displayName: addressFree(nonEmptyStringSchema) })
 
-/** An invitation, as a colleague who does not manage the team sees it. */
-export const maskedInvitationSummarySchema = invitationSummarySchema
+/** An invitation, on a list whose addresses are hidden. The same rules. */
+export const hiddenInvitationSummarySchema = invitationSummarySchema
   .omit({ email: true })
-  .extend({ emailMasked: maskedEmailSchema })
+  .extend({ invitedByName: addressFree(nonEmptyStringSchema).nullish() })
 
 /**
  * `GET /v1/organizations/:id/members`.
  *
- * Two shapes, told apart by `emailVisibility`, so which one a caller gets is
- * decided by the server and enforced by this schema rather than by a
- * stylesheet hiding a column.
+ * Three shapes, told apart by `emailVisibility`. Which one a caller gets is
+ * decided by the server and enforced by this schema, not by a stylesheet
+ * hiding a column: the two without addresses have no field that could carry
+ * one.
  */
 export const memberListResponseSchema = z.object({
   data: z.discriminatedUnion('emailVisibility', [
@@ -169,9 +168,15 @@ export const memberListResponseSchema = z.object({
       assignableRoles: z.array(orgRoleSchema),
     }),
     z.object({
-      emailVisibility: z.literal('MASKED'),
-      members: z.array(maskedMemberSummarySchema),
-      invitations: z.array(maskedInvitationSummarySchema),
+      emailVisibility: z.literal('STEP_UP_REQUIRED'),
+      members: z.array(hiddenMemberSummarySchema),
+      invitations: z.array(hiddenInvitationSummarySchema),
+      assignableRoles: z.array(orgRoleSchema),
+    }),
+    z.object({
+      emailVisibility: z.literal('HIDDEN'),
+      members: z.array(hiddenMemberSummarySchema),
+      invitations: z.array(hiddenInvitationSummarySchema),
       assignableRoles: z.array(orgRoleSchema),
     }),
   ]),

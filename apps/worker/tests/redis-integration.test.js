@@ -180,8 +180,13 @@ when('worker against live Redis', () => {
 
       const result = await job.waitUntilFinished(queueEvents, WAIT_MS)
 
-      expect(result).toMatchObject({ to: 'buyer@example.com', template: 'ORDER_CONFIRMATION' })
+      expect(result).toMatchObject({ template: 'ORDER_CONFIRMATION' })
+      // The result is what BullMQ keeps in Redis after the job, so it names no
+      // recipient. The message itself still went to the right address.
+      expect(result).not.toHaveProperty('to')
+      expect(JSON.stringify(result)).not.toContain('buyer@example.com')
       expect(email.sent).toHaveLength(1)
+      expect(email.sent[0].to).toEqual(['buyer@example.com'])
       expect(email.sent[0].subject).toContain('DE-8F3K2Q')
       expect(email.sent[0].text).toContain('INR 1500.00')
     },

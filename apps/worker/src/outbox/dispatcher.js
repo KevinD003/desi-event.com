@@ -39,6 +39,7 @@ import {
   claimableWhere,
 } from '@desi-event/notifications'
 import { PROVIDER_ERROR_CODES, assertEmailProvider } from '@desi-event/providers'
+import { withoutAddresses } from '@desi-event/schemas'
 
 import { renderEmail } from '../email/templates.js'
 
@@ -94,9 +95,10 @@ export function classifyFailure(error) {
  */
 export function redactFailure(error) {
   const code = typeof error?.code === 'string' ? error.code : 'UNKNOWN'
-  const message = String(error?.message ?? error ?? '')
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '[address]')
-    .slice(0, 240)
+  // The shared pattern, not a local one. The local one stopped at characters
+  // outside `[\w.+-]`, so `o'brien@example.com` left `o'` behind, and it did
+  // not match a domain with non-ASCII letters at all.
+  const message = withoutAddresses(String(error?.message ?? error ?? ''), '[address]').slice(0, 240)
 
   return `${code}: ${message}`
 }

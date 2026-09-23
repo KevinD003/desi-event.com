@@ -10,6 +10,7 @@
 
 import { z } from 'zod'
 
+import { addressFree, addressStandInSchema } from './addresses.js'
 import {
   centsSchema,
   countSchema,
@@ -230,7 +231,8 @@ export const admissionPreviewResponseSchema = z.object({
     event: admissionEventSchema,
     tier: z.object({ name: z.string() }).nullable(),
     seat: admissionSeatSchema,
-    attendeeName: z.string().nullable(),
+    // Never an address: the presenter replaces one, and this refuses one it missed.
+    attendeeName: addressFree(z.string()).nullable(),
     checkedInAt: timestampSchema.nullable(),
     previewReference: z.string().nullable(),
     previewExpiresAt: timestampSchema.nullable(),
@@ -262,7 +264,8 @@ export const checkInResponseSchema = z.object({
     event: admissionEventSchema,
     tier: z.object({ name: z.string() }).nullable(),
     seat: admissionSeatSchema,
-    attendeeName: z.string().nullable(),
+    // Never an address: the presenter replaces one, and this refuses one it missed.
+    attendeeName: addressFree(z.string()).nullable(),
   }),
 })
 
@@ -298,13 +301,15 @@ export const ticketTransferSchema = z.object({
   ticketId: cuidSchema,
   fromUserId: cuidSchema.nullable(),
   /**
-   * `p****a@example.com`. Enough to recognise, not enough to harvest.
+   * `••••@example.com`, or `Hidden email` when there is no usable domain.
    *
-   * Constrained rather than declared: the masking is one call in one presenter,
-   * and a schema that accepted an unmasked address would notice nothing if that
-   * call were ever dropped.
+   * The domain and nothing of the local part: its sender typed the address and
+   * needs to tell their offers apart, and nobody reading this needs more.
+   * Constrained rather than declared: the stand-in is one call in one
+   * presenter, and a schema that accepted an address would notice nothing if
+   * that call were ever dropped.
    */
-  toEmailMasked: z.string().regex(/\*|^\(none\)$/u, 'Expected a masked address'),
+  toEmailMasked: addressStandInSchema,
   status: z.enum(['PENDING', 'ACCEPTED', 'DECLINED', 'CANCELLED', 'EXPIRED']),
   expiresAt: timestampSchema,
   acceptedAt: timestampSchema.nullable(),
@@ -480,15 +485,16 @@ export const walletTicketSchema = ticketSchema.extend({
     .object({
       id: cuidSchema,
       /**
-       * Masked, and the schema insists rather than trusting the presenter.
+       * `••••@example.com`, and the schema insists rather than trusting the
+       * presenter.
        *
        * `z.string()` would accept a fully spelled-out address just as happily,
-       * so the one line that calls `maskRecipient` was the only thing between a
-       * recipient list and somebody harvesting it. Requiring the mask puts a
-       * second, structural check behind that line: a presenter that stopped
-       * masking would 500 rather than leak.
+       * so the one line that produces the stand-in would be the only thing
+       * between a recipient list and somebody harvesting it. Requiring the
+       * pattern puts a second, structural check behind that line: a presenter
+       * that stopped masking would 500 rather than leak.
        */
-      toEmailMasked: z.string().regex(/\*|^\(none\)$/u, 'Expected a masked address'),
+      toEmailMasked: addressStandInSchema,
       expiresAt: timestampSchema,
     })
     .nullable(),

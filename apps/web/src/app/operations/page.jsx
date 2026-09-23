@@ -190,7 +190,7 @@ export default async function OperationsPage() {
         <QueueSection
           id="notifications-heading"
           title="Notifications that did not go"
-          description="Dead letters and messages waiting on a retry. Recipients are masked and payloads are not shown: an operations screen answers “did this go?”, not “what did it say?”."
+          description="Dead letters and messages waiting on a retry. Neither recipients nor payloads are shown: an operations screen answers “did this go?”, not “who was it to?” or “what did it say?”."
           failure={notifications.failure}
           count={stuck.length}
         >
@@ -206,12 +206,7 @@ export default async function OperationsPage() {
               {stuck.map((message) => (
                 <li key={message.id} className="rounded-card border border-slate-200 bg-white p-4">
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">
-                      {message.template}{' '}
-                      <span className="font-normal text-slate-600">
-                        to {message.recipientMasked}
-                      </span>
-                    </p>
+                    <p className="font-medium text-indigo-night-900">{message.template}</p>
                     <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
                       {message.status.replace(/_/gu, ' ').toLowerCase()} · {message.attempts}/
                       {message.maxAttempts}

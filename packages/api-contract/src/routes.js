@@ -780,7 +780,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/organizations/:id/members',
       summary: 'List the team',
       description:
-        "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and nothing else about their account. Addresses are decided by the server and carried in one of two shapes told apart by `emailVisibility`: `FULL` for callers who manage the team (MANAGER, ADMIN, OWNER, or a platform super-administrator), `MASKED` for every other member who may read the list (VIEWER, STAFF, EVENT_MANAGER, FINANCE), whose entries carry `emailMasked` and no `email` at all. SCANNER cannot read the list.",
+        "Everybody in this organisation, the invitations still outstanding, and the roles the caller may grant. The role list is computed from what the caller holds rather than fixed, because a member cannot grant a power they do not have. Carries each person's name and nothing else about their account. Addresses are decided by the server and carried in one of three shapes told apart by `emailVisibility`. `FULL` needs `team:role_manage` held through the caller's own membership of this organisation (ADMIN, OWNER) and a second factor confirmed within the `MEMBER_EMAIL_VIEW` step-up window. `STEP_UP_REQUIRED` is the same caller without that recent confirmation: no addresses, and a step-up followed by a second request will show them. `HIDDEN` is everybody else who may read the list (MANAGER, EVENT_MANAGER, FINANCE, STAFF, VIEWER, and a platform administrator who is not a member): no address field at all, and names carrying an address have it replaced with `Hidden email`. SCANNER cannot read the list.",
       tags: ['teams'],
       auth: 'session',
       capability: 'organization:view_members',
@@ -822,7 +822,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/invitations/accept',
       summary: 'Accept an invitation',
       description:
-        'Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key, and the refusal names that address only masked. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.',
+        'Join an organisation with an invitation link. The caller must be signed in as the address the invitation names — a link forwarded to somebody else does not work, which is what stops an invitation becoming a transferable key, and the refusal names no part of that address. Single-use, enforced by a conditional update, so two simultaneous acceptances produce one membership.',
       tags: ['teams'],
       auth: 'session',
       capability: null,
@@ -1741,7 +1741,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/operations/notifications',
       summary: 'The notification outbox, as operations sees it',
       description:
-        'Every message the outbox is holding, newest trouble first. Recipients are masked and payloads are omitted: an operator needs to know whether a message went, not who it was to or what it said. Platform-scoped — requires `reconciliation:manage`, which no organisation role can carry.',
+        'Every message the outbox is holding, newest trouble first. Recipients and payloads are omitted, in any form, and the stored error is returned with any address in it replaced: an operator needs to know whether a message went, not who it was to or what it said. Platform-scoped — requires `reconciliation:manage`, which no organisation role can carry.',
       tags: ['operations'],
       auth: 'session',
       capability: 'reconciliation:manage',
@@ -1758,7 +1758,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/operations/notifications/:id',
       summary: 'Inspect one message, redacted',
       description:
-        'What a dead letter looks like from the outside: its status, its attempts, when it will next be tried, and the sanitised error that stopped it. The payload and the full recipient are never returned, because a dead-letter inspection is not a reason to read somebody\u2019s mail.',
+        'What a dead letter looks like from the outside: its status, its attempts, when it will next be tried, and the sanitised error that stopped it. The payload and the recipient are never returned, in any form, because a dead-letter inspection is not a reason to read somebody\u2019s mail.',
       tags: ['operations'],
       auth: 'session',
       capability: 'reconciliation:manage',
@@ -2994,7 +2994,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/tickets/:id',
       summary: 'One ticket, and everywhere it has been',
       description:
-        'The ticket, the event it admits to, and every transfer it has been through in the order they happened. Read by two people with two questions — the holder asking whether it still admits them, the organiser asking whether it still should — so authorisation branches in the handler rather than on the route: the person holding it may read it, and so may anybody holding `ticket:revoke` in the organisation whose event it is. Nobody else, and a ticket belonging to somebody else answers the same way as an identifier nobody has used. The pass is not here, and neither is any transfer token: a credential is handed over once when it is derived, and a token echoed into a response is a bearer secret in a browser cache, a proxy log and a screenshot. Recipient addresses are masked to `p****a@example.com`, which is enough to recognise and not enough to harvest.',
+        'The ticket, the event it admits to, and every transfer it has been through in the order they happened. Read by two people with two questions — the holder asking whether it still admits them, the organiser asking whether it still should — so authorisation branches in the handler rather than on the route: the person holding it may read it, and so may anybody holding `ticket:revoke` in the organisation whose event it is. Nobody else, and a ticket belonging to somebody else answers the same way as an identifier nobody has used. The pass is not here, and neither is any transfer token: a credential is handed over once when it is derived, and a token echoed into a response is a bearer secret in a browser cache, a proxy log and a screenshot. A recipient is shown as `••••@example.com` to the holder, who sent the offer and needs to tell offers apart, and as `Hidden email` to an organiser: nothing of the local part, its length or its characters, reaches either.',
       tags: ['tickets'],
       auth: 'session',
       params: idParamSchema,

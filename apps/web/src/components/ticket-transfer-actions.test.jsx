@@ -33,7 +33,7 @@ function transfer(overrides = {}) {
     id: 'trans0000000000000000001',
     ticketId: 'ticket000000000000000001',
     status: 'PENDING',
-    toEmailMasked: 'r****l@dhol.example',
+    toEmailMasked: '••••@dhol.example',
     expiresAt: '2026-09-20T00:00:00.000Z',
     createdAt: '2026-09-16T00:00:00.000Z',
     ...overrides,

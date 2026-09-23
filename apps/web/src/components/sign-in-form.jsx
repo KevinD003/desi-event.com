@@ -20,6 +20,14 @@
  *     password" is the API's wording and it is repeated verbatim; narrowing it
  *     to "no such account" is an account-enumeration oracle.
  *
+ * And one thing it does so that nothing happens by accident: the form says
+ * `method="post"`. Its fields are named, and a form with no method submits
+ * with GET. Pressed before the page's script has arrived — on a slow phone,
+ * say — it would have put the address, the password and any code into the
+ * URL, and from there into history, logs and the `Referer` of the next
+ * request. Posted, they stay in a body that nothing here accepts, and the page
+ * simply comes back.
+ *
  * @module components/sign-in-form
  */
 
@@ -115,7 +123,7 @@ export function SignInForm({ next = '/organizer/events' }) {
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-5" noValidate>
+    <form method="post" onSubmit={onSubmit} className="space-y-5" noValidate>
       {error ? (
         <div ref={errorRef} tabIndex={-1}>
           <Alert variant="error" title="Could not sign you in">

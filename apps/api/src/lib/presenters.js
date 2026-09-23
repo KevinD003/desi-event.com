@@ -9,7 +9,12 @@
  * @module @desi-event/api/lib/presenters
  */
 
-import { RECONCILIATION_EVIDENCE_KEYS } from '@desi-event/schemas'
+import {
+  HIDDEN_EMAIL,
+  RECONCILIATION_EVIDENCE_KEYS,
+  domainOnlyAddress,
+  withoutAddresses,
+} from '@desi-event/schemas'
 
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
@@ -198,10 +203,12 @@ export function toTicketType(ticketType, availability) {
  * An order with its line items, its tickets and a summary of its event.
  *
  * @param {object} order An `Order` row including `items` (each with `tickets`) and optionally `event`.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.buyerAddress] Whether the reader may see the buyer's address: true for the buyer.
  * @returns {object} A payload satisfying `orderWithItemsSchema`.
  */
-export function toOrder(order) {
-  const { items = [], event = null, ...rest } = order
+export function toOrder(order, { buyerAddress = true } = {}) {
+  const { items = [], event = null, buyerEmail, ...rest } = order
 
   const lineItems = items.map(({ tickets: _tickets, ticketType: _ticketType, ...item }) => item)
 
@@ -229,6 +236,10 @@ export function toOrder(order) {
 
   return {
     ...rest,
+    // The buyer's own reads carry their address. An organisation reading the
+    // order does not get it: seeing what was bought, refunding it and admitting
+    // it need no address, and the platform, not the organiser, writes to buyers.
+    ...(buyerAddress ? { buyerEmail } : {}),
     items: lineItems,
     tickets,
     event: event ? toEventSummary(event) : null,
@@ -405,7 +416,7 @@ export function toWalletTicket(ticket, { viewerUserId }) {
     pendingTransfer: pending
       ? {
           id: pending.id,
-          toEmailMasked: maskRecipient(pending.toEmail),
+          toEmailMasked: transferRecipient(pending.toEmail),
           expiresAt: pending.expiresAt,
         }
       : null,
@@ -507,42 +518,35 @@ export function toHold(hold, ticketType) {
 }
 
 /**
- * Mask an address so it can be recognised but not used.
+ * A transfer's recipient, as the ticket's side of the transfer sees it.
  *
- * `priya.sharma@example.com` becomes `p**********a@example.com`. Enough for an
- * operator to match a support ticket against a queue row, not enough to
- * contact anybody — which is the line an operations tool has to stay on the
- * right side of, because it is read on shared screens by whoever is on shift.
+ * `••••@example.com`: the domain, and nothing of the local part. The sender
+ * typed the address, so this tells them nothing new. It is enough to tell two
+ * offers apart and to notice a mistyped domain, and not enough to reconstruct
+ * the address for anybody else who opens the page. Falls back to
+ * `Hidden email` for a stored value with no usable domain.
+ *
+ * This replaced `maskRecipient`, which kept the first and last characters of
+ * the local part and one star for each of the rest.
  *
  * @param {string|null|undefined} address The stored recipient.
- * @returns {string} The masked form, or `'(none)'` when there is nothing to mask.
+ * @returns {string} The stand-in.
  */
-export function maskRecipient(address) {
-  if (typeof address !== 'string' || address.trim() === '') return '(none)'
-
-  const at = address.lastIndexOf('@')
-
-  // A phone number, or anything else with no domain part: keep the last two
-  // characters, which is what an operator reads off a support ticket.
-  if (at < 1) {
-    const tail = address.slice(-2)
-    return `${'*'.repeat(Math.max(1, address.length - 2))}${tail}`
-  }
-
-  const local = address.slice(0, at)
-  const domain = address.slice(at)
-
-  if (local.length <= 2) return `${'*'.repeat(local.length)}${domain}`
-
-  return `${local[0]}${'*'.repeat(local.length - 2)}${local[local.length - 1]}${domain}`
+export function transferRecipient(address) {
+  return domainOnlyAddress(address) ?? HIDDEN_EMAIL
 }
 
 /**
  * One outbox row, as an operator sees it.
  *
- * The payload is not here, and neither is the full recipient. That is the
- * point: the response schema is an allow list, and this is the function that
- * decides what is on it.
+ * The payload is not here, and neither is the recipient, in any form. That is
+ * the point: the response schema is an allow list, and this is the function
+ * that decides what is on it. Retrying or cancelling a message does not need
+ * to know who it was for, and an operations queue is read on shared screens.
+ *
+ * `lastError` was redacted when the worker wrote it. It is redacted again
+ * here, because a row written by anything other than that worker would
+ * otherwise reach the screen as it was stored.
  *
  * @param {object} row A `NotificationOutbox` row.
  * @returns {object} A payload satisfying `notificationSummarySchema`.
@@ -553,7 +557,6 @@ export function toOperatorNotification(row) {
     template: row.template,
     channel: row.channel,
     status: row.status,
-    recipientMasked: maskRecipient(row.recipient),
     businessEvent: row.businessEvent ?? null,
     templateVersion: row.templateVersion ?? 1,
     attempts: row.attempts,
@@ -562,7 +565,7 @@ export function toOperatorNotification(row) {
     sentAt: row.sentAt ?? null,
     lastAttemptAt: row.lastAttemptAt ?? null,
     failureCategory: row.failureCategory ?? null,
-    lastError: row.lastError ?? null,
+    lastError: withoutAddresses(row.lastError) ?? null,
     leaseExpiresAt: row.leaseExpiresAt ?? null,
     suppressible: row.suppressible,
     createdAt: row.createdAt,

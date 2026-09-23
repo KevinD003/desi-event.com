@@ -84,6 +84,14 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   // nothing by itself, but it names a ticket, a scanner and an instant, and it
   // belongs in neither a log nor an audit row.
   'previewReference',
+  // Addresses, by the names this codebase gives them. No handler logs one
+  // today; this is the net for the one that does by accident. A log line
+  // outlives the screen that decided who may see an address, and is read by
+  // whoever is on call.
+  'email',
+  'toEmail',
+  'buyerEmail',
+  'recipient',
 ])
 
 /**
@@ -108,6 +116,10 @@ export const WILDCARD_KEYS = Object.freeze([
   'credential',
   // `req.body.previewReference`, from the check-in confirmation.
   'previewReference',
+  // `{ user: { email } }`, `{ order: { buyerEmail } }`: an address one level
+  // down, the shape a handler logging a whole row produces.
+  'email',
+  'buyerEmail',
 ])
 
 /**

@@ -27,14 +27,14 @@
 
 import { isSuppressible } from '@desi-event/notifications'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
-import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
+import { HIDDEN_EMAIL, buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
 import { admissionRateLimit, passRateLimit } from '../plugins/rate-limit.js'
 import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
-import { WALLET_INCLUDE, maskRecipient, toWalletTicket } from '../lib/presenters.js'
+import { WALLET_INCLUDE, toWalletTicket, transferRecipient } from '../lib/presenters.js'
 import {
   TICKET_STATES,
   TRANSFER_TTL_HOURS,
@@ -58,21 +58,30 @@ const TICKET_INCLUDE = Object.freeze({
 })
 
 /**
- * One transfer, as either party sees it.
+ * One transfer, as either party sees it, or as the organiser does.
  *
  * The token is never here. It goes in the invitation link once and the database
  * holds only its digest; echoing it would put a bearer secret in a browser
  * cache, a proxy log and a screenshot.
  *
+ * The recipient is `••••@example.com` for a party to the transfer. The sender
+ * typed the address, and the recipient owns it, so the domain tells neither of
+ * them anything new, and it lets a sender tell their offers apart. An
+ * organiser reading the ticket's history is asking whether it should still
+ * admit, which the recipient's address does not answer. They get
+ * `Hidden email`.
+ *
  * @param {object} row A `TicketTransfer` row.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.party] Whether the reader is a party to the transfer.
  * @returns {object} A payload satisfying `ticketTransferSchema`.
  */
-function toTicketTransfer(row) {
+function toTicketTransfer(row, { party = true } = {}) {
   return {
     id: row.id,
     ticketId: row.ticketId,
     fromUserId: row.fromUserId ?? null,
-    toEmailMasked: maskRecipient(row.toEmail),
+    toEmailMasked: party ? transferRecipient(row.toEmail) : HIDDEN_EMAIL,
     status: row.status,
     expiresAt: row.expiresAt,
     acceptedAt: row.acceptedAt ?? null,
@@ -227,7 +236,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
           // Why it may not be offered whatever its state — today only a reserved
           // seat — so the screen does not offer what the server will refuse.
           transferBlockedReason: transferBlockedReason(ticket),
-          transfers: transfers.map(toTicketTransfer),
+          transfers: transfers.map((row) => toTicketTransfer(row, { party: holder })),
         },
       }
     },

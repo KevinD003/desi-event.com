@@ -421,10 +421,16 @@ describe('accepting an invitation', () => {
     // The forwarding attack. An invitation is addressed to a person, not
     // bearer-payable to whoever holds the link.
     expect(response.statusCode).toBe(403)
-    // Masked: the holder of a forwarded link is not the person it was sent to.
-    // It used to name the address in full.
-    expect(response.json().error.message).toContain('p***a@example.com')
-    expect(response.json().error.message).not.toContain('priya@example.com')
+    // No part of the address: the holder of a forwarded link is not the person
+    // it was sent to. It once named the address in full, and then masked, with
+    // the first and last characters and the length still showing.
+    const said = response.body
+
+    expect(said).not.toContain('priya')
+    expect(said).not.toContain('example.com')
+    expect(said).not.toContain('@')
+    expect(said).not.toMatch(/p\*+a/u)
+    expect(response.json().error.message).toMatch(/sent to a different address/u)
     expect(prisma._store.membership).toHaveLength(before)
 
     await app.close()

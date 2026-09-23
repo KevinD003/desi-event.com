@@ -21,12 +21,16 @@
  *
  * Any invitation code, and the credential as text. An invitation code is a
  * bearer secret and lives in exactly one place — the message sent to the
- * person it was offered to. Recipient addresses are masked: enough to
- * recognise who you sent it to, not enough for anybody else to harvest.
+ * person it was offered to. The server decides how much of a recipient's
+ * address this page gets: the domain alone, as `••••@example.com`, for the
+ * holder who sent the offer, and `Hidden email` for an organiser, who does not
+ * need it. Nothing of the local part reaches the page, so no stylesheet is
+ * doing the hiding.
  *
  * @module app/tickets/id/page
  */
 
+import { HIDDEN_EMAIL } from '@desi-event/schemas'
 import Link from 'next/link'
 
 import { TicketPass } from '../../../components/ticket-pass.jsx'
@@ -201,7 +205,9 @@ export default async function TicketDetailPage({ params }) {
                   {TRANSFER_STATUS[transfer.status] ?? transfer.status}
                 </p>
                 <p className="mt-1 text-sm text-slate-700">
-                  Offered to {transfer.toEmailMasked} on{' '}
+                  {transfer.toEmailMasked === HIDDEN_EMAIL
+                    ? 'Offered on '
+                    : `Offered to ${transfer.toEmailMasked} on `}
                   <time dateTime={transfer.createdAt}>{transfer.createdAt}</time>.
                   {transfer.status === 'PENDING' ? (
                     <>
@@ -227,8 +233,9 @@ export default async function TicketDetailPage({ params }) {
           </ol>
         )}
         <p className="mt-3 text-sm text-slate-600">
-          Addresses are shortened on purpose: enough to recognise who you sent it to, not enough for
-          anybody else to collect them.
+          {holder
+            ? 'Only the part of an address after the @ is shown, so nobody else who opens this page can collect it.'
+            : 'Who a ticket was offered to is not shown here: whether it should still admit does not depend on it.'}
         </p>
       </section>
 
@@ -236,9 +243,11 @@ export default async function TicketDetailPage({ params }) {
         <h2 id="actions-heading" className="text-lg font-semibold text-indigo-night-900">
           What you can do
         </h2>
+        {/* Transfers carry only what the component reads: everything passed to a
+            client component is serialised into the page, recipients included. */}
         <TicketTransferActions
           ticket={ticket}
-          transfers={transfers}
+          transfers={transfers.map(({ id, status }) => ({ id, status }))}
           holder={holder}
           mayRevoke={mayRevoke}
           transferBlockedReason={transferBlockedReason ?? null}

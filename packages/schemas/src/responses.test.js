@@ -636,7 +636,7 @@ describe('what the response schemas refuse to carry', () => {
       ...wallet,
       pendingTransfer: {
         id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
-        toEmailMasked: 'p****a@example.com',
+        toEmailMasked: '••••@example.com',
         expiresAt: '2026-02-01T00:00:00.000Z',
         token: 'RAW-TRANSFER-TOKEN',
         tokenHash: 'e'.repeat(64),
@@ -650,21 +650,37 @@ describe('what the response schemas refuse to carry', () => {
     expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
   })
 
-  it('refuses an unmasked recipient address outright', () => {
-    // The one place the schema does more than strip. Masking is a single call
-    // in a single presenter; a schema that accepted `z.string()` would notice
-    // nothing at all if that call were dropped, and the failure would be a
-    // harvestable recipient list. Now it is a 500 instead.
-    const unmasked = walletTicketSchema.safeParse({
+  it.each(['priya@example.com', 'p***a@example.com', 'p****a@example.com', '(none)'])(
+    'refuses %s as a recipient: an address, or the old mask that kept its length and ends',
+    (toEmailMasked) => {
+      // The one place the schema does more than strip. The stand-in is a single
+      // call in a single presenter; a schema that accepted `z.string()` would
+      // notice nothing at all if that call were dropped, and the failure would
+      // be a harvestable recipient list. Now it is a 500 instead.
+      const unmasked = walletTicketSchema.safeParse({
+        ...wallet,
+        pendingTransfer: {
+          id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
+          toEmailMasked,
+          expiresAt: '2026-02-01T00:00:00.000Z',
+        },
+      })
+
+      expect(unmasked.success).toBe(false)
+    },
+  )
+
+  it.each(['••••@example.com', 'Hidden email'])('accepts %s as a recipient', (toEmailMasked) => {
+    const parsed = walletTicketSchema.parse({
       ...wallet,
       pendingTransfer: {
         id: 'c1eeeeeeeeeeeeeeeeeeeeeee',
-        toEmailMasked: 'priya@example.com',
+        toEmailMasked,
         expiresAt: '2026-02-01T00:00:00.000Z',
       },
     })
 
-    expect(unmasked.success).toBe(false)
+    expect(parsed.pendingTransfer.toEmailMasked).toBe(toEmailMasked)
   })
 
   it('strips every forbidden key from an order ticket', () => {

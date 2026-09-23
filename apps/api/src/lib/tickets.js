@@ -461,7 +461,9 @@ export async function startTransfer(tx, params) {
   const holder = fromUserId ? await tx.user.findUnique({ where: { id: fromUserId } }) : null
 
   if (holder && holder.email.toLowerCase() === toEmail) {
-    throw unprocessable('That ticket is already theirs.', { toEmail })
+    // No address in the refusal: the sender typed it, and an error body is
+    // kept by more things than the screen that shows it.
+    throw unprocessable('That ticket is already theirs.')
   }
 
   const moved = await transition(tx, { ticket, to: TICKET_STATES.TRANSFER_PENDING })
@@ -491,10 +493,11 @@ export async function startTransfer(tx, params) {
       requestId,
       at: now.toISOString(),
       transferId: transfer.id,
-      // The address, because who a ticket was offered to is the point of the
-      // record. Never the token: that is a bearer secret and an audit row is
-      // read by more people than a database row.
-      toEmail,
+      // Not the address. The transfer row holds it, and a privacy redaction
+      // rewrites it there, whereas an audit row is immutable and would keep it
+      // after the person asked for it to go. The transfer id is the join. Never
+      // the token either: that is a bearer secret, and an audit row is read by
+      // more people than a database row.
       expiresAt: expiresAt.toISOString(),
     },
   })
@@ -680,7 +683,7 @@ export async function endTransfer(
       at: now.toISOString(),
       transferId: transfer.id,
       outcome,
-      toEmail: transfer.toEmail,
+      // Not the address, for the reason given where the transfer starts.
       source: actorId ? 'person' : 'system',
     },
   })

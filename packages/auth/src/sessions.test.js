@@ -326,6 +326,24 @@ describe('step-up policies', () => {
     expect(STEP_UP_POLICIES.CREDENTIAL).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.SECURITY_ROLE).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.PRIVACY_ERASURE).toBe(2 * 60 * 1000)
+    expect(STEP_UP_POLICIES.MEMBER_EMAIL_VIEW).toBe(10 * 60 * 1000)
+  })
+
+  it('shows colleagues’ addresses for less time than the finance view, and names it separately', () => {
+    // A read of third parties' personal data, so no longer than reading money.
+    expect(STEP_UP_POLICIES.MEMBER_EMAIL_VIEW).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
+    expect(stepUpWindowFor('MEMBER_EMAIL_VIEW')).toBe(10 * 60 * 1000)
+
+    const now = new Date('2026-03-01T12:00:00Z')
+    const stale = { mfaSatisfiedAt: new Date(now.getTime() - 11 * 60 * 1000) }
+    const fresh = { mfaSatisfiedAt: new Date(now.getTime() - 9 * 60 * 1000) }
+
+    expect(stepUpSatisfied(stale, { now, windowMs: stepUpWindowFor('MEMBER_EMAIL_VIEW') })).toBe(
+      false,
+    )
+    expect(stepUpSatisfied(fresh, { now, windowMs: stepUpWindowFor('MEMBER_EMAIL_VIEW') })).toBe(
+      true,
+    )
   })
 
   it('gives an irreversible redaction no wider a window than any reversible action', () => {

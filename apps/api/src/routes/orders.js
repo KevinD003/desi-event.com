@@ -597,14 +597,18 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
 
       if (!order) throw notFound('No such order.')
 
-      if (!ownsOrder(request.actor, order)) {
+      const buyer = ownsOrder(request.actor, order)
+
+      if (!buyer) {
         const organizationId = order.event?.organizationId
 
         // `assertCan` raises the 403; there is no role comparison here.
         assertCan(request.actor, CAPABILITIES.ORDER_VIEW, { organizationId })
       }
 
-      return { data: toOrder(order) }
+      // Only the buyer gets their own address back. `order:view` reaches every
+      // organisation role from VIEWER up, and none of them needs it.
+      return { data: toOrder(order, { buyerAddress: buyer }) }
     },
   })
 
