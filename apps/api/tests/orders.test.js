@@ -88,6 +88,34 @@ async function takeHold(app, ticketTypeId, quantity, headers = {}) {
 }
 
 describe('POST /v1/orders', () => {
+  it('sells tickets for an event whose sales an organiser has opened', async () => {
+    // The lifecycle's ON_SALE, which the order path refused until Phase 4.
+    const { app, prisma, ids } = await createTestApp()
+
+    await prisma.event.update({ where: { id: ids.publishedEvent.id }, data: { status: 'ON_SALE' } })
+
+    const held = await takeHold(app, ids.generalAdmission.id, 1)
+    const response = await order(app, checkout(ids, { holdIds: [held.id] }), holdHeaders(held))
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data).toMatchObject({ status: 'PAID', totalCents: ONE_TICKET_TOTAL })
+  })
+
+  it('refuses an order for an event whose sales are paused', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const held = await takeHold(app, ids.generalAdmission.id, 1)
+
+    await prisma.event.update({
+      where: { id: ids.publishedEvent.id },
+      data: { status: 'SALES_PAUSED' },
+    })
+
+    const response = await order(app, checkout(ids, { holdIds: [held.id] }), holdHeaders(held))
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.message).toMatch(/not on sale/i)
+  })
+
   it('prices the order server-side, issues tickets and converts the hold', async () => {
     const { app, prisma, ids } = await createTestApp()
     const hold = await takeHold(app, ids.generalAdmission.id, 2)

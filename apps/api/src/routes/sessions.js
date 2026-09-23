@@ -23,6 +23,7 @@ import {
   toPublicSeat,
 } from '@desi-event/inventory'
 import { CAPABILITIES, can } from '@desi-event/permissions'
+import { BOOKABLE_STATUSES, INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { notFound, unprocessable } from '../lib/errors.js'
@@ -73,7 +74,9 @@ export function registerSessionRoutes(app, { prisma, env }) {
       organizationId: event.organizationId,
     })
 
-    if (event.status !== 'PUBLISHED' && !organiser) throw notFound('No such session.')
+    // The statuses a listing shows, so a sold-out or paused show's seat map
+    // still answers; buying is decided separately below.
+    if (!INDEXABLE_STATUSES.has(event.status) && !organiser) throw notFound('No such session.')
 
     return { session, event, organiser }
   }
@@ -107,7 +110,9 @@ export function registerSessionRoutes(app, { prisma, env }) {
       const { session, event } = await visibleSession(request)
       const now = new Date()
 
-      if (event.status !== 'PUBLISHED') throw unprocessable('This event is not on sale.')
+      if (!BOOKABLE_STATUSES.has(event.status)) {
+        throw unprocessable('This event is not on sale.')
+      }
 
       // The session's own window, which can differ from the event's: a festival
       // sells its Saturday before its Sunday.

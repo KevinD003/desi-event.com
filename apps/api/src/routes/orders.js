@@ -41,6 +41,7 @@ import {
   resolveTaxPolicy,
 } from '@desi-event/pricing'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
+import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
@@ -277,7 +278,9 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
 
         const event = await tx.event.findUnique({ where: { id: body.eventId } })
         if (!event) throw notFound('No such event.')
-        if (event.status !== 'PUBLISHED') throw unprocessable('This event is not on sale.')
+        if (!BOOKABLE_STATUSES.has(event.status)) {
+          throw unprocessable('This event is not on sale.')
+        }
 
         const ticketTypes = await tx.ticketType.findMany({ where: { id: { in: requestedIds } } })
         const byId = new Map(ticketTypes.map((ticketType) => [ticketType.id, ticketType]))

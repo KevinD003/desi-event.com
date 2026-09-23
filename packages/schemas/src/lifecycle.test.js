@@ -5,6 +5,7 @@ import {
   ACTORS,
   EDITABLE_STATUSES,
   GATES,
+  BOOKABLE_STATUSES,
   INDEXABLE_STATUSES,
   MATERIAL_FIELDS,
   PUBLICLY_VISIBLE_STATUSES,
@@ -201,6 +202,21 @@ describe('what a stranger may see', () => {
 
   it('sells only in ON_SALE', () => {
     expect([...SELLING_STATUSES]).toEqual(['ON_SALE'])
+  })
+
+  it('books in ON_SALE, and in PUBLISHED as every existing event does, and nowhere else', () => {
+    expect([...BOOKABLE_STATUSES].sort()).toEqual(['ON_SALE', 'PUBLISHED'])
+
+    for (const status of SELLING_STATUSES) expect(BOOKABLE_STATUSES.has(status), status).toBe(true)
+    for (const stopped of ['SALES_PAUSED', 'SOLD_OUT', 'CANCELLED', 'POSTPONED', 'DRAFT']) {
+      expect(BOOKABLE_STATUSES.has(stopped), stopped).toBe(false)
+    }
+  })
+
+  it('never books a status a listing would not show', () => {
+    for (const status of BOOKABLE_STATUSES) {
+      expect(INDEXABLE_STATUSES.has(status), status).toBe(true)
+    }
   })
 
   it('never sells in a status it would not show', () => {

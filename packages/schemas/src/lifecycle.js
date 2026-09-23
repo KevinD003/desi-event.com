@@ -220,6 +220,25 @@ export const PUBLICLY_VISIBLE_STATUSES = Object.freeze(
 export const SELLING_STATUSES = Object.freeze(new Set(['ON_SALE']))
 
 /**
+ * Statuses in which the sale paths — a hold, a seat hold, an order — take a
+ * booking. Each tier's own sales window still decides after this.
+ *
+ * `ON_SALE`, because that is what the status means. Until Phase 4 no sale path
+ * read {@link SELLING_STATUSES}: holds, seat holds and orders each compared the
+ * column with the literal `'PUBLISHED'`, written before this lifecycle existed,
+ * so an organiser who pressed "Open sales" moved the event into the one public
+ * state in which nobody could buy a ticket.
+ *
+ * `PUBLISHED` as well, because every event published before the lifecycle, and
+ * every event this repository seeds, sells in that state, and taking that away
+ * is a product decision rather than a bug fix. `SALES_PAUSED` and `SOLD_OUT`
+ * are not here: a pause is an organiser's instruction to stop.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const BOOKABLE_STATUSES = Object.freeze(new Set(['PUBLISHED', ...SELLING_STATUSES]))
+
+/**
  * Statuses an organiser may still edit the content of.
  *
  * After publication a material change needs a confirmation step rather than a

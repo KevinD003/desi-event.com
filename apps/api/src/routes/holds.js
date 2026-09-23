@@ -17,6 +17,7 @@ import {
   validateQuantityRequest,
 } from '@desi-event/inventory'
 import { CAPABILITIES, can } from '@desi-event/permissions'
+import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { conflict, notFound, unprocessable } from '../lib/errors.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
@@ -61,7 +62,7 @@ export function registerHoldRoutes(app, { prisma, env }) {
         const event = await tx.event.findUnique({ where: { id: tier.eventId } })
         if (!event) throw notFound('No such ticket type.')
 
-        if (event.status !== 'PUBLISHED') {
+        if (!BOOKABLE_STATUSES.has(event.status)) {
           throw unprocessable('This event is not on sale.')
         }
 

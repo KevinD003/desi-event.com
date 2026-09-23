@@ -153,7 +153,10 @@ export async function loadEventList(filters = {}, options = {}) {
           page,
           perPage,
           sort: 'startsAt:asc',
-          status: 'PUBLISHED',
+          // No status: the API's own public set applies — published, on sale,
+          // paused and sold out. This asked for PUBLISHED alone, which after
+          // the lifecycle meant an event vanished from discovery the moment
+          // its organiser opened sales.
           ...(category ? { category } : {}),
           ...(city ? { city } : {}),
           ...(q ? { q } : {}),
@@ -295,7 +298,7 @@ export async function loadCatalogueOverview(options = {}) {
 
 /** Facet lists used when the API cannot be reached. */
 const FALLBACK_FACETS = Object.freeze({
-  scope: { status: 'PUBLISHED', total: 0 },
+  scope: { status: 'LISTED', total: 0 },
   categories: [],
   cities: [],
   languages: [],
@@ -341,7 +344,7 @@ export async function loadCatalogueFacets(options = {}) {
       return {
         facets: {
           ...FALLBACK_FACETS,
-          scope: { status: 'PUBLISHED', total: events.length },
+          scope: { status: 'LISTED', total: events.length },
           categories: count(events.map((event) => event.category)),
           cities: count(events.map((event) => event.city).filter(Boolean)),
         },

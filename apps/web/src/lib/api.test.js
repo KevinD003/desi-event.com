@@ -113,7 +113,7 @@ describe('loadEventList', () => {
     expect(result.pagination).toEqual(liveListing.pagination)
   })
 
-  it('sends only the filters that are set, plus the published-events constraint', async () => {
+  it('sends only the filters that are set, and leaves the public statuses to the API', async () => {
     const list = vi.fn().mockResolvedValue(liveListing)
 
     await loadEventList(
@@ -123,7 +123,10 @@ describe('loadEventList', () => {
 
     const [query] = list.mock.calls[0]
 
-    expect(query).toMatchObject({ category: 'COMEDY', page: 2, perPage: 6, status: 'PUBLISHED' })
+    expect(query).toMatchObject({ category: 'COMEDY', page: 2, perPage: 6 })
+    // No status filter: an event on sale, paused or sold out is still listed,
+    // with the words to say which. Asking for PUBLISHED hid every one of them.
+    expect(query).not.toHaveProperty('status')
     expect(query).not.toHaveProperty('city')
     expect(query).not.toHaveProperty('q')
   })

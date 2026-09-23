@@ -122,6 +122,28 @@ describe('POST /v1/holds', () => {
     await app.close()
   })
 
+  it.each([
+    ['PUBLISHED', 201],
+    ['ON_SALE', 201],
+    ['SALES_PAUSED', 422],
+    ['SOLD_OUT', 422],
+    ['CANCELLED', 422],
+  ])('takes a hold on an event that is %s: %i', async (status, expected) => {
+    // ON_SALE is the state an organiser's "Open sales" moves an event into, and
+    // until Phase 4 it was refused here: the check was the literal PUBLISHED,
+    // written before the lifecycle existed.
+    const { app, prisma, ids } = await createTestApp()
+
+    await prisma.event.update({ where: { id: ids.publishedEvent.id }, data: { status } })
+
+    const response = await hold(app, { ticketTypeId: ids.generalAdmission.id, quantity: 1 })
+
+    expect(response.statusCode).toBe(expected)
+    if (expected === 422) expect(response.json().error.message).toMatch(/not on sale/i)
+
+    await app.close()
+  })
+
   it('rejects a tier whose sales window has not opened or has closed', async () => {
     const { app, ids, prisma } = await createTestApp()
 
