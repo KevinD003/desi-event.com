@@ -66,7 +66,7 @@ import {
 
 /** The frame of an open panel. */
 const PANEL =
-  'mt-3 rounded-card border border-line-strong bg-surface-raised p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
 
 /** The frame of the removal panel: danger, because it is. */
 const DANGER_PANEL =

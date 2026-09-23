@@ -68,7 +68,7 @@ function formatWhen(value) {
   // In UTC, and saying so. This renders on the server first and hydrates in
   // the browser; a format left to the machine's own zone read one time on the
   // server and another after hydration, and named neither.
-  return new Intl.DateTimeFormat('en-IN', {
+  return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -292,7 +292,7 @@ export function TwoStep({ required, factors }) {
       {stage === 'scan' && enrolment ? (
         <form
           onSubmit={confirm}
-          className="space-y-4 rounded-card border border-line bg-surface-raised p-4"
+          className="space-y-4 rounded-card border border-line bg-surface-raised shadow-card p-4"
         >
           <p className="text-ink">
             Scan this with an authenticator app (any app that supports time-based codes), then enter

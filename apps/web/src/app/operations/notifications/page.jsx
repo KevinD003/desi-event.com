@@ -95,7 +95,7 @@ const TD = 'border-b border-line px-3 py-3 align-top text-ink'
  * capped select still opens its full list; only the closed control shrinks.
  */
 const CONTROL =
-  'min-h-11 max-w-full rounded-lg border border-line-strong bg-surface-raised px-3 py-2 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'min-h-11 max-w-full rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
 
 /** A filter's label and control, never wider than the form. */
 const FIELD = 'flex max-w-full min-w-0 flex-col gap-1'
@@ -269,7 +269,7 @@ export default async function NotificationQueuePage({ searchParams }) {
           { href: null, label: 'Notifications' },
         ]}
       />
-      <h1 className="mt-3 text-2xl font-bold text-ink">Notification queue</h1>
+      <h1 className="mt-3 text-h2 font-semibold text-ink">Notification queue</h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
         Every message the outbox holds, in every status: dead letters, failures and scheduled
         retries first, the longest-waiting of them first, then everything else. Neither recipients
@@ -316,7 +316,7 @@ export default async function NotificationQueuePage({ searchParams }) {
         </div>
         <button
           type="submit"
-          className="min-h-11 rounded-lg bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Apply
         </button>

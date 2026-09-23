@@ -37,6 +37,7 @@ import { AgingBadge } from '../../components/money-figure.jsx'
 import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { StepUpForRead } from '../../components/step-up-for-read.jsx'
 import { EmptyState } from '../../components/ui.jsx'
+import { CountTile, CountTiles } from '../../components/workspace-kit.jsx'
 import { formatPrice } from '../../lib/pricing.js'
 import { describeApiRefusal } from '../../lib/refusal.js'
 import {
@@ -118,7 +119,7 @@ function QueueFailure({ queue }) {
 function QueueSection({ id, title, description, failure, count, more = null, children }) {
   return (
     <section aria-labelledby={id} className="mt-8">
-      <h2 id={id} className="text-lg font-semibold text-ink">
+      <h2 id={id} className="text-xl font-semibold text-ink">
         {title} {failure ? null : <span className="font-normal text-ink-muted">({count})</span>}
       </h2>
       <p className="mt-1 text-sm text-ink-muted">{description}</p>
@@ -174,7 +175,10 @@ export default async function OperationsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Operations</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Money
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Operations</h1>
       <p className="mt-2 text-ink-muted">
         What the machine could not finish on its own. Nothing is actioned from this page — each item
         links to where the work is done, behind its own second factor.
@@ -189,6 +193,27 @@ export default async function OperationsPage() {
       ) : null}
 
       {stepUp ? <StepUpForRead action="see the queues that hold money" /> : null}
+
+      {/* The same three counts the sections below head themselves with, side
+          by side, for a queue that was read. A queue that could not be read
+          has no tile rather than a zero: nobody counted it. */}
+      {(platform && (!reconciliation.error || !notifications.error)) ||
+      (organizationId && !refunds.error) ? (
+        <CountTiles>
+          {platform && !reconciliation.error ? (
+            <CountTile
+              label="Payments not reconciled"
+              value={reconciliation.value?.tasks.length ?? 0}
+            />
+          ) : null}
+          {platform && !notifications.error ? (
+            <CountTile label="Notifications that did not go" value={stuck.length} />
+          ) : null}
+          {organizationId && !refunds.error ? (
+            <CountTile label="Refunds waiting" value={unresolved.length} />
+          ) : null}
+        </CountTiles>
+      ) : null}
 
       {platform ? (
         <QueueSection
@@ -214,7 +239,7 @@ export default async function OperationsPage() {
               {reconciliation.value.tasks.map((task) => (
                 <li
                   key={task.id}
-                  className="rounded-card border border-line bg-surface-raised p-4 focus-within:ring-2 focus-within:ring-focus"
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4 focus-within:ring-2 focus-within:ring-focus"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-medium text-ink">
@@ -266,7 +291,7 @@ export default async function OperationsPage() {
               {stuck.map((message) => (
                 <li
                   key={message.id}
-                  className="rounded-card border border-line bg-surface-raised p-4"
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-medium text-ink">{message.template}</p>
@@ -309,7 +334,7 @@ export default async function OperationsPage() {
               {unresolved.map((refund) => (
                 <li
                   key={refund.id}
-                  className="rounded-card border border-line bg-surface-raised p-4"
+                  className="rounded-card border border-line bg-surface-raised shadow-card p-4"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <p className="font-medium text-ink">

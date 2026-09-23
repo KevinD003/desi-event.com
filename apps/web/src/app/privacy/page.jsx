@@ -28,6 +28,7 @@ import Link from 'next/link'
 
 import { AsOf, Empty, Forbidden } from '../../components/page-state.jsx'
 import { ReadRefusal } from '../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../components/workspace-kit.jsx'
 import { listPrivacyRequests } from '../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../lib/session.js'
 import {
@@ -91,7 +92,10 @@ export default async function PrivacyRequestsPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-ink">Privacy requests</h1>
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Trust and safety
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Privacy requests</h1>
         <p className="mt-2 max-w-3xl text-ink-muted">
           Erasures raised in this organisation. A request changes nothing until somebody types back
           the phrase the server issued, and what it can reach is limited to this
@@ -123,7 +127,7 @@ export default async function PrivacyRequestsPage({ searchParams }) {
       {requests && requests.length > 0 ? (
         <>
           <AsOf asOf={readAt} />
-          <div className="mt-4 overflow-x-auto">
+          <div className={`mt-4 ${TABLE_FRAME}`}>
             <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Privacy requests in {selected.organizationName ?? 'this organisation'}, newest first

@@ -33,6 +33,7 @@ import Link from 'next/link'
 import { ReconciliationActions } from '../../../../components/reconciliation-actions.jsx'
 import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../../../components/workspace-kit.jsx'
 import { getReconciliationTask } from '../../../../lib/organizer-api.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../../lib/session.js'
@@ -125,7 +126,7 @@ function Evidence({ caption, evidence, absent }) {
   }
 
   return (
-    <div className="mt-4 overflow-x-auto">
+    <div className={`mt-4 ${TABLE_FRAME}`}>
       <table className={TABLE}>
         <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">{caption}</caption>
         <thead>
@@ -203,7 +204,7 @@ export default async function ReconciliationDetailPage({ params }) {
             { href: null, label: 'Reconciliation item' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-ink">Reconciliation item</h1>
+        <h1 className="mt-3 text-h2 font-semibold text-ink">Reconciliation item</h1>
         <ReadRefusal error={failure} what="This item" action="see this reconciliation item" />
       </div>
     )
@@ -219,14 +220,14 @@ export default async function ReconciliationDetailPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-ink">
+      <h1 className="mt-3 text-h2 font-semibold text-ink">
         {task.kind.replace(/_/gu, ' ').toLowerCase()}
       </h1>
       <p className="mt-2 text-ink-muted">{KINDS[task.kind] ?? 'Something needs establishing.'}</p>
       <AsOf asOf={new Date().toISOString()} />
 
       <section aria-labelledby="status-heading" className="mt-8">
-        <h2 id="status-heading" className="text-lg font-semibold text-ink">
+        <h2 id="status-heading" className="text-xl font-semibold text-ink">
           Where it stands
         </h2>
         {/*
@@ -239,14 +240,14 @@ export default async function ReconciliationDetailPage({ params }) {
           same comment.
         */}
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-card border border-line bg-surface-raised p-4">
+          <div className="rounded-card border border-line bg-surface-raised shadow-card p-4">
             <dt className="text-sm text-ink-muted">State</dt>
             <dd className="mt-1">
               <span className="block font-semibold text-ink">{task.state}</span>
               <span className="mt-1 block text-sm text-ink-muted">{STATES[task.state]}</span>
             </dd>
           </div>
-          <div className="rounded-card border border-line bg-surface-raised p-4">
+          <div className="rounded-card border border-line bg-surface-raised shadow-card p-4">
             <dt className="text-sm text-ink-muted">Open for</dt>
             <dd className="mt-1">
               <span className="block font-semibold text-ink">
@@ -255,7 +256,7 @@ export default async function ReconciliationDetailPage({ params }) {
               <span className="mt-1 block text-sm text-ink-muted">{AGING[task.aging]}</span>
             </dd>
           </div>
-          <div className="rounded-card border border-line bg-surface-raised p-4">
+          <div className="rounded-card border border-line bg-surface-raised shadow-card p-4">
             <dt className="text-sm text-ink-muted">Times the provider has been asked</dt>
             <dd className="mt-1">
               <span className="block font-semibold text-ink">{task.attempts}</span>
@@ -274,7 +275,7 @@ export default async function ReconciliationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="what-heading" className="mt-8">
-        <h2 id="what-heading" className="text-lg font-semibold text-ink">
+        <h2 id="what-heading" className="text-xl font-semibold text-ink">
           What it is about
         </h2>
         <dl className="mt-3 space-y-2 text-sm">
@@ -298,7 +299,7 @@ export default async function ReconciliationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="evidence-heading" className="mt-8">
-        <h2 id="evidence-heading" className="text-lg font-semibold text-ink">
+        <h2 id="evidence-heading" className="text-xl font-semibold text-ink">
           Both sides of the evidence
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
@@ -320,7 +321,7 @@ export default async function ReconciliationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="history-heading" className="mt-8">
-        <h2 id="history-heading" className="text-lg font-semibold text-ink">
+        <h2 id="history-heading" className="text-xl font-semibold text-ink">
           What people have written
         </h2>
         {(task.notes?.length ?? 0) === 0 ? (
@@ -333,7 +334,7 @@ export default async function ReconciliationDetailPage({ params }) {
             {task.notes.map((entry, index) => (
               <li
                 key={`${entry.at}-${index}`}
-                className="rounded-card border border-line bg-surface-raised p-4"
+                className="rounded-card border border-line bg-surface-raised shadow-card p-4"
               >
                 <p className="text-sm text-ink-muted">
                   <time dateTime={entry.at}>{entry.at}</time>
@@ -365,7 +366,7 @@ export default async function ReconciliationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-ink">
+        <h2 id="actions-heading" className="text-xl font-semibold text-ink">
           What you can do
         </h2>
         <p className="mt-1 text-sm text-ink-muted">

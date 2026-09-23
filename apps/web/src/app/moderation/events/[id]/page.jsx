@@ -47,7 +47,7 @@ export const metadata = { title: 'Review an event', robots: { index: false, foll
  */
 function Readiness({ ready, title, blockers }) {
   return (
-    <li className="rounded-card border border-line bg-surface-raised p-3">
+    <li className="rounded-card border border-line bg-surface-raised shadow-card p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={ready ? 'success' : 'warning'} srLabel="Status:">
           {ready ? 'Ready' : 'Not yet'}
@@ -91,7 +91,7 @@ export default async function ReviewEventPage({ params }) {
   if (!event) {
     return (
       <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold text-ink">That event could not be opened</h1>
+        <h1 className="text-h2 font-semibold text-ink">That event could not be opened</h1>
         <ReadRefusal error={failure} what="This event" action="review this event" />
         <p className="mt-4">
           <Link
@@ -143,7 +143,7 @@ export default async function ReviewEventPage({ params }) {
       </nav>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold text-ink">{event.title}</h1>
+        <h1 className="text-h2 font-semibold text-ink">{event.title}</h1>
         <Badge variant={reading.tone} srLabel="State:">
           {reading.label}
         </Badge>
@@ -152,7 +152,7 @@ export default async function ReviewEventPage({ params }) {
       <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[1.6fr_1fr] lg:items-start">
         <div className="min-w-0 space-y-6">
           <section aria-labelledby="listing-heading">
-            <h2 id="listing-heading" className="text-xl font-bold text-ink">
+            <h2 id="listing-heading" className="text-xl font-semibold text-ink">
               What the listing says
             </h2>
 
@@ -231,7 +231,7 @@ export default async function ReviewEventPage({ params }) {
           </section>
 
           <section aria-labelledby="organiser-heading">
-            <h2 id="organiser-heading" className="text-xl font-bold text-ink">
+            <h2 id="organiser-heading" className="text-xl font-semibold text-ink">
               Who is behind it
             </h2>
 
@@ -268,14 +268,14 @@ export default async function ReviewEventPage({ params }) {
 
           {history.length > 0 ? (
             <section aria-labelledby="history-heading">
-              <h2 id="history-heading" className="text-xl font-bold text-ink">
+              <h2 id="history-heading" className="text-xl font-semibold text-ink">
                 What has happened so far
               </h2>
               <ol className="mt-3 space-y-2">
                 {history.map((entry) => (
                   <li
                     key={entry.id}
-                    className="rounded-card border border-line bg-surface-raised p-3 text-sm"
+                    className="rounded-card border border-line bg-surface-raised shadow-card p-3 text-sm"
                   >
                     <p className="font-medium text-ink">
                       {entry.fromStatus ? `${statusReading(entry.fromStatus).label} → ` : ''}
@@ -283,7 +283,7 @@ export default async function ReviewEventPage({ params }) {
                     </p>
                     <p className="text-ink-muted">
                       <time dateTime={entry.createdAt}>
-                        {new Date(entry.createdAt).toLocaleString('en-GB')}
+                        {new Date(entry.createdAt).toLocaleString('en-US')}
                       </time>
                     </p>
                     {entry.reason ? <p className="mt-1 text-ink-muted">{entry.reason}</p> : null}
@@ -305,7 +305,7 @@ export default async function ReviewEventPage({ params }) {
 
         <aside className="space-y-6 lg:sticky lg:top-24">
           <section aria-labelledby="readiness-heading">
-            <h2 id="readiness-heading" className="text-xl font-bold text-ink">
+            <h2 id="readiness-heading" className="text-xl font-semibold text-ink">
               Whether it is ready
             </h2>
             <ul className="mt-3 space-y-2">
@@ -337,7 +337,7 @@ export default async function ReviewEventPage({ params }) {
           </section>
 
           <section aria-labelledby="decision-panel-heading">
-            <h2 id="decision-panel-heading" className="text-xl font-bold text-ink">
+            <h2 id="decision-panel-heading" className="text-xl font-semibold text-ink">
               Your decision
             </h2>
 

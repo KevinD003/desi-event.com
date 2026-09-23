@@ -37,6 +37,7 @@ import Link from 'next/link'
 
 import { Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../../../components/workspace-kit.jsx'
 import { getPrivacyRequest, listPrivacyRequestEvents } from '../../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../../lib/session.js'
 import {
@@ -132,7 +133,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
         <>
           <header className="mt-4">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold text-ink">Privacy request</h1>
+              <h1 className="text-h2 font-semibold text-ink">Privacy request</h1>
               <StateBadge state={request.state} label={requestStateLabel(request.state)} />
             </div>
             <p className="mt-2 max-w-3xl text-ink-muted">
@@ -141,7 +142,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
           </header>
 
           <section aria-labelledby="facts-heading" className="mt-8">
-            <h2 id="facts-heading" className="text-lg font-semibold text-ink">
+            <h2 id="facts-heading" className="text-xl font-semibold text-ink">
               The record
             </h2>
             <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
@@ -191,7 +192,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
           </section>
 
           <section aria-labelledby="scope-heading" className="mt-8">
-            <h2 id="scope-heading" className="text-lg font-semibold text-ink">
+            <h2 id="scope-heading" className="text-xl font-semibold text-ink">
               What this would reach
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-ink-muted">
@@ -202,7 +203,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
             </p>
 
             {Array.isArray(request.scope) && request.scope.length > 0 ? (
-              <div className="mt-3 overflow-x-auto">
+              <div className={`mt-4 ${TABLE_FRAME}`}>
                 <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
                   <caption className="sr-only">Personal-data categories in scope</caption>
                   <thead>
@@ -254,7 +255,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
           />
 
           <section aria-labelledby="timeline-heading" className="mt-8">
-            <h2 id="timeline-heading" className="text-lg font-semibold text-ink">
+            <h2 id="timeline-heading" className="text-xl font-semibold text-ink">
               Evidence
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-ink-muted">
@@ -279,7 +280,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
                 {events.map((event) => (
                   <li
                     key={event.id}
-                    className="rounded-card border border-line bg-surface-raised p-3"
+                    className="rounded-card border border-line bg-surface-raised shadow-card p-3"
                   >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
                       <p className="font-medium text-ink">{auditActionLabel(event.action)}</p>

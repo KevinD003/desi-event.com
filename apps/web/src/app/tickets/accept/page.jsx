@@ -31,7 +31,10 @@ export const metadata = { title: 'Accept a ticket', robots: { index: false, foll
 export default function AcceptTransferPage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Accept a ticket</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Your account
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Accept a ticket</h1>
       <p className="mt-2 text-ink-muted">
         Somebody has offered you a ticket. Paste the invitation code below. Accepting puts the
         ticket in this account and stops the sender’s pass working; declining leaves it with them.

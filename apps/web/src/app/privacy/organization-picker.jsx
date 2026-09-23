@@ -92,7 +92,7 @@ export function OrganizationPicker({
             id="organizationId"
             name="organizationId"
             defaultValue={selectedId}
-            className="rounded-sm border border-line-strong bg-surface-raised px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             {organizations.map((organization) => (
               <option key={organization.organizationId} value={organization.organizationId}>
@@ -122,7 +122,7 @@ export function OrganizationPicker({
           id="state"
           name="state"
           defaultValue={state}
-          className="rounded-sm border border-line-strong bg-surface-raised px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           <option value="">Every state</option>
           {states.map((member) => (
@@ -135,7 +135,7 @@ export function OrganizationPicker({
 
       <button
         type="submit"
-        className="rounded-sm bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
       >
         Apply
       </button>

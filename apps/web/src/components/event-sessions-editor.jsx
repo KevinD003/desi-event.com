@@ -44,7 +44,7 @@ function blankSession(event) {
     startsAt: event.startsAt ?? '',
     endsAt: event.endsAt ?? '',
     doorsOpenAt: '',
-    timezone: event.timezone ?? 'Asia/Kolkata',
+    timezone: event.timezone ?? 'America/New_York',
     salesStartAt: '',
     salesEndAt: '',
     venueMapVersionId: '',
@@ -232,7 +232,7 @@ export function EventSessionsEditor({
 
   return (
     <section aria-labelledby="sessions-heading" className="space-y-5">
-      <h2 id="sessions-heading" className="text-xl font-bold text-ink">
+      <h2 id="sessions-heading" className="text-xl font-semibold text-ink">
         Sessions
       </h2>
       <p className="text-sm text-ink-muted">
@@ -293,12 +293,13 @@ export function EventSessionsEditor({
                         {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')} —{' '}
                         {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
                         <span className="text-ink-muted">
-                          ({session.timezone} {zoneAbbreviation(session.timezone)})
+                          ({session.timezone}{' '}
+                          {zoneAbbreviation(session.timezone, new Date(session.startsAt))})
                         </span>
                       </p>
                       {session.capacity ? (
                         <p className="mt-1 text-sm text-ink-muted">
-                          Capacity {session.capacity.toLocaleString('en-IN')}
+                          Capacity {session.capacity.toLocaleString('en-US')}
                         </p>
                       ) : null}
                     </div>
@@ -347,7 +348,7 @@ export function EventSessionsEditor({
               value={draft.timezone}
               onChange={(change) => setDraft({ ...draft, timezone: change.target.value })}
             >
-              {[...new Set([draft.timezone, event.timezone, 'Asia/Kolkata'])]
+              {[...new Set([draft.timezone, event.timezone, 'America/New_York'])]
                 .filter(Boolean)
                 .map((zone) => (
                   <option key={zone} value={zone}>

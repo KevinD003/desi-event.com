@@ -28,20 +28,55 @@ import { AREAS } from '../lib/areas.js'
 import { accountItems, workspaceGroups } from '../lib/navigation.js'
 import { AreaTabs, ShellRail } from './shell-nav.jsx'
 import { SignOutButton } from './sign-out-button.jsx'
+import { PANEL, SECONDARY_LINK } from './workspace-kit.jsx'
+
+/**
+ * The first letter of a display name, for the rail's monogram.
+ *
+ * `Intl.Segmenter` would be the thorough answer for a name that opens with a
+ * combining sequence; the spread over code points is enough for a letter in a
+ * circle that is `aria-hidden` anyway, and it never splits a surrogate pair.
+ *
+ * @param {string|undefined} name The display name.
+ * @returns {string} One upper-cased character, or an empty string.
+ */
+export function monogram(name) {
+  const [first = ''] = [...(name ?? '').trim()]
+
+  return first.toLocaleUpperCase('en-US')
+}
 
 /**
  * Who is signed in, above a rail.
+ *
+ * A monogram and the display name — never the email address: the rail is on
+ * every signed-in page, and an address there would be in every screenshot of
+ * one. The monogram is decoration and hidden from assistive technology; the
+ * sentence beside it says the same thing in words.
  *
  * @param {object} props Component props.
  * @param {object} props.session The session payload.
  * @returns {JSX.Element} The line.
  */
 function SignedInAs({ session }) {
+  const name = session.user?.displayName
+  const letter = monogram(name)
+
   return (
-    <p className="mb-3 border-b border-opsnav-line px-2.5 pb-3 text-xs text-ink-subtle">
-      Signed in as{' '}
-      <span className="font-medium break-words text-ink">{session.user?.displayName}</span>
-    </p>
+    <div className="mb-3 flex items-center gap-3 border-b border-opsnav-line px-2.5 pb-3">
+      {letter ? (
+        <span
+          aria-hidden="true"
+          className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-base font-semibold text-accent-strong"
+        >
+          {letter}
+        </span>
+      ) : null}
+      <p className="min-w-0 text-xs text-ink-subtle">
+        Signed in as{' '}
+        <span className="block text-sm font-semibold break-words text-ink">{name}</span>
+      </p>
+    </div>
   )
 }
 
@@ -61,8 +96,8 @@ function SignedInAs({ session }) {
  */
 export function WorkspaceShell({ session, area, tabs = [], children }) {
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-6 lg:py-8">
-      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+    <div className="mx-auto w-full max-w-bleed px-4 py-6 sm:px-6 lg:py-10">
+      <div className="lg:grid lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-10">
         <ShellRail
           label="Workspace"
           toggleLabel="Workspace menu"
@@ -71,7 +106,7 @@ export function WorkspaceShell({ session, area, tabs = [], children }) {
         />
         <div className="min-w-0">
           <AreaTabs label={AREAS[area]?.label ?? 'Sections'} items={tabs} />
-          <div className={tabs.length > 1 ? 'mt-6' : ''}>{children}</div>
+          <div className={tabs.length > 1 ? 'mt-8' : ''}>{children}</div>
         </div>
       </div>
     </div>
@@ -88,8 +123,8 @@ export function WorkspaceShell({ session, area, tabs = [], children }) {
  */
 export function AccountShell({ session, children }) {
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 lg:py-8">
-      <div className="lg:grid lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-8">
+    <div className="mx-auto w-full max-w-content px-4 py-6 sm:px-6 lg:py-10">
+      <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10">
         <ShellRail
           label="Your account"
           toggleLabel="Account menu"
@@ -97,7 +132,7 @@ export function AccountShell({ session, children }) {
           header={<SignedInAs session={session} />}
           footer={
             <div className="mt-3 border-t border-opsnav-line pt-3">
-              <SignOutButton className="flex min-h-11 w-full items-center rounded-lg px-2.5 text-left text-sm font-medium text-opsnav-ink transition-colors duration-(--duration-fast) hover:bg-opsnav-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:min-h-10" />
+              <SignOutButton className="flex min-h-11 w-full items-center rounded-control px-2.5 text-left text-sm font-medium text-opsnav-ink transition-colors duration-(--duration-fast) hover:bg-opsnav-hover hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:pointer-fine:min-h-10" />
             </div>
           }
         />
@@ -120,17 +155,19 @@ export function AccountShell({ session, children }) {
  */
 export function AreaRefusal({ area }) {
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink">Not for you</h1>
-      <p className="mt-2 text-ink-muted">{AREAS[area].refusal}</p>
-      <p className="mt-4">
-        <Link
-          href="/"
-          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
-          Back to the site
-        </Link>
-      </p>
+    <div className="mx-auto max-w-3xl px-4 py-12 sm:py-16">
+      <div className={`p-6 sm:p-8 ${PANEL}`}>
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          {AREAS[area].label}
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Not for you</h1>
+        <p className="mt-3 text-ink-muted">{AREAS[area].refusal}</p>
+        <p className="mt-6">
+          <Link href="/" className={SECONDARY_LINK}>
+            Back to the site
+          </Link>
+        </p>
+      </div>
     </div>
   )
 }

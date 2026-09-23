@@ -64,6 +64,13 @@ describe('TicketPass', () => {
     expect(screen.getByText(/as a screenshot — can use it to get in once/iu)).toBeTruthy()
     expect(screen.getByRole('button', { name: /hide pass/iu })).toBe(document.activeElement)
 
+    // A valid figure: the code and its caption, the caption last, and the
+    // control that takes the pass away outside it rather than inside.
+    const figure = drawing.closest('figure')
+
+    expect(figure.lastElementChild.tagName).toBe('FIGCAPTION')
+    expect(figure.contains(screen.getByRole('button', { name: /hide pass/iu }))).toBe(false)
+
     setItem.mockRestore()
   })
 

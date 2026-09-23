@@ -14,7 +14,7 @@ vi.mock('next/navigation', () => ({
 }))
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 
-const { AccountShell, AreaRefusal, WorkspaceShell } = await import('./shells.jsx')
+const { AccountShell, AreaRefusal, WorkspaceShell, monogram } = await import('./shells.jsx')
 
 /** An organisation finance member, as `GET /v1/auth/me` would describe one. */
 const FINANCE = {
@@ -92,6 +92,39 @@ describe('WorkspaceShell', () => {
     expect(screen.getByText('Farah')).toBeTruthy()
     expect(container.innerHTML).not.toContain('farah@rangoli.example')
   })
+
+  it('draws the name’s initial as decoration, not as a second name', () => {
+    const { container } = render(
+      <WorkspaceShell session={FINANCE} area="finance">
+        <p>page</p>
+      </WorkspaceShell>,
+    )
+
+    const initial = [...container.querySelectorAll('[aria-hidden="true"]')].find(
+      (element) => element.textContent === 'F',
+    )
+
+    expect(initial).toBeTruthy()
+    // The rail's only headings are the page's own: group labels and the
+    // monogram are not in the outline.
+    expect(screen.queryAllByRole('heading')).toHaveLength(0)
+  })
+})
+
+describe('monogram', () => {
+  it.each([
+    ['Farah', 'F'],
+    ['  asha door', 'A'],
+    ['Élodie', 'É'],
+    ['', ''],
+    [undefined, ''],
+  ])('reads %j as %j', (name, expected) => {
+    expect(monogram(name)).toBe(expected)
+  })
+
+  it('never splits a character outside the basic plane in half', () => {
+    expect(monogram('𝒜da')).toBe('𝒜')
+  })
 })
 
 describe('AccountShell', () => {
@@ -116,6 +149,13 @@ describe('AreaRefusal', () => {
     expect(screen.getByRole('heading', { name: 'Not for you', level: 1 })).toBeTruthy()
     expect(screen.getByText(/ask whoever runs the organisation/i)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Back to the site' }).getAttribute('href')).toBe('/')
+  })
+
+  it('names the area it refuses above the heading, without adding a heading', () => {
+    render(<AreaRefusal area="finance" />)
+
+    expect(screen.getByText('Finance').tagName).toBe('P')
+    expect(screen.getAllByRole('heading')).toHaveLength(1)
   })
 
   it('tells somebody refused the organiser workspace who can help', () => {

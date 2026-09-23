@@ -31,6 +31,7 @@ import Link from 'next/link'
 
 import { Empty } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { PosterThumb, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { getMyOrders } from '../../../lib/account-api.js'
 import { formatAmount } from '../../../lib/pricing.js'
 import {
@@ -57,7 +58,7 @@ const LINK =
 
 /** Classes for a Previous or Next link. */
 const PAGER =
-  'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
 
 /**
  * One fact on an order card, omitted when there is nothing to say.
@@ -71,9 +72,9 @@ function Detail({ term, children }) {
   if (children === '' || children === null || children === undefined) return null
 
   return (
-    <div className="flex flex-wrap gap-x-2">
-      <dt className="text-ink-subtle">{term}</dt>
-      <dd className="font-medium text-ink">{children}</dd>
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-ink-subtle">{term}</dt>
+      <dd className="mt-0.5 font-medium break-words text-ink">{children}</dd>
     </div>
   )
 }
@@ -92,27 +93,31 @@ function OrderCard({ order }) {
   const count = ticketCount(order)
 
   return (
-    <li className="rounded-card border border-line bg-surface p-4 focus-within:ring-2 focus-within:ring-focus sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h2 className="text-base font-semibold text-ink sm:text-lg">
-          <Link
-            href={orderHref(order.reference)}
-            className="rounded-sm underline decoration-accent-line underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-          >
-            {orderTitle(order)}
-          </Link>
-        </h2>
-        <StatusChip meaning={orderStatusMeaning(order.status)} />
-      </div>
+    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:flex-row">
+      {/* An order without an event to draw from has no poster rather than a
+          made-up one. */}
+      {order.event?.slug ? (
+        <PosterThumb event={order.event} className="h-24 sm:h-auto sm:w-36" />
+      ) : null}
+      <div className="min-w-0 flex-1 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h2 className="text-lg font-semibold text-ink">
+            <Link href={orderHref(order.reference)} className={TEXT_LINK}>
+              {orderTitle(order)}
+            </Link>
+          </h2>
+          <StatusChip meaning={orderStatusMeaning(order.status)} />
+        </div>
 
-      <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-        <Detail term="When">{eventWhenText(order.event)}</Detail>
-        <Detail term="Reference">
-          <span className="font-mono">{order.reference}</span>
-        </Detail>
-        <Detail term="Tickets">{String(count)}</Detail>
-        <Detail term="Total">{formatAmount(order.totalCents, order.currency)}</Detail>
-      </dl>
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+          <Detail term="When">{eventWhenText(order.event)}</Detail>
+          <Detail term="Reference">
+            <span className="font-mono">{order.reference}</span>
+          </Detail>
+          <Detail term="Tickets">{String(count)}</Detail>
+          <Detail term="Total">{formatAmount(order.totalCents, order.currency)}</Detail>
+        </dl>
+      </div>
     </li>
   )
 }
@@ -217,7 +222,10 @@ export default async function OrdersPage({ searchParams }) {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-ink">Your orders</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Your account
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Your orders</h1>
       <p className="mt-2 text-ink-muted">
         Orders placed while signed in to this account. Open one to see what it was for, what it cost
         and the tickets it gave you.

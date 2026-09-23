@@ -36,7 +36,15 @@ import Link from 'next/link'
 
 import { Empty } from '../../components/page-state.jsx'
 import { ReadRefusal } from '../../components/read-refusal.jsx'
+import {
+  PageHeader,
+  PosterThumb,
+  SECONDARY_LINK,
+  Section,
+  TEXT_LINK,
+} from '../../components/workspace-kit.jsx'
 import { getMyTickets } from '../../lib/organizer-api.js'
+import { StatusChip } from '../account/orders/status-chip.jsx'
 import {
   REACHABLE_STATUSES,
   TICKET_STATUS_WORDS,
@@ -67,40 +75,23 @@ export const metadata = { title: 'My tickets', robots: { index: false, follow: f
  * what a demo database's seeded `VOID` gets.
  */
 
-/** Chip classes per tone, from the semantic token layer. */
-const TONE = Object.freeze({
-  success: 'bg-status-success-soft text-status-success',
-  pending: 'bg-status-pending-soft text-status-pending',
-  info: 'bg-status-info-soft text-status-info',
-  danger: 'bg-status-danger-soft text-status-danger',
-})
-
 /**
- * A status chip.
+ * What a ticket's status says, as the shared chip takes it.
  *
- * The word carries the meaning; the colour only repeats it. Somebody who cannot
- * tell the two greens apart reads the same sentence as everybody else.
+ * The word carries the meaning; the colour and the glyph only repeat it.
+ * Somebody who cannot tell the two greens apart reads the same sentence as
+ * everybody else.
  *
- * @param {object} props Component props.
- * @param {string} props.status The ticket status.
- * @returns {JSX.Element} The chip.
+ * @param {string} status The ticket status.
+ * @returns {{label: string, tone: string}} The chip's words and tone.
  */
-function StatusChip({ status }) {
+function statusMeaning(status) {
   // A status the application cannot produce keeps its own name. The reachable
   // set is asserted against this table in `wallet.test.js`, so the two cannot
   // drift apart without something going red.
-  const known = REACHABLE_STATUSES.includes(status)
-  const meaning = known ? TICKET_STATUS_WORDS[status] : { label: status, tone: 'info' }
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-        TONE[meaning.tone]
-      }`}
-    >
-      {meaning.label}
-    </span>
-  )
+  return REACHABLE_STATUSES.includes(status)
+    ? TICKET_STATUS_WORDS[status]
+    : { label: status, tone: 'info' }
 }
 
 /**
@@ -118,19 +109,26 @@ function Detail({ term, children }) {
   if (!children) return null
 
   return (
-    <div className="flex flex-wrap gap-x-2">
-      <dt className="text-ink-subtle">{term}</dt>
-      <dd className="font-medium text-ink">{children}</dd>
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-ink-subtle">{term}</dt>
+      <dd className="mt-0.5 font-medium break-words text-ink">{children}</dd>
     </div>
   )
 }
 
 /**
- * One ticket.
+ * One ticket, as a wallet card.
  *
  * The event's title is the link and the heading, because the thing somebody is
  * looking for is the night out, not the reference code. The code is still here,
  * in a monospace run, because it is what a steward asks for.
+ *
+ * The event's poster runs down the card's edge — across its top on a phone —
+ * so a wallet of several nights can be scanned by picture before it is read.
+ *
+ * A ticket that still admits carries a way straight to its pass. The pass is
+ * not drawn here — see the module comment — the link goes to the ticket's own
+ * page, to the section where the holder asks for it.
  *
  * @param {object} props Component props.
  * @param {object} props.ticket A row from `GET /v1/tickets`.
@@ -142,46 +140,67 @@ function TicketCard({ ticket }) {
   const seat = seatText(ticket)
 
   return (
-    <li className="rounded-card border border-line bg-surface p-4 transition-shadow duration-(--duration-base) focus-within:ring-2 focus-within:ring-focus sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h3 className="text-base font-semibold text-ink sm:text-lg">
-          <Link
-            href={`/tickets/${ticket.id}`}
-            className="rounded-sm underline decoration-accent-line underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-          >
-            {ticket.event.title}
-          </Link>
-        </h3>
-        <StatusChip status={ticket.status} />
+    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:flex-row">
+      {/* The same poster as the event's own page: the slug picks the colours
+          and arrangement, the category the scene. */}
+      <PosterThumb
+        event={{
+          slug: ticket.event.slug,
+          title: ticket.event.title,
+          category: ticket.event.category,
+        }}
+        className="h-28 sm:h-auto sm:w-44"
+      />
+
+      <div className="min-w-0 flex-1 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h3 className="text-lg font-semibold text-ink sm:text-xl">
+            <Link href={`/tickets/${ticket.id}`} className={TEXT_LINK}>
+              {ticket.event.title}
+            </Link>
+          </h3>
+          <StatusChip meaning={statusMeaning(ticket.status)} />
+        </div>
+
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+          <Detail term="When">{when}</Detail>
+          <Detail term="Where">{where}</Detail>
+          <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
+          <Detail term="Seat">{seat}</Detail>
+          <Detail term="Attendee">{ticket.attendeeName ?? ''}</Detail>
+          <Detail term="Reference">
+            <span className="font-mono">{ticket.code}</span>
+          </Detail>
+          <Detail term="Order">{ticket.orderReference ?? ''}</Detail>
+        </dl>
+
+        {ticket.pendingTransfer ? (
+          <p className="mt-4 text-sm text-ink-muted">
+            Offered to{' '}
+            <span className="font-medium text-ink">{ticket.pendingTransfer.toEmailMasked}</span>. It
+            is still yours until they accept.
+          </p>
+        ) : null}
+
+        {ticket.admissionRefusal ? (
+          <p className="mt-4 text-sm text-ink-muted">{ticket.admissionRefusal}</p>
+        ) : null}
+
+        {ticket.revokedReason ? (
+          <p className="mt-1 text-sm text-ink-muted">Reason given: {ticket.revokedReason}</p>
+        ) : null}
+
+        {/* Whether it admits is the server's word, from the same function the
+            door runs; the page does not work it out. */}
+        {ticket.admits ? (
+          <p className="mt-4">
+            <Link href={`/tickets/${ticket.id}#entry-pass`} className={SECONDARY_LINK}>
+              Show my entry pass
+              <span className="sr-only"> for {ticket.event.title}</span>
+            </Link>
+          </p>
+        ) : null}
       </div>
-
-      <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-        <Detail term="When">{when}</Detail>
-        <Detail term="Where">{where}</Detail>
-        <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
-        <Detail term="Seat">{seat}</Detail>
-        <Detail term="Attendee">{ticket.attendeeName ?? ''}</Detail>
-        <Detail term="Reference">
-          <span className="font-mono">{ticket.code}</span>
-        </Detail>
-        <Detail term="Order">{ticket.orderReference ?? ''}</Detail>
-      </dl>
-
-      {ticket.pendingTransfer ? (
-        <p className="mt-3 text-sm text-ink-muted">
-          Offered to{' '}
-          <span className="font-medium text-ink">{ticket.pendingTransfer.toEmailMasked}</span>. It
-          is still yours until they accept.
-        </p>
-      ) : null}
-
-      {ticket.admissionRefusal ? (
-        <p className="mt-3 text-sm text-ink-muted">{ticket.admissionRefusal}</p>
-      ) : null}
-
-      {ticket.revokedReason ? (
-        <p className="mt-1 text-sm text-ink-muted">Reason given: {ticket.revokedReason}</p>
-      ) : null}
     </li>
   )
 }
@@ -210,11 +229,11 @@ export default async function MyTicketsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">My tickets</h1>
-      <p className="mt-2 text-ink-muted">
-        Everything issued to this account. Open one to show it at the door, hand it on, or see where
-        it has been.
-      </p>
+      <PageHeader
+        eyebrow="Your account"
+        title="My tickets"
+        description="Everything issued to this account. Open one to show it at the door, hand it on, or see where it has been."
+      />
 
       {failure ? (
         <ReadRefusal error={failure} what="Your tickets" action="see your tickets" />
@@ -228,30 +247,33 @@ export default async function MyTicketsPage() {
       ) : null}
 
       {pagination?.hasNextPage ? (
-        <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
+        <p className="mt-6 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
           This page shows the {tickets.length} most recently issued of the {pagination.total}{' '}
           tickets on this account. Older ones are not listed here.
         </p>
       ) : null}
 
       {tickets.length > 0 ? (
-        <p className="mt-4 text-sm text-ink-muted">
+        <p className="mt-6 inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-sm font-medium text-ink">
+          <span aria-hidden="true" className="size-2 rounded-full bg-accent" />
           {usable === 1 ? 'One ticket still gets you in.' : `${usable} tickets still get you in.`}
         </p>
       ) : null}
 
-      {groups.map((group) => (
-        <section key={group.id} aria-labelledby={`wallet-${group.id}`} className="mt-8">
-          <h2 id={`wallet-${group.id}`} className="text-lg font-semibold text-ink">
-            {group.label}
-          </h2>
-          <p className="mt-1 text-sm text-ink-muted">{group.description}</p>
-          <ul className="mt-4 grid gap-3">
+      {groups.map((group, index) => (
+        <Section
+          key={group.id}
+          id={`wallet-${group.id}`}
+          title={group.label}
+          description={group.description}
+          className={index === 0 ? 'mt-8' : 'mt-12'}
+        >
+          <ul className="mt-4 grid gap-4">
             {group.tickets.map((ticket) => (
               <TicketCard key={ticket.id} ticket={ticket} />
             ))}
           </ul>
-        </section>
+        </Section>
       ))}
     </div>
   )

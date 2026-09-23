@@ -31,6 +31,7 @@ import Link from 'next/link'
 
 import { AsOf, Failure, Forbidden } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../../components/workspace-kit.jsx'
 import { getConnectStatus } from '../../../lib/connect-api.js'
 import {
   connectStateDisclaimer,
@@ -87,7 +88,10 @@ export default async function ConnectPage({ searchParams }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Payout setup</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Money
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Payout setup</h1>
 
       <p
         role="note"
@@ -110,9 +114,9 @@ export default async function ConnectPage({ searchParams }) {
                   <Link
                     href={`/finance/connect?organizationId=${encodeURIComponent(organization.organizationId)}`}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                       current
-                        ? 'bg-action-primary text-action-primary-ink'
+                        ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
                         : 'border border-line-strong bg-surface-raised text-ink hover:bg-surface-subtle'
                     }`}
                   >
@@ -145,7 +149,7 @@ export default async function ConnectPage({ searchParams }) {
           <AsOf asOf={readAt} />
 
           <section aria-labelledby="state-heading" className="mt-6">
-            <h2 id="state-heading" className="text-lg font-semibold text-ink">
+            <h2 id="state-heading" className="text-xl font-semibold text-ink">
               Where the simulation has reached
             </h2>
 
@@ -164,7 +168,7 @@ export default async function ConnectPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="detail-heading" className="mt-8">
-            <h2 id="detail-heading" className="text-lg font-semibold text-ink">
+            <h2 id="detail-heading" className="text-xl font-semibold text-ink">
               What the simulation records
             </h2>
 
@@ -178,7 +182,7 @@ export default async function ConnectPage({ searchParams }) {
               way to bring it into view without a pointer.
             */}
             <div
-              className="mt-3 overflow-x-auto focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className={`mt-4 ${TABLE_FRAME} focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none`}
               tabIndex={0}
               role="region"
               aria-labelledby="detail-heading"

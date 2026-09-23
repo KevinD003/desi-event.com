@@ -44,7 +44,7 @@ export default async function MapVersionPage({ params }) {
 
     return (
       <div className="max-w-2xl">
-        <h1 className="text-3xl font-bold text-ink">Seat layout</h1>
+        <h1 className="text-h2 font-semibold text-ink">Seat layout</h1>
         {state === 'permission-denied' ? (
           // The API says which of two things it is, and both are public
           // facts: a venue's owner and whether it is shared are on its page.
@@ -79,9 +79,9 @@ export default async function MapVersionPage({ params }) {
         </Link>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold text-ink">Version {version.version}</h1>
+      <h1 className="mt-4 text-h2 font-semibold text-ink">Version {version.version}</h1>
       <p className="mt-2 text-ink-muted">
-        {version.seatCount.toLocaleString('en-IN')} seats.
+        {version.seatCount.toLocaleString('en-US')} seats.
         {version.inUse ? ' A session is selling against this layout.' : ''}
       </p>
 

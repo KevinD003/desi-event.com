@@ -13,6 +13,7 @@ import Link from 'next/link'
 
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { Badge, Card, CardBody } from '../../../components/ui.jsx'
+import { PRIMARY_LINK } from '../../../components/workspace-kit.jsx'
 import { listVenues } from '../../../lib/organizer-api.js'
 import { authoringOrganizations, readSession } from '../../../lib/session.js'
 
@@ -49,12 +50,14 @@ export default async function OrganizerVenuesPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-4">
-        <h1 className="text-3xl font-bold text-ink">Your venues</h1>
-        <Link
-          href="/organizer/venues/new"
-          className="inline-flex h-11 items-center justify-center rounded-lg bg-action-primary px-5 text-sm font-medium text-action-primary-ink shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
-        >
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+            Workspace · Events and venues
+          </p>
+          <h1 className="mt-2 text-h2 font-semibold text-ink">Your venues</h1>
+        </div>
+        <Link href="/organizer/venues/new" className={PRIMARY_LINK}>
           Add a venue
         </Link>
       </div>
@@ -102,7 +105,7 @@ export default async function OrganizerVenuesPage() {
                   </p>
                   {venue.capacity ? (
                     <p className="mt-2 text-sm text-ink-muted">
-                      Capacity {venue.capacity.toLocaleString('en-IN')}
+                      Capacity {venue.capacity.toLocaleString('en-US')}
                     </p>
                   ) : null}
                   <p className="mt-4 flex flex-wrap gap-3 text-sm">

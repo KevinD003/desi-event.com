@@ -16,6 +16,7 @@ import Link from 'next/link'
 
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { Badge, EmptyState } from '../../../components/ui.jsx'
+import { PANEL, PosterThumb, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { getModerationQueue } from '../../../lib/organizer-api.js'
 import { statusReading } from '../../../lib/event-status.js'
 import { formatEventDate } from '../../../lib/format.js'
@@ -63,7 +64,10 @@ export default async function ModerationQueuePage({ searchParams }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Review queue</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Trust and safety
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Review queue</h1>
       <p className="mt-2 text-ink-muted">
         Oldest submission first. Somebody who submitted on Monday should not still be waiting
         because a Thursday listing looked more interesting.
@@ -82,10 +86,10 @@ export default async function ModerationQueuePage({ searchParams }) {
                 <Link
                   href={href}
                   aria-current={current ? 'page' : undefined}
-                  className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                  className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                     current
-                      ? 'bg-action-primary font-semibold text-action-primary-ink'
-                      : 'bg-surface-subtle text-ink-muted hover:bg-line'
+                      ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                      : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
                   }`}
                 >
                   {filter.label}
@@ -117,15 +121,13 @@ export default async function ModerationQueuePage({ searchParams }) {
             return (
               <li
                 key={event.id}
-                className="rounded-card border border-line bg-surface-raised p-4 focus-within:ring-2 focus-within:ring-focus"
+                className={`flex overflow-hidden transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover ${PANEL}`}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
+                <PosterThumb event={event} className="hidden w-28 sm:block" />
+                <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3 p-4 sm:p-5">
                   <div className="min-w-0">
-                    <h2 className="font-display text-lg font-semibold text-ink">
-                      <Link
-                        href={`/moderation/events/${event.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none"
-                      >
+                    <h2 className="text-lg font-semibold text-ink">
+                      <Link href={`/moderation/events/${event.id}`} className={TEXT_LINK}>
                         {event.title}
                       </Link>
                     </h2>
@@ -136,7 +138,7 @@ export default async function ModerationQueuePage({ searchParams }) {
                     </p>
                   </div>
 
-                  <Badge variant={reading.tone} srLabel="State:">
+                  <Badge variant={reading.tone} size="lg" srLabel="State:">
                     {reading.label}
                   </Badge>
                 </div>

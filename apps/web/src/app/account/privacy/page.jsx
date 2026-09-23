@@ -75,7 +75,7 @@ function Section({ id, title, children }) {
  */
 function Unavailable({ title, children }) {
   return (
-    <li className="rounded-card border border-line bg-surface-raised p-4">
+    <li className="rounded-card border border-line bg-surface-raised shadow-card p-4">
       <p className="font-semibold text-ink">
         {title} <span className="font-normal text-ink-muted">— not available in this build.</span>
       </p>
@@ -92,7 +92,10 @@ function Unavailable({ title, children }) {
 export default function AccountPrivacyPage() {
   return (
     <div>
-      <h1 className="text-3xl font-bold text-ink">Privacy</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Your account
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Privacy</h1>
       <p className="mt-2 max-w-prose text-ink-muted">
         What this site keeps about you, who can see it, and what you can change from here.
       </p>

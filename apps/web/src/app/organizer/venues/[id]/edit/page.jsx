@@ -38,7 +38,7 @@ export default async function EditVenuePage({ params }) {
 
     return (
       <div className="max-w-2xl">
-        <h1 className="text-3xl font-bold text-ink">Edit venue</h1>
+        <h1 className="text-h2 font-semibold text-ink">Edit venue</h1>
         {state === 'permission-denied' ? (
           // The API says which of two things it is, and both are public
           // facts: a venue's owner and whether it is shared are on its page.
@@ -61,7 +61,7 @@ export default async function EditVenuePage({ params }) {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-3xl font-bold text-ink">{venue.name}</h1>
+      <h1 className="text-h2 font-semibold text-ink">{venue.name}</h1>
       {venue.shared ? (
         <div className="mt-4">
           <Alert variant="info" title="This venue is shared">

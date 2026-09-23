@@ -104,7 +104,7 @@ function NoSuchOrder() {
           { href: null, label: 'Order' },
         ]}
       />
-      <h1 className="mt-3 text-2xl font-bold text-ink">Order not found</h1>
+      <h1 className="mt-3 text-h2 font-semibold text-ink">Order not found</h1>
       <p className="mt-2 max-w-prose text-ink">
         There is no order with that reference on this account.
       </p>
@@ -274,7 +274,7 @@ function Tickets({ order, holder, now }) {
             return (
               <li
                 key={ticket.id}
-                className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-card border border-line bg-surface px-4 py-2"
+                className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-card border border-line bg-surface shadow-card px-4 py-2"
               >
                 {openable ? (
                   <Link href={`/tickets/${encodeURIComponent(ticket.id)}`} className={LINK}>
@@ -357,7 +357,7 @@ export default async function OrderPage({ params }) {
             { href: null, label: 'Order' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-ink">Order</h1>
+        <h1 className="mt-3 text-h2 font-semibold text-ink">Order</h1>
         <ReadRefusal
           error={failure}
           what="This order"
@@ -386,7 +386,7 @@ export default async function OrderPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-ink sm:text-3xl">{orderTitle(order)}</h1>
+      <h1 className="mt-3 text-h2 font-semibold text-ink">{orderTitle(order)}</h1>
       {order.event ? (
         <p className="mt-1 text-ink-muted">
           {[eventWhenText(order.event), formatEventLocation(order.event)]
@@ -398,10 +398,10 @@ export default async function OrderPage({ params }) {
       )}
 
       <section aria-labelledby="order-facts" className="mt-8">
-        <h2 id="order-facts" className="text-lg font-semibold text-ink">
+        <h2 id="order-facts" className="text-xl font-semibold text-ink">
           The order
         </h2>
-        <dl className="mt-2 divide-y divide-line rounded-card border border-line bg-surface-raised px-4">
+        <dl className="mt-2 divide-y divide-line rounded-card border border-line bg-surface-raised shadow-card px-4">
           <Fact term="Reference">
             <span className="font-mono">{order.reference}</span>
           </Fact>
@@ -422,11 +422,11 @@ export default async function OrderPage({ params }) {
       </section>
 
       <section aria-labelledby="order-money" className="mt-8">
-        <h2 id="order-money" className="text-lg font-semibold text-ink">
+        <h2 id="order-money" className="text-xl font-semibold text-ink">
           What it cost
         </h2>
 
-        <ul className="mt-3 divide-y divide-line rounded-card border border-line bg-surface px-4">
+        <ul className="mt-3 divide-y divide-line rounded-card border border-line bg-surface shadow-card px-4">
           {lines.map((item) => (
             <li
               key={item.id ?? `${item.ticketTypeId}-${item.unitPriceCents}`}
@@ -471,7 +471,7 @@ export default async function OrderPage({ params }) {
       </section>
 
       <section aria-labelledby="order-tickets" className="mt-8">
-        <h2 id="order-tickets" className="text-lg font-semibold text-ink">
+        <h2 id="order-tickets" className="text-xl font-semibold text-ink">
           Tickets on this order
         </h2>
         <Tickets order={order} holder={holder} now={new Date()} />

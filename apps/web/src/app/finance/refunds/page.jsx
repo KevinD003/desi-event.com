@@ -108,7 +108,7 @@ const TD = 'border-b border-line px-3 py-3 align-top text-ink'
 
 /** A filter control. */
 const CONTROL =
-  'min-h-11 rounded-lg border border-line-strong bg-surface-raised px-3 py-2 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'min-h-11 rounded-control border border-line-strong bg-surface px-3.5 py-2 text-base text-ink shadow-control sm:text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
 
 /** A quiet text link. */
 const LINK =
@@ -251,7 +251,7 @@ export default async function RefundListPage({ searchParams }) {
     return (
       <div>
         {trail}
-        <h1 className="mt-3 text-2xl font-bold text-ink">Refunds</h1>
+        <h1 className="mt-3 text-h2 font-semibold text-ink">Refunds</h1>
         <p className="mt-4 max-w-3xl rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
           Refunds are listed one organisation at a time, and this account holds finance access in no
           organisation, so there is no list to show here. If it should, ask whoever runs the
@@ -279,7 +279,7 @@ export default async function RefundListPage({ searchParams }) {
     attempt(() =>
       listRefunds({ organizationId, status, orderReference, page, perPage: LIST_PAGE_SIZE }),
     ),
-    attempt(() => getFinanceSummary({ organizationId, currency: 'INR' })),
+    attempt(() => getFinanceSummary({ organizationId, currency: 'USD' })),
   ])
 
   const refunds = list.value?.refunds ?? null
@@ -289,7 +289,7 @@ export default async function RefundListPage({ searchParams }) {
   return (
     <div>
       {trail}
-      <h1 className="mt-3 text-2xl font-bold text-ink">Refunds</h1>
+      <h1 className="mt-3 text-h2 font-semibold text-ink">Refunds</h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
         Every refund in {selected.organizationName ?? 'this organisation'}: asked for, sent,
         settled, declined and cancelled alike, the ones still in flight first and the newest of
@@ -362,7 +362,7 @@ export default async function RefundListPage({ searchParams }) {
         </div>
         <button
           type="submit"
-          className="min-h-11 rounded-lg bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Apply
         </button>

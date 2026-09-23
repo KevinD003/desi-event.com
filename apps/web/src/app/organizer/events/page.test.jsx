@@ -9,7 +9,7 @@
  * @module app/organizer/events/page.test
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../lib/organizer-api.js', () => ({ listOrganizerEvents: vi.fn() }))
@@ -30,7 +30,7 @@ vi.mock('next/navigation', () => ({
 
 const { listOrganizerEvents } = await import('../../../lib/organizer-api.js')
 const { readSession } = await import('../../../lib/session.js')
-const { default: OrganizerEventsPage } = await import('./page.jsx')
+const { default: OrganizerEventsPage, eventCounts } = await import('./page.jsx')
 
 /**
  * A session with the given memberships.
@@ -56,13 +56,14 @@ const RANGOLI = {
  *
  * @param {string} id Its id.
  * @param {string} organizationName Whose.
+ * @param {string} [status] Its lifecycle state.
  * @returns {object} The summary.
  */
-function event(id, organizationName) {
+function event(id, organizationName, status = 'DRAFT') {
   return {
     id,
     title: `Event ${id}`,
-    status: 'DRAFT',
+    status,
     startsAt: '2030-01-01T18:00:00.000Z',
     timezone: 'Asia/Kolkata',
     organizationName,
@@ -147,5 +148,87 @@ describe('OrganizerEventsPage', () => {
     render(await OrganizerEventsPage())
 
     expect(screen.getByText(/older ones are not shown here/)).toBeTruthy()
+  })
+
+  it('counts the listed events by whose turn it is, from the rows it drew', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({
+      events: [
+        event('e1', 'Rangoli', 'DRAFT'),
+        event('e2', 'Rangoli', 'REVIEW_PENDING'),
+        event('e3', 'Rangoli', 'ON_SALE'),
+        event('e4', 'Rangoli', 'CHANGES_REQUIRED'),
+      ],
+      pagination: null,
+    })
+
+    const { container } = render(await OrganizerEventsPage())
+    const tiles = Object.fromEntries(
+      [...container.querySelectorAll('dl > div')].map((tile) => [
+        within(tile).getByRole('term').textContent,
+        within(tile).getByRole('definition').textContent,
+      ]),
+    )
+
+    expect(tiles).toEqual({
+      'Listed here': '4',
+      'Waiting on you': '2',
+      'With a moderator': '1',
+      'On sale': '1',
+    })
+    // The events are still the only second-level headings on the page.
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual([
+      'Event e1',
+      'Event e2',
+      'Event e3',
+      'Event e4',
+    ])
+  })
+
+  it('says the count covers only the listed events when there are more', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({
+      events: [event('e1', 'Rangoli')],
+      pagination: { hasNextPage: true, total: 80 },
+    })
+
+    render(await OrganizerEventsPage())
+
+    expect(screen.getByText(/the most recent; older events are not counted/i)).toBeTruthy()
+  })
+
+  it('draws no counts when there is nothing listed to count', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({ events: [], pagination: null })
+
+    render(await OrganizerEventsPage())
+
+    expect(screen.queryByText('Listed here')).toBeNull()
+    expect(screen.getByText('No events')).toBeTruthy()
+  })
+
+  it('draws each event’s poster as decoration, not as an image to announce', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({ events: [event('e1', 'Rangoli')], pagination: null })
+
+    const { container } = render(await OrganizerEventsPage())
+
+    expect(container.querySelector('[data-slot="poster-thumb"] svg')).not.toBeNull()
+    expect(screen.queryByRole('img')).toBeNull()
+  })
+})
+
+describe('eventCounts', () => {
+  it('counts nothing in an empty list', () => {
+    expect(eventCounts([])).toEqual({ listed: 0, yours: 0, moderator: 0, onSale: 0 })
+  })
+
+  it('reads a state it has never heard of as nobody’s turn', () => {
+    expect(eventCounts([{ status: 'SOMETHING_NEW' }])).toEqual({
+      listed: 1,
+      yours: 0,
+      moderator: 0,
+      onSale: 0,
+    })
   })
 })

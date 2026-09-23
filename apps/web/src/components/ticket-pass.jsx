@@ -146,48 +146,58 @@ export function TicketPass({ ticketId }) {
   }
 
   return (
-    <div className="mt-3">
+    <div className="mt-4">
       {drawing ? (
-        <figure className="max-w-xs">
-          <svg
-            role="img"
-            aria-labelledby={titleId}
-            viewBox={`0 0 ${drawing.size} ${drawing.size}`}
-            className="h-auto w-full max-w-[18rem] bg-surface-raised"
-            shapeRendering="crispEdges"
-          >
-            <title id={titleId}>Your entry pass, as a QR code for the door to scan</title>
-            <rect width={drawing.size} height={drawing.size} fill="#ffffff" />
-            <path d={drawing.path} fill="#000000" />
-          </svg>
-          <figcaption className="mt-3 space-y-2 text-sm text-ink-muted">
-            <p>
-              <strong>Show this at the door.</strong> Turn your screen brightness up if the scanner
-              struggles.
-            </p>
-            <p>
-              Anybody holding this code — on a screen, printed, or as a screenshot — can use it to
-              get in once. Do not post it or send it to anyone. If you want somebody else to use
-              this ticket, offer it to them below instead: that gives them their own pass and
-              cancels this one.
-            </p>
-          </figcaption>
+        <div className="rounded-card border border-line bg-surface-raised p-5 shadow-card sm:p-6">
+          {/* The figure is the code and its caption, and nothing else: a
+              `figcaption` has to be the figure's first or last child, so the
+              control that takes the pass away sits after it, not inside. */}
+          <figure className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+            {/* A white frame round the code, wider than the code's own quiet
+                zone, so a scanner finds the edge even against a dark case or
+                a screen protector's glare. White in both registers. */}
+            <div className="mx-auto w-full max-w-[18rem] shrink-0 rounded-control border border-line bg-surface-raised p-3 sm:mx-0 sm:w-60">
+              <svg
+                role="img"
+                aria-labelledby={titleId}
+                viewBox={`0 0 ${drawing.size} ${drawing.size}`}
+                className="block h-auto w-full"
+                shapeRendering="crispEdges"
+              >
+                <title id={titleId}>Your entry pass, as a QR code for the door to scan</title>
+                <rect width={drawing.size} height={drawing.size} fill="#ffffff" />
+                <path d={drawing.path} fill="#000000" />
+              </svg>
+            </div>
+            <figcaption className="min-w-0 flex-1 space-y-3 text-sm text-ink-muted">
+              <p className="text-base text-ink">
+                <strong className="font-semibold">Show this at the door.</strong> Turn your screen
+                brightness up if the scanner struggles.
+              </p>
+              <p>
+                Anybody holding this code — on a screen, printed, or as a screenshot — can use it to
+                get in once. Do not post it or send it to anyone. If you want somebody else to use
+                this ticket, offer it to them below instead: that gives them their own pass and
+                cancels this one.
+              </p>
+            </figcaption>
+          </figure>
           <Button
             ref={hideButton}
             type="button"
             variant="secondary"
-            className="mt-3"
+            className="mt-5"
             onClick={() => hide()}
           >
             Hide pass
           </Button>
-        </figure>
+        </div>
       ) : (
-        <div>
+        <div className="rounded-card border border-dashed border-line-strong bg-surface-subtle p-5 sm:p-6">
           <Button ref={showButton} type="button" loading={busy} onClick={show}>
             Show my entry pass
           </Button>
-          <p className="mt-2 text-sm text-ink-muted">
+          <p className="mt-3 text-sm text-ink-muted">
             Shown only on this device, only while this page is open. It is not stored anywhere.
           </p>
         </div>

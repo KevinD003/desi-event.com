@@ -350,11 +350,11 @@ export function DoorWorkspace({ events }) {
       ) : null}
 
       <section aria-labelledby="door-event-heading">
-        <h2 id="door-event-heading" className="text-lg font-semibold text-ink">
+        <h2 id="door-event-heading" className="text-xl font-semibold text-ink">
           Event
         </h2>
         {events.length === 1 ? (
-          <div className="mt-3 rounded-card border border-line p-4 text-sm">
+          <div className="mt-3 rounded-card border border-line bg-surface-raised p-4 text-sm shadow-card">
             <p className="font-medium break-words text-ink">{events[0].event.title}</p>
             <p className="mt-1 text-ink-muted">
               {doorTime(events[0].event.startsAt, events[0].event.timezone)} ·{' '}
@@ -388,7 +388,7 @@ export function DoorWorkspace({ events }) {
 
       {selected ? (
         <section aria-labelledby="door-present-heading">
-          <h2 id="door-present-heading" className="text-lg font-semibold text-ink">
+          <h2 id="door-present-heading" className="text-xl font-semibold text-ink">
             Present a ticket
           </h2>
 
@@ -469,7 +469,7 @@ export function DoorWorkspace({ events }) {
             id={answerId}
             ref={headingRef}
             tabIndex={-1}
-            className="text-lg font-semibold text-ink"
+            className="text-xl font-semibold text-ink"
           >
             Not found
           </h2>
@@ -506,7 +506,7 @@ export function DoorWorkspace({ events }) {
       ) : null}
 
       <section aria-labelledby="door-recent-heading">
-        <h2 id="door-recent-heading" className="text-lg font-semibold text-ink">
+        <h2 id="door-recent-heading" className="text-xl font-semibold text-ink">
           This session
         </h2>
         {recent.length === 0 ? (
@@ -515,9 +515,9 @@ export function DoorWorkspace({ events }) {
             saved.
           </p>
         ) : (
-          <ol className="mt-3 divide-y divide-line text-sm">
+          <ol className="mt-3 divide-y divide-line rounded-card border border-line bg-surface-raised px-4 text-sm shadow-card">
             {recent.map((entry) => (
-              <li key={entry.key} className="flex flex-wrap justify-between gap-2 py-2">
+              <li key={entry.key} className="flex flex-wrap justify-between gap-2 py-3">
                 <span className="min-w-0 break-words">
                   <span className="font-medium text-ink">{entry.name}</span>
                   {entry.tier ? <span className="text-ink-muted"> · {entry.tier}</span> : null}
@@ -525,7 +525,7 @@ export function DoorWorkspace({ events }) {
                 <span className="text-ink-muted">
                   {entry.outcome} ·{' '}
                   <time dateTime={entry.at}>
-                    {new Date(entry.at).toLocaleTimeString('en-IN', { timeStyle: 'short' })}
+                    {new Date(entry.at).toLocaleTimeString('en-US', { timeStyle: 'short' })}
                   </time>
                 </span>
               </li>
@@ -576,17 +576,17 @@ function PreviewCard({
   return (
     <section
       aria-labelledby={headingId}
-      className={`rounded-card border p-4 ${
+      className={`rounded-card border p-5 shadow-card sm:p-6 ${
         preview.outcome === 'ADMISSIBLE'
-          ? 'border-line-strong'
+          ? 'border-line-strong bg-surface-raised'
           : 'border-status-danger/25 bg-status-danger-soft'
       }`}
     >
-      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-ink">
+      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="text-xl font-semibold text-ink">
         {heading}
       </h2>
 
-      <p className="mt-3 text-2xl font-bold break-words text-ink">
+      <p className="mt-3 font-display text-h2 font-semibold break-words text-ink">
         {preview.attendeeName ?? 'No name on this ticket'}
       </p>
 
@@ -693,12 +693,12 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
   return (
     <section
       aria-labelledby={headingId}
-      className={`rounded-card border p-4 ${admitted ? 'border-status-success/25 bg-status-success-soft' : 'border-status-danger/25 bg-status-danger-soft'}`}
+      className={`rounded-card border p-5 shadow-card sm:p-6 ${admitted ? 'border-status-success/25 bg-status-success-soft' : 'border-status-danger/25 bg-status-danger-soft'}`}
     >
-      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-ink">
+      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="text-xl font-semibold text-ink">
         {admitted ? 'Admitted' : 'Already admitted by another steward'}
       </h2>
-      <p className="mt-3 text-2xl font-bold break-words text-ink">
+      <p className="mt-3 font-display text-h2 font-semibold break-words text-ink">
         {result.attendeeName ?? 'Ticket holder'}
       </p>
       <p className="mt-2 text-sm text-ink-muted">

@@ -88,7 +88,7 @@ const OFFERED = Object.freeze({
  */
 function ChecklistItem({ ready, title, blockers }) {
   return (
-    <li className="rounded-card border border-line bg-surface-raised p-4">
+    <li className="rounded-card border border-line bg-surface-raised shadow-card p-4">
       <div className="flex flex-wrap items-center gap-2">
         {/* The word, not the colour. A tick alone is a shape a screen reader
             does not read and a colourblind person cannot tell from a cross. */}
@@ -355,7 +355,7 @@ export function EventLifecyclePanel({
 
   return (
     <section aria-labelledby="review-heading" className="space-y-5">
-      <h2 id="review-heading" className="text-xl font-bold text-ink">
+      <h2 id="review-heading" className="text-xl font-semibold text-ink">
         Review and publish
       </h2>
 
@@ -595,7 +595,7 @@ export function EventLifecyclePanel({
           ) : null}
 
           {pending === 'cancel' ? (
-            <p className="mt-3 rounded-lg bg-status-danger-soft p-3 text-sm text-status-danger">
+            <p className="mt-3 rounded-control bg-status-danger-soft p-3 text-sm text-status-danger">
               A refund will be <span className="font-medium">requested</span> against every paid
               order. Nothing is sent to a payment provider by this action and no money moves until a
               refund is actually processed.
@@ -625,7 +625,7 @@ export function EventLifecyclePanel({
             {history.map((entry) => (
               <li
                 key={entry.id}
-                className="rounded-card border border-line bg-surface-raised p-3 text-sm"
+                className="rounded-card border border-line bg-surface-raised shadow-card p-3 text-sm"
               >
                 <p className="font-medium text-ink">
                   {entry.fromStatus ? `${statusReading(entry.fromStatus).label} → ` : ''}
@@ -633,7 +633,7 @@ export function EventLifecyclePanel({
                 </p>
                 <p className="text-ink-muted">
                   <time dateTime={entry.createdAt}>
-                    {new Date(entry.createdAt).toLocaleString('en-GB')}
+                    {new Date(entry.createdAt).toLocaleString('en-US')}
                   </time>
                 </p>
                 {entry.reason ? <p className="mt-1 text-ink-muted">{entry.reason}</p> : null}

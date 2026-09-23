@@ -408,7 +408,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
                 already sold keeps pointing at this version.
               </p>
               <p className="font-medium">
-                {verdict.seatCount.toLocaleString('en-IN')} seats will be frozen.
+                {verdict.seatCount.toLocaleString('en-US')} seats will be frozen.
               </p>
             </div>
             <div className="mt-6 flex flex-wrap gap-3">
@@ -564,10 +564,10 @@ function PreviewView({ layout }) {
       </Alert>
 
       <p className="mt-4 text-ink-muted">
-        {seats.length.toLocaleString('en-IN')} seats
-        {accessible > 0 ? `, ${accessible.toLocaleString('en-IN')} wheelchair spaces` : ''}
-        {companions > 0 ? `, ${companions.toLocaleString('en-IN')} companion seats` : ''}
-        {unavailable > 0 ? `, ${unavailable.toLocaleString('en-IN')} not on sale` : ''}.
+        {seats.length.toLocaleString('en-US')} seats
+        {accessible > 0 ? `, ${accessible.toLocaleString('en-US')} wheelchair spaces` : ''}
+        {companions > 0 ? `, ${companions.toLocaleString('en-US')} companion seats` : ''}
+        {unavailable > 0 ? `, ${unavailable.toLocaleString('en-US')} not on sale` : ''}.
       </p>
 
       {zones.length > 0 ? (

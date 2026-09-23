@@ -149,7 +149,7 @@ export function ConnectActions({ organizationId, state }) {
 
   return (
     <section aria-labelledby="connect-actions-heading" className="mt-8">
-      <h2 id="connect-actions-heading" className="text-lg font-semibold text-ink">
+      <h2 id="connect-actions-heading" className="text-xl font-semibold text-ink">
         Move the simulation
       </h2>
 
@@ -193,7 +193,7 @@ export function ConnectActions({ organizationId, state }) {
           tabIndex={-1}
           role="group"
           aria-labelledby="connect-pending-heading"
-          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           <h3 id="connect-pending-heading" className="font-semibold text-ink">
             {open_.label}
@@ -227,7 +227,7 @@ export function ConnectActions({ organizationId, state }) {
                 type="button"
                 onClick={send}
                 disabled={busy}
-                className="rounded-sm bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : 'Record it'}
               </button>
@@ -235,7 +235,7 @@ export function ConnectActions({ organizationId, state }) {
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="rounded-sm border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 Back
               </button>

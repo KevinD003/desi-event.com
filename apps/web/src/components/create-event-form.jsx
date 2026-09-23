@@ -46,7 +46,7 @@ import { COMMON_ZONES, fromLocalInputValue, toLocalInputValue } from '../lib/zon
 export function CreateEventForm({ organizations = [] }) {
   const router = useRouter()
   const [organizationId, setOrganizationId] = useState(organizations[0]?.organizationId ?? '')
-  const [timezone, setTimezone] = useState('Asia/Kolkata')
+  const [timezone, setTimezone] = useState('America/New_York')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
   const [busy, setBusy] = useState(false)

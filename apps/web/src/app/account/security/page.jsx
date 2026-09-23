@@ -81,7 +81,10 @@ export default async function AccountSecurityPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-ink">Account security</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Your account
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Account security</h1>
       <p className="mt-2 max-w-prose text-ink-muted">
         How you sign in, and where you are signed in now.
       </p>

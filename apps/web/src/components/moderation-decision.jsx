@@ -292,7 +292,7 @@ export function ModerationDecision({ event, onDecided }) {
           </div>
 
           {pending === 'request_changes' ? (
-            <div className="mt-4 rounded-lg bg-surface-subtle p-3">
+            <div className="mt-4 rounded-control bg-surface-subtle p-3">
               <h4 className="text-sm font-medium text-ink">Notes against specific parts</h4>
               <p className="mt-1 text-sm text-ink-muted">
                 Optional, and much more useful than one paragraph. Write the note above, choose what

@@ -462,6 +462,42 @@ describe('the times an organiser types', () => {
     // Both boxes say which zone they are in — once each, under start and end.
     expect(screen.getAllByText(/local time at the venue — Asia\/Kolkata/i)).toHaveLength(2)
   })
+
+  it('names the zone as it stands on the day: EDT in October, EST in December', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(
+      <EventEditor
+        event={{
+          ...event,
+          timezone: 'America/New_York',
+          startsAt: '2026-10-17T23:30:00.000Z',
+          endsAt: '2026-12-05T02:00:00.000Z',
+        }}
+        venues={venues}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /when and where/i }))
+
+    expect(screen.getByLabelText(/^Starts \(EDT\)/)).toHaveValue('2026-10-17T19:30')
+    expect(screen.getByLabelText(/^Ends \(EST\)/)).toHaveValue('2026-12-04T21:00')
+  })
+
+  it('opens an event with no zone of its own in US Eastern, with the US zones first', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={{ ...event, timezone: undefined }} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /when and where/i }))
+
+    const zone = screen.getByLabelText(/^Time zone/)
+    const offered = [...zone.querySelectorAll('option')].map((option) => option.value)
+
+    expect(zone).toHaveValue('America/New_York')
+    expect(offered.slice(0, 3)).toEqual(['America/New_York', 'America/Chicago', 'America/Denver'])
+    expect(offered.indexOf('America/Los_Angeles')).toBeLessThan(offered.indexOf('Asia/Kolkata'))
+  })
 })
 
 describe('the problems the form finds for itself', () => {

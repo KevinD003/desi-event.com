@@ -246,7 +246,10 @@ export default async function TeamPage({ searchParams }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Team and roles</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Events and venues
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Team and roles</h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
         Who is in {selected.organizationName ?? 'this organisation'}, in which role, and which doors
         they may admit people through. What you can change is decided by your own role here, and the
@@ -264,10 +267,10 @@ export default async function TeamPage({ searchParams }) {
                   <Link
                     href={`/organizer/team?organizationId=${encodeURIComponent(organization.organizationId)}`}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex min-h-11 items-center rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                       current
-                        ? 'bg-action-primary font-semibold text-action-primary-ink'
-                        : 'bg-surface-subtle text-ink-muted hover:bg-line'
+                        ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                        : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
                     }`}
                   >
                     {organization.organizationName ?? organization.organizationId}
@@ -295,7 +298,7 @@ export default async function TeamPage({ searchParams }) {
           <AsOf asOf={new Date(now).toISOString()} />
 
           <section aria-labelledby="members-heading" className="mt-8">
-            <h2 id="members-heading" className="text-lg font-semibold text-ink">
+            <h2 id="members-heading" className="text-xl font-semibold text-ink">
               Members <span className="font-normal text-ink-muted">({data.members.length})</span>
             </h2>
 
@@ -410,7 +413,7 @@ export default async function TeamPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="invitations-heading" className="mt-10">
-            <h2 id="invitations-heading" className="text-lg font-semibold text-ink">
+            <h2 id="invitations-heading" className="text-xl font-semibold text-ink">
               Invitations still open{' '}
               <span className="font-normal text-ink-muted">({data.invitations.length})</span>
             </h2>

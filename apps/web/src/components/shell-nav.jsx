@@ -63,15 +63,15 @@ function RailLink({ item, current, onNavigate }) {
       href={item.href}
       aria-current={current ? 'page' : undefined}
       onClick={onNavigate}
-      className={`flex min-h-11 items-center gap-2 rounded-lg px-2.5 text-sm font-medium transition-colors duration-(--duration-fast) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:min-h-10 ${
+      className={`flex min-h-11 items-center gap-2.5 rounded-control px-2.5 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:pointer-fine:min-h-10 ${
         current
-          ? 'bg-opsnav-active text-opsnav-active-ink'
-          : 'text-opsnav-ink hover:bg-opsnav-hover hover:text-ink'
+          ? 'bg-opsnav-active font-semibold text-opsnav-active-ink'
+          : 'font-medium text-opsnav-ink hover:bg-opsnav-hover hover:text-ink'
       }`}
     >
       <span
         aria-hidden="true"
-        className={`h-5 w-1 shrink-0 rounded-full ${current ? 'bg-opsnav-marker' : 'bg-transparent'}`}
+        className={`h-5 w-1 shrink-0 rounded-full transition-colors duration-(--duration-fast) ${current ? 'bg-opsnav-marker' : 'bg-transparent'}`}
       />
       <span className="min-w-0 break-words">{item.label}</span>
     </Link>
@@ -136,7 +136,7 @@ export function ShellRail({ label, toggleLabel, groups, header = null, footer = 
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-opsnav-line bg-opsnav px-3 text-sm font-semibold text-ink transition-colors duration-(--duration-fast) hover:bg-opsnav-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
+        className="inline-flex min-h-11 w-full items-center justify-between gap-2 rounded-control border border-opsnav-line bg-opsnav px-4 text-sm font-semibold text-ink shadow-card transition-colors duration-(--duration-fast) hover:bg-opsnav-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus lg:hidden"
       >
         {toggleLabel}
         <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
@@ -152,10 +152,10 @@ export function ShellRail({ label, toggleLabel, groups, header = null, footer = 
 
       <div
         id={panelId}
-        className={`${open ? 'mt-2 block' : 'hidden'} rounded-card border border-opsnav-line bg-opsnav p-3 lg:sticky lg:top-24 lg:mt-0 lg:block`}
+        className={`${open ? 'mt-2 block' : 'hidden'} rounded-card border border-opsnav-line bg-opsnav p-3 shadow-card lg:sticky lg:top-24 lg:mt-0 lg:block`}
       >
         {header}
-        <nav aria-label={label} className="flex flex-col gap-4">
+        <nav aria-label={label} className="flex flex-col gap-5">
           {groups.map((group) => (
             <div key={group.id}>
               {/* A label, not a heading: the rail sits before the page's own
@@ -163,7 +163,7 @@ export function ShellRail({ label, toggleLabel, groups, header = null, footer = 
                   screen reader's list of the page's sections. */}
               <p
                 id={`${panelId}-${group.id}`}
-                className="px-2.5 pb-1 text-xs font-semibold tracking-wide text-ink-subtle uppercase"
+                className="px-2.5 pb-1.5 text-micro font-semibold tracking-eyebrow text-ink-subtle uppercase"
               >
                 {group.label}
               </p>
@@ -207,7 +207,7 @@ export function AreaTabs({ label, items }) {
 
   return (
     <nav aria-label={label} className="-mx-1 overflow-x-auto px-1">
-      <ul className="flex min-w-max gap-1 border-b border-line">
+      <ul className="flex min-w-max gap-2 border-b border-line">
         {items.map((item) => {
           const active = item.href === current
 
@@ -216,10 +216,10 @@ export function AreaTabs({ label, items }) {
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-sm font-medium transition-colors duration-(--duration-fast) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
+                className={`-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-sm transition-colors duration-(--duration-fast) ease-standard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ${
                   active
-                    ? 'border-accent text-accent-strong'
-                    : 'border-transparent text-ink-muted hover:border-line-strong hover:text-ink'
+                    ? 'border-accent font-semibold text-accent-strong'
+                    : 'border-transparent font-medium text-ink-muted hover:border-line-strong hover:text-ink'
                 }`}
               >
                 {item.label}

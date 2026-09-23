@@ -250,7 +250,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
           tabIndex={-1}
           role="group"
           aria-label={action.label}
-          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           <h3 className="font-semibold text-ink">{action.label}</h3>
           <p className="mt-1 text-sm text-ink-muted">{action.description}</p>

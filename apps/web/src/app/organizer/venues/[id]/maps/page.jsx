@@ -79,7 +79,7 @@ export default async function VenueMapsPage({ params }) {
 
     return (
       <div className="max-w-2xl">
-        <h1 className="text-3xl font-bold text-ink">Seating maps</h1>
+        <h1 className="text-h2 font-semibold text-ink">Seating maps</h1>
         {state === 'permission-denied' ? (
           // The API says which of two things it is, and both are public
           // facts: a venue's owner and whether it is shared are on its page.
@@ -111,7 +111,7 @@ export default async function VenueMapsPage({ params }) {
         </Link>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold text-ink">Seating maps — {venue.name}</h1>
+      <h1 className="mt-4 text-h2 font-semibold text-ink">Seating maps — {venue.name}</h1>
       <p className="mt-2 text-ink-muted">
         A map is one way of laying the hall out. Each map keeps every version it has ever had.
       </p>
@@ -148,7 +148,7 @@ export default async function VenueMapsPage({ params }) {
                                 {state.label}
                               </Badge>
                               <span className="text-sm text-ink-muted">
-                                {version.seatCount.toLocaleString('en-IN')} seats
+                                {version.seatCount.toLocaleString('en-US')} seats
                               </span>
                             </p>
                             <p className="mt-1 text-sm text-ink-muted">{state.note}</p>
@@ -186,7 +186,7 @@ export default async function VenueMapsPage({ params }) {
       )}
 
       <div className="mt-10 border-t border-line pt-6">
-        <h2 className="text-xl font-bold text-ink">Add a map</h2>
+        <h2 className="text-xl font-semibold text-ink">Add a map</h2>
         <div className="mt-4 max-w-md">
           <CreateMapForm venueId={venue.id} />
         </div>

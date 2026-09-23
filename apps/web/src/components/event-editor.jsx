@@ -22,7 +22,7 @@
  * ## Saying what happened
  *
  * The save status is text, in a polite live region. Not a spinner and not a
- * colour: "Saved 19:04" is a fact somebody can act on, and a green dot is not.
+ * colour: "Saved at 7:04 PM" is a fact somebody can act on, and a green dot is not.
  * A failed save says what failed and leaves the value in the box — the one
  * thing a form must never do is clear a field it could not save.
  *
@@ -96,7 +96,7 @@ function toFormValues(event) {
     slug: event.slug ?? '',
     languages: (event.languages ?? []).join(', '),
     artists: (event.artists ?? []).join(', '),
-    timezone: event.timezone ?? 'Asia/Kolkata',
+    timezone: event.timezone ?? 'America/New_York',
     startsAt: event.startsAt ?? '',
     endsAt: event.endsAt ?? '',
     venueId: event.venueId ?? '',
@@ -347,7 +347,7 @@ export function EventEditor({
           setBaseline(toFormValues(body.data))
           setSave({
             kind: 'saved',
-            message: `Saved at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`,
+            message: `Saved at ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
           })
           return
         }
@@ -389,7 +389,7 @@ export function EventEditor({
       // somebody has undone the thing is a message about a state that does not
       // exist — and it is the message they will act on.
       //
-      // A successful save's own "Saved at 19:04" is left alone: that is a fact,
+      // A successful save's own "Saved at 7:04 PM" is left alone: that is a fact,
       // and it is more useful than "no unsaved changes".
       setSave((current) =>
         current.kind === 'error' || current.kind === 'unsaved'
@@ -454,7 +454,7 @@ export function EventEditor({
 
         {/*
           Text, in a polite live region, so a screen reader hears "Saved at
-          19:04" without being interrupted mid-sentence. A spinner announces
+          7:04 PM" without being interrupted mid-sentence. A spinner announces
           nothing and a colour announces nothing.
         */}
         <p
@@ -560,10 +560,10 @@ export function EventEditor({
                   type="button"
                   onClick={() => setStep(entry.id)}
                   aria-current={step === entry.id ? 'step' : undefined}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                  className={`flex min-h-11 w-full items-center rounded-control px-3 text-left text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                     step === entry.id
-                      ? 'bg-action-primary font-semibold text-action-primary-ink'
-                      : 'bg-surface-subtle text-ink-muted hover:bg-line'
+                      ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                      : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
                   }`}
                 >
                   {/* Full opacity, not 70%. Dimming inherited text to 70% on
@@ -662,7 +662,7 @@ export function EventEditor({
 function DetailsStep({ values, setField, editable }) {
   return (
     <section aria-labelledby="details-heading" className="space-y-5">
-      <h2 id="details-heading" className="text-xl font-bold text-ink">
+      <h2 id="details-heading" className="text-xl font-semibold text-ink">
         Details
       </h2>
 
@@ -751,6 +751,18 @@ function DetailsStep({ values, setField, editable }) {
 }
 
 /**
+ * An instant from a stored timestamp, or now when there is none yet.
+ *
+ * @param {string|null|undefined} value An ISO-8601 instant.
+ * @returns {Date} That instant, or the current one.
+ */
+function instantOr(value) {
+  const at = value ? new Date(value) : null
+
+  return at && !Number.isNaN(at.getTime()) ? at : new Date()
+}
+
+/**
  * When it is on and where.
  *
  * @param {StepProps} props Component props.
@@ -758,7 +770,10 @@ function DetailsStep({ values, setField, editable }) {
  */
 function ScheduleStep({ values, setField, editable, venues }) {
   const zone = values.timezone
-  const abbreviation = zoneAbbreviation(zone)
+  // Read at the times themselves: New York is EDT in October and EST in
+  // December, and a label read at any other instant says the wrong one.
+  const startAbbreviation = zoneAbbreviation(zone, instantOr(values.startsAt))
+  const endAbbreviation = zoneAbbreviation(zone, instantOr(values.endsAt || values.startsAt))
 
   /**
    * Set a timestamp from a wall-clock box.
@@ -771,7 +786,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
 
   return (
     <section aria-labelledby="schedule-heading" className="space-y-5">
-      <h2 id="schedule-heading" className="text-xl font-bold text-ink">
+      <h2 id="schedule-heading" className="text-xl font-semibold text-ink">
         When and where
       </h2>
 
@@ -795,7 +810,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
       </FormField>
 
       <FormField
-        label={`Starts${abbreviation ? ` (${abbreviation})` : ''}`}
+        label={`Starts${startAbbreviation ? ` (${startAbbreviation})` : ''}`}
         id="event-startsAt"
         required
         description={`Local time at the venue — ${zone}.`}
@@ -809,7 +824,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
       </FormField>
 
       <FormField
-        label={`Ends${abbreviation ? ` (${abbreviation})` : ''}`}
+        label={`Ends${endAbbreviation ? ` (${endAbbreviation})` : ''}`}
         id="event-endsAt"
         required
         description={`Local time at the venue — ${zone}.`}
@@ -905,7 +920,7 @@ function PoliciesStep({ values, setField, editable }) {
 
   return (
     <section aria-labelledby="policies-heading" className="space-y-5">
-      <h2 id="policies-heading" className="text-xl font-bold text-ink">
+      <h2 id="policies-heading" className="text-xl font-semibold text-ink">
         Policies and access
       </h2>
 
@@ -1025,7 +1040,7 @@ function PoliciesStep({ values, setField, editable }) {
 function MediaStep({ values, setField, editable }) {
   return (
     <section aria-labelledby="media-heading" className="space-y-5">
-      <h2 id="media-heading" className="text-xl font-bold text-ink">
+      <h2 id="media-heading" className="text-xl font-semibold text-ink">
         Media
       </h2>
 

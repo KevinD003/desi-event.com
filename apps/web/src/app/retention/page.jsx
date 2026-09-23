@@ -59,6 +59,7 @@ import { retentionFailureDescription } from '@desi-event/schemas'
 
 import { AsOf } from '../../components/page-state.jsx'
 import { ReadRefusal } from '../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../components/workspace-kit.jsx'
 import { listRetentionSweeps } from '../../lib/privacy-api.js'
 import {
   retentionClassDescription,
@@ -161,7 +162,10 @@ export default async function RetentionPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-ink">Retention rehearsals</h1>
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Trust and safety
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Retention rehearsals</h1>
         <p className="mt-2 max-w-3xl text-ink-muted">
           What a retention sweep <em>would</em> reach, if the proposed durations were adopted.
           Nothing on this page has deleted anything, and nothing on this page can: there is no
@@ -189,7 +193,7 @@ export default async function RetentionPage({ searchParams }) {
 
       {summary.length > 0 ? (
         <section className="mt-8" aria-labelledby="where-each-class-stands">
-          <h2 id="where-each-class-stands" className="text-lg font-semibold text-ink">
+          <h2 id="where-each-class-stands" className="text-xl font-semibold text-ink">
             Where each class stands
           </h2>
           <p className="mt-2 max-w-3xl text-sm text-ink-muted">
@@ -219,7 +223,7 @@ export default async function RetentionPage({ searchParams }) {
       {sweeps && sweeps.length > 0 ? (
         <>
           <AsOf asOf={readAt} />
-          <div className="mt-4 overflow-x-auto">
+          <div className={`mt-4 ${TABLE_FRAME}`}>
             <table className="w-full min-w-[52rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Retention rehearsals across the platform, newest first. Every duration is proposed
@@ -299,7 +303,7 @@ export default async function RetentionPage({ searchParams }) {
 
       {notEvaluated.length > 0 ? (
         <section className="mt-10" aria-labelledby="not-evaluated">
-          <h2 id="not-evaluated" className="text-lg font-semibold text-ink">
+          <h2 id="not-evaluated" className="text-xl font-semibold text-ink">
             Not evaluated
           </h2>
           <p className="mt-2 max-w-3xl text-sm text-ink-muted">

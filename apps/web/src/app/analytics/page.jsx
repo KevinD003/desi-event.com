@@ -152,7 +152,7 @@ export default async function AnalyticsPage({ searchParams }) {
     try {
       view = await getAnalytics({
         organizationId,
-        currency: query?.currency ?? 'INR',
+        currency: query?.currency ?? 'USD',
         eventId: query?.eventId,
         from: query?.from,
         to: query?.to,
@@ -184,7 +184,7 @@ export default async function AnalyticsPage({ searchParams }) {
         trail={[{ href: '/organizer/events', label: 'Organiser' }, { label: 'Analytics' }]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-ink">Analytics</h1>
+      <h1 className="mt-3 text-h2 font-semibold text-ink">Analytics</h1>
       <p className="mt-2 text-ink-muted">
         What this organisation sold, holds, is owed and let in. Money is derived from the
         append-only ledger; everything else is counted from the tickets, seats and check-ins
@@ -210,10 +210,10 @@ export default async function AnalyticsPage({ searchParams }) {
                   <Link
                     href={withFilters({ organizationId: organization.id })}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                       current
-                        ? 'bg-action-primary font-semibold text-action-primary-ink'
-                        : 'bg-surface-subtle text-ink-muted hover:bg-line'
+                        ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                        : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
                     }`}
                   >
                     {organization.name}
@@ -246,7 +246,7 @@ export default async function AnalyticsPage({ searchParams }) {
 
           {view.moneyVisible && view.money ? (
             <section aria-labelledby="money-heading" className="mt-8">
-              <h2 id="money-heading" className="text-lg font-semibold text-ink">
+              <h2 id="money-heading" className="text-xl font-semibold text-ink">
                 Money, from the ledger
               </h2>
 
@@ -285,7 +285,7 @@ export default async function AnalyticsPage({ searchParams }) {
             </section>
           ) : (
             <section aria-labelledby="money-heading" className="mt-8">
-              <h2 id="money-heading" className="text-lg font-semibold text-ink">
+              <h2 id="money-heading" className="text-xl font-semibold text-ink">
                 Money
               </h2>
               {view.moneyWithheld === 'STEP_UP' ? (
@@ -313,7 +313,7 @@ export default async function AnalyticsPage({ searchParams }) {
           )}
 
           <section aria-labelledby="tickets-heading" className="mt-8">
-            <h2 id="tickets-heading" className="text-lg font-semibold text-ink">
+            <h2 id="tickets-heading" className="text-xl font-semibold text-ink">
               Tickets and attendance
             </h2>
             <ScrollableTable label="Tickets and attendance">
@@ -376,7 +376,7 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="inventory-heading" className="mt-8">
-            <h2 id="inventory-heading" className="text-lg font-semibold text-ink">
+            <h2 id="inventory-heading" className="text-xl font-semibold text-ink">
               Inventory
             </h2>
 
@@ -510,7 +510,7 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="sales-heading" className="mt-8">
-            <h2 id="sales-heading" className="text-lg font-semibold text-ink">
+            <h2 id="sales-heading" className="text-xl font-semibold text-ink">
               Sales
             </h2>
             <p className="mt-1 text-sm text-ink-muted">
@@ -545,7 +545,7 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="operations-heading" className="mt-8">
-            <h2 id="operations-heading" className="text-lg font-semibold text-ink">
+            <h2 id="operations-heading" className="text-xl font-semibold text-ink">
               Operations
             </h2>
 
@@ -591,7 +591,7 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="funnel-heading" className="mt-8">
-            <h2 id="funnel-heading" className="text-lg font-semibold text-ink">
+            <h2 id="funnel-heading" className="text-xl font-semibold text-ink">
               From hold to payment
             </h2>
 
@@ -633,7 +633,7 @@ export default async function AnalyticsPage({ searchParams }) {
           <p className="mt-8">
             <a
               href={`/api/v1/analytics/export.csv?organizationId=${encodeURIComponent(organizationId)}&currency=${encodeURIComponent(view.currency)}`}
-              className="inline-flex rounded-lg bg-action-primary px-4 py-2 text-sm font-semibold text-action-primary-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none hover:bg-action-primary-hover"
+              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               Download as CSV
             </a>

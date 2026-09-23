@@ -56,7 +56,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Notification', robots: { index: false, follow: false } }
 
 /** A card in the facts grid. */
-const CARD = 'rounded-card border border-line bg-surface-raised p-4'
+const CARD = 'rounded-card border border-line bg-surface-raised shadow-card p-4'
 
 /** A quiet text link. */
 const LINK =
@@ -145,7 +145,7 @@ export default async function NotificationDetailPage({ params }) {
             { href: null, label: 'Message' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-ink">Message</h1>
+        <h1 className="mt-3 text-h2 font-semibold text-ink">Message</h1>
         <ReadRefusal
           error={failure}
           what="This message"
@@ -171,7 +171,7 @@ export default async function NotificationDetailPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 font-mono text-2xl font-bold break-all text-ink">
+      <h1 className="mt-3 font-mono text-h2 font-semibold break-all text-ink">
         {notification.template}
       </h1>
       <p className="mt-2 text-ink-muted">
@@ -181,7 +181,7 @@ export default async function NotificationDetailPage({ params }) {
       <AsOf asOf={new Date(now).toISOString()} />
 
       <section aria-labelledby="status-heading" className="mt-8">
-        <h2 id="status-heading" className="text-lg font-semibold text-ink">
+        <h2 id="status-heading" className="text-xl font-semibold text-ink">
           Where it stands
         </h2>
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -233,7 +233,7 @@ export default async function NotificationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="timeline-heading" className="mt-8">
-        <h2 id="timeline-heading" className="text-lg font-semibold text-ink">
+        <h2 id="timeline-heading" className="text-xl font-semibold text-ink">
           When
         </h2>
         <dl className="mt-3 space-y-2 text-sm">
@@ -249,7 +249,7 @@ export default async function NotificationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="error-heading" className="mt-8">
-        <h2 id="error-heading" className="text-lg font-semibold text-ink">
+        <h2 id="error-heading" className="text-xl font-semibold text-ink">
           What stopped it
         </h2>
         {notification.lastError ? (
@@ -265,7 +265,7 @@ export default async function NotificationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-ink">
+        <h2 id="actions-heading" className="text-xl font-semibold text-ink">
           What you can do
         </h2>
         <p className="mt-1 max-w-3xl text-sm text-ink-muted">

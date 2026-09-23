@@ -31,6 +31,15 @@ import Link from 'next/link'
 
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { Badge, EmptyState } from '../../../components/ui.jsx'
+import {
+  CountTile,
+  CountTiles,
+  PageHeader,
+  PANEL,
+  PosterThumb,
+  PRIMARY_LINK,
+  TEXT_LINK,
+} from '../../../components/workspace-kit.jsx'
 import { listOrganizerEvents } from '../../../lib/organizer-api.js'
 import { membershipsWith, readSession, sessionCan } from '../../../lib/session.js'
 import { statusReading } from '../../../lib/event-status.js'
@@ -41,6 +50,31 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'Your events',
   robots: { index: false, follow: false },
+}
+
+/**
+ * How many of the listed events are at each kind of turn.
+ *
+ * Counted from the rows this page has just read and nothing else, so each
+ * figure is exactly what a reader could count in the list below it. "Waiting
+ * on you" and "with a moderator" come from the same reading that writes the
+ * words beside each event, so the tiles and the rows cannot disagree.
+ *
+ * @param {Array<{status: string}>} events The listed events.
+ * @returns {{listed: number, yours: number, moderator: number, onSale: number}} The counts.
+ */
+export function eventCounts(events) {
+  const counts = { listed: events.length, yours: 0, moderator: 0, onSale: 0 }
+
+  for (const event of events) {
+    const { whose } = statusReading(event.status)
+
+    if (whose === 'you') counts.yours += 1
+    if (whose === 'a moderator') counts.moderator += 1
+    if (event.status === 'ON_SALE') counts.onSale += 1
+  }
+
+  return counts
 }
 
 /**
@@ -79,24 +113,26 @@ export default async function OrganizerEventsPage() {
   // more than one it could be.
   const showOrganization = platformWide || organizations.length > 1
 
+  const counts = eventCounts(events)
+
   return (
     <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-2xl font-bold text-ink">Your events</h1>
-        <Link
-          href="/organizer/events/new"
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink shadow-sm hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
-        >
-          Create an event
-        </Link>
-      </div>
-
-      {platformWide ? (
-        <p className="mt-2 max-w-3xl text-ink-muted">
-          This account runs the platform and belongs to no organisation, so this is every
-          organisation&rsquo;s events, not a list of its own.
-        </p>
-      ) : null}
+      <PageHeader
+        eyebrow="Workspace · Events"
+        title="Your events"
+        actions={
+          <Link href="/organizer/events/new" className={PRIMARY_LINK}>
+            Create an event
+          </Link>
+        }
+      >
+        {platformWide ? (
+          <p className="mt-2 max-w-3xl text-ink-muted">
+            This account runs the platform and belongs to no organisation, so this is every
+            organisation&rsquo;s events, not a list of its own.
+          </p>
+        ) : null}
+      </PageHeader>
 
       {failure ? <ReadRefusal error={failure} what="Your events" action="see your events" /> : null}
 
@@ -105,6 +141,21 @@ export default async function OrganizerEventsPage() {
           This account can see no organisation&rsquo;s drafts, so there is no list of events to show
           here.
         </p>
+      ) : null}
+
+      {/* Counts of the rows below and nothing else — no heading, so the only
+          second-level headings on this page are the events themselves. */}
+      {events.length > 0 ? (
+        <CountTiles>
+          <CountTile
+            label="Listed here"
+            value={counts.listed}
+            hint={truncated ? 'The most recent; older events are not counted.' : undefined}
+          />
+          <CountTile label="Waiting on you" value={counts.yours} />
+          <CountTile label="With a moderator" value={counts.moderator} />
+          <CountTile label="On sale" value={counts.onSale} />
+        </CountTiles>
       ) : null}
 
       {truncated ? (
@@ -126,10 +177,7 @@ export default async function OrganizerEventsPage() {
               Component to a Client Component, which React refuses outright —
               and the refusal is the whole page, not the button.
             */}
-            <Link
-              href="/organizer/events/new"
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink shadow-sm hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
-            >
+            <Link href="/organizer/events/new" className={PRIMARY_LINK}>
               Create your first event
             </Link>
           </EmptyState>
@@ -144,20 +192,22 @@ export default async function OrganizerEventsPage() {
             return (
               <li
                 key={event.id}
-                className="rounded-card border border-line bg-surface-raised p-4 focus-within:ring-2 focus-within:ring-focus"
+                className={`flex overflow-hidden transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover ${PANEL}`}
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
+                {/* The same poster the public card will wear, as a thumbnail. */}
+                <PosterThumb event={event} className="hidden w-32 sm:block" />
+
+                <div className="grid min-w-0 flex-1 gap-3 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-6">
                   <div className="min-w-0">
-                    <h2 className="font-display text-lg font-semibold text-ink">
-                      <Link
-                        href={`/organizer/events/${event.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none"
-                      >
+                    <h2 className="text-lg font-semibold text-ink">
+                      <Link href={`/organizer/events/${event.id}`} className={TEXT_LINK}>
                         {event.title}
                       </Link>
                     </h2>
                     {showOrganization && event.organizationName ? (
-                      <p className="mt-1 text-sm text-ink-muted">{event.organizationName}</p>
+                      <p className="mt-1 text-sm font-medium text-ink-muted">
+                        {event.organizationName}
+                      </p>
                     ) : null}
                     <p className="mt-1 text-sm text-ink-muted">
                       {formatEventDate(event.startsAt, event.timezone)}
@@ -166,11 +216,11 @@ export default async function OrganizerEventsPage() {
                     </p>
                   </div>
 
-                  <div className="text-right">
-                    <Badge variant={reading.tone} srLabel="State:">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 lg:flex-col lg:items-end">
+                    <Badge variant={reading.tone} size="lg" srLabel="State:">
                       {reading.label}
                     </Badge>
-                    <p className="mt-1 text-sm text-ink-muted">
+                    <p className="text-sm text-ink-muted">
                       {reading.whose === 'nobody' ? 'Nothing to do' : `Waiting on ${reading.whose}`}
                     </p>
                   </div>

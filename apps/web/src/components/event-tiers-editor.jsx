@@ -35,7 +35,7 @@ const BLANK = Object.freeze({
   name: '',
   description: '',
   priceCents: '',
-  currency: 'INR',
+  currency: 'USD',
   quantityTotal: '',
   minPerOrder: '1',
   maxPerOrder: '10',
@@ -223,7 +223,7 @@ export function EventTiersEditor({
 
   return (
     <section aria-labelledby="tiers-heading" className="space-y-5">
-      <h2 id="tiers-heading" className="text-xl font-bold text-ink">
+      <h2 id="tiers-heading" className="text-xl font-semibold text-ink">
         Tickets
       </h2>
       <p className="text-sm text-ink-muted">
@@ -271,8 +271,8 @@ export function EventTiersEditor({
                         ) : null}
                         <p className="mt-2 text-sm text-ink-muted">
                           Face value {formatPrice(tier.priceCents, tier.currency)} ·{' '}
-                          {tier.quantityTotal.toLocaleString('en-IN')} available ·{' '}
-                          {tier.quantitySold.toLocaleString('en-IN')} sold
+                          {tier.quantityTotal.toLocaleString('en-US')} available ·{' '}
+                          {tier.quantitySold.toLocaleString('en-US')} sold
                         </p>
 
                         {money ? (
@@ -353,10 +353,10 @@ export function EventTiersEditor({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField
-              label="Face value, in paise"
+              label="Face value, in cents"
               id="tier-priceCents"
               required
-              description="Minor units, so ₹1,499 is 149900. Zero makes it free."
+              description="Minor units of the currency, so $35.00 is 3500 and ₹1,499 is 149900. Zero makes it free."
             >
               <Input
                 type="number"
@@ -371,7 +371,7 @@ export function EventTiersEditor({
                 value={draft.currency}
                 onChange={(change) => setDraft({ ...draft, currency: change.target.value })}
               >
-                {['INR', 'GBP', 'USD', 'CAD', 'AUD'].map((code) => (
+                {['USD', 'CAD', 'GBP', 'INR', 'AUD'].map((code) => (
                   <option key={code} value={code}>
                     {code}
                   </option>

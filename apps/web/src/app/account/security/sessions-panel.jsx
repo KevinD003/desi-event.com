@@ -70,7 +70,7 @@ function when(value) {
   // In UTC, and saying so. This renders on the server first and hydrates in
   // the browser; a format left to the machine's own zone read one time on the
   // server and another after hydration, and named neither.
-  return new Intl.DateTimeFormat('en-IN', {
+  return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -152,7 +152,7 @@ export function SessionsPanel({ sessions, devices }) {
         {sessions.length === 0 ? (
           <p className="mt-2 text-ink-muted">No sessions are open.</p>
         ) : (
-          <ul className="mt-2 divide-y divide-line rounded-card border border-line bg-surface-raised">
+          <ul className="mt-2 divide-y divide-line rounded-card border border-line bg-surface-raised shadow-card">
             {sessions.map((session) => {
               const name = session.deviceLabel ?? describeBrowser(session.userAgent)
 
@@ -170,7 +170,7 @@ export function SessionsPanel({ sessions, devices }) {
                     </p>
                   </div>
                   {session.current ? (
-                    <SignOutButton className="inline-flex min-h-11 items-center rounded-lg border border-action-secondary-line bg-action-secondary px-3 text-sm font-medium text-action-secondary-ink hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
+                    <SignOutButton className="inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-3 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
                   ) : (
                     <Button
                       type="button"
@@ -200,7 +200,7 @@ export function SessionsPanel({ sessions, devices }) {
         {devices.length === 0 ? (
           <p className="mt-2 text-ink-muted">No devices have been remembered.</p>
         ) : (
-          <ul className="mt-2 divide-y divide-line rounded-card border border-line bg-surface-raised">
+          <ul className="mt-2 divide-y divide-line rounded-card border border-line bg-surface-raised shadow-card">
             {devices.map((device) => (
               <li
                 key={device.id}
@@ -245,7 +245,7 @@ export function SessionsPanel({ sessions, devices }) {
           <SignOutButton
             everywhere
             label="Sign out everywhere"
-            className="inline-flex min-h-11 items-center rounded-lg bg-action-danger px-4 text-sm font-medium text-action-danger-ink hover:bg-action-danger-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+            className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-danger px-4 text-sm font-semibold text-action-danger-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-danger-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
           />
         </div>
       </div>

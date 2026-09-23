@@ -98,7 +98,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
       city: text('city'),
       region: text('region'),
       postalCode: text('postalCode'),
-      country: text('country') ?? 'IN',
+      country: text('country') ?? 'US',
       capacity: form.get('capacity') ? Number(form.get('capacity')) : null,
       directions: text('directions'),
       policies: text('policies'),
@@ -201,7 +201,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FormField label="Country" id="country" description="Two-letter code.">
-          <Input id="country" name="country" defaultValue={venue?.country ?? 'IN'} maxLength={2} />
+          <Input id="country" name="country" defaultValue={venue?.country ?? 'US'} maxLength={2} />
         </FormField>
         <FormField label="Capacity" id="capacity">
           <Input

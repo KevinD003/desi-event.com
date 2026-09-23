@@ -135,7 +135,7 @@ export default async function RefundDetailPage({ params }) {
             { href: null, label: 'Refund' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-ink">Refund</h1>
+        <h1 className="mt-3 text-h2 font-semibold text-ink">Refund</h1>
         <ReadRefusal error={failure} what="This refund" action="see this refund" />
       </div>
     )
@@ -165,14 +165,14 @@ export default async function RefundDetailPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-ink">
+      <h1 className="mt-3 text-h2 font-semibold text-ink">
         Refund on {refund.orderReference ?? 'an order'}
       </h1>
       <p className="mt-2 text-ink-muted">{STATES[refund.status] ?? 'Its state is unfamiliar.'}</p>
       <AsOf asOf={new Date().toISOString()} />
 
       <section aria-labelledby="amount-heading" className="mt-8">
-        <h2 id="amount-heading" className="text-lg font-semibold text-ink">
+        <h2 id="amount-heading" className="text-xl font-semibold text-ink">
           What goes back
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
@@ -220,7 +220,7 @@ export default async function RefundDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="lines-heading" className="mt-8">
-        <h2 id="lines-heading" className="text-lg font-semibold text-ink">
+        <h2 id="lines-heading" className="text-xl font-semibold text-ink">
           Which lines
         </h2>
         {refund.items.length === 0 ? (
@@ -266,7 +266,7 @@ export default async function RefundDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="why-heading" className="mt-8">
-        <h2 id="why-heading" className="text-lg font-semibold text-ink">
+        <h2 id="why-heading" className="text-xl font-semibold text-ink">
           Why, and what has happened to it
         </h2>
         <dl className="mt-3 space-y-2 text-sm">
@@ -323,7 +323,7 @@ export default async function RefundDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-ink">
+        <h2 id="actions-heading" className="text-xl font-semibold text-ink">
           What you can do
         </h2>
         <p className="mt-1 text-sm text-ink-muted">

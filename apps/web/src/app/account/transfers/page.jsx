@@ -55,6 +55,7 @@ import Link from 'next/link'
 
 import { Empty } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { PosterThumb, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { getMyTickets } from '../../../lib/organizer-api.js'
 import { groupTickets } from '../../../lib/wallet.js'
 import { eventWhenText, instantText, ticketStatusMeaning } from '../orders/order-status.js'
@@ -70,7 +71,7 @@ const LINK =
 
 /** Classes for the one action on an offer card. */
 const ACTION =
-  'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'inline-flex min-h-11 items-center justify-center rounded-control border border-action-secondary-line bg-action-secondary px-4 text-sm font-semibold text-action-secondary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
 
 /** What "Handed on" holds, in words true for a ticket bought or received. */
 const HANDED_ON_DESCRIPTION =
@@ -128,7 +129,7 @@ function Detail({ term, children }) {
 function Section({ id, title, description, children }) {
   return (
     <section aria-labelledby={id} className="mt-10">
-      <h2 id={id} className="text-lg font-semibold text-ink">
+      <h2 id={id} className="text-xl font-semibold text-ink">
         {title}
       </h2>
       {description ? <p className="mt-1 text-sm text-ink-muted">{description}</p> : null}
@@ -156,32 +157,35 @@ function OfferCard({ ticket, now }) {
   const lapsed = Date.parse(offer.expiresAt ?? '') < now.getTime()
 
   return (
-    <li className="rounded-card border border-line bg-surface p-4 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h3 className="text-base font-semibold text-ink sm:text-lg">{ticket.event.title}</h3>
-        <StatusChip meaning={ticketStatusMeaning(ticket.status)} />
+    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card sm:flex-row">
+      <PosterThumb event={ticket.event} className="h-24 sm:h-auto sm:w-36" />
+      <div className="min-w-0 flex-1 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h3 className="text-lg font-semibold text-ink">{ticket.event.title}</h3>
+          <StatusChip meaning={ticketStatusMeaning(ticket.status)} />
+        </div>
+
+        <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          <Detail term="When">{ticketWhen(ticket)}</Detail>
+          <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
+          <Detail term="Offered to">{offer.toEmailMasked}</Detail>
+          <Detail term={lapsed ? 'Lapsed' : 'Open until'}>{deadline}</Detail>
+        </dl>
+
+        <p className="mt-3 text-sm text-ink-muted">
+          {lapsed
+            ? 'It lapsed without an answer and can no longer be accepted. Withdraw it from the ticket’s page to clear it; the ticket is yours throughout.'
+            : ticket.admits
+              ? 'The ticket is still yours, and still gets you in, until they accept.'
+              : 'The ticket is still yours until they accept.'}
+        </p>
+
+        <p className="mt-3">
+          <Link href={`/tickets/${encodeURIComponent(ticket.id)}`} className={ACTION}>
+            Withdraw or view this offer
+          </Link>
+        </p>
       </div>
-
-      <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-        <Detail term="When">{ticketWhen(ticket)}</Detail>
-        <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
-        <Detail term="Offered to">{offer.toEmailMasked}</Detail>
-        <Detail term={lapsed ? 'Lapsed' : 'Open until'}>{deadline}</Detail>
-      </dl>
-
-      <p className="mt-3 text-sm text-ink-muted">
-        {lapsed
-          ? 'It lapsed without an answer and can no longer be accepted. Withdraw it from the ticket’s page to clear it; the ticket is yours throughout.'
-          : ticket.admits
-            ? 'The ticket is still yours, and still gets you in, until they accept.'
-            : 'The ticket is still yours until they accept.'}
-      </p>
-
-      <p className="mt-3">
-        <Link href={`/tickets/${encodeURIComponent(ticket.id)}`} className={ACTION}>
-          Withdraw or view this offer
-        </Link>
-      </p>
     </li>
   )
 }
@@ -195,23 +199,23 @@ function OfferCard({ ticket, now }) {
  */
 function TicketCard({ ticket }) {
   return (
-    <li className="rounded-card border border-line bg-surface p-4 focus-within:ring-2 focus-within:ring-focus sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <h3 className="text-base font-semibold text-ink sm:text-lg">
-          <Link
-            href={`/tickets/${encodeURIComponent(ticket.id)}`}
-            className="rounded-sm underline decoration-accent-line underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-          >
-            {ticket.event.title}
-          </Link>
-        </h3>
-        <StatusChip meaning={ticketStatusMeaning(ticket.status)} />
-      </div>
+    <li className="flex flex-col overflow-hidden rounded-card border border-line bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2 hover:shadow-card-hover sm:flex-row">
+      <PosterThumb event={ticket.event} className="h-24 sm:h-auto sm:w-36" />
+      <div className="min-w-0 flex-1 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <h3 className="text-lg font-semibold text-ink">
+            <Link href={`/tickets/${encodeURIComponent(ticket.id)}`} className={TEXT_LINK}>
+              {ticket.event.title}
+            </Link>
+          </h3>
+          <StatusChip meaning={ticketStatusMeaning(ticket.status)} />
+        </div>
 
-      <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-        <Detail term="When">{ticketWhen(ticket)}</Detail>
-        <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
-      </dl>
+        <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          <Detail term="When">{ticketWhen(ticket)}</Detail>
+          <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
+        </dl>
+      </div>
     </li>
   )
 }
@@ -256,7 +260,10 @@ export default async function TransfersPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-ink">Transfers</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Your account
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Transfers</h1>
       <p className="mt-2 text-ink-muted">
         Tickets you are offering to somebody, tickets you have handed on, and tickets somebody
         handed to you. To offer a ticket, open it from{' '}

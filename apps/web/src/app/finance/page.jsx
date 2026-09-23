@@ -89,7 +89,7 @@ export default async function FinancePage({ searchParams }) {
   let failure = null
 
   try {
-    summary = await getFinanceSummary({ organizationId, currency: 'INR' })
+    summary = await getFinanceSummary({ organizationId, currency: 'USD' })
   } catch (error) {
     // Drawn by `ReadRefusal`: a lapsed FINANCE_VIEW window is a step-up away,
     // not a failure, and the API's own words name an endpoint.
@@ -98,7 +98,10 @@ export default async function FinancePage({ searchParams }) {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Finance</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Money
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Finance</h1>
       <p className="mt-2 text-ink-muted">
         Derived from the ledger, which is appended to and never edited. An order total is written
         once at checkout and never corrected; nothing on this page reads one.
@@ -115,10 +118,10 @@ export default async function FinancePage({ searchParams }) {
                   <Link
                     href={`/finance?organizationId=${organization.id}`}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
+                    className={`inline-flex min-h-11 items-center rounded-full px-4 text-sm transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                       current
-                        ? 'bg-action-primary font-semibold text-action-primary-ink'
-                        : 'bg-surface-subtle text-ink-muted hover:bg-line'
+                        ? 'bg-action-primary font-semibold text-action-primary-ink shadow-control'
+                        : 'border border-line bg-surface-raised font-medium text-ink-muted hover:bg-surface-subtle hover:text-ink'
                     }`}
                   >
                     {organization.name}
@@ -169,7 +172,7 @@ export default async function FinancePage({ searchParams }) {
           ) : null}
 
           <section aria-labelledby="totals-heading" className="mt-8">
-            <h2 id="totals-heading" className="text-lg font-semibold text-ink">
+            <h2 id="totals-heading" className="text-xl font-semibold text-ink">
               Totals
             </h2>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -211,7 +214,7 @@ export default async function FinancePage({ searchParams }) {
           </section>
 
           <section aria-labelledby="accounts-heading" className="mt-8">
-            <h2 id="accounts-heading" className="text-lg font-semibold text-ink">
+            <h2 id="accounts-heading" className="text-xl font-semibold text-ink">
               Clearing accounts
             </h2>
             <ScrollableTable label="Clearing accounts">
@@ -258,7 +261,7 @@ export default async function FinancePage({ searchParams }) {
           </section>
 
           <section aria-labelledby="activity-heading" className="mt-8">
-            <h2 id="activity-heading" className="text-lg font-semibold text-ink">
+            <h2 id="activity-heading" className="text-xl font-semibold text-ink">
               Activity
             </h2>
             <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -277,7 +280,7 @@ export default async function FinancePage({ searchParams }) {
           <p className="mt-8">
             <a
               href={`/api/v1/finance/export.csv${organizationId ? `?organizationId=${organizationId}` : ''}`}
-              className="inline-flex rounded-lg bg-action-primary px-4 py-2 text-sm font-semibold text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              className="inline-flex min-h-11 items-center justify-center rounded-control bg-action-primary px-4 text-sm font-semibold text-action-primary-ink shadow-control transition-colors duration-(--duration-fast) hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               download
             >
               Download as a spreadsheet

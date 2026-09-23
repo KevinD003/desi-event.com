@@ -25,6 +25,7 @@
 
 import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { TABLE_FRAME } from '../../../components/workspace-kit.jsx'
 import { listPrivacyHolds } from '../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../lib/session.js'
 import { holdKindLabel, holdStateLabel } from '../../../lib/privacy-vocabulary.js'
@@ -78,7 +79,10 @@ export default async function PrivacyHoldsPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-ink">Privacy holds</h1>
+        <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+          Workspace · Trust and safety
+        </p>
+        <h1 className="mt-2 text-h2 font-semibold text-ink">Privacy holds</h1>
         <p className="mt-2 max-w-3xl text-ink-muted">
           A hold stops an erasure from running. While one is active, a request against that subject
           is refused and nothing is changed. Releasing a hold is its own recorded decision.
@@ -101,7 +105,7 @@ export default async function PrivacyHoldsPage({ searchParams }) {
       {holds && holds.length > 0 ? (
         <>
           <AsOf asOf={readAt} />
-          <div className="mt-4 overflow-x-auto">
+          <div className={`mt-4 ${TABLE_FRAME}`}>
             <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
               <caption className="sr-only">
                 Holds in {selected.organizationName ?? 'this organisation'}

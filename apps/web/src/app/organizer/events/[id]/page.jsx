@@ -95,7 +95,7 @@ export default async function EditEventPage({ params }) {
   if (!event) {
     return (
       <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold text-ink">That event could not be opened</h1>
+        <h1 className="text-h2 font-semibold text-ink">That event could not be opened</h1>
         {/* The same words for another organisation's draft and for an id
             nobody has used: the API answers both 404, and so does this. */}
         <ReadRefusal error={failure} what="This event" action="edit this event" />
@@ -151,7 +151,7 @@ export default async function EditEventPage({ params }) {
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-2xl font-bold text-ink">{event.title}</h1>
+      <h1 className="mt-4 text-h2 font-semibold text-ink">{event.title}</h1>
 
       <div className="mt-6">
         <EventEditor

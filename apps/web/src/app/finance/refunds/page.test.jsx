@@ -175,7 +175,7 @@ describe('the filter', () => {
       page: 1,
       perPage: 50,
     })
-    expect(getFinanceSummary).toHaveBeenCalledWith({ organizationId: OTHER, currency: 'INR' })
+    expect(getFinanceSummary).toHaveBeenCalledWith({ organizationId: OTHER, currency: 'USD' })
   })
 
   it('never asks about an organisation this session does not belong to', async () => {

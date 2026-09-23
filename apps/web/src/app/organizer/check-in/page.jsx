@@ -42,7 +42,10 @@ export default async function CheckInPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ink">Check-in</h1>
+      <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
+        Workspace · Events and venues
+      </p>
+      <h1 className="mt-2 text-h2 font-semibold text-ink">Check-in</h1>
       <p className="mt-2 max-w-2xl text-ink-muted">
         Look each ticket up, check the name, then admit. Looking up changes nothing; only{' '}
         <strong>Admit</strong> does, and a ticket admits once.
