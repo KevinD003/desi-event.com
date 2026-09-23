@@ -60,6 +60,16 @@ function freshTotpSecret() {
 /** This run's second factor. Lives in memory, and nowhere else. */
 const LOAD_MFA_SECRET = freshTotpSecret()
 
+/**
+ * How old the operator's step-up may be before a scenario renews it.
+ *
+ * Longer than a TOTP step, so a renewal never reuses the code the last one
+ * used; far shorter than FINANCE_ACTION's five minutes, so no scenario of the
+ * default profiles — the longest is forty-five seconds, and 270 at
+ * LOAD_SCALE=6 — outlives the window it started with.
+ */
+const STEP_UP_RENEWAL_MS = 60_000
+
 let sequence = 0
 
 /**
@@ -241,6 +251,45 @@ export async function buildWorld(prisma, app, tag) {
   const doorHeaders = await signIn(app, door.scannerEmail, door.password, door.scannerEnrolled)
   const operatorHeaders = await signIn(app, door.operatorEmail, door.password, true)
 
+  // The operator's step-up is the one signing in gave them, and it lapses: the
+  // refund commands sit behind FINANCE_ACTION, a five-minute window. Every
+  // scenario ran inside it when the suite was three scenarios long; run in
+  // full, the refund scenario comes tenth, after the window has closed, and
+  // every one of its requests was refused with a 403 that measured the
+  // harness rather than the product. So the runner renews it before each
+  // scenario, through the real endpoint with a real code — and no more often
+  // than once a minute, so the code is always from a later step than the last
+  // one used and is never refused as a replay.
+  // Renewals run one at a time — the runner awaits each before the next
+  // scenario starts — so this is never read and written by two at once.
+  const stepUp = { at: Date.now() }
+
+  /**
+   * Renew the operator's step-up if the last one is more than a minute old.
+   *
+   * @returns {Promise<void>} Resolves once the window is fresh.
+   * @throws {Error} When the API refuses the renewal.
+   */
+  async function renewStepUp() {
+    if (Date.now() - stepUp.at < STEP_UP_RENEWAL_MS) return
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/step-up',
+      headers: operatorHeaders,
+      payload: { code: totp(LOAD_MFA_SECRET) },
+    })
+
+    if (response.statusCode !== 200) {
+      throw new Error(
+        `The load suite could not renew the operator's step-up: ${response.statusCode}`,
+      )
+    }
+
+    // eslint-disable-next-line require-atomic-updates -- sequential by construction; see above.
+    stepUp.at = Date.now()
+  }
+
   return {
     tag,
     organizationId: organization.id,
@@ -256,6 +305,7 @@ export async function buildWorld(prisma, app, tag) {
     doorHeaders,
     operatorHeaders,
     financeHeaders: operatorHeaders,
+    renewStepUp,
     refundableReference: refundable.reference,
     webhookEventId: `evt_load_${tag}`,
     intentId: refundable.intentId,

@@ -358,6 +358,9 @@ async function main() {
   const records = []
 
   for (const scenario of chosen) {
+    // Before each scenario, not once: see `renewStepUp` in world.mjs.
+    await world.renewStepUp()
+
     const record = await runScenario({ scenario, profile, world, call, prisma, redis: null })
 
     records.push(record)
