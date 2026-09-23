@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { listEventsQuerySchema, MAX_PER_PAGE } from '@desi-event/schemas'
 
 vi.mock('../lib/api-client.js', () => ({
   getApiClient: vi.fn(),
@@ -13,14 +14,23 @@ const STATIC = ['/', '/events', '/categories', '/venues', '/organizers', '/limit
 /**
  * A client whose listing endpoint answers with the given pages in order.
  *
+ * It refuses a query the API would refuse, with the API's own schema: the stub
+ * used to accept any page size, and so passed a sitemap that asked for 200 a
+ * page — which the API answers with a 400, and which left every real sitemap
+ * without a single event.
+ *
  * @param {object[][]} pages Each page's `data` array.
  * @returns {object} A stub API client, with `list` recording its arguments.
  */
 function clientReturning(pages) {
-  const list = vi.fn(async ({ page }) => ({
-    data: pages[page - 1] ?? [],
-    pagination: { hasNextPage: page < pages.length },
-  }))
+  const list = vi.fn(async (query) => {
+    const { page } = listEventsQuerySchema.parse(query)
+
+    return {
+      data: pages[page - 1] ?? [],
+      pagination: { hasNextPage: page < pages.length },
+    }
+  })
 
   return { events: { list } }
 }
@@ -36,6 +46,18 @@ describe('the sitemap', () => {
     const entries = await sitemap()
 
     expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(STATIC)
+  })
+
+  it('asks for no more a page than the listing accepts', async () => {
+    const { PAGE_SIZE } = await import('./sitemap.js')
+    const client = clientReturning([[{ slug: 'one', status: 'PUBLISHED' }]])
+    getApiClient.mockReturnValue(client)
+
+    const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
+
+    expect(PAGE_SIZE).toBeLessThanOrEqual(MAX_PER_PAGE)
+    expect(client.events.list.mock.calls[0][0].perPage).toBe(PAGE_SIZE)
+    expect(paths).toContain('/events/one')
   })
 
   it("asks for the server's public set rather than naming one status", async () => {
