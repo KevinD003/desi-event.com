@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { computeOrderTotals } from '@desi-event/pricing'
+
+import {
+  bearer,
+  createTestApp,
+  feeConfig,
+  holdHeaders,
+  signIn,
+  stepUp,
+  taxRateBps,
+} from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 
 /**
@@ -20,6 +30,16 @@ async function list(app, query = '', headers = {}) {
 
   expect(response.statusCode).toBe(200)
   return response.json()
+}
+
+/**
+ * The two numeric fee terms, without the currency.
+ *
+ * @param {{percentageBps: number, flatCents: number}} terms A fee configuration.
+ * @returns {{percentageBps: number, flatCents: number}} The terms.
+ */
+function pick({ percentageBps, flatCents }) {
+  return { percentageBps, flatCents }
 }
 
 describe('what a public event page says about its organiser, finding NF-14', () => {
@@ -62,6 +82,8 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'createdAt',
       'description',
       'endsAt',
+      // The booking fee is part of the price; see `feeTerms` in the schema.
+      'feeTerms',
       'id',
       'isOnline',
       'languages',
@@ -379,9 +401,109 @@ describe('GET /v1/events', () => {
       soldOut: false,
     })
   })
+
+  it('says a card is on sale only when a ticket could be bought now', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    expect((await list(app, 'q=garba')).data[0].salesOpen).toBe(true)
+
+    // Paused by the organiser: still listed, with the words to say so, and
+    // not on sale.
+    await prisma.event.update({
+      where: { id: ids.publishedEvent.id },
+      data: { status: 'SALES_PAUSED' },
+    })
+
+    const [paused] = (await list(app, 'q=garba')).data
+
+    expect(paused.status).toBe('SALES_PAUSED')
+    expect(paused.salesOpen).toBe(false)
+  })
+
+  it('quotes a card’s starting price as exactly what checkout charges for one ticket', async () => {
+    // Not recomputed here: an order is placed, and the card's number is held to
+    // what the order came to. A second implementation in the test would agree
+    // with a second implementation in the presenter and prove nothing.
+    const { app, ids } = await createTestApp()
+
+    const [card] = (await list(app, 'q=garba')).data
+
+    const hold = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        payload: { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+      })
+    ).json().data
+
+    const placed = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers: holdHeaders(hold),
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        holdIds: [hold.id],
+      },
+    })
+
+    expect(placed.statusCode).toBe(201)
+
+    const charged = placed.json().data
+
+    expect(charged.subtotalCents).toBe(card.minPriceCents)
+    expect(card.minTotalCents).toBe(charged.totalCents)
+    // All-in means more than the face value whenever there is a fee.
+    expect(card.minTotalCents).toBeGreaterThan(card.minPriceCents)
+  })
 })
 
 describe('GET /v1/events/:slug', () => {
+  it('publishes the fee terms checkout charges with, and they price an order exactly', async () => {
+    const { app, ids } = await createTestApp()
+
+    const { data: event } = (
+      await app.inject({ method: 'GET', url: `/v1/events/${ids.publishedEvent.slug}` })
+    ).json()
+
+    const terms = event.feeTerms.find((entry) => entry.currency === 'INR')
+
+    expect(terms).toEqual({ currency: 'INR', ...pick(feeConfig('INR')) })
+
+    // Priced with those terms and the venue's tax, one General Admission
+    // ticket comes to what the order is charged.
+    const quote = computeOrderTotals({
+      items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1, unitPriceCents: 150_000 }],
+      feeConfig: { ...terms },
+      taxRateBps: taxRateBps('IN'),
+      currency: 'INR',
+    })
+
+    const hold = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        payload: { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+      })
+    ).json().data
+    const placed = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers: holdHeaders(hold),
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        holdIds: [hold.id],
+      },
+    })
+
+    expect(placed.json().data.totalCents).toBe(quote.totalCents)
+  })
+
   it('returns an event with its venue, organisation and tiers', async () => {
     const { app } = await createTestApp()
 

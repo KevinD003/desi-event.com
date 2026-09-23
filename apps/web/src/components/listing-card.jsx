@@ -7,6 +7,15 @@
  * accessible name is the entire card, and adding a second "View" link would
  * make every card appear twice in the links list.
  *
+ * ## What a card says
+ *
+ * Title, poster, date and local time in the event's own zone, venue or
+ * "Online", city, who is putting it on, the category, whether tickets can be
+ * bought now, and the price one ticket starts at. The price is all-in when the
+ * API sends it all-in — the same figure checkout would charge for one ticket of
+ * the cheapest tier — and is said to be before fees when it is not. Nothing is
+ * said about how fast anything is selling: the summary carries no such fact.
+ *
  * @module components/listing-card
  */
 
@@ -14,6 +23,7 @@ import Link from 'next/link'
 import { Badge, Card, CardBody, CardFooter } from './ui.jsx'
 
 import { categoryLabel } from '../lib/catalog.js'
+import { eventAvailability, startingPrice } from '../lib/event-availability.js'
 import {
   formatEventDate,
   formatEventLocation,
@@ -23,6 +33,31 @@ import {
 import { formatPrice } from '../lib/pricing.js'
 import { HoverLift, RevealOnScroll } from './motion.jsx'
 import { EventPoster } from './poster.jsx'
+
+/** The chip's colours, per availability tone. Always with words. */
+const AVAILABILITY_CHIP = Object.freeze({
+  open: 'border-availability-open/30 bg-availability-open-soft text-availability-open',
+  closed: 'border-availability-closed/30 bg-availability-closed-soft text-availability-closed',
+  neutral: 'border-line bg-surface-subtle text-ink-muted',
+})
+
+/**
+ * Whether tickets can be bought, in words.
+ *
+ * @param {object} props Component props.
+ * @param {{tone: string, label: string}} props.availability What to say, from `eventAvailability`.
+ * @returns {JSX.Element} The chip.
+ */
+function AvailabilityChip({ availability }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${AVAILABILITY_CHIP[availability.tone]}`}
+    >
+      <span className="sr-only">Availability: </span>
+      {availability.label}
+    </span>
+  )
+}
 
 /**
  * @typedef {object} EventCardProps
@@ -38,10 +73,8 @@ import { EventPoster } from './poster.jsx'
  * @returns {JSX.Element} The rendered card.
  */
 export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
-  const priceLabel =
-    event.minPriceCents == null
-      ? 'Price to be announced'
-      : formatPrice(event.minPriceCents, event.currency ?? 'INR')
+  const price = startingPrice(event, formatPrice)
+  const availability = eventAvailability(event)
 
   return (
     <RevealOnScroll as="li" index={index} className="h-full">
@@ -56,11 +89,7 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
           <CardBody className="flex flex-1 flex-col gap-2.5">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="brand">{categoryLabel(event.category)}</Badge>
-              {event.soldOut ? (
-                <Badge variant="danger" srLabel="Availability:">
-                  Sold out
-                </Badge>
-              ) : null}
+              {availability ? <AvailabilityChip availability={availability} /> : null}
               {event.isOnline ? <Badge variant="info">Online</Badge> : null}
             </div>
 
@@ -72,6 +101,13 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
                 {event.title}
               </Link>
             </Heading>
+
+            {event.organizationName ? (
+              <p className="text-sm text-ink-muted">
+                <span className="sr-only">Organiser: </span>
+                By <span className="font-medium text-ink">{event.organizationName}</span>
+              </p>
+            ) : null}
 
             <p className="line-clamp-3 text-sm text-ink-muted">{event.summary}</p>
 
@@ -93,10 +129,15 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
             </dl>
           </CardBody>
 
-          <CardFooter className="justify-between bg-accent-soft/60">
+          <CardFooter className="justify-between gap-3 bg-accent-soft/60">
             <p className="text-sm text-ink-muted">
-              <span className="text-ink-muted">From </span>
-              <span className="font-semibold text-ink">{priceLabel}</span>
+              {price.qualifier || price.allIn ? (
+                <span className="text-ink-muted">From </span>
+              ) : null}
+              <span className="font-semibold text-ink">{price.amount}</span>
+              {price.qualifier ? (
+                <span className="block text-xs text-ink-muted">{price.qualifier}</span>
+              ) : null}
             </p>
             <span aria-hidden="true" className="text-sm font-medium text-accent-strong">
               Details →

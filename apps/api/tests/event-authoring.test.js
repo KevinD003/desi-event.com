@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, createTestApp, holdHeaders, signIn } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 
 /**
@@ -436,6 +436,56 @@ describe('the all-in price preview', () => {
       expect(row.allInCents).toBe(row.faceValueCents + row.feesCents + row.taxCents)
       expect(row.allInCents).toBeGreaterThanOrEqual(row.faceValueCents)
     }
+
+    await app.close()
+  })
+
+  it('quotes exactly what an order for one ticket is charged', async () => {
+    // The preview was computed with the pricing package's default fee and no
+    // tax, while checkout used the deployment's fee terms and the venue's tax.
+    // Held to a real order here, not to a second calculation.
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const preview = (
+      await app.inject({
+        method: 'GET',
+        url: `/v1/events/${ids.publishedEvent.id}/price-preview`,
+        headers: bearer(token),
+      })
+    ).json().data
+    const quoted = preview.find((row) => row.ticketTypeId === ids.generalAdmission.id)
+
+    const hold = (
+      await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        payload: { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+      })
+    ).json().data
+    const placed = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers: holdHeaders(hold),
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        holdIds: [hold.id],
+      },
+    })
+
+    expect(placed.statusCode).toBe(201)
+
+    const charged = placed.json().data
+
+    expect(quoted).toMatchObject({
+      faceValueCents: charged.subtotalCents,
+      feesCents: charged.feesCents,
+      taxCents: charged.taxCents,
+      allInCents: charged.totalCents,
+    })
 
     await app.close()
   })

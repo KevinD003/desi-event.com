@@ -203,8 +203,26 @@ export const eventSummarySchema = z.object({
   /** The venue's slug, for the same reason and with the same caveat. */
   venueSlug: slugSchema.nullish(),
   minPriceCents: centsSchema.nullish(),
+  /**
+   * What one ticket of the cheapest tier costs all in: face value, the
+   * platform fee and tax, computed by the same `computeOrderTotals`, fee terms
+   * and venue tax rule the checkout charges with. Face value alone is what a
+   * card used to show, and a price that grows at the last step is the practice
+   * the pricing package exists to prevent. Nullish where no tier is priced, and
+   * absent from summaries built without the deployment's fee terms.
+   */
+  minTotalCents: centsSchema.nullish(),
   currency: currencySchema.nullish(),
   soldOut: z.boolean().optional(),
+  /**
+   * Whether a ticket could be bought now: the event is in a status the sale
+   * paths accept, and at least one tier is inside its sales window with seats
+   * left. The words a card puts beside a price — "On sale", "Not on sale now"
+   * — come from this and not from the status alone, because a published event
+   * whose tiers open next week is not on sale. Omitted with no tiers, like
+   * `soldOut`, rather than guessed.
+   */
+  salesOpen: z.boolean().optional(),
 })
 
 /** A `TicketType` row. */
@@ -397,6 +415,26 @@ export const eventWithRelationsSchema = eventSchema.extend({
    * date in your calendar", and `schema.org` has a field for exactly that.
    */
   previousStartsAt: timestampSchema.nullish(),
+  /**
+   * The platform fee terms checkout charges with, one entry per currency this
+   * event's tiers are priced in.
+   *
+   * Public because they are the price: a booking fee is part of what a buyer
+   * pays, and quoting a total without the terms that produce it is guessing.
+   * The web used to guess — it priced with `@desi-event/pricing`'s defaults
+   * (2.5% + ₹5.00) while the deployment charged its configured terms — so
+   * the event page and checkout quoted a smaller total than the order came to.
+   * Nullish on a detail built without the deployment's terms.
+   */
+  feeTerms: z
+    .array(
+      z.object({
+        currency: currencySchema,
+        percentageBps: z.int().min(0).max(10_000),
+        flatCents: centsSchema,
+      }),
+    )
+    .nullish(),
   /**
    * Optimistic-concurrency counter, echoed so the organiser's editor can send
    * it back as a precondition. Not sensitive — it counts edits, and an edit

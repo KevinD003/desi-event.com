@@ -98,9 +98,10 @@ function cheapestAvailable(ticketTypes) {
  *
  * @param {object|null} tier The cheapest available tier, or null.
  * @param {object|null} [venue] The venue, for the tax jurisdiction.
+ * @param {Array<object>|null} [feeTerms] The fee terms the API published for the event.
  * @returns {{allInCents: number, feesCents: number, taxCents: number, taxLabel: string}|null} The breakdown, or null.
  */
-function allInPrice(tier, venue) {
+function allInPrice(tier, venue, feeTerms = null) {
   if (!tier || !Number.isFinite(tier.priceCents)) return null
 
   const place = { country: venue?.country, region: venue?.region }
@@ -116,6 +117,7 @@ function allInPrice(tier, venue) {
     ],
     currency: tier.currency ?? 'INR',
     place,
+    feeTerms,
   })
 
   return {
@@ -204,7 +206,7 @@ export default async function EventDetailPage({ params }) {
 
   const notice = lifecycleNotice(event.status)
   const buyable = BUYABLE_STATUSES.has(event.status) && Boolean(cheapest)
-  const allIn = allInPrice(cheapest, event.venue)
+  const allIn = allInPrice(cheapest, event.venue, event.feeTerms)
   const access = mergedAccessibility(event)
   const policies = event.policies ?? {}
   const artists = event.artists ?? []

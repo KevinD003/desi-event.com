@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { computeOrderTotals } from '@desi-event/pricing'
 
 import {
+  feeConfigFor,
   feeConfigForCurrency,
   formatAmount,
   formatPrice,
@@ -183,5 +184,34 @@ describe('priceSelection', () => {
 
     expect(totals.subtotalCents).toBe(0)
     expect(totals.totalCents).toBe(0)
+  })
+})
+
+describe('pricing with the fee terms the API published', () => {
+  const published = [{ currency: 'INR', percentageBps: 590, flatCents: 99 }]
+
+  it('uses the published terms for the matching currency', () => {
+    expect(feeConfigFor('INR', published)).toEqual({
+      percentageBps: 590,
+      flatCents: 99,
+      currency: 'INR',
+    })
+  })
+
+  it('falls back to the package defaults when nothing was published for the currency', () => {
+    expect(feeConfigFor('GBP', published)).toEqual(feeConfigForCurrency('GBP'))
+    expect(feeConfigFor('INR', null)).toEqual(feeConfigForCurrency('INR'))
+  })
+
+  it('prices a basket with the published terms, not the defaults', () => {
+    const lines = [{ ticketTypeId: 'ga', name: 'General', quantity: 2, unitPriceCents: 150_000 }]
+    const place = { country: 'IN', region: 'MH' }
+
+    const published_ = priceSelection({ lines, currency: 'INR', place, feeTerms: published })
+    const defaults = priceSelection({ lines, currency: 'INR', place })
+
+    // 5.9% of ₹3,000 plus ₹0.99 on each ticket, not 2.5% plus ₹5.00.
+    expect(published_.feesCents).not.toBe(defaults.feesCents)
+    expect(published_.feesCents).toBe(Math.round(300_000 * 0.059) + 2 * 99)
   })
 })

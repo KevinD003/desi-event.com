@@ -931,6 +931,9 @@ export function toEventSummary(event) {
     minPriceCents: priced.length > 0 ? Math.min(...priced.map((tier) => tier.priceCents)) : null,
     currency: priced[0]?.currency ?? null,
     soldOut: tiers.length > 0 && onSale.length === 0,
+    // What the live summary computes from sales windows. The sample tiers have
+    // none, so a tier on sale with seats left is on sale.
+    ...(tiers.length > 0 ? { salesOpen: onSale.length > 0 } : {}),
   }
 }
 

@@ -19,6 +19,7 @@ import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
 import { toEventDetail, toEventSummary } from '../lib/presenters.js'
+import { feeConfigFor } from './orders.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Relations an event payload carries out of these routes. */
@@ -41,9 +42,12 @@ const DECISIONS = Object.freeze({
  * @param {object} app The Fastify instance.
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
+ * @param {object} [deps.env] The parsed API environment, for the fee terms checkout charges with.
  * @returns {void} Nothing.
  */
-export function registerModerationRoutes(app, { prisma }) {
+export function registerModerationRoutes(app, { prisma, env }) {
+  const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
+
   defineRoute(app, 'moderation.queue', {
     handler: async (request) => {
       const { page, perPage, status } = request.query
@@ -108,7 +112,7 @@ export function registerModerationRoutes(app, { prisma }) {
 
       // A moderator sees everything, including the tiers not on sale yet:
       // deciding whether a listing is fit to be public means seeing all of it.
-      return { data: toEventDetail(full, { includeDraftTiers: true }) }
+      return { data: toEventDetail(full, { includeDraftTiers: true, ...pricing }) }
     },
   })
 }

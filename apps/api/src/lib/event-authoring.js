@@ -379,14 +379,19 @@ export async function prepareInventory(prisma, { event, sessionId, actor }) {
  * they set the number.
  *
  * Computed with the same `computeOrderTotals` the checkout uses, not a second
- * implementation that would drift.
+ * implementation that would drift — and with the same inputs: the deployment's
+ * fee terms and the tax rule of the venue's jurisdiction. It used to be called
+ * with neither, so an organiser setting a price saw the pricing package's
+ * default fee and no tax, which was not what a buyer would be charged.
  *
  * @param {object} tier The ticket type.
  * @param {object} [options] Options.
  * @param {number} [options.quantity] How many. Defaults to one.
+ * @param {object} [options.feeConfig] The fee terms checkout uses for the tier's currency.
+ * @param {number} [options.taxRateBps] The tax rate checkout applies at the venue.
  * @returns {object} The breakdown.
  */
-export function allInPreview(tier, { quantity = 1 } = {}) {
+export function allInPreview(tier, { quantity = 1, feeConfig, taxRateBps = 0 } = {}) {
   const totals = computeOrderTotals({
     items: [
       {
@@ -395,6 +400,8 @@ export function allInPreview(tier, { quantity = 1 } = {}) {
         unitPriceCents: tier.priceCents ?? 0,
       },
     ],
+    ...(feeConfig ? { feeConfig } : {}),
+    taxRateBps,
     currency: tier.currency ?? 'INR',
   })
 

@@ -75,7 +75,50 @@ describe('EventCard', () => {
     render(<EventCard event={{ ...garba, soldOut: true }} />)
 
     expect(screen.getByText('Sold out')).toBeInTheDocument()
-    expect(screen.getByText(/^Availability:$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Availability:/)).toBeInTheDocument()
+  })
+
+  it('says it is on sale only when the API says a ticket can be bought now', () => {
+    const { rerender } = render(<EventCard event={{ ...garba, salesOpen: true }} />)
+
+    expect(screen.getByText('On sale')).toBeInTheDocument()
+
+    rerender(<EventCard event={{ ...garba, salesOpen: false }} />)
+    expect(screen.queryByText('On sale')).not.toBeInTheDocument()
+    expect(screen.getByText('Not on sale now')).toBeInTheDocument()
+
+    rerender(<EventCard event={{ ...garba, status: 'SALES_PAUSED', salesOpen: false }} />)
+    expect(screen.getByText('Sales paused')).toBeInTheDocument()
+  })
+
+  it('invents no urgency: no count, no "selling fast", no "few left"', () => {
+    const { container } = render(<EventCard event={{ ...garba, salesOpen: true }} />)
+
+    expect(container.textContent).not.toMatch(
+      /selling fast|few left|only \d+|hurry|popular|trending/i,
+    )
+  })
+
+  it('names the organiser', () => {
+    render(<EventCard event={{ ...garba, organizationName: 'Rangoli Collective' }} />)
+
+    expect(screen.getByText('Rangoli Collective')).toBeInTheDocument()
+  })
+
+  it('shows the all-in price when the API sends it, and says what it includes', () => {
+    render(<EventCard event={{ ...garba, minPriceCents: 149_900, minTotalCents: 178_774 }} />)
+
+    expect(screen.getByText('₹1,787.74')).toBeInTheDocument()
+    expect(screen.getByText('including any fees and tax')).toBeInTheDocument()
+    // The face value is not presented as the price.
+    expect(screen.queryByText('₹1,499.00')).not.toBeInTheDocument()
+  })
+
+  it('says a face value is before fees when that is all it has', () => {
+    render(<EventCard event={garba} />)
+
+    expect(screen.getByText('₹1,499.00')).toBeInTheDocument()
+    expect(screen.getByText('before fees and tax')).toBeInTheDocument()
   })
 
   it('does not invent a price for an event with no tiers yet', () => {

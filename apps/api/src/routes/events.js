@@ -26,6 +26,7 @@ import { recordAudit } from '../lib/audit.js'
 import { conflict, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
 import { toEventDetail, toEventSummary } from '../lib/presenters.js'
+import { feeConfigFor } from './orders.js'
 import { loadEventFacets } from '../lib/facets.js'
 import { defineRoute } from '../lib/register.js'
 
@@ -244,9 +245,15 @@ async function assertVenueExists(prisma, venueId) {
  * @param {object} app The Fastify instance.
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
+ * @param {object} [deps.env] The parsed API environment, for the fee terms a card's price is quoted with.
  * @returns {void} Nothing.
  */
-export function registerEventRoutes(app, { prisma }) {
+export function registerEventRoutes(app, { prisma, env }) {
+  // One ticket of the cheapest tier, priced with checkout's own fee terms, so a
+  // card's "from" price is the price and not the face value.
+  const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
+  const summaryOptions = pricing
+
   defineRoute(app, 'events.facets', {
     handler: async () => ({ data: await loadEventFacets(prisma) }),
   })
@@ -261,7 +268,7 @@ export function registerEventRoutes(app, { prisma }) {
       ])
 
       return {
-        data: events.map(toEventSummary),
+        data: events.map((event) => toEventSummary(event, summaryOptions)),
         pagination: buildPaginationMeta({
           page: request.query.page,
           perPage: request.query.perPage,
@@ -290,7 +297,10 @@ export function registerEventRoutes(app, { prisma }) {
       assertVisibleTo(event, request.actor)
 
       return {
-        data: toEventDetail(event, { includeDraftTiers: maySeeDrafts(event, request.actor) }),
+        data: toEventDetail(event, {
+          includeDraftTiers: maySeeDrafts(event, request.actor),
+          ...pricing,
+        }),
       }
     },
   })
@@ -330,7 +340,7 @@ export function registerEventRoutes(app, { prisma }) {
       // tiers they are still holding back. Said explicitly rather than left to
       // the default: an organiser's own editor going blank after a save is not
       // a bug anybody would guess at.
-      return { data: toEventDetail(event, { includeDraftTiers: true }) }
+      return { data: toEventDetail(event, { includeDraftTiers: true, ...pricing }) }
     },
   })
 
@@ -448,7 +458,7 @@ export function registerEventRoutes(app, { prisma }) {
         include: EVENT_INCLUDE,
       })
 
-      return { data: toEventDetail(event, { includeDraftTiers: true }) }
+      return { data: toEventDetail(event, { includeDraftTiers: true, ...pricing }) }
     },
   })
 
@@ -484,7 +494,7 @@ export function registerEventRoutes(app, { prisma }) {
       include: EVENT_INCLUDE,
     })
 
-    return { data: toEventDetail(full, { includeDraftTiers: true }) }
+    return { data: toEventDetail(full, { includeDraftTiers: true, ...pricing }) }
   }
 
   defineRoute(app, 'events.transitions', {

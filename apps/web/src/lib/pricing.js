@@ -93,6 +93,28 @@ export function formatAmount(cents, currency = 'INR') {
  */
 
 /**
+ * The fee terms to price with: the ones the API published for this event and
+ * currency, or the pricing package's defaults when it published none.
+ *
+ * The defaults are 2.5% + ₹5.00; the deployment charges its own configured
+ * terms, which is why the event carries them. Pricing with the defaults while
+ * the API charged 5.9% + ₹0.99 is how the event page and checkout came to quote
+ * a total smaller than the order.
+ *
+ * @param {string} currency ISO 4217 code.
+ * @param {Array<{currency: string, percentageBps: number, flatCents: number}>|null|undefined} feeTerms From the event.
+ * @returns {{percentageBps: number, flatCents: number, currency: string}} A fee configuration.
+ */
+export function feeConfigFor(currency, feeTerms) {
+  const code = String(currency || 'INR').toUpperCase()
+  const published = (feeTerms ?? []).find((terms) => terms?.currency === code)
+
+  return published
+    ? { percentageBps: published.percentageBps, flatCents: published.flatCents, currency: code }
+    : feeConfigForCurrency(code)
+}
+
+/**
  * Price a basket of ticket selections.
  *
  * Lines with a zero quantity are dropped before pricing, so the per-ticket flat
@@ -102,10 +124,11 @@ export function formatAmount(cents, currency = 'INR') {
  * @param {CartLine[]} params.lines Selected tiers with their quantities.
  * @param {string} params.currency ISO 4217 code every tier is priced in.
  * @param {object} [params.place] Where the event is held: `{ country, region }`.
+ * @param {Array<object>|null} [params.feeTerms] The fee terms the API published for the event.
  * @returns {object} The broken-down totals plus the tax policy they were computed under.
  * @throws {PricingError} If a line carries a non-integer quantity or price.
  */
-export function priceSelection({ lines, currency, place = {} }) {
+export function priceSelection({ lines, currency, place = {}, feeTerms = null }) {
   const items = (lines ?? [])
     .filter((line) => line.quantity > 0)
     .map((line) => ({
@@ -122,7 +145,7 @@ export function priceSelection({ lines, currency, place = {} }) {
 
   const totals = computeOrderTotals({
     items,
-    feeConfig: feeConfigForCurrency(currency),
+    feeConfig: feeConfigFor(currency, feeTerms),
     taxRateBps: taxPolicy.rateBps,
     currency,
   })

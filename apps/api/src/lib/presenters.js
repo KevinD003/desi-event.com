@@ -9,6 +9,9 @@
  * @module @desi-event/api/lib/presenters
  */
 
+import { salesWindowState } from '@desi-event/inventory'
+import { computeOrderTotals, resolveTaxPolicy } from '@desi-event/pricing'
+import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import {
   HIDDEN_EMAIL,
   RECONCILIATION_EVIDENCE_KEYS,
@@ -27,12 +30,47 @@ const ON_SALE = 'ON_SALE'
 const TRANSFERRED = 'TRANSFERRED'
 
 /**
+ * Whether a tier is inside its sales window now, as the hold route judges it.
+ *
+ * A tier the window helper cannot read — an unknown status, a window that ends
+ * before it starts — counts as not on sale. A listing that failed because one
+ * tier was malformed would hide every other event on the page.
+ *
+ * @param {object} ticketType A `TicketType` row.
+ * @param {Date} now The moment in question.
+ * @returns {boolean} True when a hold would pass the window check.
+ */
+function inSalesWindow(ticketType, now) {
+  try {
+    return (
+      salesWindowState({
+        status: ticketType.status,
+        salesStartAt: ticketType.salesStartAt ?? null,
+        salesEndAt: ticketType.salesEndAt ?? null,
+        now,
+      }) === 'ON_SALE'
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
  * The lean event shape used by listings and cards.
  *
+ * With `feeConfigFor`, the summary also carries `minTotalCents`: one ticket of
+ * the cheapest tier priced exactly as `orders.create` prices it — the same
+ * `computeOrderTotals`, the deployment's fee terms, and the tax rule of the
+ * venue's jurisdiction at `now`. A seat's `priceCentsOverride` is not
+ * consulted; no route writes one, and checkout reads it only at the seat.
+ *
  * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * @param {object} [options] Options.
+ * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them.
+ * @param {Date} [options.now] When the price is being quoted.
  * @returns {object} A payload satisfying `eventSummarySchema`.
  */
-export function toEventSummary(event) {
+export function toEventSummary(event, { feeConfigFor = null, now = new Date() } = {}) {
   const ticketTypes = event.ticketTypes ?? []
   const onSale = ticketTypes.filter((ticketType) => ticketType.status === ON_SALE)
   const priced = onSale.length > 0 ? onSale : ticketTypes
@@ -62,12 +100,35 @@ export function toEventSummary(event) {
     currency: priced[0]?.currency ?? null,
   }
 
+  if (typeof feeConfigFor === 'function' && minPriceCents !== null && summary.currency) {
+    const cheapest = priced.find((ticketType) => ticketType.priceCents === minPriceCents)
+    const taxPolicy = resolveTaxPolicy({
+      country: event.venue?.country ?? null,
+      region: event.venue?.region ?? null,
+      at: now,
+    })
+
+    summary.minTotalCents = computeOrderTotals({
+      items: [{ ticketTypeId: cheapest.id, quantity: 1, unitPriceCents: minPriceCents }],
+      feeConfig: feeConfigFor(summary.currency),
+      taxRateBps: taxPolicy.rateBps,
+      currency: summary.currency,
+      now,
+    }).totalCents
+  }
+
   // Omitted rather than guessed when the event has no tiers at all: `false`
   // would claim stock exists and `true` would claim it is gone.
   if (ticketTypes.length > 0) {
     summary.soldOut = ticketTypes.every(
       (ticketType) => ticketType.quantityTotal - ticketType.quantitySold <= 0,
     )
+    summary.salesOpen =
+      BOOKABLE_STATUSES.has(event.status) &&
+      ticketTypes.some(
+        (ticketType) =>
+          ticketType.quantityTotal - ticketType.quantitySold > 0 && inSalesWindow(ticketType, now),
+      )
   }
 
   return summary
@@ -137,15 +198,16 @@ export function toPublicOrganizer(organization) {
  * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
  * @param {object} [options] Options.
  * @param {boolean} [options.includeDraftTiers] Whether the caller may see tiers not on sale.
+ * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them; when given, the detail carries `feeTerms`.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
-export function toEventDetail(event, { includeDraftTiers = false } = {}) {
+export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor = null } = {}) {
   const { venue = null, organization = null, ticketTypes = [] } = event
   const visibleTiers = includeDraftTiers
     ? ticketTypes
     : ticketTypes.filter((tier) => tier.status !== 'DRAFT')
 
-  return {
+  const detail = {
     id: event.id,
     organizationId: event.organizationId,
     venueId: event.venueId ?? null,
@@ -180,6 +242,18 @@ export function toEventDetail(event, { includeDraftTiers = false } = {}) {
       (left, right) => left.sortOrder - right.sortOrder || left.priceCents - right.priceCents,
     ),
   }
+
+  if (typeof feeConfigFor === 'function') {
+    const currencies = [...new Set(visibleTiers.map((tier) => tier.currency ?? 'INR'))].sort()
+
+    detail.feeTerms = currencies.map((currency) => {
+      const terms = feeConfigFor(currency)
+
+      return { currency, percentageBps: terms.percentageBps, flatCents: terms.flatCents }
+    })
+  }
+
+  return detail
 }
 
 /**

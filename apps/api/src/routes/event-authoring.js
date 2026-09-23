@@ -19,6 +19,7 @@
  */
 
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
+import { resolveTaxPolicy } from '@desi-event/pricing'
 
 import {
   allInPreview,
@@ -37,6 +38,7 @@ import {
 } from '../lib/event-lifecycle.js'
 import { conflict, notFound } from '../lib/errors.js'
 import { defineRoute } from '../lib/register.js'
+import { feeConfigFor } from './orders.js'
 
 /**
  * Shape a session for the wire.
@@ -95,9 +97,10 @@ function toTier(tier) {
  * @param {object} app The Fastify instance.
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
+ * @param {object} [deps.env] The parsed API environment, for the fee terms checkout charges with.
  * @returns {void} Nothing.
  */
-export function registerEventAuthoringRoutes(app, { prisma }) {
+export function registerEventAuthoringRoutes(app, { prisma, env }) {
   /**
    * Load an event and assert the caller may read its internals.
    *
@@ -444,12 +447,21 @@ export function registerEventAuthoringRoutes(app, { prisma }) {
   defineRoute(app, 'events.pricePreview', {
     handler: async (request) => {
       const event = await readable(request)
+      // What checkout would charge: the same fee terms and the venue's tax.
+      const { rateBps } = resolveTaxPolicy({
+        country: event.venue?.country ?? null,
+        region: event.venue?.region ?? null,
+        at: new Date(),
+      })
 
       return {
         data: event.ticketTypes.map((tier) => ({
           ticketTypeId: tier.id,
           name: tier.name,
-          ...allInPreview(tier),
+          ...allInPreview(tier, {
+            feeConfig: env ? feeConfigFor(env, tier.currency ?? 'INR') : undefined,
+            taxRateBps: rateBps,
+          }),
         })),
       }
     },

@@ -98,7 +98,13 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
     () => ({ country: event?.venue?.country ?? null, region: event?.venue?.region ?? null }),
     [event?.venue?.country, event?.venue?.region],
   )
-  const totals = useMemo(() => priceSelection({ lines, currency, place }), [lines, currency, place])
+  // The fee terms the API published for this event, so the total here is the
+  // total the order will come to rather than one priced with the defaults.
+  const feeTerms = event?.feeTerms ?? null
+  const totals = useMemo(
+    () => priceSelection({ lines, currency, place, feeTerms }),
+    [lines, currency, place, feeTerms],
+  )
   const ticketCount = lines.reduce((sum, line) => sum + line.quantity, 0)
 
   /**
