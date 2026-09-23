@@ -632,7 +632,10 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
       ])
 
       return {
-        data: orders.map(toOrder),
+        // A wrapper, not `orders.map(toOrder)`: map would hand the presenter the
+        // array index as its options argument, which worked only because a
+        // number destructures to the defaults.
+        data: orders.map((order) => toOrder(order)),
         pagination: buildPaginationMeta({
           page: request.query.page,
           perPage: request.query.perPage,

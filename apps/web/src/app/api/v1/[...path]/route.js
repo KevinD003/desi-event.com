@@ -19,6 +19,13 @@
  * CORS involved at all, and the API keeps its own origin checks because the
  * forwarded request carries the headers it needs to make them.
  *
+ * What it takes away: the session's bearer secret from a sign-in's answer. The
+ * API returns it in the body for clients that cannot hold a cookie, and it is
+ * the same secret the HttpOnly cookie carries — so passing it through handed
+ * page JavaScript exactly what HttpOnly exists to keep from it, and any script
+ * that ever ran on this origin could have read a session out of a sign-in. The
+ * browser needs only the cookie; nothing in this application reads the token.
+ *
  * What this deliberately does not do is add authority. It forwards the caller's
  * cookies and nothing else: no service token, no elevated credential, no
  * rewriting of who the request is from. A proxy that authenticated on the
@@ -63,6 +70,40 @@ const FORWARD_REQUEST_HEADERS = [
  * @type {string[]}
  */
 const FORWARD_RESPONSE_HEADERS = ['content-type', 'cache-control', 'retry-after']
+
+/**
+ * A sign-in's answer, without the session's bearer secret.
+ *
+ * Only for the `auth` routes and only for JSON — the answers that establish a
+ * session (sign-in, the second-factor step, account creation) are the ones
+ * that carry `token`. Everything else streams through untouched.
+ *
+ * @param {Response} upstream The API's response.
+ * @param {string[]} path The proxied path segments.
+ * @returns {Promise<ReadableStream|string|null>} The body to send on.
+ */
+export async function withoutBearerSecret(upstream, path) {
+  if (path[0] !== 'auth') return upstream.body
+
+  const type = upstream.headers.get('content-type') ?? ''
+
+  if (!type.includes('application/json')) return upstream.body
+
+  const text = await upstream.text()
+  let body
+
+  try {
+    body = JSON.parse(text)
+  } catch {
+    return text
+  }
+
+  if (!body || typeof body !== 'object' || typeof body.token !== 'string') return text
+
+  const { token: _token, ...rest } = body
+
+  return JSON.stringify(rest)
+}
 
 /**
  * Forward one request to the API and return its response.
@@ -131,7 +172,10 @@ async function forward(request, context) {
     responseHeaders.append('set-cookie', cookie)
   }
 
-  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders })
+  return new Response(await withoutBearerSecret(upstream, path), {
+    status: upstream.status,
+    headers: responseHeaders,
+  })
 }
 
 export const GET = forward

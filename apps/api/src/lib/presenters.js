@@ -459,7 +459,13 @@ export function toWalletTicket(ticket, { viewerUserId }) {
   return {
     ...rest,
     holderRelationship: purchased ? 'PURCHASED' : 'RECEIVED',
-    admits: refusal === null,
+    // A used ticket is not a refusal at the door — a second scan is answered as
+    // a duplicate, with the original admission — so it carries no refusal
+    // sentence. It still will not let anybody in again, and `admits` is the
+    // wallet's "would this open a door now": the wallet used to file a used
+    // ticket under "Coming up" and count it as one that still gets you in,
+    // beside a chip saying "Used — you went in".
+    admits: refusal === null && rest.status !== 'CHECKED_IN',
     admissionRefusal: refusal,
     orderReference: purchased ? order.reference : null,
     event: {

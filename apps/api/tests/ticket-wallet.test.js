@@ -728,6 +728,15 @@ describe('the wallet presenter', () => {
     expect(row.ownerUserId).toBeUndefined()
   })
 
+  it('does not call a ticket that has been through the door one that admits', () => {
+    const row = toWalletTicket({ ...joined, status: 'CHECKED_IN' }, { viewerUserId: 'usr_buyer' })
+
+    // Not a refusal — a second scan is a duplicate, not an error — so there is
+    // no refusal sentence; but it will not open a door again.
+    expect(row.admits).toBe(false)
+    expect(row.admissionRefusal).toBeNull()
+  })
+
   it('refuses to call an unpaid order admissible', () => {
     const order = { ...joined.orderItem.order, status: 'PENDING' }
     const row = toWalletTicket(

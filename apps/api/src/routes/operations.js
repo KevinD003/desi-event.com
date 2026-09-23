@@ -8,7 +8,7 @@
  * ## What an operator is shown, and what they are not
  *
  * Status, attempts, next attempt, failure category, and the sanitised error.
- * Not the payload, and not the full recipient — only a masked form of it. A
+ * Not the payload, and not the recipient in any form — not even masked. A
  * queue view is read by whoever is on shift, often on a shared screen, and the
  * question it answers is "did this go?", not "what did it say?". An operations
  * tool that incidentally becomes a way to read customers' mail is one nobody
