@@ -9,6 +9,8 @@
  * @module @desi-event/api/server
  */
 
+import { randomUUID } from 'node:crypto'
+
 import dotenv from 'dotenv'
 import { createLogger } from '@desi-event/logger'
 import { createPrismaClient, disconnectPrisma } from '@desi-event/db'
@@ -23,6 +25,27 @@ export const SHUTDOWN_TIMEOUT_MS = 10_000
 
 /** Signals that mean "stop accepting work and finish what you are doing". */
 export const SHUTDOWN_SIGNALS = Object.freeze(['SIGINT', 'SIGTERM'])
+
+/**
+ * The providers this process runs with: the in-memory ones, each process in
+ * its own id space.
+ *
+ * The simulated payment provider numbers intents, refunds, transfers and
+ * payouts from one, and the database outlives the process. Started again
+ * against the same database, it handed out `pi_000001` a second time, and the
+ * first simulated checkout after any restart was refused by
+ * `Payment(provider, providerRef)` — a server error on the purchase page, found
+ * by the browser suite. A real processor's ids never repeat; with a prefix
+ * drawn per process, the stand-in's do not either. The load runner draws one
+ * per run for the same reason.
+ *
+ * @returns {object} A fresh registry of in-memory adapters.
+ */
+export function createProcessProviders() {
+  return createInMemoryProviderRegistry({
+    payments: { idPrefix: `pi${randomUUID().slice(0, 8)}` },
+  })
+}
 
 /**
  * Start the API.
@@ -43,7 +66,7 @@ export async function start() {
 
   // The in-memory providers are the default wiring. A deployment swaps them
   // for real adapters here — the one place that knows they are not real.
-  const providers = createInMemoryProviderRegistry()
+  const providers = createProcessProviders()
 
   const app = await buildApp({
     prisma,
