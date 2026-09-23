@@ -259,6 +259,49 @@ when()('retry', () => {
     expect(claims.filter(Boolean)).toHaveLength(1)
   })
 
+  // The other two retryable states get the same reset a dead letter does. The
+  // scheduled retry's next attempt is half an hour away, so "due now" is a
+  // change to the row rather than the value it already had.
+  it.each([
+    {
+      status: OUTBOX_STATES.FAILED,
+      columns: { attempts: 3, failureCategory: 'PERMANENT', lastError: 'SEND_FAILED' },
+    },
+    {
+      status: OUTBOX_STATES.RETRY_SCHEDULED,
+      columns: {
+        attempts: 2,
+        scheduledFor: at(30),
+        failureCategory: 'TRANSIENT',
+        lastError: 'SEND_FAILED',
+      },
+    },
+  ])(
+    'puts a $status message back in the queue, due now, with one audit row',
+    async ({ status, columns }) => {
+      const row = await message({ status, ...columns })
+
+      const result = await retry(row.id)
+
+      expect(result.status).toBe(200)
+      expect(await reread(row.id)).toMatchObject({
+        status: 'QUEUED',
+        attempts: 0,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        failureCategory: null,
+        scheduledFor: FUTURE,
+      })
+
+      const audit = await prisma.auditLog.findMany({ where: { entityId: row.id } })
+
+      expect(audit).toHaveLength(1)
+      expect(audit[0].action).toBe('notification.requeued')
+      expect(audit[0].metadata).toMatchObject({ previousStatus: status, newStatus: 'QUEUED' })
+    },
+  )
+
   it('refuses a message a worker is sending, and leaves the lease exactly as it was', async () => {
     const row = await message({ status: OUTBOX_STATES.QUEUED })
 

@@ -8,7 +8,8 @@
  *     the body and the address; these check that no layer between it and the
  *     response puts either back.
  *   - The queue is platform-scoped. An organiser with every organisation
- *     capability there is still cannot see it.
+ *     capability there is still cannot see it, and neither can a platform role
+ *     that does not hold `reconciliation:manage`.
  *   - Requeue and cancel are conditional on the state they were decided
  *     against, so two operators pressing the same button produce one change.
  *
@@ -19,6 +20,11 @@ import { describe, expect, it } from 'vitest'
 
 import { apiRoutes } from '@desi-event/api-contract'
 import { OUTBOX_STATES, dedupeKeyFor } from '@desi-event/notifications'
+import {
+  CAPABILITIES,
+  PLATFORM_ROLE_CAPABILITIES,
+  PLATFORM_ROLE_ORDER,
+} from '@desi-event/permissions'
 
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { makeWorld } from './helpers/fixtures.js'
@@ -28,15 +34,41 @@ import { cuid } from './helpers/prisma-stub.js'
 const RECIPIENT = 'priya.sharma@example.com'
 
 /**
+ * The address of the account {@link worldWithMessage} seeds for a platform role.
+ *
+ * @param {string} role A platform `UserRole`.
+ * @returns {string} The address.
+ */
+function platformEmail(role) {
+  return `${role.toLowerCase().replaceAll('_', '-')}@platform.example`
+}
+
+/**
  * A world holding one outbox row.
  *
  * @param {object} [overrides] Columns to override on the row.
+ * @param {object} [options] Options.
+ * @param {string} [options.platformRole] Also seed an account holding this platform role, at {@link platformEmail}.
  * @returns {Promise<object>} The harness plus the row's id.
  */
-async function worldWithMessage(overrides = {}) {
+async function worldWithMessage(overrides = {}, { platformRole } = {}) {
   const world = await makeWorld()
   const { seed, ids } = world
   const id = cuid()
+
+  if (platformRole) {
+    // Copied from the attendee, who belongs to no organisation, so the
+    // platform role is the only authority the account holds.
+    const template = seed.user.find((row) => row.email === 'priya@example.com')
+
+    seed.user.push({
+      ...template,
+      id: cuid(),
+      email: platformEmail(platformRole),
+      displayName: `Platform ${platformRole}`,
+      role: platformRole,
+    })
+  }
 
   seed.notificationOutbox = [
     {
@@ -79,6 +111,9 @@ async function worldWithMessage(overrides = {}) {
 
 /** The platform operations account in the shared fixture world. */
 const OPERATOR = 'ops@desi-event.example'
+
+/** The owner of the fixture world's other organisation. */
+const RIVAL = 'rival@dhol.example'
 
 /**
  * Sign in as the platform operator and step up.
@@ -169,6 +204,7 @@ describe('GET /v1/operations/notifications', () => {
     })
 
     expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
 
     await app.close()
   })
@@ -325,6 +361,31 @@ describe('POST /v1/operations/notifications/:id/retry', () => {
     // Platform-only by design: reconciliation:manage cannot be granted by any
     // organisation role, and a module-load check refuses a table that tries.
     expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
+    expect(world.prisma._store.notificationOutbox[0].status).toBe('DEAD_LETTER')
+
+    await world.app.close()
+  })
+
+  it('is closed to a member of another organisation, even with a fresh second factor', async () => {
+    const world = await worldWithMessage()
+
+    world.prisma._store.notificationOutbox[0].organizationId = world.ids.organization.id
+
+    const headers = bearer(await signIn(world.app, RIVAL))
+
+    // Stepped up, so what refuses is the capability and not a missing factor.
+    await stepUp(world.app, RIVAL, headers)
+
+    const response = await world.app.inject({
+      method: 'POST',
+      url: `/v1/operations/notifications/${world.messageId}/retry`,
+      headers,
+      payload: { reason: 'not ours, but let us try' },
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
     expect(world.prisma._store.notificationOutbox[0].status).toBe('DEAD_LETTER')
 
     await world.app.close()
@@ -456,6 +517,94 @@ describe('POST /v1/operations/notifications/:id/cancel', () => {
     })
 
     expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
+
+    await app.close()
+  })
+
+  it('is closed to a member of another organisation, even with a fresh second factor', async () => {
+    const world = await worldWithMessage()
+
+    world.prisma._store.notificationOutbox[0].organizationId = world.ids.organization.id
+
+    const headers = bearer(await signIn(world.app, RIVAL))
+
+    await stepUp(world.app, RIVAL, headers)
+
+    const response = await world.app.inject({
+      method: 'POST',
+      url: `/v1/operations/notifications/${world.messageId}/cancel`,
+      headers,
+      payload: { reason: 'not ours to cancel' },
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
+    expect(world.prisma._store.notificationOutbox[0].status).toBe('DEAD_LETTER')
+
+    await world.app.close()
+  })
+})
+
+describe('retry and cancel, by platform role', () => {
+  // Split by the permissions package rather than listed here, so the two tables
+  // below follow the capability table. The first case pins the roles that must
+  // stay on each side: SUPPORT and MODERATOR refused, SUPER_ADMIN allowed. A
+  // role moving silently otherwise is caught by the platform matrix in
+  // packages/permissions/src/can.test.js.
+  const capability = CAPABILITIES.RECONCILIATION_MANAGE
+  const holds = (role) => PLATFORM_ROLE_CAPABILITIES[role].includes(capability)
+  const refused = PLATFORM_ROLE_ORDER.filter((role) => !holds(role))
+  const allowed = PLATFORM_ROLE_ORDER.filter(holds)
+  const actions = ['retry', 'cancel']
+  const cases = (roles) => roles.flatMap((role) => actions.map((action) => [role, action]))
+
+  it('has a role on each side of the split, so neither table below is empty', () => {
+    expect(refused).toEqual(expect.arrayContaining(['SUPPORT', 'MODERATOR']))
+    expect(allowed).toContain('SUPER_ADMIN')
+  })
+
+  it.each(cases(refused))('refuses %s to %s', async (role, action) => {
+    const { app, prisma, enrolled, messageId } = await worldWithMessage({}, { platformRole: role })
+    const email = platformEmail(role)
+    const headers = bearer(await signIn(app, email))
+
+    // Stepped up where the role has a factor to do it with, so what refuses is
+    // the capability and not a missing step-up.
+    if (enrolled.has(email)) await stepUp(app, email, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/operations/notifications/${messageId}/${action}`,
+      headers,
+      payload: { reason: 'my role says I may' },
+    })
+
+    expect(response.statusCode, response.body).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
+    expect(prisma._store.notificationOutbox[0].status).toBe('DEAD_LETTER')
+
+    await app.close()
+  })
+
+  it.each(cases(allowed))('allows %s to %s', async (role, action) => {
+    const { app, prisma, messageId } = await worldWithMessage({}, { platformRole: role })
+    const email = platformEmail(role)
+    const headers = bearer(await signIn(app, email))
+
+    await stepUp(app, email, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/operations/notifications/${messageId}/${action}`,
+      headers,
+      payload: { reason: 'the mail gateway is back' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(prisma._store.notificationOutbox[0].status).toBe(
+      action === 'retry' ? OUTBOX_STATES.QUEUED : OUTBOX_STATES.CANCELLED,
+    )
 
     await app.close()
   })
