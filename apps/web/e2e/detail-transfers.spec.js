@@ -66,6 +66,11 @@ test.describe.serial('the ticket and transfer screens', () => {
 
     await owner.reload()
 
+    // The page streams: "Loading your tickets…" stands in until the ticket's
+    // read arrives. Read nothing until it has, or the checks below would be
+    // about the loading state and the privacy ones would pass on an empty page.
+    await expect(owner.locator('main')).toContainText(/offered, not yet answered/i)
+
     const rendered = await owner.locator('main').innerText()
     const html = await owner.content()
 
