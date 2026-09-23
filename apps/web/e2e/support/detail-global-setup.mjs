@@ -37,7 +37,7 @@ export const WORLD_FILE = path.join(STATE_DIR, 'world.json')
 /**
  * The path a signed-in account's session is saved to.
  *
- * @param {string} who One of `owner`, `beta`, `viewer`, `scanner`, `steward`, `holder`.
+ * @param {string} who One of `owner`, `beta`, `viewer`, `scanner`, `steward`, `holder`, `platform`.
  * @returns {string} A file path.
  */
 export function statePath(who) {
@@ -72,6 +72,11 @@ export default async function globalSetup(config) {
       ['scanner', world.scannerEmail],
       ['steward', world.stewardEmail],
       ['holder', world.holderEmail],
+      // Platform-scoped screens (the notification outbox, every organisation's
+      // reconciliation items) are behind `reconciliation:manage`, which no
+      // organisation role carries; the seed's SUPER_ADMIN reader is the one
+      // account that reaches them.
+      ['platform', world.platformReaderEmail],
     ]) {
       const context = await browser.newContext({ baseURL })
       const page = await context.newPage()

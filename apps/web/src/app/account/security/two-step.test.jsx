@@ -22,8 +22,11 @@ vi.mock('../../../lib/api-fetch.js', () => ({ apiFetch: (...args) => apiFetch(..
 
 const { TwoStep, groupSecret } = await import('./two-step.jsx')
 
-const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
-const URI = `otpauth://totp/Desi-Event:meera?secret=${SECRET}&issuer=Desi-Event`
+// The widely published example secret ("Hello!" twice, in base32), the same
+// fixture value the API and e2e suites use under the same name. It protects
+// nothing.
+const TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'
+const URI = `otpauth://totp/Desi-Event:meera?secret=${TOTP_SECRET}&issuer=Desi-Event`
 
 /**
  * A JSON response.
@@ -51,11 +54,23 @@ describe('setting it up', () => {
     apiFetch
       .mockResolvedValueOnce(
         json(200, {
-          data: { factorId: 'ckfactor0000000000000001', secret: SECRET, uri: URI, digits: 6, periodSeconds: 30, algorithm: 'SHA1' },
+          data: {
+            factorId: 'ckfactor0000000000000001',
+            secret: TOTP_SECRET,
+            uri: URI,
+            digits: 6,
+            periodSeconds: 30,
+            algorithm: 'SHA1',
+          },
         }),
       )
       .mockResolvedValueOnce(
-        json(200, { data: { factorId: 'ckfactor0000000000000001', recoveryCodes: ['ABCD2345EF', 'GHJK6789LM'] } }),
+        json(200, {
+          data: {
+            factorId: 'ckfactor0000000000000001',
+            recoveryCodes: ['ABCD2345EF', 'GHJK6789LM'],
+          },
+        }),
       )
 
     const { container } = render(<TwoStep required={false} factors={[]} />)
@@ -63,7 +78,7 @@ describe('setting it up', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Set up two-step sign-in' }))
 
     await screen.findByRole('img', { name: /qr code for your authenticator app/i })
-    expect(container.textContent).toContain(groupSecret(SECRET))
+    expect(container.textContent).toContain(groupSecret(TOTP_SECRET))
 
     fireEvent.change(screen.getByLabelText(/six-digit code/i), { target: { value: '123 456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
@@ -76,7 +91,7 @@ describe('setting it up', () => {
       code: '123456',
     })
     // The secret has gone from the page, and so has the QR code carrying it.
-    expect(container.textContent).not.toContain(SECRET.slice(0, 8))
+    expect(container.textContent).not.toContain(TOTP_SECRET.slice(0, 8))
     expect(screen.queryByRole('img', { name: /qr code/i })).toBeNull()
     expect(container.innerHTML).not.toContain('otpauth')
   })
@@ -84,10 +99,21 @@ describe('setting it up', () => {
   it('shows the recovery codes once, and forgets them when the person has saved them', async () => {
     apiFetch
       .mockResolvedValueOnce(
-        json(200, { data: { factorId: 'ckfactor0000000000000001', secret: SECRET, uri: URI, digits: 6, periodSeconds: 30, algorithm: 'SHA1' } }),
+        json(200, {
+          data: {
+            factorId: 'ckfactor0000000000000001',
+            secret: TOTP_SECRET,
+            uri: URI,
+            digits: 6,
+            periodSeconds: 30,
+            algorithm: 'SHA1',
+          },
+        }),
       )
       .mockResolvedValueOnce(
-        json(200, { data: { factorId: 'ckfactor0000000000000001', recoveryCodes: ['ABCD2345EF'] } }),
+        json(200, {
+          data: { factorId: 'ckfactor0000000000000001', recoveryCodes: ['ABCD2345EF'] },
+        }),
       )
 
     const { container } = render(<TwoStep required={false} factors={[]} />)
@@ -108,7 +134,16 @@ describe('setting it up', () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
 
     apiFetch.mockResolvedValueOnce(
-      json(200, { data: { factorId: 'ckfactor0000000000000001', secret: SECRET, uri: URI, digits: 6, periodSeconds: 30, algorithm: 'SHA1' } }),
+      json(200, {
+        data: {
+          factorId: 'ckfactor0000000000000001',
+          secret: TOTP_SECRET,
+          uri: URI,
+          digits: 6,
+          periodSeconds: 30,
+          algorithm: 'SHA1',
+        },
+      }),
     )
 
     render(<TwoStep required={false} factors={[]} />)
@@ -122,9 +157,20 @@ describe('setting it up', () => {
   it('reports a code the API refused, and keeps the person on the step', async () => {
     apiFetch
       .mockResolvedValueOnce(
-        json(200, { data: { factorId: 'ckfactor0000000000000001', secret: SECRET, uri: URI, digits: 6, periodSeconds: 30, algorithm: 'SHA1' } }),
+        json(200, {
+          data: {
+            factorId: 'ckfactor0000000000000001',
+            secret: TOTP_SECRET,
+            uri: URI,
+            digits: 6,
+            periodSeconds: 30,
+            algorithm: 'SHA1',
+          },
+        }),
       )
-      .mockResolvedValueOnce(json(401, { error: { code: 'UNAUTHORIZED', message: 'That code is not valid.' } }))
+      .mockResolvedValueOnce(
+        json(401, { error: { code: 'UNAUTHORIZED', message: 'That code is not valid.' } }),
+      )
 
     render(<TwoStep required={false} factors={[]} />)
     fireEvent.click(screen.getByRole('button', { name: 'Set up two-step sign-in' }))
@@ -178,7 +224,9 @@ describe('turning it off', () => {
 
   it('asks for a step-up when the API wants one, then finishes what was started', async () => {
     apiFetch
-      .mockResolvedValueOnce(json(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Confirm.' } }))
+      .mockResolvedValueOnce(
+        json(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Confirm.' } }),
+      )
       .mockResolvedValueOnce(json(200, { ok: true }))
       .mockResolvedValueOnce(json(200, { ok: true }))
 
@@ -187,7 +235,9 @@ describe('turning it off', () => {
     fireEvent.change(screen.getByLabelText('Your current password'), { target: { value: 'right' } })
     fireEvent.click(screen.getByRole('button', { name: 'Turn it off' }))
 
-    expect(await screen.findByText(/confirm your identity to turn off two-step sign-in/i)).toBeTruthy()
+    expect(
+      await screen.findByText(/confirm your identity to turn off two-step sign-in/i),
+    ).toBeTruthy()
   })
 
   it('says what else happened when it worked', async () => {

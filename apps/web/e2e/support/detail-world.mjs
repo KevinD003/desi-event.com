@@ -142,7 +142,7 @@ async function attemptSignIn(page, email) {
  * ## The credential limiter is honoured, not widened
  *
  * `/v1/auth/login` allows ten attempts a minute per address, and every
- * request from the browser arrives from the same address. The world signs six
+ * request from the browser arrives from the same address. The world signs seven
  * accounts in before the first spec runs — the owner and the other
  * organisation's owner through a second factor, two requests each — and a spec
  * that signs somebody in again inside the same minute can be refused. That is

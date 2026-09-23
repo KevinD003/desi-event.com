@@ -125,6 +125,36 @@ export const test = base.extend({
     await use(await context.newPage())
     await context.close()
   },
+
+  /**
+   * The seed's platform reader, a SUPER_ADMIN with no membership.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  platform: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('platform') })
+
+    await use(await context.newPage())
+    await context.close()
+  },
+
+  /**
+   * Nobody: a window with no session at all.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  visitor: async ({ browser }, use) => {
+    const context = await browser.newContext()
+
+    await use(await context.newPage())
+    await context.close()
+  },
 })
 
 export { expect } from '@playwright/test'
