@@ -86,9 +86,19 @@ const TH = 'border-b border-line-strong px-3 py-2 text-left font-semibold text-i
 /** A body cell. */
 const TD = 'border-b border-line px-3 py-3 align-top text-ink'
 
-/** A filter control. */
+/**
+ * A filter control.
+ *
+ * `max-w-full`, with its wrapper's, because a `<select>` is as wide as its
+ * longest option: "Permanent: it will fail the same way again" made the failure
+ * filter wider than a 320 px screen, and the whole page scrolled sideways. A
+ * capped select still opens its full list; only the closed control shrinks.
+ */
 const CONTROL =
-  'min-h-11 rounded-lg border border-line-strong bg-surface-raised px-3 py-2 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+  'min-h-11 max-w-full rounded-lg border border-line-strong bg-surface-raised px-3 py-2 text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+
+/** A filter's label and control, never wider than the form. */
+const FIELD = 'flex max-w-full min-w-0 flex-col gap-1'
 
 /** A quiet text link. */
 const LINK =
@@ -273,7 +283,7 @@ export default async function NotificationQueuePage({ searchParams }) {
         action={PATH}
         className="mt-6 flex flex-wrap items-end gap-4 rounded-card border border-line bg-surface-subtle p-4"
       >
-        <div className="flex flex-col gap-1">
+        <div className={FIELD}>
           <label htmlFor="notification-status" className="text-sm font-medium text-ink">
             Status
           </label>
@@ -286,7 +296,7 @@ export default async function NotificationQueuePage({ searchParams }) {
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-1">
+        <div className={FIELD}>
           <label htmlFor="notification-failure" className="text-sm font-medium text-ink">
             Failure
           </label>
