@@ -9,8 +9,15 @@ import Link from 'next/link'
 import { EVENT_CATEGORIES } from '../lib/catalog.js'
 import { buildEventsHref } from '../lib/search-params.js'
 
-/** Cities the platform has a meaningful programme in. */
-const CITIES = ['Mumbai', 'Ahmedabad', 'Toronto', 'London']
+/**
+ * The cities the demonstration catalogue lists events in.
+ *
+ * London used to be here, and the demo database has no venue there, so its
+ * link opened an empty listing. Static rather than read from the facets:
+ * the footer is on every page, and an API read on every page for four links
+ * is a poor trade. `/categories` and `/venues` list what is really there.
+ */
+const CITIES = ['Mumbai', 'Ahmedabad', 'Toronto', 'Mississauga']
 
 /** The first six categories, which is as many as the footer has room for. */
 const FOOTER_CATEGORIES = EVENT_CATEGORIES.slice(0, 6)

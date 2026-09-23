@@ -406,6 +406,7 @@ const ORGANIZATIONS = [
 const VENUES = [
   {
     key: 'nsci',
+    slug: 'nsci-dome',
     id: seedId('seed-venue-nsci-dome'),
     name: 'NSCI Dome',
     addressLine1: 'Lala Lajpatrai Marg, Worli',
@@ -420,6 +421,7 @@ const VENUES = [
   },
   {
     key: 'jio-garden',
+    slug: 'jio-world-garden',
     id: seedId('seed-venue-jio-world-garden'),
     name: 'Jio World Garden',
     addressLine1: 'G Block Road, Bandra Kurla Complex',
@@ -434,6 +436,7 @@ const VENUES = [
   },
   {
     key: 'shanmukhananda',
+    slug: 'shanmukhananda-sabha',
     id: seedId('seed-venue-shanmukhananda-hall'),
     name: 'Shanmukhananda Fine Arts & Sangeetha Sabha',
     addressLine1: '292, Comrade Harbanslal Marg, Sion East',
@@ -448,6 +451,7 @@ const VENUES = [
   },
   {
     key: 'gucec',
+    slug: 'gujarat-university-convention-centre',
     id: seedId('seed-venue-gu-convention-centre'),
     name: 'Gujarat University Convention & Exhibition Centre',
     addressLine1: 'Gujarat University Campus, Navrangpura',
@@ -462,6 +466,7 @@ const VENUES = [
   },
   {
     key: 'meridian',
+    slug: 'meridian-hall',
     id: seedId('seed-venue-meridian-hall'),
     name: 'Meridian Hall',
     addressLine1: '1 Front Street East',
@@ -476,6 +481,7 @@ const VENUES = [
   },
   {
     key: 'sangam',
+    slug: 'sangam-banquet-mississauga',
     id: seedId('seed-venue-sangam-banquet'),
     name: 'Sangam Banquet & Convention Centre',
     addressLine1: '6991 Millcreek Drive, Unit 2',
@@ -1984,6 +1990,9 @@ export async function writeSeedData(prisma, data) {
 
   for (const venue of data.venues) {
     const fields = {
+      // A venue with no slug has no public page and is left out of the venue
+      // directory, so the demo's six venues had neither until Phase 4.
+      slug: venue.slug,
       name: venue.name,
       addressLine1: venue.addressLine1,
       addressLine2: venue.addressLine2,

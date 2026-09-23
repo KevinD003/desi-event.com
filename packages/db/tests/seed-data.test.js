@@ -177,6 +177,13 @@ describe('buildSeedData shape', () => {
     }
   })
 
+  it('gives every venue a unique slug, so each has a public page and a place in the directory', () => {
+    const slugs = data.venues.map((venue) => venue.slug)
+
+    for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    expect(new Set(slugs).size).toBe(slugs.length)
+  })
+
   it('spreads venues across India and the diaspora', () => {
     const countries = new Set(data.venues.map((venue) => venue.country))
     expect(countries).toEqual(new Set(['IN', 'CA']))
