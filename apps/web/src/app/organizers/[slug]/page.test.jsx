@@ -143,7 +143,7 @@ describe('the organiser page', () => {
     expect(time.textContent).toMatch(/8:00 pm/i)
   })
 
-  it('says so plainly when there is nothing on sale', async () => {
+  it('says so plainly when nothing upcoming is listed', async () => {
     loadOrganizerBySlug.mockResolvedValue({
       organizer: organizer({ upcomingEvents: [] }),
       usedFallback: false,
@@ -152,7 +152,9 @@ describe('the organiser page', () => {
     render(await OrganizerPage(route))
 
     expect(
-      within(screen.getByRole('region', { name: 'Upcoming events' })).getByText(/nothing on sale/i),
+      within(screen.getByRole('region', { name: 'Upcoming events' })).getByText(
+        /has no upcoming events listed/i,
+      ),
     ).toBeInTheDocument()
   })
 

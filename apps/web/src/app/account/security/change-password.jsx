@@ -83,7 +83,10 @@ export function ChangePassword() {
   }
 
   return (
-    <form onSubmit={submit} className="max-w-md space-y-4" noValidate>
+    // method="post": a form with no method submits with GET if it is pressed
+    // before the script arrives. The fields carry no name, so nothing would
+    // reach the address today; this keeps it true if one is ever given a name.
+    <form method="post" onSubmit={submit} className="max-w-md space-y-4" noValidate>
       {done ? (
         <Alert variant="success" title="Password changed">
           Every other session this account had was signed out. This one carries on.

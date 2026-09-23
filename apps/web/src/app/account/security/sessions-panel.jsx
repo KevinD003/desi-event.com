@@ -67,9 +67,16 @@ export function describeBrowser(userAgent) {
 function when(value) {
   if (!value) return 'unknown'
 
-  return new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value),
-  )
+  // In UTC, and saying so. This renders on the server first and hydrates in
+  // the browser; a format left to the machine's own zone read one time on the
+  // server and another after hydration, and named neither.
+  return new Intl.DateTimeFormat('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  })
+    .format(new Date(value))
+    .concat(' UTC')
 }
 
 /**

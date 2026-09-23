@@ -224,7 +224,7 @@ describe('the rows', () => {
 
     const row = screen.getByRole('link', { name: 'Refund on DE-8F3K2Q' }).closest('tr')
 
-    expect(within(row).getByText('Succeeded (settled)')).toBeInTheDocument()
+    expect(within(row).getByText('Settled — simulated')).toBeInTheDocument()
     expect(within(row).getByText(/1,500/u)).toBeInTheDocument()
   })
 

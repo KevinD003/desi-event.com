@@ -44,7 +44,7 @@ test.describe('listing filters', () => {
   }) => {
     await page.goto('/events?q=polka')
 
-    await expect(page.getByRole('heading', { name: 'Nothing matches that yet' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Nothing matches that' })).toBeVisible()
     await page.getByRole('link', { name: 'Clear all filters' }).click()
 
     await expect(page).toHaveURL(/\/events$/)

@@ -52,8 +52,8 @@ export default async function HomePage() {
           <p className="mt-5 max-w-2xl text-lg text-ink-muted">
             Desi-Event is where the diaspora finds its nights out — raas circles in Ahmedabad,
             mehfils in Bombay, melas in Mississauga and stand-up in Limehouse. Live availability,
-            tickets held for ten minutes while you decide, and every price shown with its booking
-            fee. Payments on this site are simulated: nothing is charged.
+            tickets held for you while you decide, and every price shown with its booking fee.
+            Payments on this site are simulated: nothing is charged.
           </p>
         </FadeIn>
 

@@ -169,8 +169,8 @@ export default function AccountPrivacyPage() {
             organisation’s privacy team carries out within that organisation’s records, and which
             waits while a legal hold, a fraud investigation, a refund in progress, a ticket being
             handed on or an unused ticket still needs them. To ask for it, contact the organiser of
-            your event: their page on this site links to their own website, where they give a way to
-            reach them.
+            your event: their page on this site links to their own website when they have given one.
+            This site has no way to pass the request on for you.
           </Unavailable>
           <Unavailable title="Email from this site">
             This build delivers no email: no receipts, no confirmation links, no password resets and

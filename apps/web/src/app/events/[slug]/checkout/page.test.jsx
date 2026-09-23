@@ -85,11 +85,11 @@ describe('the checkout page when the event exists', () => {
     expect(readSession).not.toHaveBeenCalled()
   })
 
-  it('tells the buyer production payments are disabled before they pick a quantity', async () => {
+  it('tells the buyer payments are simulated before they pick a quantity', async () => {
     render(await CheckoutPage({ params: Promise.resolve({ slug: event.slug }) }))
 
     expect(screen.getByTestId('payment-mode-notice')).toBeInTheDocument()
-    expect(document.body).toHaveTextContent('Production payments disabled')
+    expect(document.body).toHaveTextContent('Payments on this site are simulated')
   })
 
   it('offers no way for a browser to choose a payment provider', async () => {

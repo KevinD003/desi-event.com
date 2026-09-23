@@ -182,8 +182,9 @@ export default async function OperationsPage() {
 
       {!platform ? (
         <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
-          The reconciliation and notification queues are platform work and are not shown here. Your
-          organisation’s refunds are below.
+          This board shows your organisation’s refunds, below. The notification queue is platform
+          work and is not shown to an organisation; your organisation’s reconciliation items are on
+          the Reconciliation tab.
         </p>
       ) : null}
 

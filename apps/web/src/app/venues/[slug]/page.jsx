@@ -279,7 +279,7 @@ export default async function VenuePage({ params }) {
             What&rsquo;s on
           </h2>
           {venue.upcomingEvents.length === 0 ? (
-            <p className="mt-4 text-ink-muted">Nothing is on sale here at the moment.</p>
+            <p className="mt-4 text-ink-muted">No upcoming events are listed here.</p>
           ) : (
             <ul className="mt-2">
               {venue.upcomingEvents.map((event) => (

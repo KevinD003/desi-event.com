@@ -90,7 +90,7 @@ const STATUSES = Object.freeze({
   REQUESTED: { label: 'Requested', tone: 'pending' },
   APPROVED: { label: 'Approved', tone: 'pending' },
   SUBMITTED: { label: 'Submitted', tone: 'info' },
-  SUCCEEDED: { label: 'Succeeded (settled)', tone: 'success' },
+  SUCCEEDED: { label: 'Settled — simulated', tone: 'success' },
   DECLINED: { label: 'Declined', tone: 'danger' },
   FAILED: { label: 'Failed', tone: 'danger' },
   TIMEOUT: { label: 'Timeout', tone: 'warning' },

@@ -71,7 +71,10 @@ const STATES = Object.freeze({
   REQUESTED: 'Asked for. Nothing has been sent and no money has moved.',
   APPROVED: 'Agreed. Still nothing sent — sending is a separate command.',
   SUBMITTED: 'Sent to the provider. Waiting to hear what happened.',
-  SUCCEEDED: 'The money has gone back.',
+  // Both modes this build can run in — the mock and the provider's sandbox —
+  // move no real money, and the deployment refuses to start in any other.
+  SUCCEEDED:
+    'Settled: the payment provider confirmed it. The provider is simulated in this build, so no money moved.',
   DECLINED: 'The provider refused it. It can be approved again once the cause is fixed.',
   FAILED: 'It did not go. It can be approved again once the cause is fixed.',
   TIMEOUT:

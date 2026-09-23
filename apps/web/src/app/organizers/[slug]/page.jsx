@@ -250,7 +250,7 @@ export default async function OrganizerPage({ params }) {
           id="upcoming-heading"
           title="Upcoming events"
           events={organizer.upcomingEvents}
-          empty={`${organizer.name} has nothing on sale at the moment.`}
+          empty={`${organizer.name} has no upcoming events listed.`}
           timezone={organizer.timezone}
         />
 
@@ -258,7 +258,7 @@ export default async function OrganizerPage({ params }) {
           id="past-heading"
           title="Previously"
           events={organizer.pastEvents}
-          empty={`Nothing from ${organizer.name} has run on Desi-Event yet.`}
+          empty={`Nothing from ${organizer.name} has run on Desi-Event.`}
           timezone={organizer.timezone}
         />
 

@@ -37,6 +37,7 @@ import { TicketPass } from '../../../components/ticket-pass.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
 import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { formatEventWhen, formatTimeZoneLabel } from '../../../lib/format.js'
 import { getTicket } from '../../../lib/organizer-api.js'
 import { describeApiRefusal } from '../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../lib/session.js'
@@ -145,7 +146,11 @@ export default async function TicketDetailPage({ params }) {
 
       <h1 className="mt-3 text-2xl font-bold text-ink">{event.title}</h1>
       <p className="mt-1 text-ink-muted">
-        <time dateTime={event.startsAt}>{event.startsAt}</time> · {event.timezone}
+        {/* The event's own clock, zone named, as every other account page writes
+            it; this used to print the raw UTC timestamp beside the zone's name,
+            which reads as a local time and is not one. */}
+        <time dateTime={event.startsAt}>{formatEventWhen(event)}</time> ·{' '}
+        {formatTimeZoneLabel(event)}
       </p>
       <AsOf asOf={new Date().toISOString()} />
 

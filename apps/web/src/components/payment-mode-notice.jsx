@@ -21,7 +21,13 @@
 // values never reached a browser; the schema describing them did, in every
 // bundle, since before this component existed. The browser-bundle scan now
 // looks for exactly that, which is how it was found.
-import { DEMO_LABEL, PRODUCTION_PAYMENTS_DISABLED_MESSAGE } from '@desi-event/schemas/payments'
+//
+// Neither string is imported any more. PRODUCTION_PAYMENTS_DISABLED_MESSAGE is
+// the deployment's and the operator's wording — "Phase 2 integration required"
+// is a project milestone, not something a buyer can act on — and the notice
+// used to promise that every order, receipt and ticket is "marked DEMO", when
+// the pages a buyer then sees say "simulated" and never DEMO. The buyer is told
+// what is true in the words the rest of the site uses.
 
 /**
  * The demonstration-payments notice.
@@ -36,12 +42,12 @@ export function PaymentModeNotice() {
       className="mt-6 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-status-warning"
     >
       <p id="payment-mode-heading" className="font-semibold">
-        {PRODUCTION_PAYMENTS_DISABLED_MESSAGE}
+        Payments on this site are simulated
       </p>
       <p className="mt-2 text-sm">
-        Checkout runs against an in-memory demonstration provider. You will not be asked for a card,
-        no money moves, and every order, receipt and ticket this produces is marked {DEMO_LABEL}. A
-        ticket issued here is a demonstration, not a ticket to a real event.
+        Checkout uses a simulated payment provider. You will not be asked for a card, no money
+        moves, and your order and tickets say the payment was simulated. A ticket issued here is a
+        demonstration, not a ticket to a real event.
       </p>
     </aside>
   )

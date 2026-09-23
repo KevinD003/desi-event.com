@@ -75,8 +75,7 @@ export default async function EventsPage({ searchParams }) {
     <div className="mx-auto max-w-6xl px-4 py-10">
       <h1 className="text-3xl font-bold text-ink sm:text-4xl">What&rsquo;s on</h1>
       <p className="mt-2 max-w-2xl text-ink-muted">
-        Ten cities’ worth of ambition, four cities’ worth of listings. Filter it down to the night
-        you actually want.
+        Every event listed on Desi-Event. Filter it down to the night you actually want.
       </p>
 
       <div className="mt-6">
@@ -114,7 +113,7 @@ export default async function EventsPage({ searchParams }) {
         {events.length === 0 ? (
           <EmptyState
             icon="◎"
-            title="Nothing matches that yet"
+            title="Nothing matches that"
             description="Try a broader search, another city, or browse everything we have on."
             action={
               <Link

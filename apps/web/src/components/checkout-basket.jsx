@@ -82,7 +82,7 @@ async function refusalError(response) {
 }
 
 /**
- * Release holds, quietly. A hold left behind lapses on its own in ten minutes;
+ * Release holds, quietly. A hold left behind lapses on its own when its time runs out;
  * releasing it early only gives the tickets back sooner.
  *
  * @param {string[]} holdIds The holds.
@@ -347,8 +347,8 @@ export function CheckoutBasket({
           Choose your tickets
         </h2>
         <p className="mt-1 text-sm text-ink-muted">
-          Tickets are held for ten minutes once you reserve them, which is plenty of time to argue
-          about who is paying.
+          Reserving holds your tickets for a while, and the held notice says until when — plenty of
+          time to argue about who is paying.
         </p>
 
         <ul className="mt-4 divide-y divide-line rounded-card border border-line bg-surface-raised">
@@ -455,8 +455,8 @@ export function CheckoutBasket({
 
           {holding ? (
             <Alert variant="success" title="Tickets held" className="mt-4">
-              {until ? `Held for you until ${until}.` : 'Held for you for ten minutes.'} Payment on
-              this site is simulated: you will not be asked for a card, and no money moves.
+              {until ? `Held for you until ${until}.` : 'Held for you for a limited time.'} Payment
+              on this site is simulated: you will not be asked for a card, and no money moves.
             </Alert>
           ) : null}
 
@@ -479,8 +479,7 @@ export function CheckoutBasket({
 
           {status === 'expired' ? (
             <Alert variant="warning" title="The hold ran out" className="mt-4">
-              The tickets were held for ten minutes and that time has passed. Nothing was charged.
-              Reserve again to carry on.
+              The hold on these tickets has run out. Nothing was charged. Reserve again to carry on.
             </Alert>
           ) : null}
 
