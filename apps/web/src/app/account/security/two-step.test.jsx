@@ -158,7 +158,7 @@ describe('turning it off', () => {
     fireEvent.change(screen.getByLabelText('Your current password'), { target: { value: 'wrong' } })
     fireEvent.click(screen.getByRole('button', { name: 'Turn it off' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await screen.findByRole('status')
 
     expect(alert.textContent).toContain('That is not your current password.')
     // Not "your session has ended, sign in again": the person is still here.

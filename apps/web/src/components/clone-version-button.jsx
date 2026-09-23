@@ -70,7 +70,7 @@ export function CloneVersionButton({ mapId, versionId }) {
         {busy ? 'Copying…' : 'New version from this'}
       </Button>
       {error ? (
-        <span role="alert" className="text-xs text-status-danger">
+        <span role="status" className="text-xs text-status-danger">
           {error}
         </span>
       ) : null}

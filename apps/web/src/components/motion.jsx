@@ -33,6 +33,16 @@ const EASE_OUT = [0.22, 1, 0.36, 1]
 const STAGGER_STEP = 0.06
 
 /**
+ * The theme's three durations, in seconds, as framer-motion takes them.
+ *
+ * The same values as `--duration-fast`, `--duration-base` and
+ * `--duration-slow` in the theme, and a test holds them equal. Nothing here
+ * moves for longer than 250 ms: the entrances used to run for 450 and 500,
+ * long enough to watch rather than to notice.
+ */
+export const DURATION = Object.freeze({ fast: 0.12, base: 0.18, slow: 0.25 })
+
+/**
  * @typedef {object} MotionProps
  * @property {string} [as] Intrinsic element to render, e.g. `section` or `li`. Defaults to `div`.
  * @property {number} [delay] Extra delay in seconds before the entrance starts.
@@ -76,7 +86,7 @@ export function FadeIn({
       data-motion=""
       initial={{ opacity: 0, y: distance }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: EASE_OUT, delay: delay + index * STAGGER_STEP }}
+      transition={{ duration: DURATION.slow, ease: EASE_OUT, delay: delay + index * STAGGER_STEP }}
       {...rest}
     >
       {children}
@@ -120,7 +130,7 @@ export function RevealOnScroll({
       initial={{ opacity: 0, y: distance }}
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, amount: 0.15 }}
-      transition={{ duration: 0.45, ease: EASE_OUT, delay: delay + index * STAGGER_STEP }}
+      transition={{ duration: DURATION.slow, ease: EASE_OUT, delay: delay + index * STAGGER_STEP }}
       {...rest}
     >
       {children}
@@ -154,7 +164,9 @@ export function HoverLift({ as = 'div', className, children, ...rest }) {
       className={className}
       data-motion=""
       whileHover={{ y: -4 }}
-      transition={{ type: 'spring', stiffness: 320, damping: 26 }}
+      // A timed curve rather than a spring: a spring's length depends on its
+      // physics and overshoots, and neither is a duration anybody chose.
+      transition={{ duration: DURATION.base, ease: EASE_OUT }}
       {...rest}
     >
       {children}

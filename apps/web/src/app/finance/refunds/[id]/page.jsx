@@ -44,7 +44,7 @@ import { readSession, sessionCan } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'Refund', robots: { index: false, follow: false } }
 
 /** Table chrome. */
 const TABLE = 'min-w-full border-collapse text-sm'

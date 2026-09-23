@@ -98,8 +98,10 @@ function asSentence(detail) {
 /**
  * The service could not answer.
  *
- * `role="alert"` because it replaces content the reader was expecting, and the
- * wording refuses to offer a stale alternative: a figure guessed from a cache
+ * `role="status"`, polite: it replaces content the reader was expecting, and
+ * is usually there when the page arrives, where a heading and the reading order
+ * find it; an assertive region is kept for the door's outcomes. The wording
+ * refuses to offer a stale alternative: a figure guessed from a cache
  * is worse than a figure that is absent, and on these screens the figure is
  * somebody's money.
  *
@@ -109,7 +111,7 @@ function asSentence(detail) {
 export function Failure({ what, detail }) {
   return (
     <p
-      role="alert"
+      role="status"
       className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
     >
       {what} could not be loaded.{detail ? ` ${asSentence(detail)}` : ''} Nothing here is stale — it

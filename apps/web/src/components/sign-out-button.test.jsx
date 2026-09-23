@@ -67,7 +67,7 @@ describe('SignOutButton', () => {
     render(<SignOutButton />)
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/you are still signed in/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/you are still signed in/i)
     expect(replace).not.toHaveBeenCalled()
   })
 
@@ -77,6 +77,6 @@ describe('SignOutButton', () => {
     render(<SignOutButton />)
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/still signed in/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/still signed in/i)
   })
 })

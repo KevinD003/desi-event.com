@@ -9,7 +9,7 @@ vi.mock('framer-motion', async () => {
   return { ...actual, useReducedMotion }
 })
 
-const { FadeIn, HoverLift, RevealOnScroll } = await import('./motion.jsx')
+const { DURATION, FadeIn, HoverLift, RevealOnScroll } = await import('./motion.jsx')
 
 afterEach(() => {
   useReducedMotion.mockReset()
@@ -64,5 +64,26 @@ describe.each([
     const { container } = render(<Component className="text-marigold-700">Styled</Component>)
 
     expect(container.firstChild).toHaveClass('text-marigold-700')
+  })
+})
+
+describe('DURATION', () => {
+  it('matches the theme’s duration tokens, and none is longer than 250 ms', async () => {
+    const { readFileSync } = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const here = path.dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(
+      path.join(here, '..', '..', '..', '..', 'packages', 'config', 'src', 'tailwind.css'),
+      'utf8',
+    )
+
+    for (const [name, seconds] of Object.entries(DURATION)) {
+      const declared = css.match(new RegExp(`--duration-${name}:\\s*([0-9]+)ms`, 'u'))?.[1]
+
+      expect(Number(declared), name).toBe(Math.round(seconds * 1000))
+      expect(seconds * 1000, name).toBeGreaterThanOrEqual(120)
+      expect(seconds * 1000, name).toBeLessThanOrEqual(250)
+    }
   })
 })

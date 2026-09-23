@@ -39,7 +39,7 @@ import { readSession, sessionCan } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'Reconciliation item', robots: { index: false, follow: false } }
 
 /** Table chrome, shared by the two evidence tables. */
 const TABLE = 'min-w-full border-collapse text-sm'

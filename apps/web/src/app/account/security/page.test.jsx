@@ -110,7 +110,7 @@ describe('AccountSecurityPage', () => {
       .getByRole('heading', { name: 'Where you are signed in' })
       .closest('section')
 
-    expect(within(sessions).getByRole('alert')).toBeTruthy()
+    expect(within(sessions).getByRole('status')).toBeTruthy()
     expect(within(sessions).queryByRole('button', { name: /sign out of this session/i })).toBeNull()
     expect(screen.getByRole('button', { name: 'Turn off two-step sign-in' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Change password' })).toBeTruthy()
@@ -127,7 +127,7 @@ describe('AccountSecurityPage', () => {
 
     const twoStep = screen.getByRole('heading', { name: 'Two-step sign-in' }).closest('section')
 
-    expect(within(twoStep).getByRole('alert')).toBeTruthy()
+    expect(within(twoStep).getByRole('status')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /two-step sign-in/i })).toBeNull()
     expect(screen.getByText(/Work laptop/)).toBeTruthy()
   })

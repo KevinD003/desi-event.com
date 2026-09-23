@@ -145,7 +145,7 @@ describe('SessionsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('shows the API’s refusal, and does not pretend anything was signed out', async () => {
@@ -156,7 +156,7 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel sessions={[THIS_SESSION, OTHER_SESSION]} devices={[]} />)
     fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
 
-    expect((await screen.findByRole('alert')).textContent).toContain(
+    expect((await screen.findByRole('status')).textContent).toContain(
       'Too many requests. Wait a minute.',
     )
     expect(refresh).not.toHaveBeenCalled()
@@ -169,7 +169,7 @@ describe('SessionsPanel', () => {
     render(<SessionsPanel sessions={[THIS_SESSION, OTHER_SESSION]} devices={[]} />)
     fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
 
-    expect((await screen.findByRole('alert')).textContent).toMatch(/nothing was signed out/i)
+    expect((await screen.findByRole('status')).textContent).toMatch(/nothing was signed out/i)
   })
 
   it('forgets a device through its own route, and counts its sessions in words', async () => {

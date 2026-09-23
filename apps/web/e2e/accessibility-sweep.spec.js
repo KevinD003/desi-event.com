@@ -655,7 +655,10 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     // A standing condition rather than an interruption, and in the reading
     // order before the totals: a mock-mode figure is not an accounting record,
     // and a notice underneath the numbers is read after somebody believed them.
-    const banner = page.getByRole('status').first()
+    const banner = page
+      .getByRole('status')
+      .filter({ hasText: /demonstration/i })
+      .first()
 
     await expect(banner).toBeVisible()
     await expect(banner).toContainText(/demonstration/i)

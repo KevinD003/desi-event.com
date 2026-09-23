@@ -89,7 +89,11 @@ export function FormField({
       ) : null}
       {control}
       {error ? (
-        <p id={errorId} role="alert" className="text-sm font-medium text-status-danger">
+        // No live role. The control names this through `aria-describedby` and
+        // is marked invalid, so it is read when the field is reached; the
+        // form's own summary is what announces a failed submit. A live region
+        // per field announced every keystroke-level correction, assertively.
+        <p id={errorId} className="text-sm font-medium text-status-danger">
           {error}
         </p>
       ) : null}

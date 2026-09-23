@@ -50,6 +50,26 @@ beforeEach(() => {
   apiFetch.mockReset()
 })
 
+/**
+ * The refusal on screen: the live region that is not the hidden announcer.
+ *
+ * Both are polite now — only the door's outcomes interrupt — so the role alone
+ * no longer tells them apart.
+ *
+ * @returns {Promise<HTMLElement>} The refusal.
+ */
+async function findRefusal() {
+  return waitFor(() => {
+    const found = screen
+      .getAllByRole('status')
+      .find((element) => !element.classList.contains('sr-only'))
+
+    expect(found).toBeTruthy()
+
+    return found
+  })
+}
+
 describe('the browser is given no authority it should not have', () => {
   // The whole security argument of this component. `privacyRequestConfirmSchema`
   // has no `confirmed`, no `force` and no `skipHolds` precisely so that a
@@ -172,7 +192,7 @@ describe('the confirmation phrase is never shown back', () => {
     await user.type(screen.getByLabelText('Confirmation phrase'), 'wrong')
     await user.click(screen.getByRole('button', { name: 'Erase' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await findRefusal()
 
     expect(alert.textContent).toMatch(/nothing was changed/iu)
   })
@@ -236,7 +256,7 @@ describe('refusals are repeated honestly', () => {
     await user.type(screen.getByLabelText('Confirmation phrase'), 'a-phrase')
     await user.click(screen.getByRole('button', { name: 'Erase' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await findRefusal()
 
     expect(alert.textContent).toMatch(/hold is active/iu)
     expect(alert.textContent).toMatch(/nothing was changed/iu)
@@ -259,7 +279,7 @@ describe('refusals are repeated honestly', () => {
     await user.type(screen.getByLabelText('Confirmation phrase'), 'a-phrase')
     await user.click(screen.getByRole('button', { name: 'Erase' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await findRefusal()
 
     expect(alert.textContent).not.toMatch(/buyer@example\.test/u)
   })
@@ -275,7 +295,7 @@ describe('refusals are repeated honestly', () => {
     await user.type(screen.getByLabelText('Confirmation phrase'), 'a-phrase')
     await user.click(screen.getByRole('button', { name: 'Erase' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await findRefusal()
 
     expect(alert.textContent).toMatch(/nothing has been recorded/iu)
   })

@@ -122,7 +122,7 @@ describe('RegisterForm', () => {
     await fill(user, { password: 'short' })
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/at least eight characters/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/at least eight characters/i)
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
@@ -139,7 +139,7 @@ describe('RegisterForm', () => {
     await fill(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
+    expect(await screen.findByRole('status')).toHaveTextContent(
       'An account with this email address already exists.',
     )
     expect(assign).not.toHaveBeenCalled()
@@ -160,7 +160,7 @@ describe('RegisterForm', () => {
     await fill(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await screen.findByRole('status')
 
     expect(alert).toHaveTextContent(/2 minutes/)
     expect(alert.textContent).not.toContain('/v1/')
@@ -175,7 +175,7 @@ describe('RegisterForm', () => {
     await fill(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/no account was created/i)
+    expect(await screen.findByRole('status')).toHaveTextContent(/no account was created/i)
   })
 
   it('says up front that the address is not confirmed and a password cannot be reset', () => {

@@ -56,7 +56,7 @@ export const dynamic = 'force-dynamic'
  */
 const WALLET_PAGE_SIZE = 100
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'My tickets', robots: { index: false, follow: false } }
 
 /*
  * How each reachable status reads is `TICKET_STATUS_WORDS` in `lib/wallet.js`,

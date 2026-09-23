@@ -110,7 +110,7 @@ describe('ChangePassword', () => {
     fill('wrong-password', 'new-password-long')
     fireEvent.click(screen.getByRole('button', { name: 'Change password' }))
 
-    const alert = await screen.findByRole('alert')
+    const alert = await screen.findByRole('status')
 
     expect(alert.textContent).toContain('That is not your current password.')
     expect(alert.textContent).not.toMatch(/sign in again|session (has )?(ended|expired)/i)
@@ -124,7 +124,7 @@ describe('ChangePassword', () => {
     fill('old-password', 'new-password-long')
     fireEvent.click(screen.getByRole('button', { name: 'Change password' }))
 
-    expect((await screen.findByRole('alert')).textContent).toMatch(/was not changed/i)
+    expect((await screen.findByRole('status')).textContent).toMatch(/was not changed/i)
   })
 
   it('keeps no password in any browser storage', async () => {

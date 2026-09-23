@@ -21,7 +21,7 @@ import { TicketTransferResponse } from '../../../components/ticket-transfer-acti
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'Accept a ticket', robots: { index: false, follow: false } }
 
 /**
  * The accept screen.

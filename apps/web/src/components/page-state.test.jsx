@@ -50,13 +50,13 @@ describe('Failure', () => {
   it('announces itself, because it replaces content the reader was waiting for', () => {
     render(<Failure what="The analytics" />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('The analytics could not be loaded')
+    expect(screen.getByRole('status')).toHaveTextContent('The analytics could not be loaded')
   })
 
   it('says the figures are absent rather than stale', () => {
     render(<Failure what="The refund" detail="the service timed out" />)
 
-    const alert = screen.getByRole('alert')
+    const alert = screen.getByRole('status')
 
     expect(alert).toHaveTextContent('The service timed out.')
     expect(alert).toHaveTextContent(/absent/i)
@@ -65,7 +65,7 @@ describe('Failure', () => {
   it('keeps a detail that is already a sentence as one, without doubling its full stop', () => {
     render(<Failure what="The refund" detail="Nothing reached Desi-Event. Try again." />)
 
-    const text = screen.getByRole('alert').textContent
+    const text = screen.getByRole('status').textContent
 
     expect(text).toContain(
       'The refund could not be loaded. Nothing reached Desi-Event. Try again. ',
@@ -104,7 +104,7 @@ describe('Empty and Loading', () => {
   it('distinguishes nothing-to-show from something-went-wrong', () => {
     render(<Empty title="No refunds yet" description="Nobody has asked for one." />)
 
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(screen.getByText('No refunds yet')).toBeInTheDocument()
   })
 

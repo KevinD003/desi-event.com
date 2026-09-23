@@ -321,9 +321,9 @@ export function MapEditor({ version, initialLayout, readOnly }) {
 
       {issues.length > 0 ? (
         // The wrapper is a focus target, nothing more. `Alert` already carries
-        // `role="alert"` for its urgent variants, and repeating the role here
-        // would announce the same thing twice and nest one alert inside
-        // another.
+        // a live role, and repeating one here would announce the same thing
+        // twice and nest one region inside another. Focus moving here is what
+        // reads the summary out.
         <div className="mt-4" ref={summaryRef} tabIndex={-1}>
           <Alert
             variant="error"

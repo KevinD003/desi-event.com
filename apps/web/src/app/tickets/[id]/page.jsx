@@ -43,7 +43,7 @@ import { readSession, sessionCan } from '../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata = { robots: { index: false, follow: false } }
+export const metadata = { title: 'Ticket', robots: { index: false, follow: false } }
 
 /**
  * What each ticket status means, and whether it still admits anybody.

@@ -34,18 +34,12 @@ const ALERT_VARIANTS = {
 }
 
 /**
- * Variants that interrupt the user. `role="alert"` is assertive and preempts
- * whatever the screen reader is saying, which is right for a failure and wrong
- * for "saved".
- */
-const URGENT_VARIANTS = new Set(['warning', 'error'])
-
-/**
  * @typedef {object} AlertProps
  * @property {'info'|'success'|'warning'|'error'} [variant] Severity. Defaults to `info`.
  * @property {string} [title] Optional heading shown above the message.
  * @property {Function} [onDismiss] When supplied, renders a labelled close button that calls this.
  * @property {string} [dismissLabel] Accessible name of the close button. Defaults to `Dismiss`.
+ * @property {boolean} [urgent] Interrupt the screen reader. Reserved for outcomes that cannot wait, such as a refusal at the door.
  * @property {string} [className] Extra classes merged after the defaults.
  * @property {ReactNode} [children] Alert body.
  */
@@ -53,9 +47,15 @@ const URGENT_VARIANTS = new Set(['warning', 'error'])
 /**
  * An inline message about the result of an action or the state of a page.
  *
- * Urgent variants use `role="alert"` (assertive); informational ones use
- * `role="status"` (polite) so routine confirmations do not cut the screen
- * reader off mid-sentence.
+ * Every variant is `role="status"` (polite) unless it is marked `urgent`.
+ * An assertive region preempts whatever the screen reader is saying, and a
+ * page that interrupts for every failed save teaches people to stop listening;
+ * so severity alone does not earn it. `urgent` is for the few outcomes that
+ * cannot wait for the reader to finish — a ticket refused at the door, a
+ * ticket already admitted — and becomes `role="alert"` (assertive).
+ *
+ * A form that fails moves focus to its message as well, so a polite region is
+ * not the only way the failure is heard.
  *
  * @param {AlertProps} props Component props.
  * @returns {JSX.Element} The rendered alert.
@@ -65,11 +65,11 @@ export function Alert({
   title,
   onDismiss,
   dismissLabel = 'Dismiss',
+  urgent = false,
   className,
   children,
   ...rest
 }) {
-  const urgent = URGENT_VARIANTS.has(variant)
   const styles = ALERT_VARIANTS[variant] ?? ALERT_VARIANTS.info
 
   return (

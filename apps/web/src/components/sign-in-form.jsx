@@ -13,9 +13,10 @@
  *   - **The second factor appears when it is asked for, not before.** A form
  *     that always shows a code field teaches people to look for a code they
  *     usually do not need. The API says when it needs one.
- *   - **Every failure is announced, not just shown.** The error lives in a
- *     `role="alert"` and focus moves to it, because a sighted user sees red
- *     appear and a screen-reader user is told nothing otherwise.
+ *   - **Every failure is announced, not just shown.** Focus moves to the
+ *     error, which sits in a polite live region, because a sighted user sees
+ *     red appear and a screen-reader user is told nothing otherwise. Polite,
+ *     not assertive: only the door's outcomes interrupt.
  *   - **It never says which half was wrong.** "Invalid email address or
  *     password" is the API's wording and it is repeated verbatim; narrowing it
  *     to "no such account" is an account-enumeration oracle.

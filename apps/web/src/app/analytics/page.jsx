@@ -252,7 +252,7 @@ export default async function AnalyticsPage({ searchParams }) {
 
               {view.money.integrity.imbalances.length > 0 ? (
                 <p
-                  role="alert"
+                  role="status"
                   className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
                 >
                   {view.money.integrity.imbalances.length} ledger batch

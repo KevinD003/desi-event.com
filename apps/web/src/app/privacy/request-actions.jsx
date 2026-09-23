@@ -227,7 +227,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
 
           {refusal ? (
             <p
-              role="alert"
+              role="status"
               className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-3 text-sm text-status-danger"
             >
               <span className="font-medium">{refusal.title}.</span> {refusal.detail}

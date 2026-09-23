@@ -28,9 +28,10 @@
  *   and a themed QR code is one a door phone or an authenticator app fails to
  *   read.
  * - Hex in the few places a stylesheet cannot reach: `global-error.jsx`,
- *   which renders when the root layout itself has failed, and the browser's
- *   own chrome colour (`themeColor`), which is metadata rather than CSS. Every
- *   such value must equal a token's colour exactly; a test below checks it.
+ *   which renders when the root layout itself has failed, the browser's own
+ *   chrome colour (`themeColor`) and the web app manifest, which are metadata
+ *   rather than CSS, and the app icon, which is an image. Every such value
+ *   must equal a token's colour exactly; a test below checks it.
  * - `poster.jsx`'s artwork, drawn from the brand ramp. It is illustration, not
  *   interface; every `oklch()` it uses must still be a value the ramp declares.
  *
@@ -117,6 +118,10 @@ const ALLOWED = Object.freeze({
   'apps/web/src/app/account/security/two-step.jsx': { hex: ['#ffffff', '#000000'] },
   'apps/web/src/app/global-error.jsx': { hex: 'tokens-only' },
   'apps/web/src/app/layout.jsx': { hex: 'tokens-only' },
+  'apps/web/src/app/manifest.js': { hex: 'tokens-only' },
+  // Not a component, so not in the list the other checks walk; named here so
+  // the icon's two colours are held to the tokens as the manifest's are.
+  'apps/web/src/app/icon.svg': { hex: 'tokens-only' },
   'apps/web/src/components/poster.jsx': { hex: ['#ffffff'], oklch: 'ramp-only' },
 })
 

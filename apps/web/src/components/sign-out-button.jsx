@@ -76,7 +76,7 @@ export function SignOutButton({ className = '', everywhere = false, label = 'Sig
         {busy ? 'Signing out…' : label}
       </button>
       {failed ? (
-        <p role="alert" className="mt-2 text-sm text-status-danger">
+        <p role="status" className="mt-2 text-sm text-status-danger">
           Signing out did not finish, so you are still signed in. Check your connection and try
           again.
         </p>

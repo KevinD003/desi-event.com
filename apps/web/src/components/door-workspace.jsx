@@ -473,7 +473,7 @@ export function DoorWorkspace({ events }) {
           >
             Not found
           </h2>
-          <Alert variant="error" className="mt-3">
+          <Alert variant="error" urgent className="mt-3">
             {problem.sentence}
           </Alert>
           <Button type="button" variant="secondary" className="mt-3" onClick={() => clear()}>
@@ -620,7 +620,7 @@ function PreviewCard({
       </dl>
 
       {preview.outcome === 'ALREADY_CHECKED_IN' ? (
-        <Alert variant="error" className="mt-3">
+        <Alert variant="error" urgent className="mt-3">
           This ticket was already admitted
           {preview.checkedInAt
             ? ` at ${doorTime(preview.checkedInAt, preview.event.timezone)}`
@@ -630,14 +630,14 @@ function PreviewCard({
       ) : null}
 
       {preview.outcome === 'REFUSED' ? (
-        <Alert variant="error" className="mt-3">
+        <Alert variant="error" urgent className="mt-3">
           {refusalSentence(preview.refusal)}
           {preview.refusal === 'WRONG_EVENT' ? ` It is for ${preview.event.title}.` : ''}
         </Alert>
       ) : null}
 
       {problem ? (
-        <Alert variant="error" className="mt-3">
+        <Alert variant="error" urgent={Boolean(problem.urgent)} className="mt-3">
           {problem.sentence}
         </Alert>
       ) : null}
@@ -709,7 +709,7 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
             : `This ticket was admitted at ${when}. Do not admit again.`}
       </p>
       {!admitted ? (
-        <Alert variant="error" className="mt-3">
+        <Alert variant="error" urgent className="mt-3">
           Each ticket admits once. This one already has.
         </Alert>
       ) : null}
