@@ -130,11 +130,16 @@ test.describe.serial('the ticket and transfer screens', () => {
   })
 
   test('refuses a ticket belonging to nobody this account knows', async ({ outsider }) => {
+    // Read once the refusal is on screen, not at the load event: the area's
+    // loading boundary streams, and React reveals the finished page after
+    // `load`, so a read taken straight after `goto` can see the fallback.
     await outsider.goto(`/tickets/${ids().ticketIds[1]}`)
+    await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const theirs = await outsider.locator('body').innerText()
 
     await outsider.goto('/tickets/cmnotarealidentifier0000')
+    await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const imaginary = await outsider.locator('body').innerText()
 

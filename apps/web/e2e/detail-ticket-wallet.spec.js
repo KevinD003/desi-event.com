@@ -148,7 +148,12 @@ test.describe.serial('the ticket wallet', () => {
     // navigate, and Playwright's accessible-name computation is what checks it.
     await owner.goto('/tickets')
 
+    // Waited for, not read at `load`: the wallet streams behind its loading
+    // boundary, and React reveals it after the load event.
     const links = owner.locator('main li h3 a')
+
+    await expect(links.first()).toBeVisible()
+
     const names = await links.allInnerTexts()
 
     expect(names.length).toBeGreaterThan(0)

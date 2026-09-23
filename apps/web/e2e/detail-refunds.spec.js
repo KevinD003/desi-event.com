@@ -75,11 +75,16 @@ test.describe('the refund detail screen', () => {
   })
 
   test('answers for another organisation as it answers for nothing', async ({ outsider }) => {
+    // Read once the refusal is on screen, not at the load event: the area's
+    // loading boundary streams, and React reveals the finished page after
+    // `load`, so a read taken straight after `goto` can see the fallback.
     await outsider.goto(`/finance/refunds/${ids().refundId}`)
+    await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const theirs = await outsider.locator('body').innerText()
 
     await outsider.goto('/finance/refunds/cmnotarealidentifier0000')
+    await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const imaginary = await outsider.locator('body').innerText()
 
