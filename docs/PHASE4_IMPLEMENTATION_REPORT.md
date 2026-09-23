@@ -30,6 +30,14 @@ only, and reserved-seat transfer is still blocked. None of this describes the
 ticketing product as complete. Phase 4 is not yet implemented, and is not
 described here as though it were.
 
+_Status, 2026-09-23, at the Phase 4 closure. The three paragraphs above are
+left as written._ Phase 4 is **COMPLETE — VERIFIED ON REMEDIATION SHA
+`43a5fd4`** (exact-SHA CI `35885247288`, eight of eight jobs green), recorded
+in "Phase 4 — the product's frontend, UI/UX, navigation and operational
+surfaces", below, with twenty-seven separate classifications. The product is
+still not described as complete: the blocked, unimplemented and
+externally-pending items listed there remain.
+
 ---
 
 ## Starting repository state
@@ -2646,6 +2654,749 @@ stayed disabled.
 
 ---
 
+## Phase 4 — the product's frontend, UI/UX, navigation and operational surfaces
+
+Authorised on 2026-09-23 after Phase 3 was accepted as **COMPLETE — VERIFIED ON
+REMEDIATION SHA** (`3fe58a7fdb0c9c811c51d73f96926029362063f4`, CI
+`35814340442`, documentation-only closure `33b906b8d9fa0433738f72495ee15987059db380`).
+The goal: finish the frontend, UI/UX, navigation, responsive, accessibility and
+operational-surface work across the product, without claiming a backend
+capability that does not exist. Nothing in this phase moved, rebased, squashed,
+cherry-picked or rewrote the branch's history.
+
+What this phase is not: real Stripe, Stripe Connect or payouts; destructive
+retention; group booking; offline admission; reserved-seat transfer. None of
+them was built, and every screen that touches one says so in the words of the
+limitations register (§P4-17).
+
+Where the brief's twenty-four report items are answered: 1–5 (starting,
+masking, implementation, remediation and closure SHAs) §P4-1; 6 design system
+§P4-2; 7 navigation §P4-3; 8 pages and components §P4-4; 9 API contract §P4-5;
+10 privacy and authorisation §P4-6; 11 responsive §P4-7; 12 accessibility
+§P4-8; 13 browser collection and execution §P4-9; 14 fresh-test totals §P4-10;
+15 database and reliability §P4-11; 16 coverage §P4-12; 17 dependencies and
+bundle §P4-13; 18 exact-SHA CI §P4-14; 19 failures and root causes §P4-15;
+20 external verification §P4-16; 21 blocked and not implemented §P4-17;
+22 `PAYMENT_MODE` §P4-18; 23 retention §P4-19; 24 screens not built §P4-20.
+The requirements-to-evidence matrix is §P4-22 and the twenty-seven
+classifications §P4-23.
+
+### P4-1. Commits and SHAs
+
+| Item                     | SHA                                        | Evidence                                                       |
+| ------------------------ | ------------------------------------------ | -------------------------------------------------------------- |
+| Starting state           | `33b906b8d9fa0433738f72495ee15987059db380` | Phase 3's documentation-only closure                           |
+| Email-masking correction | `bf13cb3b09120065aaf4469768118d4732efb01b` | CI `35819310106`: 8 of 8 jobs `success`                        |
+| Implementation           | `f1f12cfd668e06e877df6a37f4a45e4b2566c28f` | CI `35878840028`: 7 `success`, 1 `failure`, preserved (§P4-15) |
+| Remediation              | `43a5fd47d9e92aa16b4e69fe5b133006b1754192` | CI `35885247288`: 8 of 8 jobs `success` (§P4-14)               |
+| Documentation closure    | the commit that adds this section          | documentation only; no code, test or config                    |
+
+The masking correction came first, on its own, as the brief required, and its
+CI run was green before any other Phase 4 work was pushed. Its eight jobs, read
+from the run on 2026-09-23: Policy, lint, contract, tests, build; Browser —
+public catalogue; production build; organiser venue maps; event lifecycle;
+refusals; accessibility sweep; commerce and operations detail. Each
+`completed / success` on head `bf13cb3`.
+
+The implementation, in the order committed:
+
+| Commit    | Subject                                                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `bf13cb3` | fix(privacy): show no part of an address to anybody not entitled to it                                                      |
+| `2b91ae9` | feat(design): one semantic token vocabulary, two registers, and nothing literal                                             |
+| `e025564` | feat(navigation): three navigation layers from auth.me, one admission rule per area, and a way to sign out                  |
+| `7620031` | feat(states): one refusal vocabulary, and a way forward from every refused read                                             |
+| `3669ad8` | fix(sales): an event whose sales are open can be bought, listed and counted                                                 |
+| `198b714` | fix(pricing): quote the price checkout charges, on the card, the event page and the organiser's preview                     |
+| `f6fba2d` | feat(checkout): finish a purchase with the simulated payment, and stop calling seated tiers sold out                        |
+| `36fc625` | fix(claims): say only what this build does, let people make an account, and name what it cannot do                          |
+| `b3cb5e2` | fix(queues): put the refunds, reconciliation items and messages somebody has to act on first                                |
+| `23ea791` | feat(account): orders, transfers, security and privacy pages for the person who bought the ticket                           |
+| `85529d3` | feat(directories): categories, venues and organisers, each a way back into the listing                                      |
+| `ccca7a3` | feat(workspace): team, refund, reconciliation and outbox lists, reachable from the rail and the board                       |
+| `8c405e8` | feat(a11y): only the door interrupts, nothing moves for longer than 250 ms, and the site can be installed                   |
+| `1f07d59` | test(e2e): a platform reader and a signed-out window for the detail suites, and a scanner-clean TOTP fixture                |
+| `5d11baf` | test(e2e): wait for a page to arrive, not for it to load, now that the areas stream                                         |
+| `30a46a5` | style: format the account-security and venue/organiser page files                                                           |
+| `5ba42cc` | fix(bundle-scan): require the paths a buyer's browser must carry, not the route table it no longer ships                    |
+| `d549b25` | fix(load): renew the operator's step-up before each scenario, so the tenth one measures refunds rather than a lapsed window |
+| `b5b2a5f` | fix(auth,wallet): keep the bearer secret out of page JavaScript, and stop counting a used ticket as one that admits         |
+| `c8d4aaa` | fix(copy): say what the build does — simulated payments, no fixed hold length, a settled refund moved no money              |
+| `c433cb6` | fix(seed,footer): give demo venues slugs and list only cities the catalogue has                                             |
+| `bf24498` | fix(api): give each API process its own simulated-payment id space, so a restart cannot break checkout                      |
+| `148cbec` | fix(sitemap): ask for a page size the API accepts, so the sitemap lists events again                                        |
+| `b1d0800` | test(e2e): API-backed journeys for the Phase 4 surfaces, and a sweep of every new page at every width                       |
+| `08946c2` | test(a11y): scan against WCAG 2.2's rules as well as 2.0's and 2.1's                                                        |
+| `a2773eb` | fix(operations): stop the notification queue's failure filter widening the page at 320 px                                   |
+| `f1f12cf` | test(e2e): name the checkout buyer's password the way the scanner recognises a test value                                   |
+| `43a5fd4` | test(e2e): wait for the resubmission to be answered before the moderator looks                                              |
+
+Twenty-eight commits: the masking correction, twenty-five of implementation and fixes up to `f1f12cf`, and the remediation `43a5fd4`. None was amended, rebased or squashed.
+
+### P4-2. Design system
+
+One semantic token vocabulary in `packages/config/src/tailwind.css`, two
+registers. Public pages are drawn in **Editorial Marigold**; signed-in areas in
+**Quiet Courtyard**, which redefines nine tokens under
+`[data-register='courtyard']`. Tailwind 4 compiles every utility to
+`var(--color-…)`, so a component asks for a token by what it is for (page,
+raised and subtle surfaces, the inverse band, three text levels, lines, focus,
+primary/secondary/danger actions, eight statuses, ticket availability, four seat
+states, the operations rail) and never asks which register it is in. The
+register is chosen per request from the path (`lib/register.js`) and set on
+`<body>`; `proxy.js` copies the path onto the request and always overwrites any
+value a browser sent. It decides nothing about access.
+
+Availability has three tokens — open, limited, closed — and no "selling fast":
+no data could honestly drive one.
+
+- **Migration.** 1,292 literal classes in 72 web files, and every primitive in
+  `packages/ui`, moved onto tokens by a codemod whose diff was checked to
+  change nothing but class names (915 lines out, 915 in).
+- **Defects the literals hid.** The focus ring on most controls was 2.29:1 on
+  white, under WCAG 1.4.11's 3:1; the global outline 2.89:1 on the warm page;
+  `text-marigold-700` links 4.45:1; an `indigo-night-800` hover named a colour
+  the theme never declared. One focus token now clears 3:1 on every ground.
+- **Checks.** `token-contrast.test.js` reads both registers separately (the old
+  parser let the last declaration win) and pins 169 pairings: text 4.5:1,
+  focus and control boundaries 3:1, resting and hovered. A deliberately broken
+  courtyard value fails six of them and nothing else.
+  `semantic-classes.test.js` refuses a literal palette class, a hex or an
+  `oklch()` in any component, with documented exceptions (camera letterbox,
+  the QR code's black on white, `global-error.jsx`, the chrome colour, poster
+  artwork, the manifest and icon — each held to a token's exact value).
+- **Components.** `Alert` draws a status glyph beside a status-coloured title;
+  `StatusIcon` gives every tone its own shape, so no two statuses differ by
+  colour alone. `secondary` is now the outlined action.
+- **Motion.** 120, 180 and 250 ms (`DURATION` in `motion.jsx`, held to the CSS
+  tokens by a test). The 450 and 500 ms entrances and the unbounded card spring
+  are gone. Reduced motion renders the final state with no movement. No
+  confetti, no animated QR, no parallax, no pulsing urgency.
+
+### P4-3. Navigation
+
+Three layers, each derived from `GET /v1/auth/me` and nothing else.
+Navigation visibility is not authorisation, and the modules say so; every
+destination stays guarded by the API.
+
+| Layer      | What it offers                                                                                                                                                                                                                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public     | Discover events, Categories, Venues, Organisers; one account control. Signed out, "Sign in" carrying the current path as `next`. Signed in, a disclosure (not an ARIA menu) with Overview, My tickets, Accept a ticket, Workspace when there is one, Sign out. The display name, never the address. |
+| Attendee   | Overview, My tickets, Orders, Transfers, Security, Privacy; sign out in the rail.                                                                                                                                                                                                                   |
+| Operations | A rail grouped as Events and venues, Money, and Trust and safety; Team offered from a membership holding `organization:view_members`; Notifications only on `reconciliation:manage`; Finance and Operations tabs for their lists.                                                                   |
+
+The rail must not offer a door its own layout will then refuse, so
+`lib/areas.js` holds each area's admission predicate and refusal text, and both
+the layouts (through `lib/area-gate.js`) and the rail ask it. Check-in is
+offered only from a membership holding `ticket:check_in`, because the API
+refuses a platform role at the door.
+
+- **Open redirect closed.** The old `safeNext` accepted `/\evil.example`, which
+  browsers read as `//evil.example`. `lib/next-path.js` resolves against a
+  placeholder origin and accepts only a same-origin path with no control
+  characters or backslashes, and never `/sign-in` itself (29 cases).
+- **Landing and signing out.** Default landing after sign-in is `/account`, not
+  the organiser's event list. Sign out exists (it did not, anywhere), including
+  "everywhere"; a 401 counts as done, any other failure says the person is
+  still signed in.
+- **Reachability.** Every legitimate page is reachable without typing its URL:
+  the header, the rails, the tabs, the operations board's per-queue links, and
+  detail pages' breadcrumbs back to their lists. A detail page (an order, a
+  refund, a message) is reached from its list rather than from the rail, and
+  `/tickets/accept` from the account control; §P4-20 says why that last one is
+  of little use in this build.
+
+### P4-4. Page and component inventory
+
+49 pages, 17 of them new in this phase.
+
+| Area       | Pages (new in bold)                                                                                                                                                                                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public     | `/`, `/events`, `/events/[slug]`, `/events/[slug]/checkout`, **`/categories`**, **`/venues`**, `/venues/[slug]`, **`/organizers`**, `/organizers/[slug]`, **`/limitations`**, **`/register`**, `/sign-in`                                                                                        |
+| Attendee   | **`/account`**, **`/account/orders`**, **`/account/orders/[reference]`**, **`/account/transfers`**, **`/account/security`**, **`/account/privacy`**, `/tickets`, `/tickets/[id]`, `/tickets/accept`                                                                                              |
+| Organiser  | **`/organizer`**, `/organizer/events`, `/organizer/events/new`, `/organizer/events/[id]`, `/organizer/check-in`, **`/organizer/team`**, `/organizer/venues`, `/organizer/venues/new`, `/organizer/venues/[id]/edit`, `/organizer/venues/[id]/maps`, `/organizer/map-versions/[id]`, `/analytics` |
+| Money      | `/finance`, `/finance/connect`, **`/finance/refunds`**, `/finance/refunds/[id]`                                                                                                                                                                                                                  |
+| Operations | `/operations`, **`/operations/notifications`**, **`/operations/notifications/[id]`**, **`/operations/reconciliation`**, `/operations/reconciliation/[id]`                                                                                                                                        |
+| Trust      | `/moderation/events`, `/moderation/events/[id]`, `/privacy`, `/privacy/exports`, `/privacy/holds`, `/privacy/requests/[requestId]`, `/retention`                                                                                                                                                 |
+
+Shared pieces added or reworked: `lib/refusal.js` and
+`components/read-refusal.jsx` (eleven refusal states, §P4-6), `loading.jsx` for
+the nine signed-in areas, `components/payment-mode-notice.jsx`,
+`components/checkout-basket.jsx` (reserve → simulated pay → booked),
+`components/site-footer.jsx`, `lib/wallet.js` (one copy of the ticket-status
+words), `lib/directory.js`, `lib/area-tabs.js`, `lib/account-api.js`,
+`lib/workspace-api.js`, `app/manifest.js` and `app/icon.svg`.
+
+Every page names itself in its `<title>`, and a test walks them. Pages about a
+ticket, an order or a transfer use a fixed word — "Ticket", "Order", "Accept a
+ticket" — so no reference or code reaches history, bookmarks or a tab strip.
+
+### P4-5. API and contract changes
+
+No migration. One new route was not needed and none was added; every screen
+calls a route that already existed. The contract validates (134 routes), and
+the OpenAPI and route-manifest artefacts were regenerated where the contract's
+descriptions changed.
+
+| Change                                                  | Why                                                                                                                                                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BOOKABLE_STATUSES` (ON_SALE, PUBLISHED)                | Holds, seat holds and orders compared the status with the literal `'PUBLISHED'`; pressing "Open sales" made an event unbuyable and removed it from discovery. Facets now count the listed statuses (`LISTED`). |
+| Event detail `feeTerms`                                 | The event page and checkout priced with package defaults (2.5% + ₹5.00) while orders charged the deployment's terms (5.9% + ₹0.99). Public, because the booking fee is part of the price.                      |
+| Summary `minTotalCents`, `salesOpen`                    | Cards quoted a face value as "From"; now the all-in price of one ticket of the cheapest tier, computed as `orders.create` computes it, and availability in words.                                              |
+| Tier `reserved`                                         | A seated tier's quantity is zero by design and every surface called it sold out. It now says which tiers are seated; the site has no seat picker and says so.                                                  |
+| Ranked queue reads (`readRankedPage`)                   | PostgreSQL sorts enums by declaration order, which put open refunds, escalated reconciliation items and dead letters behind the settled history. Open work is read first, with exact pagination across tiers.  |
+| Team `emailVisibility` FULL / STEP_UP_REQUIRED / HIDDEN | The masking correction (commit `bf13cb3`).                                                                                                                                                                     |
+| Wallet `admits`                                         | False for a checked-in ticket, which carries no refusal sentence and was being filed under "Coming up".                                                                                                        |
+| Orders list presenter call                              | Mapped through a wrapper, so the array index is not passed as the presenter's options.                                                                                                                         |
+| API process provider id space                           | A restarted API reused `pi_000001` and refused its first simulated checkout on the unique provider reference (§P4-15).                                                                                         |
+
+The same-origin proxy now drops the top-level `token` from JSON answers on the
+auth routes (§P4-6).
+
+### P4-6. Privacy and authorisation effects
+
+- **Email.** No part of an address reaches anybody not entitled to it: the
+  team list's three server-decided shapes, `••••@domain` to a transfer's
+  parties, `Hidden email` to an organiser, no recipient in any form in the
+  outbox, no buyer address in an organisation's order read, no address in
+  transfer audit rows, payment metadata or log lines (commit `bf13cb3`, twenty
+  mutations each failing its test).
+- **Bearer secret.** Sign-in, second-factor and registration answers carried
+  the session's bearer secret in the JSON body, the same secret the HttpOnly
+  cookie carries, and the proxy passed it to page JavaScript. It is now removed
+  at the proxy; six tests.
+- **Refusals.** `lib/refusal.js` reads a refusal from its status, code and
+  `Retry-After`, never its wording, into one of eleven states (network,
+  auth-required, mfa-enrolment, step-up, permission-denied, not-found, stale,
+  expired, validation, rate-limited, server-error). A 403 and a 404 read
+  identically where the API makes them identical; no sentence names an
+  endpoint, address or phone number (tested). A lapsed step-up is offered in
+  place rather than called "Not for you".
+- **Live regions.** Only the door interrupts: `Alert` is polite unless marked
+  `urgent`, and `urgent` is used only for the door's outcomes. A source check
+  fails on any `role="alert"` or `aria-live="assertive"` elsewhere.
+- **URLs and storage.** No credential, reference or code in a URL, query, page
+  title, local or session storage, IndexedDB or service-worker cache: there is
+  no service worker, deliberately, because a cache would hold ticket passes.
+  The sign-in and change-password forms declare `method="post"`, so a submit
+  before the script arrives cannot put a password in a URL.
+- **Scoping.** "Your events" asked the public listing and showed every
+  organisation's events as the organiser's own; it now asks per organisation
+  the caller can see drafts in. Refund and reconciliation lists are scoped to
+  the caller's organisation unless they hold `reconciliation:manage`, and show
+  no provider reference or internal id.
+- **Not exposed anywhere:** admission credentials, provider or connected-account
+  ids, worker leases, queue internals, raw webhook payloads, raw audit streams,
+  export storage references, secrets or recovery material. The bundle scan
+  requires none of them and forbids the known markers (§P4-13).
+
+### P4-7. Responsive evidence
+
+All in Chromium, through Playwright, against the real API and database.
+
+- **Every Phase 4 surface at every size.** The sweep's Phase 4 block opens
+  sixteen surfaces — the three directories, the limitations, registration and
+  sign-in pages, checkout signed out, order history and an order, transfers,
+  account security and privacy, the team screen, and the refund,
+  reconciliation and notification lists — at 320, 375, 390, 768, 1024, 1280
+  and 1440 px and at 200% zoom. 200% zoom is taken as the window the layout
+  actually has: a 1280 × 900 window at 200% lays out at 640 × 450 CSS pixels,
+  so that is the viewport, not a 1280-wide one with a CSS transform. At each
+  size the document may not scroll sideways and the surface's own landmark
+  content must be visible.
+- **The header at 320.** The four ways into the catalogue are reached, opened
+  and walked by keyboard alone at 320 px.
+- **Earlier surfaces.** The Phase 1–3 cases still run: every Phase 2 screen at
+  phone, tablet and desktop; the door screen at the seven door widths, idle and
+  with a long name; the event editor and the new detail screens at 200% zoom.
+
+Physical phones were not used. Nothing here stands for one.
+
+### P4-8. Accessibility evidence
+
+- **Automated scan.** axe-core 4.13 with the WCAG 2.0, 2.1 and 2.2 A and AA
+  tags. The 2.2 tags were added in this phase; in axe 4.13 they add one rule,
+  `target-size` (2.5.8), to every scan. Phase 4 surfaces are scanned at four
+  of their eight sizes (320, 768, 1280 and the zoomed window), each with zero
+  violations; every earlier surface keeps its own scans.
+- **What a scan cannot see**, asserted directly: keyboard-only operation of the
+  header, the event editor and a reconciliation item; a visible focus indicator
+  on every focusable control; touch targets of at least 24 × 24 CSS pixels on
+  the payout-setup screen at 320 px; nothing hidden or left mid-animation with motion
+  reduced; an invitation code never placed in the address bar; the refund
+  screen never asking for a card.
+- **Live regions.** Polite everywhere except the door's four urgent outcomes,
+  enforced on the source (§P4-6).
+- **Contrast.** 169 token pairings in both registers (§P4-2).
+- **Titles and headings.** Every page has a title of its own
+  (`page-titles.test.js`); the public pages each have exactly one `<h1>`
+  (`accessibility.spec.js`), and every page the detail suites open is waited
+  for by the `<h1>` inside its `<main>`.
+
+**Not done:** a manual audit with a screen reader, voice control or switch
+access. The classification says "verified by automated checks" for that
+reason and no more.
+
+Sweep on this tree: 81 collected, 81 passed, none skipped.
+
+### P4-9. Browser collection and execution
+
+Every configuration run on the remediation SHA `43a5fd4`, each on a freshly
+created and migrated database with CI's environment, as the CI browser job
+runs them. The same seven gave the same counts on the implementation SHA
+`f1f12cf` before it. Collected is Playwright's `--list` total; the rest is its JSON
+reporter's statistics for the run.
+
+| Configuration (CI job)                    | Collected | Passed  | Failed | Flaky | Skipped |
+| ----------------------------------------- | --------- | ------- | ------ | ----- | ------- |
+| `playwright.config.js` (public catalogue) | 118       | 118     | 0      | 0     | 0       |
+| `playwright.production.config.js`         | 19        | 19      | 0      | 0     | 0       |
+| `playwright.organizer.config.js`          | 13        | 13      | 0      | 0     | 0       |
+| `playwright.events.config.js`             | 20        | 20      | 0      | 0     | 0       |
+| `playwright.refusals.config.js`           | 4         | 4       | 0      | 0     | 0       |
+| `playwright.sweep.config.js`              | 81        | 81      | 0      | 0     | 0       |
+| `playwright.detail.config.js`             | 132       | 132     | 0      | 0     | 0       |
+| **Total**                                 | **387**   | **387** | **0**  | **0** | **0**   |
+
+At the masking commit the same seven collected 317. The 70 added: 52 in the
+four new detail suites (account 14, checkout 9, directories 10, workspace 19)
+and 18 in the sweep's Phase 4 block. Every new case is collected by a CI job:
+the detail suites by `test:e2e:detail` (`**/detail-*.spec.js`), the sweep's by
+`test:e2e:sweep`. No configuration collects zero, and none collected a case
+it did not run.
+
+### P4-10. Fresh-test totals
+
+`pnpm run verify:tests:fresh`, inside `pnpm verify`, on `43a5fd4` (identical
+table on `f1f12cf`): every
+earlier report deleted first, every test task run with Turborepo's cache
+refused, each report proved to be this run's.
+
+| Package                     | Files   | Cases     | Passed    | Failed | Skipped |
+| --------------------------- | ------- | --------- | --------- | ------ | ------- |
+| `@desi-event/api`           | 78      | 1,529     | 1,529     | 0      | 0       |
+| `@desi-event/api-contract`  | 8       | 191       | 191       | 0      | 0       |
+| `@desi-event/auth`          | 7       | 357       | 357       | 0      | 0       |
+| `@desi-event/config`        | 6       | 255       | 255       | 0      | 0       |
+| `@desi-event/db`            | 3       | 103       | 103       | 0      | 0       |
+| `@desi-event/inventory`     | 8       | 291       | 291       | 0      | 0       |
+| `@desi-event/ledger`        | 1       | 33        | 33        | 0      | 0       |
+| `@desi-event/logger`        | 4       | 67        | 67        | 0      | 0       |
+| `@desi-event/notifications` | 2       | 56        | 56        | 0      | 0       |
+| `@desi-event/permissions`   | 4       | 612       | 612       | 0      | 0       |
+| `@desi-event/pricing`       | 5       | 116       | 116       | 0      | 0       |
+| `@desi-event/providers`     | 12      | 494       | 494       | 0      | 0       |
+| `@desi-event/schemas`       | 16      | 779       | 779       | 0      | 0       |
+| `@desi-event/ui`            | 13      | 108       | 108       | 0      | 0       |
+| `@desi-event/web`           | 95      | 1,514     | 1,514     | 0      | 0       |
+| `@desi-event/worker`        | 21      | 306       | 306       | 0      | 0       |
+| **Total**                   | **283** | **6,811** | **6,811** | **0**  | **0**   |
+
+"6811 case(s) ran across 16 fresh report(s); 0 failed, 0 skipped, 0
+undeclared." The skipped-test check over the same sixteen reports: 0 skipped,
+0 allow-listed, 0 undeclared. At the masking commit: 233 files, 5,942 cases.
+
+### P4-11. Database and reliability
+
+All on `43a5fd4`, each also passing on `f1f12cf`.
+
+- **Fresh database** (`db:verify:fresh`): 99 of 99 checks — a disposable
+  database created, every migration applied from nothing, and the API's
+  twelve database suites run against it (193 cases), plus the db package's 103. The new `ranked-page-integration.test.js` is not among the twelve; it
+  runs in the API suite under `verify:tests:fresh`, with `REQUIRE_DATABASE=1`,
+  against the migrated test database, locally and in CI.
+- **Upgrade** (`db:verify:upgrade`): 26 of 26 — a populated database at the
+  previous schema, upgraded in place.
+- **No migration** was added in this phase; `prisma/` is unchanged.
+- **Reliability**, CI's smoke step (ramp profile): GA hold, seat hold and
+  check-in contention, 3 of 3, each checking its invariants in the database
+  afterwards.
+- **Reliability**, every scenario (steady profile): 11 of 11 — public
+  browsing, public search, hot-event inventory reads, GA hold contention,
+  reserved-seat hold contention, checkout creation, duplicate webhooks,
+  check-in concurrency, notification throughput, refund contention and
+  reconciliation processing; 46,793 calls on `43a5fd4` (42,662 on
+  `f1f12cf`; the count is whatever each ten-second window completes). The first full run of this phase
+  failed refund contention on a lapsed step-up in the harness itself; §P4-15.
+
+### P4-12. Coverage
+
+`pnpm run test:coverage` on `43a5fd4`, figure for figure the same as on
+`f1f12cf`: 18 of 18 tasks. The two cached were
+the API and web builds, reused from the verify step in the same run, exactly
+as in CI; every coverage task ran.
+
+Thresholds are unchanged. They live in two files, neither touched since
+`33b906b`: `packages/config/src/vitest-node.js` (80% lines, functions and
+statements, 75% branches, for the twelve packages using it) and
+`vitest-react.js` (no threshold, for web and ui). `db` sets none, by its own
+recorded reasoning.
+
+| Package         | Statements | Branches | Functions | Lines | Gated |
+| --------------- | ---------- | -------- | --------- | ----- | ----- |
+| `api`           | 88.51      | 77.88    | 93.48     | 91.02 | yes   |
+| `api-contract`  | 94.29      | 90.00    | 100       | 95.11 | yes   |
+| `auth`          | 99.65      | 95.61    | 100       | 99.60 | yes   |
+| `inventory`     | 91.96      | 84.79    | 89.79     | 92.23 | yes   |
+| `ledger`        | 100        | 91.17    | 100       | 100   | yes   |
+| `logger`        | 100        | 100      | 100       | 100   | yes   |
+| `notifications` | 100        | 100      | 100       | 100   | yes   |
+| `permissions`   | 95.85      | 91.27    | 96.66     | 97.03 | yes   |
+| `pricing`       | 93.97      | 90.17    | 92.30     | 94.17 | yes   |
+| `providers`     | 98.03      | 94.19    | 97.76     | 98.28 | yes   |
+| `schemas`       | 96.48      | 82.30    | 87.65     | 96.65 | yes   |
+| `worker`        | 95.86      | 83.72    | 97.85     | 97.40 | yes   |
+| `ui`            | 97.61      | 94.02    | 100       | 99.43 | no    |
+| `web`           | 69.06      | 62.93    | 61.19     | 69.41 | no    |
+| `db`            | 0          | 0        | 0         | 0     | no    |
+
+The narrowest margin is the API's branches, 2.88 points above 75%. The web
+app's coverage is ungated, as it was before this phase; it is recorded here
+rather than described as meeting a threshold it does not have.
+
+### P4-13. Dependencies and bundle
+
+**Dependencies.** One change: `@desi-event/permissions` became a
+devDependency of the web app, so the navigation tests check the real
+role-to-capability tables rather than a copy. It is a workspace package and
+ships nothing new to a browser. pnpm 10.33.0 regenerated the lockfile and
+dropped an optional `@babel/core` peer suffix from the `next` and `styled-jsx`
+entries. No third-party package was added, removed or upgraded.
+`pnpm audit --audit-level moderate`: no known vulnerabilities.
+
+**Browser bundle.** Both measured as production builds with CI's public
+environment, summing every `.js` file under `.next/static`:
+
+| Tree                   | JS files | Bytes     |
+| ---------------------- | -------- | --------- |
+| `33b906b` (start)      | 36       | 1,685,404 |
+| `43a5fd4` (this phase) | 42       | 1,688,347 |
+
++2,943 bytes for seventeen new pages, a working checkout and three navigation
+layers. Near-flat because the checkout basket stopped importing the contract
+client, which had pulled the whole generated route table — every path the
+API serves — into the browser; the basket now posts through the same-origin
+proxy. The bundle scan read 533 browser-deliverable files on this tree (362
+at the masking commit) and found nothing server-only; its required list now
+names the checkout's hold and order paths and account creation (commit
+`5ba42cc`).
+
+### P4-14. Exact-SHA CI
+
+Two exact-SHA runs, both dispatched on `claude/phase4-frontend-ui-ux-completion`
+with `workflow_dispatch` and read back from the Actions API on 2026-09-23.
+
+| Job                                      | Run `35878840028` on `f1f12cf` | Run `35885247288` on `43a5fd4` |
+| ---------------------------------------- | ------------------------------ | ------------------------------ |
+| Policy, lint, contract, tests, build     | success                        | success                        |
+| Browser — public catalogue               | success                        | success                        |
+| Browser — production build               | success                        | success                        |
+| Browser — organiser venue maps           | success                        | success                        |
+| Browser — event lifecycle                | **failure** (§P4-15)           | success                        |
+| Browser — refusals                       | success                        | success                        |
+| Browser — accessibility sweep            | success                        | success                        |
+| Browser — commerce and operations detail | success                        | success                        |
+
+Run `35878840028` is left as it failed: it was not re-run, and its failure is
+root-caused in §P4-15. Run `35885247288`, on the remediation SHA that differs
+from `f1f12cf` by the one test fix, has all eight jobs `completed / success`,
+every step of the verify job included (fresh reports, coverage thresholds,
+fresh and upgrade databases, build, OpenAPI and route-manifest drift, bundle
+scan, dependency audit, the production-payments kill switch and the
+reliability smoke test).
+
+### P4-15. Failures found, and their root causes
+
+Every failure the gate and the suites raised in this phase, in the order
+found, with its cause. Each was fixed on a new commit; none was re-run in the
+hope of a different answer, and no assertion, threshold or timeout was
+loosened to pass.
+
+**Product defects the tests found.**
+
+1. **The simulated checkout broke after any API restart.** The in-memory
+   provider numbered intents from `pi_000001` in every process, and the
+   database, which outlives the process, holds `Payment(provider,
+providerRef)` unique. The second run of the purchase journey against one
+   database got a 500 on "Pay". Fixed in `bf24498`: a random id space per
+   process, with a test showing the old wiring's repeat.
+2. **The sitemap listed no events at all.** It asked for 200 events a page;
+   the listing caps at 100 and answers more with a 400, which the sitemap
+   swallowed. This dates from `a8baf43` (2026-09-14), before this phase. Its
+   unit test's stub accepted any page size. Fixed in `148cbec`; the stub now
+   parses queries with the API's own schema, and eight of fourteen cases fail
+   with the old value.
+3. **The notification queue scrolled sideways at 320 px** by 54 px: a
+   `<select>` is as wide as its longest option. Found by the sweep's new
+   Phase 4 block (seven widths and 200% zoom per surface). Fixed in `a2773eb`.
+4. **Six defects found while writing the new suites, before their first
+   run**: the sign-in answer's bearer secret reaching page JavaScript, a used
+   ticket counted as one that admits, the order list passing an array index
+   to its presenter (`b5b2a5f`); the payment notice's "production payments
+   disabled" and "marked DEMO", a promised ten-minute hold, a settled refund
+   not saying no money moved, a raw UTC time beside a zone name, a
+   change-password form without `method="post"` (`c8d4aaa`); demo venues
+   without slugs and a footer city with no venues (`c433cb6`).
+
+**Harness and test-design failures.**
+
+5. **Reliability, refund contention, 100% refused** on the first full run:
+   the operator's five-minute FINANCE_ACTION step-up lapsed before the tenth
+   scenario. The harness now renews it before each scenario (`d549b25`). CI
+   runs three scenarios and never reached it.
+6. **Three detail cases read "Loading…"**: the signed-in areas gained
+   streaming boundaries, and React reveals the page after the `load` event.
+   The fixtures now wait for the page's `<h1>` (`5d11baf`).
+7. **The new directory suites failed against the local test database**,
+   which holds 20,285 events (3,067 upcoming and listed) left by the API and
+   concurrency suites: walking Live Music reached page 320 and timed out, and
+   the organiser directory, which reads the first 500 upcoming events and
+   says so, did not reach this run's organisation. CI's browser jobs each
+   start from a freshly migrated database; the local runs were moved to the
+   same, and the organiser cases now assert the directory read the whole
+   listing first, so the precondition fails by name.
+8. **Bundle scan: two required strings absent**, `/v1/organizers` and the
+   finance export path. Both had been present only because the checkout
+   basket shipped the whole route table; requiring them would require it
+   back. The list now names what the browser must carry (`5ba42cc`).
+9. **Secret scan**: the checkout spec's buyer password did not announce
+   itself as a test value. Renamed to the seeds' convention (`f1f12cf`).
+10. **Format check**: eight files not run through Prettier (`30a46a5`).
+
+**Evidence runs that were superseded, and why.** The first detail run of the
+new suites was stopped at 63 of 132 once items 1 and 7 were understood, and
+the first six-configuration run was stopped in its sweep when the WCAG 2.2
+tags were added, so that no reported run mixes two versions of a file. The
+first gate attempt stopped at the secret scan (item 9). The last complete
+local run, on `f1f12cf`, is the one reported above.
+
+**The failed CI run, preserved.** Run `35878840028` on the implementation
+SHA `f1f12cf`: seven jobs `success`, **Browser — event lifecycle `failure`**
+(13 passed, journey 14 failed, 6 not run in serial mode). It was not re-run.
+
+- _What failed._ Journey 14 waited 90 s for the moderator's **Approve** button,
+  which never appeared.
+- _Root cause, from the job log._ The moderator's page request completed at
+  15:09:27.180 after 263 ms, so it began at about 26.917; the organiser's
+  `POST submit-review` began at about 26.902 and completed at 27.042. The
+  moderator's page read the event before the resubmission committed, still in
+  CHANGES_REQUIRED, which offers no Approve. The test meant to wait for the
+  resubmission and did not: it waited for any "waiting for review" on the
+  organiser's screen, and the panel's history has read "Draft → Waiting for
+  review" since journey 11's first submission, so the assertion passed before
+  the second was sent. The history labels date from `1b5e9b9` (2026-09-15);
+  this phase changed only the heading's colour token. The race is older than
+  Phase 4, and earlier runs passed while the POST happened to commit first.
+- _Reproduced before fixing._ The `submit-review` response was held back
+  1.5 s by a temporary route in the spec: the old wait failed exactly as CI
+  did (13 passed, journey 14 waiting for Approve, 6 not run).
+- _Fix_ (`43a5fd4`, the remediation SHA). Journey 14 now waits for the
+  panel's announcement, "Waiting for review. A moderator has it…", which the
+  panel sets only after the server answers — the same wait journey 11 already
+  used. With the same 1.5 s delay it passed 20 of 20; the delay is not in the
+  commit. Journeys 16–18 wait on sentences the history never carries and
+  were checked, not changed.
+
+### P4-16. External verification pending
+
+| Item                           | Status                                   |
+| ------------------------------ | ---------------------------------------- |
+| Physical-device QR             | **EXTERNAL DEVICE VERIFICATION PENDING** |
+| Non-Chromium camera scanning   | **EXTERNAL DEVICE VERIFICATION PENDING** |
+| Real Stripe and Stripe Connect | **EXTERNAL VERIFICATION PENDING**        |
+
+Every QR and camera result in this report is Chromium simulation. None of it is
+represented as a physical device, a phone camera, Safari or Firefox.
+
+### P4-17. Blocked and not implemented
+
+| Capability             | Status                                    | What the site does instead                                                                                              |
+| ---------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Reserved-seat transfer | **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT** | The transfer screen refuses a seated ticket and links the limitations page.                                             |
+| Group booking          | **NOT IMPLEMENTED**                       | No screen offers it.                                                                                                    |
+| Offline admission      | **NOT IMPLEMENTED**                       | Offline, the door screen says nobody can be admitted until the device is back online; no service worker, no local list. |
+| Email delivery         | **NOT IMPLEMENTED**                       | Offering a ticket says the invitation is recorded and nothing has been sent; team invitations are not offered.          |
+| SMS delivery           | **NOT IMPLEMENTED**                       | No screen offers it.                                                                                                    |
+| Destructive retention  | **DISABLED**                              | The retention screen rehearses (DRY_RUN) and says nothing was deleted.                                                  |
+
+`/limitations` lists each of these, and the three in §P4-16, word for word,
+with what each means for the person using the site and no promise of when it
+might change. The footer links it. Nothing in the site says "coming soon".
+
+### P4-18. PAYMENT_MODE
+
+`PAYMENT_MODE` is **MOCK**. It is unset in `.env.example` (which says "Leave
+unset for mock") and in CI, and unset resolves to MOCK, which the provider
+tests pin; no environment this phase ran set it to anything else. The kill switch is unchanged and its suite passed
+(12 of 12, `tests/payment-kill-switch.test.js`). Checkout completes a purchase against the in-memory provider:
+no card is asked for, no money moves, and the button, the held notice, the
+confirmation, the order page and a settled refund each say so. No provider
+credential was added.
+
+### P4-19. Destructive retention
+
+Disabled. The retention worker runs DRY_RUN only; no code path in this phase
+touches it, and the retention screen says nothing was deleted.
+
+### P4-20. Screens intentionally not built
+
+- A seat picker. Seated tiers show "Seated — not sold on this site".
+- Guest checkout. Buying needs an account: tickets live in it, the build sends
+  no email, and no route lets a guest claim a purchase later.
+- Inviting a team member. The API can record an invitation; nothing delivers it.
+- Password reset and address confirmation. Neither exists in the API; the
+  registration page says so before an account is made.
+- Self-service data export and account deletion for an attendee. The account
+  privacy page names both as missing: there is no self-service export, and
+  deletion is redaction carried out by an organisation's privacy team, which
+  the person asks for through the organiser; the site cannot pass the request
+  on.
+- Organisation self-service sign-up.
+- An offline door, a group booking flow, an SMS channel, reserved-seat transfer
+  (§P4-17).
+- **`/tickets/accept` is reachable but not useful in practice**: it needs the
+  code from an invitation, and this build delivers none. The page and the
+  transfer screens say so; the route is kept because the API flow behind it is
+  real.
+
+### P4-21. Findings recorded, not fixed
+
+Found during this phase, judged outside its scope or not safely fixable in
+it, and left as they are. None is hidden behind a passing test.
+
+| Finding                                                                                                  | Effect                                                                                                                               | Why not fixed here                                                                                                |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| The organiser directory reads at most 500 upcoming events                                                | On a larger catalogue it lists organisers from the first 500 only                                                                    | It says so on the page; a complete directory needs an organiser listing route the API does not have               |
+| A simulated capture made by an earlier API process cannot be refunded by a later one                     | The in-memory provider's intents do not survive a restart; the provider answers `INTENT_NOT_FOUND` and the refund is recorded FAILED | Inherent to an in-memory stand-in; a real provider keeps its records                                              |
+| `orders.create` is described as answering PENDING; in MOCK it answers PAID                               | A reader of the contract could expect a second step that MOCK never needs                                                            | A contract wording change across payment modes; recorded for the payments owner                                   |
+| `ticket-tiers` docstring says holds are subtracted; the event page counts `quantityTotal − quantitySold` | The page may show a few more "left" than can be held at that instant                                                                 | The number is not shown as a count to buyers (availability is in words), so nothing false is displayed            |
+| The sitemap lists an organisation-owned venue's page                                                     | Such a page resolves for anybody with the link, by design, but is now also advertised                                                | Deciding whether owned venues are public is a product decision                                                    |
+| The reconciliation detail crumb returns to the unscoped list                                             | A scoped reader lands on a list the API scopes for them anyway                                                                       | Cosmetic; the API decides what the list holds                                                                     |
+| Detail specs seed some rows for the beta organisation themselves                                         | A spec's world is not wholly built by global setup                                                                                   | Each spec cleans up what it writes; moving them is test refactoring                                               |
+| Existing detail specs rely on the 15-minute FINANCE_VIEW window                                          | A very slow run could see a lapsed step-up                                                                                           | Measured runs finish well inside it; the load harness, which does run long, renews its step-up (commit `d549b25`) |
+| Accepting a transfer depends on an invitation nobody delivers                                            | `/tickets/accept` works but nobody receives a code                                                                                   | Email is NOT IMPLEMENTED (§P4-17)                                                                                 |
+| No route sets `Organization.suspendedAt`                                                                 | A suspended organisation would still be listed                                                                                       | No suspension flow exists to honour                                                                               |
+| Registration answers 409 for an address that already has an account                                      | Whether an address is registered can be learnt                                                                                       | The API's existing behaviour; changing it needs a decision about sign-in help                                     |
+| `Invitation.email` survives a person's erasure                                                           | An invitation row can keep an address                                                                                                | Retention and redaction policy for invitations is the privacy owner's                                             |
+| The ticket page shows the human-readable code twice                                                      | Redundant, not a credential (the admission credential is the pass)                                                                   | Cosmetic                                                                                                          |
+| The primary navigation sheet uses `h2` group headings                                                    | Intentional and tested; listed because an audit might query it                                                                       | Not a defect                                                                                                      |
+
+### P4-22. Requirements to evidence
+
+A page rendering is not evidence that a feature works. Each row names what
+proves it.
+
+| Requirement                                                 | What proves it (not merely that a page renders)                                                                                                                                                                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No part of an address to anybody not entitled               | `apps/api/tests/team-email-integration.test.js` (15 cases on PostgreSQL through the real app, each searching the whole body for every address, local part and `@`); `address-privacy.test.js`; schema tests; twenty mutations each failing (commit `bf13cb3`) |
+| One token vocabulary; contrast                              | `packages/config/tests/token-contrast.test.js` (169 pairings, both registers); `semantic-classes.test.js` (no literal colour outside documented exceptions)                                                                                                   |
+| Navigation derived from `auth.me`, not a role list          | `apps/web/src/lib/navigation.test.js` against the real permission tables; `detail-directories` "the header"; `detail-account` "the account rail"; `detail-workspace` rail and crumb cases                                                                     |
+| Same-origin `next`, no open redirect                        | `apps/web/src/lib/next-path.test.js` (29 cases, including `/\evil.example`)                                                                                                                                                                                   |
+| Every page reachable without typing a URL                   | the rail, tab and crumb cases in `detail-account` and `detail-workspace`; `lib/area-tabs.test.js`                                                                                                                                                             |
+| Real refusal vocabulary, no endpoint in a sentence          | `apps/web/src/lib/refusal.test.js`; the refusals browser suite (identical wording for another organisation's draft and an unused id)                                                                                                                          |
+| No indefinite spinner; no 200 for a missing page            | `loading-boundaries.test.js` (no `notFound()`/`redirect()` under a streaming boundary); reads bounded by a five-second timeout                                                                                                                                |
+| Discovery counts agree with the listing                     | `detail-directories` category case: the directory's count equals the listing's stated total, and its pages hold exactly that many distinct events                                                                                                             |
+| Cards: all-in price, availability, no invented urgency      | `detail-directories` "event cards" (every card on the walk checked for urgency words, availability vocabulary and the all-in qualifier); the API test holding `minTotalCents` to a one-ticket order's total                                                   |
+| Event page quotes what checkout charges                     | `feeTerms` test pricing an order to the paisa; `detail-checkout` (basket total equals the event page's)                                                                                                                                                       |
+| A purchase completes, simulated                             | `detail-checkout` (reserve → pay → booked, reference in the API's pattern, "no money moved"); `checkout-basket.test.jsx` (one booking per attempt key, retry reuses it, lapsed hold)                                                                          |
+| A restart cannot break checkout                             | `apps/api/tests/process-providers.test.js` (shows the default wiring's repeat; proves distinct ids across processes)                                                                                                                                          |
+| Wallet says what admits                                     | `apps/api/tests/ticket-wallet.test.js` (a checked-in ticket does not admit); `detail-ticket-wallet`                                                                                                                                                           |
+| Bearer secret stays out of page JavaScript                  | `apps/web/src/app/api/v1/[...path]/route.test.js` (6 cases)                                                                                                                                                                                                   |
+| Open work first in the queues                               | `apps/api/tests/ranked-page-integration.test.js` on PostgreSQL: the old column sort misorders real rows; the ranked read does not, including a page straddling the tiers                                                                                      |
+| Team, refund, reconciliation, outbox lists scoped and paged | `detail-workspace` (19 cases)                                                                                                                                                                                                                                 |
+| Sitemap lists the live catalogue                            | `sitemap.test.js` (stub now refuses what the API refuses; 8 of 14 fail with the old page size); `detail-directories` sitemap case against the real API                                                                                                        |
+| Only the door interrupts                                    | `components/live-region-policy.test.js` (source check; the door keeps at least four urgent outcomes)                                                                                                                                                          |
+| Motion 120–250 ms; reduced motion                           | `motion.test.jsx` (durations equal the CSS tokens); the sweep's reduced-motion cases                                                                                                                                                                          |
+| Responsive, 320–1440 px and 200% zoom                       | the sweep's Phase 4 block: sixteen surfaces × eight sizes, no horizontal overflow, scanned at four                                                                                                                                                            |
+| WCAG 2.2 AA (automated)                                     | the sweep: axe with `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22a`, `wcag22aa`; keyboard, focus-visibility and touch-target cases                                                                                                                      |
+| Titles leak nothing                                         | `app/page-titles.test.js` walks every page                                                                                                                                                                                                                    |
+| Installable, no service worker                              | `app/manifest.test.js`; `detail-directories` manifest case; no service worker exists: nothing in `apps/web/src` registers one, and the app has no `public/` directory to serve one from                                                                       |
+| Honest limitations                                          | `detail-account` "the limitations page shows every recorded status word exactly"                                                                                                                                                                              |
+| `PAYMENT_MODE` MOCK and the kill switch                     | the kill-switch suite (12 of 12, `tests/payment-kill-switch.test.js`); `packages/providers/src/payment-mode.test.js`                                                                                                                                          |
+
+### P4-23. Phase 4 classification
+
+"Verified" below means proved by the tests named in §P4-22, run locally and in
+CI run `35885247288` on the remediation SHA `43a5fd4`. Browser results are
+Chromium only.
+
+| #   | Requirement                    | Classification                                                                                                                                                                                                        |
+| --- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Email privacy                  | **COMPLETE — VERIFIED** (masking SHA `bf13cb3`, CI `35819310106`)                                                                                                                                                     |
+| 2   | Semantic design system         | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 3   | Public navigation              | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 4   | Attendee navigation            | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 5   | Operations navigation          | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 6   | Public discovery               | **COMPLETE — VERIFIED**; the organiser directory reads at most 500 upcoming events and says so when it stops short (§P4-21)                                                                                           |
+| 7   | Event detail                   | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 8   | Ticket wallet                  | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 9   | Secure attendee pass           | **COMPLETE IN CHROMIUM SIMULATION**; on a physical device **EXTERNAL DEVICE VERIFICATION PENDING**                                                                                                                    |
+| 10  | Transfer experience            | **PARTIAL** — offer, withdraw and decline work for general-admission tickets; accepting needs the invitation code, and delivering it is **NOT IMPLEMENTED**; seated tickets **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT** |
+| 11  | Organizer workspace            | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 12  | Check-in workspace             | **COMPLETE IN CHROMIUM SIMULATION**; other browsers' cameras **EXTERNAL DEVICE VERIFICATION PENDING**                                                                                                                 |
+| 13  | Venue management               | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 14  | Team management                | **COMPLETE — VERIFIED** for roles, removal and door scope; inviting is not offered, because invitations cannot be delivered (**NOT IMPLEMENTED**)                                                                     |
+| 15  | Finance mock surfaces          | **COMPLETE — VERIFIED, MOCK ONLY**                                                                                                                                                                                    |
+| 16  | Notification operations        | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 17  | Privacy operations             | **COMPLETE — VERIFIED** for the organisation's privacy team; attendee self-service export and deletion **NOT IMPLEMENTED**                                                                                            |
+| 18  | Moderation                     | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 19  | Responsive behavior            | **COMPLETE — VERIFIED IN CHROMIUM** at 320–1440 px and 200% zoom                                                                                                                                                      |
+| 20  | Accessibility                  | **VERIFIED BY AUTOMATED CHECKS** (axe WCAG 2.2 A/AA rules, keyboard, reflow, focus, live-region policy); no manual screen-reader audit was performed                                                                  |
+| 21  | Motion and reduced motion      | **COMPLETE — VERIFIED**                                                                                                                                                                                               |
+| 22  | Reserved-seat transfer         | **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT**                                                                                                                                                                             |
+| 23  | Group booking                  | **NOT IMPLEMENTED**                                                                                                                                                                                                   |
+| 24  | Offline admission              | **NOT IMPLEMENTED**                                                                                                                                                                                                   |
+| 25  | Physical-device QR             | **EXTERNAL DEVICE VERIFICATION PENDING**                                                                                                                                                                              |
+| 26  | Real Stripe and Stripe Connect | **EXTERNAL VERIFICATION PENDING**                                                                                                                                                                                     |
+| 27  | Destructive retention          | **DISABLED**                                                                                                                                                                                                          |
+
+### What this phase does not claim
+
+- That any payment, refund or payout moved money. `PAYMENT_MODE` is MOCK;
+  every figure on the finance screens is simulated and says so.
+- That Stripe or Stripe Connect works. Neither was exercised: **EXTERNAL
+  VERIFICATION PENDING**.
+- That a pass scans on a real phone, or that the door camera works outside
+  Chromium: **EXTERNAL DEVICE VERIFICATION PENDING**.
+- That the site is accessible to every person using assistive technology.
+  Automated WCAG 2.2 A/AA rules and the direct checks listed pass; nobody has
+  used it with a screen reader, voice control or a switch.
+- That it is responsive on physical devices. Every width here is a Chromium
+  viewport.
+- That a transfer can be completed by two real people without help: the
+  recipient needs a code this build does not deliver.
+- That reserved-seat transfer, group booking, offline admission, SMS or email
+  exist. They do not.
+- That destructive retention runs. It is disabled.
+- That the product is complete. Phase 4 finishes the frontend, UI/UX,
+  navigation and operational surfaces over the backend that exists; the
+  items in §P4-16, §P4-17 and §P4-21 remain.
+
+---
+
+## Phase 4: **COMPLETE — VERIFIED ON REMEDIATION SHA `43a5fd4`**
+
+Implementation SHA `f1f12cfd668e06e877df6a37f4a45e4b2566c28f`; its exact-SHA
+CI run `35878840028` failed one job and is preserved (§P4-15). Remediation SHA
+`43a5fd47d9e92aa16b4e69fe5b133006b1754192`; exact-SHA CI run `35885247288`,
+eight of eight jobs `success` (§P4-14). This section is committed separately,
+as documentation only.
+
+"Complete" is the phase's verdict, not every item's. The twenty-seven
+classifications in §P4-23 stand as written: the transfer experience is
+PARTIAL; reserved-seat transfer is **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT**;
+group booking and offline admission are **NOT IMPLEMENTED**; physical-device
+QR and non-Chromium cameras are **EXTERNAL DEVICE VERIFICATION PENDING**; real
+Stripe and Connect are **EXTERNAL VERIFICATION PENDING**; destructive
+retention is **DISABLED**. `PAYMENT_MODE` stayed MOCK throughout, and no
+provider credential was added.
+
+A redesign of the site for a USA-only catalogue was asked for after this run
+went green. It is new work, recorded separately, and nothing in it is claimed
+here.
+
+---
+
 ## Sections still to be written
 
 Phases 3 and 4, and the following report requirements, are not yet
@@ -2666,3 +3417,12 @@ changes, the credential and QR threat model, the scanner's preview and
 check-in flow, and the accessibility, Playwright-collection, limitation,
 deferred-work, external-verification and classification items. Phase 4, and
 every one of those items for the product as a whole, is still unwritten.
+
+_Update, 2026-09-23, at the Phase 4 closure. Both paragraphs above are left as
+written._ Phase 4's section now answers, for the product's frontend and
+operational surfaces, the route and navigation inventory, the accessibility
+and responsive evidence, the Playwright collection proof, the known
+limitations, the external-verification items and the per-requirement
+classification. What no phase has written is a whole-product closing report:
+final repository state, architecture and data flow, and a security regression
+summary across all four phases.
