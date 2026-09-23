@@ -426,7 +426,7 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     // The only simulated-payment wording on the event page itself is the
     // footer's; checkout carries the full notice, asserted next.
     await expect(visitor.getByRole('contentinfo')).toContainText(
-      'Payments and payouts in this build are simulated: nothing is charged and nothing is paid out.',
+      'Payments on this site are simulated — no card, no money moves.',
     )
 
     expect(normalise(await visitor.getByRole('main').innerText())).not.toMatch(URGENCY)
@@ -575,7 +575,7 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
 
     // The page states that limit, on this browser's clock, as the basket does.
     const until = await buyer.evaluate(
-      (at) => new Intl.DateTimeFormat('en-IN', { timeStyle: 'short' }).format(new Date(at)),
+      (at) => new Intl.DateTimeFormat('en-US', { timeStyle: 'short' }).format(new Date(at)),
       hold.expiresAt,
     )
     const heldNotice = buyer.getByRole('status').filter({ hasText: 'Tickets held' })
@@ -690,6 +690,16 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
   })
 
   test('My tickets lists the new ticket for this event, and neither page carries its pass', async () => {
+    // Never fetched from this window. The case only checks the pass is
+    // offered — from the wallet card and on the ticket page — but a pass is a
+    // bearer credential and a failure screenshot of either page must not be
+    // able to hold one, so any pass request is answered here, before either
+    // page is opened, and never reaches the API (see
+    // lib/e2e-pass-hygiene.test.js).
+    await buyer.route('**/api/v1/tickets/*/pass', (route) =>
+      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
+    )
+
     await buyer
       .getByRole('status')
       .filter({ has: buyer.getByRole('heading', { name: 'Booked' }) })
@@ -707,8 +717,14 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
       .filter({ hasText: reference })
 
     await expect(card).toHaveCount(1)
-    await expect(card.getByRole('link', { name: title })).toBeVisible()
+    // Exact: the card's other link, to the pass, carries the title too.
+    await expect(card.getByRole('link', { name: title, exact: true })).toBeVisible()
     await expect(card).toContainText('Ready to use')
+    // A ticket that admits offers its pass from the card as a plain link to
+    // the ticket page's pass section, which still draws nothing until asked.
+    await expect(
+      card.getByRole('link', { name: `Show my entry pass for ${title}`, exact: true }),
+    ).toHaveAttribute('href', /^\/tickets\/[^/#]+#entry-pass$/u)
     await expect(definition(card, 'Ticket')).toHaveText(TIER)
     await expect(definition(card, 'Order')).toHaveText(reference)
 
@@ -718,7 +734,7 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     expectNoCredential(await buyer.content(), 'the wallet')
     expectNoCredential(await serverHtml(buyer, '/tickets', ticketCode), 'the wallet as served')
 
-    await card.getByRole('link', { name: title }).click()
+    await card.getByRole('link', { name: title, exact: true }).click()
     await buyer.waitForURL((url) => /^\/tickets\/[^/]+$/u.test(url.pathname))
 
     ticketId = decodeURIComponent(new URL(buyer.url()).pathname.split('/').pop())
@@ -728,14 +744,6 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     await expect(buyer.getByRole('heading', { name: title, level: 1 })).toBeVisible()
     await expect(main).toContainText('Admits. Ready to use.')
     await expect(definition(main, 'Reference')).toHaveText(ticketCode)
-    // Never fetched from this window. The case only checks the control is
-    // offered, but a pass is a bearer credential and a failure screenshot of
-    // this page must not be able to hold one, so any pass request is answered
-    // here and never reaches the API (see lib/e2e-pass-hygiene.test.js).
-    await buyer.route('**/api/v1/tickets/*/pass', (route) =>
-      route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }),
-    )
-
     // Offered to the holder, and only on request: not drawn until pressed.
     await expect(buyer.getByRole('button', { name: 'Show my entry pass' })).toBeVisible()
 

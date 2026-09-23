@@ -4,12 +4,12 @@ import { expect, test } from '@playwright/test'
 const PAGES = [
   { name: 'home', path: '/' },
   { name: 'listing', path: '/events' },
-  { name: 'filtered listing', path: '/events?category=COMEDY' },
-  { name: 'event detail', path: '/events/qawwali-under-the-banyan' },
-  { name: 'checkout', path: '/events/qawwali-under-the-banyan/checkout' },
-  { name: 'organiser', path: '/organizers/rangmanch-collective' },
-  { name: 'unverified organiser', path: '/organizers/masala-arts-london' },
-  { name: 'venue', path: '/venues/jio-world-garden' },
+  { name: 'filtered listing', path: '/events?category=WORKSHOP' },
+  { name: 'event detail', path: '/events/bay-lights-garba-opening' },
+  { name: 'checkout', path: '/events/bay-lights-garba-opening/checkout' },
+  { name: 'organiser', path: '/organizers/bay-lights-garba-co' },
+  { name: 'unverified organiser', path: '/organizers/liberty-bell-navratri' },
+  { name: 'venue', path: '/venues/santa-clara-valley-expo' },
   { name: 'not found', path: '/events/no-such-event' },
 ]
 
@@ -44,7 +44,7 @@ test.describe('accessibility smoke checks', () => {
     test(`${name} declares its language and a title`, async ({ page }) => {
       await page.goto(path)
 
-      await expect(page.locator('html')).toHaveAttribute('lang', 'en-IN')
+      await expect(page.locator('html')).toHaveAttribute('lang', 'en-US')
       await expect(page).toHaveTitle(/\S/)
     })
 
@@ -84,11 +84,11 @@ test.describe('accessibility smoke checks', () => {
   })
 
   test('every quantity control is labelled with the tier it belongs to', async ({ page }) => {
-    await page.goto('/events/qawwali-under-the-banyan/checkout')
+    await page.goto('/events/bay-lights-garba-opening/checkout')
 
-    await expect(page.getByLabel('Quantity of Garden Seating')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Add one Garden Seating' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Remove one Garden Seating' })).toBeVisible()
+    await expect(page.getByLabel('Quantity of VIP')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add one VIP' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Remove one VIP' })).toBeVisible()
   })
 
   test('the primary navigation and the listing are exposed as named regions', async ({ page }) => {
@@ -99,7 +99,7 @@ test.describe('accessibility smoke checks', () => {
   })
 
   test('headings on the event page descend without skipping a level', async ({ page }) => {
-    await page.goto('/events/qawwali-under-the-banyan')
+    await page.goto('/events/bay-lights-garba-opening')
 
     const levels = await page
       .locator('main h1, main h2, main h3')

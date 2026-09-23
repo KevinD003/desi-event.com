@@ -4,38 +4,45 @@ test.describe('listing filters', () => {
   test('choosing a category narrows the listing and updates the URL', async ({ page }) => {
     await page.goto('/events')
 
-    await expect(page.getByTestId('result-count')).toContainText('10 events')
+    await expect(page.getByTestId('result-count')).toContainText('17 events')
 
-    await page.getByLabel('Category').selectOption('COMEDY')
+    await page.getByLabel('Category').selectOption('MUSIC_CONCERT')
 
-    await expect(page).toHaveURL(/category=COMEDY/)
+    await expect(page).toHaveURL(/category=MUSIC_CONCERT/)
     await expect(page.getByTestId('result-count')).toContainText('1 event')
-    await expect(page.getByRole('link', { name: 'Desi Comedy Uncensored' })).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: 'Live Garba Band Night with the Mirrorwork Ensemble' }),
+    ).toBeVisible()
   })
 
   test('the city filter and the category filter combine', async ({ page }) => {
     await page.goto('/events')
 
-    await page.getByLabel('City').selectOption('London')
-    await expect(page).toHaveURL(/city=London/)
-    await expect(page.getByTestId('result-count')).toContainText('3 events in London')
+    await page.getByLabel('City').selectOption('Edison')
+    await expect(page).toHaveURL(/city=Edison/)
+    await expect(page.getByTestId('result-count')).toContainText('3 events in Edison')
 
-    await page.getByLabel('Category').selectOption('COMEDY')
-    await expect(page).toHaveURL(/category=COMEDY.*city=London|city=London.*category=COMEDY/)
-    await expect(page.getByTestId('result-count')).toContainText('1 event')
+    await page.getByLabel('Category').selectOption('MUSIC_CONCERT')
+    await expect(page).toHaveURL(
+      /category=MUSIC_CONCERT.*city=Edison|city=Edison.*category=MUSIC_CONCERT/,
+    )
+    await expect(page.getByTestId('result-count')).toContainText('1 event in Edison')
   })
 
   test('a free-text search applies on submit and survives a reload', async ({ page }) => {
     await page.goto('/events')
 
-    await page.getByLabel('Search').fill('garba')
+    // "workshop" rather than "garba": nearly every night in the catalogue is a
+    // garba night, and a search that narrows seventeen to sixteen proves less
+    // than one that narrows it to two.
+    await page.getByLabel('Search').fill('workshop')
     await page.getByRole('button', { name: 'Apply' }).click()
 
-    await expect(page).toHaveURL(/q=garba/)
+    await expect(page).toHaveURL(/q=workshop/)
     await expect(page.getByTestId('result-count')).toContainText('2 events matching')
 
     await page.reload()
-    await expect(page.getByLabel('Search')).toHaveValue('garba')
+    await expect(page.getByLabel('Search')).toHaveValue('workshop')
     await expect(page.getByTestId('result-count')).toContainText('2 events matching')
   })
 
@@ -52,7 +59,7 @@ test.describe('listing filters', () => {
   })
 
   test('clearing the filters returns to the canonical listing URL', async ({ page }) => {
-    await page.goto('/events?category=COMEDY&city=London')
+    await page.goto('/events?category=MUSIC_CONCERT&city=Edison')
 
     await page.getByRole('button', { name: 'Clear' }).click()
 
@@ -71,6 +78,32 @@ test.describe('listing filters', () => {
 
     await expect(page).toHaveURL(/category=GARBA_DANDIYA/)
     await expect(page.getByLabel('Category')).toHaveValue('GARBA_DANDIYA')
+  })
+
+  test('a category chosen before the page has hydrated is still applied', async ({ page }) => {
+    // Hold the page's scripts back, so the choice lands on the server's HTML
+    // with no handler attached, as it can for a visitor on a slow connection.
+    let release
+    const held = new Promise((resolve) => {
+      release = resolve
+    })
+    await page.route(/\/_next\/static\/chunks\/.*\.js(\?|$)/, async (route) => {
+      await held
+      await route.continue()
+    })
+
+    await page.goto('/events', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByTestId('result-count')).toContainText('17 events')
+    await page.getByLabel('Category').selectOption('MUSIC_CONCERT')
+
+    // Nothing can have answered the choice yet.
+    await expect(page).toHaveURL(/\/events$/)
+
+    release()
+
+    await expect(page).toHaveURL(/category=MUSIC_CONCERT/)
+    await expect(page.getByTestId('result-count')).toContainText('1 event')
+    await expect(page.getByLabel('Category')).toHaveValue('MUSIC_CONCERT')
   })
 
   test('the filter bar works as a plain GET form', async ({ page }) => {

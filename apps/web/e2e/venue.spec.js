@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { firstSpokenText } from './support/link-text.js'
+
 /**
  * Journey: an event leads to its venue, and the venue page stands on its own.
  *
@@ -9,7 +11,7 @@ import { expect, test } from '@playwright/test'
  */
 test.describe('event → venue', () => {
   test('a visitor reaches a venue from an event and reads its page', async ({ page }) => {
-    await page.goto('/events/qawwali-under-the-banyan')
+    await page.goto('/events/bay-lights-garba-opening')
 
     const where = page.getByRole('region', { name: 'Venue' })
     const venueLink = where.getByRole('link').first()
@@ -25,7 +27,7 @@ test.describe('event → venue', () => {
   })
 
   test('accessibility claims are readable text, not icons', async ({ page }) => {
-    await page.goto('/venues/jio-world-garden')
+    await page.goto('/venues/santa-clara-valley-expo')
 
     const access = page.getByRole('region', { name: 'Accessibility' })
 
@@ -37,25 +39,25 @@ test.describe('event → venue', () => {
     const context = await browser.newContext({ javaScriptEnabled: false })
     const page = await context.newPage()
 
-    await page.goto('/venues/jio-world-garden')
+    await page.goto('/venues/santa-clara-valley-expo')
 
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Jio World Garden')
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Santa Clara Valley Expo')
     await expect(page.getByRole('region', { name: 'Where it is' })).toBeVisible()
     await expect(page.getByText('Step-free entrance')).toBeVisible()
-    await expect(page.locator('address')).toContainText('Mumbai')
+    await expect(page.locator('address')).toContainText('Santa Clara')
 
     await context.close()
   })
 
   test('publishes Place structured data', async ({ page }) => {
-    await page.goto('/venues/jio-world-garden')
+    await page.goto('/venues/santa-clara-valley-expo')
 
     const json = JSON.parse(
       await page.locator('script[type="application/ld+json"]').first().textContent(),
     )
 
     expect(json['@type']).toBe('Place')
-    expect(json.address.addressLocality).toBe('Mumbai')
+    expect(json.address.addressLocality).toBe('Santa Clara')
   })
 
   test('a venue nobody has is not found, and says nothing about why', async ({ page }) => {
@@ -66,11 +68,11 @@ test.describe('event → venue', () => {
   })
 
   test('the venue page leads back to an event on there', async ({ page }) => {
-    await page.goto('/venues/jio-world-garden')
+    await page.goto('/venues/santa-clara-valley-expo')
 
     const whatsOn = page.getByRole('region', { name: /What/ })
     const link = whatsOn.getByRole('link').first()
-    const title = (await link.locator('span').first().textContent())?.trim()
+    const title = await firstSpokenText(link)
 
     await link.click()
     await expect(page).toHaveURL(/\/events\/[a-z0-9-]+$/)
@@ -79,7 +81,7 @@ test.describe('event → venue', () => {
 
   test('fits a phone without scrolling sideways', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 780 })
-    await page.goto('/venues/jio-world-garden')
+    await page.goto('/venues/santa-clara-valley-expo')
 
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -92,7 +94,7 @@ test.describe('event → venue', () => {
     const context = await browser.newContext({ reducedMotion: 'reduce' })
     const page = await context.newPage()
 
-    await page.goto('/venues/jio-world-garden')
+    await page.goto('/venues/santa-clara-valley-expo')
 
     await expect(page.getByRole('region', { name: 'Accessibility' })).toBeVisible()
     await expect(page.getByRole('region', { name: /What/ })).toBeVisible()

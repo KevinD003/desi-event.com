@@ -202,9 +202,12 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await summary.fill('An evening of qawwali under a two-hundred-year-old banyan.')
 
     await expect(organiser.getByTestId('save-status')).toHaveText(/unsaved changes/i)
-    await expect(organiser.getByTestId('save-status')).toHaveText(/saved at \d{2}:\d{2}/i, {
-      timeout: 20_000,
-    })
+    // The editor tells the time the way the rest of the site does, in US
+    // English: "Saved at 7:04 PM."
+    await expect(organiser.getByTestId('save-status')).toHaveText(
+      /saved at \d{1,2}:\d{2}\s?[AP]M/i,
+      { timeout: 20_000 },
+    )
 
     await organiser.reload()
 
@@ -319,7 +322,9 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(organiser.getByText(/no ticket types yet/i)).toBeVisible()
 
     await organiser.getByLabel(/^Name/).fill('General admission')
-    await organiser.getByLabel(/face value, in paise/i).fill('149900')
+    // Face values are entered in the currency's minor units, and a new tier is
+    // in US dollars unless the organiser picks another currency.
+    await organiser.getByLabel(/face value, in cents/i).fill('3500')
     await organiser.getByLabel(/how many/i).fill('200')
     await organiser.getByLabel(/put this tier on sale straight away/i).check()
     await organiser.getByRole('button', { name: 'Add ticket type' }).click()
@@ -328,7 +333,7 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
 
     // The face value the organiser typed, and the number the buyer pays. Both on
     // the screen where the price is set, which is the whole point.
-    await expect(organiser.getByText(/Face value ₹1,499\.00/)).toBeVisible()
+    await expect(organiser.getByText(/Face value \$35\.00/)).toBeVisible()
     await expect(organiser.getByText(/all in/i)).toBeVisible()
     await expect(organiser.getByText(/fee/i).first()).toBeVisible()
   })
@@ -568,7 +573,9 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await organiser.getByRole('button', { name: 'Cancel this event' }).click()
 
     await expect(organiser.getByText(/cannot be undone/i)).toBeVisible()
-    await expect(organiser.getByText(/no money moves/i)).toBeVisible()
+    // In the confirmation itself: the footer on every page also says no money
+    // moves, and that sentence is not the one this journey is about.
+    await expect(organiser.getByRole('main').getByText(/no money moves/i)).toBeVisible()
 
     await organiser.getByLabel(/^Reason/).selectOption('ARTIST_UNAVAILABLE')
     await organiser

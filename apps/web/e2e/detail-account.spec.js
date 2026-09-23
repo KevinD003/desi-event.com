@@ -798,10 +798,11 @@ test.describe('what this build cannot do', () => {
     await owner.goto('/account/privacy')
     await expect(pageHeading(owner, 'Privacy')).toBeVisible()
 
-    // Reached from the footer every page carries.
+    // Reached from the footer every page carries: "The full list", under the
+    // footer's heading "What this site does not do".
     await owner
       .getByRole('contentinfo')
-      .getByRole('link', { name: 'What this site does not do', exact: true })
+      .getByRole('link', { name: 'The full list', exact: true })
       .click()
 
     await expect(owner).toHaveURL((url) => url.pathname === '/limitations')

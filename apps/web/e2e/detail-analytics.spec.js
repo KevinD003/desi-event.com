@@ -25,9 +25,28 @@ const COLLECTED_CENTS = 200_000
  */
 const ids = () => world()
 
+/**
+ * The world's ledger currency.
+ *
+ * The page reads one currency at a time and asks for US dollars unless the
+ * address names another. The seeded ledger is in rupees, so every visit here
+ * names them: otherwise a figure never requested would pass for one withheld,
+ * and the viewer and refusal cases below would prove nothing.
+ */
+const LEDGER_CURRENCY = 'INR'
+
+/**
+ * The analytics address for one organisation, in the ledger's currency.
+ *
+ * @param {string} organizationId Whose figures.
+ * @returns {string} A path with its query.
+ */
+const analyticsFor = (organizationId) =>
+  `/analytics?organizationId=${organizationId}&currency=${LEDGER_CURRENCY}`
+
 test.describe('organiser analytics', () => {
   test('reports what the ledger says', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
     await expect(owner.getByRole('heading', { level: 1 })).toBeVisible()
 
     await expect(owner.getByRole('heading', { name: /money, from the ledger/i })).toBeVisible()
@@ -40,7 +59,7 @@ test.describe('organiser analytics', () => {
   })
 
   test('names the step it cannot count instead of estimating it', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
     const rendered = await owner.locator('main').innerText()
 
@@ -53,7 +72,7 @@ test.describe('organiser analytics', () => {
   })
 
   test('says which mode produced the figures', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
     const rendered = await owner.locator('main').innerText()
 
@@ -63,19 +82,19 @@ test.describe('organiser analytics', () => {
   test('keeps the chosen organisation in the address, so the view can be shared', async ({
     owner,
   }) => {
-    await owner.goto(`/analytics?organizationId=${ids().alphaOrganizationId}&currency=INR`)
+    await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
     const url = new URL(owner.url())
 
     expect(url.searchParams.get('organizationId')).toBe(ids().alphaOrganizationId)
-    expect(url.searchParams.get('currency')).toBe('INR')
+    expect(url.searchParams.get('currency')).toBe(LEDGER_CURRENCY)
   })
 
   test('exports a spreadsheet with no buyer, no card and no provider reference', async ({
     owner,
   }) => {
     const response = await owner.request.get(
-      `/api/v1/analytics/export.csv?organizationId=${ids().alphaOrganizationId}&currency=INR`,
+      `/api/v1/analytics/export.csv?organizationId=${ids().alphaOrganizationId}&currency=${LEDGER_CURRENCY}`,
     )
 
     expect(response.status(), await response.text()).toBe(200)
@@ -92,7 +111,7 @@ test.describe('organiser analytics', () => {
   })
 
   test('gives a viewer the counts and does not send them the money', async ({ viewer }) => {
-    await viewer.goto(`/analytics?organizationId=${ids().alphaOrganizationId}`)
+    await viewer.goto(analyticsFor(ids().alphaOrganizationId))
     await expect(viewer.getByRole('heading', { level: 1 })).toBeVisible()
 
     const rendered = await viewer.locator('main').innerText()
@@ -111,7 +130,7 @@ test.describe('organiser analytics', () => {
   })
 
   test('refuses an organisation it was not asked to substitute', async ({ owner }) => {
-    await owner.goto(`/analytics?organizationId=${ids().betaOrganizationId}`)
+    await owner.goto(analyticsFor(ids().betaOrganizationId))
 
     const rendered = await owner.locator('body').innerText()
 

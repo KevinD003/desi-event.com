@@ -720,7 +720,7 @@ const PHASE_4_SURFACES = Object.freeze([
     name: 'the organiser directory',
     window: 'visitor',
     path: () => '/organizers',
-    heading: () => 'Organisers',
+    heading: () => 'Who is putting on the nights',
     title: () => 'Organisers',
     async arrived(page) {
       await expect(page.getByText(SAMPLE_NOTICE)).toHaveCount(0)
@@ -1970,6 +1970,11 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       ).toBeFocused()
       await page.keyboard.press('Tab')
       await expect(banner.getByRole('link', { name: 'Desi-Event', exact: true })).toBeFocused()
+      // Then in the order the row is drawn at this width: the account control
+      // sits between the wordmark and Menu, so focus reaches it before Menu
+      // rather than jumping back up the row after the sheet (WCAG 2.4.3).
+      await page.keyboard.press('Tab')
+      await expect(banner.getByRole('link', { name: 'Sign in', exact: true })).toBeFocused()
       await page.keyboard.press('Tab')
       await expect(menu).toBeFocused()
       await expect(menu).toHaveAttribute('aria-expanded', 'false')
@@ -1992,6 +1997,25 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         await expect(link).toBeFocused()
         await expect(link).toHaveAttribute('href', entry.path)
       }
+
+      // The sheet is the last thing in the header, drawn last and reached
+      // last: nothing in the row above it comes after it in the tab order.
+      const afterSheet = await page.evaluate(
+        (sheetId) => {
+          const sheetNode = document.getElementById(sheetId)
+          const header = sheetNode.closest('header')
+          const focusable = [...header.querySelectorAll('a[href], button, [tabindex="0"]')]
+
+          return focusable.filter(
+            (node) =>
+              sheetNode.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING &&
+              !sheetNode.contains(node),
+          ).length
+        },
+        await menu.getAttribute('aria-controls'),
+      )
+
+      expect(afterSheet, 'header controls after the open sheet').toBe(0)
 
       // Open, the sheet adds a column of links to the header; it must not
       // widen the page to do it.

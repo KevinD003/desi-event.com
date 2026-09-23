@@ -31,7 +31,7 @@ import { expect, test } from '@playwright/test'
 const HEADING = 'This one is not on the bill'
 
 /** An event the fallback catalogue always holds, used to prove valid routes still work. */
-const VALID_EVENT = '/events/qawwali-under-the-banyan'
+const VALID_EVENT = '/events/bay-lights-garba-opening'
 
 /**
  * Every URL that must answer with the not-found page, and the status it returns.
@@ -116,8 +116,8 @@ test.describe('the initial response', () => {
 
     expect(response.status()).toBe(200)
     expect(visible).not.toContain(HEADING)
-    expect(visible).toContain('Qawwali')
-    expect(visible).toMatch(/rel="canonical"[^>]*qawwali-under-the-banyan/)
+    expect(visible).toContain('Bay Lights Garba')
+    expect(visible).toMatch(/rel="canonical"[^>]*bay-lights-garba-opening/)
   })
 })
 
@@ -209,17 +209,36 @@ test.describe('with reduced motion', () => {
     await expect(view).toBeVisible()
     await expect(page.getByRole('heading', { level: 1, name: HEADING })).toBeVisible()
 
-    // Nothing in this view animates, so nothing in it can be left transparent
-    // or displaced by an entrance that never runs.
+    // Nothing in this view animates, so none of its content can be left
+    // transparent or displaced by an entrance that never runs. The toran and
+    // the hem are drawn partly translucent on purpose — decoration hidden from
+    // assistive technology, holding no text — so their resting opacity is not
+    // what this asks about; whether anything in the view is still moving is,
+    // and that is asked of the whole view, decoration included, below.
     const faded = await view.evaluate(
       (root) =>
         [root, ...root.querySelectorAll('*')].filter((element) => {
           const style = getComputedStyle(element)
+          const decoration = element.closest('[aria-hidden="true"]') !== null
 
-          return Number(style.opacity) < 1 || style.visibility === 'hidden'
+          return (!decoration && Number(style.opacity) < 1) || style.visibility === 'hidden'
         }).length,
     )
     expect(faded).toBe(0)
+
+    // The toran's bulbs twinkle only where motion is welcome. Here nothing in
+    // the view may be running an animation at all.
+    const running = await view.evaluate(
+      (root) =>
+        document.getAnimations().filter((animation) => {
+          const target = animation.effect?.target
+
+          return (
+            animation.playState === 'running' && target instanceof Element && root.contains(target)
+          )
+        }).length,
+    )
+    expect(running).toBe(0)
 
     await expect(view.locator('[data-motion]')).toHaveCount(0)
   })

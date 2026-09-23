@@ -85,6 +85,9 @@ const approvedTitle = () => `Unverified Evening ${ids().tag}`
  */
 const organisation = (name) => `${name} ${ids().tag}`
 
+/** The organiser directory's own heading, which names the page rather than repeating its link. */
+const ORGANISERS_HEADING = 'Who is putting on the nights'
+
 /**
  * The header's four entries, in order, with where each goes and the heading
  * the page it opens carries.
@@ -98,8 +101,21 @@ const HEADER_ENTRIES = Object.freeze([
   { label: 'Discover events', path: '/events', heading: 'What’s on' },
   { label: 'Categories', path: '/categories', heading: 'Browse by category' },
   { label: 'Venues', path: '/venues', heading: 'Venues' },
-  { label: 'Organisers', path: '/organizers', heading: 'Organisers' },
+  { label: 'Organisers', path: '/organizers', heading: ORGANISERS_HEADING },
 ])
+
+/**
+ * The footer's sentence about money, on every page.
+ *
+ * `components/site-footer.jsx`, written out for the same reason as the header.
+ */
+const FOOTER_PAYMENTS = 'Payments on this site are simulated — no card, no money moves.'
+
+/**
+ * The footer's link to the limitations page. It sits under the heading "What
+ * this site does not do", which gives it its context.
+ */
+const FOOTER_LIMITATIONS_LINK = 'The full list'
 
 /**
  * Every category the web app offers, in its editorial order.
@@ -246,12 +262,20 @@ function readCards(page) {
     .getByRole('article')
     .evaluateAll((articles) =>
       articles.map((article) => {
-        // The chip is the span whose first child is its screen-reader prefix.
-        const chip = [...article.querySelectorAll('span')].find(
-          (span) => span.firstElementChild?.textContent.trim() === 'Availability:',
-        )
-        // The footer's first paragraph: "From ₹…" and, on its own line, the qualifier.
-        const price = article.querySelector('[data-slot="card-footer"] p')
+        // A chip is the span holding its own screen-reader prefix — "Category:"
+        // on the poster, "Availability:" beside the price — and what it says
+        // is what follows the prefix.
+        const chipFor = (prefix) =>
+          [...article.querySelectorAll('span')].find((span) =>
+            [...span.children].some((child) => child.textContent.trim() === prefix),
+          ) ?? null
+        const chipText = (chip, prefix) =>
+          chip ? chip.textContent.replace(new RegExp(`^\\s*${prefix}\\s*`, 'u'), '').trim() : null
+        const chip = chipFor('Availability:')
+        // The price is the card's last paragraph: "From ₹…" and, on its own
+        // line, the qualifier.
+        const paragraphs = article.querySelectorAll('p')
+        const price = paragraphs[paragraphs.length - 1] ?? null
         const lines = (price?.innerText ?? '')
           .split('\n')
           .map((line) => line.trim())
@@ -263,11 +287,8 @@ function readCards(page) {
         return {
           title: link?.textContent.trim() ?? null,
           href: link?.getAttribute('href') ?? null,
-          category:
-            article
-              .querySelector('[data-slot="badge"][data-variant="brand"]')
-              ?.textContent.trim() ?? null,
-          availability: chip ? chip.textContent.replace(/^\s*Availability:\s*/u, '').trim() : null,
+          category: chipText(chipFor('Category:'), 'Category:'),
+          availability: chipText(chip, 'Availability:'),
           amount: (lines[0] ?? '').replace(/^From\s+/u, ''),
           qualifier: lines[1] ?? null,
           text: article.textContent,
@@ -699,7 +720,7 @@ test.describe('the organiser directory', () => {
     const alpha = organisation('Alpha Collective')
 
     await visitor.goto('/organizers')
-    await expect(pageHeading(visitor, 'Organisers')).toBeVisible()
+    await expect(pageHeading(visitor, ORGANISERS_HEADING)).toBeVisible()
     await expectWholeListingRead(visitor)
     await expect(visitor.getByText(SAMPLE_NOTICE)).toHaveCount(0)
 
@@ -758,7 +779,7 @@ test.describe('the organiser directory', () => {
     const unverified = organisation('Unverified Collective')
 
     await visitor.goto('/organizers')
-    await expect(pageHeading(visitor, 'Organisers')).toBeVisible()
+    await expect(pageHeading(visitor, ORGANISERS_HEADING)).toBeVisible()
     await expectWholeListingRead(visitor)
     // The directory is built from the anonymous listing, which carries only
     // the listed statuses. APPROVED is not one of them, so the unverified
@@ -796,7 +817,7 @@ test.describe('the small print', () => {
       ['/events', 'What’s on'],
       ['/categories', 'Browse by category'],
       ['/venues', 'Venues'],
-      ['/organizers', 'Organisers'],
+      ['/organizers', ORGANISERS_HEADING],
     ]) {
       await visitor.goto(path)
       await expect(pageHeading(visitor, heading)).toBeVisible()
@@ -805,14 +826,12 @@ test.describe('the small print', () => {
 
       await expect(footer.locator('a[href^="mailto:"]'), `the footer on ${path}`).toHaveCount(0)
       // Payments are simulated, and the footer says so rather than implying a charge.
-      await expect(footer).toContainText(
-        'Payments and payouts in this build are simulated: nothing is charged and nothing is paid out.',
-      )
+      await expect(footer).toContainText(FOOTER_PAYMENTS)
     }
 
     await visitor
       .getByRole('contentinfo')
-      .getByRole('link', { name: 'What this site does not do', exact: true })
+      .getByRole('link', { name: FOOTER_LIMITATIONS_LINK, exact: true })
       .click()
 
     await expect(visitor).toHaveURL((url) => url.pathname === '/limitations')
