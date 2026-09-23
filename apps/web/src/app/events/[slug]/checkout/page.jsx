@@ -14,9 +14,19 @@ import Link from 'next/link'
 import { EmptyState } from '../../../../components/ui.jsx'
 
 import { loadEventBySlug } from '../../../../lib/api.js'
-import { formatEventWhen, formatEventLocation } from '../../../../lib/format.js'
+import {
+  formatEventLocation,
+  formatEventWhen,
+  formatTimeZoneLabel,
+} from '../../../../lib/format.js'
 import { CheckoutBasket } from '../../../../components/checkout-basket.jsx'
+import { ScallopHem, Toran } from '../../../../components/festive-decor.jsx'
+import { CalendarIcon, PinIcon, TicketIcon } from '../../../../components/icons.jsx'
+import { PRIMARY_LINK_SMALL } from '../../../../components/link-classes.js'
+import { FadeIn } from '../../../../components/motion.jsx'
+import { Breadcrumbs } from '../../../../components/page-state.jsx'
 import { PaymentModeNotice } from '../../../../components/payment-mode-notice.jsx'
+import { EventPoster } from '../../../../components/poster.jsx'
 import { NotFoundView } from '../../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../../components/sample-data-notice.jsx'
 import { signInHref } from '../../../../lib/next-path.js'
@@ -67,66 +77,88 @@ export default async function CheckoutPage({ params }) {
   const session = usedFallback ? null : await readSession()
   const buyer = session?.user ? { name: session.user.displayName, email: session.user.email } : null
 
+  const zone = formatTimeZoneLabel(event)
+  const locality = event.venue
+    ? [event.venue.name, [event.venue.city, event.venue.region].filter(Boolean).join(', ')]
+        .filter(Boolean)
+        .join(' · ')
+    : formatEventLocation(event)
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
-        <ol className="flex flex-wrap items-center gap-1">
-          <li>
-            <Link
-              href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              Events
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li>
-            <Link
-              href={`/events/${event.slug}`}
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              {event.title}
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-ink-muted">
-            Tickets
-          </li>
-        </ol>
-      </nav>
+    <div>
+      <section
+        aria-labelledby="checkout-heading"
+        className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse"
+      >
+        <Toran />
+        <div className="relative mx-auto flex max-w-content flex-col gap-6 px-4 pt-16 pb-14 sm:px-6 md:flex-row md:items-center md:gap-8 md:pt-20">
+          <FadeIn
+            distance={0}
+            className="hidden h-36 w-54 shrink-0 overflow-hidden rounded-2xl ring-1 ring-ink-inverse/15 shadow-dialog md:block"
+          >
+            <EventPoster event={event} className="h-full" />
+          </FadeIn>
+          <div className="min-w-0">
+            <Breadcrumbs
+              tone="inverse"
+              trail={[
+                { href: '/events', label: 'Events' },
+                { href: `/events/${event.slug}`, label: event.title },
+                { href: null, label: 'Tickets' },
+              ]}
+            />
+            <FadeIn>
+              <h1 id="checkout-heading" className="mt-2 text-h1 font-semibold text-ink-inverse">
+                Tickets for <span className="text-accent-inverse">{event.title}</span>
+              </h1>
+            </FadeIn>
+            <FadeIn delay={0.08}>
+              <ul className="mt-4 flex flex-wrap items-center gap-x-7 gap-y-2 text-[0.9375rem] text-ink-inverse-muted">
+                <li className="flex items-center gap-2">
+                  <CalendarIcon className="h-4.5 w-4.5 text-accent-inverse" />
+                  <span>
+                    {formatEventWhen(event)}
+                    {zone ? ` ${zone}` : ''}
+                  </span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <PinIcon className="h-4.5 w-4.5 text-accent-inverse" />
+                  <span>{locality}</span>
+                </li>
+              </ul>
+            </FadeIn>
+          </div>
+        </div>
+        <ScallopHem />
+      </section>
 
-      <h1 className="mt-6 text-3xl font-bold text-ink sm:text-4xl">Tickets for {event.title}</h1>
-      <p className="mt-2 text-ink-muted">
-        {formatEventWhen(event)} · {formatEventLocation(event)}
-      </p>
+      <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">
+        <PaymentModeNotice />
 
-      <PaymentModeNotice />
+        <SampleDataNotice show={usedFallback} />
 
-      <SampleDataNotice show={usedFallback} />
-
-      <div className="mt-8">
-        {ticketTypes.length === 0 ? (
-          <EmptyState
-            icon="◎"
-            title="Tickets are not on sale yet"
-            description="This event has no ticket tiers open. Keep an eye on the event page — they usually go live a few weeks ahead."
-            action={
-              <Link
-                href={`/events/${event.slug}`}
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
-              >
-                Back to the event
-              </Link>
-            }
-          />
-        ) : (
-          <CheckoutBasket
-            event={event}
-            ticketTypes={ticketTypes}
-            buyer={buyer}
-            signInHref={signInHref(`/events/${event.slug}/checkout`)}
-          />
-        )}
+        <div className="mt-8">
+          {ticketTypes.length === 0 ? (
+            <EmptyState
+              icon={<TicketIcon className="h-8 w-8" />}
+              title="Tickets are not on sale yet"
+              description="This event has no ticket tiers open, so there is nothing to choose here. The event page shows the tiers once there are some."
+              className="bg-surface-raised"
+              action={
+                <Link href={`/events/${event.slug}`} className={PRIMARY_LINK_SMALL}>
+                  Back to the event
+                </Link>
+              }
+            />
+          ) : (
+            <CheckoutBasket
+              event={event}
+              ticketTypes={ticketTypes}
+              buyer={buyer}
+              signInHref={signInHref(`/events/${event.slug}/checkout`)}
+            />
+          )}
+        </div>
       </div>
     </div>
   )

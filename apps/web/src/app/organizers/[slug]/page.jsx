@@ -14,7 +14,7 @@
  * **It works with no JavaScript.** Everything here is server-rendered, the
  * links are links, and nothing needs hydration to become readable. That is not
  * a nicety: this page is what somebody checks from a bus on a bad connection
- * before spending two thousand rupees.
+ * before spending a hundred dollars.
  *
  * **A suspended organiser is not found.** The API answers 404 rather than 403,
  * and this page renders the same not-found view a missing slug does, in the
@@ -25,11 +25,16 @@
 
 import Link from 'next/link'
 
-import { Badge, Card, CardBody } from '../../../components/ui.jsx'
-import { FadeIn, RevealOnScroll } from '../../../components/motion.jsx'
+import { GarbaRings } from '../../../components/festive-decor.jsx'
+import { ArrowRightIcon, PolicyIcon, VerifiedIcon } from '../../../components/icons.jsx'
+import { INVERSE_TEXT_LINK } from '../../../components/link-classes.js'
+import { FadeIn, Reveal } from '../../../components/motion.jsx'
 import { NotFoundView } from '../../../components/not-found-view.jsx'
+import { Breadcrumbs } from '../../../components/page-state.jsx'
+import { PageHero } from '../../../components/page-hero.jsx'
 import { SampleDataNotice } from '../../../components/sample-data-notice.jsx'
 import { loadOrganizerBySlug } from '../../../lib/api.js'
+import { calendarLeaf } from '../../../lib/home-sections.js'
 import {
   formatEventDate,
   formatEventTime,
@@ -87,34 +92,50 @@ export async function generateMetadata({ params }) {
  * @returns {JSX.Element} The rendered row.
  */
 function EventRow({ event, timezone }) {
+  const leaf = calendarLeaf({ ...event, timezone })
+
   return (
     <li className="border-b border-line last:border-b-0">
       <Link
         href={`/events/${event.slug}`}
-        className="flex flex-col gap-1 rounded-sm py-4 transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
+        className="group flex items-center gap-4 px-5 py-4 transition-colors duration-(--duration-fast) hover:bg-surface-subtle"
       >
-        <span className="font-medium text-ink underline-offset-4 group-hover:underline">
-          {event.title}
-        </span>
-        {/*
-          The date is held together as one unbreakable run and the venue is a
-          separate segment that may wrap, because at 360px "Monday, 1 November
-          2026 · 8:00 pm · Nehru Centre Auditorium" as a single nowrap string is
-          398px of content in a 328px column — which is a page that scrolls
-          sideways on the phone most of its visitors are holding.
-        */}
-        <span className="text-sm text-ink-muted">
-          <time className="whitespace-nowrap" dateTime={toDateTimeAttribute(event.startsAt)}>
-            {formatEventDate(event.startsAt, timezone)} ·{' '}
-            {formatEventTime(event.startsAt, timezone)}
-          </time>
-          {event.venueName ? (
-            <span className="block sm:inline">
-              <span className="hidden sm:inline"> · </span>
-              {event.venueName}
+        {leaf ? (
+          <span
+            aria-hidden="true"
+            className="flex h-14 w-13 shrink-0 flex-col items-center justify-center rounded-control bg-surface-subtle group-hover:bg-surface-raised"
+          >
+            <span className="text-[0.6875rem] font-bold tracking-eyebrow text-accent-strong uppercase">
+              {leaf.month}
             </span>
-          ) : null}
+            <span className="font-display text-xl leading-6 font-bold text-ink">{leaf.day}</span>
+          </span>
+        ) : null}
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="font-bold text-ink underline-offset-4 group-hover:text-accent-strong">
+            {event.title}
+          </span>
+          {/*
+            The date is held together as one unbreakable run and the venue is a
+            separate segment that may wrap, because at 360px a long date, time
+            and venue as a single nowrap string is wider than the column — which
+            is a page that scrolls sideways on the phone most of its visitors
+            are holding.
+          */}
+          <span className="text-sm text-ink-muted">
+            <time className="whitespace-nowrap" dateTime={toDateTimeAttribute(event.startsAt)}>
+              {formatEventDate(event.startsAt, timezone)} ·{' '}
+              {formatEventTime(event.startsAt, timezone)}
+            </time>
+            {event.venueName ? (
+              <span className="block sm:inline">
+                <span className="hidden sm:inline"> · </span>
+                {event.venueName}
+              </span>
+            ) : null}
+          </span>
         </span>
+        <ArrowRightIcon className="hidden h-5 w-5 text-accent-strong sm:block" />
       </Link>
     </li>
   )
@@ -133,20 +154,20 @@ function EventRow({ event, timezone }) {
  */
 function EventSection({ id, title, events, empty, timezone }) {
   return (
-    <RevealOnScroll as="section" aria-labelledby={id}>
-      <h2 id={id} className="text-2xl font-bold text-ink">
+    <Reveal as="section" aria-labelledby={id}>
+      <h2 id={id} className="text-h2 font-semibold text-ink">
         {title}
       </h2>
       {events.length === 0 ? (
         <p className="mt-4 text-ink-muted">{empty}</p>
       ) : (
-        <ul className="mt-2">
+        <ul className="mt-5 overflow-hidden rounded-card bg-surface-raised shadow-card">
           {events.map((event) => (
             <EventRow key={event.slug} event={event} timezone={timezone} />
           ))}
         </ul>
       )}
-    </RevealOnScroll>
+    </Reveal>
   )
 }
 
@@ -174,137 +195,138 @@ export default async function OrganizerPage({ params }) {
   const policy = toParagraphs(organizer.refundPolicy ?? '')
 
   return (
-    <article className="mx-auto max-w-4xl px-4 py-8">
-      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
-        <ol className="flex flex-wrap items-center gap-1">
-          <li>
-            <Link
-              href="/"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              Home
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li>
-            <Link
-              href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              Events
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-ink-muted">
-            {organizer.name}
-          </li>
-        </ol>
-      </nav>
-
-      <FadeIn className="mt-6">
-        <h1 className="text-3xl leading-tight font-bold text-ink sm:text-4xl">{organizer.name}</h1>
-
+    <article>
+      <PageHero
+        headingId="organiser-heading"
+        breadcrumbs={
+          <Breadcrumbs
+            tone="inverse"
+            trail={[
+              { href: '/', label: 'Home' },
+              { href: '/organizers', label: 'Organisers' },
+              { href: null, label: organizer.name },
+            ]}
+          />
+        }
+        eyebrow="Organiser"
+        title={organizer.name}
+        art={<GarbaRings className="h-[28rem] w-[28rem]" />}
+      >
         {/*
           Rendered only when the organiser has actually been verified. There is
           no "pending" badge and no greyed-out one: a badge that appears in more
           than one state is a badge people learn to read as decoration.
         */}
-        {organizer.verified ? (
-          <p className="mt-3">
-            <Badge variant="success" size="lg" srLabel="Organiser status:">
-              Verified organiser
-            </Badge>
-          </p>
+        {organizer.verified || organizer.websiteUrl ? (
+          <FadeIn delay={0.08}>
+            <p className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+              {organizer.verified ? (
+                <span className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-ink-inverse/25 bg-ink-inverse/10 pr-3.5 pl-2 text-sm font-bold text-ink-inverse">
+                  <VerifiedIcon className="h-4.5 w-4.5 text-accent-inverse" />
+                  <span className="sr-only">Organiser status: </span>
+                  Verified organiser
+                </span>
+              ) : null}
+              {organizer.websiteUrl ? (
+                <a
+                  href={organizer.websiteUrl}
+                  rel="nofollow noopener noreferrer external"
+                  className={`${INVERSE_TEXT_LINK} inline-flex min-h-11 items-center`}
+                >
+                  {organizer.websiteUrl.replace(/^https?:\/\//, '')}
+                </a>
+              ) : null}
+            </p>
+          </FadeIn>
         ) : null}
+      </PageHero>
 
-        {organizer.websiteUrl ? (
-          <p className="mt-3 text-ink-muted">
-            <a
-              href={organizer.websiteUrl}
-              rel="nofollow noopener noreferrer external"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+      <div className="mx-auto max-w-content px-4 sm:px-6">
+        <SampleDataNotice show={usedFallback} className="mt-8" />
+
+        <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
+          <div className="min-w-0 space-y-14">
+            {about.length > 0 ? (
+              <section aria-labelledby="about-heading">
+                <h2 id="about-heading" className="text-h2 font-semibold text-ink">
+                  About
+                </h2>
+                <div className="mt-4 space-y-4 text-body text-ink-muted">
+                  {about.map((paragraph) => (
+                    <p key={paragraph.slice(0, 48)}>{paragraph}</p>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <EventSection
+              id="upcoming-heading"
+              title="Upcoming events"
+              events={organizer.upcomingEvents}
+              empty={`${organizer.name} has no upcoming events listed.`}
+              timezone={organizer.timezone}
+            />
+
+            <EventSection
+              id="past-heading"
+              title="Previously"
+              events={organizer.pastEvents}
+              empty={`Nothing from ${organizer.name} has run on Desi-Event.`}
+              timezone={organizer.timezone}
+            />
+          </div>
+
+          <div className="space-y-8 lg:sticky lg:top-28 lg:self-start">
+            <Reveal
+              as="section"
+              aria-labelledby="policy-heading"
+              className="rounded-card bg-surface-subtle p-6"
             >
-              {organizer.websiteUrl.replace(/^https?:\/\//, '')}
-            </a>
-          </p>
-        ) : null}
-      </FadeIn>
-
-      <SampleDataNotice show={usedFallback} />
-
-      <div className="mt-10 space-y-10">
-        {about.length > 0 ? (
-          <section aria-labelledby="about-heading">
-            <h2 id="about-heading" className="text-2xl font-bold text-ink">
-              About
-            </h2>
-            <div className="mt-4 space-y-4 text-ink-muted">
-              {about.map((paragraph) => (
-                <p key={paragraph.slice(0, 48)}>{paragraph}</p>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <EventSection
-          id="upcoming-heading"
-          title="Upcoming events"
-          events={organizer.upcomingEvents}
-          empty={`${organizer.name} has no upcoming events listed.`}
-          timezone={organizer.timezone}
-        />
-
-        <EventSection
-          id="past-heading"
-          title="Previously"
-          events={organizer.pastEvents}
-          empty={`Nothing from ${organizer.name} has run on Desi-Event.`}
-          timezone={organizer.timezone}
-        />
-
-        <RevealOnScroll as="section" aria-labelledby="policy-heading">
-          <h2 id="policy-heading" className="text-2xl font-bold text-ink">
-            Refunds
-          </h2>
-          <Card className="mt-4">
-            <CardBody>
+              <h2
+                id="policy-heading"
+                className="flex items-center gap-3 text-h3 font-semibold text-ink"
+              >
+                <PolicyIcon className="h-5.5 w-5.5 text-accent-strong" />
+                Refunds
+              </h2>
               {policy.length > 0 ? (
-                <div className="space-y-4 text-ink-muted">
+                <div className="mt-3 space-y-3 text-ink">
                   {policy.map((paragraph) => (
                     <p key={paragraph.slice(0, 48)}>{paragraph}</p>
                   ))}
                 </div>
               ) : (
-                <p className="text-ink-muted">
-                  {organizer.name} has not published a refund policy.
-                </p>
+                <p className="mt-3 text-ink">{organizer.name} has not published a refund policy.</p>
               )}
               <p className="mt-4 text-sm text-ink-muted">
                 This is the policy as it reads now. This site does not keep a copy of it as it stood
                 when you bought, so if the terms matter to you, read them before you buy.
               </p>
-            </CardBody>
-          </Card>
-        </RevealOnScroll>
+            </Reveal>
 
-        <section aria-labelledby="contact-heading">
-          <h2 id="contact-heading" className="text-2xl font-bold text-ink">
-            Contact
-          </h2>
-          {/*
-            No email address, by design. The organisation's contact address is
-            an account detail, not a box office, and publishing it here would
-            expose it to scrapers. This used to promise a support desk and a
-            confirmation email to reply to; this build has neither, so it says
-            what there is.
-          */}
-          <p className="mt-4 text-ink-muted">
-            This site does not pass messages between buyers and organisers, and sends no email.{' '}
-            {organizer.websiteUrl
-              ? `${organizer.name}'s own website, linked above, is the way to reach them.`
-              : `${organizer.name} has not given a website, so this page has no way to reach them.`}
-          </p>
-        </section>
+            <section
+              aria-labelledby="contact-heading"
+              className="rounded-card bg-surface-raised p-6 shadow-card"
+            >
+              <h2 id="contact-heading" className="text-h3 font-semibold text-ink">
+                Contact
+              </h2>
+              {/*
+                No email address, by design. The organisation's contact address is
+                an account detail, not a box office, and publishing it here would
+                expose it to scrapers. This used to promise a support desk and a
+                confirmation email to reply to; this build has neither, so it says
+                what there is.
+              */}
+              <p className="mt-3 text-sm text-ink-muted">
+                This site does not pass messages between buyers and organisers, and sends no email.{' '}
+                {organizer.websiteUrl
+                  ? `${organizer.name}'s own website, linked above, is the way to reach them.`
+                  : `${organizer.name} has not given a website, so this page has no way to reach them.`}
+              </p>
+            </section>
+          </div>
+        </div>
       </div>
     </article>
   )

@@ -21,6 +21,13 @@ describe('ModeBanner', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Sandbox data')
   })
+
+  it('marks the banner with a shape that says nothing on its own', () => {
+    const { container } = render(<ModeBanner mode="MOCK" notice="DEMO — no money moved." />)
+
+    // The diamond is decoration; the words carry the meaning.
+    expect(container.querySelector('[aria-hidden="true"]').textContent).toBe('')
+  })
 })
 
 describe('Figure', () => {
@@ -35,6 +42,16 @@ describe('Figure', () => {
     // Formatted rather than printed: 1234500 minor units is not what a finance
     // person reads, and a screen that shows the raw integer invites arithmetic.
     expect(screen.getByText(/12,345/)).toBeInTheDocument()
+  })
+
+  it('reads an amount with no currency given as US dollars', () => {
+    render(
+      <dl>
+        <Figure label="Gross collected" cents={3806} />
+      </dl>,
+    )
+
+    expect(screen.getByText('$38.06')).toBeInTheDocument()
   })
 
   it('shows a hint when one explains the number', () => {

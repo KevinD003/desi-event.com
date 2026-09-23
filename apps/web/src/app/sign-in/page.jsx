@@ -10,6 +10,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import { AuthFrame } from '../../components/auth-frame.jsx'
+import { TEXT_LINK } from '../../components/link-classes.js'
 import { SignInForm } from '../../components/sign-in-form.jsx'
 import { DEFAULT_NEXT_PATH, safeNextPath } from '../../lib/next-path.js'
 import { readSession } from '../../lib/session.js'
@@ -51,34 +53,26 @@ export default async function SignInPage({ searchParams }) {
   if (await readSession()) redirect(next)
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="text-3xl font-bold text-ink">Sign in</h1>
-      <p className="mt-3 text-ink-muted">
-        Your tickets live in your account, and so does the workspace if you run events.
-      </p>
+    <AuthFrame
+      headingId="sign-in-heading"
+      title="Sign in"
+      lead="Your tickets live in your account, and so does the workspace if you run events."
+    >
+      <SignInForm next={next} />
 
-      <div className="mt-8">
-        <SignInForm next={next} />
+      <div className="mt-8 border-t border-line pt-6 text-sm text-ink-muted">
+        <p>
+          New here?{' '}
+          <Link href={registerHref(next)} className={TEXT_LINK}>
+            Create an account
+          </Link>
+        </p>
+        <p className="mt-2">
+          <Link href="/events" className={`${TEXT_LINK} inline-flex min-h-11 items-center`}>
+            Back to what&rsquo;s on
+          </Link>
+        </p>
       </div>
-
-      <p className="mt-8 text-sm text-ink-muted">
-        New here?{' '}
-        <Link
-          href={registerHref(next)}
-          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
-          Create an account
-        </Link>
-      </p>
-
-      <p className="mt-3 text-sm text-ink-muted">
-        <Link
-          href="/events"
-          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
-          Back to what&rsquo;s on
-        </Link>
-      </p>
-    </div>
+    </AuthFrame>
   )
 }

@@ -67,8 +67,10 @@ export function QuantityStepper({
   const atFloor = value <= 0
   const atCeiling = value >= max
 
+  // 44px square, the site's touch target: a stepper is tapped repeatedly, on
+  // a phone, by somebody counting heads, and a 36px button is an easy miss.
   const buttonClasses =
-    'flex h-9 w-9 shrink-0 items-center justify-center text-lg leading-none text-ink transition-colors hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus disabled:cursor-not-allowed disabled:text-ink-subtle disabled:hover:bg-transparent'
+    'flex h-11 w-11 shrink-0 items-center justify-center rounded-control text-xl leading-none font-bold text-ink transition-colors duration-(--duration-fast) hover:bg-accent-soft hover:text-accent-strong focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:text-ink-subtle disabled:hover:bg-transparent motion-safe:enabled:active:scale-95'
 
   return (
     <div className="flex items-center gap-2">
@@ -76,7 +78,7 @@ export function QuantityStepper({
         Quantity of {label}
       </label>
       <div
-        className={`inline-flex items-center overflow-hidden rounded-lg border border-line-strong bg-surface-raised${
+        className={`inline-flex items-center gap-0.5 rounded-[0.875rem] border border-line-strong bg-surface-raised p-0.5${
           disabled ? ' opacity-60' : ''
         }`}
       >
@@ -93,7 +95,7 @@ export function QuantityStepper({
           id={inputId}
           type="number"
           inputMode="numeric"
-          className="h-9 w-12 border-x border-line text-center text-sm font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+          className="h-11 w-11 rounded-control bg-transparent text-center text-base font-bold text-ink tabular-nums focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus"
           value={value}
           min={0}
           max={max}

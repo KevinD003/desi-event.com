@@ -3,8 +3,9 @@
  *
  * A server component, because what the navigation offers is decided from
  * `GET /v1/auth/me` and that read needs the session cookie. The interactive
- * part — the narrow-viewport disclosure — is the only thing that crosses into
- * the client, in `PrimaryNav`.
+ * parts — the narrow-viewport disclosure and the shadow that appears once the
+ * page scrolls — are the only things that cross into the client, in
+ * `PrimaryNav` and `HeaderFrame`.
  *
  * Before Phase 4 this header carried four links: `/events` and three category
  * filters. Everything else the product could do — the ticket wallet, the
@@ -15,6 +16,18 @@
  * See `lib/navigation.js`: the API guards every destination, and the same-origin
  * proxy forwards whatever a browser asks for regardless of what is rendered here.
  *
+ * ## Layout
+ *
+ * One row, 72px tall on a wide screen: the wordmark, the four ways into the
+ * catalogue, and the account control. On a narrow one the row keeps the
+ * wordmark, the account control and a Menu button, and the sheet the button
+ * opens wraps onto a row of its own underneath. The account control is handed
+ * to `PrimaryNav`, which renders it between the wide row and the Menu button,
+ * so the DOM — and with it the tab order — runs in the order the eye reads at
+ * every width. Reordering with CSS `order` instead left keyboard focus jumping
+ * back up the row after the sheet.
+ * A band of mirror-work runs along the foot.
+ *
  * @module components/site-header
  */
 
@@ -23,6 +36,8 @@ import Link from 'next/link'
 import { accountItems, navigationGroups, workspaceHome } from '../lib/navigation.js'
 import { readSession } from '../lib/session.js'
 import { AccountMenu, SignInLink } from './account-menu.jsx'
+import { Wordmark } from './festive-decor.jsx'
+import { HeaderFrame } from './header-frame.jsx'
 import { PrimaryNav } from './primary-nav.jsx'
 
 /**
@@ -41,33 +56,29 @@ export async function SiteHeader() {
   const groups = navigationGroups(session)
 
   return (
-    <header className="sticky top-0 z-40 border-b border-accent-line/70 bg-surface/90 backdrop-blur-sm">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-        <Link
-          href="/"
-          className="flex items-baseline gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
-        >
-          <span className="font-display text-xl font-bold tracking-tight text-ink">
-            Desi<span className="text-accent">-</span>Event
-          </span>
-          <span aria-hidden="true" className="hidden text-sm text-accent-strong sm:inline">
-            देसी इवेंट
-          </span>
+    <HeaderFrame>
+      <div className="mx-auto flex min-h-16 max-w-content flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 sm:min-h-18 sm:px-6 lg:gap-x-8">
+        <Link href="/" className="flex min-h-11 items-center gap-2.5 rounded-control sm:gap-3">
+          <Wordmark />
         </Link>
 
-        <div className="flex items-center gap-2">
-          <PrimaryNav groups={groups} />
-          {session ? (
-            <AccountMenu
-              displayName={session.user?.displayName ?? 'Your account'}
-              items={accountItems(session)}
-              workspaceHref={workspaceHome(session)}
-            />
-          ) : (
-            <SignInLink />
-          )}
-        </div>
+        <PrimaryNav
+          groups={groups}
+          account={
+            <div className="ml-auto flex items-center gap-2 md:ml-0">
+              {session ? (
+                <AccountMenu
+                  displayName={session.user?.displayName ?? 'Your account'}
+                  items={accountItems(session)}
+                  workspaceHref={workspaceHome(session)}
+                />
+              ) : (
+                <SignInLink />
+              )}
+            </div>
+          }
+        />
       </div>
-    </header>
+    </HeaderFrame>
   )
 }

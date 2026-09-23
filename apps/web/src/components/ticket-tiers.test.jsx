@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 
-import { TicketTiers, availabilityLabel } from './ticket-tiers.jsx'
+import { TicketTiers, availabilityLabel, tierAllIn } from './ticket-tiers.jsx'
 
 describe('availabilityLabel', () => {
   it('does not call a seated tier sold out, and says it is not sold on this site', () => {
@@ -36,6 +36,51 @@ describe('availabilityLabel', () => {
 
   it('treats a zero count as sold out even without the flag', () => {
     expect(availabilityLabel({ availableQuantity: 0, isSoldOut: false }).text).toBe('Sold out')
+  })
+
+  it('says a paused tier is paused, not sold out, although nothing is available from it', () => {
+    // The availability fold gives any tier that is not on sale a count of
+    // zero; reading that as stock called a paused tier sold out.
+    expect(availabilityLabel({ status: 'PAUSED', availableQuantity: 0, isSoldOut: true })).toEqual({
+      text: 'Sales paused',
+      variant: 'neutral',
+    })
+  })
+
+  it.each([
+    ['closed', { status: 'CLOSED', availableQuantity: 0, isSoldOut: true }],
+    ['a draft', { status: 'DRAFT', availableQuantity: 0, isSoldOut: true }],
+    [
+      'not open yet',
+      { status: 'ON_SALE', availableQuantity: 90, isSoldOut: false, salesStartAt: '2026-10-02' },
+    ],
+    [
+      'past its window',
+      { status: 'ON_SALE', availableQuantity: 90, isSoldOut: false, salesEndAt: '2026-09-30' },
+    ],
+  ])('says "Not on sale now" for a tier that is %s', (_why, tier) => {
+    expect(availabilityLabel(tier, new Date('2026-10-01T12:00:00.000Z'))).toEqual({
+      text: 'Not on sale now',
+      variant: 'neutral',
+    })
+  })
+
+  it('still says sold out for a tier whose status says so', () => {
+    expect(
+      availabilityLabel({ status: 'SOLD_OUT', availableQuantity: 0, isSoldOut: true }),
+    ).toEqual({ text: 'Sold out', variant: 'danger' })
+  })
+
+  it('says "On sale" for a tier inside its window', () => {
+    const tier = {
+      status: 'ON_SALE',
+      availableQuantity: 90,
+      isSoldOut: false,
+      salesStartAt: '2026-09-01T00:00:00.000Z',
+      salesEndAt: '2026-10-31T00:00:00.000Z',
+    }
+
+    expect(availabilityLabel(tier, new Date('2026-10-01T12:00:00.000Z')).text).toBe('On sale')
   })
 })
 
@@ -84,5 +129,77 @@ describe('TicketTiers', () => {
     render(<TicketTiers ticketTypes={tiers} />)
 
     expect(screen.getByText('One wristband, every night.')).toBeInTheDocument()
+  })
+})
+
+describe('tierAllIn', () => {
+  const place = { country: 'US', region: 'NJ' }
+  const terms = [{ currency: 'USD', percentageBps: 590, flatCents: 99 }]
+  const general = { id: 'ttgeneral', name: 'General Admission', priceCents: 3500, currency: 'USD' }
+
+  it('prices one ticket with the published fee terms and the venue’s tax', () => {
+    // 5.9% of $35.00 is $2.065, plus $0.99: the same total checkout charges.
+    expect(tierAllIn(general, place, terms)).toEqual({
+      totalCents: 3806,
+      feesCents: 306,
+      taxCents: 0,
+    })
+  })
+
+  it('says nothing when it cannot know where the event is held', () => {
+    expect(tierAllIn(general, null, terms)).toBeNull()
+  })
+
+  it('says nothing for a free ticket, which the list already calls free', () => {
+    expect(tierAllIn({ ...general, priceCents: 0 }, place, terms)).toBeNull()
+  })
+})
+
+describe('TicketTiers with the fee terms', () => {
+  const place = { country: 'US', region: 'NJ' }
+  const terms = [{ currency: 'USD', percentageBps: 590, flatCents: 99 }]
+  const tiers = [
+    {
+      id: 'ttgeneral',
+      name: 'General Admission',
+      priceCents: 3500,
+      currency: 'USD',
+      availableQuantity: 400,
+      isSoldOut: false,
+    },
+    {
+      id: 'ttearlybird',
+      name: 'Early Bird',
+      priceCents: 2800,
+      currency: 'USD',
+      availableQuantity: 0,
+      isSoldOut: true,
+    },
+  ]
+
+  it('shows each tier’s face value and what one ticket comes to with fees', () => {
+    render(<TicketTiers ticketTypes={tiers} place={place} feeTerms={terms} />)
+    const [general] = within(screen.getByRole('list', { name: 'Ticket types' })).getAllByRole(
+      'listitem',
+    )
+
+    expect(within(general).getByText('$35.00')).toBeInTheDocument()
+    expect(within(general).getByText('$38.06 with fees')).toBeInTheDocument()
+  })
+
+  it('prices nothing it does not sell: a sold-out tier keeps its face value only', () => {
+    render(<TicketTiers ticketTypes={tiers} place={place} feeTerms={terms} />)
+    const [, early] = within(screen.getByRole('list', { name: 'Ticket types' })).getAllByRole(
+      'listitem',
+    )
+
+    expect(within(early).getByText('$28.00')).toBeInTheDocument()
+    expect(within(early).queryByText(/with fees/)).toBeNull()
+  })
+
+  it('shows face values alone when it is not told where the event is held', () => {
+    render(<TicketTiers ticketTypes={tiers} />)
+
+    expect(screen.queryByText(/with fees/)).toBeNull()
   })
 })

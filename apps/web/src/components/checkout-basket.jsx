@@ -40,21 +40,23 @@ import Link from 'next/link'
 import { useMemo, useRef, useState } from 'react'
 
 import { apiFetch } from '../lib/api-fetch.js'
+import { formatEventStart } from '../lib/format.js'
 import { formatAmount, formatPrice, priceSelection, taxLabelForPlace } from '../lib/pricing.js'
 import { describeApiRefusal, refusalFromResponse } from '../lib/refusal.js'
+import { MirrorDivider } from './festive-decor.jsx'
+import { CheckIcon } from './icons.jsx'
+import { OUTLINE_LINK, PRIMARY_LINK } from './link-classes.js'
+import { EventPoster } from './poster.jsx'
 import { QuantityStepper, clampQuantity } from './quantity-stepper.jsx'
-import { Alert, Badge, Button, Card, CardBody, CardFooter, CardHeader } from './ui.jsx'
+import { tierAllIn } from './ticket-tiers.jsx'
+import { Alert, Badge, Button } from './ui.jsx'
 
 /** Nothing selected, service not yet contacted. */
 const IDLE = 'idle'
 
-/** Classes for the sign-in call to action, a link styled as the primary button. */
-const PRIMARY_LINK =
-  'inline-flex min-h-12 w-full items-center justify-center rounded-lg bg-action-primary px-5 text-base font-semibold text-action-primary-ink hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
-
-/** Classes for a secondary link after booking. */
+/** Classes for a quiet in-text link. */
 const QUIET_LINK =
-  'rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+  'rounded-sm font-bold text-accent-strong underline underline-offset-2 hover:decoration-2'
 
 /**
  * The largest quantity a tier will sell in one order right now: the organiser's
@@ -187,7 +189,7 @@ function heldUntil(holds) {
 
   if (times.length === 0) return null
 
-  return new Intl.DateTimeFormat('en-IN', { timeStyle: 'short' }).format(
+  return new Intl.DateTimeFormat('en-US', { timeStyle: 'short' }).format(
     new Date(Math.min(...times)),
   )
 }
@@ -225,7 +227,7 @@ export function CheckoutBasket({
   const [refusal, setRefusal] = useState(null)
   const attemptKey = useRef(null)
 
-  const currency = ticketTypes[0]?.currency ?? 'INR'
+  const currency = ticketTypes[0]?.currency ?? 'USD'
 
   const lines = useMemo(
     () =>
@@ -335,36 +337,51 @@ export function CheckoutBasket({
     }
   }
 
-  if (status === 'paid' && order) return <Booked order={order} />
+  if (status === 'paid' && order) return <Booked order={order} event={event} />
 
   const until = heldUntil(holds)
   const holding = status === 'held' || status === 'paying' || status === 'pay-failed'
+  const salesTaxUncalculated = place.country === 'US' && totals.taxPolicy?.rateBps === 0
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr_1fr] lg:items-start">
-      <section aria-labelledby="choose-tickets" className="min-w-0">
-        <h2 id="choose-tickets" className="font-display text-xl font-semibold text-ink">
-          Choose your tickets
-        </h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          Reserving holds your tickets for a while, and the held notice says until when — plenty of
-          time to argue about who is paying.
-        </p>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:items-start lg:gap-8">
+      <section
+        aria-labelledby="choose-tickets"
+        className="min-w-0 rounded-card bg-surface-raised p-5 shadow-card sm:p-8"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div>
+            <h2 id="choose-tickets" className="text-h2 font-semibold text-ink">
+              Choose your tickets
+            </h2>
+            <p className="mt-1 max-w-prose text-sm text-ink-muted">
+              Reserving holds your tickets for a while, and the held notice says until when — plenty
+              of time to argue about who is paying.
+            </p>
+          </div>
+          <p aria-hidden="true" className="text-xs text-ink-subtle sm:text-right">
+            Face value, then with the booking fee
+          </p>
+        </div>
 
-        <ul className="mt-4 divide-y divide-line rounded-card border border-line bg-surface-raised">
+        <ul className="mt-6 flex flex-col gap-3">
           {ticketTypes.map((tier) => {
             const max = maxSelectable(tier)
             const availabilityId = `availability-${tier.id}`
+            const chosen = (quantities[tier.id] ?? 0) > 0
+            const allIn = tier.reserved || tier.isSoldOut ? null : tierAllIn(tier, place, feeTerms)
 
             return (
               <li
                 key={tier.id}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                className={`grid grid-cols-1 items-center gap-3 rounded-2xl border-[1.5px] p-4 transition-colors duration-(--duration-fast) sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-5 sm:pl-5 ${
+                  chosen ? 'border-accent bg-accent-soft' : 'border-line-strong bg-surface-raised'
+                }`}
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-ink">{tier.name}</p>
+                  <p className="font-bold text-ink">{tier.name}</p>
                   {tier.description ? (
-                    <p className="mt-1 text-sm text-ink-muted">{tier.description}</p>
+                    <p className="mt-0.5 text-sm text-ink-muted">{tier.description}</p>
                   ) : null}
                   <p id={availabilityId} className="mt-1 text-sm text-ink-muted">
                     {tier.reserved
@@ -374,6 +391,18 @@ export function CheckoutBasket({
                         : `${formatPrice(tier.priceCents, tier.currency)} each · up to ${max} per order`}
                   </p>
                 </div>
+
+                <p className="text-left sm:text-right">
+                  <span className="block font-bold text-ink tabular-nums">
+                    {formatPrice(tier.priceCents, tier.currency)}
+                  </span>
+                  {allIn ? (
+                    <span className="block text-xs text-ink-muted tabular-nums">
+                      {formatPrice(allIn.totalCents, tier.currency)} with fees
+                      {allIn.taxCents > 0 ? ' and tax' : ''}
+                    </span>
+                  ) : null}
+                </p>
 
                 <div className="flex shrink-0 items-center gap-3">
                   {tier.reserved ? (
@@ -400,135 +429,174 @@ export function CheckoutBasket({
             )
           })}
         </ul>
+
+        {holding ? (
+          <Alert variant="success" title="Tickets held" className="mt-5">
+            {until ? `Held for you until ${until}.` : 'Held for you for a limited time.'} Payment on
+            this site is simulated: you will not be asked for a card, and no money moves.
+          </Alert>
+        ) : null}
       </section>
 
-      <Card as="section" aria-labelledby="order-summary" className="lg:sticky lg:top-24">
-        <CardHeader>
-          <h2 id="order-summary" className="font-display text-lg font-semibold text-ink">
+      <section
+        aria-labelledby="order-summary"
+        className="overflow-hidden rounded-card bg-surface-raised shadow-card lg:sticky lg:top-28"
+      >
+        <div className="flex items-center gap-4 bg-surface-subtle px-5 py-4 sm:px-6">
+          <div
+            aria-hidden="true"
+            className="h-16 w-24 shrink-0 overflow-hidden rounded-control bg-surface-inverse"
+          >
+            <EventPoster event={event} className="h-full" />
+          </div>
+          <div className="min-w-0">
+            <p className="leading-5 font-bold text-ink">{event.title}</p>
+            {event.startsAt ? (
+              <p className="mt-1 text-xs text-ink-muted">{formatEventStart(event)}</p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="px-5 pt-6 pb-5 sm:px-8">
+          <h2 id="order-summary" className="text-h3 font-semibold text-ink">
             Order summary
           </h2>
-          <p className="text-sm text-ink-muted">
+          <p className="mt-1 text-sm text-ink-muted">
             {ticketCount === 0
               ? 'No tickets selected yet'
               : `${ticketCount} ${ticketCount === 1 ? 'ticket' : 'tickets'} for ${event.title}`}
           </p>
-        </CardHeader>
 
-        <CardBody>
-          <dl className="space-y-2 text-sm">
+          <dl className="mt-5 space-y-3 text-[0.9375rem]">
             {totals.lineItems.map((line) => (
               <div key={line.ticketTypeId} className="flex justify-between gap-3">
-                <dt className="min-w-0 text-ink-muted">
+                <dt className="min-w-0 text-ink">
                   {line.name} <span className="text-ink-muted">× {line.quantity}</span>
                 </dt>
-                <dd className="shrink-0 tabular-nums text-ink">
+                <dd className="shrink-0 font-bold text-ink tabular-nums">
                   {formatAmount(line.subtotalCents, totals.currency)}
                 </dd>
               </div>
             ))}
 
-            <div className="flex justify-between gap-3 border-t border-line pt-2">
+            <div className="flex justify-between gap-3 border-t border-line pt-3">
               <dt className="text-ink-muted">Subtotal</dt>
-              <dd className="tabular-nums text-ink" data-testid="summary-subtotal">
+              <dd className="font-bold text-ink tabular-nums" data-testid="summary-subtotal">
                 {formatAmount(totals.subtotalCents, totals.currency)}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
               <dt className="text-ink-muted">Booking fee</dt>
-              <dd className="tabular-nums text-ink">
+              <dd className="font-bold text-ink tabular-nums">
                 {formatAmount(totals.feesCents, totals.currency)}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-ink-muted">{taxLabelForPlace(place)}</dt>
-              <dd className="tabular-nums text-ink">
+              <dt className="text-ink-muted">
+                {taxLabelForPlace(place)}
+                {salesTaxUncalculated ? (
+                  <span className="block text-xs text-ink-subtle">
+                    US sales tax is not calculated in this demo
+                  </span>
+                ) : null}
+              </dt>
+              <dd className="font-bold text-ink tabular-nums">
                 {formatAmount(totals.taxCents, totals.currency)}
-              </dd>
-            </div>
-            <div className="flex justify-between gap-3 border-t border-line pt-2 text-base font-semibold">
-              <dt className="text-ink">Total</dt>
-              <dd className="tabular-nums text-ink" data-testid="summary-total">
-                {formatAmount(totals.totalCents, totals.currency)}
               </dd>
             </div>
           </dl>
 
-          {holding ? (
-            <Alert variant="success" title="Tickets held" className="mt-4">
-              {until ? `Held for you until ${until}.` : 'Held for you for a limited time.'} Payment
-              on this site is simulated: you will not be asked for a card, and no money moves.
-            </Alert>
-          ) : null}
+          <MirrorDivider className="my-5" />
+
+          <div className="flex items-end justify-between gap-3">
+            <p className="flex flex-col">
+              <span className="text-base font-bold text-ink">Total</span>
+              <span className="text-micro font-bold tracking-eyebrow text-ink-subtle uppercase">
+                {totals.currency}
+              </span>
+            </p>
+            <p
+              className="font-display text-4xl leading-none font-bold text-ink tabular-nums"
+              data-testid="summary-total"
+            >
+              {formatAmount(totals.totalCents, totals.currency)}
+            </p>
+          </div>
 
           {status === 'reserve-failed' && refusal ? (
             refusal.state === 'network' ? (
               <Alert
                 variant="warning"
                 title="We could not reach the ticketing service"
-                className="mt-4"
+                className="mt-5"
               >
                 Nothing has been reserved and you have not been charged. Please try again in a
                 moment.
               </Alert>
             ) : (
-              <Alert variant="warning" title="Nothing was reserved" className="mt-4">
+              <Alert variant="warning" title="Nothing was reserved" className="mt-5">
                 {refusal.detail}
               </Alert>
             )
           ) : null}
 
           {status === 'expired' ? (
-            <Alert variant="warning" title="The hold ran out" className="mt-4">
+            <Alert variant="warning" title="The hold ran out" className="mt-5">
               The hold on these tickets has run out. Nothing was charged. Reserve again to carry on.
             </Alert>
           ) : null}
 
           {status === 'pay-failed' && refusal ? (
-            <Alert variant="warning" title="The order was not placed" className="mt-4">
+            <Alert variant="warning" title="The order was not placed" className="mt-5">
               {refusal.state === 'network'
                 ? 'The service did not answer. Trying again is safe: the same attempt cannot book twice, and nothing is charged in this build.'
                 : refusal.detail}
             </Alert>
           ) : null}
-        </CardBody>
 
-        <CardFooter className="flex-col items-stretch gap-3">
-          {buyer === null && ticketCount > 0 ? (
-            <>
-              <Link href={signInHref} className={PRIMARY_LINK}>
-                Sign in to buy
-              </Link>
-              <p className="text-xs text-ink-muted">
-                Tickets are kept in your account, and this site sends no email, so buying needs one.
-                Signing in brings you back here.
-              </p>
-            </>
-          ) : holding ? (
-            <Button fullWidth size="lg" loading={status === 'paying'} onClick={handlePay}>
-              Pay {formatAmount(totals.totalCents, totals.currency)} (simulated)
-            </Button>
-          ) : (
-            <Button
-              fullWidth
-              size="lg"
-              disabled={ticketCount === 0}
-              loading={status === 'reserving'}
-              onClick={handleReserve}
-            >
-              {ticketCount === 0 ? 'Select tickets to continue' : 'Reserve tickets'}
-            </Button>
-          )}
-          <p className="text-xs text-ink-muted">
-            The ticketing service prices the order again before it is placed.{' '}
-            <Link
-              href={`/events/${event.slug}`}
-              className="rounded-sm underline underline-offset-2 hover:text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
-            >
-              Back to {event.title}
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
+          <div className="mt-6 flex flex-col items-stretch gap-3">
+            {buyer === null && ticketCount > 0 ? (
+              <>
+                <Link href={signInHref} className={PRIMARY_LINK}>
+                  Sign in to buy
+                </Link>
+                <p className="text-xs text-ink-muted">
+                  Tickets are kept in your account, and this site sends no email, so buying needs
+                  one. Signing in brings you back here.
+                </p>
+              </>
+            ) : holding ? (
+              <Button
+                fullWidth
+                size="lg"
+                className="min-h-14 text-[1.0625rem]"
+                loading={status === 'paying'}
+                onClick={handlePay}
+              >
+                Pay {formatAmount(totals.totalCents, totals.currency)} (simulated)
+              </Button>
+            ) : (
+              <Button
+                fullWidth
+                size="lg"
+                className="min-h-14 text-[1.0625rem]"
+                disabled={ticketCount === 0}
+                loading={status === 'reserving'}
+                onClick={handleReserve}
+              >
+                {ticketCount === 0 ? 'Select tickets to continue' : 'Reserve tickets'}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <p className="border-t border-line px-5 py-4 text-xs text-ink-muted sm:px-8">
+          The ticketing service prices the order again before it is placed.{' '}
+          <Link href={`/events/${event.slug}`} className={QUIET_LINK}>
+            Back to {event.title}
+          </Link>
+        </p>
+      </section>
     </div>
   )
 }
@@ -541,40 +609,61 @@ export function CheckoutBasket({
  *
  * @param {object} props Component props.
  * @param {object} props.order The order as the API returned it.
+ * @param {object} [props.event] The event, for its poster and title.
  * @returns {JSX.Element} The confirmation.
  */
-function Booked({ order }) {
+function Booked({ order, event = null }) {
   const tickets = (order.tickets ?? []).length
 
   return (
     <section
       aria-labelledby="booked-heading"
       role="status"
-      className="rounded-card border border-status-success/30 bg-status-success-soft p-6"
+      className="overflow-hidden rounded-card bg-surface-raised shadow-card"
     >
-      <h2 id="booked-heading" className="font-display text-2xl font-semibold text-status-success">
-        Booked
-      </h2>
-      <p className="mt-2 text-ink">
-        Order <span className="font-mono font-semibold">{order.reference}</span>
-        {tickets > 0 ? ` · ${tickets} ${tickets === 1 ? 'ticket' : 'tickets'}` : ''} ·{' '}
-        {formatAmount(order.totalCents, order.currency)}
-      </p>
-      <p className="mt-2 max-w-prose text-sm text-ink">
-        The payment was simulated: no card was asked for and no money moved. The tickets are in your
-        account now.
-      </p>
-      <p className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
-        <Link href="/tickets" className={QUIET_LINK}>
-          Your tickets
-        </Link>
-        <Link
-          href={`/account/orders/${encodeURIComponent(order.reference)}`}
-          className={QUIET_LINK}
+      <div aria-hidden="true" className="h-1 bg-status-success" />
+      <div className="flex flex-col gap-6 p-6 sm:flex-row sm:items-start sm:p-8">
+        <span
+          aria-hidden="true"
+          className="flex h-13 w-13 shrink-0 items-center justify-center rounded-full bg-status-success-soft text-status-success"
         >
-          This order
-        </Link>
-      </p>
+          <CheckIcon className="h-6 w-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 id="booked-heading" className="text-h2 font-semibold text-status-success">
+            Booked
+          </h2>
+          {event?.title ? <p className="mt-1 font-bold text-ink">{event.title}</p> : null}
+          <p className="mt-3 text-ink">
+            Order <span className="font-mono font-semibold tracking-wide">{order.reference}</span>
+            {tickets > 0 ? ` · ${tickets} ${tickets === 1 ? 'ticket' : 'tickets'}` : ''} ·{' '}
+            {formatAmount(order.totalCents, order.currency)}
+          </p>
+          <p className="mt-2 max-w-prose text-sm text-ink-muted">
+            The payment was simulated: no card was asked for and no money moved. The tickets are in
+            your account now.
+          </p>
+          <p className="mt-6 flex flex-wrap items-center gap-3">
+            <Link href="/tickets" className={PRIMARY_LINK}>
+              Your tickets
+            </Link>
+            <Link
+              href={`/account/orders/${encodeURIComponent(order.reference)}`}
+              className={OUTLINE_LINK}
+            >
+              This order
+            </Link>
+          </p>
+        </div>
+        {event?.slug ? (
+          <div
+            aria-hidden="true"
+            className="hidden h-20 w-30 shrink-0 overflow-hidden rounded-control sm:block"
+          >
+            <EventPoster event={event} className="h-full" />
+          </div>
+        ) : null}
+      </div>
     </section>
   )
 }

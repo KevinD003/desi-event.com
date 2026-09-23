@@ -29,8 +29,15 @@
 // the pages a buyer then sees say "simulated" and never DEMO. The buyer is told
 // what is true in the words the rest of the site uses.
 
+import { ShieldIcon } from './icons.jsx'
+
 /**
  * The demonstration-payments notice.
+ *
+ * A marigold bar and a shield beside the words, on the warning's soft ground:
+ * noticeable before the quantities, without dressing a standing fact up as an
+ * alarm. The text is ink, measured on that ground; the colour carries nothing
+ * the words do not.
  *
  * @returns {JSX.Element} The rendered notice.
  */
@@ -39,16 +46,24 @@ export function PaymentModeNotice() {
     <aside
       data-testid="payment-mode-notice"
       aria-labelledby="payment-mode-heading"
-      className="mt-6 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-status-warning"
+      className="flex items-start gap-4 rounded-card border-l-4 border-highlight bg-status-warning-soft px-5 py-4 text-ink sm:px-6 sm:py-5"
     >
-      <p id="payment-mode-heading" className="font-semibold">
-        Payments on this site are simulated
-      </p>
-      <p className="mt-2 text-sm">
-        Checkout uses a simulated payment provider. You will not be asked for a card, no money
-        moves, and your order and tickets say the payment was simulated. A ticket issued here is a
-        demonstration, not a ticket to a real event.
-      </p>
+      <span
+        aria-hidden="true"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-highlight text-highlight-ink"
+      >
+        <ShieldIcon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <p id="payment-mode-heading" className="text-[1.0625rem] font-bold text-ink">
+          Payments on this site are simulated
+        </p>
+        <p className="mt-1 max-w-3xl text-[0.9375rem] leading-6 text-ink">
+          Checkout uses a simulated payment provider. You will not be asked for a card, no money
+          moves, and your order and tickets say the payment was simulated. A ticket issued here is a
+          demonstration, not a ticket to a real event.
+        </p>
+      </div>
     </aside>
   )
 }

@@ -50,6 +50,91 @@ export function eventAvailability(event) {
   return null
 }
 
+/** `TicketTypeStatus.ON_SALE`: the one tier status a hold is accepted in. */
+const TIER_ON_SALE = 'ON_SALE'
+
+/**
+ * Where a tier's sales window stands at a moment.
+ *
+ * The same reading as `salesWindowState` in `@desi-event/inventory`, which the
+ * hold route and the listing's `salesOpen` are both judged by: open from
+ * `salesStartAt` (inclusive) until `salesEndAt` (exclusive), either end
+ * optional. It is restated here rather than imported because that package's
+ * barrel pulls in `node:crypto` and is barred from the browser
+ * (`lib/browser-bundle.js`), and the tier list that reads this is reached from
+ * the client-side checkout basket.
+ *
+ * A window that cannot be read — a date that does not parse, an end before its
+ * start — is `unreadable`, and the callers treat that as not on sale, as the
+ * API does: a listing is safer quiet than claiming a sale the hold route would
+ * refuse.
+ *
+ * @param {object} tier A ticket tier with `salesStartAt` and `salesEndAt`, either of which may be null.
+ * @param {Date} [now] The moment in question. Defaults to now.
+ * @returns {'open'|'not-started'|'ended'|'unreadable'} The window's state.
+ */
+export function tierSalesWindow(tier, now = new Date()) {
+  const at = now.getTime()
+  const start = tier?.salesStartAt == null ? null : new Date(tier.salesStartAt).getTime()
+  const end = tier?.salesEndAt == null ? null : new Date(tier.salesEndAt).getTime()
+
+  if (Number.isNaN(at) || Number.isNaN(start) || Number.isNaN(end)) return 'unreadable'
+  if (start !== null && end !== null && end < start) return 'unreadable'
+  if (start !== null && at < start) return 'not-started'
+  if (end !== null && at >= end) return 'ended'
+
+  return 'open'
+}
+
+/**
+ * Whether one ticket tier can be bought on this site right now.
+ *
+ * The per-tier half of the API's `salesOpen`: a general-admission tier (a
+ * seated one is not sold here), in `ON_SALE` status, with stock left, inside
+ * its sales window. The event page's "On sale" and its "From" price are both
+ * read from this, so neither can claim a tier that a listing card, or the hold
+ * route behind "Choose tickets", would say is not on sale.
+ *
+ * @param {object} tier A ticket tier with availability folded in (`isSoldOut`, `availableQuantity`).
+ * @param {Date} [now] The moment in question. Defaults to now.
+ * @returns {boolean} True when a hold on the tier would be accepted, stock permitting.
+ */
+export function tierOnSaleNow(tier, now = new Date()) {
+  if (!tier || tier.reserved || tier.status !== TIER_ON_SALE || tier.isSoldOut === true) {
+    return false
+  }
+
+  const remaining = Number.isFinite(tier.availableQuantity)
+    ? tier.availableQuantity
+    : (tier.quantityTotal ?? 0) - (tier.quantitySold ?? 0)
+
+  return remaining > 0 && tierSalesWindow(tier, now) === 'open'
+}
+
+/**
+ * Whether every general-admission tier has run out of stock.
+ *
+ * Stock only, not status: a paused tier or one whose sales have not opened has
+ * not sold out, and saying it had would be false in the other direction. Seated
+ * tiers are left out as the API leaves them out of `soldOut` — their stock is
+ * their seats — so an event with no general-admission tiers never reads as
+ * sold out.
+ *
+ * @param {object[]} ticketTypes The event's tiers.
+ * @returns {boolean} True when there is at least one general-admission tier and none has stock left.
+ */
+export function allTiersSoldOut(ticketTypes) {
+  const counted = (ticketTypes ?? []).filter((tier) => !tier.reserved)
+
+  return (
+    counted.length > 0 &&
+    counted.every(
+      (tier) =>
+        tier.status === 'SOLD_OUT' || (tier.quantityTotal ?? 0) - (tier.quantitySold ?? 0) <= 0,
+    )
+  )
+}
+
 /**
  * @typedef {object} StartingPrice
  * @property {string} amount The formatted amount, or words when there is none.
@@ -70,7 +155,7 @@ export function eventAvailability(event) {
  * @returns {StartingPrice} The price.
  */
 export function startingPrice(event, format) {
-  const currency = event?.currency ?? 'INR'
+  const currency = event?.currency ?? 'USD'
 
   if (Number.isInteger(event?.minTotalCents)) {
     return {

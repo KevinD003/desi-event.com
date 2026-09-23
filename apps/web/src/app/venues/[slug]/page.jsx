@@ -24,12 +24,17 @@
 
 import Link from 'next/link'
 
-import { Badge, Card, CardBody } from '../../../components/ui.jsx'
-import { FadeIn, RevealOnScroll } from '../../../components/motion.jsx'
+import { Badge } from '../../../components/ui.jsx'
+import { GarbaRings, MirrorBand } from '../../../components/festive-decor.jsx'
+import { ArrowRightIcon, CheckIcon, ClockIcon, PinIcon } from '../../../components/icons.jsx'
+import { Reveal } from '../../../components/motion.jsx'
 import { NotFoundView } from '../../../components/not-found-view.jsx'
+import { Breadcrumbs } from '../../../components/page-state.jsx'
+import { PageHero } from '../../../components/page-hero.jsx'
 import { SampleDataNotice } from '../../../components/sample-data-notice.jsx'
 import { accessibilityLabel } from '../../../lib/accessibility.js'
 import { loadVenueBySlug } from '../../../lib/api.js'
+import { calendarLeaf } from '../../../lib/home-sections.js'
 import {
   formatEventDate,
   formatEventTime,
@@ -140,185 +145,164 @@ export default async function VenuePage({ params }) {
   const policies = toParagraphs(venue.policies ?? '')
   const about = toParagraphs(venue.description ?? '')
 
+  const locality = [venue.city, venue.region].filter(Boolean).join(', ')
+
   return (
-    <article className="mx-auto max-w-4xl px-4 py-8">
+    <article>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(placeStructuredData(venue)) }}
       />
 
-      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
-        <ol className="flex flex-wrap items-center gap-1">
-          <li>
-            <Link
-              href="/"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-            >
-              Home
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li>
-            <Link
-              href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-            >
-              Events
-            </Link>
-          </li>
-          <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-ink-muted">
-            {venue.name}
-          </li>
-        </ol>
-      </nav>
-
-      <FadeIn className="mt-6">
-        <h1 className="text-3xl leading-tight font-bold text-ink sm:text-4xl">{venue.name}</h1>
-        <p className="mt-2 text-lg text-ink-muted">
-          {venue.city}
-          {venue.region ? `, ${venue.region}` : ''}
-        </p>
-
+      <PageHero
+        headingId="venue-heading"
+        breadcrumbs={
+          <Breadcrumbs
+            tone="inverse"
+            trail={[
+              { href: '/', label: 'Home' },
+              { href: '/venues', label: 'Venues' },
+              { href: null, label: venue.name },
+            ]}
+          />
+        }
+        eyebrow="Venue"
+        title={venue.name}
+        lead={locality}
+        art={<GarbaRings className="h-[28rem] w-[28rem]" />}
+      >
         {venue.canonicalSlug ? (
-          <p className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-status-warning">
+          <p className="mt-6 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-ink">
             This venue record was merged into another one.{' '}
-            <Link href={`/venues/${venue.canonicalSlug}`} className="font-medium underline">
+            <Link
+              href={`/venues/${venue.canonicalSlug}`}
+              className="font-bold text-ink underline underline-offset-4"
+            >
               See the current page
             </Link>
             . Your existing tickets are unaffected.
           </p>
         ) : null}
-      </FadeIn>
+      </PageHero>
 
-      <SampleDataNotice show={usedFallback} />
+      <div className="mx-auto max-w-content px-4 sm:px-6">
+        <SampleDataNotice show={usedFallback} className="mt-8" />
 
-      <div className="mt-10 space-y-10">
-        {about.length > 0 ? (
-          <section aria-labelledby="about-heading">
-            <h2 id="about-heading" className="text-2xl font-bold text-ink">
-              About
-            </h2>
-            <div className="mt-4 space-y-4 text-ink-muted">
-              {about.map((paragraph) => (
-                <p key={paragraph.slice(0, 48)}>{paragraph}</p>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
-        <section aria-labelledby="where-heading">
-          <h2 id="where-heading" className="text-2xl font-bold text-ink">
-            Where it is
-          </h2>
-          <Card className="mt-4">
-            <CardBody>
-              <address className="text-ink-muted not-italic">
-                {address.map((line) => (
-                  <span key={line} className="block">
-                    {line}
-                  </span>
-                ))}
-              </address>
-              <p className="mt-4 text-sm text-ink-muted">
-                All times on this page are {venue.timezone} — the local time at the venue, not
-                yours.
-              </p>
-              {venue.capacity ? (
-                <p className="mt-2 text-sm text-ink-muted">
-                  Capacity {venue.capacity.toLocaleString('en-IN')}
-                </p>
-              ) : null}
-            </CardBody>
-          </Card>
-
-          {directions.length > 0 ? (
-            <div className="mt-4">
-              <h3 className="font-display text-lg font-semibold text-ink">Getting in</h3>
-              <div className="mt-2 space-y-3 text-ink-muted">
-                {directions.map((paragraph) => (
-                  <p key={paragraph.slice(0, 48)}>{paragraph}</p>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </section>
-
-        <RevealOnScroll as="section" aria-labelledby="access-heading">
-          <h2 id="access-heading" className="text-2xl font-bold text-ink">
-            Accessibility
-          </h2>
-          {features.length === 0 && !note ? (
-            <p className="mt-4 text-ink-muted">
-              This venue has not published its accessibility details, so this page cannot say what
-              access there is, and nothing here should be read as step-free. This site has no way to
-              ask the venue on your behalf.
-            </p>
-          ) : (
-            <>
-              {features.length > 0 ? (
-                <ul className="mt-4 flex flex-wrap gap-2">
-                  {features.map((code) => (
-                    <li key={code}>
-                      {/* Text, not an icon: a pictogram with no label is invisible
-                          to a screen reader, and colour alone carries nothing. */}
-                      <Badge variant="success" srLabel="This venue has:">
-                        {accessibilityLabel(code)}
-                      </Badge>
-                    </li>
+        <div className="mt-12 grid grid-cols-1 gap-12 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-16">
+          <div className="min-w-0 space-y-14">
+            {about.length > 0 ? (
+              <section aria-labelledby="about-heading">
+                <h2 id="about-heading" className="text-h2 font-semibold text-ink">
+                  About
+                </h2>
+                <div className="mt-4 space-y-4 text-body text-ink-muted">
+                  {about.map((paragraph) => (
+                    <p key={paragraph.slice(0, 48)}>{paragraph}</p>
                   ))}
+                </div>
+              </section>
+            ) : null}
+
+            <Reveal as="section" aria-labelledby="access-heading">
+              <h2 id="access-heading" className="text-h2 font-semibold text-ink">
+                Accessibility
+              </h2>
+              {features.length === 0 && !note ? (
+                <p className="mt-4 text-ink-muted">
+                  This venue has not published its accessibility details, so this page cannot say
+                  what access there is, and nothing here should be read as step-free. This site has
+                  no way to ask the venue on your behalf.
+                </p>
+              ) : (
+                <>
+                  {features.length > 0 ? (
+                    <ul className="mt-5 flex flex-wrap gap-2">
+                      {features.map((code) => (
+                        <li key={code}>
+                          {/* Text, not an icon: a pictogram with no label is invisible
+                              to a screen reader, and colour alone carries nothing. */}
+                          <Badge variant="success" size="lg" srLabel="This venue has:">
+                            <CheckIcon className="h-3.5 w-3.5" />
+                            {accessibilityLabel(code)}
+                          </Badge>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {note ? <p className="mt-4 text-ink-muted">{note}</p> : null}
+                </>
+              )}
+            </Reveal>
+
+            <Reveal as="section" aria-labelledby="whats-on-heading">
+              <h2 id="whats-on-heading" className="text-h2 font-semibold text-ink">
+                What&rsquo;s on
+              </h2>
+              {venue.upcomingEvents.length === 0 ? (
+                <p className="mt-4 text-ink-muted">No upcoming events are listed here.</p>
+              ) : (
+                <ul className="mt-5 overflow-hidden rounded-card bg-surface-raised shadow-card">
+                  {venue.upcomingEvents.map((event) => {
+                    const leaf = calendarLeaf({ ...event, timezone: venue.timezone })
+
+                    return (
+                      <li key={event.slug} className="border-b border-line last:border-b-0">
+                        <Link
+                          href={`/events/${event.slug}`}
+                          className="group flex items-center gap-4 px-5 py-4 transition-colors duration-(--duration-fast) hover:bg-surface-subtle"
+                        >
+                          {leaf ? (
+                            <span
+                              aria-hidden="true"
+                              className="flex h-14 w-13 shrink-0 flex-col items-center justify-center rounded-control bg-surface-subtle group-hover:bg-surface-raised"
+                            >
+                              <span className="text-[0.6875rem] font-bold tracking-eyebrow text-accent-strong uppercase">
+                                {leaf.month}
+                              </span>
+                              <span className="font-display text-xl leading-6 font-bold text-ink">
+                                {leaf.day}
+                              </span>
+                            </span>
+                          ) : null}
+                          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                            <span className="font-bold text-ink group-hover:text-accent-strong">
+                              {event.title}
+                            </span>
+                            <span className="text-sm text-ink-muted">
+                              <time
+                                className="whitespace-nowrap"
+                                dateTime={toDateTimeAttribute(event.startsAt)}
+                              >
+                                {formatEventDate(event.startsAt, venue.timezone)} ·{' '}
+                                {formatEventTime(event.startsAt, venue.timezone)}
+                              </time>
+                              {event.organizerName ? (
+                                <span className="block sm:inline">
+                                  <span className="hidden sm:inline"> · </span>
+                                  {event.organizerName}
+                                </span>
+                              ) : null}
+                            </span>
+                          </span>
+                          <ArrowRightIcon className="hidden h-5 w-5 text-accent-strong sm:block" />
+                        </Link>
+                      </li>
+                    )
+                  })}
                 </ul>
-              ) : null}
-              {note ? <p className="mt-4 text-ink-muted">{note}</p> : null}
-            </>
-          )}
-        </RevealOnScroll>
+              )}
+            </Reveal>
 
-        <RevealOnScroll as="section" aria-labelledby="whats-on-heading">
-          <h2 id="whats-on-heading" className="text-2xl font-bold text-ink">
-            What&rsquo;s on
-          </h2>
-          {venue.upcomingEvents.length === 0 ? (
-            <p className="mt-4 text-ink-muted">No upcoming events are listed here.</p>
-          ) : (
-            <ul className="mt-2">
-              {venue.upcomingEvents.map((event) => (
-                <li key={event.slug} className="border-b border-line last:border-b-0">
-                  <Link
-                    href={`/events/${event.slug}`}
-                    className="flex flex-col gap-1 rounded-sm py-4 transition-colors hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
-                  >
-                    <span className="font-medium text-ink">{event.title}</span>
-                    <span className="text-sm text-ink-muted">
-                      <time
-                        className="whitespace-nowrap"
-                        dateTime={toDateTimeAttribute(event.startsAt)}
-                      >
-                        {formatEventDate(event.startsAt, venue.timezone)} ·{' '}
-                        {formatEventTime(event.startsAt, venue.timezone)}
-                      </time>
-                      {event.organizerName ? (
-                        <span className="block sm:inline">
-                          <span className="hidden sm:inline"> · </span>
-                          {event.organizerName}
-                        </span>
-                      ) : null}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </RevealOnScroll>
-
-        {policies.length > 0 ? (
-          <RevealOnScroll as="section" aria-labelledby="rules-heading">
-            <h2 id="rules-heading" className="text-2xl font-bold text-ink">
-              House rules
-            </h2>
-            <Card className="mt-4">
-              <CardBody>
-                <div className="space-y-4 text-ink-muted">
+            {policies.length > 0 ? (
+              <Reveal
+                as="section"
+                aria-labelledby="rules-heading"
+                className="rounded-card bg-surface-subtle p-6 sm:p-8"
+              >
+                <h2 id="rules-heading" className="text-h2 font-semibold text-ink">
+                  House rules
+                </h2>
+                <div className="mt-4 space-y-4 text-ink">
                   {policies.map((paragraph) => (
                     <p key={paragraph.slice(0, 48)}>{paragraph}</p>
                   ))}
@@ -327,10 +311,54 @@ export default async function VenuePage({ params }) {
                   The rules attached to your order when you paid are the ones that govern it. A
                   later edit here does not change what you agreed to.
                 </p>
-              </CardBody>
-            </Card>
-          </RevealOnScroll>
-        ) : null}
+              </Reveal>
+            ) : null}
+          </div>
+
+          <section aria-labelledby="where-heading" className="lg:sticky lg:top-28 lg:self-start">
+            <section className="overflow-hidden rounded-card bg-surface-raised shadow-card">
+              <MirrorBand />
+              <div className="p-6">
+                <h2 id="where-heading" className="text-h3 font-semibold text-ink">
+                  Where it is
+                </h2>
+                <address className="mt-3 flex gap-3 text-ink-muted not-italic">
+                  <PinIcon className="mt-1 h-5 w-5 text-accent-strong" />
+                  <span>
+                    {address.map((line) => (
+                      <span key={line} className="block">
+                        {line}
+                      </span>
+                    ))}
+                  </span>
+                </address>
+                <p className="mt-4 flex gap-3 text-sm text-ink-muted">
+                  <ClockIcon className="mt-0.5 h-4.5 w-4.5 text-accent-strong" />
+                  <span>
+                    All times on this page are {venue.timezone} — the local time at the venue, not
+                    yours.
+                  </span>
+                </p>
+                {venue.capacity ? (
+                  <p className="mt-3 text-sm text-ink-muted">
+                    Capacity {venue.capacity.toLocaleString('en-US')}
+                  </p>
+                ) : null}
+
+                {directions.length > 0 ? (
+                  <div className="mt-5 border-t border-line pt-5">
+                    <h3 className="font-sans text-sm font-bold text-ink">Getting in</h3>
+                    <div className="mt-2 space-y-3 text-sm text-ink-muted">
+                      {directions.map((paragraph) => (
+                        <p key={paragraph.slice(0, 48)}>{paragraph}</p>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </section>
+        </div>
       </div>
     </article>
   )

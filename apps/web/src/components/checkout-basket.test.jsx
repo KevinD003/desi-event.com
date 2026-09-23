@@ -411,3 +411,89 @@ describe('buying', () => {
     expect(screen.getByText(/which this site does not have/)).toBeInTheDocument()
   })
 })
+
+describe('the basket for an event in the United States', () => {
+  const edison = {
+    id: 'evtnavratrinightone',
+    slug: 'navratri-night-one-edison',
+    title: 'Navratri Night One: Garba Under the Lights',
+    category: 'GARBA_DANDIYA',
+    startsAt: '2026-10-11T23:30:00.000Z',
+    timezone: 'America/New_York',
+    venue: { city: 'Edison', region: 'NJ', country: 'US' },
+    feeTerms: [{ currency: 'USD', percentageBps: 590, flatCents: 99 }],
+  }
+  const tiers = [
+    {
+      id: 'ttedisongeneral',
+      name: 'General Admission',
+      priceCents: 3500,
+      currency: 'USD',
+      minPerOrder: 1,
+      maxPerOrder: 10,
+      availableQuantity: 400,
+      isSoldOut: false,
+    },
+  ]
+
+  it('prices in dollars and says US sales tax is not calculated here', () => {
+    render(<CheckoutBasket event={edison} ticketTypes={tiers} buyer={BUYER} />)
+
+    expect(screen.getByTestId('summary-total')).toHaveTextContent('$0.00')
+    expect(screen.getByText('Sales tax', { selector: 'dt' })).toBeInTheDocument()
+    expect(screen.getByText('US sales tax is not calculated in this demo')).toBeInTheDocument()
+  })
+
+  it('shows each tier with what one ticket comes to with the booking fee', () => {
+    render(<CheckoutBasket event={edison} ticketTypes={tiers} buyer={BUYER} />)
+
+    // The same figure the event page and the card quote: $35.00 face, $38.06 with fees.
+    expect(screen.getByText('$38.06 with fees')).toBeInTheDocument()
+  })
+
+  it('totals a selection with the event’s own fee terms', async () => {
+    const user = userEvent.setup()
+
+    render(<CheckoutBasket event={edison} ticketTypes={tiers} buyer={BUYER} />)
+    await user.click(screen.getByRole('button', { name: 'Add one General Admission' }))
+    await user.click(screen.getByRole('button', { name: 'Add one General Admission' }))
+
+    expect(screen.getByTestId('summary-subtotal')).toHaveTextContent('$70.00')
+    // 5.9% of $70.00 is $4.13, plus $0.99 a ticket: $6.11 in fees.
+    expect(screen.getByTestId('summary-total')).toHaveTextContent('$76.11')
+  })
+
+  it('shows the poster beside the summary as decoration, not as a second image', () => {
+    const { container } = render(
+      <CheckoutBasket event={edison} ticketTypes={tiers} buyer={BUYER} />,
+    )
+
+    const poster = container.querySelector('[data-slot="poster"]')
+
+    expect(poster.closest('[aria-hidden="true"]')).not.toBeNull()
+    expect(screen.queryByRole('img')).toBeNull()
+  })
+
+  it('names the event on the booking once it is placed', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <CheckoutBasket
+        event={edison}
+        ticketTypes={tiers}
+        buyer={BUYER}
+        reserve={vi.fn().mockResolvedValue(HOLDS)}
+        placeOrder={vi.fn().mockResolvedValue({ ...ORDER, currency: 'USD', totalCents: 3806 })}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Add one General Admission' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay \$38\.06 \(simulated\)$/ }))
+
+    const booked = (await screen.findByRole('heading', { name: 'Booked' })).closest('section')
+
+    expect(booked).toHaveTextContent('Navratri Night One: Garba Under the Lights')
+    expect(booked).toHaveTextContent('$38.06')
+  })
+})

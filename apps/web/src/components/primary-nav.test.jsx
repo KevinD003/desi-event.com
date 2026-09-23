@@ -52,6 +52,25 @@ afterEach(() => {
 })
 
 describe('PrimaryNav', () => {
+  it('renders the account control between the wide row and the Menu button, and the sheet last', () => {
+    render(<PrimaryNav groups={GROUPS} account={<a href="/sign-in">Sign in</a>} />)
+
+    const [wide] = screen.getAllByRole('navigation', { name: 'Primary' })
+    const account = screen.getByRole('link', { name: 'Sign in' })
+    const menu = screen.getByRole('button', { name: /menu/i })
+
+    fireEvent.click(menu)
+
+    const sheet = document.getElementById(menu.getAttribute('aria-controls'))
+    const order = [wide, account, menu, sheet]
+
+    for (let index = 1; index < order.length; index += 1) {
+      expect(
+        order[index - 1].compareDocumentPosition(order[index]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+    }
+  })
+
   it('keeps the wide row to discovery; the account and workspace have their own controls', () => {
     render(<PrimaryNav groups={GROUPS} />)
 

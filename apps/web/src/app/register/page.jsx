@@ -12,6 +12,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+import { AuthFrame } from '../../components/auth-frame.jsx'
+import { TEXT_LINK } from '../../components/link-classes.js'
 import { RegisterForm } from '../../components/register-form.jsx'
 import { DEFAULT_NEXT_PATH, safeNextPath, signInHref } from '../../lib/next-path.js'
 import { readSession } from '../../lib/session.js'
@@ -38,25 +40,22 @@ export default async function RegisterPage({ searchParams }) {
   if (await readSession()) redirect(next)
 
   return (
-    <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="text-3xl font-bold text-ink">Create an account</h1>
-      <p className="mt-3 text-ink-muted">
-        Your tickets are kept in your account. It takes a name, an email address and a password.
-      </p>
+    <AuthFrame
+      headingId="register-heading"
+      title="Create an account"
+      lead="Your tickets are kept in your account. It takes a name, an email address and a password."
+    >
+      <RegisterForm next={next} />
 
-      <div className="mt-8">
-        <RegisterForm next={next} />
-      </div>
-
-      <p className="mt-8 text-sm text-ink-muted">
+      <p className="mt-8 border-t border-line pt-6 text-sm text-ink-muted">
         Already have one?{' '}
         <Link
           href={next === DEFAULT_NEXT_PATH ? '/sign-in' : signInHref(next)}
-          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className={TEXT_LINK}
         >
           Sign in
         </Link>
       </p>
-    </div>
+    </AuthFrame>
   )
 }

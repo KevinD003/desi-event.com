@@ -28,7 +28,11 @@
 
 import Link from 'next/link'
 
-import { RevealOnScroll } from '../../components/motion.jsx'
+import { GarbaRings } from '../../components/festive-decor.jsx'
+import { ArrowRightIcon, CategoryIcon } from '../../components/icons.jsx'
+import { SECONDARY_LINK } from '../../components/link-classes.js'
+import { HoverLift, Stagger, StaggerItem } from '../../components/motion.jsx'
+import { PageHero } from '../../components/page-hero.jsx'
 import { SampleDataNotice } from '../../components/sample-data-notice.jsx'
 import { loadCatalogueFacets } from '../../lib/api.js'
 import { categoryCountLabel, describeCategoryDirectory } from '../../lib/directory.js'
@@ -38,7 +42,7 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'Categories',
   description:
-    'Garba and dandiya, live music, Bollywood nights, classical dance, comedy, melas and more — every kind of event on Desi-Event, with how many are listed in each.',
+    'Garba and dandiya, workshops, live music, melas and more — every kind of event on Desi-Event, with how many are listed in each.',
 }
 
 /**
@@ -51,66 +55,74 @@ export default async function CategoriesPage() {
   const { categories, countsKnown } = describeCategoryDirectory(facets)
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-bold text-ink sm:text-4xl">Browse by category</h1>
-      <p className="mt-2 max-w-2xl text-ink-muted">
-        From a two-hour Bharatanatyam margam to a food festival that takes a whole weekend. The
-        number beside each category is how many events are listed in it.
-      </p>
+    <div>
+      <PageHero
+        headingId="categories-heading"
+        eyebrow="Categories"
+        title="Browse by category"
+        lead="From an open-floor garba night to a mela that takes a whole weekend. The number on each is how many events are listed in it."
+        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
+      />
 
-      <SampleDataNotice show={usedFallback} />
+      <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">
+        <SampleDataNotice show={usedFallback} className="mb-6" />
 
-      {countsKnown ? null : (
-        <p className="mt-6 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
-          How many events each category holds could not be read just now, so no counts are shown.
-          Every category still opens its listing.
-        </p>
-      )}
+        {countsKnown ? null : (
+          <p className="mb-6 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
+            How many events each category holds could not be read just now, so no counts are shown.
+            Every category still opens its listing.
+          </p>
+        )}
 
-      <ul
-        aria-label="Event categories"
-        className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        {categories.map((category, index) => {
-          const count = categoryCountLabel(category.count)
-
-          return (
-            <RevealOnScroll as="li" key={category.value} index={index}>
-              <Link
-                href={category.href}
-                className="group flex h-full min-h-11 items-start gap-4 rounded-card border border-line bg-surface-raised p-5 transition-colors hover:border-accent-line hover:bg-accent-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
-              >
-                <span
-                  aria-hidden="true"
-                  className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xl text-accent-strong"
-                >
-                  {category.glyph}
-                </span>
-                <div className="flex flex-col gap-1">
-                  <h2 className="font-display text-base font-semibold text-ink group-hover:text-accent-strong">
-                    {category.label}
-                  </h2>
-                  <p className="text-sm text-ink-muted">{category.blurb}</p>
-                  {count ? (
-                    <p data-testid="category-count" className="text-xs font-medium text-ink-muted">
-                      {count}
-                    </p>
-                  ) : null}
-                </div>
-              </Link>
-            </RevealOnScroll>
-          )
-        })}
-      </ul>
-
-      <p className="mt-10">
-        <Link
-          href="/events"
-          className="inline-flex min-h-11 items-center rounded-sm text-sm font-medium text-accent-strong underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+        <Stagger
+          as="ul"
+          aria-label="Event categories"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3"
         >
-          Browse every event instead
-        </Link>
-      </p>
+          {categories.map((category) => {
+            const count = categoryCountLabel(category.count)
+
+            return (
+              <StaggerItem as="li" key={category.value} className="flex">
+                <HoverLift className="group flex w-full">
+                  <Link
+                    href={category.href}
+                    className="flex min-h-11 w-full items-start gap-4 rounded-card bg-surface-raised p-5 shadow-card transition-shadow duration-(--duration-base) ease-standard group-data-lifted:shadow-card-hover hover:shadow-card-hover sm:p-6"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-control bg-accent-soft text-accent-strong"
+                    >
+                      <CategoryIcon category={category.value} className="h-6 w-6" />
+                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <h2 className="text-h3 font-semibold text-ink transition-colors duration-(--duration-fast) group-hover:text-accent-strong">
+                        {category.label}
+                      </h2>
+                      <p className="text-sm text-ink-muted">{category.blurb}</p>
+                      {count ? (
+                        <p
+                          data-testid="category-count"
+                          className="mt-2 text-sm font-bold text-accent-strong"
+                        >
+                          {count}
+                        </p>
+                      ) : null}
+                    </div>
+                  </Link>
+                </HoverLift>
+              </StaggerItem>
+            )
+          })}
+        </Stagger>
+
+        <p className="mt-12">
+          <Link href="/events" className={SECONDARY_LINK}>
+            Browse every event instead
+            <ArrowRightIcon className="h-4.5 w-4.5" />
+          </Link>
+        </p>
+      </div>
     </div>
   )
 }

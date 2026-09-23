@@ -20,44 +20,50 @@
 
 import Link from 'next/link'
 
-/** Shared link styling for the primary action. */
-const primaryLink =
-  'inline-flex h-12 items-center justify-center rounded-lg bg-action-primary px-6 text-base ' +
-  'font-medium text-action-primary-ink shadow-sm transition-colors hover:bg-action-primary-hover ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ' +
-  'focus-visible:ring-offset-2'
-
-/** Shared link styling for the secondary actions. */
-const secondaryLink =
-  'inline-flex h-12 items-center justify-center rounded-lg border border-line-strong bg-surface-raised ' +
-  'px-6 text-base font-medium text-ink transition-colors hover:bg-surface-subtle ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ' +
-  'focus-visible:ring-offset-2'
+import { Diamond, ScallopHem, Toran } from './festive-decor.jsx'
+import { ArrowRightIcon, SearchIcon } from './icons.jsx'
+import { OUTLINE_LINK, PRIMARY_LINK } from './link-classes.js'
 
 /**
- * The shared not-found page body.
+ * The shared not-found page body: a night band with the toran over the words,
+ * and three ways onward. No motion — see above — and the toran's bulbs only
+ * twinkle where the visitor has not asked for reduced motion, in CSS, with
+ * nothing to hydrate.
  *
  * @returns {JSX.Element} The rendered view.
  */
 export function NotFoundView() {
   return (
-    <div data-testid="not-found-view" className="mx-auto max-w-2xl px-4 py-20 text-center">
-      <p aria-hidden="true" className="font-display text-6xl text-accent">
-        ✺
-      </p>
-      <h1 className="mt-6 text-3xl font-bold text-ink sm:text-4xl">This one is not on the bill</h1>
-      <p className="mt-4 text-lg text-ink-muted">
-        The page you were looking for has either finished its run or never existed. The rest of the
-        programme is still going.
-      </p>
-      <div className="mt-8 flex flex-wrap justify-center gap-3">
-        <Link href="/events" className={primaryLink}>
+    <div data-testid="not-found-view">
+      <section className="relative isolate overflow-hidden bg-surface-inverse text-ink-inverse">
+        <Toran />
+        <div className="relative mx-auto max-w-2xl px-4 pt-24 pb-20 text-center sm:px-6">
+          <p className="flex items-center justify-center gap-2.5 text-micro font-bold tracking-eyebrow text-accent-inverse uppercase">
+            <Diamond />
+            Page not found
+            <Diamond />
+          </p>
+          <h1 className="mt-5 text-h1 font-semibold text-ink-inverse">
+            This one is not on the bill
+          </h1>
+          <p className="mt-4 text-body text-ink-inverse-muted">
+            The page you were looking for has either finished its run or never existed. The rest of
+            the programme is still going.
+          </p>
+        </div>
+        <ScallopHem />
+      </section>
+
+      <div className="mx-auto flex max-w-2xl flex-wrap justify-center gap-3 px-4 pt-10 sm:px-6">
+        <Link href="/events" className={PRIMARY_LINK}>
           Browse every event
+          <ArrowRightIcon className="h-4.5 w-4.5" />
         </Link>
-        <Link href="/events#filter-q" className={secondaryLink}>
+        <Link href="/events#filter-q" className={`${OUTLINE_LINK} min-h-12 text-base`}>
+          <SearchIcon className="h-4.5 w-4.5" />
           Search events
         </Link>
-        <Link href="/" className={secondaryLink}>
+        <Link href="/" className={`${OUTLINE_LINK} min-h-12 text-base`}>
           Back to the home page
         </Link>
       </div>

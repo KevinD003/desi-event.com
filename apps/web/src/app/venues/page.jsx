@@ -45,7 +45,12 @@
 import Link from 'next/link'
 import { ACCESSIBILITY_FEATURES } from '@desi-event/schemas'
 
+import { GarbaRings } from '../../components/festive-decor.jsx'
+import { ArrowLeftIcon, ArrowRightIcon, PinIcon } from '../../components/icons.jsx'
+import { SECONDARY_LINK, TEXT_LINK } from '../../components/link-classes.js'
+import { FadeIn } from '../../components/motion.jsx'
 import { Empty } from '../../components/page-state.jsx'
+import { PageHero } from '../../components/page-hero.jsx'
 import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { Badge, Button, Input } from '../../components/ui.jsx'
 import { accessibilityLabel } from '../../lib/accessibility.js'
@@ -65,12 +70,11 @@ export const dynamic = 'force-dynamic'
 export const metadata = {
   title: 'Venues',
   description:
-    'Halls, grounds and theatres on Desi-Event, with the accessibility each venue asserts — step-free entrances, hearing loops, accessible toilets and more.',
+    'Halls and pavilions on Desi-Event, with the accessibility each venue asserts — step-free entrances, hearing loops, accessible toilets and more.',
 }
 
-/** Classes for a pagination or clearing link, matching the event listing. */
-const PAGE_LINK =
-  'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+/** Classes for a pagination link, matching the event listing. */
+const PAGE_LINK = SECONDARY_LINK
 
 /**
  * The filter form.
@@ -89,15 +93,18 @@ function VenueFilterForm({ filters }) {
       method="get"
       action="/venues"
       aria-label="Filter venues"
-      className="rounded-card border border-line bg-surface-raised p-4"
+      className="rounded-card bg-surface-raised p-5 shadow-dialog sm:p-6"
     >
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_2fr]">
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="venue-city" className="text-sm font-medium text-ink">
+          <label
+            htmlFor="venue-city"
+            className="pl-1 text-micro font-bold tracking-eyebrow text-ink-muted uppercase"
+          >
             City
           </label>
           <p id="venue-city-hint" className="text-sm text-ink-muted">
-            The whole name, such as Mumbai or Toronto.
+            The whole name, such as Edison or Santa Clara.
           </p>
           <Input
             id="venue-city"
@@ -111,7 +118,9 @@ function VenueFilterForm({ filters }) {
         </div>
 
         <fieldset aria-describedby="venue-access-hint">
-          <legend className="text-sm font-medium text-ink">What you need to get in</legend>
+          <legend className="pl-1 text-micro font-bold tracking-eyebrow text-ink-muted uppercase">
+            What you need to get in
+          </legend>
           <p id="venue-access-hint" className="mt-1 text-sm text-ink-muted">
             Only venues asserting every one you tick are shown. Up to {MAX_ACCESSIBILITY_FILTERS} at
             once.
@@ -124,7 +133,7 @@ function VenueFilterForm({ filters }) {
                   name="accessibility"
                   value={code}
                   defaultChecked={ticked.has(code)}
-                  className="h-4 w-4 shrink-0 accent-action-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+                  className="h-5 w-5 shrink-0 accent-action-primary"
                 />
                 <span>{accessibilityLabel(code)}</span>
               </label>
@@ -134,13 +143,13 @@ function VenueFilterForm({ filters }) {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <Button type="submit" className="min-h-11">
+        <Button type="submit" size="lg">
           Apply
         </Button>
         {hasVenueFilters(filters) ? (
           <Link
             href="/venues"
-            className="inline-flex min-h-11 items-center rounded-sm px-2 text-sm font-medium text-accent-strong underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+            className={`${TEXT_LINK} inline-flex min-h-11 items-center px-2 text-sm`}
           >
             Clear filters
           </Link>
@@ -164,33 +173,45 @@ function VenueCard({ venue }) {
   const capacity = Number.isInteger(venue.capacity) && venue.capacity > 0 ? venue.capacity : null
 
   return (
-    <li className="flex flex-col rounded-card border border-line bg-surface-raised p-5">
-      <h2 className="font-display text-lg font-semibold text-ink">
-        <Link
-          href={`/venues/${encodeURIComponent(venue.slug)}`}
-          className="inline-flex min-h-11 items-center rounded-sm underline-offset-4 hover:text-accent-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+    <li className="flex flex-col rounded-card bg-surface-raised p-6 shadow-card">
+      <div className="flex items-start gap-4">
+        <span
+          aria-hidden="true"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-control bg-accent-soft text-accent-strong"
         >
-          {venue.name}
-        </Link>
-      </h2>
-      {place ? <p className="mt-1 text-sm text-ink-muted">{place}</p> : null}
-      {capacity ? (
-        <p className="mt-1 text-sm text-ink-muted">Capacity {capacity.toLocaleString('en-IN')}</p>
-      ) : null}
+          <PinIcon className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-h3 font-semibold text-ink">
+            <Link
+              href={`/venues/${encodeURIComponent(venue.slug)}`}
+              className="inline-flex min-h-11 items-center rounded-sm underline-offset-4 hover:text-accent-strong hover:underline"
+            >
+              {venue.name}
+            </Link>
+          </h2>
+          {place ? <p className="text-sm text-ink-muted">{place}</p> : null}
+          {capacity ? (
+            <p className="mt-1 text-sm text-ink-muted">
+              Capacity {capacity.toLocaleString('en-US')}
+            </p>
+          ) : null}
+        </div>
+      </div>
 
       {claims.length > 0 ? (
-        <ul aria-label={`Accessibility at ${venue.name}`} className="mt-4 flex flex-wrap gap-2">
+        <ul aria-label={`Accessibility at ${venue.name}`} className="mt-5 flex flex-wrap gap-2">
           {claims.map((claim) => (
             <li key={claim}>
               {/* Words, not icons, and the same words the venue's own page uses. */}
-              <Badge variant="success">{claim}</Badge>
+              <Badge variant="secondary">{claim}</Badge>
             </li>
           ))}
         </ul>
       ) : null}
 
       {hasNote ? (
-        <p className="mt-3 text-sm text-ink-muted">
+        <p className="mt-4 text-sm text-ink-muted">
           {claims.length > 0
             ? 'The venue adds an accessibility note on its page.'
             : 'The venue describes its accessibility in a note on its page.'}
@@ -198,7 +219,7 @@ function VenueCard({ venue }) {
       ) : null}
 
       {claims.length === 0 && !hasNote ? (
-        <p className="mt-4 text-sm text-ink-muted">
+        <p className="mt-5 text-sm text-ink-muted">
           This venue has not published its accessibility details.
         </p>
       ) : null}
@@ -284,91 +305,101 @@ export default async function VenuesPage({ searchParams }) {
   const result = await loadVenueDirectory(filters)
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-bold text-ink sm:text-4xl">Venues</h1>
-      <p className="mt-2 max-w-2xl text-ink-muted">
-        The halls, grounds and theatres shared across Desi-Event, and what each one asserts about
-        getting in. Open a venue for its address, how to reach it and what is on there.
-      </p>
+    <div>
+      <PageHero
+        headingId="venues-heading"
+        eyebrow="Halls & pavilions"
+        title="Venues"
+        lead="The halls and pavilions shared across Desi-Event, and what each one asserts about getting in. Open a venue for its address, how to reach it and what is on there."
+        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
+        className="pb-24 sm:pb-28"
+      />
 
-      <div className="mt-6">
-        <VenueFilterForm filters={filters} />
-      </div>
+      <div className="mx-auto max-w-content px-4 sm:px-6">
+        <FadeIn delay={0.12} className="relative z-10 -mt-14">
+          <VenueFilterForm filters={filters} />
+        </FadeIn>
 
-      {filters.leftOut.length > 0 ? (
-        <p className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-status-warning">
-          Only {MAX_ACCESSIBILITY_FILTERS} accessibility needs can be applied at once, so these were
-          left out: {filters.leftOut.map((code) => accessibilityLabel(code)).join(', ')}.
-        </p>
-      ) : null}
-
-      {result.ok ? (
-        <>
-          <p data-testid="venue-summary" className="mt-6 text-sm font-medium text-ink-muted">
-            {result.venues.length === 1
-              ? '1 venue on this page'
-              : `${result.venues.length} venues on this page`}
+        {filters.leftOut.length > 0 ? (
+          <p className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-status-warning">
+            Only {MAX_ACCESSIBILITY_FILTERS} accessibility needs can be applied at once, so these
+            were left out: {filters.leftOut.map((code) => accessibilityLabel(code)).join(', ')}.
           </p>
-          {filters.accessibility.length > 0 ? (
-            <p className="mt-1 text-sm text-ink-muted">
-              The accessibility filter is applied a page at a time, so one page can hold fewer
-              venues than the next.
+        ) : null}
+
+        {result.ok ? (
+          <>
+            <p
+              data-testid="venue-summary"
+              className="mt-10 font-display text-h3 font-semibold text-ink"
+            >
+              {result.venues.length === 1
+                ? '1 venue on this page'
+                : `${result.venues.length} venues on this page`}
             </p>
-          ) : null}
+            {filters.accessibility.length > 0 ? (
+              <p className="mt-1 text-sm text-ink-muted">
+                The accessibility filter is applied a page at a time, so one page can hold fewer
+                venues than the next.
+              </p>
+            ) : null}
 
-          {result.venues.length === 0 ? (
-            <NoVenuesHere filters={filters} pagination={result.pagination} />
-          ) : (
-            <ul
-              aria-label="Venues"
-              className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-            >
-              {result.venues.map((venue) => (
-                <VenueCard key={venue.slug} venue={venue} />
-              ))}
-            </ul>
-          )}
+            {result.venues.length === 0 ? (
+              <NoVenuesHere filters={filters} pagination={result.pagination} />
+            ) : (
+              <ul
+                aria-label="Venues"
+                className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                {result.venues.map((venue) => (
+                  <VenueCard key={venue.slug} venue={venue} />
+                ))}
+              </ul>
+            )}
 
-          {result.pagination.page > 1 || result.pagination.hasNextPage ? (
-            <nav
-              aria-label="Directory pages"
-              className="mt-10 flex items-center justify-between gap-4"
-            >
-              {result.pagination.page > 1 ? (
-                <Link
-                  href={buildVenuesHref({ ...filters, page: result.pagination.page - 1 })}
-                  className={PAGE_LINK}
-                >
-                  ← Previous
-                </Link>
-              ) : (
-                <span />
-              )}
+            {result.pagination.page > 1 || result.pagination.hasNextPage ? (
+              <nav
+                aria-label="Directory pages"
+                className="mt-10 flex items-center justify-between gap-4"
+              >
+                {result.pagination.page > 1 ? (
+                  <Link
+                    href={buildVenuesHref({ ...filters, page: result.pagination.page - 1 })}
+                    className={PAGE_LINK}
+                  >
+                    <ArrowLeftIcon className="h-4.5 w-4.5" />
+                    Previous
+                  </Link>
+                ) : (
+                  <span />
+                )}
 
-              <p className="text-sm text-ink-muted">Page {result.pagination.page}</p>
+                <p className="text-sm text-ink-muted">Page {result.pagination.page}</p>
 
-              {result.pagination.hasNextPage ? (
-                <Link
-                  href={buildVenuesHref({ ...filters, page: result.pagination.page + 1 })}
-                  className={PAGE_LINK}
-                >
-                  Next →
-                </Link>
-              ) : (
-                <span />
-              )}
-            </nav>
-          ) : null}
-        </>
-      ) : (
-        <ReadRefusal
-          error={result.error}
-          what="The venue directory"
-          action="see the venue directory"
-          backHref="/events"
-          backLabel="Browse events instead"
-        />
-      )}
+                {result.pagination.hasNextPage ? (
+                  <Link
+                    href={buildVenuesHref({ ...filters, page: result.pagination.page + 1 })}
+                    className={PAGE_LINK}
+                  >
+                    Next
+                    <ArrowRightIcon className="h-4.5 w-4.5" />
+                  </Link>
+                ) : (
+                  <span />
+                )}
+              </nav>
+            ) : null}
+          </>
+        ) : (
+          <ReadRefusal
+            error={result.error}
+            what="The venue directory"
+            action="see the venue directory"
+            backHref="/events"
+            backLabel="Browse events instead"
+          />
+        )}
+      </div>
     </div>
   )
 }

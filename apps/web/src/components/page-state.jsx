@@ -29,7 +29,24 @@ import Link from 'next/link'
 /**
  * @typedef {object} BreadcrumbsProps
  * @property {Array<{href: string|null, label: string}>} trail Oldest ancestor first, current page last.
+ * @property {'default'|'inverse'} [tone] `inverse` for a trail drawn on a night band.
  */
+
+/** The trail's colours, per ground. Every pairing is a measured one. */
+const CRUMB_TONES = Object.freeze({
+  default: {
+    list: 'text-ink-muted',
+    separator: 'text-ink-subtle',
+    link: 'text-accent-strong hover:decoration-2',
+    current: 'text-ink-muted',
+  },
+  inverse: {
+    list: 'text-ink-inverse-muted',
+    separator: 'text-ink-inverse-muted',
+    link: 'text-ink-inverse-muted hover:text-ink-inverse',
+    current: 'text-ink-inverse',
+  },
+})
 
 /**
  * Where this page sits.
@@ -37,29 +54,34 @@ import Link from 'next/link'
  * @param {BreadcrumbsProps} props Component props.
  * @returns {JSX.Element} The trail.
  */
-export function Breadcrumbs({ trail }) {
+export function Breadcrumbs({ trail, tone = 'default' }) {
+  const colours = CRUMB_TONES[tone] ?? CRUMB_TONES.default
+
   return (
     <nav aria-label="Breadcrumb" className="text-sm">
-      <ol className="flex flex-wrap items-center gap-2 text-ink-muted">
+      <ol className={`flex flex-wrap items-center gap-x-2 ${colours.list}`}>
         {trail.map((crumb, index) => {
           const last = index === trail.length - 1
 
           return (
-            <li key={`${crumb.label}-${index}`} className="flex items-center gap-2">
+            <li key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
               {index > 0 ? (
-                <span aria-hidden="true" className="text-ink-subtle">
+                <span aria-hidden="true" className={colours.separator}>
                   /
                 </span>
               ) : null}
               {crumb.href && !last ? (
                 <Link
                   href={crumb.href}
-                  className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  className={`inline-flex min-h-11 items-center rounded-sm font-semibold underline underline-offset-4 ${colours.link}`}
                 >
                   {crumb.label}
                 </Link>
               ) : (
-                <span aria-current={last ? 'page' : undefined} className="font-medium">
+                <span
+                  aria-current={last ? 'page' : undefined}
+                  className={`font-semibold ${colours.current}`}
+                >
                   {crumb.label}
                 </span>
               )}
@@ -138,7 +160,7 @@ export function Failure({ what, detail }) {
 export function Forbidden({ area, backHref = '/', backLabel = 'Back to the site' }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="text-2xl font-bold text-ink">Not for you</h1>
+      <h1 className="text-h2 font-semibold text-ink">Not for you</h1>
       <p className="mt-2 text-ink-muted">
         {area} is not something this account can open. If you think it should be, ask whoever runs
         the organisation — nothing on this page can grant it to you.
@@ -146,7 +168,7 @@ export function Forbidden({ area, backHref = '/', backLabel = 'Back to the site'
       <p className="mt-4">
         <Link
           href={backHref}
-          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          className="inline-flex min-h-11 items-center rounded-sm font-semibold text-accent-strong underline underline-offset-4 hover:decoration-2"
         >
           {backLabel}
         </Link>

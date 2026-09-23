@@ -29,17 +29,20 @@
 
 import Link from 'next/link'
 
+import { GarbaRings } from '../../components/festive-decor.jsx'
+import { Stagger, StaggerItem } from '../../components/motion.jsx'
 import { Empty } from '../../components/page-state.jsx'
-import { RevealOnScroll } from '../../components/motion.jsx'
+import { PageHero } from '../../components/page-hero.jsx'
 import { SampleDataNotice } from '../../components/sample-data-notice.jsx'
 import { deriveOrganizers, organizerCountLabel } from '../../lib/directory.js'
+import { initialOf } from '../../lib/initial.js'
 
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
   title: 'Organisers',
   description:
-    'The collectives, trusts and promoters with upcoming events listed on Desi-Event — open one to see everything they have on.',
+    'The collectives and promoters with upcoming garba, dandiya and Navratri events listed on Desi-Event — open one to see everything they have on.',
 }
 
 /**
@@ -51,10 +54,10 @@ export const metadata = {
 function coverageSentence(directory) {
   if (!directory.truncated) return null
 
-  const read = directory.eventsRead.toLocaleString('en-IN')
+  const read = directory.eventsRead.toLocaleString('en-US')
   const of =
     directory.totalListed !== null && directory.totalListed > directory.eventsRead
-      ? ` of ${directory.totalListed.toLocaleString('en-IN')}`
+      ? ` of ${directory.totalListed.toLocaleString('en-US')}`
       : ''
   // "the first 1 of 250 upcoming events": the noun agrees with the total when there is one.
   const noun = directory.eventsRead === 1 && of === '' ? 'event' : 'events'
@@ -76,53 +79,65 @@ export default async function OrganizersPage() {
   const coverage = coverageSentence(directory)
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-bold text-ink sm:text-4xl">Organisers</h1>
-      <p className="mt-2 max-w-2xl text-ink-muted">
-        These are the organisers with upcoming events listed on Desi-Event, and how many each has
-        coming up. Open one to see what they have on and their refund policy.
-      </p>
+    <div>
+      <PageHero
+        headingId="organisers-heading"
+        eyebrow="Organisers"
+        title="Who is putting on the nights"
+        lead="These are the organisers with upcoming events listed on Desi-Event, and how many each has coming up. Open one to see what they have on and their refund policy."
+        art={<GarbaRings className="h-[30rem] w-[30rem]" />}
+      />
 
-      <SampleDataNotice show={directory.usedFallback} />
+      <div className="mx-auto max-w-content px-4 pt-10 sm:px-6">
+        <SampleDataNotice show={directory.usedFallback} className="mb-6" />
 
-      {coverage ? (
-        <p data-testid="organizer-coverage" className="mt-6 text-sm font-medium text-ink-muted">
-          {coverage}
-        </p>
-      ) : null}
+        {coverage ? (
+          <p data-testid="organizer-coverage" className="mb-6 text-sm font-semibold text-ink-muted">
+            {coverage}
+          </p>
+        ) : null}
 
-      {directory.organizers.length === 0 ? (
-        <Empty
-          title="No organisers have upcoming events listed"
-          description="An organiser appears here while at least one of their upcoming events is listed."
-        />
-      ) : (
-        <ul
-          aria-label="Organisers"
-          className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          {directory.organizers.map((organizer, index) => (
-            <RevealOnScroll
-              as="li"
-              key={organizer.slug}
-              index={Math.min(index, 8)}
-              className="flex flex-col rounded-card border border-line bg-surface-raised p-5"
-            >
-              <h2 className="font-display text-lg font-semibold text-ink">
-                <Link
-                  href={`/organizers/${encodeURIComponent(organizer.slug)}`}
-                  className="inline-flex min-h-11 items-center rounded-sm underline-offset-4 hover:text-accent-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+        {directory.organizers.length === 0 ? (
+          <Empty
+            title="No organisers have upcoming events listed"
+            description="An organiser appears here while at least one of their upcoming events is listed."
+          />
+        ) : (
+          <Stagger
+            as="ul"
+            aria-label="Organisers"
+            className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {directory.organizers.map((organizer) => (
+              <StaggerItem
+                as="li"
+                key={organizer.slug}
+                className="flex items-start gap-4 rounded-card bg-surface-raised p-6 shadow-card"
+              >
+                <span
+                  aria-hidden="true"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xl font-bold text-accent-strong"
                 >
-                  {organizer.name}
-                </Link>
-              </h2>
-              <p className="mt-1 text-sm text-ink-muted">
-                {organizerCountLabel(organizer.eventCount)}
-              </p>
-            </RevealOnScroll>
-          ))}
-        </ul>
-      )}
+                  {initialOf(organizer.name)}
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-h3 font-semibold text-ink">
+                    <Link
+                      href={`/organizers/${encodeURIComponent(organizer.slug)}`}
+                      className="inline-flex min-h-11 items-center rounded-sm underline-offset-4 hover:text-accent-strong hover:underline"
+                    >
+                      {organizer.name}
+                    </Link>
+                  </h2>
+                  <p className="text-sm text-ink-muted">
+                    {organizerCountLabel(organizer.eventCount)}
+                  </p>
+                </div>
+              </StaggerItem>
+            ))}
+          </Stagger>
+        )}
+      </div>
     </div>
   )
 }

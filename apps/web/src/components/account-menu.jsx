@@ -29,12 +29,17 @@ import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
+import { initialOf } from '../lib/initial.js'
 import { signInHref } from '../lib/next-path.js'
+import { PersonIcon } from './icons.jsx'
 import { SignOutButton } from './sign-out-button.jsx'
 
-/** The header's sign-in link. */
+/**
+ * The header's sign-in link: outlined in ink on the white bar, with a person
+ * icon beside the words on a screen wide enough for both.
+ */
 const SIGN_IN =
-  'inline-flex min-h-11 items-center rounded-lg border border-accent-line bg-accent-soft px-3 text-sm font-semibold text-accent-strong transition-colors duration-(--duration-fast) hover:bg-accent-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+  'inline-flex min-h-11 items-center gap-2 rounded-control border-[1.5px] border-ink bg-surface px-3.5 text-sm font-bold text-ink transition duration-(--duration-fast) ease-standard hover:bg-surface-subtle motion-safe:active:scale-[0.98] sm:px-4.5 sm:text-[0.9375rem]'
 
 /**
  * @typedef {object} SignInLinkProps
@@ -59,6 +64,7 @@ export function SignInLink({ label = 'Sign in', className = SIGN_IN }) {
 
   return (
     <Link href={href} className={className}>
+      {className === SIGN_IN ? <PersonIcon className="hidden h-4.5 w-4.5 sm:block" /> : null}
       {label}
     </Link>
   )
@@ -73,7 +79,7 @@ export function SignInLink({ label = 'Sign in', className = SIGN_IN }) {
 
 /** Classes for an entry in the open menu. */
 const ENTRY =
-  'flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-medium text-ink transition-colors duration-(--duration-fast) hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+  'flex min-h-11 w-full items-center rounded-control px-3 text-left text-sm font-semibold text-ink transition-colors duration-(--duration-fast) hover:bg-surface-subtle hover:text-accent-strong'
 
 /**
  * The signed-in account control.
@@ -140,8 +146,14 @@ export function AccountMenu({ displayName, items, workspaceHref }) {
         aria-controls={panelId}
         aria-label={`${displayName}, account`}
         onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 max-w-[9rem] items-center gap-2 rounded-lg border border-line bg-surface px-3 sm:max-w-[14rem] text-sm font-medium text-ink transition-colors duration-(--duration-fast) hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
+        className="inline-flex min-h-11 max-w-[9rem] items-center gap-2 rounded-control border-[1.5px] border-ink bg-surface px-3 text-sm font-bold text-ink transition duration-(--duration-fast) ease-standard hover:bg-surface-subtle sm:max-w-[14rem] sm:px-4"
       >
+        <span
+          aria-hidden="true"
+          className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-sm font-bold text-accent-strong sm:flex"
+        >
+          {initialOf(displayName)}
+        </span>
         <span className="truncate">{displayName}</span>
         <svg
           aria-hidden="true"
@@ -157,10 +169,10 @@ export function AccountMenu({ displayName, items, workspaceHref }) {
         <div
           id={panelId}
           ref={panelRef}
-          className="absolute right-0 z-50 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-card border border-line bg-surface-raised p-2 shadow-lg"
+          className="absolute right-0 z-50 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-card border border-line bg-surface-raised p-2 shadow-dialog"
         >
-          <p className="px-3 pt-1 pb-2 text-xs text-ink-subtle">
-            Signed in as <span className="font-medium text-ink">{displayName}</span>
+          <p className="px-3 pt-1.5 pb-2 text-xs text-ink-subtle">
+            Signed in as <span className="font-bold text-ink">{displayName}</span>
           </p>
           <nav aria-label="Account">
             <ul className="flex flex-col gap-0.5">

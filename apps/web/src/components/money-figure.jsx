@@ -12,7 +12,7 @@
  * thing after the heading in the reading order as well as on the page.
  *
  * `Figure` renders an amount with its own currency's formatting and marks the
- * number up as a number: a screen reader reading "₹12,000.00" out of a table
+ * number up as a number: a screen reader reading "$12,000.00" out of a table
  * cell with no label is reading a string.
  *
  * `AgingBadge` turns the band the server computed into a colour and a word.
@@ -24,6 +24,7 @@
  */
 
 import { formatPrice } from '../lib/pricing.js'
+import { PANEL, TABLE_FRAME } from './workspace-kit.jsx'
 
 /**
  * @typedef {object} ModeBannerProps
@@ -43,14 +44,26 @@ export function ModeBanner({ mode, notice }) {
   return (
     <p
       role="status"
-      className={`mt-4 rounded-card border p-4 text-sm ${
+      className={`mt-6 flex items-start gap-3 rounded-card border p-4 text-sm ${
         demonstration
           ? 'border-accent-line bg-accent-soft text-ink'
           : 'border-status-info/25 bg-status-info-soft text-ink'
       }`}
     >
-      <span className="font-semibold">{demonstration ? 'Demonstration data' : 'Sandbox data'}</span>{' '}
-      {notice}
+      {/* A diamond, the site's mark for "read this first". Decoration: the
+          words beside it say what it means. */}
+      <span
+        aria-hidden="true"
+        className={`mt-1.5 size-2.5 shrink-0 rotate-45 rounded-[2px] ${
+          demonstration ? 'bg-accent' : 'bg-status-info'
+        }`}
+      />
+      <span>
+        <span className="font-semibold">
+          {demonstration ? 'Demonstration data' : 'Sandbox data'}
+        </span>{' '}
+        {notice}
+      </span>
     </p>
   )
 }
@@ -59,7 +72,7 @@ export function ModeBanner({ mode, notice }) {
  * @typedef {object} FigureProps
  * @property {string} label What the number is.
  * @property {number} cents The amount, in minor units.
- * @property {string} [currency] ISO 4217 code.
+ * @property {string} [currency] ISO 4217 code. Defaults to US dollars, the catalogue's currency.
  * @property {string} [hint] A sentence under the number.
  */
 
@@ -69,10 +82,10 @@ export function ModeBanner({ mode, notice }) {
  * @param {FigureProps} props Component props.
  * @returns {JSX.Element} The figure.
  */
-export function Figure({ label, cents, currency = 'INR', hint }) {
+export function Figure({ label, cents, currency = 'USD', hint }) {
   return (
-    <div className="rounded-card border border-line bg-surface-raised p-4">
-      <dt className="text-sm text-ink-muted">{label}</dt>
+    <div className={`p-4 sm:p-5 ${PANEL}`}>
+      <dt className="text-sm font-medium text-ink-muted">{label}</dt>
       {/*
         The hint lives inside the `dd`, not beside it. A `div` wrapping a
         definition-list group may contain only `dt` and `dd` — a `p` as a third
@@ -81,7 +94,7 @@ export function Figure({ label, cents, currency = 'INR', hint }) {
         1.3.1. Found by the sweep on this component's first run.
       */}
       <dd className="mt-1">
-        <span className="block font-display text-2xl font-semibold text-ink tabular-nums">
+        <span className="block font-display text-h2 font-semibold break-words text-ink tabular-nums">
           {formatPrice(cents, currency)}
         </span>
         {hint ? <span className="mt-1 block text-xs text-ink-muted">{hint}</span> : null}
@@ -114,7 +127,7 @@ export function ScrollableTable({ label, children }) {
       role="region"
       aria-label={label}
       tabIndex={0}
-      className="mt-3 overflow-x-auto focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+      className={`mt-4 ${TABLE_FRAME} focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none`}
     >
       {children}
     </div>
@@ -147,7 +160,7 @@ export function AgingBadge({ band, hours }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${tone}`}
+      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap ${tone}`}
     >
       {reading}
       <span className="font-normal">

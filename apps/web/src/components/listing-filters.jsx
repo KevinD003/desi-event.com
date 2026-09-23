@@ -26,9 +26,10 @@
  * @module components/listing-filters
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, FormField, Input, Select } from './ui.jsx'
+import { Button, Input, Select } from './ui.jsx'
+import { SearchIcon } from './icons.jsx'
 
 import { buildEventsHref } from '../lib/search-params.js'
 
@@ -40,6 +41,9 @@ import { buildEventsHref } from '../lib/search-params.js'
  * @property {boolean} [anyActive] Whether to offer the "clear filters" control.
  * @property {number} [resultCount] How many events match, announced politely when it changes.
  */
+
+/** A field's label: the small uppercase eyebrow, in the muted ink. */
+const LABEL = 'pl-1 text-micro font-bold tracking-eyebrow text-ink-muted uppercase'
 
 /**
  * Read the filter values out of a form element.
@@ -100,6 +104,28 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
     router.push(buildEventsHref(readFilters(formRef.current)))
   }
 
+  // Until hydration the form is the plain GET form: a submit loads a new page.
+  // `data-enhanced` marks the moment it starts navigating in place instead.
+  const [enhanced, setEnhanced] = useState(false)
+
+  // A select changed before hydration found no handler: the box moved and the
+  // listing did not. Apply that choice as soon as the handler exists, so the
+  // box and the listing never disagree. Only the selects, which apply
+  // themselves once hydrated; a half-typed search still waits for a submit.
+  const applyChoiceMadeBeforeHydration = useEffectEvent(() => {
+    if (!formRef.current) return
+
+    const { category, city } = readFilters(formRef.current)
+
+    if (category !== (filters.category ?? '') || city !== (filters.city ?? '')) applyFilters()
+  })
+
+  // Mount only: from then on each change applies itself.
+  useEffect(() => {
+    setEnhanced(true)
+    applyChoiceMadeBeforeHydration()
+  }, [])
+
   /**
    * Handle the form's submit event without a full page load.
    *
@@ -139,45 +165,65 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
       method="get"
       onSubmit={handleSubmit}
       aria-label="Filter events"
-      className="grid grid-cols-1 gap-4 rounded-card border border-line bg-surface-raised p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr_auto] lg:items-end"
+      data-enhanced={enhanced ? 'true' : undefined}
+      className="grid grid-cols-1 gap-4 rounded-card bg-surface-raised p-4 shadow-dialog sm:grid-cols-2 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.6fr)_auto] lg:items-start lg:gap-5 lg:p-6"
     >
-      <FormField label="Category" id="filter-category">
+      <div className="flex flex-col gap-2">
+        <label htmlFor="filter-category" className={LABEL}>
+          Category
+        </label>
         <Select
+          id="filter-category"
           name="category"
           defaultValue={filters.category ?? ''}
           onChange={applyFilters}
+          className="h-13 font-semibold"
           options={[
             { value: '', label: 'All categories' },
             ...categories.map((category) => ({ value: category.value, label: category.label })),
           ]}
         />
-      </FormField>
+      </div>
 
-      <FormField label="City" id="filter-city">
+      <div className="flex flex-col gap-2">
+        <label htmlFor="filter-city" className={LABEL}>
+          City
+        </label>
         <Select
+          id="filter-city"
           name="city"
           defaultValue={filters.city ?? ''}
           onChange={applyFilters}
+          className="h-13 font-semibold"
           options={[
             { value: '', label: 'Every city' },
             ...cities.map((city) => ({ value: city, label: city })),
           ]}
         />
-      </FormField>
+      </div>
 
-      <FormField
-        label="Search"
-        id="filter-q"
-        description="Try an artist, a venue or something like “garba toronto”."
-      >
-        <Input
-          type="search"
-          name="q"
-          defaultValue={filters.q ?? ''}
-          placeholder="Search events"
-          autoComplete="off"
-        />
-      </FormField>
+      <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1">
+        <label htmlFor="filter-q" className={LABEL}>
+          Search
+        </label>
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-3.5 h-5 w-5 -translate-y-1/2 text-ink-subtle" />
+          <Input
+            id="filter-q"
+            type="search"
+            name="q"
+            defaultValue={filters.q ?? ''}
+            placeholder="Event, venue or organiser"
+            autoComplete="off"
+            aria-describedby="filter-q-description"
+            className="h-13 pl-11"
+          />
+        </div>
+        <p id="filter-q-description" className="text-xs text-ink-subtle">
+          Searches events, venues, cities and organisers. Every word has to match, so “garba
+          houston” finds the garba nights in Houston.
+        </p>
+      </div>
 
       {/*
         Polite, atomic, and never focused: the count is read out after whatever
@@ -187,8 +233,16 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
         {announcement}
       </p>
 
-      <div className="flex items-center gap-2">
-        <Button type="submit">Apply</Button>
+      <div className="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-1 lg:pt-6">
+        <Button type="submit" size="lg" className="h-13">
+          <SearchIcon className="h-4.5 w-4.5" />
+          Apply
+        </Button>
+        {anyActive ? (
+          <Button type="button" variant="ghost" size="lg" className="h-13" onClick={clearFilters}>
+            Clear
+          </Button>
+        ) : null}
         {/*
           A deliberate way to reach the results, for a keyboard user who has
           just changed a filter and does not want to tab through the rest of
@@ -196,15 +250,10 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
         */}
         <a
           href="#event-results"
-          className="rounded-lg px-3 py-2 text-sm font-medium text-accent-strong underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          className="inline-flex min-h-11 items-center rounded-control px-2 text-sm font-bold text-accent-strong underline underline-offset-4 hover:decoration-2"
         >
           Skip to results
         </a>
-        {anyActive ? (
-          <Button type="button" variant="ghost" onClick={clearFilters}>
-            Clear
-          </Button>
-        ) : null}
       </div>
     </form>
   )

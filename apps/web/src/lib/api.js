@@ -171,7 +171,13 @@ export async function loadEventList(filters = {}, options = {}) {
       return { events: response.data, pagination: response.pagination, usedFallback: false }
     },
     () => {
-      const matching = sortByStartDate(filterEvents(sampleEventSummaries(), { category, city, q }))
+      const matching = sortByStartDate(
+        filterEvents(
+          sampleEventSummaries(),
+          { category, city, q },
+          { descriptionOf: (event) => findSampleEvent(event.slug)?.description ?? null },
+        ),
+      )
       const { items, pagination } = paginate(matching, { page, perPage })
 
       return { events: items, pagination, usedFallback: true }

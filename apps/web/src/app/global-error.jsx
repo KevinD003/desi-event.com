@@ -35,7 +35,7 @@ export default function GlobalError({ error, reset }) {
   }, [error])
 
   return (
-    <html lang="en-IN">
+    <html lang="en-US">
       <body
         style={{
           margin: 0,
@@ -45,8 +45,8 @@ export default function GlobalError({ error, reset }) {
           justifyContent: 'center',
           // The page and ink tokens, as hex: this renders without the stylesheet.
           // `semantic-classes.test.js` checks they still equal the tokens.
-          backgroundColor: '#fff6e0',
-          color: '#2a1b59',
+          backgroundColor: '#fff9f0',
+          color: '#271539',
           fontFamily: 'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
         }}
       >
@@ -66,12 +66,12 @@ export default function GlobalError({ error, reset }) {
               height: '3rem',
               padding: '0 1.5rem',
               fontSize: '1rem',
-              fontWeight: 500,
-              // The primary action and its ink, 7.22:1.
+              fontWeight: 700,
+              // The primary action and its ink, 6.7:1.
               color: '#ffffff',
-              backgroundColor: '#993800',
+              backgroundColor: '#b30863',
               border: 'none',
-              borderRadius: '0.5rem',
+              borderRadius: '0.75rem',
               cursor: 'pointer',
             }}
           >

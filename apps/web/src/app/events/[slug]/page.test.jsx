@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 
 vi.mock('../../../lib/api.js', () => ({
   loadEventBySlug: vi.fn(),
@@ -46,6 +46,9 @@ const selling = {
       currency: 'INR',
       quantityTotal: 100,
       quantitySold: 0,
+      status: 'ON_SALE',
+      salesStartAt: null,
+      salesEndAt: null,
       isSoldOut: false,
     },
   ],
@@ -241,6 +244,80 @@ describe('the event detail page and the lifecycle', () => {
   })
 })
 
+describe('the event detail page and a tier that cannot be bought yet', () => {
+  /** A day either side of the render, so the window is plainly shut or open. */
+  const DAY = 24 * 60 * 60 * 1000
+
+  /**
+   * The on-sale event with its one tier changed.
+   *
+   * @param {object} change Fields to set on the tier.
+   * @param {object} [eventChange] Fields to set on the event.
+   * @returns {object} The event payload.
+   */
+  const withTier = (change, eventChange = {}) => ({
+    ...selling,
+    ...eventChange,
+    ticketTypes: [{ ...selling.ticketTypes[0], ...change }],
+  })
+
+  /**
+   * The ticket box, where the chip, the price and the button live.
+   *
+   * @returns {HTMLElement} The box.
+   */
+  const ticketBox = () => screen.getByRole('complementary', { name: 'Tickets' })
+
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  it('says "On sale" in the ticket box when a tier can be bought now', async () => {
+    await renderEvent(selling)
+
+    expect(within(ticketBox()).getAllByText('On sale').length).toBeGreaterThan(0)
+    expect(within(ticketBox()).getByRole('link', { name: /choose tickets/i })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['whose sales have not opened', { salesStartAt: new Date(Date.now() + DAY).toISOString() }],
+    ['whose sales have closed', { salesEndAt: new Date(Date.now() - DAY).toISOString() }],
+    ['that the organiser paused', { status: 'PAUSED', isSoldOut: true, availableQuantity: 0 }],
+  ])('neither says "On sale", quotes a price nor sells a tier %s', async (_why, change) => {
+    // The listing card says "Not on sale now" for this event (the API's
+    // `salesOpen` is false), and the hold behind "Choose tickets" would be
+    // refused. The page has to agree with both.
+    await renderEvent(withTier(change, { status: 'PUBLISHED' }))
+
+    const box = ticketBox()
+
+    expect(within(box).queryByText('On sale')).toBeNull()
+    expect(within(box).queryByRole('link', { name: /choose tickets/i })).toBeNull()
+    expect(within(box).queryByText(/^From/)).toBeNull()
+    expect(box).toHaveTextContent('Tickets are not on sale at the moment.')
+    expect(screen.getByRole('list', { name: 'Event details' })).not.toHaveTextContent(/From \$/)
+  })
+
+  it('does not call a tier sold out when it has stock but is not on sale yet', async () => {
+    await renderEvent(withTier({ salesStartAt: new Date(Date.now() + DAY).toISOString() }))
+
+    expect(screen.queryByText(/every tier has sold out/i)).toBeNull()
+    expect(screen.queryByText('Sold out')).toBeNull()
+    expect(
+      within(screen.getByRole('list', { name: 'Ticket types' })).getByText('Not on sale now'),
+    ).toBeInTheDocument()
+  })
+
+  it('still says sold out, in the hero and the box, when the stock has gone', async () => {
+    await renderEvent(withTier({ quantitySold: 100, isSoldOut: true, availableQuantity: 0 }))
+
+    const hero = screen.getByRole('region', { name: event.title })
+
+    expect(within(hero).getByText('Sold out')).toHaveTextContent('Availability: Sold out')
+    expect(screen.getByText(/every tier has sold out/i)).toBeInTheDocument()
+  })
+})
+
 describe('the event detail page and what it must not leak', () => {
   beforeEach(() => {
     loadEventBySlug.mockReset()
@@ -407,5 +484,120 @@ describe('the event detail page and what a person needs before they buy', () => 
     expect(container.textContent).toMatch(/Qawwali Under the Banyan/)
     expect(container.textContent).toMatch(/Refundable up to 48 hours before/)
     expect(container.querySelector('a[href$="/checkout"]')).toBeInTheDocument()
+  })
+})
+
+describe('the event detail page in the new design', () => {
+  /** An Edison night with fee terms, as the API publishes it. */
+  const edison = {
+    ...selling,
+    slug: 'navratri-night-one-edison',
+    title: 'Navratri Night One: Garba Under the Lights',
+    category: 'GARBA_DANDIYA',
+    timezone: 'America/New_York',
+    startsAt: '2026-10-11T23:30:00.000Z',
+    endsAt: '2026-10-12T04:30:00.000Z',
+    venue: {
+      name: 'Lamplight Expo Hall',
+      slug: 'lamplight-expo-hall',
+      addressLine1: '450 Festival Plaza',
+      city: 'Edison',
+      region: 'NJ',
+      postalCode: '08837',
+      country: 'US',
+    },
+    organization: { name: 'Mirrorwork Events', slug: 'mirrorwork-events', verified: true },
+    feeTerms: [{ currency: 'USD', percentageBps: 590, flatCents: 99 }],
+    ticketTypes: [
+      {
+        id: 'ttedisongeneral',
+        name: 'General Admission',
+        priceCents: 3500,
+        currency: 'USD',
+        status: 'ON_SALE',
+        availableQuantity: 400,
+        isSoldOut: false,
+      },
+    ],
+  }
+
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  it('opens on a hero named by the whole title, with the poster described', async () => {
+    await renderEvent(edison)
+
+    const hero = screen.getByRole('region', { name: 'Navratri Night One: Garba Under the Lights' })
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Navratri Night One: Garba Under the Lights',
+    )
+    expect(within(hero).getByRole('img')).toHaveAccessibleName(
+      /^Illustration of garba dancers .* for Navratri Night One: Garba Under the Lights$/,
+    )
+  })
+
+  it('states the when and where up front, in the venue’s zone and its state', async () => {
+    await renderEvent(edison)
+
+    const facts = screen.getByRole('list', { name: 'Event details' })
+
+    expect(within(facts).getByText('7:30 PM – 12:30 AM EDT')).toBeInTheDocument()
+    expect(within(facts).getByText('Lamplight Expo Hall')).toBeInTheDocument()
+    expect(within(facts).getByText('Edison, NJ')).toBeInTheDocument()
+    expect(within(facts).getByText('From $38.06')).toBeInTheDocument()
+    expect(within(facts).getByText('with fees')).toBeInTheDocument()
+  })
+
+  it('says who presents it, and shows the badge only when the API says verified', async () => {
+    const { unmount } = await renderEvent(edison)
+
+    expect(screen.getByText('Presented by Mirrorwork Events')).toBeInTheDocument()
+    expect(screen.getAllByText('Verified organiser').length).toBeGreaterThan(0)
+    unmount()
+
+    await renderEvent({ ...edison, organization: { ...edison.organization, verified: false } })
+    expect(screen.queryByText('Verified organiser')).toBeNull()
+  })
+
+  it('shows each tier with its fee-inclusive price beside the face value', async () => {
+    await renderEvent(edison)
+
+    const tiers = screen.getByRole('list', { name: 'Ticket types' })
+
+    expect(within(tiers).getByText('$35.00')).toBeInTheDocument()
+    expect(within(tiers).getByText('$38.06 with fees')).toBeInTheDocument()
+  })
+
+  it('says beside the tickets that payments are simulated', async () => {
+    await renderEvent(edison)
+
+    const box = screen.getByRole('complementary', { name: 'Tickets' })
+
+    expect(box).toHaveTextContent('Payments on this site are simulated.')
+  })
+
+  it('marks a stopped event in the hero with its state, in words', async () => {
+    await renderEvent({ ...edison, status: 'CANCELLED' })
+
+    const hero = screen.getByRole('region', { name: /Navratri Night One/ })
+
+    expect(within(hero).getByText('Cancelled')).toHaveTextContent('Availability: Cancelled')
+  })
+
+  it('leads back to the listing and the category through the trail', async () => {
+    await renderEvent(edison)
+
+    const trail = screen.getByRole('navigation', { name: 'Breadcrumb' })
+
+    expect(within(trail).getByRole('link', { name: 'Discover events' })).toHaveAttribute(
+      'href',
+      '/events',
+    )
+    expect(within(trail).getByRole('link', { name: 'Garba & Dandiya' })).toHaveAttribute(
+      'href',
+      '/events?category=GARBA_DANDIYA',
+    )
   })
 })
