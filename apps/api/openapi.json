@@ -22279,7 +22279,7 @@
       "get": {
         "operationId": "notifications.queue",
         "summary": "The notification outbox, as operations sees it",
-        "description": "Every message the outbox is holding, newest trouble first. Recipients and payloads are omitted, in any form, and the stored error is returned with any address in it replaced: an operator needs to know whether a message went, not who it was to or what it said. Platform-scoped — requires `reconciliation:manage`, which no organisation role can carry.\n\nRequires the `reconciliation:manage` capability.",
+        "description": "Every message the outbox is holding, trouble first: dead letters, failures and scheduled retries, the longest-waiting of those first, then everything else. Recipients and payloads are omitted, in any form, and the stored error is returned with any address in it replaced: an operator needs to know whether a message went, not who it was to or what it said. Platform-scoped — requires `reconciliation:manage`, which no organisation role can carry.\n\nRequires the `reconciliation:manage` capability.",
         "tags": [
           "operations"
         ],

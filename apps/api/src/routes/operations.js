@@ -27,20 +27,28 @@
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { notFound } from '../lib/errors.js'
-import { cancelNotification, retryNotification } from '../lib/notification-operations.js'
+import {
+  RETRYABLE_STATES,
+  cancelNotification,
+  retryNotification,
+} from '../lib/notification-operations.js'
 import { toOperatorNotification } from '../lib/presenters.js'
+import { readRankedPage } from '../lib/ranked-page.js'
 import { defineRoute } from '../lib/register.js'
 
 /**
- * Newest trouble first.
+ * Trouble first, then everything else.
  *
- * Dead letters and failures come before anything healthy, because the queue
- * exists for them; within a group, the oldest first, because a message that has
- * been stuck longest is the one somebody is waiting on.
+ * Dead letters, failures and scheduled retries — the states an operator can
+ * act on — come before anything healthy, because the queue exists for them;
+ * within each tier, the oldest first, because a message that has been stuck
+ * longest is the one somebody is waiting on. The tiers are read by
+ * `readRankedPage`, not by sorting the status column: PostgreSQL sorts an enum
+ * by declaration order, which put every sent message ahead of every dead one.
  *
  * @type {Array<object>}
  */
-const QUEUE_ORDER = Object.freeze([{ status: 'asc' }, { scheduledFor: 'asc' }])
+const QUEUE_ORDER = Object.freeze([{ scheduledFor: 'asc' }, { id: 'asc' }])
 
 /**
  * Register the operations routes.
@@ -63,7 +71,14 @@ export function registerOperationsRoutes(app, { prisma }) {
       }
 
       const [rows, total] = await Promise.all([
-        prisma.notificationOutbox.findMany({ where, orderBy: QUEUE_ORDER, skip, take }),
+        readRankedPage(prisma.notificationOutbox, {
+          where,
+          field: 'status',
+          first: RETRYABLE_STATES,
+          orderBy: QUEUE_ORDER,
+          skip,
+          take,
+        }),
         prisma.notificationOutbox.count({ where }),
       ])
 

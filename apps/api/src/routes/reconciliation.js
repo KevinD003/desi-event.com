@@ -44,18 +44,21 @@ import {
   requeryOutsideTransaction,
   resolveTask,
 } from '../lib/reconciliation.js'
+import { readRankedPage } from '../lib/ranked-page.js'
 import { defineRoute } from '../lib/register.js'
 
 /**
  * Unresolved first, then oldest.
  *
- * The opposite of the notification queue's ordering, and deliberately: a
- * reconciliation item is money in an unknown state, so the one that has been
- * unknown longest is the most urgent rather than the least interesting.
+ * A reconciliation item is money in an unknown state, so the one that has been
+ * unknown longest is the most urgent rather than the least interesting. The
+ * tiers are read by `readRankedPage`: sorting the state column put every
+ * `ESCALATED` item after every `RESOLVED` one, because PostgreSQL sorts an enum
+ * by declaration order.
  *
  * @type {Array<object>}
  */
-const QUEUE_ORDER = Object.freeze([{ state: 'asc' }, { createdAt: 'asc' }])
+const QUEUE_ORDER = Object.freeze([{ createdAt: 'asc' }, { id: 'asc' }])
 
 /**
  * Which resolution an operator may record for a verdict.
@@ -187,7 +190,14 @@ export function registerReconciliationRoutes(app, { prisma, providers, env }) {
       }
 
       const [rows, total] = await Promise.all([
-        prisma.reconciliationTask.findMany({ where, orderBy: QUEUE_ORDER, skip, take }),
+        readRankedPage(prisma.reconciliationTask, {
+          where,
+          field: 'state',
+          first: ACTIVE_STATES,
+          orderBy: QUEUE_ORDER,
+          skip,
+          take,
+        }),
         prisma.reconciliationTask.count({ where }),
       ])
 

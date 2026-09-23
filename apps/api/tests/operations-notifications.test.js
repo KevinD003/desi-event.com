@@ -49,9 +49,10 @@ function platformEmail(role) {
  * @param {object} [overrides] Columns to override on the row.
  * @param {object} [options] Options.
  * @param {string} [options.platformRole] Also seed an account holding this platform role, at {@link platformEmail}.
+ * @param {Array<object>} [options.extraMessages] Further rows, as overrides of the first.
  * @returns {Promise<object>} The harness plus the row's id.
  */
-async function worldWithMessage(overrides = {}, { platformRole } = {}) {
+async function worldWithMessage(overrides = {}, { platformRole, extraMessages = [] } = {}) {
   const world = await makeWorld()
   const { seed, ids } = world
   const id = cuid()
@@ -103,6 +104,11 @@ async function worldWithMessage(overrides = {}, { platformRole } = {}) {
       ...overrides,
     },
   ]
+
+  // Further rows, each a copy of the first with its own id and key.
+  for (const extra of extraMessages) {
+    seed.notificationOutbox.push({ ...seed.notificationOutbox[0], ...extra })
+  }
 
   const harness = await createTestApp({ seed, ids })
 
@@ -156,6 +162,37 @@ describe('GET /v1/operations/notifications', () => {
       failureCategory: 'TRANSIENT',
     })
     expect(pagination.total).toBe(1)
+
+    await app.close()
+  })
+
+  it('puts a dead letter ahead of a message nobody needs to act on', async () => {
+    // CANCELLED sorts before DEAD_LETTER by name, and SENT before it by
+    // PostgreSQL enum order; the queue used to sort by that column, so what an
+    // operator is here for came after what they are not.
+    const cancelled = cuid()
+    const { app, messageId } = await worldWithMessage(
+      {},
+      {
+        extraMessages: [
+          {
+            id: cancelled,
+            status: OUTBOX_STATES.CANCELLED,
+            dedupeKey: 'cancelled-message',
+            scheduledFor: new Date('2026-09-15T10:00:00Z'),
+          },
+        ],
+      },
+    )
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/operations/notifications',
+      headers: await asOperator(app),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.map((message) => message.id)).toEqual([messageId, cancelled])
 
     await app.close()
   })

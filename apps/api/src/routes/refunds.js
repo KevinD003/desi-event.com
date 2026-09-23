@@ -42,6 +42,7 @@ import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { toRefund } from '../lib/presenters.js'
 import {
+  PENDING_STATES,
   REFUND_OUTCOMES,
   REFUND_STATES,
   approveRefund,
@@ -56,6 +57,7 @@ import {
   settleRefund,
   submitOutsideTransaction,
 } from '../lib/refunds.js'
+import { readRankedPage } from '../lib/ranked-page.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Everything a refund decision needs, loaded in one query. */
@@ -81,11 +83,22 @@ const ORDER_FOR_REFUND = Object.freeze({
  * Unresolved first, then newest.
  *
  * A refund queue exists for the ones somebody still has to do something about;
- * a settled refund is history, and history sorts below work.
+ * a settled refund is history, and history sorts below work. The tiers are read
+ * by `readRankedPage`: sorting the status column put `TIMEOUT` and
+ * `RECONCILIATION_REQUIRED` after every settled refund, because PostgreSQL
+ * sorts an enum by declaration order.
  *
  * @type {Array<object>}
  */
-const QUEUE_ORDER = Object.freeze([{ status: 'asc' }, { createdAt: 'desc' }])
+const QUEUE_ORDER = Object.freeze([{ createdAt: 'desc' }, { id: 'asc' }])
+
+/**
+ * The refunds still in flight: every pending state, and `PROCESSING`, which
+ * older records carry and which is not settled either.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const UNRESOLVED_REFUND_STATES = Object.freeze([...PENDING_STATES, 'PROCESSING'])
 
 /**
  * Read a refund's organisation, or refuse.
@@ -268,8 +281,10 @@ export function registerRefundRoutes(app, { prisma, providers }) {
       }
 
       const [rows, total] = await Promise.all([
-        prisma.refund.findMany({
+        readRankedPage(prisma.refund, {
           where,
+          field: 'status',
+          first: UNRESOLVED_REFUND_STATES,
           orderBy: QUEUE_ORDER,
           skip,
           take,

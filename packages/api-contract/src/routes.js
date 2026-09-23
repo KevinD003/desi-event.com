@@ -1741,7 +1741,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/operations/notifications',
       summary: 'The notification outbox, as operations sees it',
       description:
-        'Every message the outbox is holding, newest trouble first. Recipients and payloads are omitted, in any form, and the stored error is returned with any address in it replaced: an operator needs to know whether a message went, not who it was to or what it said. Platform-scoped — requires `reconciliation:manage`, which no organisation role can carry.',
+        'Every message the outbox is holding, trouble first: dead letters, failures and scheduled retries, the longest-waiting of those first, then everything else. Recipients and payloads are omitted, in any form, and the stored error is returned with any address in it replaced: an operator needs to know whether a message went, not who it was to or what it said. Platform-scoped — requires `reconciliation:manage`, which no organisation role can carry.',
       tags: ['operations'],
       auth: 'session',
       capability: 'reconciliation:manage',

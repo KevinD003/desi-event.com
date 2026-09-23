@@ -884,6 +884,53 @@ describe('GET /v1/refunds', () => {
     await app.close()
   })
 
+  it('puts a refund still in doubt ahead of a settled one, across pages', async () => {
+    // TIMEOUT sorts after SUCCEEDED by name and by PostgreSQL enum order alike;
+    // the list used to sort by that column, so the refund somebody has to chase
+    // was on the later page.
+    const settled = cuid()
+    const inDoubt = cuid()
+    const { app, ids } = await worldWithPaidOrder({
+      order: { refundPendingCents: UNIT_CENTS },
+      refunds: [
+        {
+          id: settled,
+          status: 'SUCCEEDED',
+          idempotencyKey: 'settled',
+          createdAt: new Date('2026-09-03T10:00:00Z'),
+        },
+        {
+          id: inDoubt,
+          status: 'TIMEOUT',
+          idempotencyKey: 'in-doubt',
+          createdAt: new Date('2026-09-02T10:00:00Z'),
+        },
+      ],
+    })
+    const headers = await asUser(app, OWNER)
+
+    const pageOf = async (page) => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/v1/refunds?organizationId=${ids.organization.id}&perPage=1&page=${page}`,
+        headers,
+      })
+
+      expect(response.statusCode, response.body).toBe(200)
+
+      return response.json()
+    }
+
+    const first = await pageOf(1)
+    const second = await pageOf(2)
+
+    expect(first.data.map((refund) => refund.id)).toEqual([inDoubt])
+    expect(second.data.map((refund) => refund.id)).toEqual([settled])
+    expect(first.pagination.total).toBe(2)
+
+    await app.close()
+  })
+
   it('never returns a buyer’s details', async () => {
     const { app, ids } = await worldWithPaidOrder({
       order: { refundPendingCents: UNIT_CENTS },
