@@ -778,6 +778,8 @@ describe('GET /v1/tickets/:id', () => {
     expect(data.holder).toBe(true)
     expect(data.organizationId).toBe(ids.organization.id)
     expect(data.event.title).toBe(ids.publishedEvent.title)
+    // The category draws the ticket page's poster, the same as the event page's.
+    expect(data.event.category).toBe(ids.publishedEvent.category)
     expect(data.transfers).toEqual([])
 
     await app.close()

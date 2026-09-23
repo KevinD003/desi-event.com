@@ -12,6 +12,7 @@ import {
   taxRateBps,
 } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
+import { searchTerms } from '../src/routes/events.js'
 
 /**
  * Fetch the event list and return the parsed body.
@@ -325,6 +326,24 @@ describe('GET /v1/events', () => {
     expect((await list(app, 'q=nothing-matches-this')).data).toHaveLength(0)
   })
 
+  it('needs every word of a search to match, each against the event, its venue, city or organiser', async () => {
+    const { app } = await createTestApp()
+    const [garba] = (await list(app, 'q=garba')).data
+
+    // The city and the organiser are not in the event's own text.
+    const byCity = await list(app, `q=${encodeURIComponent(`garba ${garba.city}`)}`)
+    expect(byCity.data.map((event) => event.slug)).toEqual([garba.slug])
+
+    const byOrganiser = await list(app, `q=${encodeURIComponent(garba.organizationName)}`)
+    expect(byOrganiser.data.map((event) => event.slug)).toContain(garba.slug)
+
+    const byVenue = await list(app, `q=${encodeURIComponent(garba.venueName)}`)
+    expect(byVenue.data.map((event) => event.slug)).toContain(garba.slug)
+
+    // One word that matches nothing sinks the whole search.
+    expect((await list(app, 'q=garba%20nothing-matches-this')).data).toHaveLength(0)
+  })
+
   it('filters by start window and rejects a window that runs backwards', async () => {
     const { app } = await createTestApp()
 
@@ -484,6 +503,23 @@ describe('GET /v1/events', () => {
     expect(card.minTotalCents).toBe(charged.totalCents)
     // All-in means more than the face value whenever there is a fee.
     expect(card.minTotalCents).toBeGreaterThan(card.minPriceCents)
+  })
+})
+
+describe('searchTerms', () => {
+  it('splits a search into distinct words, however they were spaced or cased', () => {
+    expect(searchTerms('Garba   HOUSTON garba')).toEqual(['garba', 'houston'])
+  })
+
+  it('has nothing to add for an empty search', () => {
+    expect(searchTerms(undefined)).toEqual([])
+    expect(searchTerms('')).toEqual([])
+  })
+
+  it('stops at eight words, so one request cannot add unbounded conditions', () => {
+    const words = Array.from({ length: 12 }, (_, index) => `w${index}`)
+
+    expect(searchTerms(words.join(' '))).toEqual(words.slice(0, 8))
   })
 })
 

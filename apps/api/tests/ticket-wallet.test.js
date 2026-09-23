@@ -500,6 +500,8 @@ describe('GET /v1/tickets — the wallet', () => {
     expect(row.event.id).toBe(ids.publishedEvent.id)
     expect(row.event.slug).toBe(ids.publishedEvent.slug)
     expect(row.event.title).toBe(ids.publishedEvent.title)
+    // The category draws the wallet's poster, the same one the event page shows.
+    expect(row.event.category).toBe(ids.publishedEvent.category)
     expect(row.event.startsAt).toEqual(expect.any(String))
     expect(row.event.endsAt).toEqual(expect.any(String))
     expect(row.event.timezone).toEqual(expect.any(String))
@@ -668,6 +670,7 @@ describe('the wallet presenter', () => {
           id: 'evt_1',
           slug: 'garba-night',
           title: 'Garba Night',
+          category: 'GARBA_DANDIYA',
           startsAt: new Date('2026-10-01T14:00:00.000Z'),
           endsAt: new Date('2026-10-01T19:00:00.000Z'),
           timezone: 'Asia/Kolkata',

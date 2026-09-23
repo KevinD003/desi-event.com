@@ -227,6 +227,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
             id: event.id,
             slug: event.slug,
             title: event.title,
+            category: event.category,
             startsAt: event.startsAt,
             timezone: event.timezone,
             status: event.status,

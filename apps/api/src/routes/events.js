@@ -80,6 +80,24 @@ export function visibilityFilter(actor, options = {}) {
 }
 
 /**
+ * The most words a search is split into. The query is capped at 120
+ * characters already; this bounds the conditions one request can add.
+ */
+const MAX_SEARCH_TERMS = 8
+
+/**
+ * Split a free-text search into the words that must each match.
+ *
+ * @param {string|undefined} q The validated, trimmed query.
+ * @returns {string[]} Distinct lower-cased words, at most {@link MAX_SEARCH_TERMS}.
+ */
+export function searchTerms(q) {
+  if (!q) return []
+
+  return [...new Set(q.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, MAX_SEARCH_TERMS)
+}
+
+/**
  * Translate a validated list query into Prisma arguments.
  *
  * @param {object} query The parsed `listEventsQuerySchema` value.
@@ -96,12 +114,21 @@ export function buildEventQuery(query, actor) {
   if (query.isOnline !== undefined) conditions.push({ isOnline: query.isOnline })
   if (query.city) conditions.push({ venue: { city: { equals: query.city, mode: 'insensitive' } } })
 
-  if (query.q) {
+  // Every word has to turn up somewhere a visitor would describe the event
+  // by: its own text, its venue, the venue's city or its organiser. So
+  // "garba houston" finds a garba night in Houston, and a search for an
+  // organiser's name finds their events.
+  for (const term of searchTerms(query.q)) {
+    const contains = { contains: term, mode: 'insensitive' }
+
     conditions.push({
       OR: [
-        { title: { contains: query.q, mode: 'insensitive' } },
-        { summary: { contains: query.q, mode: 'insensitive' } },
-        { description: { contains: query.q, mode: 'insensitive' } },
+        { title: contains },
+        { summary: contains },
+        { description: contains },
+        { venue: { name: contains } },
+        { venue: { city: contains } },
+        { organization: { name: contains } },
       ],
     })
   }

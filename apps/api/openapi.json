@@ -43364,6 +43364,25 @@
                               "title": {
                                 "type": "string"
                               },
+                              "category": {
+                                "type": "string",
+                                "enum": [
+                                  "MUSIC_CONCERT",
+                                  "GARBA_DANDIYA",
+                                  "BOLLYWOOD_NIGHT",
+                                  "CLASSICAL_DANCE",
+                                  "COMEDY",
+                                  "FILM_SCREENING",
+                                  "CULTURAL_FESTIVAL",
+                                  "FOOD_FESTIVAL",
+                                  "WEDDING_EXPO",
+                                  "RELIGIOUS",
+                                  "THEATRE",
+                                  "WORKSHOP",
+                                  "NETWORKING",
+                                  "SPORTS"
+                                ]
+                              },
                               "startsAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -43397,6 +43416,7 @@
                               "id",
                               "slug",
                               "title",
+                              "category",
                               "startsAt",
                               "endsAt",
                               "timezone",
@@ -43823,6 +43843,25 @@
                             "title": {
                               "type": "string"
                             },
+                            "category": {
+                              "type": "string",
+                              "enum": [
+                                "MUSIC_CONCERT",
+                                "GARBA_DANDIYA",
+                                "BOLLYWOOD_NIGHT",
+                                "CLASSICAL_DANCE",
+                                "COMEDY",
+                                "FILM_SCREENING",
+                                "CULTURAL_FESTIVAL",
+                                "FOOD_FESTIVAL",
+                                "WEDDING_EXPO",
+                                "RELIGIOUS",
+                                "THEATRE",
+                                "WORKSHOP",
+                                "NETWORKING",
+                                "SPORTS"
+                              ]
+                            },
                             "startsAt": {
                               "type": "string",
                               "format": "date-time",
@@ -43839,6 +43878,7 @@
                             "id",
                             "slug",
                             "title",
+                            "category",
                             "startsAt",
                             "timezone",
                             "status"

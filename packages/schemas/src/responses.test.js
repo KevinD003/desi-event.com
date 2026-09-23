@@ -583,6 +583,7 @@ describe('what the response schemas refuse to carry', () => {
       id: 'c1ccccccccccccccccccccccc',
       slug: 'garba-night',
       title: 'Garba Night',
+      category: 'GARBA_DANDIYA',
       startsAt: '2026-10-01T14:00:00.000Z',
       endsAt: '2026-10-01T19:00:00.000Z',
       timezone: 'Asia/Kolkata',

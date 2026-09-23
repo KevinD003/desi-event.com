@@ -352,6 +352,8 @@ export const ticketDetailResponseSchema = z.object({
       id: cuidSchema,
       slug: z.string(),
       title: z.string(),
+      /** What kind of event, so the ticket shows the same poster as its page. */
+      category: eventCategorySchema,
       startsAt: timestampSchema,
       timezone: z.string(),
       status: z.string(),
@@ -446,6 +448,8 @@ export const walletTicketSchema = ticketSchema.extend({
     id: cuidSchema,
     slug: z.string(),
     title: z.string(),
+    /** What kind of event, so the wallet shows the same poster as its page. */
+    category: eventCategorySchema,
     startsAt: timestampSchema,
     endsAt: timestampSchema,
     timezone: z.string(),
