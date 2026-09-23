@@ -251,8 +251,8 @@ export default async function VenuePage({ params }) {
           {features.length === 0 && !note ? (
             <p className="mt-4 text-ink-muted">
               This venue has not published its accessibility details, so this page cannot say what
-              access there is, and nothing here should be read as step-free. This site has no way
-              to ask the venue on your behalf.
+              access there is, and nothing here should be read as step-free. This site has no way to
+              ask the venue on your behalf.
             </p>
           ) : (
             <>

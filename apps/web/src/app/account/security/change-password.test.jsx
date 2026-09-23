@@ -87,7 +87,9 @@ describe('ChangePassword', () => {
     fill('old-password', 'new-password-long')
     fireEvent.click(screen.getByRole('button', { name: 'Change password' }))
 
-    expect(await screen.findByText(/every other session this account had was signed out/i)).toBeTruthy()
+    expect(
+      await screen.findByText(/every other session this account had was signed out/i),
+    ).toBeTruthy()
 
     const [path, options] = apiFetch.mock.calls[0]
 

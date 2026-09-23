@@ -127,7 +127,9 @@ describe('SessionsPanel', () => {
     apiFetch.mockResolvedValueOnce(json(200, { ok: true }))
 
     render(<SessionsPanel sessions={[THIS_SESSION, OTHER_SESSION]} devices={[]} />)
-    fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }),
+    )
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
 
@@ -142,7 +144,9 @@ describe('SessionsPanel', () => {
     apiFetch.mockResolvedValueOnce(json(404, { error: { code: 'NOT_FOUND', message: 'No.' } }))
 
     render(<SessionsPanel sessions={[THIS_SESSION, OTHER_SESSION]} devices={[]} />)
-    fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }),
+    )
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
     expect(screen.queryByRole('status')).toBeNull()
@@ -154,7 +158,9 @@ describe('SessionsPanel', () => {
     )
 
     render(<SessionsPanel sessions={[THIS_SESSION, OTHER_SESSION]} devices={[]} />)
-    fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }),
+    )
 
     expect((await screen.findByRole('status')).textContent).toContain(
       'Too many requests. Wait a minute.',
@@ -167,7 +173,9 @@ describe('SessionsPanel', () => {
     apiFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
     render(<SessionsPanel sessions={[THIS_SESSION, OTHER_SESSION]} devices={[]} />)
-    fireEvent.click(screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Sign out of Firefox on Android, signed in / }),
+    )
 
     expect((await screen.findByRole('status')).textContent).toMatch(/nothing was signed out/i)
   })
@@ -185,7 +193,9 @@ describe('SessionsPanel', () => {
     expect(screen.getByText(/1 open session$/)).toBeTruthy()
     expect(screen.getByText(/3 open sessions$/)).toBeTruthy()
 
-    fireEvent.click(screen.getAllByRole('button', { name: /^Forget the unnamed device, first seen / })[0])
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /^Forget the unnamed device, first seen / })[0],
+    )
 
     await waitFor(() => expect(refresh).toHaveBeenCalled())
     expect(apiFetch.mock.calls[0][0]).toBe(`/v1/auth/devices/${DEVICE.id}/revoke`)

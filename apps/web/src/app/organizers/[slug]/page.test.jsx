@@ -186,7 +186,9 @@ describe('the organiser page', () => {
     const contact = screen.getByRole('region', { name: 'Contact' })
 
     expect(contact.textContent).toMatch(/does not pass messages between buyers and organisers/)
-    expect(container.textContent).not.toMatch(/Desi-Event support|confirmation email|reply address/i)
+    expect(container.textContent).not.toMatch(
+      /Desi-Event support|confirmation email|reply address/i,
+    )
   })
 
   it('never puts an organiser email address on the page', async () => {

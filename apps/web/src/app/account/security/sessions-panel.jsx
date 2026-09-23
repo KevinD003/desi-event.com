@@ -150,39 +150,36 @@ export function SessionsPanel({ sessions, devices }) {
               const name = session.deviceLabel ?? describeBrowser(session.userAgent)
 
               return (
-              <li
-                key={session.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium break-words text-ink">
-                    {name}{' '}
-                    {session.current ? <Badge variant="info">This session</Badge> : null}
-                  </p>
-                  <p className="text-sm text-ink-muted">
-                    Signed in {when(session.createdAt)} · last used {when(session.lastSeenAt)}
-                  </p>
-                </div>
-                {session.current ? (
-                  <SignOutButton className="inline-flex min-h-11 items-center rounded-lg border border-action-secondary-line bg-action-secondary px-3 text-sm font-medium text-action-secondary-ink hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
-                ) : (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    // Named for its row: a list of identical "Sign out"
-                    // buttons tells a screen reader nothing about which.
-                    aria-label={`Sign out of ${name}, signed in ${when(session.createdAt)}`}
-                    loading={busy === `sessions:${session.id}`}
-                    disabled={busy !== null}
-                    onClick={() =>
-                      revoke('sessions', session.id, 'That session was signed out.')
-                    }
-                  >
-                    Sign out
-                  </Button>
-                )}
-              </li>
+                <li
+                  key={session.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium break-words text-ink">
+                      {name} {session.current ? <Badge variant="info">This session</Badge> : null}
+                    </p>
+                    <p className="text-sm text-ink-muted">
+                      Signed in {when(session.createdAt)} · last used {when(session.lastSeenAt)}
+                    </p>
+                  </div>
+                  {session.current ? (
+                    <SignOutButton className="inline-flex min-h-11 items-center rounded-lg border border-action-secondary-line bg-action-secondary px-3 text-sm font-medium text-action-secondary-ink hover:bg-action-secondary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2" />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      // Named for its row: a list of identical "Sign out"
+                      // buttons tells a screen reader nothing about which.
+                      aria-label={`Sign out of ${name}, signed in ${when(session.createdAt)}`}
+                      loading={busy === `sessions:${session.id}`}
+                      disabled={busy !== null}
+                      onClick={() => revoke('sessions', session.id, 'That session was signed out.')}
+                    >
+                      Sign out
+                    </Button>
+                  )}
+                </li>
               )
             })}
           </ul>

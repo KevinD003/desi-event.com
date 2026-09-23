@@ -275,7 +275,9 @@ export default async function OrganizerPage({ params }) {
                   ))}
                 </div>
               ) : (
-                <p className="text-ink-muted">{organizer.name} has not published a refund policy.</p>
+                <p className="text-ink-muted">
+                  {organizer.name} has not published a refund policy.
+                </p>
               )}
               <p className="mt-4 text-sm text-ink-muted">
                 This is the policy as it reads now. This site does not keep a copy of it as it stood

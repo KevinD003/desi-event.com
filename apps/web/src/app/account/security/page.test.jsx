@@ -137,6 +137,8 @@ describe('AccountSecurityPage', () => {
 
     const { container } = render(await AccountSecurityPage())
 
-    expect(container.textContent).not.toMatch(/forgot|reset (your|my|the) password|email (you )?a link/i)
+    expect(container.textContent).not.toMatch(
+      /forgot|reset (your|my|the) password|email (you )?a link/i,
+    )
   })
 })

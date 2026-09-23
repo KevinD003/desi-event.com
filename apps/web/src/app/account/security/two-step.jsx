@@ -283,7 +283,10 @@ export function TwoStep({ required, factors }) {
       ) : null}
 
       {stage === 'scan' && enrolment ? (
-        <form onSubmit={confirm} className="space-y-4 rounded-card border border-line bg-surface-raised p-4">
+        <form
+          onSubmit={confirm}
+          className="space-y-4 rounded-card border border-line bg-surface-raised p-4"
+        >
           <p className="text-ink">
             Scan this with an authenticator app (any app that supports time-based codes), then enter
             the six-digit code it shows.
@@ -339,8 +342,8 @@ export function TwoStep({ required, factors }) {
             Save your recovery codes now
           </h3>
           <p className="text-ink">
-            Each one works once, instead of a code from your app, if you lose your phone. They
-            will not be shown again — the service keeps only a fingerprint of each.
+            Each one works once, instead of a code from your app, if you lose your phone. They will
+            not be shown again — the service keeps only a fingerprint of each.
           </p>
           <ul className="grid grid-cols-2 gap-2 font-mono text-sm text-ink sm:grid-cols-3">
             {recoveryCodes.map((recovery) => (
