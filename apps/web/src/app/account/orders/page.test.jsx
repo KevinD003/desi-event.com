@@ -180,9 +180,9 @@ describe('each order', () => {
 
     await renderPage()
 
-    // 13:30 UTC is 7:00 pm in Mumbai.
+    // 13:30 UTC is 7:00 PM in Mumbai, written the site's US way in Mumbai's zone.
     expect(
-      screen.getByText(/10 Oct,? 2026 · 7:00\spm – 11:30\spm (IST|GMT\+5:30)/),
+      screen.getByText(/Oct 10, 2026 · 7:00\sPM – 11:30\sPM (IST|GMT\+5:30)/),
     ).toBeInTheDocument()
   })
 

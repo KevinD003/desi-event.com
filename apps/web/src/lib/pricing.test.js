@@ -60,20 +60,35 @@ describe('taxLabelForPlace', () => {
     expect(taxLabelForPlace({ country: 'GB' })).toBe('VAT (20%)')
   })
 
-  it('falls back to a plain label where no rate applies', () => {
+  it('names US sales tax without claiming a rate, since the demo policy charges none', () => {
+    expect(taxLabelForPlace({ country: 'US', region: 'NJ' })).toBe('Sales tax')
+  })
+
+  it('falls back to a plain label where no policy applies', () => {
     expect(taxLabelForPlace({ country: 'SG' })).toBe('Tax')
     expect(taxLabelForPlace({})).toBe('Tax')
   })
 })
 
 describe('localeForCurrency', () => {
-  it('uses Indian digit grouping for rupees', () => {
+  it('formats dollars the US way, and is the default', () => {
+    expect(localeForCurrency('USD')).toBe('en-US')
+    expect(localeForCurrency()).toBe('en-US')
+    expect(localeForCurrency('XYZ')).toBe('en-US')
+  })
+
+  it('still uses each other currency’s own convention', () => {
     expect(localeForCurrency('INR')).toBe('en-IN')
     expect(localeForCurrency('GBP')).toBe('en-GB')
   })
 })
 
 describe('formatPrice', () => {
+  it('prices in US dollars by default', () => {
+    expect(formatPrice(3806, 'USD')).toBe('$38.06')
+    expect(formatPrice(3806)).toBe('$38.06')
+  })
+
   it('groups rupees in lakhs', () => {
     expect(formatPrice(899_900, 'INR')).toBe('₹8,999.00')
   })
@@ -89,6 +104,7 @@ describe('formatPrice', () => {
 
 describe('formatAmount', () => {
   it('keeps zero as money, because a summary row is a column of figures', () => {
+    expect(formatAmount(0, 'USD')).toBe('$0.00')
     expect(formatAmount(0, 'INR')).toBe('₹0.00')
   })
 })

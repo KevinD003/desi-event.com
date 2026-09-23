@@ -27,16 +27,22 @@ import {
 export { feeConfigForCurrency, resolveTaxPolicy }
 
 /**
- * The tax's display name, so the summary line says "GST" in Mumbai and "VAT" in
- * London rather than a generic "Tax".
+ * The tax's display name, so the summary line says "Sales tax" in New Jersey,
+ * "GST" in Mumbai and "VAT" in London rather than a generic "Tax".
+ *
+ * A zero rate keeps its name and drops the percentage: the US demo policy is
+ * deliberately zero because US sales tax on admissions varies by state, county
+ * and city, and "Sales tax $0.00" says what is being charged without
+ * suggesting a rate was worked out. An unmatched place says "Tax".
  *
  * @param {object} [place] Where the event is held: `{ country, region }`.
- * @returns {string} A short label such as `GST (18%)`.
+ * @returns {string} A short label such as `GST (18%)` or `Sales tax`.
  */
 export function taxLabelForPlace(place = {}) {
   const policy = resolveTaxPolicy({ country: place.country, region: place.region })
 
-  if (!policy.resolved || policy.rateBps === 0) return 'Tax'
+  if (!policy.resolved) return 'Tax'
+  if (policy.rateBps === 0) return policy.name ?? 'Tax'
 
   return `${policy.name} (${policy.rateBps / 100}%)`
 }
@@ -45,28 +51,30 @@ export function taxLabelForPlace(place = {}) {
  * The locale used to render money for a currency.
  *
  * Grouping differs: Indian numbering groups in lakhs (`₹1,49,900`), so INR is
- * formatted `en-IN` while CAD and GBP use their own conventions.
+ * formatted `en-IN` while USD, CAD and GBP use their own conventions. The
+ * catalogue sells in US dollars, so USD is the default and `en-US` the
+ * fallback; any other currency the API sends still formats as itself.
  *
  * @param {string} [currency] ISO 4217 code.
  * @returns {string} A BCP 47 locale tag.
  */
-export function localeForCurrency(currency = 'INR') {
-  const code = String(currency || 'INR').toUpperCase()
+export function localeForCurrency(currency = 'USD') {
+  const code = String(currency || 'USD').toUpperCase()
 
-  return { INR: 'en-IN', CAD: 'en-CA', GBP: 'en-GB', USD: 'en-US', AUD: 'en-AU' }[code] ?? 'en-IN'
+  return { USD: 'en-US', INR: 'en-IN', CAD: 'en-CA', GBP: 'en-GB', AUD: 'en-AU' }[code] ?? 'en-US'
 }
 
 /**
  * Format an integer amount of minor units in its own currency and locale.
  *
- * A zero amount reads as "Free", because `₹0.00` on a free community mela looks
- * like a pricing bug rather than a gift.
+ * A zero amount reads as "Free", because `$0.00` on a free children's class
+ * looks like a pricing bug rather than a gift.
  *
  * @param {number} cents Amount in minor units.
  * @param {string} [currency] ISO 4217 code.
- * @returns {string} A localised amount such as `₹1,499.00`, or `Free` for zero.
+ * @returns {string} A localised amount such as `$38.06`, or `Free` for zero.
  */
-export function formatPrice(cents, currency = 'INR') {
+export function formatPrice(cents, currency = 'USD') {
   if (cents === 0) return 'Free'
 
   return formatMoney(cents, currency, localeForCurrency(currency))
@@ -78,9 +86,9 @@ export function formatPrice(cents, currency = 'INR') {
  *
  * @param {number} cents Amount in minor units.
  * @param {string} [currency] ISO 4217 code.
- * @returns {string} A localised amount such as `₹0.00`.
+ * @returns {string} A localised amount such as `$0.00`.
  */
-export function formatAmount(cents, currency = 'INR') {
+export function formatAmount(cents, currency = 'USD') {
   return formatMoney(cents, currency, localeForCurrency(currency))
 }
 
@@ -106,7 +114,7 @@ export function formatAmount(cents, currency = 'INR') {
  * @returns {{percentageBps: number, flatCents: number, currency: string}} A fee configuration.
  */
 export function feeConfigFor(currency, feeTerms) {
-  const code = String(currency || 'INR').toUpperCase()
+  const code = String(currency || 'USD').toUpperCase()
   const published = (feeTerms ?? []).find((terms) => terms?.currency === code)
 
   return published

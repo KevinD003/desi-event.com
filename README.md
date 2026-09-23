@@ -121,7 +121,7 @@ cp .env.example .env
 set -a; . ./.env; set +a   # export the variables into this shell — see below
 
 pnpm db:migrate            # create the schema
-pnpm db:seed               # 15 users, 2 organisations, 12 events, 12 orders
+pnpm db:seed               # 23 users, 10 organisations, 23 events, 13 orders (USD)
 pnpm dev                   # api, web and worker together
 ```
 

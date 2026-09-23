@@ -238,10 +238,15 @@ models without one get stable `seed-` prefixed primary keys, so running it
 twice leaves the database exactly as running it once did. There are no blind
 `create` calls.
 
-It produces 15 users, 2 organisations, 6 venues, 12 events (10 published, 2
-draft, 2 online), 31 ticket types, 12 orders across INR and CAD, plus holds,
-promo codes, waitlist entries and audit logs. Every seeded account shares the
-password `DesiEvent!2026`; override it with `SEED_PASSWORD`.
+It produces the USA garba catalogue the site's sample data shows: 23 users, 10
+organisations, 11 venues, 23 events (21 across every public lifecycle state,
+2 drafts, 1 online), 37 ticket types and 13 orders in USD at the demo's 0% US
+tax, plus holds, promo codes, waitlist entries and audit logs. Every name,
+address and email is invented, on `.example` domains. Every seeded account
+shares the password `DesiEvent!2026`; override it with `SEED_PASSWORD`.
+
+The seed only adds and updates rows. A database seeded by an older version
+keeps that version's rows beside the new ones until `pnpm db:reset`.
 
 The dataset is built by a pure function of "now", which is what lets the
 arithmetic — order totals, `quantitySold`, promo redemption counts — be

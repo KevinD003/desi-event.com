@@ -10,7 +10,7 @@ import {
   resetApiClient,
   withTicketTypeAvailability,
 } from './api.js'
-import { SAMPLE_EVENTS } from './sample-data.js'
+import { sampleEventSummaries } from './sample-data.js'
 
 /**
  * Build a client stub whose event reads behave in a chosen way.
@@ -138,7 +138,10 @@ describe('loadEventList', () => {
 
     expect(result.usedFallback).toBe(true)
     expect(result.events.length).toBeGreaterThan(0)
-    expect(result.pagination.total).toBe(SAMPLE_EVENTS.length)
+    // What the API would list: a postponed, cancelled or finished sample event
+    // has its own page but is not in "what is on".
+    expect(result.pagination.total).toBe(sampleEventSummaries().length)
+    expect(result.events.every((event) => event.status !== 'CANCELLED')).toBe(true)
   })
 
   it('falls back when the API answers with something malformed', async () => {
@@ -158,10 +161,10 @@ describe('loadEventList', () => {
   it('applies the same filters to the fallback catalogue as it asks the API for', async () => {
     const list = vi.fn().mockRejectedValue(new Error('connection refused'))
 
-    const result = await loadEventList({ city: 'London' }, { client: stubClient({ list }) })
+    const result = await loadEventList({ city: 'Edison' }, { client: stubClient({ list }) })
 
     expect(result.events.length).toBeGreaterThan(0)
-    expect(result.events.every((event) => event.city === 'London')).toBe(true)
+    expect(result.events.every((event) => event.city === 'Edison')).toBe(true)
   })
 
   it('paginates the fallback catalogue rather than returning all of it', async () => {
@@ -184,7 +187,7 @@ describe('loadEventList', () => {
     const client = stubClient({ list })
 
     await loadEventList({}, { client })
-    await loadEventList({ city: 'London' }, { client })
+    await loadEventList({ city: 'Edison' }, { client })
 
     expect(console.warn).toHaveBeenCalledTimes(1)
     expect(console.warn.mock.calls[0][0]).toContain('events.list')
@@ -206,12 +209,12 @@ describe('loadEventBySlug', () => {
   it('falls back to the curated event of the same slug', async () => {
     const get = vi.fn().mockRejectedValue(new Error('fetch failed'))
 
-    const result = await loadEventBySlug('qawwali-under-the-banyan', {
+    const result = await loadEventBySlug('navratri-night-one-edison', {
       client: stubClient({ get }),
     })
 
     expect(result.usedFallback).toBe(true)
-    expect(result.event.title).toBe('Qawwali Under the Banyan')
+    expect(result.event.title).toBe('Navratri Night One: Garba Under the Lights')
     expect(result.event.ticketTypes.length).toBeGreaterThan(0)
   })
 

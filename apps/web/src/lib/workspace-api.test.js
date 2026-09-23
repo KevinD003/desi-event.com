@@ -262,7 +262,9 @@ describe('the pure helpers', () => {
   })
 
   it('prints an instant in UTC and says so, and prints nothing for no instant', () => {
-    expect(formatInstant('2026-09-23T14:05:00.000Z')).toMatch(/^23 Sept? 2026, 14:05 UTC$/u)
+    expect(formatInstant('2026-09-23T14:05:00.000Z')).toMatch(/^Sep 23, 2026, 2:05\sPM UTC$/u)
+    // Midnight is 12, not 0 or 24, on a US clock.
+    expect(formatInstant('2026-09-24T00:00:00.000Z')).toMatch(/^Sep 24, 2026, 12:00\sAM UTC$/u)
     expect(formatInstant(null)).toBeNull()
     expect(formatInstant('not a date')).toBeNull()
   })

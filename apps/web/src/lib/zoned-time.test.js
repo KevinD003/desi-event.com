@@ -97,8 +97,24 @@ describe('the zone itself', () => {
     expect(zoneAbbreviation('Mars/Olympus')).toBe('')
   })
 
+  it('names a US zone by its letters, and any other by its offset', () => {
+    expect(zoneAbbreviation('America/New_York', new Date('2026-10-17T12:00:00Z'))).toBe('EDT')
+    expect(zoneAbbreviation('America/Los_Angeles', new Date('2026-12-17T12:00:00Z'))).toBe('PST')
+    expect(zoneAbbreviation('Asia/Kolkata')).toBe('GMT+5:30')
+  })
+
   it('offers the zones an organiser here actually wants first', () => {
-    expect(COMMON_ZONES[0]).toBe('Asia/Kolkata')
+    // The catalogue is American: Eastern first, then the rest of the US east
+    // to west, before any zone elsewhere.
+    expect(COMMON_ZONES.slice(0, 3)).toEqual([
+      'America/New_York',
+      'America/Chicago',
+      'America/Denver',
+    ])
+    expect(COMMON_ZONES.indexOf('America/Los_Angeles')).toBeLessThan(
+      COMMON_ZONES.indexOf('Asia/Kolkata'),
+    )
     expect(COMMON_ZONES.every(isKnownTimeZone)).toBe(true)
+    expect(new Set(COMMON_ZONES).size).toBe(COMMON_ZONES.length)
   })
 })

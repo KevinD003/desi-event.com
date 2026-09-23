@@ -102,7 +102,7 @@ export function categoryCountLabel(count) {
   if (count <= 0) return 'Nothing listed right now'
   if (count === 1) return '1 event'
 
-  return `${count.toLocaleString('en-IN')} events`
+  return `${count.toLocaleString('en-US')} events`
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ function countryName(code) {
   if (!/^[A-Z]{2}$/.test(trimmed)) return code.trim()
 
   try {
-    return new Intl.DisplayNames(['en-IN'], { type: 'region' }).of(trimmed) ?? trimmed
+    return new Intl.DisplayNames(['en-US'], { type: 'region' }).of(trimmed) ?? trimmed
   } catch {
     return trimmed
   }
@@ -251,7 +251,7 @@ function countryName(code) {
  * A region that repeats the city ("Singapore, Singapore") is said once.
  *
  * @param {object} venue A venue summary.
- * @returns {string} "Mumbai, Maharashtra, India".
+ * @returns {string} "Edison, NJ, United States".
  */
 export function venuePlace(venue) {
   const parts = []
@@ -514,7 +514,7 @@ export function upcomingEventReader(options = {}) {
  */
 
 /** Names compared the way an Indian-English reader alphabetises them. */
-const NAME_ORDER = new Intl.Collator('en-IN', { sensitivity: 'base', numeric: true })
+const NAME_ORDER = new Intl.Collator('en-US', { sensitivity: 'base', numeric: true })
 
 /**
  * Derive the organiser directory from the public event listing.
@@ -618,5 +618,5 @@ export async function deriveOrganizers(options = {}) {
 export function organizerCountLabel(count) {
   return count === 1
     ? '1 upcoming event listed'
-    : `${count.toLocaleString('en-IN')} upcoming events listed`
+    : `${count.toLocaleString('en-US')} upcoming events listed`
 }

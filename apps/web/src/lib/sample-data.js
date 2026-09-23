@@ -4,21 +4,42 @@
  * This is not filler. The API is a separate process that is routinely down
  * during `next build`, during unit tests and on a fresh clone, and a ticketing
  * site that renders an empty grid in those moments looks broken rather than
- * offline. So the web app ships a small, real-looking catalogue — ten events
- * across Mumbai, Ahmedabad, Toronto and London, priced in the minor units of
- * their own currency — and renders that instead of an error.
+ * offline. So the web app ships a small, real-looking catalogue — twenty
+ * Navratri-season events across eleven US cities, priced in US cents — and
+ * renders that instead of an error.
+ *
+ * Every organiser, venue and address here is invented. The cities are real so
+ * that the city filter means something; the street addresses, the venues and
+ * the people running them are not, and every website is on `.example`. The
+ * sample notice the pages already show says so to the visitor.
  *
  * Shapes here match `eventWithRelationsSchema` and `ticketTypeListResponseSchema`
  * from `@desi-event/schemas` so that a component cannot tell the difference
- * between a sample event and a live one.
+ * between a sample event and a live one. That includes the parts of the live
+ * payload that are easy to forget: `feeTerms` on an event, `minTotalCents` and
+ * `salesOpen` on a summary, and the rule that a listing only carries the
+ * statuses the API lists.
+ *
+ * The catalogue is deliberately not all sunshine. Between them the events
+ * exercise every state a page has to render honestly: a sold-out tier, a
+ * sold-out event, a free event, a tier with only a few left, sales paused, a
+ * postponement, a cancellation, a finished event, a seated tier this site does
+ * not sell, and an organiser who is not verified.
  *
  * Dates are generated relative to process start rather than hard-coded, so the
  * fallback catalogue never rots into a listing of events that happened last
- * year. They are computed once at module load, which keeps a single server
- * render internally consistent.
+ * year. Each start is a local wall-clock time in the event's own zone,
+ * converted to UTC for that zone's offset *on that date*, so a 7:30 PM start
+ * stays 7:30 PM either side of a daylight-saving change. They are computed once
+ * at module load, which keeps a single server render internally consistent.
  *
  * @module lib/sample-data
  */
+
+import { BOOKABLE_STATUSES, INDEXABLE_STATUSES } from '@desi-event/schemas/lifecycle'
+
+import { priceSelection } from './pricing.js'
+import { fromLocalInputValue, toLocalInputValue } from './zoned-time.js'
 
 /** Instant the relative dates below are measured from, fixed for the process. */
 const BASE_TIME = Date.now()
@@ -26,278 +47,463 @@ const BASE_TIME = Date.now()
 /** Milliseconds in a day. */
 const DAY_MS = 86_400_000
 
+/** Milliseconds in an hour. */
+const HOUR_MS = 3_600_000
+
+/** US Eastern: New Jersey, New York, Pennsylvania, Georgia. */
+const EASTERN = 'America/New_York'
+
+/** US Central: Texas, Illinois. */
+const CENTRAL = 'America/Chicago'
+
+/** US Pacific: California, Washington. */
+const PACIFIC = 'America/Los_Angeles'
+
 /**
- * Build an ISO-8601 timestamp a whole number of days from process start.
+ * The fee terms the API publishes with each event when it runs on its default
+ * configuration — `PLATFORM_FEE_BPS` 590 and `PLATFORM_FEE_FLAT_CENTS` 99 in
+ * `@desi-event/schemas/env`. The fallback carries the same terms so that the
+ * all-in price on a sample card is the price a live deployment on defaults
+ * would quote, rather than a second, different estimate.
+ */
+const SAMPLE_FEE_TERMS = Object.freeze({ percentageBps: 590, flatCents: 99 })
+
+/**
+ * Two-digit, zero-padded.
+ *
+ * @param {number} value A whole number below 100.
+ * @returns {string} The padded digits.
+ */
+function pad(value) {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * The calendar date, in a zone, a whole number of days from process start.
  *
  * @param {number} days Offset in days; may be negative for a past event.
- * @param {number} [utcHour] Hour of day in UTC.
- * @param {number} [utcMinute] Minute of the hour in UTC.
+ * @param {string} timeZone IANA zone the date is read in.
+ * @returns {string} A `YYYY-MM-DD` date.
+ */
+function localDate(days, timeZone) {
+  return toLocalInputValue(new Date(BASE_TIME + days * DAY_MS), timeZone).slice(0, 10)
+}
+
+/**
+ * The instant a local wall-clock time happens, a number of days from now.
+ *
+ * Why not add a fixed UTC hour: an Eastern 7:30 PM is 23:30 UTC in October and
+ * 00:30 UTC the next day in December, and a catalogue built on fixed UTC hours
+ * drifts by an hour every time the clocks change.
+ *
+ * @param {number} days Offset in days; may be negative for a past event.
+ * @param {string} timeZone IANA zone the wall-clock time is in.
+ * @param {number} hour Local hour, 0–23.
+ * @param {number} [minute] Local minute.
  * @returns {string} A UTC ISO-8601 timestamp.
  */
-function daysFromNow(days, utcHour = 12, utcMinute = 0) {
-  const date = new Date(BASE_TIME + days * DAY_MS)
-  date.setUTCHours(utcHour, utcMinute, 0, 0)
-
-  return date.toISOString()
+function localTime(days, timeZone, hour, minute = 0) {
+  return fromLocalInputValue(`${localDate(days, timeZone)}T${pad(hour)}:${pad(minute)}`, timeZone)
 }
+
+/**
+ * The first day, at or after an offset, that falls on a given weekday.
+ *
+ * Exists for the one event whose title names its day: "Peachtree Garba
+ * Saturday" must be on a Saturday whatever day the process starts on.
+ *
+ * @param {number} days Earliest offset in days.
+ * @param {number} weekday 0 for Sunday through 6 for Saturday.
+ * @param {string} timeZone IANA zone the weekday is read in.
+ * @returns {number} An offset in days, between `days` and `days + 6`.
+ */
+function onOrAfterWeekday(days, weekday, timeZone) {
+  for (let offset = days; offset < days + 7; offset += 1) {
+    const [year, month, day] = localDate(offset, timeZone).split('-').map(Number)
+    if (new Date(Date.UTC(year, month - 1, day)).getUTCDay() === weekday) return offset
+  }
+
+  return days
+}
+
+/**
+ * An instant some hours after another.
+ *
+ * @param {string} iso A UTC ISO-8601 timestamp.
+ * @param {number} hours Hours to add; fractions allowed.
+ * @returns {string} A UTC ISO-8601 timestamp.
+ */
+function hoursAfter(iso, hours) {
+  return new Date(Date.parse(iso) + hours * HOUR_MS).toISOString()
+}
+
+/**
+ * A start and an end, as a definition spreads them.
+ *
+ * @param {number} days Offset in days of the start.
+ * @param {string} timeZone IANA zone of the event.
+ * @param {number} hour Local start hour.
+ * @param {number} minute Local start minute.
+ * @param {number} hours Duration in hours.
+ * @returns {{startsAt: string, endsAt: string, timezone: string}} The timing fields.
+ */
+function evening(days, timeZone, hour, minute, hours) {
+  const startsAt = localTime(days, timeZone, hour, minute)
+
+  return { startsAt, endsAt: hoursAfter(startsAt, hours), timezone: timeZone }
+}
+
+/** Refund wording an organiser might really publish, shared by several. */
+const STANDARD_REFUNDS =
+  'Full refund up to seven days before the event. After that, tickets cannot be refunded but may be transferred to someone else.'
 
 /** Organisations that appear in the fallback catalogue. */
 const ORGANIZATIONS = {
-  rangmanch: {
-    id: 'orgrangmanchmumbai',
-    name: 'Rangmanch Collective',
-    slug: 'rangmanch-collective',
-    description: 'Independent promoters putting South Asian artists on Bombay stages since 2011.',
-    contactEmail: 'hello@rangmanch.example',
-    websiteUrl: 'https://rangmanch.example',
-    verified: true,
-    payoutCurrency: 'INR',
-    verificationStatus: 'VERIFIED',
-    timezone: 'Asia/Kolkata',
-    refundPolicy:
-      'Full refund up to seven days before the performance; no refunds after that, but tickets may be transferred.',
-  },
-  navrang: {
-    id: 'orgnavrangutsav',
-    name: 'Navrang Utsav Samiti',
-    slug: 'navrang-utsav-samiti',
-    description: 'The Ahmedabad garba committee behind nine nights of raas since 1987.',
-    contactEmail: 'samiti@navrangutsav.example',
-    websiteUrl: 'https://navrangutsav.example',
-    verified: true,
-    payoutCurrency: 'INR',
-    verificationStatus: 'VERIFIED',
-    timezone: 'Asia/Kolkata',
-    refundPolicy:
-      'Passes are non-refundable once the first night has begun. Before that, a full refund less the payment fee.',
-  },
-  desiBeats: {
-    id: 'orgdesibeatsto',
-    name: 'Desi Beats Toronto',
-    slug: 'desi-beats-toronto',
-    description: 'GTA nightlife for the diaspora — bhangra, Bollywood and everything in between.',
-    contactEmail: 'crew@desibeats.example',
-    websiteUrl: 'https://desibeats.example',
-    verified: true,
-    payoutCurrency: 'CAD',
-    verificationStatus: 'VERIFIED',
-    timezone: 'America/Toronto',
-    refundPolicy:
-      'Refunds up to 72 hours before doors. After that the ticket is yours to transfer.',
-  },
-  masala: {
-    id: 'orgmasalaartsldn',
-    name: 'Masala Arts London',
-    slug: 'masala-arts-london',
-    description: 'A Whitechapel arts charity programming South Asian theatre, comedy and film.',
-    contactEmail: 'box.office@masalaarts.example',
-    websiteUrl: 'https://masalaarts.example',
-    verified: false,
-    payoutCurrency: 'GBP',
-    verificationStatus: 'UNVERIFIED',
-    timezone: 'Europe/London',
-    refundPolicy:
-      'Refunds up to 24 hours before curtain, or an exchange into any other show in the season.',
-  },
-  swarSadhana: {
-    id: 'orgswarsadhana',
-    name: 'Swar Sadhana Trust',
-    slug: 'swar-sadhana-trust',
+  mirrorwork: {
+    id: 'orgmirrorworkevents',
+    name: 'Mirrorwork Events',
+    slug: 'mirrorwork-events',
     description:
-      'Custodians of Hindustani and Carnatic repertoire, and of the artists who carry it.',
-    contactEmail: 'trust@swarsadhana.example',
-    websiteUrl: 'https://swarsadhana.example',
+      'Navratri nights, beginner garba classes and live-band concerts in central New Jersey.',
+    contactEmail: 'hello@mirrorwork.example',
+    websiteUrl: 'https://mirrorwork.example',
     verified: true,
-    payoutCurrency: 'INR',
+    payoutCurrency: 'USD',
     verificationStatus: 'VERIFIED',
-    timezone: 'Asia/Kolkata',
-    refundPolicy:
-      'A full refund at any point up to the interval of the first half, in keeping with a long-standing practice of the trust.',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
   },
+  chaniya: {
+    id: 'orgchaniyacollective',
+    name: 'Chaniya Collective',
+    slug: 'chaniya-collective',
+    description:
+      'Houston dancers and volunteers running dandiya nights and free children’s classes.',
+    contactEmail: 'team@chaniya.example',
+    websiteUrl: 'https://chaniya.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: CENTRAL,
+    refundPolicy:
+      'Refunds up to 72 hours before doors open. After that, tickets can be transferred but not refunded.',
+  },
+  lakeshore: {
+    id: 'orglakeshoreraas',
+    name: 'Lakeshore Raas',
+    slug: 'lakeshore-raas',
+    description: 'Navratri garba and raas in the northwest suburbs of Chicago.',
+    contactEmail: 'raas@lakeshore.example',
+    websiteUrl: 'https://lakeshore.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: CENTRAL,
+    refundPolicy: STANDARD_REFUNDS,
+  },
+  bayLights: {
+    id: 'orgbaylightsgarba',
+    name: 'Bay Lights Garba Co.',
+    slug: 'bay-lights-garba-co',
+    description: 'Garba and dandiya nights in the South Bay, with live bands every night.',
+    contactEmail: 'tickets@baylightsgarba.example',
+    websiteUrl: 'https://baylightsgarba.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: PACIFIC,
+    refundPolicy:
+      'Full refund up to fourteen days before the event, half the face value up to seven days before, and transfers at any time.',
+  },
+  peachtree: {
+    id: 'orgpeachtreeraasclub',
+    name: 'Peachtree Raas Club',
+    slug: 'peachtree-raas-club',
+    description: 'A volunteer-run garba club in Atlanta, with family-friendly Navratri nights.',
+    contactEmail: 'club@peachtreeraas.example',
+    websiteUrl: 'https://peachtreeraas.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
+  },
+  libertyBell: {
+    id: 'orglibertybellnavratri',
+    name: 'Liberty Bell Navratri',
+    slug: 'liberty-bell-navratri',
+    description: 'Community evenings of aarti and garba in Philadelphia.',
+    contactEmail: 'navratri@libertybell.example',
+    websiteUrl: 'https://libertybell.example',
+    verified: false,
+    payoutCurrency: 'USD',
+    verificationStatus: 'UNVERIFIED',
+    timezone: EASTERN,
+    refundPolicy:
+      'Refunds up to 48 hours before the event. If an event is postponed, tickets stay valid for the new date or can be refunded in full.',
+  },
+  rainier: {
+    id: 'orgrainierraas',
+    name: 'Rainier Raas',
+    slug: 'rainier-raas',
+    description: 'Family garba evenings on the Eastside of Seattle.',
+    contactEmail: 'hello@rainierraas.example',
+    websiteUrl: 'https://rainierraas.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: PACIFIC,
+    refundPolicy: STANDARD_REFUNDS,
+  },
+  pacific: {
+    id: 'orgpacificdandiya',
+    name: 'Pacific Dandiya Society',
+    slug: 'pacific-dandiya-society',
+    description: 'Dandiya raas nights in Southern California, always to a live band.',
+    contactEmail: 'society@pacificdandiya.example',
+    websiteUrl: 'https://pacificdandiya.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: PACIFIC,
+    refundPolicy:
+      'Refunds up to ten days before the event. VIP Lounge tickets can be exchanged for general admission at any time.',
+  },
+  fiveBoroughs: {
+    id: 'orgfiveboroughsgarba',
+    name: 'Five Boroughs Garba',
+    slug: 'five-boroughs-garba',
+    description: 'Garba across New York City, from mela evenings to an all-night marathon.',
+    contactEmail: 'info@fiveboroughsgarba.example',
+    websiteUrl: 'https://fiveboroughsgarba.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
+  },
+  loneStar: {
+    id: 'orglonestarnavratri',
+    name: 'Lone Star Navratri',
+    slug: 'lone-star-navratri',
+    description: 'Navratri, Sharad Poonam and student showcase nights in Dallas–Fort Worth.',
+    contactEmail: 'contact@lonestarnavratri.example',
+    websiteUrl: 'https://lonestarnavratri.example',
+    verified: true,
+    payoutCurrency: 'USD',
+    verificationStatus: 'VERIFIED',
+    timezone: CENTRAL,
+    refundPolicy:
+      'Full refund up to five days before the event. If an event is cancelled, every ticket is refunded in full.',
+  },
+}
+
+/**
+ * A venue record with the columns every sample venue shares filled in.
+ *
+ * Coordinates are left null on purpose: the addresses are invented, and a
+ * latitude for an invented building would end up in the venue page's
+ * structured data as a claim about a real place.
+ *
+ * @param {object} fields The venue's own fields.
+ * @returns {object} A venue as the API returns one.
+ */
+function venue(fields) {
+  return {
+    addressLine2: null,
+    country: 'US',
+    latitude: null,
+    longitude: null,
+    directions: null,
+    policies: null,
+    description: null,
+    provenance: 'moderator',
+    organizationId: null,
+    mergedIntoVenueId: null,
+    ...fields,
+  }
 }
 
 /** Venues that appear in the fallback catalogue. */
 const VENUES = {
-  jioGarden: {
-    id: 'vnujioworldmumbai',
-    name: 'Jio World Garden',
-    addressLine1: 'Bandra Kurla Complex',
-    addressLine2: 'G Block, BKC',
-    city: 'Mumbai',
-    region: 'Maharashtra',
-    postalCode: '400051',
-    country: 'IN',
-    latitude: 19.0653,
-    longitude: 72.8676,
-    capacity: 6000,
-    slug: 'jio-world-garden',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  nehruCentre: {
-    id: 'vnunehrucentremum',
-    name: 'Nehru Centre Auditorium',
-    addressLine1: 'Dr Annie Besant Road',
-    addressLine2: 'Worli',
-    city: 'Mumbai',
-    region: 'Maharashtra',
-    postalCode: '400018',
-    country: 'IN',
-    latitude: 18.9949,
-    longitude: 72.8203,
-    capacity: 1100,
-    slug: 'nehru-centre-auditorium',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  gmdcGround: {
-    id: 'vnugmdcahmedabad',
-    name: 'GMDC Ground',
-    addressLine1: 'University Road',
-    addressLine2: 'Gujarat University Campus',
-    city: 'Ahmedabad',
-    region: 'Gujarat',
-    postalCode: '380009',
-    country: 'IN',
-    latitude: 23.0367,
-    longitude: 72.5455,
-    capacity: 20000,
-    slug: 'gmdc-ground',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  tagoreHall: {
-    id: 'vnutagoreahmedabad',
-    name: 'Tagore Hall',
-    addressLine1: 'Sanskar Kendra Road',
-    addressLine2: 'Paldi',
-    city: 'Ahmedabad',
-    region: 'Gujarat',
-    postalCode: '380007',
-    country: 'IN',
-    latitude: 23.0159,
-    longitude: 72.5652,
-    capacity: 700,
-    slug: 'tagore-hall',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  meridianHall: {
-    id: 'vnumeridiantoronto',
-    name: 'Meridian Hall',
-    addressLine1: '1 Front Street East',
-    addressLine2: null,
-    city: 'Toronto',
-    region: 'Ontario',
-    postalCode: 'M5E 1B2',
-    country: 'CA',
-    latitude: 43.6462,
-    longitude: -79.3755,
-    capacity: 3191,
-    slug: 'meridian-hall',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  celebrationSquare: {
-    id: 'vnucelebrationsqto',
-    name: 'Mississauga Celebration Square',
-    addressLine1: '300 City Centre Drive',
-    addressLine2: null,
-    city: 'Toronto',
-    region: 'Ontario',
-    postalCode: 'L5B 3C1',
-    country: 'CA',
-    latitude: 43.5931,
-    longitude: -79.6444,
-    capacity: 12000,
-    slug: 'mississauga-celebration-square',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  troxy: {
-    id: 'vnutroxylondon',
-    name: 'Troxy',
-    addressLine1: '490 Commercial Road',
-    addressLine2: 'Limehouse',
-    city: 'London',
-    region: 'Greater London',
-    postalCode: 'E1 0HX',
-    country: 'GB',
-    latitude: 51.5133,
-    longitude: -0.0377,
-    capacity: 3100,
-    slug: 'troxy',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
-    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
-  southbank: {
-    id: 'vnusouthbanklondon',
-    name: 'Southbank Centre, Queen Elizabeth Hall',
-    addressLine1: 'Belvedere Road',
-    addressLine2: 'South Bank',
-    city: 'London',
-    region: 'Greater London',
-    postalCode: 'SE1 8XX',
-    country: 'GB',
-    latitude: 51.5062,
-    longitude: -0.1161,
+  lamplight: venue({
+    id: 'vnulamplightexpohall',
+    name: 'Lamplight Expo Hall',
+    addressLine1: '450 Festival Plaza',
+    city: 'Edison',
+    region: 'NJ',
+    postalCode: '08837',
+    capacity: 5000,
+    slug: 'lamplight-expo-hall',
+    timezone: EASTERN,
+    accessibility: {
+      features: [
+        'STEP_FREE_ENTRANCE',
+        'ACCESSIBLE_TOILET',
+        'ACCESSIBLE_PARKING',
+        'WHEELCHAIR_SPACES',
+      ],
+      note: null,
+    },
+  }),
+  hudson: venue({
+    id: 'vnuhudsonriverside',
+    name: 'Hudson Riverside Pavilion',
+    addressLine1: '12 Harborview Walk',
+    city: 'Jersey City',
+    region: 'NJ',
+    postalCode: '07310',
     capacity: 900,
-    slug: 'southbank-centre-queen-elizabeth-hall',
-    timezone: 'Asia/Kolkata',
-    directions: null,
-    policies: null,
-    description: null,
+    slug: 'hudson-riverside-pavilion',
+    timezone: EASTERN,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'LIFT_ACCESS'],
+      note: null,
+    },
+  }),
+  lanternRow: venue({
+    id: 'vnulanternrowhall',
+    name: 'Lantern Row Event Hall',
+    addressLine1: '8800 Lantern Row',
+    city: 'Houston',
+    region: 'TX',
+    postalCode: '77036',
+    capacity: 4000,
+    slug: 'lantern-row-event-hall',
+    timezone: CENTRAL,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'ACCESSIBLE_PARKING'],
+      note: null,
+    },
+  }),
+  trinity: venue({
+    id: 'vnutrinityconvention',
+    name: 'Trinity Convention Hall',
+    addressLine1: '2100 Garland Commons',
+    city: 'Irving',
+    region: 'TX',
+    postalCode: '75038',
+    capacity: 3500,
+    slug: 'trinity-convention-hall',
+    timezone: CENTRAL,
+    accessibility: {
+      features: [
+        'STEP_FREE_ENTRANCE',
+        'ACCESSIBLE_TOILET',
+        'WHEELCHAIR_SPACES',
+        'ACCESSIBLE_PARKING',
+      ],
+      note: null,
+    },
+  }),
+  lakeshore: venue({
+    id: 'vnulakeshorepavilion',
+    name: 'Lakeshore Pavilion',
+    addressLine1: '1500 Meadow Circle',
+    city: 'Schaumburg',
+    region: 'IL',
+    postalCode: '60173',
+    capacity: 3000,
+    slug: 'lakeshore-pavilion',
+    timezone: CENTRAL,
     accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
-    provenance: 'moderator',
-    organizationId: null,
-    mergedIntoVenueId: null,
-  },
+  }),
+  santaClara: venue({
+    id: 'vnusantaclaraexpo',
+    name: 'Santa Clara Valley Expo',
+    addressLine1: '300 Orchard Commons',
+    city: 'Santa Clara',
+    region: 'CA',
+    postalCode: '95054',
+    capacity: 4500,
+    slug: 'santa-clara-valley-expo',
+    timezone: PACIFIC,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'ACCESSIBLE_PARKING', 'QUIET_SPACE'],
+      note: null,
+    },
+  }),
+  midtown: venue({
+    id: 'vnumidtowngrandhall',
+    name: 'Midtown Grand Hall',
+    addressLine1: '77 Peach Blossom Ave',
+    city: 'Atlanta',
+    region: 'GA',
+    postalCode: '30308',
+    capacity: 2500,
+    slug: 'midtown-grand-hall',
+    timezone: EASTERN,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'LIFT_ACCESS'],
+      note: null,
+    },
+  }),
+  delaware: venue({
+    id: 'vnudelawareriver',
+    name: 'Delaware River Pavilion',
+    addressLine1: '40 Wharf Street',
+    city: 'Philadelphia',
+    region: 'PA',
+    postalCode: '19106',
+    capacity: 1800,
+    slug: 'delaware-river-pavilion',
+    timezone: EASTERN,
+    accessibility: { features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET'], note: null },
+  }),
+  cedarLane: venue({
+    id: 'vnucedarlanehall',
+    name: 'Cedar Lane Hall',
+    addressLine1: '600 Cedar Lane',
+    city: 'Bellevue',
+    region: 'WA',
+    postalCode: '98004',
+    capacity: 1200,
+    slug: 'cedar-lane-hall',
+    timezone: PACIFIC,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'STEP_FREE_TO_SEATING', 'ACCESSIBLE_TOILET', 'QUIET_SPACE'],
+      note: null,
+    },
+  }),
+  cerritos: venue({
+    id: 'vnucerritosgarden',
+    name: 'Cerritos Garden Pavilion',
+    addressLine1: '18000 Lotus Court',
+    city: 'Cerritos',
+    region: 'CA',
+    postalCode: '90703',
+    capacity: 2200,
+    slug: 'cerritos-garden-pavilion',
+    timezone: PACIFIC,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'ACCESSIBLE_PARKING'],
+      note: null,
+    },
+  }),
+  queens: venue({
+    id: 'vnuqueenscommunity',
+    name: 'Queens Community Arena',
+    addressLine1: '92-10 Utsav Plaza',
+    city: 'Queens',
+    region: 'NY',
+    postalCode: '11355',
+    capacity: 3000,
+    slug: 'queens-community-arena',
+    timezone: EASTERN,
+    accessibility: {
+      features: ['STEP_FREE_ENTRANCE', 'ACCESSIBLE_TOILET', 'LIFT_ACCESS', 'WHEELCHAIR_SPACES'],
+      note: null,
+    },
+  }),
 }
 
 /**
  * Expand a compact ticket tier definition into a full ticket type record.
+ *
+ * A seated tier (`reserved`) is sold seat by seat, so its quantity columns say
+ * nothing about availability — the live API folds it in exactly like this,
+ * with nothing available by quantity, and the pages say it is not sold here
+ * rather than reading the zero as "sold out".
  *
  * @param {string} eventId Owning event id.
  * @param {string} currency ISO 4217 code every tier of the event is priced in.
@@ -308,7 +514,9 @@ const VENUES = {
 function toTicketType(eventId, currency, tier, index) {
   const quantitySold = tier.quantitySold ?? 0
   const availableQuantity = Math.max(0, tier.quantityTotal - quantitySold)
-  const soldOutStatus = availableQuantity === 0 ? 'SOLD_OUT' : (tier.status ?? 'ON_SALE')
+  const declared = tier.status ?? 'ON_SALE'
+  const status = availableQuantity === 0 && !tier.reserved ? 'SOLD_OUT' : declared
+  const sellable = status === 'ON_SALE' && !tier.reserved
 
   return {
     id: tier.id,
@@ -323,10 +531,11 @@ function toTicketType(eventId, currency, tier, index) {
     maxPerOrder: tier.maxPerOrder ?? 8,
     salesStartAt: null,
     salesEndAt: null,
-    status: soldOutStatus,
+    status,
     sortOrder: index,
-    availableQuantity: soldOutStatus === 'ON_SALE' ? availableQuantity : 0,
-    isSoldOut: soldOutStatus !== 'ON_SALE',
+    ...(tier.reserved ? { reserved: true } : {}),
+    availableQuantity: sellable ? availableQuantity : 0,
+    isSoldOut: !sellable || availableQuantity === 0,
   }
 }
 
@@ -375,540 +584,785 @@ function toPublicOrganizer(organization) {
  * @returns {object} An event matching `eventWithRelationsSchema`.
  */
 function toEvent(definition) {
-  const { organization, venue, currency, tiers, ...event } = definition
+  const { organization, venue: place, currency, tiers, status, ...event } = definition
 
   return {
     ...event,
     organizationId: organization.id,
-    venueId: venue.id,
-    status: 'PUBLISHED',
+    venueId: place.id,
+    status: status ?? 'ON_SALE',
     coverImageUrl: null,
     isOnline: false,
     onlineUrl: null,
-    publishedAt: daysFromNow(-42, 9, 0),
+    publishedAt: localTime(-42, place.timezone, 10, 0),
+    // What the API writes when an event is postponed: the date it was going to
+    // be on, until a new one is set. Null for everything else.
+    previousStartsAt: definition.previousStartsAt ?? null,
     organization: toPublicOrganizer(organization),
-    venue,
+    venue: place,
     ticketTypes: tiers.map((tier, index) => toTicketType(event.id, currency, tier, index)),
+    feeTerms: [{ currency, ...SAMPLE_FEE_TERMS }],
   }
 }
+
+/** Offset of the Saturday Peachtree Raas Club's Saturday night falls on. */
+const PEACHTREE_SATURDAY = onOrAfterWeekday(20, 6, EASTERN)
+
+/** Timing of the postponed event, which also becomes its `previousStartsAt`. */
+const GARBA_FOR_GOOD = evening(24, EASTERN, 19, 0, 5)
 
 /** Compact definitions, expanded below. Ordered by start date. */
 const EVENT_DEFINITIONS = [
   {
-    id: 'evtnavratrirasgarba',
-    title: 'Navratri Raas Garba — Nine Nights',
-    slug: 'navratri-raas-garba-nine-nights',
+    id: 'evtgarbawarmupatl',
+    title: 'Garba Warm-Up Night',
+    slug: 'garba-warm-up-night-atlanta',
     summary:
-      'Nine nights of traditional raas and dandiya on the GMDC ground, with a live dhol ensemble and a sixty-piece orchestra.',
+      'A relaxed warm-up garba at Midtown Grand Hall before Navratri, for anyone who has not danced since last year.',
     description: [
-      'Ahmedabad does not do Navratri by halves. From the first beat of the dhol at sundown to the last taali well past two in the morning, the GMDC ground turns into a single circle of colour that keeps widening as the night goes on.',
-      'The Navrang Utsav Samiti has run these nights since 1987. The orchestra is live — no backing tracks, no DJ sets — and the repertoire moves from slow sanedo through do taali, teen taali and into the fast dodhiya that separates the serious players from the rest of us.',
-      'Come in chaniya choli or kediyu if you have it, comfortable shoes if you do not. Water and chaas are free at the eastern gate. Garba lessons run each evening from 7 pm for anyone joining their first night.',
+      'Before Navratri begins, Peachtree Raas Club holds a warm-up night at Midtown Grand Hall for everyone who has not danced since last season. The music is recorded, the pace is gentle, and the evening opens with a teaching round for anyone who has forgotten which foot goes first.',
+      'It is also the easiest way to meet the volunteers who run the club’s Navratri nights, ask them anything, and pick up a pair of dandiya sticks before the season starts in earnest.',
     ].join('\n\n'),
     category: 'GARBA_DANDIYA',
-    startsAt: daysFromNow(27, 13, 30),
-    endsAt: daysFromNow(27, 20, 30),
-    timezone: 'Asia/Kolkata',
-    languages: ['Gujarati', 'Hindi'],
-    organization: ORGANIZATIONS.navrang,
-    venue: VENUES.gmdcGround,
-    currency: 'INR',
+    status: 'COMPLETED',
+    ...evening(-9, EASTERN, 19, 30, 4),
+    languages: ['Gujarati', 'English'],
+    organization: ORGANIZATIONS.peachtree,
+    venue: VENUES.midtown,
+    currency: 'USD',
     tiers: [
       {
-        id: 'ttngarbaseasonpass',
-        name: 'Season Pass — All Nine Nights',
-        description: 'One wristband, every night, plus priority entry at the west gate.',
-        priceCents: 899_900,
-        quantityTotal: 1200,
-        quantitySold: 1147,
-        minPerOrder: 1,
-        maxPerOrder: 4,
-      },
-      {
-        id: 'ttngarbacouplenite',
-        name: 'Couple Entry — Single Night',
-        description: 'Admits two. Choose your night at the gate.',
-        priceCents: 249_900,
-        quantityTotal: 4000,
-        quantitySold: 2610,
-        minPerOrder: 1,
-        maxPerOrder: 5,
-      },
-      {
-        id: 'ttngarbasinglenite',
-        name: 'Single Night Entry',
-        description: 'General admission to the main circle.',
-        priceCents: 149_900,
-        quantityTotal: 9000,
-        quantitySold: 5120,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-      },
-    ],
-  },
-  {
-    id: 'evtqawwalibanyan',
-    title: 'Qawwali Under the Banyan',
-    slug: 'qawwali-under-the-banyan',
-    summary:
-      'An open-air evening of Sufi qawwali in Bandra Kurla Complex, with the Nizami brothers closing on Chhaap Tilak.',
-    description: [
-      'A qawwali does not really start until the audience decides it has. This one begins at dusk in the Jio World Garden, on a low stage under the old banyan, with the harmonium finding its drone while the city traffic is still audible over the wall.',
-      'Three ensembles share the night. The Warsi brothers open with Amir Khusrau in Braj and Persian; the Rizwan-Muazzam party take the middle set; and the Nizamis close, as they always do, with Chhaap Tilak — at which point nobody is sitting down.',
-      'Floor cushions and low seating throughout. The chai stall by the north gate stays open until the last note.',
-    ].join('\n\n'),
-    category: 'MUSIC_CONCERT',
-    startsAt: daysFromNow(12, 13, 0),
-    endsAt: daysFromNow(12, 17, 30),
-    timezone: 'Asia/Kolkata',
-    languages: ['Urdu', 'Hindi', 'Punjabi'],
-    organization: ORGANIZATIONS.rangmanch,
-    venue: VENUES.jioGarden,
-    currency: 'INR',
-    tiers: [
-      {
-        id: 'ttqawwalimehfil',
-        name: 'Mehfil Floor — Front Cushions',
-        description: 'Cushioned floor seating within ten feet of the ensemble.',
-        priceCents: 449_900,
-        quantityTotal: 180,
-        quantitySold: 180,
-        minPerOrder: 1,
-        maxPerOrder: 4,
-      },
-      {
-        id: 'ttqawwaligarden',
-        name: 'Garden Seating',
-        description: 'Reserved chairs on the lawn, with table service for chai.',
-        priceCents: 249_900,
-        quantityTotal: 900,
-        quantitySold: 612,
-        minPerOrder: 1,
-        maxPerOrder: 6,
-      },
-      {
-        id: 'ttqawwalilawn',
-        name: 'Lawn Entry',
-        description: 'Unreserved standing and picnic-rug space at the back of the garden.',
-        priceCents: 99_900,
-        quantityTotal: 2400,
-        quantitySold: 1380,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-      },
-    ],
-  },
-  {
-    id: 'evtbollywoodretroto',
-    title: 'Bollywood Nights: Retro Rewind',
-    slug: 'bollywood-nights-retro-rewind',
-    summary:
-      'Four decades of filmi floor-fillers at Meridian Hall — RD Burman to Pritam, mixed live across two rooms.',
-    description: [
-      'Downtown Toronto, one room of disco-era RD Burman and Bappi Lahiri, one room of everything after Dil Chahta Hai, and a corridor between them that becomes its own dance floor by midnight.',
-      'DJ Rekha Sandhu opens the retro room at nine. The bhangra room runs a live dhol player alongside the decks from eleven. Expect Jimmy Jimmy, expect Choli Ke Peeche, and expect the entire room to know every word of Kajra Re.',
-      'Nineteen-plus with valid photo ID. Coat check is included in the ticket — it is November, and you will want it.',
-    ].join('\n\n'),
-    category: 'BOLLYWOOD_NIGHT',
-    startsAt: daysFromNow(19, 1, 0),
-    endsAt: daysFromNow(19, 7, 0),
-    timezone: 'America/Toronto',
-    languages: ['English', 'Hindi', 'Punjabi'],
-    organization: ORGANIZATIONS.desiBeats,
-    venue: VENUES.meridianHall,
-    currency: 'CAD',
-    tiers: [
-      {
-        id: 'ttbollyvipbooth',
-        name: 'VIP Booth (seats 6)',
-        description: 'Raised booth overlooking the retro floor, bottle service included.',
-        priceCents: 60_000,
-        quantityTotal: 24,
-        quantitySold: 21,
-        minPerOrder: 1,
-        maxPerOrder: 2,
-      },
-      {
-        id: 'ttbollyearlybird',
-        name: 'Early Bird',
-        description: 'Entry before 10 pm, coat check included.',
-        priceCents: 3500,
-        quantityTotal: 600,
-        quantitySold: 600,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-      },
-      {
-        id: 'ttbollygeneraladm',
+        id: 'ttwarmupgeneral',
         name: 'General Admission',
-        description: 'Entry any time, both rooms, coat check included.',
-        priceCents: 5500,
-        quantityTotal: 1800,
-        quantitySold: 940,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-      },
-    ],
-  },
-  {
-    id: 'evtchaatchaifest',
-    title: 'Chaat & Chai Street Food Festival',
-    slug: 'chaat-and-chai-street-food-festival',
-    summary:
-      'Forty stalls along the Southbank serving everything from Amritsari kulcha to Sri Lankan kottu, plus a cutting-chai bar.',
-    description: [
-      'A weekend of South Asian street food on the Thames, from the Queen Elizabeth Hall terrace down to the skate park. Forty stalls, eleven regions, one very long queue for the Amritsari kulcha which is, we are told, worth it.',
-      'The cutting-chai bar pours masala, Irani, Kashmiri noon chai and a Sri Lankan plain tea, and the stall holders will happily argue with you about which is best. Live dhol at noon and at four. The Bengali sweet stall sells out of nolen gur sandesh by two, every single day.',
-      'Entry covers both days. Most stalls are cash-free. Vegetarian, vegan, halal and Jain options are labelled at every counter.',
-    ].join('\n\n'),
-    category: 'FOOD_FESTIVAL',
-    startsAt: daysFromNow(34, 10, 0),
-    endsAt: daysFromNow(35, 19, 0),
-    timezone: 'Europe/London',
-    languages: ['English', 'Bengali', 'Tamil'],
-    organization: ORGANIZATIONS.masala,
-    venue: VENUES.southbank,
-    currency: 'GBP',
-    tiers: [
-      {
-        id: 'ttchaatfeastpass',
-        name: 'Feast Pass',
-        description: 'Weekend entry plus eight tasting tokens and a festival thali plate.',
-        priceCents: 4500,
-        quantityTotal: 900,
-        quantitySold: 407,
-        minPerOrder: 1,
-        maxPerOrder: 6,
-      },
-      {
-        id: 'ttchaatweekendadm',
-        name: 'Weekend Entry',
-        description: 'Both days, pay as you go at the stalls.',
-        priceCents: 1200,
-        quantityTotal: 6000,
-        quantitySold: 2211,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-      },
-      {
-        id: 'ttchaatunderfive',
-        name: 'Under 12s',
-        description: 'Free entry, still needs a ticket so we can count the queue.',
-        priceCents: 0,
-        quantityTotal: 2000,
-        quantitySold: 640,
-        minPerOrder: 1,
-        maxPerOrder: 6,
-      },
-    ],
-  },
-  {
-    id: 'evtmargambharatnat',
-    title: 'Margam — An Evening of Bharatanatyam',
-    slug: 'margam-an-evening-of-bharatanatyam',
-    summary:
-      'A full traditional margam performed by Meenakshi Sundaram at the Nehru Centre, with live mridangam and nattuvangam.',
-    description: [
-      'The margam is the complete arc of a Bharatanatyam recital: alarippu to open, then jatiswaram, shabdam, the long varnam at its centre, padams and javalis, and a tillana to close. Performed whole, it runs close to two hours and asks as much of the audience as of the dancer.',
-      'Meenakshi Sundaram trained at Kalakshetra and has not performed in Bombay for four years. She is accompanied by live mridangam, violin, flute and nattuvangam — no recorded track at any point in the evening.',
-      'A twenty-minute introduction to the form runs at 5.40 pm in the foyer for anyone new to it. Latecomers are seated only between items.',
-    ].join('\n\n'),
-    category: 'CLASSICAL_DANCE',
-    startsAt: daysFromNow(9, 12, 30),
-    endsAt: daysFromNow(9, 15, 0),
-    timezone: 'Asia/Kolkata',
-    languages: ['Tamil', 'English'],
-    organization: ORGANIZATIONS.swarSadhana,
-    venue: VENUES.nehruCentre,
-    currency: 'INR',
-    tiers: [
-      {
-        id: 'ttmargampatron',
-        name: 'Patron Circle',
-        description: 'First six rows, programme notes and a post-show reception with the artist.',
-        priceCents: 350_000,
-        quantityTotal: 120,
-        quantitySold: 89,
-        minPerOrder: 1,
-        maxPerOrder: 4,
-      },
-      {
-        id: 'ttmargamstalls',
-        name: 'Stalls',
-        description: 'Reserved seating in the main auditorium.',
-        priceCents: 150_000,
-        quantityTotal: 620,
-        quantitySold: 318,
-        minPerOrder: 1,
-        maxPerOrder: 6,
-      },
-      {
-        id: 'ttmargamstudent',
-        name: 'Student & Senior',
-        description: 'Balcony seating. Bring ID to the door.',
-        priceCents: 40_000,
-        quantityTotal: 260,
-        quantitySold: 204,
-        minPerOrder: 1,
-        maxPerOrder: 2,
-      },
-    ],
-  },
-  {
-    id: 'evtdesicomedyldn',
-    title: 'Desi Comedy Uncensored',
-    slug: 'desi-comedy-uncensored',
-    summary:
-      'Five comics, one Limehouse stage, and absolutely no material about arranged marriage. Probably.',
-    description: [
-      'A stand-up night built around British-Asian comics who are tired of doing the same five jokes about their mothers. The rule for the bill is simple: no aunty material, no mispronunciation bits, no accents-for-laughs.',
-      'Headlining is Aisha Rahman, fresh off a sold-out Edinburgh run, with support from four comics on the London circuit and one open spot chosen from submissions the week before.',
-      'Strong language throughout and an unapologetic amount of material about the Home Office. Eighteen plus. Doors seven, show eight.',
-    ].join('\n\n'),
-    category: 'COMEDY',
-    startsAt: daysFromNow(16, 19, 0),
-    endsAt: daysFromNow(16, 22, 0),
-    timezone: 'Europe/London',
-    languages: ['English'],
-    organization: ORGANIZATIONS.masala,
-    venue: VENUES.troxy,
-    currency: 'GBP',
-    tiers: [
-      {
-        id: 'ttcomedyfronttable',
-        name: 'Front Table (seats 4)',
-        description: 'Close enough to be part of the show. You have been warned.',
-        priceCents: 9600,
-        quantityTotal: 30,
-        quantitySold: 27,
-        minPerOrder: 1,
-        maxPerOrder: 2,
-      },
-      {
-        id: 'ttcomedystandard',
-        name: 'Standard Seated',
-        description: 'Reserved seating in the stalls.',
-        priceCents: 2800,
+        description: 'Entry for the evening, teaching round included.',
+        priceCents: 1500,
         quantityTotal: 800,
-        quantitySold: 512,
-        minPerOrder: 1,
-        maxPerOrder: 8,
+        quantitySold: 612,
+        status: 'CLOSED',
       },
     ],
   },
   {
-    id: 'evtdiwalimelato',
-    title: 'Diwali Mela on the Square',
-    slug: 'diwali-mela-on-the-square',
+    id: 'evtbeginnerworkshopjc',
+    title: 'Beginner Garba Workshop: Two-Taali, Three-Taali and Dodhiyu',
+    slug: 'beginner-garba-workshop-jersey-city',
     summary:
-      'A free-to-roam Diwali mela in Mississauga with a rangoli competition, a night bazaar and a drone light show at nine.',
+      'A two-hour class in Jersey City for complete beginners, covering the three steps you will meet most over Navratri.',
     description: [
-      'Celebration Square becomes a mela for one weekend: a night bazaar of forty vendors, a rangoli competition open to anyone who turns up with chalk, a kids’ diya-painting tent, and food trucks from Malton to Markham.',
-      'The main stage runs continuously from two in the afternoon — bhangra teams, a garba hour, a Tamil isai set and a closing Bollywood medley. At nine the lights go down for a three-hundred-drone show over the square, which is the reason half the crowd comes.',
-      'The square itself is free. A Mela Pass gets you a reserved seat at the main stage, early entry to the bazaar and a voucher book for the food trucks.',
-    ].join('\n\n'),
-    category: 'CULTURAL_FESTIVAL',
-    startsAt: daysFromNow(44, 18, 0),
-    endsAt: daysFromNow(45, 4, 0),
-    timezone: 'America/Toronto',
-    languages: ['English', 'Hindi', 'Punjabi', 'Tamil'],
-    organization: ORGANIZATIONS.desiBeats,
-    venue: VENUES.celebrationSquare,
-    currency: 'CAD',
-    tiers: [
-      {
-        id: 'ttdiwalimelapass',
-        name: 'Mela Pass',
-        description:
-          'Reserved main-stage seating, early bazaar entry and a food-truck voucher book.',
-        priceCents: 4000,
-        quantityTotal: 1500,
-        quantitySold: 388,
-        minPerOrder: 1,
-        maxPerOrder: 8,
-      },
-      {
-        id: 'ttdiwalifamilypass',
-        name: 'Family Mela Pass (2 adults, 3 children)',
-        description: 'Everything in the Mela Pass, for a household.',
-        priceCents: 12_000,
-        quantityTotal: 500,
-        quantitySold: 141,
-        minPerOrder: 1,
-        maxPerOrder: 3,
-      },
-      {
-        id: 'ttdiwalisquareentry',
-        name: 'Square Entry',
-        description: 'Free general admission. Ticketed so we can manage the gates.',
-        priceCents: 0,
-        quantityTotal: 9000,
-        quantitySold: 4210,
-        minPerOrder: 1,
-        maxPerOrder: 10,
-      },
-    ],
-  },
-  {
-    id: 'evtgarbabootcampmum',
-    title: 'Garba Bootcamp — Learn It In a Weekend',
-    slug: 'garba-bootcamp-learn-it-in-a-weekend',
-    summary:
-      'Two afternoons, four steps, zero prior experience assumed. Walk out able to hold your own in any circle.',
-    description: [
-      'Every year the same thing happens: you get dragged to a garba night, you spend forty minutes half a beat behind everybody else, and you go home having learned nothing. This is the fix.',
-      'Two afternoons, capped at forty people. Saturday covers do taali and teen taali and how to read the circle so you are not the person going the wrong way. Sunday adds sanedo, hinch and the hand pattern for dodhiya, then runs the whole thing at speed with live dhol.',
-      'No partner needed, no experience needed, no particular level of fitness needed. Wear something you can turn in.',
+      'If you have ever stood at the edge of a garba circle trying to work out when to clap, this class is for you. In two hours at Hudson Riverside Pavilion, a Mirrorwork Events teacher takes a small group through the three steps you will see most over the nine nights.',
+      'Two-taali comes first, then three-taali, then dodhiyu — the travelling step with the turn that catches most people out. Each one is taught slowly, then to music, then in a practice circle where getting it wrong is the point.',
+      'No partner and no experience needed. Wear comfortable shoes and clothes you can turn in; the floor is sprung wood and the room is step-free.',
     ].join('\n\n'),
     category: 'WORKSHOP',
-    startsAt: daysFromNow(6, 9, 30),
-    endsAt: daysFromNow(7, 12, 30),
-    timezone: 'Asia/Kolkata',
-    languages: ['Gujarati', 'Hindi', 'English'],
-    organization: ORGANIZATIONS.rangmanch,
-    venue: VENUES.nehruCentre,
-    currency: 'INR',
+    ...evening(10, EASTERN, 19, 0, 2),
+    languages: ['English', 'Gujarati'],
+    organization: ORGANIZATIONS.mirrorwork,
+    venue: VENUES.hudson,
+    currency: 'USD',
     tiers: [
       {
-        id: 'ttbootcampboth',
-        name: 'Both Afternoons',
-        description: 'Saturday and Sunday, including the live-dhol run-through.',
-        priceCents: 180_000,
-        quantityTotal: 40,
-        quantitySold: 31,
-        minPerOrder: 1,
+        id: 'ttbeginnerclass',
+        name: 'Class Ticket',
+        description: 'One place in the two-hour class.',
+        priceCents: 2000,
+        quantityTotal: 60,
+        quantitySold: 22,
+        maxPerOrder: 4,
+      },
+    ],
+  },
+  {
+    id: 'evtdandiyakidshou',
+    title: 'Dandiya Kids’ Hour',
+    slug: 'dandiya-kids-hour-houston',
+    summary:
+      'A free hour of dandiya for children at Lantern Row Event Hall, with soft practice sticks and patient teachers.',
+    description: [
+      'Dandiya Kids’ Hour is Chaniya Collective’s way of making sure the youngest dancers arrive at Navratri knowing what to do with their sticks. For one hour the side hall at Lantern Row Event Hall belongs to children and the grown-ups who brought them.',
+      'Teachers start with rhythm games and clapping patterns, then hand out soft foam practice sticks for the first raas lines. The hour ends with one short raas for the whole room, parents included.',
+      'Entry is free, but each child needs a ticket so the teachers know how many to plan for. Best for ages four to eleven, and an adult stays with every child.',
+    ].join('\n\n'),
+    category: 'WORKSHOP',
+    ...evening(12, CENTRAL, 19, 0, 1),
+    languages: ['English', 'Gujarati', 'Hindi'],
+    organization: ORGANIZATIONS.chaniya,
+    venue: VENUES.lanternRow,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttkidshourfree',
+        name: 'Child Place (free)',
+        description: 'Free. One ticket per child; accompanying adults do not need one.',
+        priceCents: 0,
+        quantityTotal: 80,
+        quantitySold: 41,
+        maxPerOrder: 4,
+      },
+    ],
+  },
+  {
+    id: 'evtnavratrinightone',
+    title: 'Navratri Night One: Garba Under the Lights',
+    slug: 'navratri-night-one-edison',
+    summary:
+      'The first night of Navratri at Lamplight Expo Hall: a live band, a lit garbo at the centre of the floor, and room for every circle.',
+    description: [
+      'Navratri opens the way it should — an aarti at the garbo, a moment of quiet, and then the first beat of the dhol. Mirrorwork Events lays out the Lamplight Expo Hall floor as one great ring around a lit garbo, with room for slow circles at the edge and fast ones towards the middle.',
+      'The music is live all night: a Gujarati folk band with dhol, shehnai and two singers, moving from slow garba through two-taali and three-taali, then into dandiya raas after the break. Sticks are sold at the door if you forget yours.',
+      'Couple Entry admits two. VIP Circle holders have a reserved area beside the band and a separate entrance. Traditional dress is welcome and never required; comfortable shoes are strongly advised.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(18, EASTERN, 19, 30, 5),
+    languages: ['Gujarati', 'English'],
+    organization: ORGANIZATIONS.mirrorwork,
+    venue: VENUES.lamplight,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttnightonegeneral',
+        name: 'General Admission',
+        description: 'Entry to the main floor for the night.',
+        priceCents: 3500,
+        quantityTotal: 3000,
+        quantitySold: 1210,
+      },
+      {
+        id: 'ttnightonecouple',
+        name: 'Couple Entry',
+        description: 'Admits two to the main floor.',
+        priceCents: 6000,
+        quantityTotal: 600,
+        quantitySold: 244,
         maxPerOrder: 4,
       },
       {
-        id: 'ttbootcampsatonly',
-        name: 'Saturday Only',
-        description: 'The two taali patterns and circle etiquette.',
-        priceCents: 110_000,
-        quantityTotal: 15,
-        quantitySold: 15,
-        minPerOrder: 1,
+        id: 'ttnightonevipcircle',
+        name: 'VIP Circle',
+        description: 'A reserved area beside the band, and a separate entrance.',
+        priceCents: 8500,
+        quantityTotal: 150,
+        quantitySold: 138,
+        maxPerOrder: 4,
+      },
+    ],
+  },
+  {
+    id: 'evtninenightspass',
+    title: 'Mirrorwork Navratri: Nine Nights Season Pass',
+    slug: 'mirrorwork-nine-nights-pass',
+    summary:
+      'One pass for all nine nights of Mirrorwork’s Navratri at Lamplight Expo Hall, from the opening aarti to the last raas.',
+    description: [
+      'If you already know you will be back every night, this is the pass for it. One wristband covers all nine nights of Mirrorwork Events’ Navratri at Lamplight Expo Hall, from the opening aarti to the final dandiya raas.',
+      'Each night keeps the same shape: aarti at the garbo, garba until the break, dandiya after it, all to a live band. The wristband is collected once, on your first night, with photo ID matching the name on the order.',
+      'The Family Pass covers four people from one household for all nine nights. Wristbands are not swapped between people on different nights; each one stays with the person wearing it.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    startsAt: localTime(18, EASTERN, 19, 30),
+    endsAt: hoursAfter(localTime(26, EASTERN, 19, 30), 5),
+    timezone: EASTERN,
+    languages: ['Gujarati', 'English'],
+    organization: ORGANIZATIONS.mirrorwork,
+    venue: VENUES.lamplight,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttninenightsseason',
+        name: 'Season Pass — All Nine Nights',
+        description: 'One wristband, every night.',
+        priceCents: 22_000,
+        quantityTotal: 300,
+        quantitySold: 281,
+        maxPerOrder: 4,
+      },
+      {
+        id: 'ttninenightsfamily',
+        name: 'Family Pass (4 people)',
+        description: 'Four wristbands for one household, every night.',
+        priceCents: 64_000,
+        quantityTotal: 80,
+        quantitySold: 31,
         maxPerOrder: 2,
       },
     ],
   },
   {
-    id: 'evtrayretroldn',
-    title: 'Ray Retrospective — The Apu Trilogy',
-    slug: 'ray-retrospective-the-apu-trilogy',
+    id: 'evtlakeshoreopening',
+    title: 'Lakeshore Raas: Opening Night',
+    slug: 'lakeshore-raas-opening-night',
     summary:
-      'All three Apu films in 4K restoration across one Saturday, with an introduction from film historian Nasreen Munni Kabir.',
+      'The first night of Lakeshore Raas’s Navratri season at Lakeshore Pavilion in Schaumburg, with a live band and an aarti at the garbo.',
     description: [
-      'Pather Panchali, Aparajito and Apur Sansar, screened in order across a single day in new 4K restorations struck from the recovered negatives. Roughly six hours of film, two long breaks, and a Bengali lunch served between the first and second.',
-      'Nasreen Munni Kabir introduces the day and returns between films to talk about Ravi Shankar’s score, Subrata Mitra’s bounce lighting, and what the trilogy did to Indian cinema after 1955.',
-      'Bengali with English subtitles. Ticket includes lunch and unlimited cha. This one sells out; the last time we ran it, it went in four days.',
+      'Opening night at Lakeshore Pavilion is the start of Lakeshore Raas’s Navratri season: an aarti at the garbo, a live band on the stage, and a floor laid out as one wide circle so that nobody dances with their back to the lamp.',
+      'The band plays traditional garba for the first half and moves into dandiya after the break. The pavilion is heated, the floor is sprung, and there is a coat check by the main doors — useful in a Chicago October.',
+      'VIP tickets include a reserved table at the edge of the floor and priority entry. Traditional dress is welcome and never required.',
     ].join('\n\n'),
-    category: 'FILM_SCREENING',
-    startsAt: daysFromNow(23, 9, 0),
-    endsAt: daysFromNow(23, 20, 0),
-    timezone: 'Europe/London',
-    languages: ['Bengali', 'English'],
-    organization: ORGANIZATIONS.masala,
-    venue: VENUES.southbank,
-    currency: 'GBP',
+    category: 'GARBA_DANDIYA',
+    ...evening(18, CENTRAL, 19, 30, 4.5),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.lakeshore,
+    venue: VENUES.lakeshore,
+    currency: 'USD',
     tiers: [
       {
-        id: 'ttraytrilogyday',
-        name: 'Full Day — All Three Films',
-        description: 'All three screenings, the introductions, lunch and cha.',
-        priceCents: 4200,
-        quantityTotal: 380,
-        quantitySold: 292,
-        minPerOrder: 1,
-        maxPerOrder: 4,
+        id: 'ttlakeshoregeneral',
+        name: 'General Admission',
+        description: 'Entry to the floor for the night.',
+        priceCents: 3200,
+        quantityTotal: 2200,
+        quantitySold: 640,
       },
       {
-        id: 'ttraysinglefilm',
-        name: 'Single Film',
-        description: 'One screening of your choice, chosen at the box office.',
-        priceCents: 1800,
-        quantityTotal: 200,
-        quantitySold: 96,
-        minPerOrder: 1,
+        id: 'ttlakeshorevip',
+        name: 'VIP',
+        description: 'A reserved table at the edge of the floor, and priority entry.',
+        priceCents: 7500,
+        quantityTotal: 100,
+        quantitySold: 58,
         maxPerOrder: 4,
       },
     ],
   },
   {
-    id: 'evtgujaratinatak',
-    title: 'Ekla Cholo — A Gujarati Natak',
-    slug: 'ekla-cholo-a-gujarati-natak',
+    id: 'evtbaylightsopening',
+    title: 'Bay Lights Garba: Opening Night',
+    slug: 'bay-lights-garba-opening',
     summary:
-      'A new two-act play about a Kutchi family splitting an ancestral house, staged at Tagore Hall with English surtitles.',
+      'Bay Lights Garba Co. opens Navratri at Santa Clara Valley Expo with a live band, a lit garbo and dandiya after the break.',
     description: [
-      'Three siblings come back to Bhuj to divide a house none of them has lived in for twenty years. What starts as an argument about a property deed turns into an argument about who stayed, who left, and what either of those was worth.',
-      'Written by Hiral Mehta and directed by Paresh Doshi, Ekla Cholo ran for six months in Mumbai before this Ahmedabad transfer. The cast of four play eleven characters across forty years.',
-      'Performed in Gujarati with English surtitles. Two acts, one interval, and — according to every review so far — a last ten minutes that nobody sees coming.',
+      'Bay Lights Garba Co. opens its Navratri at Santa Clara Valley Expo with everything a first night needs: an aarti at the garbo, a live band, and a floor wide enough for the slow circles and the fast ones at the same time.',
+      'The first half is garba, from the gentle opening rounds to three-taali at full speed. After the break the lights come up a little for dandiya raas. Sticks are available at the merchandise table if you would rather not bring your own.',
+      'The Early Bird allocation has gone; General Admission and VIP remain. VIP includes a reserved lounge with seating, a separate entrance and water all evening.',
     ].join('\n\n'),
-    category: 'THEATRE',
-    startsAt: daysFromNow(30, 13, 45),
-    endsAt: daysFromNow(30, 16, 15),
-    timezone: 'Asia/Kolkata',
+    category: 'GARBA_DANDIYA',
+    ...evening(18, PACIFIC, 19, 30, 4.5),
     languages: ['Gujarati', 'English'],
-    organization: ORGANIZATIONS.navrang,
-    venue: VENUES.tagoreHall,
-    currency: 'INR',
+    organization: ORGANIZATIONS.bayLights,
+    venue: VENUES.santaClara,
+    currency: 'USD',
     tiers: [
       {
-        id: 'tteklastallsfront',
-        name: 'Stalls — Rows A to H',
-        description: 'Best sightlines for the surtitle screen.',
-        priceCents: 120_000,
-        quantityTotal: 240,
-        quantitySold: 166,
-        minPerOrder: 1,
+        id: 'ttbaylightsearly',
+        name: 'Early Bird',
+        description: 'General admission at the early price.',
+        priceCents: 2800,
+        quantityTotal: 400,
+        quantitySold: 400,
+      },
+      {
+        id: 'ttbaylightsgeneral',
+        name: 'General Admission',
+        description: 'Entry to the floor for the night.',
+        priceCents: 4000,
+        quantityTotal: 3200,
+        quantitySold: 1105,
+      },
+      {
+        id: 'ttbaylightsvip',
+        name: 'VIP',
+        description: 'Reserved lounge with seating, a separate entrance and water all evening.',
+        priceCents: 9500,
+        quantityTotal: 150,
+        quantitySold: 90,
+        maxPerOrder: 4,
+      },
+    ],
+  },
+  {
+    id: 'evtdandiyadholhou',
+    title: 'Dandiya Raas with a Live Dhol Ensemble',
+    slug: 'dandiya-dhol-houston',
+    summary:
+      'Chaniya Collective brings a full dhol ensemble to Lantern Row Event Hall for a night that is all dandiya, all live.',
+    description: [
+      'Some nights are garba nights. This one is for dandiya. Chaniya Collective clears the Lantern Row Event Hall floor for raas lines, and a live dhol ensemble keeps the tempo climbing from the first pair of sticks to the last.',
+      'The evening opens with a short aarti and a slow warm-up round so newcomers can find the pattern before the pace picks up. Volunteers in the Collective’s green sashes will happily partner anyone who arrives without one.',
+      'Student tickets need a current student ID at the door. VIP includes seating off the floor for when your arms give out, and bottled water all night.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(19, CENTRAL, 19, 30, 5),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.chaniya,
+    venue: VENUES.lanternRow,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttdholgeneral',
+        name: 'General Admission',
+        description: 'Entry to the floor for the night.',
+        priceCents: 3000,
+        quantityTotal: 2500,
+        quantitySold: 880,
+      },
+      {
+        id: 'ttdholstudent',
+        name: 'Student',
+        description: 'General admission with a current student ID, checked at the door.',
+        priceCents: 1800,
+        quantityTotal: 400,
+        quantitySold: 172,
+        maxPerOrder: 2,
+      },
+      {
+        id: 'ttdholvip',
+        name: 'VIP',
+        description: 'Seating off the floor and bottled water all night.',
+        priceCents: 7000,
+        quantityTotal: 120,
+        quantitySold: 47,
+        maxPerOrder: 4,
+      },
+    ],
+  },
+  {
+    id: 'evtpeachtreesaturday',
+    title: 'Peachtree Garba Saturday',
+    slug: 'peachtree-garba-saturday',
+    summary:
+      'A Saturday of garba at Midtown Grand Hall in Atlanta, with a live band, a kids’ circle and a food court from local caterers.',
+    description: [
+      'Peachtree Raas Club gives Navratri a proper Saturday night at Midtown Grand Hall: a live band, an aarti at the garbo, and a circle that starts slow and gets a little faster with every round.',
+      'Families are the point of this one. A separate kids’ circle at the side of the hall has its own volunteer leads, so younger dancers can learn the steps without being swept into the fast rounds.',
+      'Kids tickets are for ages five to twelve. Local caterers run a food court in the lobby with Gujarati snacks, chaat and chai, paid for separately.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(PEACHTREE_SATURDAY, EASTERN, 19, 30, 4.5),
+    languages: ['Gujarati', 'English'],
+    organization: ORGANIZATIONS.peachtree,
+    venue: VENUES.midtown,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttpeachtreegeneral',
+        name: 'General Admission',
+        description: 'Entry for the evening.',
+        priceCents: 2500,
+        quantityTotal: 1800,
+        quantitySold: 520,
+      },
+      {
+        id: 'ttpeachtreekids',
+        name: 'Kids 5–12',
+        description: 'Entry for a child aged five to twelve, with an adult.',
+        priceCents: 1000,
+        quantityTotal: 400,
+        quantitySold: 96,
         maxPerOrder: 6,
       },
+    ],
+  },
+  {
+    id: 'evtgarbaaartidelaware',
+    title: 'Garba & Aarti on the Delaware',
+    slug: 'garba-and-aarti-on-the-delaware',
+    summary:
+      'An unhurried evening of aarti and garba at Delaware River Pavilion in Philadelphia, gentle on beginners and open to all.',
+    description: [
+      'Liberty Bell Navratri keeps its evening simple: a full aarti at the start, then garba in the round at Delaware River Pavilion, with the river outside the windows and a pace that suits people who have never joined a circle before.',
+      'The music is recorded rather than live, and the first few rounds are slowed down on purpose so that everyone can find the steps. Experienced dancers are asked to form an outer ring once the tempo picks up.',
+      'Prasad is shared after the closing aarti.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(21, EASTERN, 19, 0, 4),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.libertyBell,
+    venue: VENUES.delaware,
+    currency: 'USD',
+    tiers: [
       {
-        id: 'tteklastallsrear',
-        name: 'Stalls — Rows J onward',
-        description: 'Reserved seating towards the back of the hall.',
-        priceCents: 70_000,
-        quantityTotal: 300,
-        quantitySold: 121,
-        minPerOrder: 1,
-        maxPerOrder: 8,
+        id: 'ttdelawaregeneral',
+        name: 'General Admission',
+        description: 'Entry for the evening, aarti included.',
+        priceCents: 2000,
+        quantityTotal: 1200,
+        quantitySold: 310,
+      },
+    ],
+  },
+  {
+    id: 'evtrainierfamily',
+    title: 'Rainier Raas: Family Garba Evening',
+    slug: 'rainier-family-garba',
+    summary:
+      'An easy-going garba evening in Bellevue for families, with a teaching round at the start and a finish that suits younger dancers.',
+    description: [
+      'Rainier Raas built this evening for families who want Navratri without a one-in-the-morning finish. Cedar Lane Hall opens with a teaching round in which a volunteer walks everyone through the basic steps, and the music stays at a pace small feet can follow.',
+      'After the first hour the circles split: a gentle one for children and grandparents near the stage, a faster one for everyone else. The evening closes with an aarti at the garbo.',
+      'Child tickets are for ages three to twelve. There is a quiet room off the lobby for anyone who needs a break from the music, and the hall is step-free throughout.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(22, PACIFIC, 19, 0, 3.5),
+    languages: ['English', 'Gujarati'],
+    organization: ORGANIZATIONS.rainier,
+    venue: VENUES.cedarLane,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttrainieradult',
+        name: 'Adult',
+        description: 'Entry for one adult.',
+        priceCents: 2200,
+        quantityTotal: 900,
+        quantitySold: 260,
       },
       {
-        id: 'tteklabalcony',
-        name: 'Balcony',
-        description: 'Unreserved balcony seating.',
-        priceCents: 35_000,
-        quantityTotal: 160,
-        quantitySold: 58,
-        minPerOrder: 1,
-        maxPerOrder: 8,
+        id: 'ttrainierchild',
+        name: 'Child (3–12)',
+        description: 'Entry for a child aged three to twelve, with an adult.',
+        priceCents: 800,
+        quantityTotal: 300,
+        quantitySold: 88,
+        maxPerOrder: 6,
+      },
+    ],
+  },
+  {
+    id: 'evtliveband',
+    title: 'Live Garba Band Night with the Mirrorwork Ensemble',
+    slug: 'mirrorwork-live-band-night',
+    summary:
+      'The Mirrorwork Ensemble plays a concert of garba and Gujarati folk songs at Lamplight Expo Hall, with a standing floor and a seated balcony.',
+    description: [
+      'The band behind Mirrorwork Events’ Navratri nights takes the stage for a concert of its own. The Mirrorwork Ensemble — dhol, tabla, harmonium, shehnai and three singers — plays the garba and folk songs of the season, arranged for listening as well as for dancing.',
+      'The floor at Lamplight Expo Hall is standing and open to anyone who wants to dance. The balcony is seated, for anyone who would rather listen.',
+      'The concert runs in two halves with an interval. Food and drink are served in the lobby and stay off the dance floor.',
+    ].join('\n\n'),
+    category: 'MUSIC_CONCERT',
+    ...evening(22, EASTERN, 19, 30, 4),
+    languages: ['Gujarati', 'English'],
+    organization: ORGANIZATIONS.mirrorwork,
+    venue: VENUES.lamplight,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttlivebandfloor',
+        name: 'General Admission — Standing Floor',
+        description: 'Standing entry to the dance floor.',
+        priceCents: 4500,
+        quantityTotal: 1500,
+        quantitySold: 420,
+      },
+      {
+        id: 'ttlivebandbalcony',
+        name: 'Balcony — Reserved Seating',
+        description: 'A numbered seat in the balcony.',
+        priceCents: 6500,
+        quantityTotal: 0,
+        quantitySold: 0,
+        reserved: true,
+      },
+    ],
+  },
+  {
+    id: 'evtpacificdandiya',
+    title: 'Pacific Dandiya Night',
+    slug: 'pacific-dandiya-night',
+    summary:
+      'A late dandiya night at Cerritos Garden Pavilion with a live band, a garden terrace for breathers and a VIP lounge above the floor.',
+    description: [
+      'Pacific Dandiya Society’s dandiya night at Cerritos Garden Pavilion starts late and runs later: a live band, long raas lines, and a garden terrace outside for when you need air between rounds.',
+      'The first set is garba to warm up. After that it is dandiya until close, with the band calling the changes in pattern so that nobody is left clacking sticks at the wrong moment.',
+      'The VIP Lounge overlooks the floor, with seating, its own entrance and chai all night.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(23, PACIFIC, 20, 0, 5),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.pacific,
+    venue: VENUES.cerritos,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttpacificgeneral',
+        name: 'General Admission',
+        description: 'Entry to the floor and the garden terrace.',
+        priceCents: 3800,
+        quantityTotal: 1800,
+        quantitySold: 610,
+      },
+      {
+        id: 'ttpacificviplounge',
+        name: 'VIP Lounge',
+        description: 'Lounge seating above the floor, its own entrance and chai all night.',
+        priceCents: 11_000,
+        quantityTotal: 80,
+        quantitySold: 26,
+        maxPerOrder: 4,
+      },
+    ],
+  },
+  {
+    id: 'evtfiveboroughsmarathon',
+    title: 'Five Boroughs Garba Marathon',
+    slug: 'five-boroughs-garba-marathon',
+    summary:
+      'Six hours of garba at Queens Community Arena, with two live bands trading sets so the music never stops.',
+    description: [
+      'Five Boroughs Garba runs this one as a marathon: six hours at Queens Community Arena, two live bands trading sets so that the music does not stop between them, and a circle that keeps turning from the first aarti to the last.',
+      'There are water stations on every side of the floor and a rest area with seating on the upper concourse. Pace yourself; the fastest three-taali rounds are saved for the final hour.',
+      'Doors open an hour before the first set, and the wristband you are given at the door lets you out and back in.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'SOLD_OUT',
+    ...evening(24, EASTERN, 19, 0, 6),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.fiveBoroughs,
+    venue: VENUES.queens,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttmarathongeneral',
+        name: 'General Admission',
+        description: 'Entry for the whole marathon, with re-entry.',
+        priceCents: 3000,
+        quantityTotal: 2800,
+        quantitySold: 2800,
+      },
+    ],
+  },
+  {
+    id: 'evtgarbaforgood',
+    title: 'Garba for Good: Charity Navratri Night',
+    slug: 'garba-for-good-philadelphia',
+    summary:
+      'A Navratri garba night at Delaware River Pavilion raising money for a neighbourhood food pantry, with a live band and a raffle.',
+    description: [
+      'Garba for Good is Liberty Bell Navratri’s charity night: the same garba and aarti as any other evening at Delaware River Pavilion, with the organiser pledging the evening’s proceeds to a neighbourhood food pantry in Philadelphia.',
+      'A live band plays garba and dandiya, volunteers run a snack stall, and a raffle of donated prizes is drawn before the final raas.',
+      'Everyone is welcome, whatever their experience; the first round is taught.',
+    ].join('\n\n'),
+    category: 'CULTURAL_FESTIVAL',
+    status: 'POSTPONED',
+    ...GARBA_FOR_GOOD,
+    previousStartsAt: GARBA_FOR_GOOD.startsAt,
+    languages: ['English', 'Gujarati'],
+    organization: ORGANIZATIONS.libertyBell,
+    venue: VENUES.delaware,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttgarbaforgoodgeneral',
+        name: 'General Admission',
+        description: 'Entry for the evening, raffle ticket included.',
+        priceCents: 2500,
+        quantityTotal: 1000,
+        quantitySold: 180,
+      },
+    ],
+  },
+  {
+    id: 'evtglownightsc',
+    title: 'Garba Glow Night (All-White Dress Code)',
+    slug: 'garba-glow-night-santa-clara',
+    summary:
+      'Garba under ultraviolet light at Santa Clara Valley Expo, with an all-white dress code and a live band.',
+    description: [
+      'For one night Bay Lights Garba Co. turns the lights down and the ultraviolet up at Santa Clara Valley Expo. Come dressed in white and the whole circle glows, from the dandiya sticks to the mirrorwork on your dupatta.',
+      'The band plays a full set of garba and dandiya, and the lighting crew changes the colour of the room between rounds. Glow sticks and white dandiya sticks are sold at the merchandise table.',
+      'The dress code is a request, not a rule at the door: white or pale clothes glow best, and anything with mirrorwork catches the light.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    status: 'SALES_PAUSED',
+    ...evening(25, PACIFIC, 20, 0, 4.5),
+    languages: ['English', 'Gujarati'],
+    organization: ORGANIZATIONS.bayLights,
+    venue: VENUES.santaClara,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttglownightgeneral',
+        name: 'General Admission',
+        description: 'Entry to the floor for the night.',
+        priceCents: 4500,
+        quantityTotal: 2000,
+        quantitySold: 700,
+      },
+    ],
+  },
+  {
+    id: 'evtnavratrimelaqueens',
+    title: 'Navratri Mela & Garba',
+    slug: 'navratri-mela-queens',
+    summary:
+      'A Navratri mela at Queens Community Arena — food stalls, crafts and henna — followed by live garba on the arena floor.',
+    description: [
+      'The Navratri Mela fills the Queens Community Arena concourse with stalls: Gujarati snacks and chaat, chaniya choli and jewellery sellers, henna artists, and a stall for dandiya sticks. The arena floor opens for garba later in the evening.',
+      'Mela Entry covers the stalls and the performances on the concourse stage, including a children’s dance showcase. Mela + Garba adds the arena floor for the live garba that follows.',
+      'Stalls are run by independent sellers, who take their own payments.',
+    ].join('\n\n'),
+    category: 'CULTURAL_FESTIVAL',
+    ...evening(26, EASTERN, 19, 0, 5.5),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.fiveBoroughs,
+    venue: VENUES.queens,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttmelaentry',
+        name: 'Mela Entry',
+        description: 'The stalls and the concourse stage.',
+        priceCents: 1000,
+        quantityTotal: 2000,
+        quantitySold: 450,
+      },
+      {
+        id: 'ttmelaandgarba',
+        name: 'Mela + Garba',
+        description: 'The stalls, the concourse stage and the garba on the arena floor.',
+        priceCents: 2800,
+        quantityTotal: 2500,
+        quantitySold: 830,
+      },
+    ],
+  },
+  {
+    id: 'evtdussehrafinale',
+    title: 'Dussehra Raas Finale',
+    slug: 'dussehra-raas-finale-schaumburg',
+    summary:
+      'Lakeshore Raas closes its Navratri season on Dussehra at Lakeshore Pavilion, with a live band and one last long raas.',
+    description: [
+      'Dussehra follows Navratri’s ninth night, and Lakeshore Raas uses it to close the season properly: one more evening at Lakeshore Pavilion, one more aarti at the garbo, and a live band playing until the last circle breaks up.',
+      'Expect the fast rounds to be very fast. By this point in the season most of the room knows every step, and the band plays like it.',
+      'General admission only. The coat check by the main doors is included with every ticket.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(27, CENTRAL, 19, 30, 4.5),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.lakeshore,
+    venue: VENUES.lakeshore,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttdussehrageneral',
+        name: 'General Admission',
+        description: 'Entry for the night, coat check included.',
+        priceCents: 3500,
+        quantityTotal: 2600,
+        quantitySold: 390,
+      },
+    ],
+  },
+  {
+    id: 'evtcollegiateshowcase',
+    title: 'Raas-Garba Collegiate Showcase',
+    slug: 'collegiate-raas-showcase-irving',
+    summary:
+      'College raas and garba teams from across Texas perform their competition sets at Trinity Convention Hall.',
+    description: [
+      'Collegiate raas-garba is its own world: student teams, costumes made by hand, and eight-minute sets choreographed to the second. Lone Star Navratri’s showcase brings college teams from across Texas to the Trinity Convention Hall stage.',
+      'It is a showcase rather than a competition — no judges and no trophies, just each team’s set performed for an audience that knows what it is watching. Spectator tickets are unreserved seating.',
+    ].join('\n\n'),
+    category: 'CULTURAL_FESTIVAL',
+    status: 'CANCELLED',
+    ...evening(30, CENTRAL, 19, 0, 3.5),
+    languages: ['English', 'Gujarati'],
+    organization: ORGANIZATIONS.loneStar,
+    venue: VENUES.trinity,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttcollegiatespectator',
+        name: 'Spectator',
+        description: 'Unreserved seating for the showcase.',
+        priceCents: 2200,
+        quantityTotal: 2000,
+        quantitySold: 540,
+      },
+    ],
+  },
+  {
+    id: 'evtsharadpoonamgarba',
+    title: 'Lone Star Navratri: Sharad Poonam Garba',
+    slug: 'lone-star-sharad-poonam-garba',
+    summary:
+      'Garba on the night of the Sharad Poonam full moon at Trinity Convention Hall in Irving, closing with doodh-pauva for everyone.',
+    description: [
+      'Sharad Poonam, the full moon that follows Navratri, is traditionally a night for one more garba. Lone Star Navratri marks it at Trinity Convention Hall with a live band and the courtyard doors open, so that the moon is part of the evening.',
+      'The music leans traditional — slow garba, two-taali and three-taali, and a long raas to finish. Near midnight the organisers serve doodh-pauva, the sweetened milk and flattened rice eaten on Sharad Poonam, to everyone in the hall.',
+      'One ticket type, general admission, for the whole evening.',
+    ].join('\n\n'),
+    category: 'GARBA_DANDIYA',
+    ...evening(33, CENTRAL, 19, 30, 4.5),
+    languages: ['Gujarati', 'Hindi', 'English'],
+    organization: ORGANIZATIONS.loneStar,
+    venue: VENUES.trinity,
+    currency: 'USD',
+    tiers: [
+      {
+        id: 'ttsharadpoonamgeneral',
+        name: 'General Admission',
+        description: 'Entry for the evening, doodh-pauva included.',
+        priceCents: 2800,
+        quantityTotal: 3000,
+        quantitySold: 410,
       },
     ],
   },
 ]
 
 /**
- * The fallback catalogue: ten published events with venue, organiser and
- * ticket tiers attached.
+ * The fallback catalogue: twenty events with venue, organiser and ticket tiers
+ * attached, in start-date order.
+ *
+ * Every one of them resolves at its own URL, as a postponed, cancelled or
+ * finished event does on the live site. Not every one of them is *listed*: see
+ * {@link sampleEventSummaries}.
  *
  * @type {ReadonlyArray<object>}
  */
-export const SAMPLE_EVENTS = Object.freeze(EVENT_DEFINITIONS.map(toEvent))
+export const SAMPLE_EVENTS = Object.freeze(
+  EVENT_DEFINITIONS.map(toEvent).sort(
+    (left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt),
+  ),
+)
+
+/**
+ * What one ticket of the cheapest tier costs all in, as the live summary
+ * computes it: face value, the platform fee and the tax of the venue's
+ * jurisdiction, from the same pricing package checkout charges with.
+ *
+ * @param {object} event An event carrying `venue` and `feeTerms`.
+ * @param {object|null} cheapest The tier the "from" price is taken from.
+ * @returns {number|null} Integer cents, or null when nothing is priced.
+ */
+function minimumTotal(event, cheapest) {
+  if (!cheapest) return null
+
+  return priceSelection({
+    lines: [
+      {
+        ticketTypeId: cheapest.id,
+        name: cheapest.name,
+        quantity: 1,
+        unitPriceCents: cheapest.priceCents,
+      },
+    ],
+    currency: cheapest.currency,
+    place: { country: event.venue?.country, region: event.venue?.region },
+    feeTerms: event.feeTerms ?? null,
+  }).totalCents
+}
 
 /**
  * Reduce a full event to the lean summary shape a listing card needs.
  *
- * The denormalised fields (`city`, `venueName`, `minPriceCents`, `soldOut`) are
- * exactly the ones the live list endpoint computes server-side, so a card
- * written against this shape works unchanged against the API.
+ * The denormalised fields (`city`, `venueName`, `minPriceCents`, `soldOut`,
+ * `salesOpen`, `minTotalCents`) are exactly the ones the live list endpoint
+ * computes server-side, so a card written against this shape works unchanged
+ * against the API. Seated tiers are left out of the stock questions, as they
+ * are on the server: their stock is their seats, which a listing does not load.
  *
  * @param {object} event An event with `venue`, `organization` and `ticketTypes` attached.
  * @returns {object} A summary matching `eventSummarySchema`.
  */
 export function toEventSummary(event) {
   const tiers = event.ticketTypes ?? []
-  const onSale = tiers.filter((tier) => !tier.isSoldOut && tier.status === 'ON_SALE')
+  const counted = tiers.filter((tier) => !tier.reserved)
+  const onSale = counted.filter((tier) => !tier.isSoldOut && tier.status === 'ON_SALE')
   const priced = onSale.length > 0 ? onSale : tiers
+  const minPriceCents =
+    priced.length > 0 ? Math.min(...priced.map((tier) => tier.priceCents)) : null
+  const cheapest = priced.find((tier) => tier.priceCents === minPriceCents) ?? null
 
   return {
     id: event.id,
@@ -928,28 +1382,50 @@ export function toEventSummary(event) {
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,
     venueSlug: event.venue?.slug ?? null,
-    minPriceCents: priced.length > 0 ? Math.min(...priced.map((tier) => tier.priceCents)) : null,
+    minPriceCents,
+    // Only with published fee terms, as on the server: a summary built without
+    // the deployment's terms carries the face value alone and says so.
+    ...(event.feeTerms && cheapest ? { minTotalCents: minimumTotal(event, cheapest) } : {}),
     currency: priced[0]?.currency ?? null,
-    soldOut: tiers.length > 0 && onSale.length === 0,
-    // What the live summary computes from sales windows. The sample tiers have
-    // none, so a tier on sale with seats left is on sale.
-    ...(tiers.length > 0 ? { salesOpen: onSale.length > 0 } : {}),
+    soldOut: counted.length > 0 && onSale.length === 0,
+    // What the live summary computes from the status and the sales windows.
+    // The sample tiers have no windows, so a bookable event with a tier on
+    // sale and seats left is on sale; a paused, postponed or cancelled one is
+    // not, whatever its tiers say.
+    ...(counted.length > 0
+      ? { salesOpen: BOOKABLE_STATUSES.has(event.status) && onSale.length > 0 }
+      : {}),
   }
 }
 
 /**
- * The fallback catalogue as listing summaries.
+ * Whether the API would list an event: its status is one the public listing
+ * carries. A postponed, cancelled or finished event still has a page, and is
+ * still on its organiser's page, but is not in "what is on".
  *
- * @returns {object[]} One summary per sample event, in start-date order.
+ * @param {object} event A sample event.
+ * @returns {boolean} True when a listing shows it.
+ */
+function isListed(event) {
+  return INDEXABLE_STATUSES.has(event.status)
+}
+
+/**
+ * The fallback catalogue as listing summaries: the events the API would list.
+ *
+ * @returns {object[]} One summary per listed sample event, in start-date order.
  */
 export function sampleEventSummaries() {
-  return SAMPLE_EVENTS.map(toEventSummary)
+  return SAMPLE_EVENTS.filter(isListed).map(toEventSummary)
 }
 
 /**
  * Look a sample event up by its slug.
  *
- * @param {string} slug Event slug, e.g. `navratri-raas-garba-nine-nights`.
+ * Any status resolves, as it does on the live site: somebody holding a ticket
+ * for a cancelled night needs its page to say so.
+ *
+ * @param {string} slug Event slug, e.g. `navratri-night-one-edison`.
  * @returns {object|null} The matching event with relations, or `null`.
  */
 export function findSampleEvent(slug) {
@@ -963,44 +1439,45 @@ export function findSampleEvent(slug) {
  *
  * Exists for the same reason `findSampleOrganizer` does: a venue link on a
  * fallback-rendered event page has to lead somewhere, and the site being
- * internally consistent matters most exactly when the API is down.
+ * internally consistent matters most exactly when the API is down. Lists what
+ * the live venue page lists — upcoming events in a listed status.
  *
- * @param {string} slug Venue slug, e.g. `jio-world-garden`.
+ * @param {string} slug Venue slug, e.g. `lamplight-expo-hall`.
  * @returns {object|null} A payload matching `publicVenueSchema`, or `null`.
  */
 export function findSampleVenue(slug) {
   if (typeof slug !== 'string') return null
 
-  const venue = Object.values(VENUES).find((candidate) => candidate.slug === slug)
+  const found = Object.values(VENUES).find((candidate) => candidate.slug === slug)
 
-  if (!venue) return null
+  if (!found) return null
 
   const now = Date.now()
 
   return {
-    id: venue.id,
-    slug: venue.slug,
-    name: venue.name,
-    addressLine1: venue.addressLine1,
-    addressLine2: venue.addressLine2 ?? null,
-    city: venue.city,
-    region: venue.region,
-    postalCode: venue.postalCode,
-    country: venue.country,
-    latitude: venue.latitude ?? null,
-    longitude: venue.longitude ?? null,
-    capacity: venue.capacity ?? null,
-    timezone: venue.timezone,
+    id: found.id,
+    slug: found.slug,
+    name: found.name,
+    addressLine1: found.addressLine1,
+    addressLine2: found.addressLine2 ?? null,
+    city: found.city,
+    region: found.region,
+    postalCode: found.postalCode,
+    country: found.country,
+    latitude: found.latitude ?? null,
+    longitude: found.longitude ?? null,
+    capacity: found.capacity ?? null,
+    timezone: found.timezone,
     shared: true,
     mergedIntoVenueId: null,
     canonicalSlug: null,
-    accessibility: venue.accessibility ?? null,
-    description: venue.description ?? null,
-    directions: venue.directions ?? null,
-    policies: venue.policies ?? null,
-    provenance: venue.provenance ?? null,
+    accessibility: found.accessibility ?? null,
+    description: found.description ?? null,
+    directions: found.directions ?? null,
+    policies: found.policies ?? null,
+    provenance: found.provenance ?? null,
     upcomingEvents: SAMPLE_EVENTS.filter(
-      (event) => event.venueId === venue.id && Date.parse(event.startsAt) >= now,
+      (event) => event.venueId === found.id && isListed(event) && Date.parse(event.startsAt) >= now,
     )
       .sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt))
       .map((event) => ({
@@ -1020,7 +1497,11 @@ export function findSampleVenue(slug) {
  * the API is down — which is when consistency is the only thing holding the
  * page together.
  *
- * @param {string} slug Organiser slug, e.g. `rangmanch-collective`.
+ * The split mirrors the live organiser page: upcoming events in a listed
+ * status, and past events in a listed status or finished — a track record is
+ * the reason somebody reads an organiser's page.
+ *
+ * @param {string} slug Organiser slug, e.g. `mirrorwork-events`.
  * @returns {object|null} A payload matching `publicOrganizerSchema`, or `null`.
  */
 export function findSampleOrganizer(slug) {
@@ -1055,23 +1536,30 @@ export function findSampleOrganizer(slug) {
     refundPolicy: organization.refundPolicy ?? null,
     timezone: organization.timezone,
     upcomingEvents: listed
-      .filter((event) => Date.parse(event.startsAt) >= now)
+      .filter((event) => isListed(event) && Date.parse(event.startsAt) >= now)
       .sort((left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt))
       .map(entry),
     pastEvents: listed
-      .filter((event) => Date.parse(event.startsAt) < now)
+      .filter(
+        (event) =>
+          (isListed(event) || event.status === 'COMPLETED') && Date.parse(event.startsAt) < now,
+      )
       .sort((left, right) => Date.parse(right.startsAt) - Date.parse(left.startsAt))
       .map(entry),
   }
 }
 
 /**
- * Every city the fallback catalogue has an event in, alphabetically.
+ * Every city the fallback catalogue lists an event in, alphabetically.
  *
  * @returns {string[]} Unique city names.
  */
 export function sampleCities() {
-  const cities = new Set(SAMPLE_EVENTS.map((event) => event.venue?.city).filter(Boolean))
+  const cities = new Set(
+    sampleEventSummaries()
+      .map((event) => event.city)
+      .filter(Boolean),
+  )
 
   return [...cities].sort((a, b) => a.localeCompare(b))
 }

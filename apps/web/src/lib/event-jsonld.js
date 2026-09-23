@@ -128,7 +128,7 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
       '@type': 'Offer',
       name: tier.name,
       price: (tier.priceCents / 100).toFixed(2),
-      priceCurrency: tier.currency ?? 'INR',
+      priceCurrency: tier.currency ?? 'USD',
       availability: AVAILABILITY[event.status] ?? 'https://schema.org/PreOrder',
       url,
       ...(tier.salesStartAt ? { validFrom: tier.salesStartAt } : {}),

@@ -203,8 +203,8 @@ describe('instantText', () => {
   it('shows an instant in the zone it is given, and names the zone', () => {
     const text = instantText('2026-10-10T13:30:00.000Z', 'Asia/Kolkata')
 
-    expect(text).toMatch(/10 Oct,? 2026/)
-    expect(text).toMatch(/7:00\spm/)
+    expect(text).toMatch(/Oct 10, 2026/)
+    expect(text).toMatch(/7:00\sPM/)
     expect(text).toMatch(/IST|GMT\+5:30/)
   })
 

@@ -279,13 +279,12 @@ export const PAGER_LINK_CLASSES =
   'inline-flex min-h-11 items-center rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none'
 
 /** How an instant is printed on these pages. */
-const INSTANT = new Intl.DateTimeFormat('en-GB', {
-  day: 'numeric',
+const INSTANT = new Intl.DateTimeFormat('en-US', {
   month: 'short',
+  day: 'numeric',
   year: 'numeric',
-  hour: '2-digit',
+  hour: 'numeric',
   minute: '2-digit',
-  hourCycle: 'h23',
   timeZone: 'UTC',
 })
 
@@ -297,7 +296,7 @@ const INSTANT = new Intl.DateTimeFormat('en-GB', {
  * instant for anything that wants it.
  *
  * @param {string|null|undefined} value An ISO-8601 instant.
- * @returns {string|null} "23 Sept 2026, 14:05 UTC", or null for no instant.
+ * @returns {string|null} "Sep 23, 2026, 2:05 PM UTC", or null for no instant.
  */
 export function formatInstant(value) {
   if (!value) return null

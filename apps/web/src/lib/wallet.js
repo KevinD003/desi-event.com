@@ -249,12 +249,14 @@ export function whenText(ticket) {
 
   if (Number.isNaN(startsAt)) return ''
 
-  return new Intl.DateTimeFormat('en-GB', {
+  // US English, like every other date on the site: "Sat, Oct 17, 2026, 7:30 PM
+  // EDT". Still the venue's zone, whatever the reader's.
+  return new Intl.DateTimeFormat('en-US', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
     timeZone: ticket.event.timezone || 'UTC',
     timeZoneName: 'short',

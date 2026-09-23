@@ -176,7 +176,7 @@ export function doorTime(iso, timezone) {
   if (!iso) return ''
 
   try {
-    return new Intl.DateTimeFormat('en-IN', {
+    return new Intl.DateTimeFormat('en-US', {
       dateStyle: 'medium',
       timeStyle: 'short',
       timeZone: timezone,

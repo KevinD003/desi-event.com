@@ -195,8 +195,8 @@ describe('the order', () => {
     const { container } = await renderPage()
 
     expect(screen.getAllByText('Paid — simulated').length).toBeGreaterThan(0)
-    // 10:00 UTC is 3:30 pm in Mumbai.
-    expect(container.textContent).toMatch(/1 Sept?,? 2026, 3:30\spm (IST|GMT\+5:30)/)
+    // 10:00 UTC is 3:30 PM in Mumbai.
+    expect(container.textContent).toMatch(/Sep 1, 2026, 3:30\sPM (IST|GMT\+5:30)/)
   })
 })
 

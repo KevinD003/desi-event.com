@@ -295,12 +295,26 @@ describe('REACHABLE_STATUSES', () => {
 
 describe('whenText', () => {
   it('renders the time at the venue, not the reader', () => {
-    // 14:00 UTC is 19:30 in Asia/Kolkata. A browser in London rendering its own
-    // local time would print 15:00 and send somebody to the wrong hour.
+    // 14:00 UTC is 7:30 PM in Asia/Kolkata. A browser in New York rendering its
+    // own local time would print 10:00 AM and send somebody to the wrong hour.
     const text = whenText(ticket())
 
-    expect(text).toContain('19:30')
-    expect(text).toContain('2 Oct 2026')
+    expect(text).toContain('7:30 PM')
+    expect(text).toContain('Oct 2, 2026')
+  })
+
+  it('names a US zone by its letters, as the rest of the site does', () => {
+    const text = whenText(
+      ticket({
+        event: {
+          ...ticket().event,
+          startsAt: '2026-10-17T23:30:00.000Z',
+          timezone: 'America/New_York',
+        },
+      }),
+    )
+
+    expect(text).toBe('Sat, Oct 17, 2026, 7:30 PM EDT')
   })
 
   it('says nothing rather than something wrong for an unparseable date', () => {

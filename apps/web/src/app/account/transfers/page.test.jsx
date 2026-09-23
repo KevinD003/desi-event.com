@@ -198,9 +198,9 @@ describe('offers you have made', () => {
     const until = within(card).getByText('Open until').nextElementSibling.textContent
     const zone = /(IST|GMT\+5:30)$/
 
-    // 13:30 UTC is 7:00 pm in Mumbai; 00:00 UTC is 5:30 am.
-    expect(when).toMatch(/7:00\spm/)
-    expect(until).toMatch(/5:30\sam/)
+    // 13:30 UTC is 7:00 PM in Mumbai; 00:00 UTC is 5:30 AM.
+    expect(when).toMatch(/7:00\sPM/)
+    expect(until).toMatch(/5:30\sAM/)
     expect(when.match(zone)?.[1]).toBeDefined()
     expect(until.match(zone)?.[1]).toBe(when.match(zone)[1])
   })

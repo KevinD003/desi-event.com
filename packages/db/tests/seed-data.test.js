@@ -14,12 +14,41 @@ import {
   applyBps,
   buildSeedData,
   computeSeedOrderTotals,
+  localTime,
   offset,
+  onOrAfterWeekday,
   startOfUtcDay,
 } from '../scripts/seed.mjs'
 
 const NOW = new Date('2026-09-14T11:22:33.456Z')
 const data = buildSeedData(NOW)
+
+/** Which zone each state in the catalogue keeps its clocks in. */
+const ZONE_BY_STATE = {
+  NJ: 'America/New_York',
+  NY: 'America/New_York',
+  PA: 'America/New_York',
+  GA: 'America/New_York',
+  TX: 'America/Chicago',
+  IL: 'America/Chicago',
+  CA: 'America/Los_Angeles',
+  WA: 'America/Los_Angeles',
+}
+
+/**
+ * The local wall-clock hour of an instant in a zone.
+ *
+ * @param {Date} instant The instant.
+ * @param {string} timeZone An IANA zone.
+ * @returns {number} The hour, 0–23.
+ */
+function localHour(instant, timeZone) {
+  return Number(
+    new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone })
+      .formatToParts(instant)
+      .find((part) => part.type === 'hour').value,
+  )
+}
 
 describe('startOfUtcDay', () => {
   it('truncates to midnight UTC', () => {
@@ -42,6 +71,45 @@ describe('offset', () => {
   it('accepts negative days for past events', () => {
     const anchor = startOfUtcDay(NOW)
     expect(offset(anchor, -30).toISOString()).toBe('2026-08-15T00:00:00.000Z')
+  })
+})
+
+describe('localTime', () => {
+  it('turns a local evening into the right UTC instant for the zone', () => {
+    const anchor = startOfUtcDay(NOW)
+
+    // 7:30 PM in New York in September is 23:30 UTC (EDT, −04:00) …
+    expect(localTime(anchor, 0, 'America/New_York', 19, 30).toISOString()).toBe(
+      '2026-09-14T23:30:00.000Z',
+    )
+    // … in Houston 00:30 UTC the next day (CDT, −05:00) …
+    expect(localTime(anchor, 0, 'America/Chicago', 19, 30).toISOString()).toBe(
+      '2026-09-15T00:30:00.000Z',
+    )
+    // … and in Santa Clara 02:30 UTC the next day (PDT, −07:00).
+    expect(localTime(anchor, 0, 'America/Los_Angeles', 19, 30).toISOString()).toBe(
+      '2026-09-15T02:30:00.000Z',
+    )
+  })
+
+  it('follows the zone across a daylight-saving change', () => {
+    const anchor = startOfUtcDay(NOW)
+
+    // The clocks go back on 1 November 2026, so the same 7:30 PM is an hour
+    // later in UTC in December.
+    expect(localTime(anchor, 88, 'America/New_York', 19, 30).toISOString()).toBe(
+      '2026-12-12T00:30:00.000Z',
+    )
+  })
+})
+
+describe('onOrAfterWeekday', () => {
+  it('finds the first matching weekday at or after the offset', () => {
+    const anchor = startOfUtcDay(NOW) // a Monday
+
+    expect(onOrAfterWeekday(anchor, 0, 1)).toBe(0)
+    expect(onOrAfterWeekday(anchor, 0, 6)).toBe(5)
+    expect(onOrAfterWeekday(anchor, 20, 6)).toBe(26)
   })
 })
 
@@ -109,27 +177,54 @@ describe('computeSeedOrderTotals', () => {
 
 describe('buildSeedData shape', () => {
   it('produces the documented breadth of data', () => {
-    expect(data.organizations).toHaveLength(2)
-    expect(data.venues.length).toBeGreaterThanOrEqual(4)
-    expect(data.venues.length).toBeLessThanOrEqual(6)
-    expect(data.events.length).toBeGreaterThanOrEqual(8)
-    expect(data.events.length).toBeLessThanOrEqual(12)
+    // Ten organisers and eleven venues, as in the web catalogue; its twenty
+    // events plus an online workshop and two drafts.
+    expect(data.organizations).toHaveLength(10)
+    expect(data.venues).toHaveLength(11)
+    expect(data.events).toHaveLength(23)
     expect(data.promoCodes.length).toBeGreaterThanOrEqual(3)
     expect(data.orders.length).toBeGreaterThanOrEqual(6)
   })
 
-  it('gives every organisation an owner and staff on differing roles', () => {
+  it('gives every organisation exactly one owner and no role twice', () => {
     for (const org of data.organizations) {
       const roles = org.members.map((member) => member.role)
-      expect(roles).toContain('OWNER')
       expect(roles.filter((role) => role === 'OWNER')).toHaveLength(1)
       expect(new Set(roles).size).toBe(roles.length)
-      expect(roles.length).toBeGreaterThanOrEqual(3)
     }
   })
 
-  it('covers both payout currencies', () => {
-    expect(data.organizations.map((org) => org.payoutCurrency).sort()).toEqual(['CAD', 'INR'])
+  it('staffs two organisations with full teams that between them use every role', () => {
+    const staffed = data.organizations.filter((org) => org.members.length >= 3)
+    const roles = new Set(staffed.flatMap((org) => org.members.map((member) => member.role)))
+
+    expect(staffed.map((org) => org.slug).sort()).toEqual([
+      'chaniya-collective',
+      'mirrorwork-events',
+    ])
+    expect(roles).toEqual(new Set(['OWNER', 'ADMIN', 'MANAGER', 'STAFF', 'VIEWER']))
+  })
+
+  it('pays every organisation out in US dollars', () => {
+    expect(new Set(data.organizations.map((org) => org.payoutCurrency))).toEqual(new Set(['USD']))
+  })
+
+  it('verifies every organiser but one, and keeps the badge column in step with the state', () => {
+    const unverified = data.organizations.filter((org) => org.verificationStatus !== 'VERIFIED')
+
+    expect(unverified.map((org) => org.slug)).toEqual(['liberty-bell-navratri'])
+    for (const org of data.organizations) {
+      expect(org.verified).toBe(org.verificationStatus === 'VERIFIED')
+      expect(Object.values(ZONE_BY_STATE)).toContain(org.timezone)
+    }
+  })
+
+  it('invents every organisation and person, on reserved .example domains', () => {
+    for (const org of data.organizations) {
+      expect(org.contactEmail).toMatch(/\.example$/)
+      expect(new URL(org.websiteUrl).hostname).toMatch(/\.example$/)
+    }
+    for (const user of data.users) expect(user.email).toMatch(/\.example$/)
   })
 
   it('never stores a plaintext password, and stores it in the current format', () => {
@@ -142,8 +237,8 @@ describe('buildSeedData shape', () => {
   })
 
   it('gives every seeded account the same hash, computed once', () => {
-    // Fifteen accounts share one password, so hashing per account would be
-    // fifteen derivations for one credential printed at the end of the run.
+    // Every account shares one password, so hashing per account would be one
+    // derivation per account for one credential printed at the end of the run.
     expect(new Set(data.users.map((user) => user.passwordHash)).size).toBe(1)
   })
 
@@ -166,14 +261,28 @@ describe('buildSeedData shape', () => {
     expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'SUPER_ADMIN']))
   })
 
-  it('gives every venue a full postal address', () => {
+  it('gives every venue a full US postal address, in its state’s zone', () => {
     for (const venue of data.venues) {
       expect(venue.addressLine1).toBeTruthy()
       expect(venue.city).toBeTruthy()
-      expect(venue.region).toBeTruthy()
-      expect(venue.postalCode).toBeTruthy()
-      expect(['IN', 'CA']).toContain(venue.country)
+      expect(venue.postalCode).toMatch(/^\d{5}$/)
+      expect(venue.country).toBe('US')
+      expect(venue.timezone).toBe(ZONE_BY_STATE[venue.region])
       expect(venue.capacity).toBeGreaterThan(0)
+    }
+  })
+
+  it('claims no coordinates for an invented address', () => {
+    for (const venue of data.venues) {
+      expect(venue.latitude).toBeNull()
+      expect(venue.longitude).toBeNull()
+    }
+  })
+
+  it('states each venue’s access as claims from the vocabulary', () => {
+    for (const venue of data.venues) {
+      expect(venue.accessibility.features.length).toBeGreaterThan(0)
+      expect(venue.accessibility.features).toContain('STEP_FREE_ENTRANCE')
     }
   })
 
@@ -184,9 +293,9 @@ describe('buildSeedData shape', () => {
     expect(new Set(slugs).size).toBe(slugs.length)
   })
 
-  it('spreads venues across India and the diaspora', () => {
-    const countries = new Set(data.venues.map((venue) => venue.country))
-    expect(countries).toEqual(new Set(['IN', 'CA']))
+  it('spreads venues across the three US time zones the catalogue uses', () => {
+    const zones = new Set(data.venues.map((venue) => venue.timezone))
+    expect(zones).toEqual(new Set(['America/New_York', 'America/Chicago', 'America/Los_Angeles']))
   })
 })
 
@@ -203,10 +312,66 @@ describe('seeded events', () => {
     for (const id of ids) expect(id).toMatch(/^[a-z][a-z0-9]{7,31}$/)
   })
 
-  it('mixes published and draft status', () => {
-    const statuses = data.events.map((event) => event.status)
-    expect(statuses).toContain('PUBLISHED')
-    expect(statuses).toContain('DRAFT')
+  it('exercises every state a public page has to say honestly, and drafts', () => {
+    const statuses = new Set(data.events.map((event) => event.status))
+
+    expect(statuses).toEqual(
+      new Set([
+        'ON_SALE',
+        'SOLD_OUT',
+        'SALES_PAUSED',
+        'POSTPONED',
+        'CANCELLED',
+        'COMPLETED',
+        'DRAFT',
+      ]),
+    )
+  })
+
+  it('records what postponing and cancelling write, and nothing on the others', () => {
+    for (const event of data.events) {
+      if (event.status === 'POSTPONED') {
+        expect(event.postponedAt).toBeInstanceOf(Date)
+        expect(event.previousStartsAt).toEqual(event.startsAt)
+      } else {
+        expect(event.postponedAt).toBeNull()
+        expect(event.previousStartsAt).toBeNull()
+      }
+
+      if (event.status === 'CANCELLED') {
+        expect(event.cancelledAt).toBeInstanceOf(Date)
+        expect(event.cancellationReason).toBeTruthy()
+      } else {
+        expect(event.cancelledAt).toBeNull()
+        expect(event.cancellationReason).toBeNull()
+      }
+    }
+  })
+
+  it('starts every event on a local evening, in the zone its venue keeps', () => {
+    const venueById = new Map(data.venues.map((venue) => [venue.id, venue]))
+
+    for (const event of data.events) {
+      const hour = localHour(event.startsAt, event.timezone)
+
+      expect(hour).toBeGreaterThanOrEqual(19)
+      expect(hour).toBeLessThanOrEqual(20)
+      if (event.venueId) expect(event.timezone).toBe(venueById.get(event.venueId).timezone)
+    }
+  })
+
+  it('puts the Saturday night on a Saturday', () => {
+    const saturday = data.events.find((event) => event.slug === 'peachtree-garba-saturday')
+    const weekday = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      timeZone: saturday.timezone,
+    }).format(saturday.startsAt)
+
+    expect(weekday).toBe('Saturday')
+  })
+
+  it('points no page at a cover image on a host nothing serves', () => {
+    for (const event of data.events) expect(event.coverImageUrl).toBeNull()
   })
 
   it('mixes past and future start times around the anchor', () => {
@@ -222,14 +387,17 @@ describe('seeded events', () => {
     }
   })
 
-  it('spans several categories and varied language arrays', () => {
+  it('is garba season: garba and dandiya, workshops, melas and a concert, in varied languages', () => {
     const categories = new Set(data.events.map((event) => event.category))
-    expect(categories.size).toBeGreaterThanOrEqual(6)
+    expect(categories).toEqual(
+      new Set(['GARBA_DANDIYA', 'WORKSHOP', 'CULTURAL_FESTIVAL', 'MUSIC_CONCERT']),
+    )
 
     const languages = new Set(data.events.flatMap((event) => event.languages))
-    for (const language of ['Hindi', 'Gujarati', 'Tamil', 'Punjabi', 'English']) {
+    for (const language of ['Gujarati', 'Hindi', 'English']) {
       expect(languages).toContain(language)
     }
+    expect(new Set(data.events.map((event) => event.languages.join())).size).toBeGreaterThan(1)
   })
 
   it('pairs online events with a joining URL and no venue', () => {
@@ -247,38 +415,49 @@ describe('seeded events', () => {
     }
   })
 
-  it('sets publishedAt exactly on the published events', () => {
+  it('sets publishedAt on every event that has been public, and never on a draft', () => {
     for (const event of data.events) {
-      if (event.status === 'PUBLISHED') {
+      if (event.status === 'DRAFT') {
+        expect(event.publishedAt).toBeNull()
+        expect(event.salesOpenedAt).toBeNull()
+      } else {
         expect(event.publishedAt).toBeInstanceOf(Date)
         expect(event.publishedAt.getTime()).toBeLessThanOrEqual(NOW.getTime())
-      } else {
-        expect(event.publishedAt).toBeNull()
+        expect(event.publishedAt.getTime()).toBeLessThan(event.startsAt.getTime())
       }
     }
   })
 })
 
 describe('seeded ticket types', () => {
-  it('gives every event between two and four ticket types', () => {
+  it('gives every event between one and four ticket types', () => {
+    // A garba night often sells one general admission tier and nothing else.
     for (const event of data.events) {
       const forEvent = data.ticketTypes.filter((type) => type.eventId === event.id)
-      expect(forEvent.length).toBeGreaterThanOrEqual(2)
+      expect(forEvent.length).toBeGreaterThanOrEqual(1)
       expect(forEvent.length).toBeLessThanOrEqual(4)
     }
+    expect(
+      data.events.some(
+        (event) => data.ticketTypes.filter((type) => type.eventId === event.id).length > 1,
+      ),
+    ).toBe(true)
   })
 
-  it('prices everything as positive integer cents in the event currency', () => {
+  it('prices everything as integer cents in US dollars, free only where it says so', () => {
     for (const type of data.ticketTypes) {
       expect(Number.isInteger(type.priceCents)).toBe(true)
-      expect(type.priceCents).toBeGreaterThan(0)
-      expect(['INR', 'CAD']).toContain(type.currency)
+      expect(type.priceCents).toBeGreaterThanOrEqual(0)
+      expect(type.currency).toBe('USD')
     }
+
+    const free = data.ticketTypes.filter((type) => type.priceCents === 0)
+    expect(free.map((type) => type.key)).toEqual(['kids-hour-free'])
   })
 
-  it('uses both INR and CAD', () => {
+  it('sells in US dollars only', () => {
     const currencies = new Set(data.ticketTypes.map((type) => type.currency))
-    expect(currencies).toEqual(new Set(['INR', 'CAD']))
+    expect(currencies).toEqual(new Set(['USD']))
   })
 
   it('opens sales before it closes them', () => {
@@ -290,10 +469,10 @@ describe('seeded ticket types', () => {
   })
 
   it('varies the sales windows within an event rather than copying one', () => {
-    const windowsBySufi = data.ticketTypes
-      .filter((type) => type.eventKey === 'sufi')
+    const windowsByNightOne = data.ticketTypes
+      .filter((type) => type.eventKey === 'night-one')
       .map((type) => `${type.salesStartAt?.toISOString()}|${type.salesEndAt?.toISOString()}`)
-    expect(new Set(windowsBySufi).size).toBeGreaterThan(1)
+    expect(new Set(windowsByNightOne).size).toBeGreaterThan(1)
   })
 
   it('keeps per-order limits sane', () => {
@@ -339,6 +518,32 @@ describe('seeded ticket types', () => {
     }
 
     expect(data.ticketTypes.some((type) => type.status === 'SOLD_OUT')).toBe(true)
+  })
+
+  it('leaves only a few on some tiers on sale, so the page’s "Only N left" is exercised', () => {
+    // The event page states the exact count at or below 25 remaining. A seed
+    // in which every tier had hundreds left never showed it against a live
+    // database, while the web fallback did.
+    const remaining = (type) => type.quantityTotal - type.quantitySold
+    const few = data.ticketTypes.filter(
+      (type) => type.status === 'ON_SALE' && remaining(type) >= 1 && remaining(type) <= 25,
+    )
+
+    expect(few.length).toBeGreaterThan(0)
+  })
+
+  it('leaves the same few on the tiers the web catalogue says are nearly gone', () => {
+    // apps/web/src/lib/sample-data.js: VIP Circle 150 less 138 sold, Season
+    // Pass 300 less 281. The same event must not read "Only 12 left" in the
+    // fallback and "150 left" once the database answers.
+    const remainingOf = (key) => {
+      const type = data.ticketTypes.find((candidate) => candidate.key === key)
+
+      return { status: type.status, remaining: type.quantityTotal - type.quantitySold }
+    }
+
+    expect(remainingOf('night-one-vip-circle')).toEqual({ status: 'ON_SALE', remaining: 12 })
+    expect(remainingOf('nine-nights-season')).toEqual({ status: 'ON_SALE', remaining: 19 })
   })
 
   it('exercises more than one TicketTypeStatus', () => {
@@ -475,6 +680,53 @@ describe('seeded orders', () => {
     for (const order of expired) expect(order.expiresAt.getTime()).toBeLessThan(NOW.getTime())
   })
 
+  it('charges US orders no sales tax, as the demo tax policy for the US says', () => {
+    for (const order of data.orders) {
+      expect(order.currency).toBe('USD')
+      expect(order.taxCents).toBe(0)
+    }
+  })
+
+  it('charges the platform fee the pricing contract describes: 5.9% plus $0.99 a ticket', () => {
+    const nightOne = data.orders.find((order) => order.reference === 'DE-US-200001')
+
+    // Two $35.00 tickets, $5.00 off with NIGHTONE5: 6500 × 5.9% = 383.5 → 384,
+    // plus 2 × 99.
+    expect(nightOne).toMatchObject({
+      subtotalCents: 7000,
+      discountCents: 500,
+      feesCents: 384 + 198,
+      taxCents: 0,
+      totalCents: 6500 + 582,
+    })
+  })
+
+  it('sells out the tiers the catalogue says are sold out, through real orders', () => {
+    const soldOut = data.ticketTypes.filter((type) => type.status === 'SOLD_OUT')
+    const marathon = data.events.find((event) => event.slug === 'five-boroughs-garba-marathon')
+
+    expect(soldOut.map((type) => type.key).sort()).toEqual(['bay-lights-early', 'marathon-general'])
+    expect(marathon.status).toBe('SOLD_OUT')
+    expect(
+      data.ticketTypes
+        .filter((type) => type.eventId === marathon.id)
+        .every((type) => type.status === 'SOLD_OUT'),
+    ).toBe(true)
+  })
+
+  it('checks tickets in after the doors opened, not before', () => {
+    const eventById = new Map(data.events.map((event) => [event.id, event]))
+
+    for (const order of data.orders) {
+      for (const ticket of order.tickets) {
+        if (!ticket.checkedInAt) continue
+        const event = eventById.get(order.eventId)
+        expect(ticket.checkedInAt.getTime()).toBeGreaterThan(event.startsAt.getTime())
+        expect(ticket.checkedInAt.getTime()).toBeLessThan(event.endsAt.getTime())
+      }
+    }
+  })
+
   it('charges each payment the order total in the order currency', () => {
     for (const order of data.orders) {
       for (const payment of order.payments) {
@@ -602,8 +854,8 @@ describe('determinism', () => {
 
   it('shifts every timestamp when the anchor day changes', () => {
     const tomorrow = buildSeedData(new Date(NOW.getTime() + 86_400_000))
-    const before = data.events.find((event) => event.slug === 'mumbai-sufi-nights')
-    const after = tomorrow.events.find((event) => event.slug === 'mumbai-sufi-nights')
+    const before = data.events.find((event) => event.slug === 'navratri-night-one-edison')
+    const after = tomorrow.events.find((event) => event.slug === 'navratri-night-one-edison')
 
     expect(after.startsAt.getTime() - before.startsAt.getTime()).toBe(86_400_000)
   })
