@@ -430,7 +430,12 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await organiser.getByRole('button', { name: /review/i }).click()
     await organiser.getByRole('button', { name: 'Send for review' }).click()
     await organiser.getByRole('button', { name: /yes, send for review/i }).click()
-    await expect(organiser.getByText(/waiting for review/i).first()).toBeVisible()
+    // The announcement, as journey 11 waits for, and not any "waiting for
+    // review" on the page: the history already reads "Draft → Waiting for
+    // review" from the first submission, so that text is on screen before
+    // this one is even sent. The panel announces only once the server has
+    // answered, so the moderator below reads an event that really is waiting.
+    await expect(organiser.getByText(/waiting for review\. a moderator has it/i)).toBeVisible()
 
     await moderator.goto(`/moderation/events/${eventId}`)
     await moderator.getByRole('button', { name: 'Approve' }).click()
