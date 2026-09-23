@@ -58,8 +58,19 @@ describe('Failure', () => {
 
     const alert = screen.getByRole('alert')
 
-    expect(alert).toHaveTextContent('the service timed out')
+    expect(alert).toHaveTextContent('The service timed out.')
     expect(alert).toHaveTextContent(/absent/i)
+  })
+
+  it('keeps a detail that is already a sentence as one, without doubling its full stop', () => {
+    render(<Failure what="The refund" detail="Nothing reached Desi-Event. Try again." />)
+
+    const text = screen.getByRole('alert').textContent
+
+    expect(text).toContain(
+      'The refund could not be loaded. Nothing reached Desi-Event. Try again. ',
+    )
+    expect(text).not.toMatch(/\.\.|: Nothing/)
   })
 })
 

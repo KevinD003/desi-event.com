@@ -27,6 +27,7 @@
 import Link from 'next/link'
 
 import { Figure, ModeBanner, ScrollableTable } from '../../components/money-figure.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { formatPrice } from '../../lib/pricing.js'
 import { getFinanceSummary } from '../../lib/organizer-api.js'
 import { readSession, sessionCan } from '../../lib/session.js'
@@ -90,7 +91,9 @@ export default async function FinancePage({ searchParams }) {
   try {
     summary = await getFinanceSummary({ organizationId, currency: 'INR' })
   } catch (error) {
-    failure = error instanceof Error ? error.message : String(error)
+    // Drawn by `ReadRefusal`: a lapsed FINANCE_VIEW window is a step-up away,
+    // not a failure, and the API's own words name an endpoint.
+    failure = error
   }
 
   return (
@@ -128,13 +131,11 @@ export default async function FinancePage({ searchParams }) {
       ) : null}
 
       {failure ? (
-        <p
-          role="alert"
-          className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
-        >
-          The finance view could not be loaded: {failure}. Nothing here is stale — it is absent, and
-          a figure guessed from a cache would be worse than none.
-        </p>
+        <ReadRefusal
+          error={failure}
+          what="The finance view"
+          action="see this organisation’s finances"
+        />
       ) : null}
 
       {summary ? (

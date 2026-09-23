@@ -57,9 +57,9 @@
 
 import { retentionFailureDescription } from '@desi-event/schemas'
 
-import { AsOf, Failure } from '../../components/page-state.jsx'
+import { AsOf } from '../../components/page-state.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { listRetentionSweeps } from '../../lib/privacy-api.js'
-import { describeRefusal } from '../../lib/privacy-vocabulary.js'
 import {
   retentionClassDescription,
   retentionClassLabel,
@@ -146,7 +146,7 @@ export default async function RetentionPage({ searchParams }) {
     // rather than a case it can assume away.
     summary = Array.isArray(answer.summary) ? answer.summary : []
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   // Only when the read actually succeeded. `sweeps` is still null after a
@@ -179,7 +179,13 @@ export default async function RetentionPage({ searchParams }) {
         </p>
       ) : null}
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal
+          error={failure}
+          what="The retention record"
+          action="see the retention record"
+        />
+      ) : null}
 
       {summary.length > 0 ? (
         <section className="mt-8" aria-labelledby="where-each-class-stands">

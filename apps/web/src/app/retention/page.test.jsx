@@ -17,6 +17,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
+// A refused read is drawn by `ReadRefusal`, whose step-up redraws through the
+// router; these tests render outside an app router.
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+
 vi.mock('../../lib/privacy-api.js', () => ({ listRetentionSweeps: vi.fn() }))
 
 const { listRetentionSweeps } = await import('../../lib/privacy-api.js')

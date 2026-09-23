@@ -30,6 +30,7 @@ import { useState } from 'react'
 
 import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /**
@@ -108,7 +109,7 @@ export function EventSessionsEditor({
         return parsed
       }
 
-      setError(parsed?.error?.message ?? 'The change was refused.')
+      setError(refusalSentence(response.status, parsed, 'The change was refused.'))
       setProblems(parsed?.error?.problems ?? [])
       return null
     } catch {
@@ -198,7 +199,7 @@ export function EventSessionsEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
-        setError(body?.error?.message ?? 'Inventory could not be prepared.')
+        setError(refusalSentence(response.status, body, 'Inventory could not be prepared.'))
         setProblems(body?.error?.problems ?? [])
         return
       }

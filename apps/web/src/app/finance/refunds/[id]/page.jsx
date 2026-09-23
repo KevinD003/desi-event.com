@@ -35,8 +35,10 @@ import Link from 'next/link'
 
 import { Figure, ScrollableTable } from '../../../../components/money-figure.jsx'
 import { RefundActions } from '../../../../components/refund-actions.jsx'
-import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getRefund } from '../../../../lib/organizer-api.js'
+import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -99,11 +101,16 @@ export default async function RefundDetailPage({ params }) {
   try {
     refund = await getRefund(id)
   } catch (error) {
-    if (error?.status === 403 || error?.status === 404) {
+    const { state } = describeApiRefusal(error)
+
+    // Refused and missing read alike. A lapsed step-up or a missing second
+    // factor is neither: it used to land here too, and "Not for you" was
+    // wrong for somebody one confirmation away from the page.
+    if (state === 'permission-denied' || state === 'not-found') {
       return <Forbidden area="This refund" backHref="/operations" backLabel="Back to operations" />
     }
 
-    failure = error?.message ?? null
+    failure = error
   }
 
   if (!refund) {
@@ -116,7 +123,7 @@ export default async function RefundDetailPage({ params }) {
           ]}
         />
         <h1 className="mt-3 text-2xl font-bold text-ink">Refund</h1>
-        <Failure what="This refund" detail={failure} />
+        <ReadRefusal error={failure} what="This refund" action="see this refund" />
       </div>
     )
   }

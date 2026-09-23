@@ -49,6 +49,7 @@ import { validateLayout } from '@desi-event/inventory/layout'
 
 import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 
 /** A key that is unique within this editing session. */
 let counter = 0
@@ -173,7 +174,9 @@ export function MapEditor({ version, initialLayout, readOnly }) {
       if (response.status === 409) {
         // Somebody else saved while this editor was open. Nothing of theirs is
         // overwritten and nothing of ours is lost — the author decides.
-        setConflict(body?.error?.message ?? 'This draft has moved on since you loaded it.')
+        setConflict(
+          refusalSentence(response.status, body, 'This draft has moved on since you loaded it.'),
+        )
         return
       }
 
@@ -184,7 +187,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
         return
       }
 
-      setStatus(body?.error?.message ?? 'Could not save.')
+      setStatus(refusalSentence(response.status, body, 'Could not save.'))
     } catch {
       setStatus('The ticketing service is not responding. Nothing has been saved.')
     } finally {
@@ -211,7 +214,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
 
       const body = await response.json().catch(() => null)
 
-      setStatus(body?.error?.message ?? 'Could not publish.')
+      setStatus(refusalSentence(response.status, body, 'Could not publish.'))
     } catch {
       setStatus('The ticketing service is not responding. Nothing has been published.')
     } finally {

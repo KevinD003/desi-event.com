@@ -48,10 +48,10 @@
 
 import { EXPORT_ARTIFACT_STATES } from '@desi-event/schemas'
 
-import { AsOf, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { listExportArtifacts } from '../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../lib/session.js'
-import { describeRefusal } from '../../../lib/privacy-vocabulary.js'
 import { OrganizationPicker } from '../organization-picker.jsx'
 
 export const dynamic = 'force-dynamic'
@@ -170,7 +170,7 @@ export default async function ExportRegisterPage({ searchParams }) {
     artifacts = answer.data ?? []
     pagination = answer.pagination ?? null
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   const readAt = new Date().toISOString()
@@ -198,7 +198,9 @@ export default async function ExportRegisterPage({ searchParams }) {
         extra={{ kind: params.kind }}
       />
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal error={failure} what="The export register" action="see the export register" />
+      ) : null}
 
       {artifacts && artifacts.length === 0 ? (
         <Empty

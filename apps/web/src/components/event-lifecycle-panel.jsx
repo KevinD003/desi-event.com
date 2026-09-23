@@ -26,6 +26,15 @@
  * for a reason code, a note, and a second press. That asymmetry is deliberate:
  * a confirmation dialogue on everything trains people to dismiss them.
  *
+ * ## A second factor, when the server asks for one
+ *
+ * Publishing and opening sales sit behind the EVENT_PUBLISH step-up window;
+ * cancelling and postponing behind EVENT_CANCEL. Until Phase 4 a lapsed window
+ * showed the API's words — "Authenticate at /v1/auth/step-up and retry" — and
+ * stopped there. Now the prompt opens where the command was, and a confirmed
+ * step-up sends the same command again with what was already typed. An account
+ * that has no second factor at all is sent to set one up.
+ *
  * ## What a moderator said
  *
  * The history is the record of the negotiation — what was asked for, by the
@@ -39,9 +48,11 @@
  * @file components/event-lifecycle-panel
  */
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { COMMANDS, REASON_CODES, statusReading } from '../lib/event-status.js'
@@ -130,6 +141,24 @@ function withLists(result) {
  */
 
 /**
+ * Where to set up a second factor, for an account the server says has none.
+ *
+ * @returns {JSX.Element} The link.
+ */
+function EnrolmentLink() {
+  return (
+    <p className="mt-2">
+      <Link
+        href="/account/security"
+        className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+      >
+        Set up two-step sign-in
+      </Link>
+    </p>
+  )
+}
+
+/**
  * The review step.
  *
  * @param {EventLifecyclePanelProps} props Component props.
@@ -153,6 +182,9 @@ export function EventLifecyclePanel({
   const [error, setError] = useState(null)
   const [problems, setProblems] = useState([])
   const [announcement, setAnnouncement] = useState('')
+  // The command waiting on a fresh second factor, when the server asked for one.
+  const [stepUpFor, setStepUpFor] = useState(null)
+  const [needsEnrolment, setNeedsEnrolment] = useState(false)
   const dialogRef = useRef(null)
   const returnFocus = useRef(null)
 
@@ -220,6 +252,8 @@ export function EventLifecyclePanel({
     setError(null)
     setProblems([])
     setReason('')
+    setStepUpFor(null)
+    setNeedsEnrolment(false)
 
     if (command.confirm || command.reason !== 'none') {
       setPending(key)
@@ -237,6 +271,7 @@ export function EventLifecyclePanel({
    */
   function dismiss() {
     setPending(null)
+    setStepUpFor(null)
     // Focus does not evaporate when a dialogue closes. Putting it back is the
     // difference between a keyboard user carrying on and a keyboard user
     // hunting for where they were.
@@ -255,6 +290,7 @@ export function EventLifecyclePanel({
     setBusy(true)
     setError(null)
     setProblems([])
+    setNeedsEnrolment(false)
 
     try {
       const body = {}
@@ -272,11 +308,30 @@ export function EventLifecyclePanel({
       const parsed = await response.json().catch(() => null)
 
       if (!response.ok) {
+        const code = parsed?.error?.code
+
+        if (code === 'STEP_UP_REQUIRED') {
+          // Not a refusal of the command: a request to confirm who is asking.
+          setStepUpFor(key)
+          return
+        }
+
+        if (code === 'MFA_ENROLMENT_REQUIRED') {
+          setNeedsEnrolment(true)
+          setError(
+            'A role this account holds needs two-step sign-in before it can do this, and it is not set up yet. Nothing has changed.',
+          )
+          queueMicrotask(() => dialogRef.current?.focus())
+          return
+        }
+
         setError(parsed?.error?.message ?? 'The command was refused.')
         setProblems(parsed?.error?.problems ?? [])
         queueMicrotask(() => dialogRef.current?.focus())
         return
       }
+
+      setStepUpFor(null)
 
       const next = parsed.data.status
 
@@ -391,6 +446,7 @@ export function EventLifecyclePanel({
       {error && !pending ? (
         <Alert variant="error" title="That did not work">
           <p>{error}</p>
+          {needsEnrolment ? <EnrolmentLink /> : null}
           {problems.length > 0 ? (
             <ul className="mt-2 list-disc space-y-1 pl-5">
               {problems.map((problem) => (
@@ -436,6 +492,19 @@ export function EventLifecyclePanel({
         })}
       </div>
 
+      {stepUpFor && !pending ? (
+        <StepUpPrompt
+          action={COMMANDS[stepUpFor].label.toLowerCase()}
+          onConfirmed={() => {
+            const key = stepUpFor
+
+            setStepUpFor(null)
+            void run(key)
+          }}
+          onCancel={() => setStepUpFor(null)}
+        />
+      ) : null}
+
       {command ? (
         <div
           ref={dialogRef}
@@ -454,6 +523,7 @@ export function EventLifecyclePanel({
           {error ? (
             <Alert variant="error" title="That did not work" className="mt-3">
               <p>{error}</p>
+              {needsEnrolment ? <EnrolmentLink /> : null}
               {problems.length > 0 ? (
                 <ul className="mt-2 list-disc space-y-1 pl-5">
                   {problems.map((problem) => (
@@ -462,6 +532,23 @@ export function EventLifecyclePanel({
                 </ul>
               ) : null}
             </Alert>
+          ) : null}
+
+          {stepUpFor && pending ? (
+            <div className="mt-3">
+              <StepUpPrompt
+                action={command.label.toLowerCase()}
+                onConfirmed={() => {
+                  const key = stepUpFor
+
+                  setStepUpFor(null)
+                  // The reason and note typed into this dialogue are still
+                  // here, and go with the retried command.
+                  void run(key)
+                }}
+                onCancel={() => setStepUpFor(null)}
+              />
+            </div>
           ) : null}
 
           {pending === 'cancel' || pending === 'postpone' ? (

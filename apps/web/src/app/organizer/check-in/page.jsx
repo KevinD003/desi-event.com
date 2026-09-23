@@ -14,7 +14,8 @@
  */
 
 import { DoorWorkspace } from '../../../components/door-workspace.jsx'
-import { Empty, Failure } from '../../../components/page-state.jsx'
+import { Empty } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { getAdmissionEvents } from '../../../lib/organizer-api.js'
 
 export const dynamic = 'force-dynamic'
@@ -36,7 +37,7 @@ export default async function CheckInPage() {
   try {
     events = await getAdmissionEvents()
   } catch (error) {
-    failure = error instanceof Error ? error.message : String(error)
+    failure = error
   }
 
   return (
@@ -47,7 +48,13 @@ export default async function CheckInPage() {
         <strong>Admit</strong> does, and a ticket admits once.
       </p>
 
-      {failure ? <Failure what="The events you can admit to" detail={failure} /> : null}
+      {failure ? (
+        <ReadRefusal
+          error={failure}
+          what="The events you can admit to"
+          action="see the doors you can admit at"
+        />
+      ) : null}
 
       {events && events.length === 0 ? (
         <Empty

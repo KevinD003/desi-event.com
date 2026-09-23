@@ -110,7 +110,9 @@ test.describe.serial('what the product refuses, and to whom', () => {
     await expect(
       page.getByRole('heading', { name: /that event could not be opened/i }),
     ).toBeVisible()
-    await expect(page.getByText(/^No such event\.$/)).toBeVisible()
+    await expect(
+      page.getByText(/^This event is not something this account can open\./),
+    ).toBeVisible()
 
     // There is no submit control on a page that would not load. So the attempt
     // is made the way a determined user would make it: from this browser, with

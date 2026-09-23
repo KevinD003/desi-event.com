@@ -15,6 +15,7 @@
 import { cookies } from 'next/headers'
 
 import { getApiBaseUrl } from './api-client.js'
+import { parseRetryAfter } from './refusal.js'
 
 /** How long an organiser read may take. Longer than a public read: this is work, not browsing. */
 const TIMEOUT_MS = 5000
@@ -28,7 +29,8 @@ const TIMEOUT_MS = 5000
  * @param {string} path An API path beginning `/v1/`.
  * @param {object} [options] Fetch options.
  * @returns {Promise<object>} The parsed body.
- * @throws {Error} When the API refuses or cannot be reached, carrying `status`.
+ * @throws {Error} When the API refuses or cannot be reached, carrying `status`,
+ *   `code`, and `retryAfterSeconds` when the API said how long to wait.
  */
 export async function callApi(path, options = {}) {
   const jar = await cookies()
@@ -55,6 +57,8 @@ export async function callApi(path, options = {}) {
 
     error.status = response.status
     error.code = body?.error?.code ?? null
+    // So a rate-limited page can say how long, rather than "a little".
+    error.retryAfterSeconds = parseRetryAfter(response.headers.get('retry-after'))
     throw error
   }
 

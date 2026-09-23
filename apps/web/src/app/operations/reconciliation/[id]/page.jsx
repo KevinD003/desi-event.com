@@ -31,8 +31,10 @@
 import Link from 'next/link'
 
 import { ReconciliationActions } from '../../../../components/reconciliation-actions.jsx'
-import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getReconciliationTask } from '../../../../lib/organizer-api.js'
+import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -174,8 +176,11 @@ export default async function ReconciliationDetailPage({ params }) {
     task = await getReconciliationTask(id)
   } catch (error) {
     // 403 and 404 are shown as the same refusal, because telling them apart is
-    // how somebody with a list of identifiers learns which ones are real.
-    if (error?.status === 403 || error?.status === 404) {
+    // how somebody with a list of identifiers learns which ones are real. A
+    // lapsed step-up is neither, and is offered the step-up below.
+    const { state } = describeApiRefusal(error)
+
+    if (state === 'permission-denied' || state === 'not-found') {
       return (
         <Forbidden
           area="This reconciliation item"
@@ -185,7 +190,7 @@ export default async function ReconciliationDetailPage({ params }) {
       )
     }
 
-    failure = error?.message ?? null
+    failure = error
   }
 
   if (!task) {
@@ -198,7 +203,7 @@ export default async function ReconciliationDetailPage({ params }) {
           ]}
         />
         <h1 className="mt-3 text-2xl font-bold text-ink">Reconciliation item</h1>
-        <Failure what="This item" detail={failure} />
+        <ReadRefusal error={failure} what="This item" action="see this reconciliation item" />
       </div>
     )
   }

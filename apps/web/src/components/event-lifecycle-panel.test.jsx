@@ -368,6 +368,111 @@ describe('cancelling an event', () => {
   })
 })
 
+describe('when the server wants a fresh second factor', () => {
+  const onSale = { ...event, status: 'ON_SALE' }
+  const moves = {
+    status: 'ON_SALE',
+    transitions: [{ to: 'CANCELLED', actor: 'organizer', entitled: true, blockers: [] }],
+  }
+
+  /**
+   * Answer the cancel command from a queue, and everything else as `routeFetch` does.
+   *
+   * @param {object[]} answers The cancel answers, in order.
+   * @returns {void}
+   */
+  function queueCancel(answers) {
+    apiFetch.mockImplementation(async (path) => {
+      if (path.endsWith('/readiness')) return answer(200, { data: { ...ready, status: 'ON_SALE' } })
+      if (path.endsWith('/transitions')) return answer(200, { data: moves })
+      if (path === '/v1/auth/step-up') return answer(200, { ok: true })
+
+      return answers.shift() ?? answer(500, { error: { message: 'No more answers.' } })
+    })
+  }
+
+  it('opens the step-up in place, then sends the same command with what was typed', async () => {
+    const user = userEvent.setup()
+
+    queueCancel([
+      answer(403, {
+        error: {
+          code: 'STEP_UP_REQUIRED',
+          message: 'Authenticate at /v1/auth/step-up and retry.',
+        },
+      }),
+      answer(200, { data: { status: 'CANCELLED' } }),
+    ])
+
+    const { container } = render(
+      <EventLifecyclePanel
+        event={onSale}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={moves}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+    await user.selectOptions(screen.getByLabelText(/^Reason/), 'WEATHER')
+    await user.type(screen.getByLabelText(/what to tell ticket holders/i), 'The ground flooded.')
+    await user.click(screen.getByRole('button', { name: /yes, cancel this event/i }))
+
+    // The prompt, not the API's words, which name an endpoint.
+    await user.type(await screen.findByLabelText(/your password/i), 'not-a-real-password')
+    expect(container.textContent).not.toContain('/v1/')
+
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() =>
+      expect(
+        apiFetch.mock.calls.filter(([path]) => path === '/v1/events/evtqawwalibanyan/cancel'),
+      ).toHaveLength(2),
+    )
+
+    const retried = apiFetch.mock.calls.filter(
+      ([path]) => path === '/v1/events/evtqawwalibanyan/cancel',
+    )[1]
+
+    expect(JSON.parse(retried[1].body)).toEqual({
+      reason: 'The ground flooded.',
+      reasonCode: 'WEATHER',
+    })
+  })
+
+  it('sends an account with no second factor to set one up, and changes nothing', async () => {
+    const user = userEvent.setup()
+
+    queueCancel([
+      answer(403, {
+        error: {
+          code: 'MFA_ENROLMENT_REQUIRED',
+          message: 'Enrol one at /v1/auth/mfa/totp, then try again.',
+        },
+      }),
+    ])
+
+    const { container } = render(
+      <EventLifecyclePanel
+        event={onSale}
+        readiness={{ ...ready, status: 'ON_SALE' }}
+        transitions={moves}
+        history={[]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /cancel this event/i }))
+    await user.type(screen.getByLabelText(/what to tell ticket holders/i), 'Flooded.')
+    await user.click(screen.getByRole('button', { name: /yes, cancel this event/i }))
+
+    const link = await screen.findByRole('link', { name: 'Set up two-step sign-in' })
+
+    expect(link.getAttribute('href')).toBe('/account/security')
+    expect(container.textContent).toMatch(/nothing has changed/i)
+    expect(container.textContent).not.toContain('/v1/')
+  })
+})
+
 describe('pausing sales', () => {
   it('does not demand a confirmation, because resuming is one press away', async () => {
     const user = userEvent.setup()

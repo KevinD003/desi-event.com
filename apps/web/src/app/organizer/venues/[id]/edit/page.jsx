@@ -6,7 +6,9 @@
 
 import { Alert } from '../../../../../components/ui.jsx'
 import { VenueForm } from '../../../../../components/venue-form.jsx'
+import { ReadRefusal } from '../../../../../components/read-refusal.jsx'
 import { getVenue } from '../../../../../lib/organizer-api.js'
+import { describeApiRefusal } from '../../../../../lib/refusal.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,12 +34,28 @@ export default async function EditVenuePage({ params }) {
   }
 
   if (failure) {
+    const { state } = describeApiRefusal(failure)
+
     return (
-      <Alert variant="error" title="Could not load this venue">
-        {failure.status === 403
-          ? 'This venue belongs to another organisation, or is shared between all of them. A shared hall is not one organiser’s to change.'
-          : failure.message}
-      </Alert>
+      <div className="max-w-2xl">
+        <h1 className="text-3xl font-bold text-ink">Edit venue</h1>
+        {state === 'permission-denied' ? (
+          // The API says which of two things it is, and both are public
+          // facts: a venue's owner and whether it is shared are on its page.
+          <Alert variant="error" title="Could not load this venue" className="mt-4">
+            This venue belongs to another organisation, or is shared between all of them. A shared
+            hall is not one organiser’s to change.
+          </Alert>
+        ) : (
+          <ReadRefusal
+            error={failure}
+            what="This venue"
+            action="edit this venue"
+            backHref="/organizer/venues"
+            backLabel="Back to your venues"
+          />
+        )}
+      </div>
     )
   }
 

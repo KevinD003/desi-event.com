@@ -19,6 +19,7 @@
 
 import Link from 'next/link'
 
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { EventEditor } from '../../../../components/event-editor.jsx'
 import {
   getEventReadiness,
@@ -88,16 +89,16 @@ export default async function EditEventPage({ params }) {
   try {
     event = await getOrganizerEvent(id)
   } catch (error) {
-    failure = error instanceof Error ? error.message : String(error)
+    failure = error
   }
 
   if (!event) {
     return (
       <div className="max-w-2xl">
         <h1 className="text-2xl font-bold text-ink">That event could not be opened</h1>
-        <p className="mt-2 text-ink-muted">
-          {failure ?? 'No such event, or it does not belong to an organisation you are in.'}
-        </p>
+        {/* The same words for another organisation's draft and for an id
+            nobody has used: the API answers both 404, and so does this. */}
+        <ReadRefusal error={failure} what="This event" action="edit this event" />
         <p className="mt-4">
           <Link
             href="/organizer/events"

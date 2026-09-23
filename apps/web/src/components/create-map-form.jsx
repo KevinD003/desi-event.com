@@ -11,6 +11,7 @@ import { useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 
 /**
  * @typedef {object} CreateMapFormProps
@@ -59,7 +60,7 @@ export function CreateMapForm({ venueId }) {
 
       const body = await response.json().catch(() => null)
 
-      setError(body?.error?.message ?? 'Could not create the map.')
+      setError(refusalSentence(response.status, body, 'Could not create the map.'))
       queueMicrotask(() => errorRef.current?.focus())
     } catch {
       setError('The ticketing service is not responding. Nothing has been created.')

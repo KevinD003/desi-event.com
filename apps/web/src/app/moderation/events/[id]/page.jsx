@@ -19,6 +19,7 @@
 
 import Link from 'next/link'
 
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { Alert, Badge, Card, CardBody } from '../../../../components/ui.jsx'
 import { ModerationDecision } from '../../../../components/moderation-decision.jsx'
 import { accessibilityLabel, mergedAccessibility } from '../../../../lib/accessibility.js'
@@ -84,14 +85,14 @@ export default async function ReviewEventPage({ params }) {
   try {
     event = await getOrganizerEvent(id)
   } catch (error) {
-    failure = error instanceof Error ? error.message : String(error)
+    failure = error
   }
 
   if (!event) {
     return (
       <div className="max-w-2xl">
         <h1 className="text-2xl font-bold text-ink">That event could not be opened</h1>
-        <p className="mt-2 text-ink-muted">{failure ?? 'No such event.'}</p>
+        <ReadRefusal error={failure} what="This event" action="review this event" />
         <p className="mt-4">
           <Link
             href="/moderation/events"

@@ -27,6 +27,7 @@ import { useState } from 'react'
 
 import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 import { formatPrice } from '../lib/pricing.js'
 
 /** A blank tier. */
@@ -132,7 +133,7 @@ export function EventTiersEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
-        setError(body?.error?.message ?? 'The ticket type was refused.')
+        setError(refusalSentence(response.status, body, 'The ticket type was refused.'))
         setProblems(body?.error?.problems ?? [])
         return
       }
@@ -167,7 +168,7 @@ export function EventTiersEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
-        setError(body?.error?.message ?? 'The ticket type could not be changed.')
+        setError(refusalSentence(response.status, body, 'The ticket type could not be changed.'))
         setProblems(body?.error?.problems ?? [])
         return
       }
@@ -199,7 +200,7 @@ export function EventTiersEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
-        setError(body?.error?.message ?? 'The ticket type could not be removed.')
+        setError(refusalSentence(response.status, body, 'The ticket type could not be removed.'))
         setProblems(body?.error?.problems ?? [])
         return
       }

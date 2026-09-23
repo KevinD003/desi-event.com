@@ -34,7 +34,8 @@
 
 import Link from 'next/link'
 
-import { Empty, Failure } from '../../components/page-state.jsx'
+import { Empty } from '../../components/page-state.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { getMyTickets } from '../../lib/organizer-api.js'
 import {
   REACHABLE_STATUSES,
@@ -205,7 +206,10 @@ export default async function MyTicketsPage() {
   try {
     ;({ tickets } = await getMyTickets())
   } catch (error) {
-    failure = error?.message ?? null
+    // A privileged account with no second factor is refused even its own
+    // wallet; `ReadRefusal` sends it to set one up rather than printing the
+    // API's endpoint-naming message.
+    failure = error
   }
 
   const groups = groupTickets(tickets)
@@ -219,7 +223,9 @@ export default async function MyTicketsPage() {
         it has been.
       </p>
 
-      {failure ? <Failure what="Your tickets" detail={failure} /> : null}
+      {failure ? (
+        <ReadRefusal error={failure} what="Your tickets" action="see your tickets" />
+      ) : null}
 
       {!failure && tickets.length === 0 ? (
         <Empty

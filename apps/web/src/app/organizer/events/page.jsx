@@ -18,6 +18,7 @@
 
 import Link from 'next/link'
 
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { listOrganizerEvents } from '../../../lib/organizer-api.js'
 import { statusReading } from '../../../lib/event-status.js'
@@ -46,7 +47,7 @@ export default async function OrganizerEventsPage() {
     // Organiser screens never fall back to the sample catalogue. Showing
     // somebody a list that is not their list would invite them to act on
     // fiction.
-    failure = error instanceof Error ? error.message : String(error)
+    failure = error
   }
 
   return (
@@ -61,15 +62,7 @@ export default async function OrganizerEventsPage() {
         </Link>
       </div>
 
-      {failure ? (
-        <p
-          role="alert"
-          className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
-        >
-          Your events could not be loaded: {failure}. Nothing has been guessed at — reload, and if
-          it keeps happening the service is down.
-        </p>
-      ) : null}
+      {failure ? <ReadRefusal error={failure} what="Your events" action="see your events" /> : null}
 
       {!failure && events.length === 0 ? (
         <div className="mt-6">

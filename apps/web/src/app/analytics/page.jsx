@@ -29,7 +29,8 @@
 
 import Link from 'next/link'
 
-import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../components/page-state.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { Figure, ModeBanner, ScrollableTable } from '../../components/money-figure.jsx'
 import { formatPrice } from '../../lib/pricing.js'
 import { getAnalytics } from '../../lib/organizer-api.js'
@@ -157,7 +158,7 @@ export default async function AnalyticsPage({ searchParams }) {
         to: query?.to,
       })
     } catch (error) {
-      failure = error instanceof Error ? error.message : String(error)
+      failure = error
     }
   }
 
@@ -224,7 +225,13 @@ export default async function AnalyticsPage({ searchParams }) {
         </nav>
       ) : null}
 
-      {failure ? <Failure what="The analytics view" detail={failure} /> : null}
+      {failure ? (
+        <ReadRefusal
+          error={failure}
+          what="The analytics view"
+          action="see this organisation’s analytics"
+        />
+      ) : null}
 
       {view ? (
         <>

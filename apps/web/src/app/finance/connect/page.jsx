@@ -30,6 +30,7 @@
 import Link from 'next/link'
 
 import { AsOf, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { getConnectStatus } from '../../../lib/connect-api.js'
 import {
   connectStateDisclaimer,
@@ -79,7 +80,7 @@ export default async function ConnectPage({ searchParams }) {
   try {
     status = (await getConnectStatus(selected.organizationId)).data ?? null
   } catch (error) {
-    failure = describeConnectRefusal(error)
+    failure = error
   }
 
   const readAt = new Date().toISOString()
@@ -124,7 +125,20 @@ export default async function ConnectPage({ searchParams }) {
         </nav>
       ) : null}
 
-      {failure ? <Failure what="The simulated setup state" detail={failure.detail} /> : null}
+      {failure?.code === 'NOT_MOCK_MODE' ? (
+        // The one refusal only this screen has: its own words say why.
+        <Failure what="The simulated setup state" detail={describeConnectRefusal(failure).detail} />
+      ) : failure ? (
+        // Reading the state sits behind the FINANCE_VIEW step-up window, so a
+        // lapsed one is offered the step-up rather than reported as a failure.
+        <ReadRefusal
+          error={failure}
+          what="The simulated setup state"
+          action="see where the simulated payout setup has reached"
+          backHref="/finance"
+          backLabel="Back to finance"
+        />
+      ) : null}
 
       {status ? (
         <>

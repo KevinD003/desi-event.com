@@ -11,7 +11,8 @@
 
 import Link from 'next/link'
 
-import { Alert, Badge, Card, CardBody } from '../../../components/ui.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
+import { Badge, Card, CardBody } from '../../../components/ui.jsx'
 import { listVenues } from '../../../lib/organizer-api.js'
 import { authoringOrganizations, readSession } from '../../../lib/session.js'
 
@@ -43,7 +44,7 @@ export default async function OrganizerVenuesPage() {
   } catch (error) {
     // No fallback: an organiser shown a list that is not their list would act
     // on it.
-    failure = error.message
+    failure = error
   }
 
   return (
@@ -58,13 +59,7 @@ export default async function OrganizerVenuesPage() {
         </Link>
       </div>
 
-      {failure ? (
-        <div className="mt-6">
-          <Alert variant="error" title="Could not load your venues">
-            {failure} Nothing has been changed.
-          </Alert>
-        </div>
-      ) : null}
+      {failure ? <ReadRefusal error={failure} what="Your venues" action="see your venues" /> : null}
 
       {organizations.length === 0 ? (
         <p className="mt-6 text-ink-muted">

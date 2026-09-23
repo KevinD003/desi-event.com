@@ -23,10 +23,11 @@
  * @module app/privacy/holds/page
  */
 
-import { AsOf, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { listPrivacyHolds } from '../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../lib/session.js'
-import { describeRefusal, holdKindLabel, holdStateLabel } from '../../../lib/privacy-vocabulary.js'
+import { holdKindLabel, holdStateLabel } from '../../../lib/privacy-vocabulary.js'
 import { HoldActions } from '../hold-actions.jsx'
 import { StateBadge } from '../state-badge.jsx'
 
@@ -69,7 +70,7 @@ export default async function PrivacyHoldsPage({ searchParams }) {
 
     holds = answer.data ?? []
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   const readAt = new Date().toISOString()
@@ -86,7 +87,9 @@ export default async function PrivacyHoldsPage({ searchParams }) {
 
       <HoldActions organizationId={selected.organizationId} />
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal error={failure} what="The privacy holds" action="see the privacy holds" />
+      ) : null}
 
       {holds && holds.length === 0 ? (
         <Empty

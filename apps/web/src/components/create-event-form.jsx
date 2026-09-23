@@ -24,6 +24,7 @@ import { useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 // The one list of categories this application has. A second copy is how a
 // select ends up offering a value the API has never heard of — which is
 // exactly what it did: `LIVE_MUSIC` is not in `eventCategorySchema`, and every
@@ -91,7 +92,7 @@ export function CreateEventForm({ organizations = [] }) {
         return
       }
 
-      setError(body?.error?.message ?? 'The event could not be created.')
+      setError(refusalSentence(response.status, body, 'The event could not be created.'))
       setProblems(body?.error?.problems ?? [])
       // The field-level issues too. "Invalid request body" on its own is a
       // message nobody can act on — including whoever is debugging it.

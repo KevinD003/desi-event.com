@@ -14,6 +14,7 @@
 
 import Link from 'next/link'
 
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { getModerationQueue } from '../../../lib/organizer-api.js'
 import { statusReading } from '../../../lib/event-status.js'
@@ -57,7 +58,7 @@ export default async function ModerationQueuePage({ searchParams }) {
     const result = await getModerationQueue({ status })
     events = result.events
   } catch (error) {
-    failure = error instanceof Error ? error.message : String(error)
+    failure = error
   }
 
   return (
@@ -96,12 +97,7 @@ export default async function ModerationQueuePage({ searchParams }) {
       </nav>
 
       {failure ? (
-        <p
-          role="alert"
-          className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
-        >
-          The queue could not be loaded: {failure}.
-        </p>
+        <ReadRefusal error={failure} what="The review queue" action="see the review queue" />
       ) : null}
 
       {!failure && events.length === 0 ? (

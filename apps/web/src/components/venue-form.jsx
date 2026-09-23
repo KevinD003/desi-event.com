@@ -21,6 +21,7 @@ import { useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 
 /**
  * The accessibility vocabulary, and how each claim reads.
@@ -123,7 +124,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
         return
       }
 
-      setError(body?.error?.message ?? 'Could not save the venue.')
+      setError(refusalSentence(response.status, body, 'Could not save the venue.'))
       queueMicrotask(() => errorRef.current?.focus())
     } catch {
       setError('The ticketing service is not responding. Nothing has been saved.')

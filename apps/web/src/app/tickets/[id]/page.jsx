@@ -35,8 +35,10 @@ import Link from 'next/link'
 
 import { TicketPass } from '../../../components/ticket-pass.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
-import { AsOf, Breadcrumbs, Empty, Failure, Forbidden } from '../../../components/page-state.jsx'
+import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { getTicket } from '../../../lib/organizer-api.js'
+import { describeApiRefusal } from '../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -101,11 +103,14 @@ export default async function TicketDetailPage({ params }) {
   try {
     detail = await getTicket(id)
   } catch (error) {
-    if (error?.status === 403 || error?.status === 404) {
+    const { state } = describeApiRefusal(error)
+
+    // Refused and missing alike; a missing second factor is neither.
+    if (state === 'permission-denied' || state === 'not-found') {
       return <Forbidden area="This ticket" backHref="/tickets" backLabel="Back to my tickets" />
     }
 
-    failure = error?.message ?? null
+    failure = error
   }
 
   if (!detail) {
@@ -118,7 +123,7 @@ export default async function TicketDetailPage({ params }) {
           ]}
         />
         <h1 className="mt-3 text-2xl font-bold text-ink">Ticket</h1>
-        <Failure what="This ticket" detail={failure} />
+        <ReadRefusal error={failure} what="This ticket" action="see this ticket" />
       </div>
     )
   }

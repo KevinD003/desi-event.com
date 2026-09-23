@@ -12,6 +12,15 @@
  * place. An operations board that goes blank because one endpoint is slow is a
  * board nobody trusts during the incident it exists for.
  *
+ * ## A lapsed step-up is one prompt, not three
+ *
+ * The reconciliation and refund queues sit behind the FINANCE_VIEW step-up
+ * window. When it has lapsed each of them is refused the same way, and three
+ * identical prompts would be three forms that do one thing. So the board asks
+ * once, above the queues, and each refused queue says it is waiting on that.
+ * Any other refusal is drawn in place by `ReadRefusal`, in the refusal
+ * vocabulary rather than the API's own message.
+ *
  * ## Scoping
  *
  * The reconciliation and notification queues are platform-scoped; the refund
@@ -25,8 +34,11 @@
 import Link from 'next/link'
 
 import { AgingBadge } from '../../components/money-figure.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
+import { StepUpForRead } from '../../components/step-up-for-read.jsx'
 import { EmptyState } from '../../components/ui.jsx'
 import { formatPrice } from '../../lib/pricing.js'
+import { describeApiRefusal } from '../../lib/refusal.js'
 import {
   getNotificationQueue,
   getReconciliationQueue,
@@ -38,18 +50,52 @@ export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'Operations', robots: { index: false, follow: false } }
 
+/** A queue this caller is not shown at all. */
+const NOT_ASKED = Object.freeze({ value: null, error: null })
+
 /**
  * Fetch one queue, reporting a failure rather than throwing it.
  *
  * @param {Function} load What to call.
- * @returns {Promise<{value: object|null, failure: string|null}>} What came back.
+ * @returns {Promise<{value: object|null, error: object|null}>} What came back.
  */
 async function attempt(load) {
   try {
-    return { value: await load(), failure: null }
+    return { value: await load(), error: null }
   } catch (error) {
-    return { value: null, failure: error instanceof Error ? error.message : String(error) }
+    return { value: null, error }
   }
+}
+
+/**
+ * Whether a queue was refused only for want of a fresh step-up.
+ *
+ * @param {{error: object|null}} queue The attempt.
+ * @returns {boolean} True when a step-up would let it through.
+ */
+function awaitsStepUp(queue) {
+  return queue.error !== null && describeApiRefusal(queue.error).state === 'step-up'
+}
+
+/**
+ * What a queue section shows in place of its rows, when it has no rows to show.
+ *
+ * @param {object} props Component props.
+ * @param {{error: object|null}} props.queue The attempt.
+ * @returns {JSX.Element|null} The failure, or nothing.
+ */
+function QueueFailure({ queue }) {
+  if (queue.error === null) return null
+
+  if (awaitsStepUp(queue)) {
+    return (
+      <p className="mt-3 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
+        Shown once you confirm it is you, above.
+      </p>
+    )
+  }
+
+  return <ReadRefusal error={queue.error} what="This queue" action="see this queue" />
 }
 
 /**
@@ -57,7 +103,7 @@ async function attempt(load) {
  * @property {string} id The heading's id, for `aria-labelledby`.
  * @property {string} title What the queue is.
  * @property {string} description Why somebody is looking at it.
- * @property {string|null} failure What went wrong, if anything.
+ * @property {object|null} failure What to show instead of the rows, when they could not be read.
  * @property {number} count How many items.
  * @property {object} children The rows.
  */
@@ -76,16 +122,7 @@ function QueueSection({ id, title, description, failure, count, children }) {
       </h2>
       <p className="mt-1 text-sm text-ink-muted">{description}</p>
 
-      {failure ? (
-        <p
-          role="alert"
-          className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
-        >
-          This queue could not be loaded: {failure}.
-        </p>
-      ) : (
-        children
-      )}
+      {failure ?? children}
     </section>
   )
 }
@@ -105,14 +142,11 @@ export default async function OperationsPage() {
   const organizationId = organizations[0]?.organizationId
 
   const [reconciliation, notifications, refunds] = await Promise.all([
-    platform
-      ? attempt(() => getReconciliationQueue({ state: 'OPEN' }))
-      : { value: null, failure: null },
-    platform ? attempt(() => getNotificationQueue()) : { value: null, failure: null },
-    organizationId
-      ? attempt(() => getRefundQueue({ organizationId }))
-      : { value: null, failure: null },
+    platform ? attempt(() => getReconciliationQueue({ state: 'OPEN' })) : NOT_ASKED,
+    platform ? attempt(() => getNotificationQueue()) : NOT_ASKED,
+    organizationId ? attempt(() => getRefundQueue({ organizationId })) : NOT_ASKED,
   ])
+  const stepUp = [reconciliation, notifications, refunds].some(awaitsStepUp)
 
   const stuck = (notifications.value?.messages ?? []).filter((message) =>
     ['DEAD_LETTER', 'FAILED', 'RETRY_SCHEDULED'].includes(message.status),
@@ -138,12 +172,14 @@ export default async function OperationsPage() {
         </p>
       ) : null}
 
+      {stepUp ? <StepUpForRead action="see the queues that hold money" /> : null}
+
       {platform ? (
         <QueueSection
           id="reconciliation-heading"
           title="Payment reconciliation"
           description="Where the system does not know what happened: a provider that did not answer, a webhook that contradicts the stored payment, a refund whose outcome is unknown. Oldest first, because the one that has been unknown longest is the most urgent."
-          failure={reconciliation.failure}
+          failure={reconciliation.error ? <QueueFailure queue={reconciliation} /> : null}
           count={reconciliation.value?.tasks.length ?? 0}
         >
           {(reconciliation.value?.tasks.length ?? 0) === 0 ? (
@@ -191,7 +227,7 @@ export default async function OperationsPage() {
           id="notifications-heading"
           title="Notifications that did not go"
           description="Dead letters and messages waiting on a retry. Neither recipients nor payloads are shown: an operations screen answers “did this go?”, not “who was it to?” or “what did it say?”."
-          failure={notifications.failure}
+          failure={notifications.error ? <QueueFailure queue={notifications} /> : null}
           count={stuck.length}
         >
           {stuck.length === 0 ? (
@@ -230,7 +266,7 @@ export default async function OperationsPage() {
           id="refunds-heading"
           title="Refunds waiting"
           description="Asked for and not yet settled. Each one holds money back from what may be paid out, so a refund nobody moves on is a payout nobody can make."
-          failure={refunds.failure}
+          failure={refunds.error ? <QueueFailure queue={refunds} /> : null}
           count={unresolved.length}
         >
           {unresolved.length === 0 ? (

@@ -35,14 +35,14 @@
 
 import Link from 'next/link'
 
-import { Breadcrumbs, Empty, Failure, Forbidden } from '../../../../components/page-state.jsx'
+import { Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getPrivacyRequest, listPrivacyRequestEvents } from '../../../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../../../lib/session.js'
 import {
   auditActionLabel,
   auditResultLabel,
   categoryLabel,
-  describeRefusal,
   holdDecisionLabel,
   isAwaitingConfirmation,
   isCancellable,
@@ -100,7 +100,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
 
     request = answer.data ?? null
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   if (request) {
@@ -124,7 +124,9 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
     <>
       <Breadcrumbs trail={trail} />
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal error={failure} what="This request" action="see this privacy request" />
+      ) : null}
 
       {request ? (
         <>

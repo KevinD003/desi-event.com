@@ -74,8 +74,26 @@ export function Breadcrumbs({ trail }) {
 /**
  * @typedef {object} FailureProps
  * @property {string} what What could not be loaded, in the reader's words.
- * @property {string} [detail] What the server said, if anything safe to repeat.
+ * @property {string} [detail] What happened and what to do, as whole sentences —
+ *   `describeApiRefusal(error).detail`, never the API's raw message.
  */
+
+/**
+ * A detail as a sentence of its own: capitalised, and ending in a full stop.
+ *
+ * Callers used to pass a fragment ("the API answered 503") that this spliced
+ * after a colon. Since Phase 4 they pass the refusal vocabulary's sentences,
+ * and splicing those produced "loaded: Nothing reached Desi-Event…again..".
+ *
+ * @param {string} detail The detail.
+ * @returns {string} The sentence.
+ */
+function asSentence(detail) {
+  const trimmed = detail.trim()
+  const capitalised = trimmed.charAt(0).toUpperCase() + trimmed.slice(1)
+
+  return /[.!?]$/.test(capitalised) ? capitalised : `${capitalised}.`
+}
 
 /**
  * The service could not answer.
@@ -94,8 +112,8 @@ export function Failure({ what, detail }) {
       role="alert"
       className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
     >
-      {what} could not be loaded{detail ? `: ${detail}` : ''}. Nothing here is stale — it is absent,
-      and a figure guessed from a cache would be worse than none.
+      {what} could not be loaded.{detail ? ` ${asSentence(detail)}` : ''} Nothing here is stale — it
+      is absent, and a figure guessed from a cache would be worse than none.
     </p>
   )
 }

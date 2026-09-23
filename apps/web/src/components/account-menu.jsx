@@ -32,23 +32,34 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { signInHref } from '../lib/next-path.js'
 import { SignOutButton } from './sign-out-button.jsx'
 
+/** The header's sign-in link. */
+const SIGN_IN =
+  'inline-flex min-h-11 items-center rounded-lg border border-accent-line bg-accent-soft px-3 text-sm font-semibold text-accent-strong transition-colors duration-(--duration-fast) hover:bg-accent-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2'
+
+/**
+ * @typedef {object} SignInLinkProps
+ * @property {string} [label] What it says. Defaults to "Sign in".
+ * @property {string} [className] Its classes, when it is not in the header.
+ */
+
 /**
  * The sign-in link, carrying the current page as `next`.
  *
+ * Read from the router rather than passed in, so a server component can place
+ * it without knowing which page it is on.
+ *
+ * @param {SignInLinkProps} props Component props.
  * @returns {JSX.Element} The link.
  */
-export function SignInLink() {
+export function SignInLink({ label = 'Sign in', className = SIGN_IN }) {
   const pathname = usePathname()
   const search = useSearchParams()
   const query = search?.toString()
   const href = signInHref(pathname ? `${pathname}${query ? `?${query}` : ''}` : null)
 
   return (
-    <Link
-      href={href}
-      className="inline-flex min-h-11 items-center rounded-lg border border-accent-line bg-accent-soft px-3 text-sm font-semibold text-accent-strong transition-colors duration-(--duration-fast) hover:bg-accent-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
-    >
-      Sign in
+    <Link href={href} className={className}>
+      {label}
     </Link>
   )
 }

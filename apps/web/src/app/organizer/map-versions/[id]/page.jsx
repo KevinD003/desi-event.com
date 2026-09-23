@@ -12,7 +12,9 @@ import Link from 'next/link'
 
 import { Alert } from '../../../../components/ui.jsx'
 import { MapEditor } from '../../../../components/map-editor.jsx'
+import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getMapVersion } from '../../../../lib/organizer-api.js'
+import { describeApiRefusal } from '../../../../lib/refusal.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,12 +40,27 @@ export default async function MapVersionPage({ params }) {
   }
 
   if (failure) {
+    const { state } = describeApiRefusal(failure)
+
     return (
-      <Alert variant="error" title="Could not load this layout">
-        {failure.status === 403
-          ? 'This map belongs to another organisation, or to a venue shared between all of them.'
-          : failure.message}
-      </Alert>
+      <div className="max-w-2xl">
+        <h1 className="text-3xl font-bold text-ink">Seat layout</h1>
+        {state === 'permission-denied' ? (
+          // The API says which of two things it is, and both are public
+          // facts: a venue's owner and whether it is shared are on its page.
+          <Alert variant="error" title="Could not load this layout" className="mt-4">
+            This map belongs to another organisation, or to a venue shared between all of them.
+          </Alert>
+        ) : (
+          <ReadRefusal
+            error={failure}
+            what="This layout"
+            action="edit this layout"
+            backHref="/organizer/venues"
+            backLabel="Back to your venues"
+          />
+        )}
+      </div>
     )
   }
 

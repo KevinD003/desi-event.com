@@ -26,11 +26,11 @@
 
 import Link from 'next/link'
 
-import { AsOf, Empty, Failure, Forbidden } from '../../components/page-state.jsx'
+import { AsOf, Empty, Forbidden } from '../../components/page-state.jsx'
+import { ReadRefusal } from '../../components/read-refusal.jsx'
 import { listPrivacyRequests } from '../../lib/privacy-api.js'
 import { privacyOrganizations, readSession } from '../../lib/session.js'
 import {
-  describeRefusal,
   holdDecisionLabel,
   outcomeLabel,
   requestReasonLabel,
@@ -83,7 +83,7 @@ export default async function PrivacyRequestsPage({ searchParams }) {
     requests = answer.data ?? []
     pagination = answer.pagination ?? null
   } catch (error) {
-    failure = describeRefusal(error)
+    failure = error
   }
 
   const readAt = new Date().toISOString()
@@ -105,7 +105,13 @@ export default async function PrivacyRequestsPage({ searchParams }) {
         state={params.state ?? ''}
       />
 
-      {failure ? <Failure what={failure.title} detail={failure.detail} /> : null}
+      {failure ? (
+        <ReadRefusal
+          error={failure}
+          what="The privacy requests"
+          action="see this organisation’s privacy requests"
+        />
+      ) : null}
 
       {requests && requests.length === 0 ? (
         <Empty

@@ -51,6 +51,7 @@ import { EventLifecyclePanel } from './event-lifecycle-panel.jsx'
 import { EventSessionsEditor } from './event-sessions-editor.jsx'
 import { EventTiersEditor } from './event-tiers-editor.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refusalSentence } from '../lib/refusal.js'
 import { ACCESSIBILITY_LABELS } from '../lib/accessibility.js'
 // The one list of categories this application has. Duplicating it here is how
 // a select ends up offering a value the API has never heard of.
@@ -363,7 +364,7 @@ export function EventEditor({
         setServerProblems(body?.error?.problems ?? [])
         setSave({
           kind: 'error',
-          message: `Not saved. ${body?.error?.message ?? 'The API refused.'}`,
+          message: `Not saved. ${refusalSentence(response.status, body, 'The API refused.')}`,
         })
         queueMicrotask(() => summaryRef.current?.focus())
       } catch {
