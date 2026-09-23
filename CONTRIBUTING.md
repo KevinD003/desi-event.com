@@ -64,12 +64,15 @@ pnpm verify
 
 which is:
 
-| Step | Command             | Why it is where it is                                                                            |
-| ---- | ------------------- | ------------------------------------------------------------------------------------------------ |
-| 1    | `pnpm policy:check` | Cheapest gate, and the rule this repository exists to enforce. It needs no database and no build |
-| 2    | `pnpm lint`         | ESLint across every workspace. **Zero errors.** Warnings are tolerated                           |
-| 3    | `pnpm test`         | Vitest everywhere, with coverage thresholds on the pure-logic packages                           |
-| 4    | `pnpm build`        | Prisma client, `openapi.json`, `next build`                                                      |
+| Step | Command                   | Why it is where it is                                                                                                                                                  |
+| ---- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `pnpm policy:check`       | Cheapest gate, and the rule this repository exists to enforce. It needs no database and no build                                                                       |
+| 2    | `pnpm ci:check`           | The workflow's own invariants, read from `.github/workflows` and `turbo.json`                                                                                          |
+| 3    | `pnpm secrets:scan`       | Nothing credential-shaped in a tracked file                                                                                                                            |
+| 4    | `pnpm format:check`       | Prettier, unchanged                                                                                                                                                    |
+| 5    | `pnpm lint`               | ESLint across every workspace. **Zero errors.** Warnings are tolerated                                                                                                 |
+| 6    | `pnpm verify:tests:fresh` | Every test task with the cache refused, then every report proved fresh, complete and free of undeclared skips — what CI runs. It needs the test database, as CI's does |
+| 7    | `pnpm build`              | Prisma client, `openapi.json`, `next build`                                                                                                                            |
 
 If you exported `.env` into your shell, run it as
 `NODE_ENV=production pnpm verify`. The `.env` template sets

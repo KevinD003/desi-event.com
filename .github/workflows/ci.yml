@@ -204,6 +204,15 @@ jobs:
             pnpm run load -- --profile ramp --scenario "$scenario" --no-write
           done
 
+      # The fresh-report table, again, as the last thing a green run prints. The
+      # test step printed it thousands of lines above the end of this log, out
+      # of reach of anything that reads only the tail. verify:tests:fresh
+      # deletes any earlier copy when it starts and writes this one from the
+      # lines it printed; if the file is missing, `cat` fails the step.
+      # `ci:check` requires this step, and that only failure-only steps follow.
+      - name: Fresh-report summary
+        run: cat test-results/verify-tests-fresh.txt
+
       - name: Upload failure artefacts
         if: failure()
         uses: actions/upload-artifact@v4

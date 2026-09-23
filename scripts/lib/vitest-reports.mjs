@@ -35,6 +35,13 @@ export const REPORT_NAME = 'vitest-report.json'
 export const DID_NOT_RUN = Object.freeze(['skipped', 'pending', 'todo'])
 
 /**
+ * The assertion statuses that mean "this case ran".
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const RAN = Object.freeze(['passed', 'failed'])
+
+/**
  * Directories never searched for reports.
  *
  * `node_modules` holds other projects' fixtures; the rest are build and cache
@@ -135,6 +142,33 @@ export function readReport(file) {
     throw new ReportError('malformed', file, 'the report has no testResults array')
   }
 
+  // Every entry is read below as an object with a status. A null, a number or
+  // a case without a status would otherwise crash the count instead of being
+  // refused as the unreadable report it is.
+  for (const [index, suite] of report.testResults.entries()) {
+    if (suite === null || typeof suite !== 'object') {
+      throw new ReportError('malformed', file, `testResults[${index}] is not an object`)
+    }
+
+    if (suite.assertionResults !== undefined && !Array.isArray(suite.assertionResults)) {
+      throw new ReportError(
+        'malformed',
+        file,
+        `testResults[${index}] has no assertionResults array`,
+      )
+    }
+
+    for (const assertion of suite.assertionResults ?? []) {
+      if (
+        assertion === null ||
+        typeof assertion !== 'object' ||
+        typeof assertion.status !== 'string'
+      ) {
+        throw new ReportError('malformed', file, `a case in testResults[${index}] has no status`)
+      }
+    }
+  }
+
   return report
 }
 
@@ -194,6 +228,57 @@ export function skippedIn(report, file, relativeTo = process.cwd()) {
 }
 
 /**
+ * Every case whose status is neither a run (`passed`, `failed`) nor one of the
+ * ways of not running ({@link DID_NOT_RUN}).
+ *
+ * Counted nowhere else, such a case would be neither a pass, a failure nor a
+ * skip, and a report of nothing but those would read as clean.
+ *
+ * @param {object} report A parsed report.
+ * @param {string} file The report's path, used when a suite carries no name.
+ * @param {string} [relativeTo] Directory the returned file paths are relative to.
+ * @returns {Array<{name: string, file: string, status: string}>} The unrecognised cases.
+ */
+export function unrecognisedIn(report, file, relativeTo = process.cwd()) {
+  const unknown = []
+
+  for (const suite of report.testResults ?? []) {
+    for (const assertion of suite.assertionResults ?? []) {
+      if (!RAN.includes(assertion.status) && !DID_NOT_RUN.includes(assertion.status)) {
+        unknown.push({
+          name: caseName(assertion),
+          file: path.relative(relativeTo, suite.name ?? file),
+          status: assertion.status,
+        })
+      }
+    }
+  }
+
+  return unknown
+}
+
+/**
+ * Test files marked failed although none of their cases failed: a hook, an
+ * import or the file itself broke outside any case.
+ *
+ * @param {object} report A parsed report.
+ * @param {string} [relativeTo] Directory the returned paths are relative to.
+ * @returns {Array<{file: string, message: string}>} Each such file, and what it said.
+ */
+export function failedOutsideCasesIn(report, relativeTo = process.cwd()) {
+  return (report.testResults ?? [])
+    .filter(
+      (suite) =>
+        suite.status === 'failed' &&
+        !(suite.assertionResults ?? []).some((assertion) => assertion.status === 'failed'),
+    )
+    .map((suite) => ({
+      file: path.relative(relativeTo, suite.name ?? '(unnamed suite)'),
+      message: typeof suite.message === 'string' ? suite.message.split('\n')[0].trim() : '',
+    }))
+}
+
+/**
  * Test files in a report that collected no cases.
  *
  * A package-level count catches a package that ran nothing; this catches one
@@ -235,13 +320,23 @@ export function totalsIn(report) {
 }
 
 /**
- * Every report under a directory, however deep.
+ * Every report under a directory, however deep, and every directory link the
+ * walk did not follow.
+ *
+ * Symbolic links are never followed: one can point back up the tree or out of
+ * the repository altogether. They are not passed over in silence either,
+ * because a walk that skips them cannot see what they hold. A link named like a
+ * report is returned as a report, so it is deleted as one (the link, not what
+ * it points at) and refused as one. A link to a directory is returned in
+ * `linkedDirectories` for the caller to refuse: a report behind it can be
+ * neither deleted nor noticed. A link to anything else cannot hold a report.
  *
  * @param {string} root Where to start.
- * @returns {string[]} Absolute paths, sorted.
+ * @returns {{reports: string[], linkedDirectories: string[]}} Absolute paths, sorted.
  */
 export function findReports(root) {
-  const found = []
+  const reports = []
+  const linkedDirectories = []
 
   /**
    * Walk one directory.
@@ -259,17 +354,30 @@ export function findReports(root) {
     }
 
     for (const entry of entries) {
+      const full = path.join(directory, entry.name)
+
       if (entry.isDirectory()) {
-        if (!NOT_SEARCHED.has(entry.name)) walk(path.join(directory, entry.name))
-      } else if (entry.isFile() && entry.name === REPORT_NAME) {
-        found.push(path.join(directory, entry.name))
+        if (!NOT_SEARCHED.has(entry.name)) walk(full)
+      } else if (entry.name === REPORT_NAME && (entry.isFile() || entry.isSymbolicLink())) {
+        reports.push(full)
+      } else if (entry.isSymbolicLink() && !NOT_SEARCHED.has(entry.name)) {
+        let target
+
+        try {
+          target = statSync(full)
+        } catch {
+          // A dangling or looping link leads nowhere a report could be.
+          continue
+        }
+
+        if (target.isDirectory()) linkedDirectories.push(full)
       }
     }
   }
 
   walk(path.resolve(root))
 
-  return found.sort()
+  return { reports: reports.sort(), linkedDirectories: linkedDirectories.sort() }
 }
 
 /**

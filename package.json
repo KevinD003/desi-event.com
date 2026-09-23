@@ -26,7 +26,7 @@
     "policy:check": "node scripts/check-language-policy.mjs",
     "ci:check": "node scripts/check-ci-invariants.mjs",
     "contract:check": "pnpm --filter @desi-event/api-contract run validate && pnpm --filter @desi-event/api run openapi:check",
-    "verify": "pnpm run policy:check && pnpm run ci:check && pnpm run secrets:scan && pnpm run format:check && pnpm run lint && pnpm run test && pnpm run build",
+    "verify": "pnpm run policy:check && pnpm run ci:check && pnpm run secrets:scan && pnpm run format:check && pnpm run lint && pnpm run verify:tests:fresh && pnpm run build",
     "db:generate": "pnpm --filter @desi-event/db run generate",
     "db:migrate": "pnpm --filter @desi-event/db run migrate",
     "db:migrate:deploy": "pnpm --filter @desi-event/db run migrate:deploy",

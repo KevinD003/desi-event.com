@@ -167,7 +167,7 @@ Run from the repository root.
 | `pnpm skips:check`        | Fail an undeclared skipped test                                                                                   |
 | `pnpm verify:tests:fresh` | Delete every report, run every test task with the cache refused, refuse any report not proved fresh. What CI runs |
 | `pnpm contract:check`     | Structurally validate the API contract and OpenAPI document                                                       |
-| `pnpm verify`             | `policy:check` → `secrets:scan` → `format:check` → `lint` → `test` → `build`. The pre-push gate                   |
+| `pnpm verify`             | `policy:check` → `secrets:scan` → `format:check` → `lint` → `verify:tests:fresh` → `build`. The pre-push gate     |
 | `pnpm db:generate`        | `prisma generate`                                                                                                 |
 | `pnpm db:migrate`         | `prisma migrate dev` — create and apply a migration                                                               |
 | `pnpm db:migrate:deploy`  | `prisma migrate deploy` — apply existing migrations                                                               |
@@ -265,7 +265,8 @@ then refuses any report older than the run — by modification time and by the
 `startTime` Vitest writes inside it — as well as any package that wrote none,
 any failed case, and any skipped, pending or todo case not allow-listed. CI
 runs exactly this command, and `pnpm ci:check` refuses a workflow that produces
-or judges reports any other way.
+or judges reports any other way. `pnpm verify` runs it too, in place of a plain
+`pnpm test`, so the local gate needs the test database just as CI does.
 
 **The current figures**: **4,642** unit
 and integration cases across 173 files, and **242** browser cases across seven
