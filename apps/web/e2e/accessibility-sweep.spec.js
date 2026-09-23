@@ -1155,22 +1155,61 @@ test.describe.serial('the Phase 2 screens, swept', () => {
   })
 
   test('the holder’s pass is clean, at the narrowest width and the widest', async ({ browser }) => {
-    // The page carries a live pass while it is scanned. This configuration
-    // screenshots a failing test's pages, and a screenshot of a pass is a
-    // ticket — so the context is closed in `finally`, before Playwright's
-    // teardown looks for a page to capture, whatever happens above it.
+    // This case scans the panel a pass is drawn in, and it never draws a real
+    // one. This configuration keeps screenshots of a failing test's pages, and
+    // a screenshot of a pass is a ticket. Closing the context does not stop
+    // that: Playwright 1.63 takes a screenshot of every page in a context as
+    // the context closes and keeps it if the test failed, and on a timeout it
+    // screenshots every page still open. `screenshot`, `trace` and `video` are
+    // worker-scoped, so `test.use` cannot turn them off for this one case
+    // while the rest of the sweep keeps them.
+    //
+    // So the pass request is answered here, before it can leave the browser,
+    // with a value that is plainly not a credential. It has a real pass's
+    // length and alphabet, so the drawing is the size a real one is. The real
+    // round trip — drawn, decoded, scanned, admitted — is in
+    // `detail-organizer-checkin.spec.js`, whose file-level `test.use` turns
+    // screenshots, traces and video off.
     const context = await browser.newContext()
+    const ticketId = door.doorTicketIds[0]
+    const synthetic = 'SWEEP-NOT-A-CREDENTIAL-'.padEnd(43, 'x')
+    const passRequests = []
+    let answered = 0
+
+    context.on('request', (request) => {
+      if (/^\/api\/v1\/tickets\/[^/]+\/pass$/u.test(new URL(request.url()).pathname)) {
+        passRequests.push(request.url())
+      }
+    })
+    // Every ticket's pass path, not only this one's: no real pass can reach
+    // this page, whichever ticket it asks for.
+    await context.route('**/api/v1/tickets/*/pass', async (route) => {
+      answered += 1
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'cache-control': 'no-store, private' },
+        body: JSON.stringify({
+          data: { ticketId, credential: synthetic, credentialVersion: 1, issuedAt: null },
+        }),
+      })
+    })
 
     try {
       const page = await context.newPage()
 
       await signInWithoutFactor(page, door.holderEmail)
 
-      for (const width of [320, 1440]) {
+      for (const [index, width] of [320, 1440].entries()) {
         await page.setViewportSize({ width, height: 900 })
-        await page.goto(`/tickets/${door.doorTicketIds[0]}`)
+        await page.goto(`/tickets/${ticketId}`)
         await page.getByRole('button', { name: 'Show my entry pass' }).click()
         await expect(page.getByRole('img', { name: /entry pass, as a qr code/iu })).toBeVisible()
+
+        // Every pass request this page made was answered by the route above,
+        // so the server's pass was never fetched.
+        expect(answered, `pass requests answered here at ${width}`).toBe(index + 1)
+        expect(passRequests, `pass requests made at ${width}`).toHaveLength(index + 1)
 
         const violations = await scan(page)
 

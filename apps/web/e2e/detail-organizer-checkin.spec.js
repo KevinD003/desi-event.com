@@ -28,10 +28,11 @@ import { CONNECTION } from './support/seed-refusals.mjs'
  * was never written would pass every page assertion here, so the count of
  * `CheckIn` rows, and their method, is read from PostgreSQL.
  *
- * ## No screenshots, no traces
+ * ## No screenshots, no traces, no video
  *
- * The holder's page carries a live pass. A failure screenshot of it would put
- * a bearer credential into a test artefact, so this file turns both off.
+ * The holder's page carries a live pass. A failure screenshot, a trace or a
+ * video of it would put a bearer credential into a test artefact, so this file
+ * turns all three off.
  *
  * @module e2e/detail-organizer-checkin
  */
@@ -88,6 +89,53 @@ function decodeDrawing(path, size) {
   }
 
   return jsQR(data, width, width)?.data ?? null
+}
+
+/**
+ * Every eight-character slice of a string.
+ *
+ * What "no part of the pass" is checked against. Eight characters of a random
+ * base64url string do not turn up anywhere by chance, so a slice found in the
+ * door's storage got there from the pass.
+ *
+ * @param {string} text The string.
+ * @returns {string[]} Its slices, overlapping.
+ */
+function slices(text) {
+  const size = 8
+
+  return Array.from({ length: text.length - size + 1 }, (_, at) => text.slice(at, at + size))
+}
+
+/**
+ * Collect what a page complains about: console errors and warnings, and
+ * uncaught exceptions.
+ *
+ * @param {object} page The page, before it navigates.
+ * @returns {string[]} The messages, filled in as they arrive.
+ */
+function complaints(page) {
+  const messages = []
+
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') messages.push(message.text())
+  })
+  page.on('pageerror', (error) => {
+    messages.push(error.message)
+  })
+
+  return messages
+}
+
+/**
+ * The complaints that are React's: a hydration mismatch, or an input that
+ * changed between controlled and uncontrolled.
+ *
+ * @param {string[]} messages From {@link complaints}.
+ * @returns {string[]} The ones that mention React, hydration or control.
+ */
+function reactComplaints(messages) {
+  return messages.filter((text) => /react|hydrat|controlled/iu.test(text))
 }
 
 /**
@@ -316,6 +364,8 @@ test.describe('the door screen', () => {
     // its script arrives. Holding every script back three seconds makes the
     // typing land first on any machine. Before this was handled, the field
     // showed the code while Look up stayed disabled beside it for good.
+    const heard = complaints(scanner)
+
     await scanner.route(/\/_next\/.*\.js/u, async (route) => {
       await new Promise((resolve) => {
         setTimeout(resolve, 3_000)
@@ -338,6 +388,52 @@ test.describe('the door screen', () => {
     ).toBeFocused()
     await scanner.getByRole('button', { name: 'Cancel' }).click()
     expect(await admissions(ids().doorTicketIds[4])).toEqual([])
+    // Taking up the early typing did not cost a hydration mismatch or an
+    // input that changed hands between the browser and React.
+    expect(reactComplaints(heard)).toEqual([])
+  })
+
+  test('keeps half a code typed before the page’s script arrived, and takes the rest', async ({
+    scanner,
+  }) => {
+    // The same slow door, with the steward still typing when the script
+    // lands: half the code goes in before anything is listening, the rest
+    // after. Taking up the first half must not drop it, move focus off the
+    // field, or lose the keys that follow.
+    const heard = complaints(scanner)
+    const code = ids().doorCodes[4]
+    const half = Math.floor(code.length / 2)
+
+    await scanner.route(/\/_next\/.*\.js/u, async (route) => {
+      await new Promise((resolve) => {
+        setTimeout(resolve, 3_000)
+      })
+      await route.continue()
+    })
+    await scanner.goto('/organizer/check-in', { waitUntil: 'commit' })
+
+    const field = scanner.getByLabel('Printed ticket code')
+    const lookUp = scanner.getByRole('button', { name: 'Look up' })
+
+    await field.focus()
+    await scanner.keyboard.type(code.slice(0, half))
+    // The premise: the first half is in before anything is listening.
+    expect(await lookUp.isDisabled()).toBe(true)
+
+    await expect(lookUp).toBeEnabled()
+    await expect(field).toBeFocused()
+    await scanner.keyboard.type(code.slice(half))
+    await expect(field).toHaveValue(code)
+    await lookUp.click()
+
+    await expect(
+      scanner.getByRole('heading', { name: 'Check the ticket, then admit' }),
+    ).toBeFocused()
+    await expect(scanner.getByText('Asha Door 5', { exact: true })).toBeVisible()
+    // Cancel, not Admit: this ticket is the one the layout cases use.
+    await scanner.getByRole('button', { name: 'Cancel' }).click()
+    expect(await admissions(ids().doorTicketIds[4])).toEqual([])
+    expect(reactComplaints(heard)).toEqual([])
   })
 })
 
@@ -352,7 +448,18 @@ test.describe('the pass, from the holder’s screen to the door’s camera', () 
     await expect(holder.getByRole('heading', { name: 'Your entry pass' })).toBeVisible()
     await expect(holder.getByRole('img', { name: /entry pass, as a qr code/iu })).toHaveCount(0)
 
+    const passResponse = holder.waitForResponse(
+      (response) => new URL(response.url()).pathname === `/api/v1/tickets/${ticketId}/pass`,
+    )
+
     await holder.getByRole('button', { name: 'Show my entry pass' }).click()
+
+    // The pass as the browser received it, through the web's proxy: nothing
+    // on the way may keep it, and neither may the browser.
+    const cacheControl = (await passResponse).headers()['cache-control'] ?? ''
+
+    expect(cacheControl).toContain('no-store')
+    expect(cacheControl).toContain('private')
 
     const drawing = holder.getByRole('img', { name: /entry pass, as a qr code/iu })
 
@@ -385,8 +492,26 @@ test.describe('the pass, from the holder’s screen to the door’s camera', () 
       if (request.url().endsWith('/api/v1/tickets/admission/preview')) lookups += 1
     })
 
+    // Every request the door page makes from here until the admission is
+    // shown: its API calls by name, and every request at all, so that one
+    // carrying the pass anywhere else would be seen. Static assets are not
+    // under `/api/`.
+    const doorCalls = []
+    const everyRequest = []
+    let recording = false
+
+    scanner.on('request', (request) => {
+      if (!recording) return
+
+      const { pathname } = new URL(request.url())
+
+      everyRequest.push({ pathname, url: request.url(), body: request.postData() ?? '' })
+      if (pathname.startsWith('/api/')) doorCalls.push(`${request.method()} ${pathname}`)
+    })
+
     await fakeCamera(scanner, { kind: 'stream', path, size })
     await openDoor(scanner)
+    recording = true
     await scanner.getByRole('button', { name: 'Scan the QR pass' }).click()
 
     expect(lookups).toBe(0)
@@ -409,6 +534,29 @@ test.describe('the pass, from the holder’s screen to the door’s camera', () 
     await expect(scanner.getByRole('heading', { name: 'Admitted', exact: true })).toBeVisible()
     expect(await admissions(ticketId)).toEqual([{ method: 'QR_SCAN' }])
 
+    // Scanning the pass cost one lookup and one admission, the only API calls
+    // the door made, and no other request carried any part of the pass — in
+    // its address or its body. Only paths are reported, never the pass.
+    recording = false
+    expect(doorCalls).toEqual([
+      'POST /api/v1/tickets/admission/preview',
+      'POST /api/v1/tickets/check-in',
+    ])
+
+    const passParts = slices(credential)
+    const carriedElsewhere = everyRequest
+      .filter(
+        ({ pathname }) =>
+          pathname !== '/api/v1/tickets/admission/preview' &&
+          pathname !== '/api/v1/tickets/check-in',
+      )
+      .filter(({ url, body }) =>
+        passParts.some((part) => url.includes(part) || body.includes(part)),
+      )
+      .map(({ pathname }) => pathname)
+
+    expect(carriedElsewhere).toEqual([])
+
     // Presented again: already in.
     await scanner.getByRole('button', { name: 'Next ticket' }).click()
     await expect(
@@ -419,6 +567,28 @@ test.describe('the pass, from the holder’s screen to the door’s camera', () 
     await scanner.getByRole('button', { name: 'Next ticket' }).click()
     await scanner.getByRole('button', { name: 'Stop camera' }).click()
     await expect(scanner.getByText('The camera is off.')).toBeVisible()
+
+    // The door kept no part of the pass it read: not in storage, not in a
+    // readable cookie, not as a database, not in its address. Only the names
+    // of the places are reported, so a failure does not print the pass.
+    const kept = await scanner.evaluate(async () => {
+      const databases = (await indexedDB.databases?.()) ?? []
+
+      return {
+        localStorage: JSON.stringify({ ...localStorage }),
+        sessionStorage: JSON.stringify({ ...sessionStorage }),
+        cookie: document.cookie,
+        indexedDB: JSON.stringify(databases.map((database) => database.name)),
+        address: location.href,
+      }
+    })
+    const parts = slices(credential)
+
+    expect(
+      Object.entries(kept)
+        .filter(([, value]) => parts.some((part) => value.includes(part)))
+        .map(([place]) => place),
+    ).toEqual([])
   })
 })
 

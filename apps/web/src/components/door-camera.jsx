@@ -94,11 +94,17 @@ export function DoorCamera({ onPass, onOther, paused }) {
   const pausedRef = useRef(paused)
   const lastPass = useRef({ value: null, at: 0 })
   const handlers = useRef({ onPass, onOther })
+  // Counts stops. A request for the camera remembers the count it started
+  // under; if the count has moved on by the time the browser answers, the
+  // steward stopped, switched to typing or left while it was asking.
+  const stops = useRef(0)
 
   handlers.current = { onPass, onOther }
   pausedRef.current = paused
 
   const stop = useCallback(() => {
+    stops.current += 1
+
     if (timer.current) clearTimeout(timer.current)
     timer.current = null
 
@@ -196,11 +202,21 @@ export function DoorCamera({ onPass, onOther, paused }) {
 
     setState('starting')
 
+    const asked = stops.current
+
     try {
       const media = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } },
         audio: false,
       })
+
+      // Stopped while the browser was still asking: stop() found no stream to
+      // turn off, so turn this one off now, and show and read nothing from it.
+      if (stops.current !== asked) {
+        for (const track of media?.getTracks?.() ?? []) track.stop()
+
+        return
+      }
 
       stream.current = media
 
@@ -211,6 +227,10 @@ export function DoorCamera({ onPass, onOther, paused }) {
           .then(() => video.current?.play())
           .catch(() => {})
       }
+
+      // Stopped while the preview was starting: stop() has already turned the
+      // camera off, so do not say it is on or start reading frames.
+      if (stops.current !== asked) return
 
       setState('running')
       timer.current = setTimeout(tick, FRAME_INTERVAL_MS)

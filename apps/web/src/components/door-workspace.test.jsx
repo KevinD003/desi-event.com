@@ -1,12 +1,15 @@
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+vi.mock('../lib/qr-decode.js', () => ({ decodeFrame: vi.fn() }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
+const { decodeFrame } = await import('../lib/qr-decode.js')
 const { DoorWorkspace } = await import('./door-workspace.jsx')
 
 const EVENT = {
@@ -88,8 +91,62 @@ async function lookUp(user, code = 'det-abc123xyz') {
   await user.click(screen.getByRole('button', { name: /look up/iu }))
 }
 
+/**
+ * What React said while a case ran. React prints a switch between a
+ * controlled and an uncontrolled input once per module load, so a check made
+ * only by the cases that hydrate would miss it whenever an earlier case
+ * printed it first: the whole file is watched instead, and whichever case
+ * provokes a complaint is the one that fails. jsdom's own "not implemented"
+ * notices (the older camera cases do not stub `play()`) are the only lines
+ * let through, by name.
+ */
+const complaints = []
+
+/**
+ * Mismatches React recovered from while hydrating. React reports those to
+ * `onRecoverableError`, not to the console, so every hydration here goes
+ * through {@link hydrate} and hands them to this list.
+ */
+const recovered = []
+
+/**
+ * Hydrate server-drawn markup, keeping whatever React had to recover from.
+ *
+ * @param {HTMLElement} container The server-drawn markup.
+ * @param {JSX.Element} tree What the client renders into it.
+ * @returns {object} The root.
+ */
+function hydrate(container, tree) {
+  return hydrateRoot(container, tree, { onRecoverableError: (error) => recovered.push(error) })
+}
+
+/**
+ * Record a console line unless it is jsdom saying it cannot play media.
+ *
+ * @param {...unknown} parts The arguments the console was given.
+ * @returns {void}
+ */
+function complain(...parts) {
+  const text = parts.map(String).join(' ')
+
+  if (!/Not implemented: HTMLMediaElement/u.test(text)) complaints.push(text)
+}
+
+beforeEach(() => {
+  complaints.length = 0
+  recovered.length = 0
+  vi.spyOn(console, 'error').mockImplementation(complain)
+  vi.spyOn(console, 'warn').mockImplementation(complain)
+})
+
+afterEach(() => {
+  expect(complaints, 'React or the page complained on the console').toEqual([])
+  expect(recovered, 'hydration had to recover from a mismatch').toEqual([])
+})
+
 beforeEach(() => {
   apiFetch.mockReset()
+  decodeFrame.mockReset()
 })
 
 describe('DoorWorkspace: looking up, then admitting', () => {
@@ -292,7 +349,7 @@ describe('DoorWorkspace: looking up, then admitting', () => {
       field.value = 'det-abc123xyz'
 
       await act(async () => {
-        root = hydrateRoot(container, <DoorWorkspace events={[ENTRY]} />)
+        root = hydrate(container, <DoorWorkspace events={[ENTRY]} />)
       })
 
       const button = within(container).getByRole('button', { name: /look up/iu })
@@ -325,7 +382,211 @@ describe('DoorWorkspace: looking up, then admitting', () => {
       within(container).getByLabelText(/event you are admitting to/iu).value = other.event.id
 
       await act(async () => {
-        root = hydrateRoot(container, <DoorWorkspace events={[ENTRY, other]} />)
+        root = hydrate(container, <DoorWorkspace events={[ENTRY, other]} />)
+      })
+
+      expect(within(container).getByLabelText(/event you are admitting to/iu).value).toBe(
+        other.event.id,
+      )
+      expect(within(container).getByLabelText(/printed ticket code/iu)).toBeTruthy()
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('offers no lookup for a server-drawn field left empty, and sends nothing', async () => {
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(<DoorWorkspace events={[ENTRY]} />)
+    document.body.append(container)
+
+    try {
+      await act(async () => {
+        root = hydrate(container, <DoorWorkspace events={[ENTRY]} />)
+      })
+
+      const user = userEvent.setup()
+      const field = within(container).getByLabelText(/printed ticket code/iu)
+      const button = within(container).getByRole('button', { name: /look up/iu })
+
+      expect(field.value).toBe('')
+      expect(button.disabled).toBe(true)
+
+      await user.click(button)
+      await user.type(field, '{Enter}')
+
+      expect(apiFetch).not.toHaveBeenCalled()
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('keeps the start of a code typed before the script arrived, and takes the rest after', async () => {
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(<DoorWorkspace events={[ENTRY]} />)
+    document.body.append(container)
+
+    try {
+      const field = within(container).getByLabelText(/printed ticket code/iu)
+
+      field.value = 'det-abc'
+
+      await act(async () => {
+        root = hydrate(container, <DoorWorkspace events={[ENTRY]} />)
+      })
+
+      const user = userEvent.setup()
+      const button = within(container).getByRole('button', { name: /look up/iu })
+
+      expect(field.value).toBe('det-abc')
+      expect(button.disabled).toBe(false)
+
+      await user.type(field, '123xyz')
+
+      expect(field.value).toBe('det-abc123xyz')
+
+      apiFetch.mockResolvedValueOnce(answer(200, ADMISSIBLE))
+      await user.click(button)
+
+      expect(sent(0)).toEqual({ code: 'DET-ABC123XYZ', expectedEventId: EVENT.id })
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('keeps a code pasted into the server-drawn field before the script arrived', async () => {
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(<DoorWorkspace events={[ENTRY]} />)
+    document.body.append(container)
+
+    try {
+      // A paste sets the value and fires `input`; with no script yet, nothing
+      // hears it.
+      const field = within(container).getByLabelText(/printed ticket code/iu)
+
+      field.value = 'det-abc123xyz'
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+
+      await act(async () => {
+        root = hydrate(container, <DoorWorkspace events={[ENTRY]} />)
+      })
+
+      const button = within(container).getByRole('button', { name: /look up/iu })
+
+      expect(field.value).toBe('det-abc123xyz')
+      expect(button.disabled).toBe(false)
+
+      apiFetch.mockResolvedValueOnce(answer(200, ADMISSIBLE))
+      await userEvent.setup().click(button)
+
+      expect(sent(0)).toEqual({ code: 'DET-ABC123XYZ', expectedEventId: EVENT.id })
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('keeps a code the browser filled in before the script arrived', async () => {
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(<DoorWorkspace events={[ENTRY]} />)
+    document.body.append(container)
+
+    try {
+      // Autofill sets the value and fires both `input` and `change`.
+      const field = within(container).getByLabelText(/printed ticket code/iu)
+
+      field.value = 'det-abc123xyz'
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+      field.dispatchEvent(new Event('change', { bubbles: true }))
+
+      await act(async () => {
+        root = hydrate(container, <DoorWorkspace events={[ENTRY]} />)
+      })
+
+      const button = within(container).getByRole('button', { name: /look up/iu })
+
+      expect(field.value).toBe('det-abc123xyz')
+      expect(button.disabled).toBe(false)
+
+      apiFetch.mockResolvedValueOnce(answer(200, ADMISSIBLE))
+      await userEvent.setup().click(button)
+
+      expect(sent(0)).toEqual({ code: 'DET-ABC123XYZ', expectedEventId: EVENT.id })
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('keeps a code typed before the script arrived under StrictMode', async () => {
+    const tree = (
+      <StrictMode>
+        <DoorWorkspace events={[ENTRY]} />
+      </StrictMode>
+    )
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(tree)
+    document.body.append(container)
+
+    try {
+      // StrictMode mounts, unmounts and mounts again. The unmount clears the
+      // ticket in hand; the typed code must survive it.
+      const field = within(container).getByLabelText(/printed ticket code/iu)
+
+      field.value = 'det-abc123xyz'
+
+      await act(async () => {
+        root = hydrate(container, tree)
+      })
+
+      const button = within(container).getByRole('button', { name: /look up/iu })
+
+      expect(field.value).toBe('det-abc123xyz')
+      expect(button.disabled).toBe(false)
+
+      apiFetch.mockResolvedValueOnce(answer(200, ADMISSIBLE))
+      await userEvent.setup().click(button)
+
+      expect(sent(0)).toEqual({ code: 'DET-ABC123XYZ', expectedEventId: EVENT.id })
+    } finally {
+      act(() => root?.unmount())
+      container.remove()
+    }
+  })
+
+  it('keeps an event chosen before the script arrived under StrictMode', async () => {
+    const other = {
+      ...ENTRY,
+      event: { ...EVENT, id: 'eventbbbbbbbbbbbbbbbbbbbb', title: 'Diwali Mela' },
+    }
+    const tree = (
+      <StrictMode>
+        <DoorWorkspace events={[ENTRY, other]} />
+      </StrictMode>
+    )
+    const container = document.createElement('div')
+    let root
+
+    container.innerHTML = renderToString(tree)
+    document.body.append(container)
+
+    try {
+      within(container).getByLabelText(/event you are admitting to/iu).value = other.event.id
+
+      await act(async () => {
+        root = hydrate(container, tree)
       })
 
       expect(within(container).getByLabelText(/event you are admitting to/iu).value).toBe(
@@ -361,6 +622,61 @@ describe('DoorWorkspace: the camera', () => {
     })
 
     return mock
+  }
+
+  /**
+   * Install a camera the browser has not handed over yet, as while the
+   * permission prompt is open.
+   *
+   * @returns {{tracks: object[], stream: object, grant: function(): Promise<void>}} Its tracks, its stream, and a way to hand it over.
+   */
+  function slowCamera() {
+    const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }]
+    const stream = { getTracks: () => tracks }
+    let resolve
+
+    camera(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
+    )
+
+    return { tracks, stream, grant: () => act(async () => resolve(stream)) }
+  }
+
+  /**
+   * Make the preview look as if frames were arriving, so that a decode loop,
+   * if one ran, would reach the decoder.
+   *
+   * @returns {{play: object, context: object, getContext: object}} The spies, and the drawing context the camera is given.
+   */
+  function framesArrive() {
+    const context = {
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 })),
+      clearRect: vi.fn(),
+    }
+
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(4)
+    vi.spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get').mockReturnValue(1280)
+    vi.spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get').mockReturnValue(720)
+
+    return {
+      context,
+      getContext: vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context),
+      play: vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined),
+    }
+  }
+
+  /**
+   * Let a few frame intervals pass. The camera reads a frame every 200 ms, so
+   * a decode loop that had started would have reached the decoder by then.
+   *
+   * @returns {Promise<void>}
+   */
+  function afterAFewFrames() {
+    return act(() => new Promise((done) => setTimeout(done, 500)))
   }
 
   it('asks for the camera only when the steward presses Start camera', async () => {
@@ -432,5 +748,153 @@ describe('DoorWorkspace: the camera', () => {
 
     expect(await screen.findByText(/cannot use a camera here/iu)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /start camera/iu })).toBeNull()
+  })
+
+  it('turns off a camera that arrives after the steward switched to typing a code', async () => {
+    const user = userEvent.setup()
+    const { play } = framesArrive()
+    const { tracks, grant } = slowCamera()
+
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await user.click(screen.getByRole('button', { name: /scan the qr pass/iu }))
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+
+    expect(screen.getByText('Starting the camera…')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: /type the printed code/iu }))
+    await grant()
+    await afterAFewFrames()
+
+    for (const track of tracks) expect(track.stop).toHaveBeenCalled()
+    expect(screen.queryByLabelText(/camera preview/iu)).toBeNull()
+    expect(play).not.toHaveBeenCalled()
+    expect(decodeFrame).not.toHaveBeenCalled()
+  })
+
+  it('turns off a camera that arrives after the page was hidden', async () => {
+    const user = userEvent.setup()
+    const { play } = framesArrive()
+    const { tracks, stream, grant } = slowCamera()
+
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await user.click(screen.getByRole('button', { name: /scan the qr pass/iu }))
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+
+    expect(screen.getByText('Starting the camera…')).toBeTruthy()
+
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+
+    try {
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await grant()
+      await afterAFewFrames()
+
+      for (const track of tracks) expect(track.stop).toHaveBeenCalled()
+      expect(screen.getByLabelText(/camera preview/iu).srcObject).not.toBe(stream)
+      expect(play).not.toHaveBeenCalled()
+      expect(decodeFrame).not.toHaveBeenCalled()
+      expect(screen.getByText('The camera is off.')).toBeTruthy()
+    } finally {
+      delete document.hidden
+      delete document.visibilityState
+    }
+  })
+
+  it('turns off a camera that arrives after the door screen was left', async () => {
+    const user = userEvent.setup()
+    const { play } = framesArrive()
+    const { tracks, grant } = slowCamera()
+    const { unmount } = render(<DoorWorkspace events={[ENTRY]} />)
+
+    await user.click(screen.getByRole('button', { name: /scan the qr pass/iu }))
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+
+    expect(screen.getByText('Starting the camera…')).toBeTruthy()
+
+    unmount()
+    await grant()
+    await afterAFewFrames()
+
+    for (const track of tracks) expect(track.stop).toHaveBeenCalled()
+    expect(play).not.toHaveBeenCalled()
+    expect(decodeFrame).not.toHaveBeenCalled()
+  })
+
+  it('does not say the camera is on when it was stopped while the preview was starting', async () => {
+    const user = userEvent.setup()
+    const tracks = [{ stop: vi.fn() }, { stop: vi.fn() }]
+    const { play } = framesArrive()
+    let playing
+
+    play.mockImplementation(
+      () =>
+        new Promise((done) => {
+          playing = done
+        }),
+    )
+    camera(async () => ({ getTracks: () => tracks }))
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await user.click(screen.getByRole('button', { name: /scan the qr pass/iu }))
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+    await waitFor(() => expect(play).toHaveBeenCalled())
+
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true })
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+
+    try {
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await act(async () => playing())
+      await afterAFewFrames()
+
+      for (const track of tracks) expect(track.stop).toHaveBeenCalled()
+      expect(screen.getByText('The camera is off.')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: /stop camera/iu })).toBeNull()
+      expect(decodeFrame).not.toHaveBeenCalled()
+    } finally {
+      delete document.hidden
+      delete document.visibilityState
+    }
+  })
+
+  it('forgets the last pass and frame when stopped, so the same pass is looked up after a restart', async () => {
+    const user = userEvent.setup()
+    const pass = `pass_${'x'.repeat(40)}`
+    const { context, getContext } = framesArrive()
+
+    decodeFrame.mockResolvedValue({ pass })
+    camera(async () => ({ getTracks: () => [{ stop: vi.fn() }] }))
+    apiFetch.mockResolvedValue(answer(200, { data: { ...ADMISSIBLE.data, method: 'QR_SCAN' } }))
+
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await user.click(screen.getByRole('button', { name: /scan the qr pass/iu }))
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+    await user.click(await screen.findByRole('button', { name: /^cancel$/iu }))
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(sent(0)).toEqual({ credential: pass, expectedEventId: EVENT.id })
+
+    // The same pass, still in front of the camera, is not looked up twice.
+    await afterAFewFrames()
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: /stop camera/iu }))
+
+    // Nothing of the last frame survives the camera.
+    const drawnOn = getContext.mock.contexts[0]
+
+    expect(context.clearRect).toHaveBeenCalled()
+    expect([drawnOn.width, drawnOn.height]).toEqual([0, 0])
+
+    // Stopping forgot the pass, so shown again it is a new lookup.
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+
+    expect(sent(1)).toEqual({ credential: pass, expectedEventId: EVENT.id })
   })
 })
