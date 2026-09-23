@@ -294,18 +294,31 @@ const REQUIRED = [
   // paths. No client component ever read it: the only capability check in the
   // browser's half of this application is in a Server Component, where it
   // belongs. Requiring it here would be requiring the leak that put it there.
-  ['route path /v1/organizers', '/v1/organizers'],
+  // `/v1/organizers` used to be here, and it is deliberately gone (Phase 4).
+  //
+  // It was present only because the checkout basket, the one client component
+  // that imported the contract client, pulled the whole generated route table
+  // into the browser: every path the API serves. No client component calls
+  // `/v1/organizers`. The basket now posts through the same-origin proxy, the
+  // table no longer ships, and requiring the path would be requiring the table.
   ['route path /v1/venues', '/v1/venues'],
   ['route path /v1/auth/login', '/v1/auth/login'],
   ['route path /v1/venue-map-versions', '/v1/venue-map-versions'],
   ['CSRF double-submit header', 'x-desi-csrf'],
   ['accessibility vocabulary', 'STEP_FREE_ENTRANCE'],
-  // The finance and operations screens are server-rendered, so their route
-  // paths reach the browser only through the client's API base. What must be
-  // present is the export link the finance page renders, because a build that
-  // dropped it would pass every forbidden check above by shipping a screen with
-  // no way to get the data out.
-  ['finance export path', '/v1/finance/export.csv'],
+  // The finance export path used to be here, and is gone for the same reason
+  // (Phase 4). The link is rendered by a Server Component into a page that is
+  // never prerendered, so it is in no file this scan can read; it was found
+  // only in the route table the basket used to ship. That the finance page
+  // offers the export, and that the export answers, is proven where it can be:
+  // `e2e/detail-workspace.spec.js` follows the link and reads the file.
+  //
+  // What a buyer's browser must carry instead: the checkout's two commands and
+  // account creation. A build that dropped them would pass every forbidden
+  // check above by shipping a checkout whose buttons do nothing.
+  ['checkout hold path', '/v1/holds'],
+  ['checkout order path', '/v1/orders'],
+  ['account creation path', '/v1/auth/register'],
   // The same argument for the surfaces added this cycle. Each is a client
   // component that issues a command, so its path must reach the browser — and
   // a build that dropped one would pass every forbidden check above by shipping
