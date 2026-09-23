@@ -152,6 +152,9 @@ model Organization {
   @@index([verified])
   @@index([verificationStatus])
   @@index([suspendedAt])
+  /// Substring search on the organiser's name ("garba" in "Bay Lights Garba
+  /// Co."), which a B-tree cannot serve. Needs the pg_trgm extension.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Organization_name_trgm_idx")
 }
 
 model Membership {
@@ -267,6 +270,9 @@ model Venue {
   @@index([city, region])
   @@index([organizationId])
   @@index([mergedIntoVenueId])
+  /// Substring search on the venue's name and city, for the listing search.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_name_trgm_idx")
+  @@index([city(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_city_trgm_idx")
 }
 
 model Event {

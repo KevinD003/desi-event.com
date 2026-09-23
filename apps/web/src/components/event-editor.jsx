@@ -287,6 +287,12 @@ export function EventEditor({
   const [save, setSave] = useState({ kind: 'idle', message: 'No changes yet.' })
   const [serverProblems, setServerProblems] = useState([])
   const [conflict, setConflict] = useState(null)
+  // Everything here is client-side: until hydration the step buttons, the
+  // autosave and the lifecycle panel do nothing. `data-enhanced` marks the
+  // moment they start to, for anything that has to wait for it.
+  const [enhanced, setEnhanced] = useState(false)
+
+  useEffect(() => setEnhanced(true), [])
 
   const summaryRef = useRef(null)
   const timer = useRef(null)
@@ -443,7 +449,7 @@ export function EventEditor({
   ]
 
   return (
-    <div>
+    <div data-enhanced={enhanced ? 'true' : undefined}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={reading.tone} srLabel="State:">

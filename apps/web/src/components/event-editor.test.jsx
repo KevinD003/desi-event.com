@@ -446,6 +446,16 @@ describe('an event that is not open for editing', () => {
   })
 })
 
+describe('saying when it is live', () => {
+  it('marks itself enhanced once hydrated, for anything that must wait for the steps to work', () => {
+    const { container } = render(<EventEditor event={event} venues={venues} />)
+
+    const live = container.querySelector('[data-enhanced="true"]')
+    expect(live).not.toBeNull()
+    expect(live.querySelector('nav[aria-label="Editor steps"]')).not.toBeNull()
+  })
+})
+
 describe('the times an organiser types', () => {
   it('shows a Mumbai evening as a Mumbai evening', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })

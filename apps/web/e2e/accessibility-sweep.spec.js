@@ -1422,6 +1422,11 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(`/organizer/events/${seeded.alphaDraftId}`)
     await expect(page.getByRole('navigation', { name: 'Editor steps' })).toBeVisible()
+    // The steps open only once the editor has hydrated; Enter on one before
+    // then reaches a button with no handler yet.
+    await expect(
+      page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+    ).toBeAttached()
 
     // The first thing a keyboard reaches must be the skip link. Without it a
     // keyboard user tabs through the whole header on every page.

@@ -105,7 +105,14 @@ function wallClock(days, hour) {
  */
 async function openStep(page, step) {
   await page.goto(`/organizer/events/${eventId}`)
+  // The step buttons answer only once the editor has hydrated. A click before
+  // then lands on a button with no handler and is lost, and the step this
+  // journey needs never opens, so wait for the editor to say it is live.
+  await expect(
+    page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+  ).toBeAttached()
   await page.getByRole('button', { name: step }).click()
+  await expect(page.getByRole('button', { name: step })).toHaveAttribute('aria-current', 'step')
 }
 
 /**
@@ -175,10 +182,8 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
   })
 
   test('journey 2: the draft is invisible to a stranger', async ({ page }) => {
-    await organiser.goto(`/organizer/events/${eventId}`)
-
     // Read the slug the API gave it, from the preview link the review step shows.
-    await organiser.getByRole('button', { name: /review/i }).click()
+    await openStep(organiser, /review/i)
     const href = await organiser
       .getByRole('link', { name: /preview the public page/i })
       .getAttribute('href')

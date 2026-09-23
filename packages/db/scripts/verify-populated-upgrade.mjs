@@ -122,6 +122,10 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // name no event or a foreign one before adding either, and applying it over a
   // populated database is exactly the claim this group exists to check.
   '20260922200000_admission_scope_and_method',
+  // The listing search's trigram indexes on venue and organiser names. Adds
+  // the pg_trgm extension and three GIN indexes; building them over tables
+  // that already hold rows is the upgrade case this group proves.
+  '20260923210000_search_trigram_indexes',
 ])
 
 /**
