@@ -174,8 +174,8 @@ export function Tabs({
               disabled={item.disabled}
               onClick={() => select(index, { moveFocus: false })}
               className={cn(
-                'rounded-t-lg px-4 py-2 text-sm font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+                'min-h-11 rounded-t-control px-4 py-2 text-sm font-semibold transition-colors duration-(--duration-fast) ease-standard',
+                'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus',
                 'disabled:cursor-not-allowed disabled:text-ink-subtle',
                 selected
                   ? 'border-b-2 border-accent text-accent-strong'
@@ -197,7 +197,7 @@ export function Tabs({
           hidden={index !== selectedIndex}
           tabIndex={0}
           className={cn(
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+            'rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
             panelClassName,
           )}
         >

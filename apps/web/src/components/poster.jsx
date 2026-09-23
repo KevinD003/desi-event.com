@@ -1,53 +1,105 @@
 /**
- * The poster block that stands in for an event's cover image.
+ * The poster that stands in for an event's cover image.
  *
- * Deliberately an inline SVG rather than an `<img>`: the fallback catalogue has
- * no hosted artwork, a remote image would make every page depend on a third
- * party being up, and a broken image is a worse first impression than none. The
- * SVG carries `role="img"` and an `aria-label`, so it is announced exactly as a
- * photograph with alt text would be.
+ * Deliberately an inline SVG rather than an `<img>`: the catalogue has no
+ * hosted artwork, a remote image would make every page depend on a third party
+ * being up, and a broken image is a worse first impression than none. The
+ * drawing itself comes from `lib/poster-art.js` — garba dancers round a lit
+ * garbo, crossed dandiya over a mandala, or lanterns and a toran, by category —
+ * and is seeded by the event's slug, so an event wears the same poster in the
+ * listing, on its own page and at checkout.
  *
- * The colours are derived from the event slug, so a given event always gets the
- * same poster — recognisable across the listing, the detail page and checkout.
+ * The SVG carries `role="img"` and an `aria-label` saying what the picture
+ * shows and whose poster it is, so it is announced exactly as a photograph
+ * with alt text would be, and its shapes are not.
+ *
+ * It renders React elements from the drawing's element tree, never markup:
+ * there is no `dangerouslySetInnerHTML` here, and only the drawing elements
+ * `POSTER_ELEMENTS` names can be rendered at all.
  *
  * @module components/poster
  */
 
-import { categoryDescriptor } from '../lib/catalog.js'
+import { createElement, useId } from 'react'
+
+import { POSTER_ELEMENTS, describePoster, posterArt } from '../lib/poster-art.js'
+
+/** The elements a drawing may render, for constant-time lookup. */
+const RENDERABLE = new Set(POSTER_ELEMENTS)
 
 /**
- * Marigold-to-indigo gradient pairs from the shared theme, as raw colour
- * values because an SVG gradient stop cannot take a Tailwind class.
- */
-const PALETTES = [
-  ['oklch(0.806 0.172 76.1)', 'oklch(0.567 0.148 48.6)'],
-  ['oklch(0.751 0.176 70.3)', 'oklch(0.417 0.161 288.1)'],
-  ['oklch(0.862 0.152 80.4)', 'oklch(0.462 0.101 153.8)'],
-  ['oklch(0.672 0.169 58.7)', 'oklch(0.283 0.106 288.7)'],
-  ['oklch(0.612 0.128 152.4)', 'oklch(0.213 0.076 289.4)'],
-]
-
-/**
- * Pick a stable palette for a string.
+ * Sizing per variant. Both crop the 3:2 drawing to the frame with
+ * `preserveAspectRatio="xMidYMid slice"`, so a frame of any shape is filled
+ * edge to edge and the centre of the scene — the garbo, the mandala — stays in
+ * view.
  *
- * @param {string} seed Stable identifier, normally the event slug.
- * @returns {string[]} A `[from, to]` pair of colour values.
+ * A `card` keeps the drawing's own 3:2. A `hero` is taller on a phone, where a
+ * 16:7 strip would be a sliver, and opens out to 16:7 on a wide screen.
  */
-function paletteFor(seed) {
-  let hash = 0
+const VARIANT_CLASSES = Object.freeze({
+  card: 'aspect-[3/2]',
+  hero: 'aspect-[4/3] sm:aspect-[2/1] lg:aspect-[16/7]',
+})
 
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) % 100_000
+/**
+ * The React spelling of an SVG attribute.
+ *
+ * The drawing is written in SVG's own spelling (`fill-opacity`) so that
+ * `toSvgString` can emit it verbatim; React wants the camel-cased property
+ * (`fillOpacity`) and warns about the other.
+ *
+ * @param {string} name An attribute name as SVG spells it.
+ * @returns {string} The prop name React expects.
+ */
+export function reactAttributeName(name) {
+  return name.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase())
+}
+
+/**
+ * Render one node of the drawing, and its children, as React elements.
+ *
+ * @param {{tag: string, attrs: Record<string, string|number>, children: Array<object>}} node A node.
+ * @param {number} key Its position among its siblings. The tree is static, so position is identity.
+ * @returns {JSX.Element|null} The element, or nothing for a tag the poster does not draw.
+ */
+function renderNode(node, key) {
+  if (!RENDERABLE.has(node.tag)) return null
+
+  const props = { key }
+
+  for (const [name, value] of Object.entries(node.attrs)) {
+    props[reactAttributeName(name)] = value
   }
 
-  return PALETTES[hash % PALETTES.length]
+  return createElement(
+    node.tag,
+    props,
+    node.children.length > 0 ? node.children.map(renderNode) : undefined,
+  )
+}
+
+/**
+ * An id prefix that is unique to this poster on the page.
+ *
+ * Every poster defines its own sky and glow gradients, and a listing draws
+ * several posters from the same slug — the card and, say, a "you might also
+ * like" strip. Two gradients with one id make the second poster paint with the
+ * first one's colours, or with none if the first is later removed. `useId` is
+ * unique per rendered instance and stable across the server render and
+ * hydration; the characters are narrowed to those an SVG id and a CSS
+ * `url(#…)` reference both accept without escaping.
+ *
+ * @returns {string} A prefix such as `poster-R1`.
+ */
+function usePosterIdPrefix() {
+  return `poster-${useId().replace(/[^A-Za-z0-9_-]/g, '')}`
 }
 
 /**
  * @typedef {object} EventPosterProps
  * @property {object} event An event or event summary carrying `slug`, `title` and `category`.
- * @property {'card'|'hero'} [variant] Sizing preset. `card` for listings, `hero` for the detail page.
- * @property {string} [className] Extra classes merged after the defaults.
+ * @property {'card'|'hero'} [variant] Sizing and scene. `card` for listings, `hero` for the event page's banner, which also draws the fuller scene.
+ * @property {string} [className] Extra classes merged after the defaults. Inside a frame with a set height, `h-full` lets the frame decide the crop.
  */
 
 /**
@@ -57,47 +109,25 @@ function paletteFor(seed) {
  * @returns {JSX.Element} The rendered poster.
  */
 export function EventPoster({ event, variant = 'card', className }) {
-  const seed = event?.slug ?? event?.id ?? 'desi-event'
-  const [from, to] = paletteFor(seed)
-  const { glyph, label } = categoryDescriptor(event?.category)
-  const gradientId = `poster-gradient-${seed}`
-  const isHero = variant === 'hero'
+  const idPrefix = usePosterIdPrefix()
+  const scene = variant === 'hero' ? 'hero' : 'card'
+  const art = posterArt({
+    seed: event?.slug ?? event?.id ?? 'desi-event',
+    category: event?.category,
+    variant: scene,
+    idPrefix,
+  })
 
   return (
     <svg
       role="img"
-      aria-label={`${label} poster for ${event?.title ?? 'this event'}`}
-      viewBox="0 0 400 225"
+      aria-label={`${describePoster(event?.category)} for ${event?.title ?? 'this event'}`}
+      viewBox={art.viewBox}
       preserveAspectRatio="xMidYMid slice"
-      className={['block aspect-[16/9] w-full', isHero ? 'max-h-80' : '', className]
-        .filter(Boolean)
-        .join(' ')}
+      data-slot="poster"
+      className={['block w-full', VARIANT_CLASSES[scene], className].filter(Boolean).join(' ')}
     >
-      <defs>
-        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor={from} />
-          <stop offset="100%" stopColor={to} />
-        </linearGradient>
-      </defs>
-      <rect width="400" height="225" fill={`url(#${gradientId})`} />
-      {/* A suggestion of a rangoli: concentric arcs offset into the corner. */}
-      <g fill="none" stroke="#ffffff" strokeOpacity="0.22" strokeWidth="1.5">
-        <circle cx="330" cy="40" r="26" />
-        <circle cx="330" cy="40" r="44" />
-        <circle cx="330" cy="40" r="62" />
-        <circle cx="52" cy="196" r="20" />
-        <circle cx="52" cy="196" r="36" />
-      </g>
-      <text
-        x="28"
-        y="150"
-        fill="#ffffff"
-        fillOpacity="0.92"
-        fontSize="72"
-        fontFamily="Georgia, 'Times New Roman', serif"
-      >
-        {glyph}
-      </text>
+      {art.children.map(renderNode)}
     </svg>
   )
 }

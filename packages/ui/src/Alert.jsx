@@ -79,7 +79,7 @@ export function Alert({
       data-slot="alert"
       data-variant={variant}
       className={cn(
-        'flex items-start gap-3 rounded-lg border px-4 py-3 text-sm text-ink',
+        'flex items-start gap-3 rounded-control border px-4 py-3 text-sm text-ink',
         styles.box,
         className,
       )}
@@ -94,7 +94,9 @@ export function Alert({
         <button
           type="button"
           onClick={onDismiss}
-          className="-mr-1 inline-flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+          // 32px under a mouse, 44px under a finger; the negative margins keep
+          // the glyph where the smaller button put it.
+          className="-my-1.5 -mr-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors duration-(--duration-fast) ease-standard hover:bg-surface/60 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus pointer-coarse:h-11 pointer-coarse:w-11"
         >
           <span aria-hidden="true">×</span>
           <span className="sr-only">{dismissLabel}</span>

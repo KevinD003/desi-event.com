@@ -190,7 +190,7 @@ export function Modal({
         tabIndex={-1}
         data-slot="modal"
         className={cn(
-          'flex w-full flex-col gap-4 rounded-card bg-surface-raised p-6 text-ink shadow-xl focus:outline-none',
+          'flex w-full flex-col gap-4 rounded-card bg-surface-raised p-6 text-ink shadow-dialog focus:outline-none',
           MODAL_SIZES[size] ?? MODAL_SIZES.md,
           className,
         )}
@@ -199,7 +199,7 @@ export function Modal({
         {title || showCloseButton ? (
           <div className="flex items-start justify-between gap-4">
             {title ? (
-              <h2 id={titleId} className="text-lg font-semibold text-ink">
+              <h2 id={titleId} className="font-display text-xl font-semibold text-ink">
                 {title}
               </h2>
             ) : (
@@ -209,7 +209,7 @@ export function Modal({
               <button
                 type="button"
                 onClick={onClose}
-                className="-mr-1 -mt-1 inline-flex h-8 w-8 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+                className="-mt-1 -mr-2 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors duration-(--duration-fast) ease-standard hover:bg-surface-subtle hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus pointer-coarse:h-11 pointer-coarse:w-11"
               >
                 <span aria-hidden="true">×</span>
                 <span className="sr-only">{closeLabel}</span>

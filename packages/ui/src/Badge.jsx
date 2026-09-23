@@ -1,9 +1,18 @@
 import { cn } from './cn.js'
 
-/** Tailwind classes per badge variant. */
+/**
+ * Tailwind classes per badge variant.
+ *
+ * `secondary` is the peacock chip that sits beside the pink `brand` one, and
+ * `highlight` is the marigold fill for the one thing on a card that should
+ * catch the eye without being an action. Every text colour here is pinned on
+ * its own fill in `token-contrast.test.js`.
+ */
 const BADGE_VARIANTS = {
   neutral: 'bg-status-neutral-soft text-status-neutral ring-line',
   brand: 'bg-accent-soft text-accent-strong ring-accent-line',
+  secondary: 'bg-accent-secondary-soft text-accent-secondary ring-accent-secondary/25',
+  highlight: 'bg-highlight text-highlight-ink ring-highlight',
   success: 'bg-status-success-soft text-status-success ring-status-success/25',
   warning: 'bg-status-warning-soft text-status-warning ring-status-warning/30',
   danger: 'bg-status-danger-soft text-status-danger ring-status-danger/25',
@@ -19,7 +28,7 @@ const BADGE_SIZES = {
 
 /**
  * @typedef {object} BadgeProps
- * @property {'neutral'|'brand'|'success'|'warning'|'danger'|'info'} [variant] Colour token. Defaults to `neutral`.
+ * @property {'neutral'|'brand'|'secondary'|'highlight'|'success'|'warning'|'danger'|'info'} [variant] Colour token. Defaults to `neutral`.
  * @property {'sm'|'md'|'lg'} [size] Size token. Defaults to `md`.
  * @property {string} [srLabel] Extra context announced before the badge text, for badges whose meaning is carried by colour, e.g. "Status:".
  * @property {string} [className] Extra classes merged after the defaults.
@@ -38,7 +47,7 @@ export function Badge({ variant = 'neutral', size = 'md', srLabel, className, ch
       data-slot="badge"
       data-variant={variant}
       className={cn(
-        'inline-flex items-center gap-1 rounded-full font-medium ring-1 ring-inset whitespace-nowrap',
+        'inline-flex items-center gap-1 rounded-full font-semibold ring-1 ring-inset whitespace-nowrap',
         BADGE_VARIANTS[variant] ?? BADGE_VARIANTS.neutral,
         BADGE_SIZES[size] ?? BADGE_SIZES.md,
         className,

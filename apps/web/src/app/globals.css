@@ -1,14 +1,28 @@
 /*
  * Global stylesheet for the Desi-Event web app.
  *
- * The design tokens — the marigold and indigo-night ramps, the display and
- * body font stacks, the card radius — come from the shared theme, so the app
- * and `@desi-event/ui` cannot drift apart. Importing the library's stylesheet
- * pulls in that theme *and* registers the library's own JSX as a Tailwind
- * source, which it has to be: Tailwind v4 only emits the utilities it can see
- * used, and the library ships source rather than compiled CSS.
+ * The design tokens — colour in both registers, the Fraunces and Manrope
+ * stacks, the type scale, radii, shadows and motion timings — come from the
+ * shared theme, so the app and `@desi-event/ui` cannot drift apart. Importing
+ * the library's stylesheet pulls in that theme *and* registers the library's
+ * own JSX as a Tailwind source, which it has to be: Tailwind v4 only emits the
+ * utilities it can see used, and the library ships source rather than
+ * compiled CSS.
+ *
+ * The two faces are imported here, from npm, rather than linked from a font
+ * service. Tailwind inlines each package's `@font-face` rules and the build
+ * copies the `woff2` files next to the app's own assets, so a visitor's
+ * browser never asks a third party for anything. Both are SIL Open Font
+ * License. What a first visit downloads is decided by `unicode-range`: an
+ * English page fetches the Latin files only — Manrope's (25 KB, weights
+ * 200-800) and Fraunces' upright (121 KB, with the opsz, SOFT and WONK axes);
+ * Fraunces' italic (150 KB) only if a page sets something in italic.
+ * `font-display: swap` shows the fallback stack until they arrive.
  */
 
+@import '@fontsource-variable/fraunces/full.css';
+@import '@fontsource-variable/fraunces/full-italic.css';
+@import '@fontsource-variable/manrope';
 @import '@desi-event/ui/styles.css';
 
 /* This app's own sources, relative to this file (src/app → src). */
@@ -17,10 +31,16 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    /*
+     * The public header is sticky and 72px tall. Without this, a link or
+     * control reached by Tab or by an in-page anchor can scroll to sit under
+     * it — hidden while focused, which WCAG 2.4.11 does not allow.
+     */
+    scroll-padding-top: 5.5rem;
   }
 
   /*
-   * The editorial register's page and ink. A signed-in area repaints its own
+   * The public register's page and ink. A signed-in area repaints its own
    * part of the page through `[data-register='courtyard']`, which sets both.
    */
   body {
@@ -32,14 +52,28 @@
   }
 
   /*
-   * Headings are the one place the serif display face is used. The body face
-   * stays a system stack: no webfont request means no flash of invisible text
-   * and no third-party dependency on first paint.
+   * Headings are set in Fraunces, and so is anything that asks for the
+   * display face by class. `font-optical-sizing` lets the opsz axis draw a
+   * 64px headline with finer hairlines than a 22px one; SOFT rounds the
+   * terminals — warmer, less bookish — and WONK stays off, because the
+   * leaning letters it swaps in are a novelty in a heading people have to
+   * read. A fallback face ignores all three.
    */
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-optical-sizing: auto;
+    font-variation-settings:
+      'SOFT' 50,
+      'WONK' 0;
+  }
+
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
+    letter-spacing: -0.01em;
     text-wrap: balance;
   }
 
@@ -47,13 +81,20 @@
     text-wrap: pretty;
   }
 
+  /* Selected text in the accent's soft tint, with ink on it — a measured pairing. */
+  ::selection {
+    background-color: var(--color-accent-soft);
+    color: var(--color-ink);
+  }
+
   /*
    * A visible focus ring for anything that has not styled its own. Never
    * `outline: none` without a replacement — keyboard users navigate by it.
    *
-   * The focus token, not marigold-600: that was 2.89:1 on the warm page, below
-   * the 3:1 WCAG 1.4.11 asks of a focus indicator. The token clears 3:1 on
-   * every ground, the dark footer included.
+   * The focus token clears 3:1 against every ground it can be drawn on, the
+   * night band included, which is what WCAG 1.4.11 asks of a focus indicator.
+   * It is an outline rather than a box-shadow so that it survives
+   * forced-colours mode.
    */
   :focus-visible {
     outline: 2px solid var(--color-focus);
@@ -76,7 +117,7 @@
     left: 0.75rem;
     top: -4rem;
     z-index: 100;
-    border-radius: 0.5rem;
+    border-radius: var(--radius-control);
     background-color: var(--color-ink);
     padding: 0.625rem 1rem;
     font-size: 0.875rem;
@@ -87,5 +128,35 @@
 
   .skip-link:focus {
     top: 0.75rem;
+  }
+
+  /*
+   * Mirror-work: a chain of small diamonds, tip to tip, in rani pink,
+   * marigold and peacock — the divider under the header and between the
+   * night bands and the page.
+   *
+   * Drawn in CSS from the tokens rather than as an image. The colour is a
+   * stripe that changes every tile; the diamonds are cut out of it by a mask
+   * of four gradients, each clearing one corner of the tile, intersected. It
+   * is decoration: give the element `aria-hidden="true"` and no content.
+   */
+  .mirror-band {
+    --mirror-tile: 0.875rem;
+
+    display: block;
+    block-size: 0.5rem;
+    background-image: repeating-linear-gradient(
+      90deg,
+      var(--color-accent) 0 var(--mirror-tile),
+      var(--color-highlight) var(--mirror-tile) calc(var(--mirror-tile) * 2),
+      var(--color-accent-secondary) calc(var(--mirror-tile) * 2) calc(var(--mirror-tile) * 3)
+    );
+    mask-image:
+      linear-gradient(to top left, black 75%, transparent 75%),
+      linear-gradient(to top right, black 75%, transparent 75%),
+      linear-gradient(to bottom left, black 75%, transparent 75%),
+      linear-gradient(to bottom right, black 75%, transparent 75%);
+    mask-size: var(--mirror-tile) 100%;
+    mask-composite: intersect;
   }
 }

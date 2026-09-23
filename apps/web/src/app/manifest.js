@@ -21,7 +21,7 @@
  */
 
 /** The page token, `--color-page`, as hex: a manifest cannot read a custom property. */
-const PAGE = '#fff6e0'
+const PAGE = '#fff9f0'
 
 /**
  * The manifest.
@@ -33,7 +33,7 @@ export default function manifest() {
     name: 'Desi-Event',
     short_name: 'Desi-Event',
     description:
-      'South Asian events — garba, qawwali, melas and stand-up — with every price shown with its fee. Payments on this site are simulated.',
+      'Garba and dandiya nights across the USA, with every price shown in US dollars with its fee. Payments on this site are simulated.',
     start_url: '/',
     scope: '/',
     display: 'standalone',

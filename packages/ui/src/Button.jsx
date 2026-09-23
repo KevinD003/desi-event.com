@@ -4,11 +4,10 @@ import { Spinner } from './Spinner.jsx'
 /**
  * Tailwind classes per button variant, in semantic tokens only.
  *
- * `primary` is the register's primary action: deep marigold on public pages,
- * indigo inside a signed-in area. It was marigold-700 with white text at
- * 4.70:1, chosen because white on marigold-600 is 3.12:1; the token is darker
- * still, 7.22:1, and `token-contrast.test.js` pins it resting and hovered in
- * both registers.
+ * `primary` is the register's primary action: rani pink on public pages, plum
+ * inside a signed-in area, both with white text — 6.7:1 and 10.7:1 resting —
+ * and `token-contrast.test.js` pins them resting and hovered in both
+ * registers.
  *
  * `secondary` is every other action a screen offers beside the primary one —
  * cancel, dismiss, clear, stop — so it is outlined rather than filled: a
@@ -20,22 +19,38 @@ import { Spinner } from './Spinner.jsx'
  * variant, and three of the five were below 3:1 against white.
  */
 const SECONDARY =
-  'border border-action-secondary-line bg-action-secondary text-action-secondary-ink hover:bg-action-secondary-hover'
+  'border border-action-secondary-line bg-action-secondary text-action-secondary-ink shadow-control hover:bg-action-secondary-hover'
 
 const BUTTON_VARIANTS = {
-  primary: 'bg-action-primary text-action-primary-ink shadow-sm hover:bg-action-primary-hover',
+  primary: 'bg-action-primary text-action-primary-ink shadow-control hover:bg-action-primary-hover',
   secondary: SECONDARY,
   outline: SECONDARY,
   ghost: 'bg-transparent text-ink-muted hover:bg-surface-subtle hover:text-ink',
-  danger: 'bg-action-danger text-action-danger-ink shadow-sm hover:bg-action-danger-hover',
+  danger: 'bg-action-danger text-action-danger-ink shadow-control hover:bg-action-danger-hover',
 }
 
-/** Tailwind classes per button size. */
+/**
+ * Tailwind classes per button size.
+ *
+ * Heights are minimums, so a label that wraps grows the button instead of
+ * spilling out of it. `md` and `lg` are at least 44px everywhere, the touch
+ * target the site holds itself to. `sm` is for dense tables on a desk, so it
+ * is 36px under a mouse and grows to 44px wherever the pointer is a finger.
+ */
 const BUTTON_SIZES = {
-  sm: 'h-8 gap-1.5 px-3 text-sm',
-  md: 'h-10 gap-2 px-4 text-sm',
-  lg: 'h-12 gap-2 px-6 text-base',
+  sm: 'min-h-9 gap-1.5 px-3.5 text-sm pointer-coarse:min-h-11',
+  md: 'min-h-11 gap-2 px-5 text-sm',
+  lg: 'min-h-12 gap-2 px-7 text-base',
 }
+
+/**
+ * The feel of a press: colour and shadow ease over the theme's fast duration,
+ * and an enabled button settles to 98% while held. `motion-safe:` keeps the
+ * press out of reduced motion entirely, and the theme's reduced-motion rule
+ * stops the colour transition too.
+ */
+const BUTTON_MOTION =
+  'transition duration-(--duration-fast) ease-standard motion-safe:enabled:active:scale-[0.98]'
 
 /** Spinner size that reads well inside each button size. */
 const SPINNER_FOR_SIZE = { sm: 'xs', md: 'sm', lg: 'md' }
@@ -88,8 +103,12 @@ export function Button({
       data-variant={variant}
       data-loading={loading ? 'true' : undefined}
       className={cn(
-        'inline-flex items-center justify-center rounded-lg font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2',
+        'inline-flex items-center justify-center rounded-control font-semibold',
+        BUTTON_MOTION,
+        // An outline rather than a box-shadow ring: it survives forced-colours
+        // mode, and its offset shows whatever the button sits on — ivory, a
+        // card or the night band — rather than painting a white gap.
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus',
         'disabled:cursor-not-allowed disabled:opacity-60',
         BUTTON_VARIANTS[variant] ?? BUTTON_VARIANTS.primary,
         BUTTON_SIZES[size] ?? BUTTON_SIZES.md,

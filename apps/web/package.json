@@ -32,6 +32,8 @@
     "@desi-event/pricing": "workspace:*",
     "@desi-event/schemas": "workspace:*",
     "@desi-event/ui": "workspace:*",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "@fontsource-variable/manrope": "^5.3.0",
     "clsx": "^2.1.1",
     "framer-motion": "^13.3.0",
     "jsqr": "1.4.0",

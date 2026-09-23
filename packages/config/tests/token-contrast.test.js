@@ -194,16 +194,16 @@ const PAIRINGS = Object.freeze([
     where: 'headings and body text',
     kind: 'text',
   })),
-  ...['page', 'surface-raised', 'surface-subtle', 'accent-soft'].map((background) => ({
+  ...['page', 'surface', 'surface-raised', 'surface-subtle', 'accent-soft'].map((background) => ({
     foreground: 'ink-muted',
     background,
-    where: 'supporting copy',
+    where: 'supporting copy, field labels over white controls',
     kind: 'text',
   })),
-  ...['page', 'surface-raised', 'surface-subtle'].map((background) => ({
+  ...['page', 'surface', 'surface-raised', 'surface-subtle'].map((background) => ({
     foreground: 'ink-subtle',
     background,
-    where: 'metadata, nav-sheet group headings',
+    where: 'metadata, nav-sheet group headings, placeholders and the header wordmark line',
     kind: 'text',
   })),
   ...['page', 'surface', 'surface-raised', 'surface-subtle', 'accent-soft'].map((background) => ({
@@ -220,18 +220,43 @@ const PAIRINGS = Object.freeze([
     hover: true,
   },
 
-  // The inverse band.
-  { foreground: 'ink-inverse', background: 'surface-inverse', where: 'footer text', kind: 'text' },
+  // The night band: the hero, the footer and any feature strip.
+  {
+    foreground: 'ink-inverse',
+    background: 'surface-inverse',
+    where: 'hero and footer text',
+    kind: 'text',
+  },
   {
     foreground: 'ink-inverse-muted',
     background: 'surface-inverse',
-    where: 'footer supporting text',
+    where: 'hero sub-copy, footer supporting text',
     kind: 'text',
   },
   {
     foreground: 'accent-inverse',
     background: 'surface-inverse',
-    where: 'footer headings and links',
+    where: 'the hero eyebrow, footer headings and links',
+    kind: 'text',
+  },
+
+  // The secondary accent (peacock) and the marigold highlight.
+  ...['page', 'surface-raised', 'accent-secondary-soft'].map((background) => ({
+    foreground: 'accent-secondary',
+    background,
+    where: "a secondary chip, a poster's category label",
+    kind: 'text',
+  })),
+  {
+    foreground: 'ink',
+    background: 'accent-secondary-soft',
+    where: 'text inside a secondary chip',
+    kind: 'text',
+  },
+  {
+    foreground: 'highlight-ink',
+    background: 'highlight',
+    where: 'a marigold highlight badge',
     kind: 'text',
   },
 
@@ -357,6 +382,28 @@ const PAIRINGS = Object.freeze([
     where: 'the marker beside the current rail entry',
     kind: 'boundary',
   })),
+  // The rail's own text that is not an entry: who is signed in, and the group
+  // labels. `opsnav` is white today, like `surface-raised`, but it is its own
+  // token and may not stay white, so the rail's text is measured against it.
+  {
+    foreground: 'ink',
+    background: 'opsnav',
+    where: 'the signed-in name at the top of the rail',
+    kind: 'text',
+  },
+  {
+    foreground: 'ink-subtle',
+    background: 'opsnav',
+    where: 'rail group labels, "Signed in as"',
+    kind: 'text',
+  },
+  {
+    foreground: 'ink',
+    background: 'opsnav-hover',
+    where: 'rail entry and sign-out, hovered',
+    kind: 'text',
+    hover: true,
+  },
 
   // Focus, on every ground a focusable thing can sit on.
   ...[
@@ -371,6 +418,7 @@ const PAIRINGS = Object.freeze([
     'status-danger-soft',
     'status-warning-soft',
     'status-info-soft',
+    'accent-secondary-soft',
   ].map((background) => ({
     foreground: 'focus',
     background,
@@ -381,6 +429,17 @@ const PAIRINGS = Object.freeze([
 
 /** WCAG 2 AA thresholds, by kind of pairing. */
 const MINIMUM = Object.freeze({ text: 4.5, focus: 3, boundary: 3 })
+
+/**
+ * Headroom every pairing must keep above its threshold.
+ *
+ * The ratios here come from clamping each channel into sRGB. A few tokens sit
+ * a hair outside that gamut — the ivory page, the pink hover, peacock — and a
+ * browser maps those by reducing chroma instead, which lands a few hundredths
+ * away. A pairing that passed here by 0.02 could fail in Chromium; one that
+ * passes by 0.1 cannot.
+ */
+const MARGIN = 0.1
 
 /** Every pairing, once per register it is rendered in. */
 const MEASURED = PAIRINGS.flatMap((pairing) =>
@@ -433,6 +492,17 @@ describe('the semantic token layer', () => {
     expect(required.filter((name) => !theme.has(name))).toEqual([])
   })
 
+  it('declares the Garba Nights additions, named for their jobs', () => {
+    // The secondary accent (peacock) and the marigold highlight fill, with the
+    // ink that goes on it. Not `peacock` or `marigold`: the literal-class test
+    // forbids `bg-marigold`, and a colour's name tells a component nothing
+    // about where it may be used.
+    const added = ['accent-secondary', 'accent-secondary-soft', 'highlight', 'highlight-ink']
+
+    expect(added.filter((name) => !theme.has(name))).toEqual([])
+    expect(added.filter((name) => courtyardOverrides.has(name))).toEqual([])
+  })
+
   it('reproduces the contrast figure the browser sweep measured', () => {
     // The sweep reported 4.43 for accent-strong on accent-soft when
     // accent-strong was oklch(0.567 0.148 48.6) and accent-soft was
@@ -457,6 +527,19 @@ describe('the semantic token layer', () => {
       ).toBeGreaterThanOrEqual(MINIMUM[kind])
     },
   )
+
+  it('keeps every pairing clear of its threshold, not merely on it', () => {
+    const tight = MEASURED.map(({ foreground, background, kind, register }) => {
+      const tokens = REGISTERS[register]
+      const ratio = contrast(tokens.get(foreground), tokens.get(background))
+
+      return { name: `${register}: ${foreground} on ${background}`, ratio, minimum: MINIMUM[kind] }
+    })
+      .filter(({ ratio, minimum }) => ratio < minimum + MARGIN)
+      .map(({ name, ratio }) => `${name} is ${ratio.toFixed(2)}:1`)
+
+    expect(tight).toEqual([])
+  })
 
   it('covers hover grounds, which axe never reaches', () => {
     // Not a formality. The first correction to accent-strong passed the resting

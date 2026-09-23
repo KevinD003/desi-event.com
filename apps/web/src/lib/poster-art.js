@@ -21,55 +21,95 @@
 export const POSTER_VIEWBOX = Object.freeze({ width: 600, height: 400 })
 
 /**
- * Jewel palettes, each a night or dusk sky and five festival colours.
- *
- * `sky` runs top to bottom; `glow` is the lamp's warmth; `ink` is the dancers'
- * silhouette; `accents` dress the skirts, the lights and the bunting.
+ * Every element a drawing may contain: shapes, groups and gradient
+ * definitions, and nothing that can hold text, script, a link or a foreign
+ * document. `EventPoster` renders only these, and a test holds every drawing
+ * to them, so a new shape has to be added here on purpose.
  */
-const PALETTES = Object.freeze([
-  {
-    name: 'navratri-night',
-    sky: ['#1b0f35', '#3b1552'],
-    glow: '#ffb347',
-    ink: '#12091f',
-    accents: ['#e0457b', '#f7b32b', '#1fb5a5', '#3f5bd8', '#2ba84a'],
-  },
-  {
-    name: 'sunset-raas',
-    sky: ['#3a0f3d', '#b8452e'],
-    glow: '#ffd166',
-    ink: '#1f0a1c',
-    accents: ['#ffd166', '#ff8fab', '#7fdbca', '#f25c54', '#9d4edd'],
-  },
-  {
-    name: 'peacock',
-    sky: ['#062b36', '#0e5e6f'],
-    glow: '#ffc857',
-    ink: '#03161c',
-    accents: ['#f7b32b', '#e0457b', '#9be564', '#48cae4', '#ff7b54'],
-  },
-  {
-    name: 'royal-durbar',
-    sky: ['#14103d', '#2e2a7a'],
-    glow: '#ffbe5c',
-    ink: '#0b0826',
-    accents: ['#f28f3b', '#e94f6f', '#ffd166', '#5bd1d7', '#c77dff'],
-  },
-  {
-    name: 'kesari',
-    sky: ['#4a0f1c', '#c2410c'],
-    glow: '#ffe066',
-    ink: '#240610',
-    accents: ['#ffe066', '#2ec4b6', '#f8f4e3', '#ff5d8f', '#6a4c93'],
-  },
+export const POSTER_ELEMENTS = Object.freeze([
+  'circle',
+  'defs',
+  'ellipse',
+  'g',
+  'line',
+  'linearGradient',
+  'path',
+  'radialGradient',
+  'rect',
+  'stop',
 ])
+
+/**
+ * The illustration palette: every colour a poster is drawn in.
+ *
+ * These are artwork, not interface. No poster colour is ever text, a ground
+ * for text or a control, so they sit outside the theme's semantic tokens, and
+ * this table is the one place in the web app's code where a hex value may be
+ * written: `packages/config/tests/semantic-classes.test.js` finds this
+ * declaration and fails on any hex elsewhere in the file.
+ *
+ * `shared` is what every scheme uses alike: the white of a star, a mirror or a
+ * bulb's glint, the shadow of the wire the lights hang on, the fired clay of a
+ * garbo and of a diya, and a flame's two colours. Each of `schemes` is a night
+ * or dusk sky and five festival colours: `sky` runs top to bottom; `glow` is
+ * the lamp's warmth; `ink` is the dancers' silhouette; `accents` dress the
+ * skirts, the lights and the bunting.
+ */
+const PALETTES = Object.freeze({
+  shared: Object.freeze({
+    light: '#ffffff',
+    wire: '#000000',
+    garboClay: '#b5532b',
+    diyaClay: '#c2562d',
+    flame: '#ffd166',
+    flameCore: '#fff4d6',
+  }),
+  schemes: Object.freeze([
+    {
+      name: 'navratri-night',
+      sky: ['#1b0f35', '#3b1552'],
+      glow: '#ffb347',
+      ink: '#12091f',
+      accents: ['#e0457b', '#f7b32b', '#1fb5a5', '#3f5bd8', '#2ba84a'],
+    },
+    {
+      name: 'sunset-raas',
+      sky: ['#3a0f3d', '#b8452e'],
+      glow: '#ffd166',
+      ink: '#1f0a1c',
+      accents: ['#ffd166', '#ff8fab', '#7fdbca', '#f25c54', '#9d4edd'],
+    },
+    {
+      name: 'peacock',
+      sky: ['#062b36', '#0e5e6f'],
+      glow: '#ffc857',
+      ink: '#03161c',
+      accents: ['#f7b32b', '#e0457b', '#9be564', '#48cae4', '#ff7b54'],
+    },
+    {
+      name: 'royal-durbar',
+      sky: ['#14103d', '#2e2a7a'],
+      glow: '#ffbe5c',
+      ink: '#0b0826',
+      accents: ['#f28f3b', '#e94f6f', '#ffd166', '#5bd1d7', '#c77dff'],
+    },
+    {
+      name: 'kesari',
+      sky: ['#4a0f1c', '#c2410c'],
+      glow: '#ffe066',
+      ink: '#240610',
+      accents: ['#ffe066', '#2ec4b6', '#f8f4e3', '#ff5d8f', '#6a4c93'],
+    },
+  ]),
+})
 
 /**
  * What every drawing function is handed.
  *
  * @typedef {object} DrawingContext
  * @property {function(): number} random The seeded generator.
- * @property {object} palette One of the palettes above.
+ * @property {object} palette One of the palette's schemes.
+ * @property {object} shared The colours every scheme shares.
  * @property {string} id Prefix for this poster's gradient ids.
  * @property {number} width The drawing's width.
  * @property {number} height The drawing's height.
@@ -154,7 +194,7 @@ function between(random, low, high) {
  * @returns {Array<object>} Background elements.
  */
 function sky(context) {
-  const { random, palette, id, width, height, glowY } = context
+  const { random, palette, shared, id, width, height, glowY } = context
   const stars = []
 
   for (let index = 0; index < 26; index += 1) {
@@ -163,7 +203,7 @@ function sky(context) {
         cx: r1(between(random, 0, width)),
         cy: r1(between(random, 0, height * 0.55)),
         r: r1(between(random, 0.6, 1.8)),
-        fill: '#ffffff',
+        fill: shared.light,
         'fill-opacity': r1(between(random, 0.25, 0.7) * 10) / 10,
       }),
     )
@@ -200,7 +240,7 @@ function sky(context) {
  * @returns {Array<object>} Wires and bulbs.
  */
 function stringLights(context) {
-  const { random, palette, width } = context
+  const { random, palette, shared, width } = context
   const out = []
   const strands = 2 + Math.floor(random() * 2)
 
@@ -215,7 +255,7 @@ function stringLights(context) {
       el('path', {
         d: `M -10 ${r1(y0)} Q ${r1(cx)} ${r1(cy)} ${width + 10} ${r1(y1)}`,
         fill: 'none',
-        stroke: '#000000',
+        stroke: shared.wire,
         'stroke-opacity': 0.35,
         'stroke-width': 1.2,
       }),
@@ -246,7 +286,7 @@ function stringLights(context) {
  * @returns {Array<object>} The line and its flags.
  */
 function toran(context) {
-  const { random, palette, width } = context
+  const { random, palette, shared, width } = context
   const flags = []
   const count = 16
   const step = width / count
@@ -265,7 +305,7 @@ function toran(context) {
         cx: r1(x + step / 2),
         cy: r1(drop + 9),
         r: 2.2,
-        fill: '#ffffff',
+        fill: shared.light,
         'fill-opacity': 0.85,
       }),
     )
@@ -296,7 +336,7 @@ function toran(context) {
  * @returns {Array<object>} The pot, its holes and the flame.
  */
 function garbo(context, cx, baseY, scale) {
-  const { palette } = context
+  const { palette, shared } = context
   const w = 34 * scale
   const h = 40 * scale
   const holes = []
@@ -330,7 +370,7 @@ function garbo(context, cx, baseY, scale) {
         `C ${r1(cx + w * 0.75)} ${r1(baseY)} ${r1(cx + w * 0.9)} ${r1(baseY - h * 0.75)} ${r1(cx + w * 0.3)} ${r1(baseY - h)}`,
         'Z',
       ].join(' '),
-      fill: '#b5532b',
+      fill: shared.garboClay,
     }),
     el('rect', {
       x: r1(cx - w * 0.34),
@@ -343,11 +383,11 @@ function garbo(context, cx, baseY, scale) {
     ...holes,
     el('path', {
       d: `M ${r1(cx)} ${r1(baseY - h - 26 * scale)} C ${r1(cx + 9 * scale)} ${r1(baseY - h - 12 * scale)} ${r1(cx + 7 * scale)} ${r1(baseY - h - 3 * scale)} ${r1(cx)} ${r1(baseY - h - 3 * scale)} C ${r1(cx - 7 * scale)} ${r1(baseY - h - 3 * scale)} ${r1(cx - 9 * scale)} ${r1(baseY - h - 12 * scale)} ${r1(cx)} ${r1(baseY - h - 26 * scale)} Z`,
-      fill: '#ffd166',
+      fill: shared.flame,
     }),
     el('path', {
       d: `M ${r1(cx)} ${r1(baseY - h - 17 * scale)} C ${r1(cx + 4 * scale)} ${r1(baseY - h - 9 * scale)} ${r1(cx + 3 * scale)} ${r1(baseY - h - 5 * scale)} ${r1(cx)} ${r1(baseY - h - 5 * scale)} C ${r1(cx - 3 * scale)} ${r1(baseY - h - 5 * scale)} ${r1(cx - 4 * scale)} ${r1(baseY - h - 9 * scale)} ${r1(cx)} ${r1(baseY - h - 17 * scale)} Z`,
-      fill: '#fff4d6',
+      fill: shared.flameCore,
     }),
   ]
 }
@@ -366,7 +406,7 @@ function garbo(context, cx, baseY, scale) {
  * @returns {object} A group.
  */
 function dancer(context, x, y, scale, skirt, trim, lean) {
-  const { random, palette } = context
+  const { random, palette, shared } = context
   const s = scale
   const hipY = y - 30 * s
   const shoulderY = y - 50 * s
@@ -381,7 +421,7 @@ function dancer(context, x, y, scale, skirt, trim, lean) {
         cx: r1(x + swing * 0.6 + index * flare * 0.34),
         cy: r1(y - 6 * s - Math.abs(index) * 1.5 * s),
         r: r1(1.3 * s),
-        fill: '#ffffff',
+        fill: shared.light,
         'fill-opacity': 0.9,
       }),
     )
@@ -517,7 +557,7 @@ function garbaCircle(context) {
  * @returns {Array<object>} The rings.
  */
 function mandala(context, cx, cy, size) {
-  const { random, palette } = context
+  const { random, palette, shared } = context
   const rings = []
   const layers = 4
 
@@ -554,7 +594,7 @@ function mandala(context, cx, cy, size) {
         cy,
         r: r1(radius * 0.6),
         fill: 'none',
-        stroke: '#ffffff',
+        stroke: shared.light,
         'stroke-opacity': 0.35,
         'stroke-width': 1.2,
         'stroke-dasharray': '2 5',
@@ -628,7 +668,7 @@ function dandiyaSticks(context) {
  * @returns {Array<object>} The band.
  */
 function mirrorBand(context) {
-  const { palette, width, height } = context
+  const { palette, shared, width, height } = context
   const out = [
     el('rect', {
       x: 0,
@@ -650,7 +690,7 @@ function mirrorBand(context) {
         d: `M ${r1(x)} ${cy - 7} L ${r1(x + 7)} ${cy} L ${r1(x)} ${cy + 7} L ${r1(x - 7)} ${cy} Z`,
         fill: colour,
       }),
-      el('circle', { cx: r1(x), cy, r: 2.4, fill: '#ffffff', 'fill-opacity': 0.9 }),
+      el('circle', { cx: r1(x), cy, r: 2.4, fill: shared.light, 'fill-opacity': 0.9 }),
     )
   }
 
@@ -664,7 +704,7 @@ function mirrorBand(context) {
  * @returns {Array<object>} Strings and lanterns.
  */
 function lanterns(context) {
-  const { random, palette, width } = context
+  const { random, palette, shared, width } = context
   const out = []
   const count = 5
 
@@ -699,7 +739,7 @@ function lanterns(context) {
       }),
       el('path', {
         d: `M ${r1(x)} ${r1(drop - h / 2)} L ${r1(x + w / 4)} ${r1(drop)} L ${r1(x)} ${r1(drop + h / 2)} L ${r1(x - w / 4)} ${r1(drop)} Z`,
-        fill: '#ffffff',
+        fill: shared.light,
         'fill-opacity': 0.28,
       }),
       el('line', {
@@ -723,7 +763,7 @@ function lanterns(context) {
  * @returns {Array<object>} Lamps and flames.
  */
 function diyas(context) {
-  const { palette, width, height } = context
+  const { palette, shared, width, height } = context
   const out = []
   const count = 9
   const y = height - 38
@@ -742,11 +782,11 @@ function diyas(context) {
       }),
       el('path', {
         d: `M ${r1(x - 12)} ${r1(y - 4)} Q ${r1(x)} ${r1(y + 10)} ${r1(x + 12)} ${r1(y - 4)} Z`,
-        fill: '#c2562d',
+        fill: shared.diyaClay,
       }),
       el('path', {
         d: `M ${r1(x)} ${r1(y - 18)} C ${r1(x + 4)} ${r1(y - 11)} ${r1(x + 3)} ${r1(y - 5)} ${r1(x)} ${r1(y - 5)} C ${r1(x - 3)} ${r1(y - 5)} ${r1(x - 4)} ${r1(y - 11)} ${r1(x)} ${r1(y - 18)} Z`,
-        fill: '#ffd166',
+        fill: shared.flame,
       }),
     )
   }
@@ -797,13 +837,14 @@ export function posterArt(options) {
   const { seed, category, variant = 'card', idPrefix = 'poster' } = options
   const hash = hashString(`${seed}`)
   const random = seededRandom(hash)
-  const palette = PALETTES[hash % PALETTES.length]
+  const palette = PALETTES.schemes[hash % PALETTES.schemes.length]
   const { width, height } = POSTER_VIEWBOX
   const id = `${idPrefix}-${hash.toString(36)}`
   const motif = motifFor(category)
   const context = {
     random,
     palette,
+    shared: PALETTES.shared,
     id,
     width,
     height,

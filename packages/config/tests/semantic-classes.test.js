@@ -32,8 +32,14 @@
  *   chrome colour (`themeColor`) and the web app manifest, which are metadata
  *   rather than CSS, and the app icon, which is an image. Every such value
  *   must equal a token's colour exactly; a test below checks it.
- * - `poster.jsx`'s artwork, drawn from the brand ramp. It is illustration, not
- *   interface; every `oklch()` it uses must still be a value the ramp declares.
+ * - The poster illustrations' palette, in `lib/poster-art.js`. Every event
+ *   draws its own poster — dancers, a garbo, lanterns — in jewel colours that
+ *   are artwork, not interface: they are never text, never a ground for text
+ *   and never a control, so there is no pairing to measure and no token they
+ *   could honestly stand for. The exception is as narrow as it can be made:
+ *   hex may appear in that file only inside its `PALETTES` declaration, which
+ *   a test below finds and checks, and `poster.jsx`, which renders the
+ *   drawing, may hold none at all.
  *
  * @module
  */
@@ -122,8 +128,12 @@ const ALLOWED = Object.freeze({
   // Not a component, so not in the list the other checks walk; named here so
   // the icon's two colours are held to the tokens as the manifest's are.
   'apps/web/src/app/icon.svg': { hex: 'tokens-only' },
-  'apps/web/src/components/poster.jsx': { hex: ['#ffffff'], oklch: 'ramp-only' },
+  'apps/web/src/lib/poster-art.js': { hex: 'palettes-only' },
 })
+
+/** The illustration module, and the one declaration in it that may hold hex. */
+const POSTER_ART = 'apps/web/src/lib/poster-art.js'
+const POSTER_PALETTES = 'PALETTES'
 
 /**
  * Every component source file in the web app and the component library.
@@ -151,20 +161,48 @@ function componentSources() {
 }
 
 /**
- * Every `oklch()` value the theme declares for the brand ramp.
+ * Where a top-level `const` declaration starts and ends in a source file.
  *
- * @returns {Set<string>} Normalised `l c h` strings.
+ * Finds `const NAME =` and follows brackets from the first one after it to the
+ * one that closes it, so the span covers exactly the value — an
+ * `Object.freeze([...])` table and everything nested in it — and nothing that
+ * follows. Deliberately small, for the same reason `isInComment` is: it reads
+ * this repository's own files, whose strings do not hold brackets.
+ *
+ * @param {string} source The file.
+ * @param {string} name The constant's name.
+ * @returns {Array<number>|null} `[start, end]` offsets (end exclusive), or null when there is no such declaration.
  */
-function rampValues() {
-  const css = readFileSync(path.join(repoRoot, 'packages/config/src/tailwind.css'), 'utf8')
-  const values = new Set()
-  const pattern =
-    /--color-(?:marigold|indigo-night|henna)-[0-9]+:\s*oklch\(([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\)/g
+function declarationSpan(source, name) {
+  const start = source.indexOf(`const ${name} =`)
 
-  for (const [, l, c, h] of css.matchAll(pattern))
-    values.add(`${Number(l)} ${Number(c)} ${Number(h)}`)
+  if (start === -1) return null
 
-  return values
+  const open = source.slice(start).search(/[([{]/) + start
+  let depth = 0
+
+  for (let index = open; index < source.length; index += 1) {
+    if ('([{'.includes(source[index])) depth += 1
+    if (')]}'.includes(source[index])) depth -= 1
+    if (depth === 0) return [start, index + 1]
+  }
+
+  return null
+}
+
+/**
+ * The hex colours in a file that sit outside one named declaration.
+ *
+ * @param {string} source The file.
+ * @param {string} name The declaration allowed to hold them.
+ * @returns {string[]} The strays, lower-cased; every hex when the declaration is missing.
+ */
+function hexOutside(source, name) {
+  const span = declarationSpan(source, name)
+
+  return [...source.matchAll(HEX_COLOUR)]
+    .filter(({ index }) => !span || index < span[0] || index >= span[1])
+    .map(([match]) => match.toLowerCase())
 }
 
 describe('components use the semantic tokens', () => {
@@ -200,6 +238,9 @@ describe('components use the semantic tokens', () => {
       const allowed = ALLOWED[file]?.hex
 
       if (allowed === 'tokens-only') return []
+      if (allowed === 'palettes-only') {
+        return hexOutside(source, POSTER_PALETTES).map((match) => `${file}: ${match}`)
+      }
 
       return [...source.matchAll(HEX_COLOUR)]
         .map(([match]) => match.toLowerCase())
@@ -210,21 +251,42 @@ describe('components use the semantic tokens', () => {
     expect(offences).toEqual([])
   })
 
-  it('writes no oklch() outside the theme, except poster artwork drawn from the ramp', () => {
-    const ramp = rampValues()
+  it('keeps the poster palette inside its one table, and out of the component that renders it', () => {
+    // Read directly rather than through the git listing, so the check holds
+    // for a working tree in which the module is new and not yet committed.
+    const source = readFileSync(path.join(repoRoot, POSTER_ART), 'utf8')
+    const span = declarationSpan(source, POSTER_PALETTES)
+
+    expect(span, `${POSTER_ART} declares no ${POSTER_PALETTES}`).not.toBeNull()
+    // A table with nothing in it would make the next line pass vacuously.
+    expect([...source.slice(...span).matchAll(HEX_COLOUR)].length).toBeGreaterThan(20)
+    expect(hexOutside(source, POSTER_PALETTES)).toEqual([])
+
+    const poster = readFileSync(path.join(repoRoot, 'apps/web/src/components/poster.jsx'), 'utf8')
+
+    expect(poster.match(HEX_COLOUR)).toBeNull()
+    expect(poster.match(OKLCH)).toBeNull()
+  })
+
+  it('would catch a hex that strays out of the palette table', () => {
+    // Proves the span is the table and not the whole file.
+    const inside = "const PALETTES = Object.freeze([{ sky: ['#1b0f35', '#3b1552'] }])\n"
+    const stray = "el('circle', { fill: '#ffffff' })\n"
+
+    expect(hexOutside(inside + stray, POSTER_PALETTES)).toEqual(['#ffffff'])
+    expect(hexOutside(inside, POSTER_PALETTES)).toEqual([])
+    expect(hexOutside(stray, POSTER_PALETTES)).toEqual(['#ffffff'])
+  })
+
+  it('writes no oklch() outside the theme', () => {
+    // The poster once drew its gradients from the ramp in oklch(); it now
+    // renders `lib/poster-art.js`, so no component has a reason to write one.
     const offences = files.flatMap((file) => {
       const source = readFileSync(path.join(repoRoot, file), 'utf8')
-      const found = [...source.matchAll(OKLCH)].map(
-        ([, l, c, h]) => `${Number(l)} ${Number(c)} ${Number(h)}`,
+
+      return [...source.matchAll(OKLCH)].map(
+        ([, l, c, h]) => `${file}: oklch(${Number(l)} ${Number(c)} ${Number(h)})`,
       )
-
-      if (ALLOWED[file]?.oklch === 'ramp-only') {
-        return found
-          .filter((value) => !ramp.has(value))
-          .map((value) => `${file}: oklch(${value}) is not a ramp value`)
-      }
-
-      return found.map((value) => `${file}: oklch(${value})`)
     })
 
     expect(offences).toEqual([])

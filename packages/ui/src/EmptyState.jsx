@@ -46,7 +46,7 @@ export function EmptyState({
           {icon}
         </span>
       ) : null}
-      <Heading className="text-lg font-semibold text-ink">{title}</Heading>
+      <Heading className="font-display text-xl font-semibold text-ink">{title}</Heading>
       {description ? <p className="max-w-prose text-sm text-ink-muted">{description}</p> : null}
       {children}
       {action ? <div className="mt-2">{action}</div> : null}

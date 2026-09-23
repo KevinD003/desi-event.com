@@ -21,33 +21,33 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://127.0.0.1:3000'
 export const metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: 'Desi-Event — garba, qawwali, melas and stand-up, ticketed properly',
+    default: 'Desi-Event — garba and dandiya nights across the USA, ticketed properly',
     template: '%s · Desi-Event',
   },
   description:
-    'Find and book South Asian events near you: Navratri garba nights, qawwali mehfils, Diwali melas, Bollywood nights, classical dance and diaspora comedy across Mumbai, Ahmedabad, Toronto and London.',
+    'Find Navratri garba and dandiya nights, beginner garba classes and Navratri melas across the USA — Edison, Queens, Houston, Chicago, the Bay Area, Atlanta and more — with every price shown in US dollars with its fee.',
   applicationName: 'Desi-Event',
   keywords: [
     'garba tickets',
     'dandiya night',
-    'qawwali concert',
-    'Diwali mela',
-    'Bollywood night',
-    'South Asian events',
-    'desi events near me',
+    'Navratri garba USA',
+    'garba near me',
+    'dandiya raas',
+    'Navratri events',
+    'garba class',
   ],
   openGraph: {
     type: 'website',
     siteName: 'Desi-Event',
-    locale: 'en_IN',
-    title: 'Desi-Event — garba, qawwali, melas and stand-up',
+    locale: 'en_US',
+    title: 'Desi-Event — garba and dandiya nights across the USA',
     description:
-      'Nine nights of garba in Ahmedabad, a qawwali mehfil in Bombay, a Diwali mela in Mississauga and stand-up in Limehouse. All in one place.',
+      'Nine nights of garba in Edison, dandiya to a live dhol in Houston, a glow night in Santa Clara and a mela in Queens. All in one place, priced in dollars.',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Desi-Event',
-    description: 'South Asian events, ticketed properly.',
+    description: 'Garba and dandiya nights across the USA, ticketed properly.',
   },
   robots: { index: true, follow: true },
 }
@@ -61,7 +61,7 @@ export const metadata = {
  * saturated band above a page that is nearly cream.
  */
 export const viewport = {
-  themeColor: '#fff6e0',
+  themeColor: '#fff9f0',
   width: 'device-width',
   initialScale: 1,
 }
@@ -88,7 +88,7 @@ export default async function RootLayout({ children }) {
   const register = registerFor(await requestPathname())
 
   return (
-    <html lang="en-IN" data-scroll-behavior="smooth">
+    <html lang="en-US" data-scroll-behavior="smooth">
       <body
         className="flex min-h-dvh flex-col"
         data-register={register === 'courtyard' ? 'courtyard' : undefined}

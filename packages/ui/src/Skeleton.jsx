@@ -18,7 +18,9 @@ import { cn } from './cn.js'
  * @returns {JSX.Element} The rendered placeholder.
  */
 export function Skeleton({ as: Component = 'span', lines = 1, className, ...rest }) {
-  const bar = 'block animate-pulse rounded-md bg-line/80'
+  // `motion-safe:` so that a reader who asked for less motion gets a still
+  // placeholder rather than one that pulses once and stops.
+  const bar = 'block rounded-md bg-line/80 motion-safe:animate-pulse'
 
   if (lines > 1) {
     return (
