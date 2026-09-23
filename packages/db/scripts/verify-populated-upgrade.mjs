@@ -126,6 +126,9 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // the pg_trgm extension and three GIN indexes; building them over tables
   // that already hold rows is the upgrade case this group proves.
   '20260923210000_search_trigram_indexes',
+  // The same kind of index on the event's own title, summary and description,
+  // so the whole search is served from indexes.
+  '20260923220000_event_search_trigram_indexes',
 ])
 
 /**

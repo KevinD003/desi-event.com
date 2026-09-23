@@ -342,6 +342,12 @@ model Event {
   @@index([status, startsAt])
   @@index([category, startsAt])
   @@index([organizationId])
+  /// Substring search on the event's own text, for the listing search. With
+  /// these every branch of the search's OR can use an index, so Postgres
+  /// answers it with one bitmap scan instead of reading every event.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_title_trgm_idx")
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_summary_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_description_trgm_idx")
 }
 
 // ---------------------------------------------------------------------------

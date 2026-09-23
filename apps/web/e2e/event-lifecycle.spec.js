@@ -111,8 +111,13 @@ async function openStep(page, step) {
   await expect(
     page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
   ).toBeAttached()
-  await page.getByRole('button', { name: step }).click()
-  await expect(page.getByRole('button', { name: step })).toHaveAttribute('aria-current', 'step')
+  // In the steps nav: once a step opens, its own buttons can share the name
+  // ("Send for review" beside "Review").
+  const button = page.getByRole('navigation', { name: 'Editor steps' }).getByRole('button', {
+    name: step,
+  })
+  await button.click()
+  await expect(button).toHaveAttribute('aria-current', 'step')
 }
 
 /**
