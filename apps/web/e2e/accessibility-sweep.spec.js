@@ -313,8 +313,12 @@ async function settled(page) {
 async function scan(page) {
   await settled(page)
 
+  // WCAG 2.2's tags as well as 2.0's and 2.1's: the standard this site is
+  // held to is 2.2 AA. In axe 4.13 that adds one rule, `target-size` (2.5.8),
+  // to every scan — the hand-written touch-target case below measures the
+  // same criterion on the controls a steward's thumb actually hits.
   const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'])
     .exclude('nextjs-portal')
     .analyze()
 
