@@ -74,7 +74,8 @@ export function SiteFooter() {
           <h2 className="text-sm font-semibold text-ink-inverse">Organisers</h2>
           <p className="mt-3 text-sm text-ink-inverse-muted">
             Running a night of your own? Desi-Event handles listings, ticketing, holds and door
-            check-in. Payments and payouts in this build are simulated; no money moves.
+            check-in. Payments and payouts in this build are simulated: nothing is charged and
+            nothing is paid out.
           </p>
           <p className="mt-3 text-sm text-ink-inverse-muted">
             <a

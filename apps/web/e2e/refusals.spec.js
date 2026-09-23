@@ -70,7 +70,8 @@ async function signIn(page, email) {
   await code.fill(currentCode())
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  await expect(page).toHaveURL(/\/organizer\/events/)
+  // Signing in with no `next` lands on the account page (Phase 4).
+  await expect(page).toHaveURL(/\/account$/)
 }
 
 test.describe.serial('what the product refuses, and to whom', () => {

@@ -28,10 +28,8 @@
  * @module app/privacy/layout
  */
 
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-
-import { readSession, sessionCan } from '../../lib/session.js'
+import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
+import { enterArea } from '../../lib/area-gate.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,80 +41,25 @@ export const metadata = { robots: { index: false, follow: false } }
  */
 
 /**
- * The privacy shell.
+ * The privacy shell: the workspace rail around the page, or the area's refusal.
  *
  * @param {PrivacyLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered shell.
  */
 export default async function PrivacyLayout({ children }) {
-  const session = await readSession()
+  const { session, admitted } = await enterArea('privacy')
 
-  if (!session) redirect('/sign-in?next=/privacy')
+  if (!admitted) return <AreaRefusal area="privacy" />
 
-  const memberships = session.memberships ?? []
-  const allowed =
-    memberships.some((membership) =>
-      sessionCan(session, 'privacy:redact', membership.organizationId),
-    ) || sessionCan(session, 'privacy:redact')
-
-  if (!allowed) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-12">
-        <h1 className="text-2xl font-bold text-ink">Not for you</h1>
-        <p className="mt-2 text-ink-muted">
-          This area erases people from an organisation&rsquo;s records, which is not something that
-          can be undone. It is held by organisation owners alone. If you think you should have
-          access, ask whoever runs the organisation — nothing on this page can grant it to you.
-        </p>
-        <p className="mt-4">
-          <Link
-            href="/"
-            className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-          >
-            Back to the site
-          </Link>
-        </p>
-      </div>
-    )
-  }
+  const tabs = [
+    { href: '/privacy', label: 'Requests' },
+    { href: '/privacy/exports', label: 'Exports' },
+    { href: '/privacy/holds', label: 'Holds' },
+  ]
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-4">
-        <nav aria-label="Privacy">
-          <ul className="flex flex-wrap items-center gap-4 text-sm">
-            <li>
-              <Link
-                href="/privacy"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Requests
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/privacy/exports"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Exports
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/privacy/holds"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Holds
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <p className="text-sm text-ink-muted">
-          Signed in as <span className="font-medium">{session.user?.displayName}</span>
-        </p>
-      </div>
-
-      <div className="mt-8">{children}</div>
-    </div>
+    <WorkspaceShell session={session} area="privacy" tabs={tabs}>
+      {children}
+    </WorkspaceShell>
   )
 }

@@ -18,11 +18,8 @@
  * @module app/analytics/layout
  */
 
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-
-import { Forbidden } from '../../components/page-state.jsx'
-import { readSession, sessionCan } from '../../lib/session.js'
+import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
+import { enterArea } from '../../lib/area-gate.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,61 +31,19 @@ export const metadata = { robots: { index: false, follow: false } }
  */
 
 /**
- * The analytics shell.
+ * The analytics shell: the workspace rail around the page, or the area's refusal.
  *
  * @param {AnalyticsLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered shell.
  */
 export default async function AnalyticsLayout({ children }) {
-  const session = await readSession()
+  const { session, admitted } = await enterArea('analytics')
 
-  if (!session) redirect('/sign-in?next=/analytics')
-
-  const allowed = (session.memberships ?? []).some((membership) =>
-    sessionCan(session, 'report:view', membership.organizationId),
-  )
-
-  if (!allowed) {
-    return <Forbidden area="Analytics" />
-  }
+  if (!admitted) return <AreaRefusal area="analytics" />
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-4">
-        <nav aria-label="Organiser">
-          <ul className="flex flex-wrap items-center gap-4 text-sm">
-            <li>
-              <Link
-                href="/analytics"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Analytics
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/organizer/events"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Events
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/finance"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Finance
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <p className="text-sm text-ink-muted">
-          Signed in as <span className="font-medium">{session.user?.displayName}</span>
-        </p>
-      </div>
-
-      <div className="mt-8">{children}</div>
-    </div>
+    <WorkspaceShell session={session} area="analytics">
+      {children}
+    </WorkspaceShell>
   )
 }

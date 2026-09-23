@@ -168,7 +168,9 @@ async function signIn(page, email) {
   await code.fill(currentCode())
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  await expect(page).toHaveURL(/\/organizer\/events/)
+  // Signing in with no `next` lands on the account page (Phase 4; it used to
+  // be the organiser's event list whoever signed in).
+  await expect(page).toHaveURL(/\/account$/)
 }
 
 /**
@@ -315,9 +317,9 @@ function sidewaysOverflow(page) {
 /**
  * Sign in without asserting where the organiser lands.
  *
- * {@link signIn} ends with `expect(page).toHaveURL(/\/organizer\/events/)`,
- * which is correct for an organiser and wrong for a platform reader: they hold
- * no membership, so that is not where they arrive. Duplicated rather than
+ * {@link signIn} ends by asserting where the account lands. That was the
+ * organiser's event list until Phase 4, which was wrong for a platform reader:
+ * they hold no membership, so that was not where they arrived. Duplicated rather than
  * loosened, because the organiser assertion is worth keeping — a sign-in that
  * silently succeeded onto the wrong page would be a sign-in nobody noticed had
  * changed.

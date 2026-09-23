@@ -131,11 +131,11 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
 
     organiserContext = await browser.newContext()
     organiser = await organiserContext.newPage()
-    await signIn(organiser, seeded.organiserEmail, /\/organizer\/events/)
+    await signIn(organiser, seeded.organiserEmail, /\/account$/)
 
     moderatorContext = await browser.newContext()
     moderator = await moderatorContext.newPage()
-    await signIn(moderator, seeded.moderatorEmail, /\/organizer\/events/)
+    await signIn(moderator, seeded.moderatorEmail, /\/account$/)
   })
 
   test.afterAll(async () => {

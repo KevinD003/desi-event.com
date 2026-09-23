@@ -28,17 +28,17 @@
  * @module lib/navigation
  */
 
-import { isActivePath } from './active-path.js'
+import { currentHref, isActivePath } from './active-path.js'
+import { admits, canInAnyOrganization } from './areas.js'
+import { membershipsWith } from './capabilities.js'
 import { buildEventsHref } from './search-params.js'
-import { sessionCan } from './session.js'
 
-export { isActivePath }
+export { canInAnyOrganization, currentHref, isActivePath }
 
 /**
  * @typedef {object} NavItem
  * @property {string} href Where it goes.
  * @property {string} label What it says.
- * @property {string} [description] A short gloss, used by the mobile sheet where there is room for one.
  */
 
 /**
@@ -64,117 +64,10 @@ export const PUBLIC_ITEMS = Object.freeze([
 ])
 
 /**
- * Workspace destinations, each with the capability that makes it useful.
+ * The attendee's own pages, for somebody who is signed in.
  *
- * `scope` says which question to ask. `organization` means "in any organisation
- * this person belongs to" — the natural reading of an organiser capability, and
- * the one that keeps an owner of one organisation and a finance lead of another
- * both seeing the door they can actually walk through. `platform` means the
- * unscoped question.
- *
- * Every capability named here is one the API declares or asserts; none is
- * invented for the navigation's convenience.
- *
- * @type {ReadonlyArray<{href: string, label: string, description: string, capability: string, scope: string, membershipOnly?: boolean}>}
- */
-const WORKSPACE_DESTINATIONS = Object.freeze([
-  {
-    href: '/organizer/events',
-    label: 'Events',
-    description: 'Create, edit and publish what you are putting on',
-    capability: 'event:create',
-    scope: 'organization',
-  },
-  {
-    href: '/organizer/check-in',
-    label: 'Check-in',
-    description: 'Look tickets up and admit people at the door',
-    capability: 'ticket:check_in',
-    scope: 'organization',
-    // Door authority comes only from a membership: the API refuses a platform
-    // role at the door, so the platform-administrator shortcut in
-    // `canInAnyOrganization` would offer a door that does not open.
-    membershipOnly: true,
-  },
-  {
-    href: '/organizer/venues',
-    label: 'Venues',
-    description: 'Halls, seat maps and accessibility details',
-    capability: 'venue:manage',
-    scope: 'organization',
-  },
-  {
-    href: '/analytics',
-    label: 'Analytics',
-    description: 'How an event is selling',
-    capability: 'report:view',
-    scope: 'organization',
-  },
-  {
-    href: '/finance',
-    label: 'Finance',
-    description: 'Orders, refunds, transfers and payouts',
-    capability: 'finance:view',
-    scope: 'organization',
-  },
-  {
-    href: '/operations',
-    label: 'Operations',
-    description: 'Reconciliation and the notification queue',
-    capability: 'reconciliation:manage',
-    scope: 'platform',
-  },
-  {
-    href: '/privacy',
-    label: 'Privacy',
-    description: 'Erasure requests, holds and export evidence',
-    capability: 'privacy:redact',
-    scope: 'organization',
-  },
-  {
-    href: '/retention',
-    label: 'Retention',
-    description: 'Dry-run rehearsal evidence. Nothing here deletes anything',
-    capability: 'retention:view',
-    scope: 'platform',
-  },
-  {
-    href: '/moderation/events',
-    label: 'Moderation',
-    description: 'The review queue',
-    capability: 'moderation:review',
-    scope: 'platform',
-  },
-])
-
-/**
- * Whether a session holds a capability in *any* organisation it belongs to.
- *
- * `sessionCan` answers per organisation by design, because that is the question
- * an action has to ask. A navigation entry asks a weaker one — is there
- * anywhere this door leads — so it folds over the memberships rather than
- * requiring a caller to pick an organisation it does not yet know.
- *
- * @param {object|null} session The session payload.
- * @param {string} capability The capability name.
- * @returns {boolean} True when any membership holds it, or the session is a platform administrator.
- */
-export function canInAnyOrganization(session, capability) {
-  if (!session) return false
-
-  if ((session.capabilities ?? []).includes('platform:admin')) return true
-
-  return (session.memberships ?? []).some((membership) =>
-    sessionCan(session, capability, membership.organizationId),
-  )
-}
-
-/**
- * The account entries, for somebody who is signed in.
- *
- * `/tickets` is first because it is the reason most people have an account at
- * all, and because it was unreachable from the header before this — the wallet
- * existed and nothing linked to it.
+ * Everything here is about the person themselves, so it is offered to every
+ * session: nobody needs a capability to see their own tickets.
  *
  * @param {object|null} session The session payload.
  * @returns {NavItem[]} The entries, empty when signed out.
@@ -183,38 +76,127 @@ export function accountItems(session) {
   if (!session) return []
 
   return [
-    { href: '/tickets', label: 'My tickets', description: 'Passes for what you are going to' },
+    { href: '/account', label: 'Overview' },
+    { href: '/tickets', label: 'My tickets' },
+    { href: '/tickets/accept', label: 'Accept a ticket' },
   ]
 }
 
 /**
- * The workspace entries this session is offered.
+ * The workspace, grouped the way the work divides.
+ *
+ * Every entry is offered by the same predicate its area's layout admits with
+ * (see `lib/areas.js`), or by the capability its page asks for, so the rail
+ * never offers a door the shell will then refuse.
+ *
+ * @type {ReadonlyArray<{id: string, label: string, destinations: ReadonlyArray<{href: string, label: string, offered: function(object|null): boolean}>}>}
+ */
+export const WORKSPACE_GROUPS = Object.freeze([
+  {
+    id: 'events',
+    label: 'Events and venues',
+    destinations: [
+      { href: '/organizer', label: 'Overview', offered: (session) => admits(session, 'organizer') },
+      {
+        href: '/organizer/events',
+        label: 'Events',
+        offered: (session) => canInAnyOrganization(session, 'event:create'),
+      },
+      {
+        href: '/organizer/venues',
+        label: 'Venues',
+        offered: (session) => canInAnyOrganization(session, 'venue:manage'),
+      },
+      {
+        href: '/organizer/check-in',
+        label: 'Check-in',
+        // Door authority comes only from a membership: the API refuses a
+        // platform role at the door, so a platform-administrator shortcut
+        // would offer a door that does not open.
+        offered: (session) => membershipsWith(session, 'ticket:check_in').length > 0,
+      },
+      {
+        href: '/analytics',
+        label: 'Analytics',
+        offered: (session) => admits(session, 'analytics'),
+      },
+    ],
+  },
+  {
+    id: 'money',
+    label: 'Money',
+    destinations: [
+      { href: '/finance', label: 'Finance', offered: (session) => admits(session, 'finance') },
+      {
+        href: '/operations',
+        label: 'Operations',
+        offered: (session) => admits(session, 'operations'),
+      },
+    ],
+  },
+  {
+    id: 'trust',
+    label: 'Trust and safety',
+    destinations: [
+      {
+        href: '/moderation/events',
+        label: 'Moderation',
+        offered: (session) => admits(session, 'moderation'),
+      },
+      { href: '/privacy', label: 'Privacy', offered: (session) => admits(session, 'privacy') },
+      {
+        href: '/retention',
+        label: 'Retention',
+        offered: (session) => admits(session, 'retention'),
+      },
+    ],
+  },
+])
+
+/**
+ * The workspace groups this session is offered, empty ones dropped.
  *
  * @param {object|null} session The session payload.
- * @returns {NavItem[]} The entries, in the declared order, empty when signed out.
+ * @returns {NavGroup[]} The groups for the workspace rail.
  */
-export function workspaceItems(session) {
+export function workspaceGroups(session) {
   if (!session) return []
 
-  return WORKSPACE_DESTINATIONS.filter((destination) => {
-    if (destination.scope === 'platform') return sessionCan(session, destination.capability)
-
-    if (destination.membershipOnly) {
-      return (session.memberships ?? []).some((membership) =>
-        (membership.capabilities ?? []).includes(destination.capability),
-      )
-    }
-
-    return canInAnyOrganization(session, destination.capability)
-  }).map(({ href, label, description }) => ({ href, label, description }))
+  return WORKSPACE_GROUPS.map((group) => ({
+    id: group.id,
+    label: group.label,
+    items: group.destinations
+      .filter((destination) => destination.offered(session))
+      .map(({ href, label }) => ({ href, label })),
+  })).filter((group) => group.items.length > 0)
 }
 
 /**
- * The whole navigation, grouped.
+ * Every workspace entry this session is offered, in order.
  *
- * Groups with no entries are dropped rather than rendered empty, so a signed-out
- * visitor sees one row and an owner sees three without either being told about
- * the other.
+ * @param {object|null} session The session payload.
+ * @returns {NavItem[]} The entries.
+ */
+export function workspaceItems(session) {
+  return workspaceGroups(session).flatMap((group) => group.items)
+}
+
+/**
+ * Where "Workspace" should take this session: the first thing it is offered.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {string|null} A path, or null when the session has no workspace.
+ */
+export function workspaceHome(session) {
+  return workspaceItems(session)[0]?.href ?? null
+}
+
+/**
+ * The header's navigation, grouped for the narrow-viewport sheet.
+ *
+ * The header no longer lists every workspace destination. It used to — an
+ * owner was offered eleven entries in one row — and that is what the
+ * workspace rail is for. The header offers the way in.
  *
  * @param {object|null} session The session payload from `readSession`.
  * @returns {NavGroup[]} The groups to render.
@@ -225,8 +207,13 @@ export function navigationGroups(session) {
   const account = accountItems(session)
   if (account.length > 0) groups.push({ id: 'account', label: 'Your account', items: account })
 
-  const workspace = workspaceItems(session)
-  if (workspace.length > 0) groups.push({ id: 'workspace', label: 'Workspace', items: workspace })
+  const home = workspaceHome(session)
+  if (home)
+    groups.push({
+      id: 'workspace',
+      label: 'Workspace',
+      items: [{ href: home, label: 'Workspace' }],
+    })
 
   return groups
 }

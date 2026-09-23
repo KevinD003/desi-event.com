@@ -3,19 +3,28 @@
  *
  * The thing worth testing here is not that a list renders. It is that the
  * offer tracks the capability rather than the role, that an organisation
- * capability held in one organisation is enough to be offered the door, and
- * that active-path matching cannot be fooled by a path that merely shares a
- * prefix. Each of those has a wrong implementation that looks right.
+ * capability held in one organisation is enough to be offered the door, and —
+ * new in Phase 4 — that the navigation offers exactly what the area layouts
+ * admit, so nobody is offered a door that refuses them.
+ *
+ * Sessions are built from the real role tables in `@desi-event/permissions`,
+ * the same ones the API resolves `GET /v1/auth/me` from, so a change to what a
+ * role holds shows up here as a change to what that role is offered.
  */
 
+import { ORG_ROLE_CAPABILITIES, PLATFORM_ROLE_CAPABILITIES } from '@desi-event/permissions'
 import { describe, expect, it } from 'vitest'
 
+import { AREAS, admits } from './areas.js'
 import {
   PUBLIC_ITEMS,
+  WORKSPACE_GROUPS,
   accountItems,
   canInAnyOrganization,
   isActivePath,
   navigationGroups,
+  workspaceGroups,
+  workspaceHome,
   workspaceItems,
 } from './navigation.js'
 
@@ -24,12 +33,60 @@ import {
  *
  * @param {object} [options] Options.
  * @param {string[]} [options.capabilities] Platform capabilities.
- * @param {Array<{organizationId: string, capabilities: string[]}>} [options.memberships] Memberships.
+ * @param {Array<{organizationId: string, capabilities: string[], role?: string}>} [options.memberships] Memberships.
  * @returns {object} The session.
  */
 function session({ capabilities = [], memberships = [] } = {}) {
-  return { user: { id: 'usr_1' }, capabilities, memberships }
+  return { user: { id: 'usr_1', displayName: 'Meera' }, capabilities, memberships }
 }
+
+/**
+ * A session holding one organisation role, as the API would resolve it.
+ *
+ * @param {string} role An organisation role.
+ * @returns {object} The session.
+ */
+function member(role) {
+  return session({
+    memberships: [
+      { organizationId: 'org_1', role, capabilities: [...ORG_ROLE_CAPABILITIES[role]] },
+    ],
+  })
+}
+
+/**
+ * A session holding one platform role and no memberships.
+ *
+ * @param {string} role A platform role.
+ * @returns {object} The session.
+ */
+function platform(role) {
+  return session({ capabilities: [...PLATFORM_ROLE_CAPABILITIES[role]] })
+}
+
+/**
+ * The hrefs a session is offered in the workspace.
+ *
+ * @param {object|null} value The session.
+ * @returns {string[]} The hrefs.
+ */
+function offered(value) {
+  return workspaceItems(value).map((item) => item.href)
+}
+
+/** Which area each workspace destination sits in, for the agreement check. */
+const AREA_OF = Object.freeze({
+  '/organizer': 'organizer',
+  '/organizer/events': 'organizer',
+  '/organizer/venues': 'organizer',
+  '/organizer/check-in': 'organizer',
+  '/analytics': 'analytics',
+  '/finance': 'finance',
+  '/operations': 'operations',
+  '/moderation/events': 'moderation',
+  '/privacy': 'privacy',
+  '/retention': 'retention',
+})
 
 describe('navigationGroups', () => {
   it('offers a signed-out visitor discovery and nothing else', () => {
@@ -40,44 +97,93 @@ describe('navigationGroups', () => {
     expect(groups[0].items).toHaveLength(PUBLIC_ITEMS.length)
   })
 
-  it('offers a signed-in attendee their wallet', () => {
+  it('offers a signed-in attendee their account, and no workspace', () => {
     const groups = navigationGroups(session())
 
     expect(groups.map((group) => group.id)).toEqual(['discover', 'account'])
-    expect(groups[1].items[0].href).toBe('/tickets')
+    expect(groups[1].items.map((item) => item.href)).toContain('/tickets')
+  })
+
+  it('offers the workspace as one way in, not as every destination in it', () => {
+    // Before Phase 4 the header listed every workspace destination — eleven
+    // entries for an owner. The rail lists them now; the header offers the door.
+    const groups = navigationGroups(member('OWNER'))
+    const workspace = groups.find((group) => group.id === 'workspace')
+
+    expect(workspace.items).toEqual([{ href: '/organizer', label: 'Workspace' }])
   })
 
   it('drops an empty group rather than rendering a heading with nothing under it', () => {
-    const groups = navigationGroups(session())
-
-    expect(groups.some((group) => group.id === 'workspace')).toBe(false)
-    expect(groups.every((group) => group.items.length > 0)).toBe(true)
-  })
-
-  it('adds the workspace group once a capability makes it useful', () => {
-    const groups = navigationGroups(
-      session({ memberships: [{ organizationId: 'org_1', capabilities: ['event:create'] }] }),
-    )
-
-    expect(groups.map((group) => group.id)).toEqual(['discover', 'account', 'workspace'])
+    expect(navigationGroups(session()).every((group) => group.items.length > 0)).toBe(true)
+    expect(workspaceGroups(member('SCANNER')).every((group) => group.items.length > 0)).toBe(true)
   })
 })
 
-describe('workspaceItems', () => {
-  it('offers nothing to a signed-out visitor', () => {
-    expect(workspaceItems(null)).toEqual([])
+describe('accountItems', () => {
+  it('is empty when signed out', () => {
+    expect(accountItems(null)).toEqual([])
   })
 
-  it('offers only the destinations the capability reaches', () => {
-    const items = workspaceItems(
-      session({ memberships: [{ organizationId: 'org_1', capabilities: ['finance:view'] }] }),
-    )
+  it('offers every signed-in person their own pages, whatever their roles', () => {
+    expect(accountItems(session()).map((item) => item.href)).toEqual([
+      '/account',
+      '/tickets',
+      '/tickets/accept',
+    ])
+    expect(accountItems(member('OWNER'))).toEqual(accountItems(session()))
+  })
+})
 
-    expect(items.map((item) => item.href)).toEqual(['/finance'])
+describe('workspace offers, by role', () => {
+  it('offers nothing to a signed-out visitor, or to an attendee', () => {
+    expect(offered(null)).toEqual([])
+    expect(offered(session())).toEqual([])
+    expect(workspaceHome(session())).toBeNull()
+  })
+
+  it('offers an owner everything an organisation holds, and nothing platform-wide', () => {
+    expect(offered(member('OWNER'))).toEqual([
+      '/organizer',
+      '/organizer/events',
+      '/organizer/venues',
+      '/organizer/check-in',
+      '/analytics',
+      '/finance',
+      '/operations',
+      '/privacy',
+    ])
+  })
+
+  it('offers a scanner the door and the workspace front page, and nothing else', () => {
+    expect(offered(member('SCANNER'))).toEqual(['/organizer', '/organizer/check-in'])
+  })
+
+  it('offers a finance member the money, which the old header never offered Operations for', () => {
+    const items = offered(member('FINANCE'))
+
+    expect(items).toContain('/finance')
+    expect(items).toContain('/operations')
+    expect(items).not.toContain('/privacy')
+  })
+
+  it('offers a platform moderator moderation, and no organisation door', () => {
+    expect(offered(platform('MODERATOR'))).toEqual(['/moderation/events'])
+    expect(workspaceHome(platform('MODERATOR'))).toBe('/moderation/events')
+  })
+
+  it('offers a platform finance administrator Finance, which it was admitted to and never offered', () => {
+    const items = offered(platform('FINANCE_ADMIN'))
+
+    expect(items).toContain('/finance')
+    expect(items).toContain('/operations')
+  })
+
+  it('never offers check-in on a platform role: the API refuses one at the door', () => {
+    expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/check-in')
   })
 
   it('offers a destination held in any one organisation, not only the first', () => {
-    const items = workspaceItems(
+    const items = offered(
       session({
         memberships: [
           { organizationId: 'org_1', capabilities: [] },
@@ -86,32 +192,26 @@ describe('workspaceItems', () => {
       }),
     )
 
-    expect(items.map((item) => item.href)).toContain('/privacy')
+    expect(items).toContain('/privacy')
   })
 
   it('asks the unscoped question for a platform destination', () => {
     // retention:view and moderation:review are platform capabilities. Holding
     // one inside a membership must not be mistaken for holding it platform-wide.
-    const scopedOnly = workspaceItems(
+    const scopedOnly = offered(
       session({ memberships: [{ organizationId: 'org_1', capabilities: ['retention:view'] }] }),
     )
 
-    expect(scopedOnly.map((item) => item.href)).not.toContain('/retention')
-
-    const platform = workspaceItems(session({ capabilities: ['retention:view'] }))
-
-    expect(platform.map((item) => item.href)).toContain('/retention')
+    expect(scopedOnly).not.toContain('/retention')
+    expect(offered(session({ capabilities: ['retention:view'] }))).toContain('/retention')
   })
 
-  it('offers every destination but the door to a platform administrator', () => {
-    // SUPER_ADMIN is `[...ALL_CAPABILITIES]` (packages/permissions/src/capabilities.js:543),
-    // so a real platform administrator arrives with every capability spelled
-    // out rather than with `platform:admin` standing in for them. The offer is
-    // deliberately not widened to infer the rest from `platform:admin` alone:
-    // an actor holding only that string is not one this system issues, and
-    // guessing on its behalf would be the one place navigation invented
-    // authority it had not been given.
-    const items = workspaceItems(
+  it('no longer offers a membership-less administrator the areas that then refused them', () => {
+    // An actor holding `platform:admin` and three platform capabilities, and
+    // no memberships. The old header offered it Analytics, Finance and Privacy
+    // through the `platform:admin` shortcut; each of those layouts then said
+    // "Not for you". The offer now comes from the layouts' own rules.
+    const items = offered(
       session({
         capabilities: [
           'platform:admin',
@@ -122,38 +222,55 @@ describe('workspaceItems', () => {
       }),
     )
 
-    expect(items.map((item) => item.href)).toEqual([
+    expect(items).toEqual([
+      '/organizer',
       '/organizer/events',
       '/organizer/venues',
-      '/analytics',
-      '/finance',
-      '/operations',
-      '/privacy',
-      '/retention',
       '/moderation/events',
+      '/retention',
     ])
-    // Not check-in: the API refuses a platform role at the door, so offering
-    // the link would offer a door that does not open.
-    expect(items.map((item) => item.href)).not.toContain('/organizer/check-in')
+  })
+})
+
+describe('the rail offers exactly what the layouts admit', () => {
+  const PEOPLE = {
+    attendee: session(),
+    ...Object.fromEntries(
+      Object.keys(ORG_ROLE_CAPABILITIES).map((role) => [`org ${role}`, member(role)]),
+    ),
+    ...Object.fromEntries(
+      Object.keys(PLATFORM_ROLE_CAPABILITIES).map((role) => [`platform ${role}`, platform(role)]),
+    ),
+  }
+
+  it('knows the area of every destination it offers', () => {
+    const destinations = WORKSPACE_GROUPS.flatMap((group) => group.destinations.map((d) => d.href))
+
+    expect(destinations.filter((href) => !AREA_OF[href])).toEqual([])
   })
 
-  it('offers check-in to a member whose role carries ticket:check_in, and to nobody else', () => {
-    const scanner = workspaceItems(
-      session({
-        memberships: [
-          { organizationId: 'org_1', role: 'SCANNER', capabilities: ['ticket:check_in'] },
-        ],
-      }),
-    )
-    const viewer = workspaceItems(
-      session({
-        memberships: [{ organizationId: 'org_1', role: 'VIEWER', capabilities: ['report:view'] }],
-      }),
-    )
+  it.each(Object.entries(PEOPLE))(
+    '%s: every destination offered is in an area that admits them',
+    (_name, person) => {
+      for (const href of offered(person)) {
+        expect(admits(person, AREA_OF[href]), `${href} is offered but its area refuses`).toBe(true)
+      }
+    },
+  )
 
-    expect(scanner.map((item) => item.href)).toEqual(['/organizer/check-in'])
-    expect(viewer.map((item) => item.href)).not.toContain('/organizer/check-in')
-  })
+  it.each(Object.entries(PEOPLE))(
+    '%s: every admitting area whose front door is in the rail is offered',
+    (_name, person) => {
+      for (const [key, area] of Object.entries(AREAS)) {
+        if (!Object.values(AREA_OF).includes(key)) continue
+        if (!admits(person, key)) continue
+
+        const home = key === 'organizer' ? '/organizer' : area.href
+
+        expect(offered(person), `${key} admits but ${home} is not offered`).toContain(home)
+      }
+    },
+  )
 })
 
 describe('canInAnyOrganization', () => {
@@ -177,16 +294,6 @@ describe('canInAnyOrganization', () => {
   })
 })
 
-describe('accountItems', () => {
-  it('is empty when signed out', () => {
-    expect(accountItems(null)).toEqual([])
-  })
-
-  it('links the wallet, which nothing in the header reached before', () => {
-    expect(accountItems(session()).map((item) => item.href)).toEqual(['/tickets'])
-  })
-})
-
 describe('isActivePath', () => {
   it('matches exactly', () => {
     expect(isActivePath('/finance', '/finance')).toBe(true)
@@ -198,15 +305,12 @@ describe('isActivePath', () => {
 
   it('does not match a path that merely shares a prefix', () => {
     expect(isActivePath('/privacy', '/privacy-policy')).toBe(false)
+    expect(isActivePath('/organizer', '/organizers/rangoli')).toBe(false)
   })
 
   it('compares the root exactly, since every path starts with a slash', () => {
     expect(isActivePath('/', '/')).toBe(true)
     expect(isActivePath('/', '/events')).toBe(false)
-  })
-
-  it('ignores the query string on the entry', () => {
-    expect(isActivePath('/events?category=COMEDY', '/events')).toBe(true)
   })
 
   it('is false when there is no pathname', () => {

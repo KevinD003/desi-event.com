@@ -20,47 +20,19 @@
 
 import Link from 'next/link'
 
-import { navigationGroups } from '../lib/navigation.js'
+import { accountItems, navigationGroups, workspaceHome } from '../lib/navigation.js'
 import { readSession } from '../lib/session.js'
+import { AccountMenu, SignInLink } from './account-menu.jsx'
 import { PrimaryNav } from './primary-nav.jsx'
 
 /**
- * The account control.
- *
- * Shows the display name rather than the email address. Both identify the
- * person to themselves, but only one of them is a credential-adjacent value
- * that ends up in screenshots, screen-share recordings and support tickets.
- * `displayName` is a required non-empty column, so there is no case where
- * falling back to the email would be needed.
- *
- * @param {object} props Component props.
- * @param {object|null} props.session The session payload.
- * @returns {JSX.Element} The control.
- */
-function AccountControl({ session }) {
-  if (!session) {
-    return (
-      <Link
-        href="/sign-in"
-        className="inline-flex min-h-11 items-center rounded-lg border border-accent-line bg-accent-soft px-3 text-sm font-semibold text-accent-strong transition-colors duration-(--duration-fast) hover:bg-accent-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
-      >
-        Sign in
-      </Link>
-    )
-  }
-
-  return (
-    <p className="flex min-h-11 items-center text-sm text-ink-muted">
-      <span className="sr-only">Signed in as </span>
-      <span className="max-w-[12rem] truncate font-medium text-ink">
-        {session.user?.displayName}
-      </span>
-    </p>
-  )
-}
-
-/**
  * The global site header.
+ *
+ * Three things, left to right: the brand, discovery, and the account control.
+ * Signed in, the account control opens onto the account's own pages, the
+ * workspace when there is one, and sign out; the workspace's own destinations
+ * live in its rail rather than in this row, which is how an owner came to be
+ * offered eleven header links before Phase 4.
  *
  * @returns {Promise<JSX.Element>} The rendered header.
  */
@@ -85,7 +57,15 @@ export async function SiteHeader() {
 
         <div className="flex items-center gap-2">
           <PrimaryNav groups={groups} />
-          <AccountControl session={session} />
+          {session ? (
+            <AccountMenu
+              displayName={session.user?.displayName ?? 'Your account'}
+              items={accountItems(session)}
+              workspaceHref={workspaceHome(session)}
+            />
+          ) : (
+            <SignInLink />
+          )}
         </div>
       </div>
     </header>

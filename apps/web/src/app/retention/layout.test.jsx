@@ -26,7 +26,19 @@ vi.mock('../../lib/session.js', async () => {
 
   return { ...actual, readSession: (...args) => readSession(...args) }
 })
-vi.mock('next/navigation', () => ({ redirect: (...args) => redirect(...args) }))
+vi.mock('next/navigation', () => ({
+  redirect: (...args) => redirect(...args),
+  usePathname: () => '/retention',
+  useSearchParams: () => new URLSearchParams(''),
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
+}))
+
+// The gate reads the page's own path from the header `proxy.js` sets, so it
+// can send somebody back to exactly where they were going.
+vi.mock('next/headers', () => ({
+  headers: async () => new Headers({ 'x-desi-request-path': '/retention?view=all' }),
+  cookies: async () => ({ getAll: () => [] }),
+}))
 
 const { default: RetentionLayout } = await import('./layout.jsx')
 
@@ -101,7 +113,9 @@ describe('who the shell admits', () => {
     // null session; the assertion is that it asked for the redirect first.
     await RetentionLayout({ children: <p>inside</p> }).catch(() => {})
 
-    expect(redirect).toHaveBeenCalledWith('/sign-in?next=/retention')
+    // The page itself, query and all — not the top of the area, which is
+    // what the old hard-coded `next` sent everybody to.
+    expect(redirect).toHaveBeenCalledWith('/sign-in?next=%2Fretention%3Fview%3Dall')
   })
 })
 

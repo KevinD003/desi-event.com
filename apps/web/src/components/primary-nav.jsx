@@ -25,10 +25,10 @@
  */
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
-import { isActivePath } from '../lib/active-path.js'
+import { currentHref } from '../lib/active-path.js'
 
 /**
  * @typedef {object} PrimaryNavProps
@@ -44,13 +44,13 @@ import { isActivePath } from '../lib/active-path.js'
  * @param {object} props Component props.
  * @param {string} props.href Destination.
  * @param {string} props.label Link text.
- * @param {string|null} props.pathname The current path.
+ * @param {string|null} props.current The href of the current entry in this list, if any.
  * @param {string} [props.className] Extra classes.
  * @param {Function} [props.onNavigate] Called when the link is chosen.
  * @returns {JSX.Element} The link.
  */
-function NavLink({ href, label, pathname, className = '', onNavigate }) {
-  const active = isActivePath(href, pathname)
+function NavLink({ href, label, current, className = '', onNavigate }) {
+  const active = href === current
 
   return (
     <Link
@@ -76,6 +76,7 @@ function NavLink({ href, label, pathname, className = '', onNavigate }) {
  */
 export function PrimaryNav({ groups }) {
   const pathname = usePathname()
+  const search = useSearchParams()
   const [open, setOpen] = useState(false)
   const triggerRef = useRef(null)
   const sheetRef = useRef(null)
@@ -132,16 +133,21 @@ export function PrimaryNav({ groups }) {
     return () => query.removeEventListener('change', onChange)
   }, [])
 
-  const flat = groups.flatMap((group) => group.items)
+  // The wide row is discovery only; the account and the workspace have their
+  // own controls beside it. The narrow sheet carries every group.
+  const discover = groups.find((group) => group.id === 'discover')?.items ?? []
+  const everything = groups.flatMap((group) => group.items)
+  const currentWide = currentHref(discover, pathname, search)
+  const currentSheet = currentHref(everything, pathname, search)
 
   return (
     <>
       {/* Wide viewports: one row, no disclosure, no JavaScript needed to use it. */}
       <nav aria-label="Primary" className="hidden md:block">
         <ul className="flex flex-wrap items-center gap-x-1 gap-y-1 text-sm">
-          {flat.map((item) => (
+          {discover.map((item) => (
             <li key={item.href}>
-              <NavLink href={item.href} label={item.label} pathname={pathname} />
+              <NavLink href={item.href} label={item.label} current={currentWide} />
             </li>
           ))}
         </ul>
@@ -188,7 +194,7 @@ export function PrimaryNav({ groups }) {
                       <NavLink
                         href={item.href}
                         label={item.label}
-                        pathname={pathname}
+                        current={currentSheet}
                         onNavigate={close}
                         className="w-full min-h-11"
                       />

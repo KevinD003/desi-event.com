@@ -59,9 +59,9 @@ test.beforeAll(async ({ browser }) => {
   await code.fill(currentCode())
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  // Sign-in lands on the events list, which is the organiser's front door. The
-  // venue journeys navigate from there.
-  await expect(page).toHaveURL(/\/organizer\/events/)
+  // Sign-in with no `next` lands on the account page (Phase 4; it used to be
+  // the events list). The venue journeys navigate by address from there.
+  await expect(page).toHaveURL(/\/account$/)
 })
 
 test.afterAll(async () => {

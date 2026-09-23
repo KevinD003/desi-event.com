@@ -16,10 +16,9 @@
  * @module app/finance/layout
  */
 
-import Link from 'next/link'
-import { redirect } from 'next/navigation'
-
-import { readSession, sessionCan } from '../../lib/session.js'
+import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
+import { enterArea } from '../../lib/area-gate.js'
+import { connectOrganizations } from '../../lib/capabilities.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,81 +30,29 @@ export const metadata = { robots: { index: false, follow: false } }
  */
 
 /**
- * The finance shell.
+ * The finance shell: the workspace rail around the page, or the area's refusal.
  *
  * @param {FinanceLayoutProps} props Component props.
  * @returns {Promise<JSX.Element>} The rendered shell.
  */
 export default async function FinanceLayout({ children }) {
-  const session = await readSession()
+  const { session, admitted } = await enterArea('finance')
 
-  if (!session) redirect('/sign-in?next=/finance')
+  if (!admitted) return <AreaRefusal area="finance" />
 
-  // Any membership will do, not the platform list. `sessionCan` with no
-  // organisation asks the *platform* capability list, and `finance:view` is an
-  // organisation capability — so the unscoped question is the one that refuses
-  // every organiser and passes every platform admin, which is exactly the
-  // inversion the API's own capability guard is written against.
-  const allowed =
-    sessionCan(session, 'finance:view') ||
-    (session.memberships ?? []).some((membership) =>
-      sessionCan(session, 'finance:view', membership.organizationId),
-    )
-
-  if (!allowed) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-12">
-        <h1 className="text-2xl font-bold text-ink">Not for you</h1>
-        <p className="mt-2 text-ink-muted">
-          This area shows what an organisation is owed and what has been paid out. If you think you
-          should have access, ask whoever runs the organisation — nothing here can grant it to you.
-        </p>
-        <p className="mt-4">
-          <Link href="/" className="underline underline-offset-4 hover:text-accent-strong">
-            Back to the site
-          </Link>
-        </p>
-      </div>
-    )
-  }
+  // Payout setup is offered only to somebody who can use it. It used to be in
+  // this row for everybody, and a platform finance administrator — who holds
+  // no organisation's `connect:manage` — followed it into a refusal.
+  const tabs = [
+    { href: '/finance', label: 'Overview' },
+    ...(connectOrganizations(session).length > 0
+      ? [{ href: '/finance/connect', label: 'Payout setup' }]
+      : []),
+  ]
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-4">
-        <nav aria-label="Finance">
-          <ul className="flex flex-wrap items-center gap-4 text-sm">
-            <li>
-              <Link
-                href="/finance"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Overview
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/finance/connect"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Payout setup
-              </Link>
-            </li>
-            <li>
-              <Link
-                href="/operations"
-                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Operations
-              </Link>
-            </li>
-          </ul>
-        </nav>
-        <p className="text-sm text-ink-muted">
-          Signed in as <span className="font-medium">{session.user?.displayName}</span>
-        </p>
-      </div>
-
-      <div className="mt-8">{children}</div>
-    </div>
+    <WorkspaceShell session={session} area="finance" tabs={tabs}>
+      {children}
+    </WorkspaceShell>
   )
 }

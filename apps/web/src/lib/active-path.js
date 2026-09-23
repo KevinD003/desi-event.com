@@ -33,3 +33,45 @@ export function isActivePath(href, pathname) {
 
   return pathname.startsWith(`${target}/`)
 }
+
+/**
+ * The one entry, out of a list, that names the current page.
+ *
+ * `isActivePath` ignores the query string, which is right for a single link
+ * and wrong for a row of them: "All events", "Garba" and "Comedy" all point at
+ * `/events`, and before Phase 4 all three carried `aria-current="page"` on
+ * every events page — a screen reader was told it was in three places at once.
+ *
+ * So among the entries whose path matches, the one whose query parameters are
+ * all present in the current URL, with the most of them, wins; ties go to the
+ * longer path. At most one entry is ever current.
+ *
+ * @param {ReadonlyArray<{href: string}>} items The entries.
+ * @param {string|null|undefined} pathname The current path.
+ * @param {URLSearchParams|{get: function(string): (string|null)}|null} [search] The current query.
+ * @returns {string|null} The href of the current entry, or null when none is.
+ */
+export function currentHref(items, pathname, search = null) {
+  let best = null
+  let bestScore = -1
+
+  for (const item of items) {
+    if (!isActivePath(item.href, pathname)) continue
+
+    const [path, query = ''] = item.href.split('?')
+    const wanted = [...new URLSearchParams(query)]
+    const satisfied = wanted.every(([key, value]) => search?.get?.(key) === value)
+
+    if (!satisfied) continue
+
+    // More matched parameters beat fewer; a longer path beats a shorter one.
+    const score = wanted.length * 1000 + path.length
+
+    if (score > bestScore) {
+      best = item.href
+      bestScore = score
+    }
+  }
+
+  return best
+}

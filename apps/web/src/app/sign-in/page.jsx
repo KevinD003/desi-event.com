@@ -1,8 +1,8 @@
 /**
  * Sign in.
  *
- * The only unauthenticated page in the organiser half of the site, and the door
- * every other organiser screen sends people to.
+ * The door every signed-in page sends people to, and the way back: `next`
+ * carries the page they asked for, and they return to it.
  *
  * @module app/sign-in/page
  */
@@ -11,6 +11,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import { SignInForm } from '../../components/sign-in-form.jsx'
+import { safeNextPath } from '../../lib/next-path.js'
 import { readSession } from '../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -23,21 +24,6 @@ export const metadata = {
 }
 
 /**
- * Where to go after signing in.
- *
- * Only a path on this site is accepted. An absolute URL in `next` is the open
- * redirect that turns a sign-in page into somebody else's phishing hop.
- *
- * @param {unknown} value The `next` query parameter.
- * @returns {string} A safe path.
- */
-export function safeNext(value) {
-  const candidate = typeof value === 'string' ? value : ''
-
-  return candidate.startsWith('/') && !candidate.startsWith('//') ? candidate : '/organizer/events'
-}
-
-/**
  * The sign-in page.
  *
  * @param {object} props Route props.
@@ -46,7 +32,10 @@ export function safeNext(value) {
  */
 export default async function SignInPage({ searchParams }) {
   const query = await searchParams
-  const next = safeNext(query?.next)
+  // Only a path on this site, checked the way a browser will read it; see
+  // `lib/next-path.js` for the backslash and whitespace tricks the old check
+  // let through. With no usable `next`, the account page.
+  const next = safeNextPath(query?.next)
 
   // Already signed in: there is nothing to do here.
   if (await readSession()) redirect(next)
@@ -55,7 +44,7 @@ export default async function SignInPage({ searchParams }) {
     <div className="mx-auto max-w-md px-4 py-16">
       <h1 className="text-3xl font-bold text-ink">Sign in</h1>
       <p className="mt-3 text-ink-muted">
-        For organisers and staff. Buying a ticket does not need an account.
+        Your tickets live in your account, and so does the workspace if you run events.
       </p>
 
       <div className="mt-8">

@@ -46,6 +46,7 @@
     "@desi-event/auth": "workspace:*",
     "@desi-event/config": "workspace:*",
     "@desi-event/db": "workspace:*",
+    "@desi-event/permissions": "workspace:*",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/dom": "^10.4.2",

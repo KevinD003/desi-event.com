@@ -13,8 +13,12 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+/** What the mocked router reports; set per test. */
+const location = { pathname: '/finance', search: '' }
+
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/finance',
+  usePathname: () => location.pathname,
+  useSearchParams: () => new URLSearchParams(location.search),
 }))
 
 const { PrimaryNav } = await import('./primary-nav.jsx')
@@ -24,7 +28,10 @@ const GROUPS = [
   {
     id: 'discover',
     label: 'Discover',
-    items: [{ href: '/events', label: 'All events' }],
+    items: [
+      { href: '/events', label: 'All events' },
+      { href: '/events?category=COMEDY', label: 'Comedy' },
+    ],
   },
   {
     id: 'account',
@@ -38,28 +45,59 @@ const GROUPS = [
   },
 ]
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  location.pathname = '/finance'
+  location.search = ''
+})
 
 describe('PrimaryNav', () => {
-  it('renders every offered entry on a wide viewport', () => {
+  it('keeps the wide row to discovery; the account and workspace have their own controls', () => {
     render(<PrimaryNav groups={GROUPS} />)
 
     const wide = screen.getAllByRole('navigation', { name: 'Primary' })[0]
 
     expect(within(wide).getByRole('link', { name: 'All events' })).toBeTruthy()
-    expect(within(wide).getByRole('link', { name: 'My tickets' })).toBeTruthy()
-    expect(within(wide).getByRole('link', { name: 'Finance' })).toBeTruthy()
+    expect(within(wide).queryByRole('link', { name: 'My tickets' })).toBeNull()
+    expect(within(wide).queryByRole('link', { name: 'Finance' })).toBeNull()
   })
 
-  it('marks the current entry with aria-current, not colour alone', () => {
+  it('carries every group in the narrow sheet', () => {
+    render(<PrimaryNav groups={GROUPS} />)
+    fireEvent.click(screen.getByRole('button', { name: /menu/i }))
+
+    const sheet = screen.getAllByRole('navigation', { name: 'Primary' })[1]
+
+    for (const name of ['All events', 'Comedy', 'My tickets', 'Finance']) {
+      expect(within(sheet).getByRole('link', { name })).toBeTruthy()
+    }
+  })
+
+  it('marks one entry current, with aria-current rather than colour alone', () => {
+    location.pathname = '/events'
+    location.search = 'category=COMEDY'
     render(<PrimaryNav groups={GROUPS} />)
 
-    const current = screen.getAllByRole('link', { name: 'Finance' })[0]
+    const wide = screen.getAllByRole('navigation', { name: 'Primary' })[0]
 
-    expect(current.getAttribute('aria-current')).toBe('page')
+    // Both entries point at /events. Before Phase 4 both were current at once.
+    expect(within(wide).getByRole('link', { name: 'Comedy' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
     expect(
-      screen.getAllByRole('link', { name: 'All events' })[0].getAttribute('aria-current'),
+      within(wide).getByRole('link', { name: 'All events' }).getAttribute('aria-current'),
     ).toBe(null)
+  })
+
+  it('marks a workspace entry current in the sheet', () => {
+    render(<PrimaryNav groups={GROUPS} />)
+    fireEvent.click(screen.getByRole('button', { name: /menu/i }))
+
+    const sheet = screen.getAllByRole('navigation', { name: 'Primary' })[1]
+
+    expect(within(sheet).getByRole('link', { name: 'Finance' }).getAttribute('aria-current')).toBe(
+      'page',
+    )
   })
 
   it('starts closed and says so', () => {
