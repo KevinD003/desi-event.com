@@ -199,6 +199,7 @@ export default async function ReconciliationDetailPage({ params }) {
         <Breadcrumbs
           trail={[
             { href: '/operations', label: 'Operations' },
+            { href: '/operations/reconciliation', label: 'Reconciliation' },
             { href: null, label: 'Reconciliation item' },
           ]}
         />
@@ -213,6 +214,7 @@ export default async function ReconciliationDetailPage({ params }) {
       <Breadcrumbs
         trail={[
           { href: '/operations', label: 'Operations' },
+          { href: '/operations/reconciliation', label: 'Reconciliation' },
           { href: null, label: task.kind.replace(/_/gu, ' ').toLowerCase() },
         ]}
       />

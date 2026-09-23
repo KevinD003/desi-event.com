@@ -15,6 +15,7 @@
 
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
+import { operationsTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,7 +38,7 @@ export default async function OperationsLayout({ children }) {
   if (!admitted) return <AreaRefusal area="operations" />
 
   return (
-    <WorkspaceShell session={session} area="operations">
+    <WorkspaceShell session={session} area="operations" tabs={operationsTabs(session)}>
       {children}
     </WorkspaceShell>
   )

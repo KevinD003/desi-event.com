@@ -18,7 +18,7 @@
 
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
-import { connectOrganizations } from '../../lib/capabilities.js'
+import { financeTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,15 +40,8 @@ export default async function FinanceLayout({ children }) {
 
   if (!admitted) return <AreaRefusal area="finance" />
 
-  // Payout setup is offered only to somebody who can use it. It used to be in
-  // this row for everybody, and a platform finance administrator — who holds
-  // no organisation's `connect:manage` — followed it into a refusal.
-  const tabs = [
-    { href: '/finance', label: 'Overview' },
-    ...(connectOrganizations(session).length > 0
-      ? [{ href: '/finance/connect', label: 'Payout setup' }]
-      : []),
-  ]
+  // Which sections this session is offered is `lib/area-tabs.js`'s to say.
+  const tabs = financeTabs(session)
 
   return (
     <WorkspaceShell session={session} area="finance" tabs={tabs}>

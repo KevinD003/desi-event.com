@@ -38,6 +38,7 @@ import { RefundActions } from '../../../../components/refund-actions.jsx'
 import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getRefund } from '../../../../lib/organizer-api.js'
+import { membershipsWith } from '../../../../lib/capabilities.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../../lib/session.js'
 
@@ -95,6 +96,14 @@ export default async function RefundDetailPage({ params }) {
   const { id } = await params
   const session = await readSession()
 
+  // The list is kept per organisation, for its finance team; somebody who is
+  // not on one is not offered a crumb to a list that would have nothing for
+  // them.
+  const listCrumb =
+    membershipsWith(session, 'finance:view').length > 0
+      ? [{ href: '/finance/refunds', label: 'Refunds' }]
+      : []
+
   let refund = null
   let failure = null
 
@@ -119,6 +128,7 @@ export default async function RefundDetailPage({ params }) {
         <Breadcrumbs
           trail={[
             { href: '/finance', label: 'Finance' },
+            ...listCrumb,
             { href: null, label: 'Refund' },
           ]}
         />
@@ -140,6 +150,14 @@ export default async function RefundDetailPage({ params }) {
       <Breadcrumbs
         trail={[
           { href: '/finance', label: 'Finance' },
+          ...(listCrumb.length > 0 && organizationId
+            ? [
+                {
+                  href: `/finance/refunds?organizationId=${encodeURIComponent(organizationId)}`,
+                  label: 'Refunds',
+                },
+              ]
+            : listCrumb),
           { href: null, label: refund.orderReference ?? 'Refund' },
         ]}
       />

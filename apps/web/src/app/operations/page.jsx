@@ -105,6 +105,7 @@ function QueueFailure({ queue }) {
  * @property {string} description Why somebody is looking at it.
  * @property {object|null} failure What to show instead of the rows, when they could not be read.
  * @property {number} count How many items.
+ * @property {{href: string, label: string}} [more] The whole list, settled items included.
  * @property {object} children The rows.
  */
 
@@ -114,7 +115,7 @@ function QueueFailure({ queue }) {
  * @param {QueueSectionProps} props Component props.
  * @returns {JSX.Element} The section.
  */
-function QueueSection({ id, title, description, failure, count, children }) {
+function QueueSection({ id, title, description, failure, count, more = null, children }) {
   return (
     <section aria-labelledby={id} className="mt-8">
       <h2 id={id} className="text-lg font-semibold text-ink">
@@ -123,6 +124,20 @@ function QueueSection({ id, title, description, failure, count, children }) {
       <p className="mt-1 text-sm text-ink-muted">{description}</p>
 
       {failure ?? children}
+
+      {/* The board shows what needs somebody; the list behind it shows
+          everything, which is where a settled item is looked up. Offered even
+          when the board's read failed: the list is its own request. */}
+      {more ? (
+        <p className="mt-3 text-sm">
+          <Link
+            href={more.href}
+            className="inline-flex min-h-11 items-center rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            {more.label}
+          </Link>
+        </p>
+      ) : null}
     </section>
   )
 }
@@ -181,6 +196,10 @@ export default async function OperationsPage() {
           description="Where the system does not know what happened: a provider that did not answer, a webhook that contradicts the stored payment, a refund whose outcome is unknown. Oldest first, because the one that has been unknown longest is the most urgent."
           failure={reconciliation.error ? <QueueFailure queue={reconciliation} /> : null}
           count={reconciliation.value?.tasks.length ?? 0}
+          more={{
+            href: '/operations/reconciliation',
+            label: 'Every reconciliation item, resolved ones included',
+          }}
         >
           {(reconciliation.value?.tasks.length ?? 0) === 0 ? (
             <div className="mt-3">
@@ -229,6 +248,10 @@ export default async function OperationsPage() {
           description="Dead letters and messages waiting on a retry. Neither recipients nor payloads are shown: an operations screen answers “did this go?”, not “who was it to?” or “what did it say?”."
           failure={notifications.error ? <QueueFailure queue={notifications} /> : null}
           count={stuck.length}
+          more={{
+            href: '/operations/notifications',
+            label: 'Every message in the outbox, sent ones included',
+          }}
         >
           {stuck.length === 0 ? (
             <div className="mt-3">
@@ -268,6 +291,10 @@ export default async function OperationsPage() {
           description="Asked for and not yet settled. Each one holds money back from what may be paid out, so a refund nobody moves on is a payout nobody can make."
           failure={refunds.error ? <QueueFailure queue={refunds} /> : null}
           count={unresolved.length}
+          more={{
+            href: `/finance/refunds?organizationId=${encodeURIComponent(organizationId)}`,
+            label: 'Every refund, settled ones included',
+          }}
         >
           {unresolved.length === 0 ? (
             <div className="mt-3">

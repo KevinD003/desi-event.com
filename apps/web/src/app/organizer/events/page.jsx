@@ -9,6 +9,17 @@
  * called. "Waiting for review" and "Changes requested" are both amber; only one
  * of them is something to do this afternoon.
  *
+ * ## Only this organiser's events
+ *
+ * Asked per organisation. `GET /v1/events` without an organisation answers
+ * with the public catalogue *plus* the caller's own drafts, which is right for
+ * a listing and wrong here: "Your events" used to list every public event on
+ * the platform, other organisations' included, each one a link into an editor
+ * that would then refuse. Each organisation the session may see drafts in is
+ * asked for by id, and the API scopes the answer to it. A platform
+ * administrator with no membership is the one reader for whom the whole
+ * platform is the list, and the page says that is what it is showing.
+ *
  * `@file` rather than `@module`: `events` is fine, but the sibling pages use
  * `@file` for the same reason and consistency is worth more than the two
  * characters.
@@ -21,6 +32,7 @@ import Link from 'next/link'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { Badge, EmptyState } from '../../../components/ui.jsx'
 import { listOrganizerEvents } from '../../../lib/organizer-api.js'
+import { membershipsWith, readSession, sessionCan } from '../../../lib/session.js'
 import { statusReading } from '../../../lib/event-status.js'
 import { formatEventDate } from '../../../lib/format.js'
 
@@ -37,18 +49,35 @@ export const metadata = {
  * @returns {Promise<JSX.Element>} The rendered page.
  */
 export default async function OrganizerEventsPage() {
+  const session = await readSession()
+  const organizations = membershipsWith(session, 'event:view_draft')
+  const platformWide = organizations.length === 0 && sessionCan(session, 'platform:admin')
+
   let events = []
+  let truncated = false
   let failure = null
 
   try {
-    const result = await listOrganizerEvents()
-    events = result.events
+    const results = platformWide
+      ? [await listOrganizerEvents()]
+      : await Promise.all(
+          organizations.map(({ organizationId }) => listOrganizerEvents({ organizationId })),
+        )
+
+    // Each organisation's events newest first, one organisation after the
+    // next: a summary carries no creation time to interleave them by.
+    events = results.flatMap((result) => result.events)
+    truncated = results.some((result) => result.pagination?.hasNextPage)
   } catch (error) {
     // Organiser screens never fall back to the sample catalogue. Showing
     // somebody a list that is not their list would invite them to act on
     // fiction.
     failure = error
   }
+
+  // Which organisation an event belongs to is worth a word only when there is
+  // more than one it could be.
+  const showOrganization = platformWide || organizations.length > 1
 
   return (
     <div>
@@ -62,12 +91,32 @@ export default async function OrganizerEventsPage() {
         </Link>
       </div>
 
+      {platformWide ? (
+        <p className="mt-2 max-w-3xl text-ink-muted">
+          This account runs the platform and belongs to no organisation, so this is every
+          organisation&rsquo;s events, not a list of its own.
+        </p>
+      ) : null}
+
       {failure ? <ReadRefusal error={failure} what="Your events" action="see your events" /> : null}
 
-      {!failure && events.length === 0 ? (
+      {!failure && !platformWide && organizations.length === 0 ? (
+        <p className="mt-6 max-w-3xl rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink">
+          This account can see no organisation&rsquo;s drafts, so there is no list of events to show
+          here.
+        </p>
+      ) : null}
+
+      {truncated ? (
+        <p className="mt-4 text-sm text-ink-muted">
+          The most recently created events are listed; older ones are not shown here.
+        </p>
+      ) : null}
+
+      {!failure && (platformWide || organizations.length > 0) && events.length === 0 ? (
         <div className="mt-6">
           <EmptyState
-            title="No events yet"
+            title="No events"
             description="An event starts as a draft that only your team can see. Nothing is public until a moderator has approved it and you have chosen to publish."
           >
             {/*
@@ -107,6 +156,9 @@ export default async function OrganizerEventsPage() {
                         {event.title}
                       </Link>
                     </h2>
+                    {showOrganization && event.organizationName ? (
+                      <p className="mt-1 text-sm text-ink-muted">{event.organizationName}</p>
+                    ) : null}
                     <p className="mt-1 text-sm text-ink-muted">
                       {formatEventDate(event.startsAt, event.timezone)}
                       {event.venueName ? ` · ${event.venueName}` : ''}

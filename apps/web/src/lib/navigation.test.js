@@ -80,9 +80,11 @@ const AREA_OF = Object.freeze({
   '/organizer/events': 'organizer',
   '/organizer/venues': 'organizer',
   '/organizer/check-in': 'organizer',
+  '/organizer/team': 'organizer',
   '/analytics': 'analytics',
   '/finance': 'finance',
   '/operations': 'operations',
+  '/operations/notifications': 'operations',
   '/moderation/events': 'moderation',
   '/privacy': 'privacy',
   '/retention': 'retention',
@@ -128,7 +130,10 @@ describe('accountItems', () => {
     expect(accountItems(session()).map((item) => item.href)).toEqual([
       '/account',
       '/tickets',
-      '/tickets/accept',
+      '/account/orders',
+      '/account/transfers',
+      '/account/security',
+      '/account/privacy',
     ])
     expect(accountItems(member('OWNER'))).toEqual(accountItems(session()))
   })
@@ -147,6 +152,7 @@ describe('workspace offers, by role', () => {
       '/organizer/events',
       '/organizer/venues',
       '/organizer/check-in',
+      '/organizer/team',
       '/analytics',
       '/finance',
       '/operations',
@@ -156,6 +162,11 @@ describe('workspace offers, by role', () => {
 
   it('offers a scanner the door and the workspace front page, and nothing else', () => {
     expect(offered(member('SCANNER'))).toEqual(['/organizer', '/organizer/check-in'])
+  })
+
+  it('offers the team to a member who may see it, and never to a platform role', () => {
+    expect(offered(member('OWNER'))).toContain('/organizer/team')
+    expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/team')
   })
 
   it('offers a finance member the money, which the old header never offered Operations for', () => {
@@ -176,6 +187,23 @@ describe('workspace offers, by role', () => {
 
     expect(items).toContain('/finance')
     expect(items).toContain('/operations')
+  })
+
+  it('offers the outbox only on the platform capability that reads it', () => {
+    const holders = Object.keys(PLATFORM_ROLE_CAPABILITIES).filter((role) =>
+      PLATFORM_ROLE_CAPABILITIES[role].includes('reconciliation:manage'),
+    )
+
+    expect(holders.length).toBeGreaterThan(0)
+
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/operations/notifications'), role).toBe(
+        holders.includes(role) && admits(platform(role), 'operations'),
+      )
+    }
+
+    // No organisation role carries it, however senior.
+    expect(offered(member('OWNER'))).not.toContain('/operations/notifications')
   })
 
   it('never offers check-in on a platform role: the API refuses one at the door', () => {

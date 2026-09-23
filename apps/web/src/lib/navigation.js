@@ -30,8 +30,7 @@
 
 import { currentHref, isActivePath } from './active-path.js'
 import { admits, canInAnyOrganization } from './areas.js'
-import { membershipsWith } from './capabilities.js'
-import { buildEventsHref } from './search-params.js'
+import { membershipsWith, sessionCan } from './capabilities.js'
 
 export { canInAnyOrganization, currentHref, isActivePath }
 
@@ -51,16 +50,19 @@ export { canInAnyOrganization, currentHref, isActivePath }
 /**
  * Public discovery. Offered to everybody, signed in or not.
  *
+ * The four ways into the catalogue: the listing itself, and the three
+ * directories — categories, venues, organisers — that each lead back into it.
  * Four entries, because this row has to survive a 320px viewport alongside the
- * brand and the account control.
+ * brand and the account control. A category used to be a header entry of its
+ * own; with a directory of all of them, three picked favourites said less.
  *
  * @type {NavItem[]}
  */
 export const PUBLIC_ITEMS = Object.freeze([
-  { href: '/events', label: 'All events' },
-  { href: buildEventsHref({ category: 'GARBA_DANDIYA' }), label: 'Garba' },
-  { href: buildEventsHref({ category: 'MUSIC_CONCERT' }), label: 'Live music' },
-  { href: buildEventsHref({ category: 'COMEDY' }), label: 'Comedy' },
+  { href: '/events', label: 'Discover events' },
+  { href: '/categories', label: 'Categories' },
+  { href: '/venues', label: 'Venues' },
+  { href: '/organizers', label: 'Organisers' },
 ])
 
 /**
@@ -75,10 +77,15 @@ export const PUBLIC_ITEMS = Object.freeze([
 export function accountItems(session) {
   if (!session) return []
 
+  // Accepting a ticket is reached from Transfers, where an offer is explained;
+  // on its own in the rail it was a door with no context behind it.
   return [
     { href: '/account', label: 'Overview' },
     { href: '/tickets', label: 'My tickets' },
-    { href: '/tickets/accept', label: 'Accept a ticket' },
+    { href: '/account/orders', label: 'Orders' },
+    { href: '/account/transfers', label: 'Transfers' },
+    { href: '/account/security', label: 'Security' },
+    { href: '/account/privacy', label: 'Privacy' },
   ]
 }
 
@@ -116,6 +123,13 @@ export const WORKSPACE_GROUPS = Object.freeze([
         offered: (session) => membershipsWith(session, 'ticket:check_in').length > 0,
       },
       {
+        href: '/organizer/team',
+        label: 'Team',
+        // Membership only, as the page's picker is: a platform role is not a
+        // team, and the API lists members only to somebody inside it.
+        offered: (session) => membershipsWith(session, 'organization:view_members').length > 0,
+      },
+      {
         href: '/analytics',
         label: 'Analytics',
         offered: (session) => admits(session, 'analytics'),
@@ -131,6 +145,14 @@ export const WORKSPACE_GROUPS = Object.freeze([
         href: '/operations',
         label: 'Operations',
         offered: (session) => admits(session, 'operations'),
+      },
+      {
+        href: '/operations/notifications',
+        label: 'Notifications',
+        // The outbox is platform-scoped: `reconciliation:manage`, which no
+        // organisation role carries, inside an area that admits the session.
+        offered: (session) =>
+          sessionCan(session, 'reconciliation:manage') && admits(session, 'operations'),
       },
     ],
   },
