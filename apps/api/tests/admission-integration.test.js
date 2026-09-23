@@ -12,7 +12,8 @@
  * Two groups, matching the brief:
  *
  * **Authorisation.** Eleven ways a scanner could be let in where it should not
- * be. Each asserts the refusal *and* that no `CheckIn` row was written.
+ * be, and the cases the Phase 3 closure audit found missing. Each asserts the
+ * refusal *and* that no `CheckIn` row was written.
  *
  * **Races.** Ten ways two things can happen to one ticket at once. Each
  * asserts one `CheckIn` row at most, a truthful answer for the loser, and no
@@ -20,7 +21,11 @@
  *
  * Where an interleaving has to be forced rather than hoped for, the test holds
  * a lock in one transaction and waits — by polling `pg_stat_activity`, not by
- * sleeping — until PostgreSQL reports the other one blocked on it.
+ * sleeping — until PostgreSQL reports a session blocked by *that* transaction,
+ * named by its backend pid.
+ *
+ * Last, the audit log: every row this file caused is read back and searched for
+ * the credentials, printed codes and preview references it presented.
  *
  * Runs against `TEST_DATABASE_URL`. With `REQUIRE_DATABASE` set it fails rather
  * than skips.
@@ -30,16 +35,26 @@
 
 import { createHash } from 'node:crypto'
 
+import { createInMemoryPaymentProvider } from '@desi-event/providers'
 import { afterAll, expect, it } from 'vitest'
 
 import { loadActor } from '../src/lib/actor.js'
 import {
   PREVIEW_TTL_MS,
-  confirmAdmission,
+  confirmAdmission as confirmAdmissionService,
   listAdmissionEvents,
-  previewAdmission,
+  previewAdmission as previewAdmissionService,
   signPreviewReference,
 } from '../src/lib/admission.js'
+import {
+  REFUND_OUTCOMES,
+  approveRefund,
+  markSubmitted,
+  pendingQuantitiesByLine,
+  requestRefund,
+  settleRefund,
+  submitOutsideTransaction,
+} from '../src/lib/refunds.js'
 import {
   TICKET_STATES,
   acceptTransfer,
@@ -60,6 +75,30 @@ const SECRET = 'test-only-fake-value-for-deriving-passes-0123456789'
 
 const ENV = Object.freeze({ AUTH_SECRET: SECRET })
 
+/**
+ * One mock provider for the whole suite, for the refund case.
+ *
+ * Its refund ids carry the run, because `Refund.provider + providerRefundId` is
+ * unique and nothing this suite writes is ever deleted.
+ */
+const payments = createInMemoryPaymentProvider({ idPrefix: `piadmission${RUN}` })
+
+/**
+ * Every identifier this file minted, so the audit-log case can find the rows
+ * this file caused and no other suite's.
+ *
+ * @type {Set<string>}
+ */
+const minted = new Set()
+
+/**
+ * Every credential, printed code and preview reference this file showed the
+ * door or was given by it, each with what kind of secret it is.
+ *
+ * @type {Map<string, string>}
+ */
+const presented = new Map()
+
 let sequence = 0
 
 /**
@@ -75,8 +114,11 @@ function id(kind) {
   const body = BigInt(`0x${digest}`)
     .toString(36)
     .replace(/[^a-z0-9]/g, '')
+  const identifier = `c${body.padEnd(24, '0').slice(0, 24)}`
 
-  return `c${body.padEnd(24, '0').slice(0, 24)}`
+  minted.add(identifier)
+
+  return identifier
 }
 
 /**
@@ -335,6 +377,53 @@ async function world() {
 }
 
 /**
+ * Note a secret this file showed the door or was given by it.
+ *
+ * @param {string} kind `credential`, `code` or `previewReference`.
+ * @param {string|null|undefined} value The secret, when there was one.
+ * @returns {void} Nothing.
+ */
+function remember(kind, value) {
+  if (typeof value === 'string' && value !== '') presented.set(value, kind)
+}
+
+/**
+ * The real `previewAdmission`, noting what was presented and what came back.
+ *
+ * Every door call in this file comes through here or through
+ * {@link confirmAdmission} — the helpers below and the cases that call them
+ * directly with an actor of their own — so the audit-log case at the end knows
+ * every secret the door was shown.
+ *
+ * @param {object} options As for `previewAdmission`.
+ * @returns {Promise<object>} What it returned.
+ */
+async function previewAdmission(options) {
+  remember('credential', options.body?.credential)
+  remember('code', options.body?.code)
+
+  const data = await previewAdmissionService(options)
+
+  remember('previewReference', data.previewReference)
+
+  return data
+}
+
+/**
+ * The real `confirmAdmission`, noting what was presented.
+ *
+ * @param {object} options As for `confirmAdmission`.
+ * @returns {Promise<object>} What it returned.
+ */
+function confirmAdmission(options) {
+  remember('credential', options.body?.credential)
+  remember('code', options.body?.code)
+  remember('previewReference', options.body?.previewReference)
+
+  return confirmAdmissionService(options)
+}
+
+/**
  * Run a door call and describe what came back, error or not.
  *
  * @param {Promise<object>} call A preview or confirmation.
@@ -425,31 +514,52 @@ function admissions(ticket) {
 }
 
 /**
- * Wait until PostgreSQL reports at least `count` sessions blocked on a lock.
+ * A pattern matching a secret as a whole token, not as the start of a longer one.
+ *
+ * Printed codes here are a run prefix and a counter, so one code can be the
+ * beginning of another: `DET-X1` inside `DET-X12` is not that code.
+ *
+ * @param {string} secret A credential, printed code or preview reference.
+ * @returns {RegExp} The pattern.
+ */
+function token(secret) {
+  const escaped = secret.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+  return new RegExp(`(?<![A-Za-z0-9_-])${escaped}(?![A-Za-z0-9_-])`, 'u')
+}
+
+/**
+ * Wait until PostgreSQL reports a session blocked by the holder's transaction.
  *
  * The honest way to say "the other transaction has reached the lock": ask the
- * database, rather than sleep and hope.
+ * database, rather than sleep and hope. And ask about this holder, by its
+ * backend pid through `pg_blocking_pids`, rather than whether any session in
+ * the database is waiting on a lock: another suite's lock wait answers that
+ * question just as well, and a race that ran in sequence would still pass.
  *
- * @param {number} [count] How many waiters to wait for.
- * @returns {Promise<void>} Resolves once they are there.
- * @throws {Error} After five seconds without them.
+ * @param {{pid: number}} holder From {@link holding}.
+ * @returns {Promise<void>} Resolves once a session is blocked by it.
+ * @throws {Error} After five seconds without one.
  */
-async function untilBlocked(count = 1) {
+async function untilBlocked(holder) {
   const deadline = Date.now() + 5_000
 
   while (Date.now() < deadline) {
     const [{ waiting }] = await prisma.$queryRaw`
       SELECT count(*)::int AS waiting FROM pg_stat_activity
-      WHERE datname = current_database() AND wait_event_type = 'Lock'`
+      WHERE datname = current_database() AND ${holder.pid}::int = ANY (pg_blocking_pids(pid))`
 
-    if (waiting >= count) return
+    if (waiting > 0) return
 
     await new Promise((resolve) => {
       setTimeout(resolve, 25)
     })
   }
 
-  throw new Error(`No session blocked on a lock within five seconds; expected ${count}.`)
+  throw new Error(
+    `No session was blocked by the holding transaction (backend ${holder.pid}) within five ` +
+      'seconds: the racing call never waited on its lock.',
+  )
 }
 
 /**
@@ -457,7 +567,8 @@ async function untilBlocked(count = 1) {
  *
  * @param {function(object): Promise<void>} take Takes the lock.
  * @param {function(object): Promise<void>} [then] Runs before commit.
- * @returns {Promise<{release: function(): void, done: Promise<void>}>} Resolves once the lock is held.
+ * @returns {Promise<{release: function(): void, done: Promise<void>, pid: number}>} Resolves once
+ *   the lock is held, with the backend pid of the transaction holding it.
  */
 async function holding(take, then = async () => {}) {
   let release
@@ -472,17 +583,88 @@ async function holding(take, then = async () => {}) {
 
   const done = prisma.$transaction(
     async (tx) => {
+      const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
+
       await take(tx)
-      held()
+      held(pid)
       await gate
       await then(tx)
     },
     { timeout: 20_000, maxWait: 10_000 },
   )
 
-  await heldPromise
+  const pid = await heldPromise
 
-  return { release, done }
+  return { release, done, pid }
+}
+
+/**
+ * Refund an order in full through the refund service, as the routes do.
+ *
+ * Requested and approved, marked SUBMITTED in its own transaction, sent to the
+ * in-memory provider with nothing open, and settled — the settlement is what
+ * revokes the tickets and clears their passes. The fixture's payment carries a
+ * reference no provider issued, so the refund goes against an intent this
+ * suite's provider captured for the same amount: the substitution
+ * `refund-concurrency.test.js` makes for its timeout case.
+ *
+ * @param {object} sold From {@link eventWithTickets}.
+ * @param {object} who Who asks for, approves and settles it.
+ * @returns {Promise<object>} What `settleRefund` returned.
+ */
+async function refundInFull(sold, who) {
+  const payment = await prisma.payment.findFirst({
+    where: { orderId: sold.order.id, status: 'SUCCEEDED' },
+  })
+  const items = await prisma.orderItem.findMany({ where: { orderId: sold.order.id } })
+
+  const { refund } = await prisma.$transaction(async (tx) =>
+    requestRefund(tx, {
+      order: { ...(await tx.order.findUnique({ where: { id: sold.order.id } })), items },
+      payment,
+      lines: items.map((item) => ({ orderItemId: item.id, quantity: item.quantity })),
+      pendingByLine: await pendingQuantitiesByLine(tx, sold.order.id),
+      reason: 'CUSTOMER_REQUEST',
+      idempotencyKey: `admission-refund-${unique()}`,
+      actorId: who.id,
+      now: new Date(),
+    }),
+  )
+
+  await prisma.$transaction((tx) => approveRefund(tx, { refund, actorId: who.id, now: new Date() }))
+
+  const approved = await prisma.refund.findUnique({ where: { id: refund.id } })
+
+  await prisma.$transaction((tx) => markSubmitted(tx, { refund: approved, now: new Date() }))
+
+  const submitted = await prisma.refund.findUnique({ where: { id: refund.id } })
+  const intent = payments.createIntent({
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+  })
+
+  payments.capture(intent.id)
+
+  const result = await submitOutsideTransaction(payments, submitted, {
+    ...payment,
+    providerRef: intent.id,
+  })
+
+  expect(result.outcome, 'the mock provider did not take the refund').toBe(
+    REFUND_OUTCOMES.SUCCEEDED,
+  )
+
+  return prisma.$transaction(async (tx) =>
+    settleRefund(tx, {
+      refund: submitted,
+      order: await tx.order.findUnique({ where: { id: sold.order.id } }),
+      result,
+      organizationId: sold.event.organizationId,
+      eventStartsAt: sold.event.startsAt,
+      actorId: who.id,
+      now: new Date(),
+    }),
+  )
 }
 
 afterAll(async () => {
@@ -792,6 +974,108 @@ when()('scanner authorisation', () => {
       }),
     ).toBe(1)
   })
+
+  it('a scanner of another organisation, scoped to its own event, is told nothing and admits nobody, finding AUZ-3', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+    const outsider = await user('rival-scanner')
+
+    await member(outsider, w.rival, 'SCANNER', [w.b.event.id])
+
+    // Door authority of its own, at its own event, so the refusals below come
+    // from the ticket's organisation and event and not from the floor that
+    // refuses a caller with no door authority anywhere.
+    await previewed(outsider, { code: w.b.tickets[0].code })
+
+    const invented = await previewAs(outsider, { code: `DET-${unique().toUpperCase()}` })
+    const byCode = await previewAs(outsider, { code: ticket.code })
+    const byCredential = await previewAs(outsider, { credential: ticket.credential })
+
+    expect(invented.status).toBe(404)
+    expect(byCode).toMatchObject({ status: 404, message: invented.message })
+    expect(byCredential).toMatchObject({ status: 404, message: invented.message })
+
+    const admittedByCode = await confirmAs(outsider, {
+      code: ticket.code,
+      previewReference: forgedButValid({ ticket, event: w.a.event, who: outsider }),
+    })
+    const admittedByCredential = await confirmAs(outsider, {
+      credential: ticket.credential,
+      previewReference: forgedButValid({
+        ticket,
+        event: w.a.event,
+        who: outsider,
+        method: 'QR_SCAN',
+      }),
+    })
+
+    expect(admittedByCode.status).toBe(403)
+    expect(admittedByCredential.status).toBe(403)
+    expect(await admissions(ticket)).toBe(0)
+  })
+
+  it('a confirmation naming another event the scanner also covers is refused as the wrong event, finding AUZ-8', async () => {
+    const w = await world()
+    const [byCode, byCredential] = w.a.tickets
+    const both = await user('scanner-both')
+
+    // Scoped to both of Home's events, so the event mismatch is the only thing
+    // wrong and the refusal cannot be a scope refusal under another name.
+    await member(both, w.home, 'SCANNER', [w.a.event.id, w.a2.event.id])
+
+    const codeBody = await previewed(both, { code: byCode.code, expectedEventId: w.a.event.id })
+    const credentialBody = await previewed(both, {
+      credential: byCredential.credential,
+      expectedEventId: w.a.event.id,
+    })
+
+    // The door screen was switched to A2 between the preview and the tap.
+    const codeResult = await confirmAs(both, { ...codeBody, expectedEventId: w.a2.event.id })
+    const credentialResult = await confirmAs(both, {
+      ...credentialBody,
+      expectedEventId: w.a2.event.id,
+    })
+
+    expect(codeResult).toMatchObject({ status: 409, reason: 'WRONG_EVENT' })
+    expect(credentialResult).toMatchObject({ status: 409, reason: 'WRONG_EVENT' })
+    expect(await admissions(byCode)).toBe(0)
+    expect(await admissions(byCredential)).toBe(0)
+  })
+
+  it('a scope withdrawn between a QR preview and its confirmation admits nobody, finding QRC-12', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+    const body = await previewed(w.cast.scannerA, { credential: ticket.credential })
+
+    await prisma.scannerScope.deleteMany({ where: { membershipId: w.memberships.scannerA.id } })
+
+    expect((await confirmAs(w.cast.scannerA, body)).status).toBe(403)
+    expect(await admissions(ticket)).toBe(0)
+  })
+
+  it('a demotion to VIEWER between a QR preview and its confirmation admits nobody, finding QRC-12', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+    // Read before the demotion, as a request already in flight would hold it.
+    // An actor read afterwards is refused at the floor; this one reaches the
+    // authority re-read inside the confirmation, which is what is under test.
+    const stale = await actorFor(w.cast.stewardA)
+    const body = await previewed(w.cast.stewardA, { credential: ticket.credential })
+
+    await prisma.membership.update({
+      where: { id: w.memberships.stewardA.id },
+      data: { role: 'VIEWER' },
+    })
+
+    expect(
+      await prisma.scannerScope.count({ where: { membershipId: w.memberships.stewardA.id } }),
+    ).toBe(1)
+    expect((await confirmAs(w.cast.stewardA, body)).status).toBe(403)
+    expect((await outcome(confirmAdmission({ prisma, env: ENV, actor: stale, body }))).status).toBe(
+      403,
+    )
+    expect(await admissions(ticket)).toBe(0)
+  })
 })
 
 when()('admission races', () => {
@@ -884,7 +1168,7 @@ when()('admission races', () => {
 
     // The confirmation has locked the ticket and is now waiting on the
     // membership. Only then does the revocation delete the scope and commit.
-    await untilBlocked(1)
+    await untilBlocked(revocation)
     revocation.release()
     await revocation.done
 
@@ -910,7 +1194,7 @@ when()('admission races', () => {
 
     const confirmation = confirmAs(w.cast.scannerA, body)
 
-    await untilBlocked(1)
+    await untilBlocked(revocation)
     revocation.release()
     await revocation.done
 
@@ -928,21 +1212,11 @@ when()('admission races', () => {
     const passBody = await previewed(w.cast.scannerA, { credential: byPass.credential })
     const codeBody = await previewed(w.cast.scannerA, { code: byCode.code })
 
-    // What the refund service writes: status, the revocation stamp, and the
-    // pass cleared — conditional on the status it read.
-    for (const ticket of [byPass, byCode]) {
-      await prisma.ticket.updateMany({
-        where: { id: ticket.id, status: 'VALID' },
-        data: {
-          status: 'REFUNDED',
-          revokedAt: new Date(),
-          revokedReason: 'refund:admission-suite',
-          credentialHash: null,
-          credentialVersion: { increment: 1 },
-        },
-      })
-    }
+    // The refund service itself rather than a copy of what it writes, so the
+    // door is tested against whatever a settled refund actually leaves behind.
+    const settled = await refundInFull(w.a, w.cast.owner)
 
+    expect(settled).toMatchObject({ settled: true, ticketsRevoked: 2 })
     expect(await confirmAs(w.cast.scannerA, passBody)).toMatchObject({
       status: 409,
       reason: 'REFUNDED',
@@ -1084,5 +1358,36 @@ when()('admission races', () => {
     // Recorded rather than asserted: which one wins each round is up to the
     // scheduler. What is asserted is that every round ended in one of the two.
     expect(outcomes).toHaveLength(5)
+  })
+})
+
+when()('what the audit log kept, finding QRC-9h', () => {
+  it('holds no credential, printed code or preview reference this file presented', async () => {
+    // Last in the file, so every case above — refusals included — has written
+    // its rows. Found by this run's identifiers: the ticket a row is about,
+    // or the caller who caused it.
+    const ids = [...minted]
+    const rows = await prisma.auditLog.findMany({
+      where: { OR: [{ entityId: { in: ids } }, { actorId: { in: ids } }] },
+    })
+
+    expect(presented.size, 'nothing was presented to the door').toBeGreaterThan(0)
+    expect(
+      rows.some((row) => row.action === 'ticket.admission_refused' && row.entityType === 'Ticket'),
+      'no refusal row to search',
+    ).toBe(true)
+
+    const secrets = [...presented].map(([secret, kind]) => ({ kind, pattern: token(secret) }))
+    const leaks = []
+
+    for (const row of rows) {
+      const text = JSON.stringify(row)
+
+      for (const { kind, pattern } of secrets) {
+        if (pattern.test(text)) leaks.push(`${row.action} on ${row.entityId} carries a ${kind}`)
+      }
+    }
+
+    expect(leaks).toEqual([])
   })
 })

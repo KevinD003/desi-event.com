@@ -104,4 +104,13 @@ describe('the admission pass', () => {
     // as a body field — `req.body.credential`.
     expect(WILDCARD_KEYS).toContain('credential')
   })
+
+  it('takes the door’s preview reference with it, by name and one level down', () => {
+    // The check-in route takes the reference in its body next to the
+    // credential, so a handler that logs one logs the other.
+    expect(SENSITIVE_FIELD_KEYS).toContain('previewReference')
+    expect(WILDCARD_KEYS).toContain('previewReference')
+    expect(REDACT_PATHS).toContain('req.body.previewReference')
+    expect(REDACT_PATHS).toContain('*.previewReference')
+  })
 })

@@ -182,6 +182,18 @@ describe('the team list, by role', () => {
     // The door routes carry an attendee's name for a steward to check a face
     // against, and nothing about the buyer or the team.
     const world = await teamWorld()
+
+    // A SCANNER admits only where a scope says so, and an unscoped one is
+    // given an empty list — a body with nothing in it to search.
+    const scanner = world.prisma._store.user.find(
+      (user) => user.email === 'scanner@rangoli.example',
+    )
+    const membership = world.prisma._store.membership.find((row) => row.userId === scanner.id)
+
+    await world.prisma.scannerScope.create({
+      data: { membershipId: membership.id, eventId: world.ids.publishedEvent.id },
+    })
+
     const events = await world.app.inject({
       method: 'GET',
       url: '/v1/tickets/admission/events',
@@ -189,6 +201,7 @@ describe('the team list, by role', () => {
     })
 
     expect(events.statusCode).toBe(200)
+    expect(events.json().data.map((entry) => entry.event.id)).toEqual([world.ids.publishedEvent.id])
     expect(events.body).not.toMatch(/@/u)
 
     await world.app.close()

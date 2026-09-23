@@ -905,17 +905,36 @@ when()('a refund racing a check-in', () => {
 
     // The door, a moment later. `desi_check_in_ticket_admissible` refuses it in
     // the database rather than trusting the scanner's own read.
+    //
+    // Asserted on the database's own refusal, not on the message text alone.
+    // A Prisma validation error prints a code frame of the calling source, and
+    // the comment above sat in that frame: a bare /admissible/ once matched an
+    // insert Prisma rejected, for a column `CheckIn` does not have, before it
+    // ever reached PostgreSQL. `RAISE EXCEPTION` is SQLSTATE P0001, which
+    // Prisma nests under `meta.driverAdapterError` (see `databaseErrorCode` in
+    // ../src/lib/errors.js), and the message is the one the trigger raises,
+    // word for word.
     await expect(
       prisma.checkIn.create({
         data: {
           id: id('checkin'),
           ticketId: ticket.id,
-          eventId: world.event.id,
           eventSessionId: world.session.id,
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow(/admissible|refunded|revoked/i)
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${ticket.id} is REFUNDED, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(0)
   })
 })
 
