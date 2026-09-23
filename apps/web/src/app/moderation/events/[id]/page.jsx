@@ -46,15 +46,15 @@ export const metadata = { title: 'Review an event', robots: { index: false, foll
  */
 function Readiness({ ready, title, blockers }) {
   return (
-    <li className="rounded-card border border-slate-200 bg-white p-3">
+    <li className="rounded-card border border-line bg-surface-raised p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={ready ? 'success' : 'warning'} srLabel="Status:">
           {ready ? 'Ready' : 'Not yet'}
         </Badge>
-        <span className="font-medium text-indigo-night-900">{title}</span>
+        <span className="font-medium text-ink">{title}</span>
       </div>
       {blockers.length > 0 ? (
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-muted">
           {blockers.map((blocker) => (
             <li key={blocker}>{blocker}</li>
           ))}
@@ -90,12 +90,12 @@ export default async function ReviewEventPage({ params }) {
   if (!event) {
     return (
       <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold text-indigo-night-900">That event could not be opened</h1>
-        <p className="mt-2 text-slate-700">{failure ?? 'No such event.'}</p>
+        <h1 className="text-2xl font-bold text-ink">That event could not be opened</h1>
+        <p className="mt-2 text-ink-muted">{failure ?? 'No such event.'}</p>
         <p className="mt-4">
           <Link
             href="/moderation/events"
-            className="underline underline-offset-4 hover:text-marigold-700"
+            className="underline underline-offset-4 hover:text-accent-strong"
           >
             Back to the queue
           </Link>
@@ -124,25 +124,25 @@ export default async function ReviewEventPage({ params }) {
 
   return (
     <div>
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
             <Link
               href="/moderation/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Review queue
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-600">
+          <li aria-current="page" className="text-ink-muted">
             {event.title}
           </li>
         </ol>
       </nav>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold text-indigo-night-900">{event.title}</h1>
+        <h1 className="text-2xl font-bold text-ink">{event.title}</h1>
         <Badge variant={reading.tone} srLabel="State:">
           {reading.label}
         </Badge>
@@ -151,7 +151,7 @@ export default async function ReviewEventPage({ params }) {
       <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[1.6fr_1fr] lg:items-start">
         <div className="min-w-0 space-y-6">
           <section aria-labelledby="listing-heading">
-            <h2 id="listing-heading" className="text-xl font-bold text-indigo-night-900">
+            <h2 id="listing-heading" className="text-xl font-bold text-ink">
               What the listing says
             </h2>
 
@@ -159,29 +159,29 @@ export default async function ReviewEventPage({ params }) {
               <CardBody>
                 <dl className="space-y-3 text-sm">
                   <div>
-                    <dt className="font-medium text-slate-800">Summary</dt>
-                    <dd className="text-slate-700">{event.summary}</dd>
+                    <dt className="font-medium text-ink">Summary</dt>
+                    <dd className="text-ink-muted">{event.summary}</dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-slate-800">Description</dt>
-                    <dd className="whitespace-pre-line text-slate-700">{event.description}</dd>
+                    <dt className="font-medium text-ink">Description</dt>
+                    <dd className="whitespace-pre-line text-ink-muted">{event.description}</dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-slate-800">When</dt>
-                    <dd className="text-slate-700">
+                    <dt className="font-medium text-ink">When</dt>
+                    <dd className="text-ink-muted">
                       {formatEventDate(event.startsAt, event.timezone)} ·{' '}
                       {formatEventTime(event.startsAt, event.timezone)} ({event.timezone})
                     </dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-slate-800">Where</dt>
-                    <dd className="text-slate-700">
+                    <dt className="font-medium text-ink">Where</dt>
+                    <dd className="text-ink-muted">
                       {event.isOnline ? 'Online' : address.join(', ') || 'No venue chosen'}
                     </dd>
                   </div>
                   <div>
-                    <dt className="font-medium text-slate-800">Sessions</dt>
-                    <dd className="text-slate-700">
+                    <dt className="font-medium text-ink">Sessions</dt>
+                    <dd className="text-ink-muted">
                       {(sessions.data ?? []).length} — {(event.ticketTypes ?? []).length} ticket
                       type
                       {(event.ticketTypes ?? []).length === 1 ? '' : 's'}
@@ -189,27 +189,27 @@ export default async function ReviewEventPage({ params }) {
                   </div>
                   {event.ageRestriction ? (
                     <div>
-                      <dt className="font-medium text-slate-800">Age restriction</dt>
-                      <dd className="text-slate-700">{event.ageRestriction} and over</dd>
+                      <dt className="font-medium text-ink">Age restriction</dt>
+                      <dd className="text-ink-muted">{event.ageRestriction} and over</dd>
                     </div>
                   ) : null}
                   {event.artists?.length > 0 ? (
                     <div>
-                      <dt className="font-medium text-slate-800">Line-up</dt>
-                      <dd className="text-slate-700">{event.artists.join(', ')}</dd>
+                      <dt className="font-medium text-ink">Line-up</dt>
+                      <dd className="text-ink-muted">{event.artists.join(', ')}</dd>
                     </div>
                   ) : null}
                   {access.features.length > 0 ? (
                     <div>
-                      <dt className="font-medium text-slate-800">Accessibility claimed</dt>
-                      <dd className="text-slate-700">
+                      <dt className="font-medium text-ink">Accessibility claimed</dt>
+                      <dd className="text-ink-muted">
                         {access.features.map(accessibilityLabel).join(', ')}
                       </dd>
                     </div>
                   ) : null}
                   <div>
-                    <dt className="font-medium text-slate-800">Refund policy</dt>
-                    <dd className="text-slate-700">
+                    <dt className="font-medium text-ink">Refund policy</dt>
+                    <dd className="text-ink-muted">
                       {policies.refund ?? 'None given — an event cannot be published without one.'}
                     </dd>
                   </div>
@@ -217,7 +217,7 @@ export default async function ReviewEventPage({ params }) {
 
                 <p className="mt-4 text-sm">
                   <a
-                    className="underline underline-offset-4 hover:text-marigold-700"
+                    className="underline underline-offset-4 hover:text-accent-strong"
                     href={`/events/${event.slug}`}
                     target="_blank"
                     rel="noreferrer"
@@ -230,13 +230,13 @@ export default async function ReviewEventPage({ params }) {
           </section>
 
           <section aria-labelledby="organiser-heading">
-            <h2 id="organiser-heading" className="text-xl font-bold text-indigo-night-900">
+            <h2 id="organiser-heading" className="text-xl font-bold text-ink">
               Who is behind it
             </h2>
 
             <Card className="mt-3">
               <CardBody>
-                <p className="flex flex-wrap items-center gap-2 font-medium text-indigo-night-900">
+                <p className="flex flex-wrap items-center gap-2 font-medium text-ink">
                   {event.organization?.name ?? 'Unnamed organisation'}
                   {/* A platform fact, not an opinion about the listing. An
                       unverified organisation cannot publish at all, so this is
@@ -249,13 +249,13 @@ export default async function ReviewEventPage({ params }) {
                   </Badge>
                 </p>
                 {event.organization?.description ? (
-                  <p className="mt-2 text-sm text-slate-700">{event.organization.description}</p>
+                  <p className="mt-2 text-sm text-ink-muted">{event.organization.description}</p>
                 ) : null}
                 {event.organization?.slug ? (
                   <p className="mt-2 text-sm">
                     <Link
                       href={`/organizers/${event.organization.slug}`}
-                      className="underline underline-offset-4 hover:text-marigold-700"
+                      className="underline underline-offset-4 hover:text-accent-strong"
                     >
                       Their public page
                     </Link>
@@ -267,27 +267,27 @@ export default async function ReviewEventPage({ params }) {
 
           {history.length > 0 ? (
             <section aria-labelledby="history-heading">
-              <h2 id="history-heading" className="text-xl font-bold text-indigo-night-900">
+              <h2 id="history-heading" className="text-xl font-bold text-ink">
                 What has happened so far
               </h2>
               <ol className="mt-3 space-y-2">
                 {history.map((entry) => (
                   <li
                     key={entry.id}
-                    className="rounded-card border border-slate-200 bg-white p-3 text-sm"
+                    className="rounded-card border border-line bg-surface-raised p-3 text-sm"
                   >
-                    <p className="font-medium text-indigo-night-900">
+                    <p className="font-medium text-ink">
                       {entry.fromStatus ? `${statusReading(entry.fromStatus).label} → ` : ''}
                       {statusReading(entry.toStatus).label}
                     </p>
-                    <p className="text-slate-600">
+                    <p className="text-ink-muted">
                       <time dateTime={entry.createdAt}>
                         {new Date(entry.createdAt).toLocaleString('en-GB')}
                       </time>
                     </p>
-                    {entry.reason ? <p className="mt-1 text-slate-700">{entry.reason}</p> : null}
+                    {entry.reason ? <p className="mt-1 text-ink-muted">{entry.reason}</p> : null}
                     {entry.requestedChanges ? (
-                      <ul className="mt-1 list-disc space-y-1 pl-5 text-slate-700">
+                      <ul className="mt-1 list-disc space-y-1 pl-5 text-ink-muted">
                         {Object.entries(entry.requestedChanges).map(([field, note]) => (
                           <li key={field}>
                             <span className="font-medium">{field}:</span> {note}
@@ -304,7 +304,7 @@ export default async function ReviewEventPage({ params }) {
 
         <aside className="space-y-6 lg:sticky lg:top-24">
           <section aria-labelledby="readiness-heading">
-            <h2 id="readiness-heading" className="text-xl font-bold text-indigo-night-900">
+            <h2 id="readiness-heading" className="text-xl font-bold text-ink">
               Whether it is ready
             </h2>
             <ul className="mt-3 space-y-2">
@@ -336,7 +336,7 @@ export default async function ReviewEventPage({ params }) {
           </section>
 
           <section aria-labelledby="decision-panel-heading">
-            <h2 id="decision-panel-heading" className="text-xl font-bold text-indigo-night-900">
+            <h2 id="decision-panel-heading" className="text-xl font-bold text-ink">
               Your decision
             </h2>
 
@@ -353,7 +353,7 @@ export default async function ReviewEventPage({ params }) {
               </Alert>
             )}
 
-            <p className="mt-3 text-sm text-slate-600">
+            <p className="mt-3 text-sm text-ink-muted">
               Your reason goes to the organiser. Your name does not: they are negotiating with the
               platform, not with you.
             </p>

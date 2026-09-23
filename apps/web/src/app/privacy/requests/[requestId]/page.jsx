@@ -130,62 +130,54 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
         <>
           <header className="mt-4">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold text-indigo-night-900">Privacy request</h1>
+              <h1 className="text-2xl font-bold text-ink">Privacy request</h1>
               <StateBadge state={request.state} label={requestStateLabel(request.state)} />
             </div>
-            <p className="mt-2 max-w-3xl text-slate-700">
+            <p className="mt-2 max-w-3xl text-ink-muted">
               {requestStateDescription(request.state)}
             </p>
           </header>
 
           <section aria-labelledby="facts-heading" className="mt-8">
-            <h2 id="facts-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="facts-heading" className="text-lg font-semibold text-ink">
               The record
             </h2>
             <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2">
               <div>
-                <dt className="text-sm font-medium text-slate-600">Subject</dt>
-                <dd className="font-mono text-sm break-all text-indigo-night-900">
-                  {request.subjectId}
-                </dd>
+                <dt className="text-sm font-medium text-ink-muted">Subject</dt>
+                <dd className="font-mono text-sm break-all text-ink">{request.subjectId}</dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Why it was raised</dt>
-                <dd className="text-sm text-indigo-night-900">
-                  {requestReasonLabel(request.reason)}
-                </dd>
+                <dt className="text-sm font-medium text-ink-muted">Why it was raised</dt>
+                <dd className="text-sm text-ink">{requestReasonLabel(request.reason)}</dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Hold evaluation</dt>
-                <dd className="text-sm text-indigo-night-900">
-                  {holdDecisionLabel(request.holdDecision)}
-                </dd>
+                <dt className="text-sm font-medium text-ink-muted">Hold evaluation</dt>
+                <dd className="text-sm text-ink">{holdDecisionLabel(request.holdDecision)}</dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Outcome</dt>
-                <dd className="text-sm text-indigo-night-900">
+                <dt className="text-sm font-medium text-ink-muted">Outcome</dt>
+                <dd className="text-sm text-ink">
                   {outcomeLabel(request.outcomeCode) ?? 'Not yet settled'}
                 </dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Policy version</dt>
-                <dd className="font-mono text-sm text-indigo-night-900">{request.policyVersion}</dd>
+                <dt className="text-sm font-medium text-ink-muted">Policy version</dt>
+                <dd className="font-mono text-sm text-ink">{request.policyVersion}</dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Correlation</dt>
-                <dd className="font-mono text-xs break-all text-indigo-night-900">
-                  {request.correlationId}
-                </dd>
+                <dt className="text-sm font-medium text-ink-muted">Correlation</dt>
+                <dd className="font-mono text-xs break-all text-ink">{request.correlationId}</dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Raised</dt>
-                <dd className="text-sm text-indigo-night-900">
+                <dt className="text-sm font-medium text-ink-muted">Raised</dt>
+                <dd className="text-sm text-ink">
                   <time dateTime={request.requestedAt}>{request.requestedAt}</time>
                 </dd>
               </div>
               <div>
-                <dt className="text-sm font-medium text-slate-600">Completed</dt>
-                <dd className="text-sm text-indigo-night-900">
+                <dt className="text-sm font-medium text-ink-muted">Completed</dt>
+                <dd className="text-sm text-ink">
                   {request.completedAt ? (
                     <time dateTime={request.completedAt}>{request.completedAt}</time>
                   ) : (
@@ -197,10 +189,10 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
           </section>
 
           <section aria-labelledby="scope-heading" className="mt-8">
-            <h2 id="scope-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="scope-heading" className="text-lg font-semibold text-ink">
               What this would reach
             </h2>
-            <p className="mt-1 max-w-3xl text-sm text-slate-700">
+            <p className="mt-1 max-w-3xl text-sm text-ink-muted">
               Counts by category, as computed when this request was raised. Categories rather than
               columns, and counts rather than values — a preview an operator reads must not double
               as a map of where the personal data lives. This is a snapshot: nothing recomputes it
@@ -212,7 +204,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
                 <table className="w-full min-w-[32rem] border-collapse text-left text-sm">
                   <caption className="sr-only">Personal-data categories in scope</caption>
                   <thead>
-                    <tr className="border-b border-slate-300 text-slate-700">
+                    <tr className="border-b border-line-strong text-ink-muted">
                       <th scope="col" className="py-2 pr-4 font-semibold">
                         Category
                       </th>
@@ -226,15 +218,15 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
                   </thead>
                   <tbody>
                     {request.scope.map((entry) => (
-                      <tr key={entry.category} className="border-b border-slate-200 align-top">
-                        <th scope="row" className="py-3 pr-4 font-medium text-indigo-night-900">
+                      <tr key={entry.category} className="border-b border-line align-top">
+                        <th scope="row" className="py-3 pr-4 font-medium text-ink">
                           {categoryLabel(entry.category)}
                         </th>
-                        <td className="py-3 pr-4 tabular-nums text-slate-700">{entry.rows}</td>
-                        <td className="py-3 text-slate-700">
+                        <td className="py-3 pr-4 tabular-nums text-ink-muted">{entry.rows}</td>
+                        <td className="py-3 text-ink-muted">
                           {scopeStatusLabel(entry.status)}
                           {scopeStatusDescription(entry.status) ? (
-                            <span className="mt-1 block text-xs text-slate-600">
+                            <span className="mt-1 block text-xs text-ink-muted">
                               {scopeStatusDescription(entry.status)}
                             </span>
                           ) : null}
@@ -260,15 +252,15 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
           />
 
           <section aria-labelledby="timeline-heading" className="mt-8">
-            <h2 id="timeline-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="timeline-heading" className="text-lg font-semibold text-ink">
               Evidence
             </h2>
-            <p className="mt-1 max-w-3xl text-sm text-slate-700">
+            <p className="mt-1 max-w-3xl text-sm text-ink-muted">
               What was recorded against this request. Holds are recorded against the hold rather
               than the request, so placing or releasing one appears on the{' '}
               <Link
                 href="/privacy/holds"
-                className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 holds screen
               </Link>{' '}
@@ -283,16 +275,17 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
             ) : (
               <ol className="mt-3 space-y-3">
                 {events.map((event) => (
-                  <li key={event.id} className="rounded-card border border-slate-200 bg-white p-3">
+                  <li
+                    key={event.id}
+                    className="rounded-card border border-line bg-surface-raised p-3"
+                  >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <p className="font-medium text-indigo-night-900">
-                        {auditActionLabel(event.action)}
-                      </p>
-                      <time dateTime={event.occurredAt} className="text-xs text-slate-600">
+                      <p className="font-medium text-ink">{auditActionLabel(event.action)}</p>
+                      <time dateTime={event.occurredAt} className="text-xs text-ink-muted">
                         {event.occurredAt}
                       </time>
                     </div>
-                    <p className="mt-1 text-sm text-slate-700">
+                    <p className="mt-1 text-sm text-ink-muted">
                       {auditResultLabel(event.result)} · {event.reasonCode}
                     </p>
                   </li>

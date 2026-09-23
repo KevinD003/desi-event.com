@@ -10,16 +10,16 @@ import { cn } from './cn.js'
 
 /** Classes every control shares: layout, border, typography and focus ring. */
 export const CONTROL_BASE_CLASSES =
-  'block w-full rounded-lg border bg-white px-3 py-2 text-sm text-slate-900 shadow-sm ' +
-  'placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-offset-1 ' +
-  'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500'
+  'block w-full rounded-lg border bg-surface px-3 py-2 text-sm text-ink shadow-sm ' +
+  'placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-offset-1 ' +
+  'disabled:cursor-not-allowed disabled:bg-surface-subtle disabled:text-ink-subtle'
 
 /** Border and focus ring colours for a control in its valid state. */
-export const CONTROL_VALID_CLASSES =
-  'border-slate-300 focus:border-marigold-500 focus:ring-marigold-500'
+export const CONTROL_VALID_CLASSES = 'border-line-strong focus:border-focus focus:ring-focus'
 
 /** Border and focus ring colours for a control that failed validation. */
-export const CONTROL_INVALID_CLASSES = 'border-rose-500 focus:border-rose-600 focus:ring-rose-500'
+export const CONTROL_INVALID_CLASSES =
+  'border-status-danger focus:border-status-danger focus:ring-status-danger'
 
 /**
  * Build the class name for a native form control.

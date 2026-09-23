@@ -29,12 +29,12 @@ export const metadata = { robots: { index: false, follow: false } }
 export default function AcceptTransferPage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold text-indigo-night-900">Accept a ticket</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="text-2xl font-bold text-ink">Accept a ticket</h1>
+      <p className="mt-2 text-ink-muted">
         Somebody has offered you a ticket. Paste the code they sent you below. Accepting puts the
         ticket in this account and stops the sender’s pass working; declining leaves it with them.
       </p>
-      <p className="mt-2 text-sm text-slate-600">
+      <p className="mt-2 text-sm text-ink-muted">
         The code is only ever typed in, never carried in a web address — an address with a secret in
         it survives in your history and in somebody’s server log long after the invitation is spent.
       </p>

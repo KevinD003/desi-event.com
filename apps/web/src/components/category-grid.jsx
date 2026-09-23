@@ -33,20 +33,20 @@ export function CategoryGrid({ categories }) {
         <RevealOnScroll as="li" key={category.value} index={index}>
           <Link
             href={buildEventsHref({ category: category.value })}
-            className="group flex h-full items-start gap-4 rounded-card border border-slate-200 bg-white p-5 transition-colors hover:border-marigold-300 hover:bg-marigold-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+            className="group flex h-full items-start gap-4 rounded-card border border-line bg-surface-raised p-5 transition-colors hover:border-accent-line hover:bg-accent-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
           >
             <span
               aria-hidden="true"
-              className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-marigold-100 font-display text-xl text-marigold-800"
+              className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-soft font-display text-xl text-accent-strong"
             >
               {category.glyph}
             </span>
             <span className="flex flex-col gap-1">
-              <span className="font-display text-base font-semibold text-indigo-night-900 group-hover:text-marigold-800">
+              <span className="font-display text-base font-semibold text-ink group-hover:text-accent-strong">
                 {category.label}
               </span>
-              <span className="text-sm text-slate-600">{category.blurb}</span>
-              <span className="text-xs font-medium text-slate-600">
+              <span className="text-sm text-ink-muted">{category.blurb}</span>
+              <span className="text-xs font-medium text-ink-muted">
                 {category.count} {category.count === 1 ? 'event' : 'events'}
               </span>
             </span>

@@ -70,7 +70,7 @@ describe('Badge', () => {
       </Badge>,
     )
 
-    expect(screen.getByTestId('badge').className).toContain('bg-slate-100')
+    expect(screen.getByTestId('badge').className).toContain('bg-status-neutral-soft')
   })
 })
 

@@ -226,12 +226,12 @@ export default async function EventDetailPage({ params }) {
         />
       ) : null}
 
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
             <Link
               href="/"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Home
             </Link>
@@ -240,13 +240,13 @@ export default async function EventDetailPage({ params }) {
           <li>
             <Link
               href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Events
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-600">
+          <li aria-current="page" className="text-ink-muted">
             {event.title}
           </li>
         </ol>
@@ -271,10 +271,10 @@ export default async function EventDetailPage({ params }) {
           ) : null}
         </div>
 
-        <h1 className="mt-4 text-3xl leading-tight font-bold text-indigo-night-900 sm:text-4xl">
+        <h1 className="mt-4 text-3xl leading-tight font-bold text-ink sm:text-4xl">
           {event.title}
         </h1>
-        <p className="mt-3 max-w-3xl text-lg text-slate-700">{event.summary}</p>
+        <p className="mt-3 max-w-3xl text-lg text-ink-muted">{event.summary}</p>
       </FadeIn>
 
       {/*
@@ -307,18 +307,18 @@ export default async function EventDetailPage({ params }) {
       <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[1.7fr_1fr] lg:items-start">
         <div className="min-w-0 space-y-10">
           <section aria-labelledby="about-heading">
-            <h2 id="about-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="about-heading" className="text-2xl font-bold text-ink">
               About this event
             </h2>
-            <div className="mt-4 space-y-4 text-slate-700">
+            <div className="mt-4 space-y-4 text-ink-muted">
               {paragraphs.map((paragraph) => (
                 <p key={paragraph.slice(0, 48)}>{paragraph}</p>
               ))}
             </div>
 
             {event.languages?.length > 0 ? (
-              <p className="mt-5 text-sm text-slate-600">
-                <span className="font-medium text-slate-800">Languages: </span>
+              <p className="mt-5 text-sm text-ink-muted">
+                <span className="font-medium text-ink">Languages: </span>
                 {event.languages.join(', ')}
               </p>
             ) : null}
@@ -327,12 +327,12 @@ export default async function EventDetailPage({ params }) {
                 names on the bill is the thing being negotiated. */}
             {artists.length > 0 ? (
               <div className="mt-5">
-                <h3 className="text-sm font-medium text-slate-800">Line-up</h3>
+                <h3 className="text-sm font-medium text-ink">Line-up</h3>
                 <ol className="mt-2 flex flex-wrap gap-2">
                   {artists.map((artist) => (
                     <li
                       key={artist}
-                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700"
+                      className="rounded-full border border-line bg-surface-subtle px-3 py-1 text-sm text-ink-muted"
                     >
                       {artist}
                     </li>
@@ -343,31 +343,31 @@ export default async function EventDetailPage({ params }) {
           </section>
 
           <RevealOnScroll as="section" aria-labelledby="schedule-heading">
-            <h2 id="schedule-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="schedule-heading" className="text-2xl font-bold text-ink">
               Schedule
             </h2>
             <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="rounded-card border border-slate-200 bg-white p-4">
-                <dt className="text-sm font-medium text-slate-600">Doors / start</dt>
-                <dd className="mt-1 text-slate-900">
+              <div className="rounded-card border border-line bg-surface-raised p-4">
+                <dt className="text-sm font-medium text-ink-muted">Doors / start</dt>
+                <dd className="mt-1 text-ink">
                   <time dateTime={toDateTimeAttribute(event.startsAt)}>
                     {formatEventDate(event.startsAt, event.timezone)} ·{' '}
                     {formatEventTime(event.startsAt, event.timezone)}
                   </time>
                 </dd>
               </div>
-              <div className="rounded-card border border-slate-200 bg-white p-4">
-                <dt className="text-sm font-medium text-slate-600">Ends</dt>
-                <dd className="mt-1 text-slate-900">
+              <div className="rounded-card border border-line bg-surface-raised p-4">
+                <dt className="text-sm font-medium text-ink-muted">Ends</dt>
+                <dd className="mt-1 text-ink">
                   <time dateTime={toDateTimeAttribute(event.endsAt)}>
                     {formatEventDate(event.endsAt, event.timezone)} ·{' '}
                     {formatEventTime(event.endsAt, event.timezone)}
                   </time>
                 </dd>
               </div>
-              <div className="rounded-card border border-slate-200 bg-white p-4 sm:col-span-2">
-                <dt className="text-sm font-medium text-slate-600">Local time</dt>
-                <dd className="mt-1 text-slate-900">
+              <div className="rounded-card border border-line bg-surface-raised p-4 sm:col-span-2">
+                <dt className="text-sm font-medium text-ink-muted">Local time</dt>
+                <dd className="mt-1 text-ink">
                   All times are {zoneLabel ? `${zoneLabel} — ` : ''}the local time at the venue (
                   {event.timezone}), not your own.
                 </dd>
@@ -376,19 +376,19 @@ export default async function EventDetailPage({ params }) {
           </RevealOnScroll>
 
           <RevealOnScroll as="section" aria-labelledby="venue-heading">
-            <h2 id="venue-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="venue-heading" className="text-2xl font-bold text-ink">
               Venue
             </h2>
             {event.venue ? (
               <Card className="mt-4">
                 <CardBody>
-                  <p className="font-display text-lg font-semibold text-indigo-night-900">
+                  <p className="font-display text-lg font-semibold text-ink">
                     {/* Linked when there is a slug. Deriving one from the name
                         would produce a URL that looks right and 404s. */}
                     {event.venue.slug ? (
                       <Link
                         href={`/venues/${event.venue.slug}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {event.venue.name}
                       </Link>
@@ -396,7 +396,7 @@ export default async function EventDetailPage({ params }) {
                       event.venue.name
                     )}
                   </p>
-                  <address className="mt-2 text-slate-700 not-italic">
+                  <address className="mt-2 text-ink-muted not-italic">
                     {address.map((line) => (
                       <span key={line} className="block">
                         {line}
@@ -404,14 +404,14 @@ export default async function EventDetailPage({ params }) {
                     ))}
                   </address>
                   {event.venue.capacity ? (
-                    <p className="mt-3 text-sm text-slate-600">
+                    <p className="mt-3 text-sm text-ink-muted">
                       Capacity {event.venue.capacity.toLocaleString('en-IN')}
                     </p>
                   ) : null}
                 </CardBody>
               </Card>
             ) : (
-              <p className="mt-4 text-slate-700">
+              <p className="mt-4 text-ink-muted">
                 The venue for this event has not been announced.
               </p>
             )}
@@ -419,7 +419,7 @@ export default async function EventDetailPage({ params }) {
 
           {event.organization ? (
             <RevealOnScroll as="section" aria-labelledby="organiser-heading">
-              <h2 id="organiser-heading" className="text-2xl font-bold text-indigo-night-900">
+              <h2 id="organiser-heading" className="text-2xl font-bold text-ink">
                 Presented by
               </h2>
               <Card className="mt-4">
@@ -433,12 +433,12 @@ export default async function EventDetailPage({ params }) {
                     {event.organization.slug ? (
                       <Link
                         href={`/organizers/${event.organization.slug}`}
-                        className="rounded-sm font-display text-lg font-semibold text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
+                        className="rounded-sm font-display text-lg font-semibold text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
                       >
                         {event.organization.name}
                       </Link>
                     ) : (
-                      <span className="font-display text-lg font-semibold text-indigo-night-900">
+                      <span className="font-display text-lg font-semibold text-ink">
                         {event.organization.name}
                       </span>
                     )}
@@ -449,7 +449,7 @@ export default async function EventDetailPage({ params }) {
                     ) : null}
                   </p>
                   {event.organization.description ? (
-                    <p className="mt-2 text-slate-700">{event.organization.description}</p>
+                    <p className="mt-2 text-ink-muted">{event.organization.description}</p>
                   ) : null}
                 </CardBody>
               </Card>
@@ -464,15 +464,13 @@ export default async function EventDetailPage({ params }) {
           */}
           {access.features.length > 0 || access.notes.length > 0 || event.ageRestriction ? (
             <RevealOnScroll as="section" aria-labelledby="access-heading">
-              <h2 id="access-heading" className="text-2xl font-bold text-indigo-night-900">
+              <h2 id="access-heading" className="text-2xl font-bold text-ink">
                 Access and admission
               </h2>
 
               {event.ageRestriction ? (
-                <p className="mt-4 text-slate-700">
-                  <span className="font-medium text-slate-900">
-                    Age {event.ageRestriction} and over.
-                  </span>{' '}
+                <p className="mt-4 text-ink-muted">
+                  <span className="font-medium text-ink">Age {event.ageRestriction} and over.</span>{' '}
                   {policies.ageNote ??
                     'Bring photo identification — the door may ask for it, and a ticket is not a way in without it.'}
                 </p>
@@ -483,7 +481,7 @@ export default async function EventDetailPage({ params }) {
                   {access.features.map((code) => (
                     <li
                       key={code}
-                      className="rounded-card border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                      className="rounded-card border border-line bg-surface-raised px-3 py-2 text-sm text-ink-muted"
                     >
                       {accessibilityLabel(code)}
                     </li>
@@ -494,14 +492,14 @@ export default async function EventDetailPage({ params }) {
               {/* Attributed, because "ring the bell at Gate 3" and "this
                   performance is captioned" answer different questions. */}
               {access.notes.map((note) => (
-                <p key={note.source} className="mt-3 text-sm text-slate-700">
-                  <span className="font-medium text-slate-900">{note.source}: </span>
+                <p key={note.source} className="mt-3 text-sm text-ink-muted">
+                  <span className="font-medium text-ink">{note.source}: </span>
                   {note.text}
                 </p>
               ))}
 
               {access.features.length === 0 && access.notes.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-600">
+                <p className="mt-4 text-sm text-ink-muted">
                   No accessibility information has been published for this event. Ask the organiser
                   before you buy rather than assuming either way.
                 </p>
@@ -516,30 +514,30 @@ export default async function EventDetailPage({ params }) {
           */}
           {policies.refund || policies.entry || policies.conduct ? (
             <RevealOnScroll as="section" aria-labelledby="policies-heading">
-              <h2 id="policies-heading" className="text-2xl font-bold text-indigo-night-900">
+              <h2 id="policies-heading" className="text-2xl font-bold text-ink">
                 Policies
               </h2>
               <dl className="mt-4 space-y-4">
                 {policies.refund ? (
-                  <div className="rounded-card border border-slate-200 bg-white p-4">
-                    <dt className="font-medium text-slate-900">Refunds</dt>
-                    <dd className="mt-1 text-slate-700">{policies.refund}</dd>
+                  <div className="rounded-card border border-line bg-surface-raised p-4">
+                    <dt className="font-medium text-ink">Refunds</dt>
+                    <dd className="mt-1 text-ink-muted">{policies.refund}</dd>
                   </div>
                 ) : null}
                 {policies.entry ? (
-                  <div className="rounded-card border border-slate-200 bg-white p-4">
-                    <dt className="font-medium text-slate-900">Getting in</dt>
-                    <dd className="mt-1 text-slate-700">{policies.entry}</dd>
+                  <div className="rounded-card border border-line bg-surface-raised p-4">
+                    <dt className="font-medium text-ink">Getting in</dt>
+                    <dd className="mt-1 text-ink-muted">{policies.entry}</dd>
                   </div>
                 ) : null}
                 {policies.conduct ? (
-                  <div className="rounded-card border border-slate-200 bg-white p-4">
-                    <dt className="font-medium text-slate-900">House rules</dt>
-                    <dd className="mt-1 text-slate-700">{policies.conduct}</dd>
+                  <div className="rounded-card border border-line bg-surface-raised p-4">
+                    <dt className="font-medium text-ink">House rules</dt>
+                    <dd className="mt-1 text-ink-muted">{policies.conduct}</dd>
                   </div>
                 ) : null}
               </dl>
-              <p className="mt-3 text-sm text-slate-600">
+              <p className="mt-3 text-sm text-ink-muted">
                 These are the terms as they stand now. The set in force for an order is the set
                 copied onto it when it was placed, so a later edit cannot change what you agreed to.
               </p>
@@ -548,13 +546,13 @@ export default async function EventDetailPage({ params }) {
         </div>
 
         <aside aria-labelledby="tickets-heading" className="lg:sticky lg:top-24">
-          <h2 id="tickets-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="tickets-heading" className="text-2xl font-bold text-ink">
             Tickets
           </h2>
-          <p className="mt-2 text-sm text-slate-600">{formatEventWhen(event)}</p>
+          <p className="mt-2 text-sm text-ink-muted">{formatEventWhen(event)}</p>
 
           {ticketTypes.length === 0 ? (
-            <p className="mt-4 text-slate-700">
+            <p className="mt-4 text-ink-muted">
               Tickets for this event are not on sale yet. Check back shortly.
             </p>
           ) : (
@@ -564,10 +562,10 @@ export default async function EventDetailPage({ params }) {
               </div>
 
               {cheapest ? (
-                <div className="mt-5 rounded-card border border-marigold-200 bg-marigold-50 p-4">
-                  <p className="text-sm text-slate-700">
+                <div className="mt-5 rounded-card border border-accent-line bg-accent-soft p-4">
+                  <p className="text-sm text-ink-muted">
                     From{' '}
-                    <span className="font-display text-xl font-semibold text-indigo-night-900">
+                    <span className="font-display text-xl font-semibold text-ink">
                       {formatPrice(cheapest.priceCents, cheapest.currency)}
                     </span>
                   </p>
@@ -579,8 +577,8 @@ export default async function EventDetailPage({ params }) {
                     impossible to ship by accident.
                   */}
                   {allIn && allIn.allInCents !== cheapest.priceCents ? (
-                    <p className="mt-1 text-sm text-slate-700">
-                      <span className="font-medium text-slate-900">
+                    <p className="mt-1 text-sm text-ink-muted">
+                      <span className="font-medium text-ink">
                         {formatPrice(allIn.allInCents, cheapest.currency)} all in
                       </span>{' '}
                       — includes {formatPrice(allIn.feesCents, cheapest.currency)} booking fee
@@ -594,7 +592,7 @@ export default async function EventDetailPage({ params }) {
                   {buyable ? (
                     <Link
                       href={`/events/${event.slug}/checkout`}
-                      className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-lg bg-marigold-700 px-6 text-base font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+                      className="mt-3 inline-flex h-12 w-full items-center justify-center rounded-lg bg-action-primary px-6 text-base font-medium text-action-primary-ink shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
                     >
                       Choose tickets
                     </Link>
@@ -606,7 +604,7 @@ export default async function EventDetailPage({ params }) {
                       itself to a screen reader and then does nothing. The
                       sentence says why, which is the part a person needs.
                     */
-                    <p className="mt-3 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700">
+                    <p className="mt-3 rounded-lg border border-line-strong bg-surface-raised px-4 py-3 text-sm text-ink-muted">
                       {notice?.title
                         ? `${notice.title}. Tickets cannot be bought here at the moment.`
                         : 'Tickets are not on sale at the moment.'}
@@ -614,7 +612,7 @@ export default async function EventDetailPage({ params }) {
                   )}
                 </div>
               ) : (
-                <p className="mt-5 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                <p className="mt-5 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger">
                   Every tier has sold out. Tickets sometimes return when holds expire, so it is
                   worth looking again closer to the day.
                 </p>

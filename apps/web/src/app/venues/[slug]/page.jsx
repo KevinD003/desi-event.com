@@ -147,12 +147,12 @@ export default async function VenuePage({ params }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(placeStructuredData(venue)) }}
       />
 
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
             <Link
               href="/"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Home
             </Link>
@@ -161,29 +161,27 @@ export default async function VenuePage({ params }) {
           <li>
             <Link
               href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Events
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-600">
+          <li aria-current="page" className="text-ink-muted">
             {venue.name}
           </li>
         </ol>
       </nav>
 
       <FadeIn className="mt-6">
-        <h1 className="text-3xl leading-tight font-bold text-indigo-night-900 sm:text-4xl">
-          {venue.name}
-        </h1>
-        <p className="mt-2 text-lg text-slate-700">
+        <h1 className="text-3xl leading-tight font-bold text-ink sm:text-4xl">{venue.name}</h1>
+        <p className="mt-2 text-lg text-ink-muted">
           {venue.city}
           {venue.region ? `, ${venue.region}` : ''}
         </p>
 
         {venue.canonicalSlug ? (
-          <p className="mt-4 rounded-card border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-status-warning">
             This venue record was merged into another one.{' '}
             <Link href={`/venues/${venue.canonicalSlug}`} className="font-medium underline">
               See the current page
@@ -198,10 +196,10 @@ export default async function VenuePage({ params }) {
       <div className="mt-10 space-y-10">
         {about.length > 0 ? (
           <section aria-labelledby="about-heading">
-            <h2 id="about-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="about-heading" className="text-2xl font-bold text-ink">
               About
             </h2>
-            <div className="mt-4 space-y-4 text-slate-700">
+            <div className="mt-4 space-y-4 text-ink-muted">
               {about.map((paragraph) => (
                 <p key={paragraph.slice(0, 48)}>{paragraph}</p>
               ))}
@@ -210,24 +208,24 @@ export default async function VenuePage({ params }) {
         ) : null}
 
         <section aria-labelledby="where-heading">
-          <h2 id="where-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="where-heading" className="text-2xl font-bold text-ink">
             Where it is
           </h2>
           <Card className="mt-4">
             <CardBody>
-              <address className="text-slate-700 not-italic">
+              <address className="text-ink-muted not-italic">
                 {address.map((line) => (
                   <span key={line} className="block">
                     {line}
                   </span>
                 ))}
               </address>
-              <p className="mt-4 text-sm text-slate-600">
+              <p className="mt-4 text-sm text-ink-muted">
                 All times on this page are {venue.timezone} — the local time at the venue, not
                 yours.
               </p>
               {venue.capacity ? (
-                <p className="mt-2 text-sm text-slate-600">
+                <p className="mt-2 text-sm text-ink-muted">
                   Capacity {venue.capacity.toLocaleString('en-IN')}
                 </p>
               ) : null}
@@ -236,10 +234,8 @@ export default async function VenuePage({ params }) {
 
           {directions.length > 0 ? (
             <div className="mt-4">
-              <h3 className="font-display text-lg font-semibold text-indigo-night-900">
-                Getting in
-              </h3>
-              <div className="mt-2 space-y-3 text-slate-700">
+              <h3 className="font-display text-lg font-semibold text-ink">Getting in</h3>
+              <div className="mt-2 space-y-3 text-ink-muted">
                 {directions.map((paragraph) => (
                   <p key={paragraph.slice(0, 48)}>{paragraph}</p>
                 ))}
@@ -249,11 +245,11 @@ export default async function VenuePage({ params }) {
         </section>
 
         <RevealOnScroll as="section" aria-labelledby="access-heading">
-          <h2 id="access-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="access-heading" className="text-2xl font-bold text-ink">
             Accessibility
           </h2>
           {features.length === 0 && !note ? (
-            <p className="mt-4 text-slate-700">
+            <p className="mt-4 text-ink-muted">
               This venue has not published its accessibility details. Ask Desi-Event support before
               booking and we will find out for you rather than guess.
             </p>
@@ -272,27 +268,27 @@ export default async function VenuePage({ params }) {
                   ))}
                 </ul>
               ) : null}
-              {note ? <p className="mt-4 text-slate-700">{note}</p> : null}
+              {note ? <p className="mt-4 text-ink-muted">{note}</p> : null}
             </>
           )}
         </RevealOnScroll>
 
         <RevealOnScroll as="section" aria-labelledby="whats-on-heading">
-          <h2 id="whats-on-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="whats-on-heading" className="text-2xl font-bold text-ink">
             What&rsquo;s on
           </h2>
           {venue.upcomingEvents.length === 0 ? (
-            <p className="mt-4 text-slate-700">Nothing is on sale here at the moment.</p>
+            <p className="mt-4 text-ink-muted">Nothing is on sale here at the moment.</p>
           ) : (
             <ul className="mt-2">
               {venue.upcomingEvents.map((event) => (
-                <li key={event.slug} className="border-b border-slate-200 last:border-b-0">
+                <li key={event.slug} className="border-b border-line last:border-b-0">
                   <Link
                     href={`/events/${event.slug}`}
-                    className="flex flex-col gap-1 rounded-sm py-4 transition-colors hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
+                    className="flex flex-col gap-1 rounded-sm py-4 transition-colors hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
                   >
-                    <span className="font-medium text-indigo-night-900">{event.title}</span>
-                    <span className="text-sm text-slate-600">
+                    <span className="font-medium text-ink">{event.title}</span>
+                    <span className="text-sm text-ink-muted">
                       <time
                         className="whitespace-nowrap"
                         dateTime={toDateTimeAttribute(event.startsAt)}
@@ -316,17 +312,17 @@ export default async function VenuePage({ params }) {
 
         {policies.length > 0 ? (
           <RevealOnScroll as="section" aria-labelledby="rules-heading">
-            <h2 id="rules-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="rules-heading" className="text-2xl font-bold text-ink">
               House rules
             </h2>
             <Card className="mt-4">
               <CardBody>
-                <div className="space-y-4 text-slate-700">
+                <div className="space-y-4 text-ink-muted">
                   {policies.map((paragraph) => (
                     <p key={paragraph.slice(0, 48)}>{paragraph}</p>
                   ))}
                 </div>
-                <p className="mt-4 text-sm text-slate-600">
+                <p className="mt-4 text-sm text-ink-muted">
                   The rules attached to your order when you paid are the ones that govern it. A
                   later edit here does not change what you agreed to.
                 </p>

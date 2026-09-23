@@ -213,7 +213,7 @@ export function CreateEventForm({ organizations = [] }) {
         </FormField>
       </div>
 
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         This creates a draft. Only your team can see it, and nothing is public until a moderator has
         approved it and you have chosen to publish.
       </p>

@@ -226,8 +226,8 @@ export function VenueForm({ venue = null, organizations = [] }) {
       </FormField>
 
       <fieldset>
-        <legend className="text-sm font-medium text-slate-700">Accessibility</legend>
-        <p className="mt-1 text-sm text-slate-600">
+        <legend className="text-sm font-medium text-ink-muted">Accessibility</legend>
+        <p className="mt-1 text-sm text-ink-muted">
           Only tick what is true. Somebody will plan a journey around these.
         </p>
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">

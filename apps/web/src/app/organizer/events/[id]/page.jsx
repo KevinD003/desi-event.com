@@ -94,14 +94,14 @@ export default async function EditEventPage({ params }) {
   if (!event) {
     return (
       <div className="max-w-2xl">
-        <h1 className="text-2xl font-bold text-indigo-night-900">That event could not be opened</h1>
-        <p className="mt-2 text-slate-700">
+        <h1 className="text-2xl font-bold text-ink">That event could not be opened</h1>
+        <p className="mt-2 text-ink-muted">
           {failure ?? 'No such event, or it does not belong to an organisation you are in.'}
         </p>
         <p className="mt-4">
           <Link
             href="/organizer/events"
-            className="underline underline-offset-4 hover:text-marigold-700"
+            className="underline underline-offset-4 hover:text-accent-strong"
           >
             Back to your events
           </Link>
@@ -133,24 +133,24 @@ export default async function EditEventPage({ params }) {
 
   return (
     <div>
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
             <Link
               href="/organizer/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
             >
               Your events
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-600">
+          <li aria-current="page" className="text-ink-muted">
             {event.title}
           </li>
         </ol>
       </nav>
 
-      <h1 className="mt-4 text-2xl font-bold text-indigo-night-900">{event.title}</h1>
+      <h1 className="mt-4 text-2xl font-bold text-ink">{event.title}</h1>
 
       <div className="mt-6">
         <EventEditor

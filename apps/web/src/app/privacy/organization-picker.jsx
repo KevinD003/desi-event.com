@@ -79,20 +79,20 @@ export function OrganizationPicker({
     <form
       method="get"
       action={action}
-      className="mt-6 flex flex-wrap items-end gap-4 rounded-card border border-slate-200 bg-slate-50 p-4"
+      className="mt-6 flex flex-wrap items-end gap-4 rounded-card border border-line bg-surface-subtle p-4"
     >
       {single ? (
         <input type="hidden" name="organizationId" value={selectedId} />
       ) : (
         <div className="flex flex-col gap-1">
-          <label htmlFor="organizationId" className="text-sm font-medium text-indigo-night-900">
+          <label htmlFor="organizationId" className="text-sm font-medium text-ink">
             Organisation
           </label>
           <select
             id="organizationId"
             name="organizationId"
             defaultValue={selectedId}
-            className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+            className="rounded-sm border border-line-strong bg-surface-raised px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             {organizations.map((organization) => (
               <option key={organization.organizationId} value={organization.organizationId}>
@@ -115,14 +115,14 @@ export function OrganizationPicker({
         ))}
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="state" className="text-sm font-medium text-indigo-night-900">
+        <label htmlFor="state" className="text-sm font-medium text-ink">
           State
         </label>
         <select
           id="state"
           name="state"
           defaultValue={state}
-          className="rounded-sm border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm border border-line-strong bg-surface-raised px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           <option value="">Every state</option>
           {states.map((member) => (
@@ -135,7 +135,7 @@ export function OrganizationPicker({
 
       <button
         type="submit"
-        className="rounded-sm bg-indigo-night-900 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-night-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+        className="rounded-sm bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
       >
         Apply
       </button>

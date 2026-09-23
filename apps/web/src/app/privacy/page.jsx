@@ -91,8 +91,8 @@ export default async function PrivacyRequestsPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-indigo-night-900">Privacy requests</h1>
-        <p className="mt-2 max-w-3xl text-slate-700">
+        <h1 className="text-2xl font-bold text-ink">Privacy requests</h1>
+        <p className="mt-2 max-w-3xl text-ink-muted">
           Erasures raised in this organisation. A request changes nothing until somebody types back
           the phrase the server issued, and what it can reach is limited to this
           organisation&rsquo;s own records.
@@ -123,7 +123,7 @@ export default async function PrivacyRequestsPage({ searchParams }) {
                 Privacy requests in {selected.organizationName ?? 'this organisation'}, newest first
               </caption>
               <thead>
-                <tr className="border-b border-slate-300 text-slate-700">
+                <tr className="border-b border-line-strong text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-semibold">
                     Subject
                   </th>
@@ -146,11 +146,11 @@ export default async function PrivacyRequestsPage({ searchParams }) {
               </thead>
               <tbody>
                 {requests.map((request) => (
-                  <tr key={request.id} className="border-b border-slate-200 align-top">
+                  <tr key={request.id} className="border-b border-line align-top">
                     <td className="py-3 pr-4">
                       <Link
                         href={`/privacy/requests/${request.id}?organizationId=${selected.organizationId}`}
-                        className="rounded-sm font-mono text-xs break-all underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm font-mono text-xs break-all underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {request.subjectId}
                       </Link>
@@ -158,18 +158,18 @@ export default async function PrivacyRequestsPage({ searchParams }) {
                     <td className="py-3 pr-4">
                       <StateBadge state={request.state} label={requestStateLabel(request.state)} />
                     </td>
-                    <td className="py-3 pr-4 text-slate-700">
+                    <td className="py-3 pr-4 text-ink-muted">
                       {requestReasonLabel(request.reason)}
                     </td>
-                    <td className="py-3 pr-4 text-slate-700">
+                    <td className="py-3 pr-4 text-ink-muted">
                       {holdDecisionLabel(request.holdDecision)}
                     </td>
-                    <td className="py-3 pr-4 text-slate-700">
+                    <td className="py-3 pr-4 text-ink-muted">
                       <time dateTime={request.requestedAt}>{request.requestedAt}</time>
                     </td>
-                    <td className="py-3 text-slate-700">
+                    <td className="py-3 text-ink-muted">
                       {outcomeLabel(request.outcomeCode) ?? (
-                        <span className="text-slate-500">—</span>
+                        <span className="text-ink-subtle">—</span>
                       )}
                     </td>
                   </tr>
@@ -179,7 +179,7 @@ export default async function PrivacyRequestsPage({ searchParams }) {
           </div>
 
           {pagination ? (
-            <p className="mt-4 text-sm text-slate-600">
+            <p className="mt-4 text-sm text-ink-muted">
               Showing {requests.length} of {pagination.total ?? requests.length}.
             </p>
           ) : null}

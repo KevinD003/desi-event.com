@@ -88,12 +88,12 @@ export async function generateMetadata({ params }) {
  */
 function EventRow({ event, timezone }) {
   return (
-    <li className="border-b border-slate-200 last:border-b-0">
+    <li className="border-b border-line last:border-b-0">
       <Link
         href={`/events/${event.slug}`}
-        className="flex flex-col gap-1 rounded-sm py-4 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
+        className="flex flex-col gap-1 rounded-sm py-4 transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus sm:flex-row sm:items-baseline sm:justify-between sm:gap-6"
       >
-        <span className="font-medium text-indigo-night-900 underline-offset-4 group-hover:underline">
+        <span className="font-medium text-ink underline-offset-4 group-hover:underline">
           {event.title}
         </span>
         {/*
@@ -103,7 +103,7 @@ function EventRow({ event, timezone }) {
           398px of content in a 328px column — which is a page that scrolls
           sideways on the phone most of its visitors are holding.
         */}
-        <span className="text-sm text-slate-600">
+        <span className="text-sm text-ink-muted">
           <time className="whitespace-nowrap" dateTime={toDateTimeAttribute(event.startsAt)}>
             {formatEventDate(event.startsAt, timezone)} ·{' '}
             {formatEventTime(event.startsAt, timezone)}
@@ -134,11 +134,11 @@ function EventRow({ event, timezone }) {
 function EventSection({ id, title, events, empty, timezone }) {
   return (
     <RevealOnScroll as="section" aria-labelledby={id}>
-      <h2 id={id} className="text-2xl font-bold text-indigo-night-900">
+      <h2 id={id} className="text-2xl font-bold text-ink">
         {title}
       </h2>
       {events.length === 0 ? (
-        <p className="mt-4 text-slate-700">{empty}</p>
+        <p className="mt-4 text-ink-muted">{empty}</p>
       ) : (
         <ul className="mt-2">
           {events.map((event) => (
@@ -175,12 +175,12 @@ export default async function OrganizerPage({ params }) {
 
   return (
     <article className="mx-auto max-w-4xl px-4 py-8">
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
             <Link
               href="/"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Home
             </Link>
@@ -189,22 +189,20 @@ export default async function OrganizerPage({ params }) {
           <li>
             <Link
               href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Events
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-600">
+          <li aria-current="page" className="text-ink-muted">
             {organizer.name}
           </li>
         </ol>
       </nav>
 
       <FadeIn className="mt-6">
-        <h1 className="text-3xl leading-tight font-bold text-indigo-night-900 sm:text-4xl">
-          {organizer.name}
-        </h1>
+        <h1 className="text-3xl leading-tight font-bold text-ink sm:text-4xl">{organizer.name}</h1>
 
         {/*
           Rendered only when the organiser has actually been verified. There is
@@ -220,11 +218,11 @@ export default async function OrganizerPage({ params }) {
         ) : null}
 
         {organizer.websiteUrl ? (
-          <p className="mt-3 text-slate-700">
+          <p className="mt-3 text-ink-muted">
             <a
               href={organizer.websiteUrl}
               rel="nofollow noopener noreferrer external"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               {organizer.websiteUrl.replace(/^https?:\/\//, '')}
             </a>
@@ -237,10 +235,10 @@ export default async function OrganizerPage({ params }) {
       <div className="mt-10 space-y-10">
         {about.length > 0 ? (
           <section aria-labelledby="about-heading">
-            <h2 id="about-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="about-heading" className="text-2xl font-bold text-ink">
               About
             </h2>
-            <div className="mt-4 space-y-4 text-slate-700">
+            <div className="mt-4 space-y-4 text-ink-muted">
               {about.map((paragraph) => (
                 <p key={paragraph.slice(0, 48)}>{paragraph}</p>
               ))}
@@ -265,24 +263,24 @@ export default async function OrganizerPage({ params }) {
         />
 
         <RevealOnScroll as="section" aria-labelledby="policy-heading">
-          <h2 id="policy-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="policy-heading" className="text-2xl font-bold text-ink">
             Refunds
           </h2>
           <Card className="mt-4">
             <CardBody>
               {policy.length > 0 ? (
-                <div className="space-y-4 text-slate-700">
+                <div className="space-y-4 text-ink-muted">
                   {policy.map((paragraph) => (
                     <p key={paragraph.slice(0, 48)}>{paragraph}</p>
                   ))}
                 </div>
               ) : (
-                <p className="text-slate-700">
+                <p className="text-ink-muted">
                   {organizer.name} has not published a refund policy. The terms shown at checkout
                   are the ones that apply to your order.
                 </p>
               )}
-              <p className="mt-4 text-sm text-slate-600">
+              <p className="mt-4 text-sm text-ink-muted">
                 Whatever an organiser publishes here, the policy attached to your order at the
                 moment you paid is the one that governs it. A later edit does not change what you
                 agreed to.
@@ -292,7 +290,7 @@ export default async function OrganizerPage({ params }) {
         </RevealOnScroll>
 
         <section aria-labelledby="contact-heading">
-          <h2 id="contact-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="contact-heading" className="text-2xl font-bold text-ink">
             Contact
           </h2>
           {/*
@@ -302,7 +300,7 @@ export default async function OrganizerPage({ params }) {
             no record of the order. Support reaches the organiser on the buyer's
             behalf instead.
           */}
-          <p className="mt-4 text-slate-700">
+          <p className="mt-4 text-ink-muted">
             Questions about an order go through Desi-Event support, using the reply address on your
             confirmation email. Support puts you in touch with {organizer.name} and keeps the thread
             attached to your booking.

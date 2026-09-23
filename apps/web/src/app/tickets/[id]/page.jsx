@@ -117,7 +117,7 @@ export default async function TicketDetailPage({ params }) {
             { href: null, label: 'Ticket' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">Ticket</h1>
+        <h1 className="mt-3 text-2xl font-bold text-ink">Ticket</h1>
         <Failure what="This ticket" detail={failure} />
       </div>
     )
@@ -138,21 +138,21 @@ export default async function TicketDetailPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">{event.title}</h1>
-      <p className="mt-1 text-slate-700">
+      <h1 className="mt-3 text-2xl font-bold text-ink">{event.title}</h1>
+      <p className="mt-1 text-ink-muted">
         <time dateTime={event.startsAt}>{event.startsAt}</time> · {event.timezone}
       </p>
       <AsOf asOf={new Date().toISOString()} />
 
       <section aria-labelledby="status-heading" className="mt-8">
-        <h2 id="status-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="status-heading" className="text-lg font-semibold text-ink">
           Where it stands
         </h2>
         <p
           className={`mt-3 rounded-card border p-4 text-sm ${
             status.admits
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-slate-300 bg-slate-50 text-slate-800'
+              ? 'border-status-success/25 bg-status-success-soft text-status-success'
+              : 'border-line-strong bg-surface-subtle text-ink'
           }`}
         >
           {/* The word, not only the colour. */}
@@ -161,17 +161,17 @@ export default async function TicketDetailPage({ params }) {
 
         <dl className="mt-3 space-y-2 text-sm">
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Reference</dt>
-            <dd className="font-mono text-indigo-night-900">{ticket.code}</dd>
+            <dt className="text-ink-muted">Reference</dt>
+            <dd className="font-mono text-ink">{ticket.code}</dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Name on it</dt>
-            <dd className="text-indigo-night-900">{ticket.attendeeName ?? 'Not given'}</dd>
+            <dt className="text-ink-muted">Name on it</dt>
+            <dd className="text-ink">{ticket.attendeeName ?? 'Not given'}</dd>
           </div>
           {ticket.checkedInAt ? (
             <div className="flex flex-wrap gap-2">
-              <dt className="text-slate-600">Admitted</dt>
-              <dd className="text-indigo-night-900">
+              <dt className="text-ink-muted">Admitted</dt>
+              <dd className="text-ink">
                 <time dateTime={ticket.checkedInAt}>{ticket.checkedInAt}</time>
               </dd>
             </div>
@@ -181,7 +181,7 @@ export default async function TicketDetailPage({ params }) {
 
       {holder && status.admits ? (
         <section aria-labelledby="pass-heading" className="mt-8">
-          <h2 id="pass-heading" className="text-lg font-semibold text-indigo-night-900">
+          <h2 id="pass-heading" className="text-lg font-semibold text-ink">
             Your entry pass
           </h2>
           <TicketPass ticketId={ticket.id} />
@@ -189,7 +189,7 @@ export default async function TicketDetailPage({ params }) {
       ) : null}
 
       <section aria-labelledby="history-heading" className="mt-8">
-        <h2 id="history-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="history-heading" className="text-lg font-semibold text-ink">
           Where it has been
         </h2>
         {transfers.length === 0 ? (
@@ -200,11 +200,14 @@ export default async function TicketDetailPage({ params }) {
         ) : (
           <ol className="mt-3 space-y-3">
             {transfers.map((transfer) => (
-              <li key={transfer.id} className="rounded-card border border-slate-200 bg-white p-4">
-                <p className="font-medium text-indigo-night-900">
+              <li
+                key={transfer.id}
+                className="rounded-card border border-line bg-surface-raised p-4"
+              >
+                <p className="font-medium text-ink">
                   {TRANSFER_STATUS[transfer.status] ?? transfer.status}
                 </p>
-                <p className="mt-1 text-sm text-slate-700">
+                <p className="mt-1 text-sm text-ink-muted">
                   {transfer.toEmailMasked === HIDDEN_EMAIL
                     ? 'Offered on '
                     : `Offered to ${transfer.toEmailMasked} on `}
@@ -217,11 +220,11 @@ export default async function TicketDetailPage({ params }) {
                   ) : null}
                 </p>
                 {transfer.resultTicketId ? (
-                  <p className="mt-1 text-sm text-slate-700">
+                  <p className="mt-1 text-sm text-ink-muted">
                     It became{' '}
                     <Link
                       href={`/tickets/${transfer.resultTicketId}`}
-                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                     >
                       a new ticket
                     </Link>
@@ -232,7 +235,7 @@ export default async function TicketDetailPage({ params }) {
             ))}
           </ol>
         )}
-        <p className="mt-3 text-sm text-slate-600">
+        <p className="mt-3 text-sm text-ink-muted">
           {holder
             ? 'Only the part of an address after the @ is shown, so nobody else who opens this page can collect it.'
             : 'Who a ticket was offered to is not shown here: whether it should still admit does not depend on it.'}
@@ -240,7 +243,7 @@ export default async function TicketDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="actions-heading" className="text-lg font-semibold text-ink">
           What you can do
         </h2>
         {/* Transfers carry only what the component reads: everything passed to a
@@ -257,7 +260,7 @@ export default async function TicketDetailPage({ params }) {
       <p className="mt-8 text-sm">
         <Link
           href="/tickets"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Back to my tickets
         </Link>

@@ -2,12 +2,12 @@ import { cn } from './cn.js'
 
 /** Tailwind classes per badge variant. */
 const BADGE_VARIANTS = {
-  neutral: 'bg-slate-100 text-slate-700 ring-slate-200',
-  brand: 'bg-marigold-100 text-marigold-900 ring-marigold-200',
-  success: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
-  warning: 'bg-amber-100 text-amber-900 ring-amber-200',
-  danger: 'bg-rose-100 text-rose-800 ring-rose-200',
-  info: 'bg-indigo-night-100 text-indigo-night-900 ring-indigo-night-100',
+  neutral: 'bg-status-neutral-soft text-status-neutral ring-line',
+  brand: 'bg-accent-soft text-accent-strong ring-accent-line',
+  success: 'bg-status-success-soft text-status-success ring-status-success/25',
+  warning: 'bg-status-warning-soft text-status-warning ring-status-warning/30',
+  danger: 'bg-status-danger-soft text-status-danger ring-status-danger/25',
+  info: 'bg-status-info-soft text-status-info ring-status-info/25',
 }
 
 /** Tailwind classes per badge size. */

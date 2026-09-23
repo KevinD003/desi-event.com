@@ -135,18 +135,15 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr_1fr] lg:items-start">
       <section aria-labelledby="choose-tickets" className="min-w-0">
-        <h2
-          id="choose-tickets"
-          className="font-display text-xl font-semibold text-indigo-night-900"
-        >
+        <h2 id="choose-tickets" className="font-display text-xl font-semibold text-ink">
           Choose your tickets
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           Seats are held for ten minutes once you reserve them, which is plenty of time to argue
           about who is paying.
         </p>
 
-        <ul className="mt-4 divide-y divide-slate-200 rounded-card border border-slate-200 bg-white">
+        <ul className="mt-4 divide-y divide-line rounded-card border border-line bg-surface-raised">
           {ticketTypes.map((tier) => {
             const max = maxSelectable(tier)
             const availabilityId = `availability-${tier.id}`
@@ -157,11 +154,11 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
                 className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-indigo-night-900">{tier.name}</p>
+                  <p className="font-medium text-ink">{tier.name}</p>
                   {tier.description ? (
-                    <p className="mt-1 text-sm text-slate-600">{tier.description}</p>
+                    <p className="mt-1 text-sm text-ink-muted">{tier.description}</p>
                   ) : null}
-                  <p id={availabilityId} className="mt-1 text-sm text-slate-600">
+                  <p id={availabilityId} className="mt-1 text-sm text-ink-muted">
                     {tier.isSoldOut
                       ? 'Sold out'
                       : `${formatPrice(tier.priceCents, tier.currency)} each · up to ${max} per order`}
@@ -192,13 +189,10 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
 
       <Card as="section" aria-labelledby="order-summary" className="lg:sticky lg:top-24">
         <CardHeader>
-          <h2
-            id="order-summary"
-            className="font-display text-lg font-semibold text-indigo-night-900"
-          >
+          <h2 id="order-summary" className="font-display text-lg font-semibold text-ink">
             Order summary
           </h2>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {ticketCount === 0
               ? 'No tickets selected yet'
               : `${ticketCount} ${ticketCount === 1 ? 'ticket' : 'tickets'} for ${event.title}`}
@@ -209,36 +203,36 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
           <dl className="space-y-2 text-sm">
             {totals.lineItems.map((line) => (
               <div key={line.ticketTypeId} className="flex justify-between gap-3">
-                <dt className="min-w-0 text-slate-700">
-                  {line.name} <span className="text-slate-600">× {line.quantity}</span>
+                <dt className="min-w-0 text-ink-muted">
+                  {line.name} <span className="text-ink-muted">× {line.quantity}</span>
                 </dt>
-                <dd className="shrink-0 tabular-nums text-slate-900">
+                <dd className="shrink-0 tabular-nums text-ink">
                   {formatAmount(line.subtotalCents, totals.currency)}
                 </dd>
               </div>
             ))}
 
-            <div className="flex justify-between gap-3 border-t border-slate-200 pt-2">
-              <dt className="text-slate-700">Subtotal</dt>
-              <dd className="tabular-nums text-slate-900" data-testid="summary-subtotal">
+            <div className="flex justify-between gap-3 border-t border-line pt-2">
+              <dt className="text-ink-muted">Subtotal</dt>
+              <dd className="tabular-nums text-ink" data-testid="summary-subtotal">
                 {formatAmount(totals.subtotalCents, totals.currency)}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-700">Booking fee</dt>
-              <dd className="tabular-nums text-slate-900">
+              <dt className="text-ink-muted">Booking fee</dt>
+              <dd className="tabular-nums text-ink">
                 {formatAmount(totals.feesCents, totals.currency)}
               </dd>
             </div>
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-700">{taxLabelForPlace(place)}</dt>
-              <dd className="tabular-nums text-slate-900">
+              <dt className="text-ink-muted">{taxLabelForPlace(place)}</dt>
+              <dd className="tabular-nums text-ink">
                 {formatAmount(totals.taxCents, totals.currency)}
               </dd>
             </div>
-            <div className="flex justify-between gap-3 border-t border-slate-200 pt-2 text-base font-semibold">
-              <dt className="text-indigo-night-900">Total</dt>
-              <dd className="tabular-nums text-indigo-night-900" data-testid="summary-total">
+            <div className="flex justify-between gap-3 border-t border-line pt-2 text-base font-semibold">
+              <dt className="text-ink">Total</dt>
+              <dd className="tabular-nums text-ink" data-testid="summary-total">
                 {formatAmount(totals.totalCents, totals.currency)}
               </dd>
             </div>
@@ -271,11 +265,11 @@ export function CheckoutBasket({ event, ticketTypes, reserve = reserveThroughApi
           >
             {ticketCount === 0 ? 'Select tickets to continue' : 'Reserve tickets'}
           </Button>
-          <p className="text-xs text-slate-600">
+          <p className="text-xs text-ink-muted">
             Totals are confirmed by our ticketing service before any payment is taken.{' '}
             <Link
               href={`/events/${event.slug}`}
-              className="rounded-sm underline underline-offset-2 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+              className="rounded-sm underline underline-offset-2 hover:text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Back to {event.title}
             </Link>

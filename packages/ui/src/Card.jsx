@@ -23,9 +23,9 @@ export function Card({ as: Component = 'div', interactive = false, className, ch
     <Component
       data-slot="card"
       className={cn(
-        'rounded-card border border-slate-200 bg-white text-slate-900 shadow-sm',
+        'rounded-card border border-line bg-surface-raised text-ink shadow-sm',
         interactive &&
-          'transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-marigold-500 focus-within:ring-offset-2',
+          'transition-shadow hover:shadow-md focus-within:ring-2 focus-within:ring-focus focus-within:ring-offset-2',
         className,
       )}
       {...rest}
@@ -52,7 +52,7 @@ export function CardHeader({ as: Component = 'div', className, children, ...rest
   return (
     <Component
       data-slot="card-header"
-      className={cn('flex flex-col gap-1 border-b border-slate-200 px-5 py-4', className)}
+      className={cn('flex flex-col gap-1 border-b border-line px-5 py-4', className)}
       {...rest}
     >
       {children}
@@ -84,7 +84,7 @@ export function CardFooter({ as: Component = 'div', className, children, ...rest
   return (
     <Component
       data-slot="card-footer"
-      className={cn('flex items-center gap-3 border-t border-slate-200 px-5 py-3', className)}
+      className={cn('flex items-center gap-3 border-t border-line px-5 py-3', className)}
       {...rest}
     >
       {children}

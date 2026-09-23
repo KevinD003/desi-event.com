@@ -44,12 +44,12 @@ export default async function HomePage() {
           </Badge>
           <h1
             id="hero-heading"
-            className="mt-5 text-4xl leading-tight font-bold text-indigo-night-900 sm:text-5xl"
+            className="mt-5 text-4xl leading-tight font-bold text-ink sm:text-5xl"
           >
             Nine nights of garba. One qawwali that runs past midnight.{' '}
-            <span className="text-marigold-700">Tickets that actually work.</span>
+            <span className="text-accent-strong">Tickets that actually work.</span>
           </h1>
-          <p className="mt-5 max-w-2xl text-lg text-slate-700">
+          <p className="mt-5 max-w-2xl text-lg text-ink-muted">
             Desi-Event is where the diaspora finds its nights out — raas circles in Ahmedabad,
             mehfils in Bombay, melas in Mississauga and stand-up in Limehouse. Real inventory, real
             holds at checkout, prices in your own currency.
@@ -59,13 +59,13 @@ export default async function HomePage() {
         <FadeIn delay={0.12} className="mt-8 flex flex-wrap gap-3">
           <Link
             href="/events"
-            className="inline-flex h-12 items-center justify-center rounded-lg bg-marigold-700 px-6 text-base font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+            className="inline-flex h-12 items-center justify-center rounded-lg bg-action-primary px-6 text-base font-medium text-action-primary-ink shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
           >
             Browse every event
           </Link>
           <Link
             href={buildEventsHref({ category: 'GARBA_DANDIYA' })}
-            className="inline-flex h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-6 text-base font-medium text-slate-900 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+            className="inline-flex h-12 items-center justify-center rounded-lg border border-line-strong bg-surface-raised px-6 text-base font-medium text-ink transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
           >
             Garba &amp; dandiya nights
           </Link>
@@ -77,16 +77,16 @@ export default async function HomePage() {
       <section aria-labelledby="featured-heading" className="py-8">
         <RevealOnScroll className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 id="featured-heading" className="text-2xl font-bold text-indigo-night-900">
+            <h2 id="featured-heading" className="text-2xl font-bold text-ink">
               On soon
             </h2>
-            <p className="mt-1 text-slate-600">
+            <p className="mt-1 text-ink-muted">
               The next few nights worth clearing your calendar for.
             </p>
           </div>
           <Link
             href="/events"
-            className="rounded-sm text-sm font-medium text-marigold-700 underline underline-offset-4 hover:text-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+            className="rounded-sm text-sm font-medium text-accent-strong underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
           >
             See all {events.length} events
           </Link>
@@ -99,10 +99,10 @@ export default async function HomePage() {
 
       <section aria-labelledby="categories-heading" className="py-8">
         <RevealOnScroll>
-          <h2 id="categories-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="categories-heading" className="text-2xl font-bold text-ink">
             Browse by what you are in the mood for
           </h2>
-          <p className="mt-1 text-slate-600">
+          <p className="mt-1 text-ink-muted">
             Fourteen categories, from a two-hour Bharatanatyam margam to a food festival that takes
             a whole weekend.
           </p>
@@ -115,10 +115,10 @@ export default async function HomePage() {
 
       <section aria-labelledby="cities-heading" className="py-8">
         <RevealOnScroll>
-          <h2 id="cities-heading" className="text-2xl font-bold text-indigo-night-900">
+          <h2 id="cities-heading" className="text-2xl font-bold text-ink">
             Where we are programming
           </h2>
-          <p className="mt-1 text-slate-600">
+          <p className="mt-1 text-ink-muted">
             Four cities today. Tell us where you are and we will work on the fifth.
           </p>
         </RevealOnScroll>
@@ -128,7 +128,7 @@ export default async function HomePage() {
             <RevealOnScroll as="li" key={city} index={index}>
               <Link
                 href={buildEventsHref({ city })}
-                className="inline-flex items-center rounded-full border border-indigo-night-100 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 transition-colors hover:border-marigold-300 hover:bg-marigold-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+                className="inline-flex items-center rounded-full border border-line bg-surface-raised px-4 py-2 text-sm font-medium text-ink transition-colors hover:border-accent-line hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
               >
                 {city}
               </Link>

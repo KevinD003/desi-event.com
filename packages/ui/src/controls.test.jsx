@@ -43,7 +43,7 @@ describe('Input', () => {
 
     const input = screen.getByRole('textbox', { name: 'Email' })
     expect(input).toHaveAttribute('aria-invalid', 'true')
-    expect(input.className).toContain('border-rose-500')
+    expect(input.className).toContain('border-status-danger')
   })
 
   it('says nothing about validity while the field is fine', () => {

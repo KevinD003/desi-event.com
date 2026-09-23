@@ -53,8 +53,8 @@ export default async function SignInPage({ searchParams }) {
 
   return (
     <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="text-3xl font-bold text-indigo-night-900">Sign in</h1>
-      <p className="mt-3 text-slate-700">
+      <h1 className="text-3xl font-bold text-ink">Sign in</h1>
+      <p className="mt-3 text-ink-muted">
         For organisers and staff. Buying a ticket does not need an account.
       </p>
 
@@ -62,10 +62,10 @@ export default async function SignInPage({ searchParams }) {
         <SignInForm next={next} />
       </div>
 
-      <p className="mt-8 text-sm text-slate-600">
+      <p className="mt-8 text-sm text-ink-muted">
         <Link
           href="/events"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Back to what&rsquo;s on
         </Link>

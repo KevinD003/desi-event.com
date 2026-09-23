@@ -41,8 +41,8 @@ export const metadata = { title: 'Analytics', robots: { index: false, follow: fa
 
 /** Table styling, written once so every table on the page reads the same. */
 const TABLE = 'min-w-full border-collapse text-sm'
-const TH = 'border-b border-slate-300 px-3 py-2 text-left font-semibold text-indigo-night-900'
-const TD = 'border-b border-slate-200 px-3 py-2 text-slate-800'
+const TH = 'border-b border-line-strong px-3 py-2 text-left font-semibold text-ink'
+const TD = 'border-b border-line px-3 py-2 text-ink'
 const NUM = `${TD} text-right tabular-nums`
 
 /**
@@ -67,9 +67,7 @@ function Breakdown({ caption, unit, rows, money }) {
   return (
     <ScrollableTable label={caption}>
       <table className={TABLE}>
-        <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
-          {caption}
-        </caption>
+        <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">{caption}</caption>
         <thead>
           <tr>
             <th scope="col" className={TH}>
@@ -185,8 +183,8 @@ export default async function AnalyticsPage({ searchParams }) {
         trail={[{ href: '/organizer/events', label: 'Organiser' }, { label: 'Analytics' }]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">Analytics</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="mt-3 text-2xl font-bold text-ink">Analytics</h1>
+      <p className="mt-2 text-ink-muted">
         What this organisation sold, holds, is owed and let in. Money is derived from the
         append-only ledger; everything else is counted from the tickets, seats and check-ins
         themselves. The two are shown separately because they are different measurements —
@@ -211,10 +209,10 @@ export default async function AnalyticsPage({ searchParams }) {
                   <Link
                     href={withFilters({ organizationId: organization.id })}
                     aria-current={current ? 'page' : undefined}
-                    className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none ${
+                    className={`inline-flex rounded-lg px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                       current
-                        ? 'bg-indigo-night-900 font-semibold text-white'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                        ? 'bg-action-primary font-semibold text-action-primary-ink'
+                        : 'bg-surface-subtle text-ink-muted hover:bg-line'
                     }`}
                   >
                     {organization.name}
@@ -233,7 +231,7 @@ export default async function AnalyticsPage({ searchParams }) {
           <ModeBanner mode={view.mode} notice={view.modeNotice} />
           <AsOf asOf={new Date().toISOString()} />
 
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-ink-muted">
             Dates and windows are in <strong>{view.timeZone}</strong>. Money figures are in{' '}
             <strong>{view.currency}</strong> only — amounts in another currency are counted in their
             own rows and never added to these.
@@ -241,14 +239,14 @@ export default async function AnalyticsPage({ searchParams }) {
 
           {view.moneyVisible && view.money ? (
             <section aria-labelledby="money-heading" className="mt-8">
-              <h2 id="money-heading" className="text-lg font-semibold text-indigo-night-900">
+              <h2 id="money-heading" className="text-lg font-semibold text-ink">
                 Money, from the ledger
               </h2>
 
               {view.money.integrity.imbalances.length > 0 ? (
                 <p
                   role="alert"
-                  className="mt-3 rounded-card border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900"
+                  className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
                 >
                   {view.money.integrity.imbalances.length} ledger batch
                   {view.money.integrity.imbalances.length === 1 ? ' does' : 'es do'} not add up.
@@ -280,7 +278,7 @@ export default async function AnalyticsPage({ searchParams }) {
             </section>
           ) : (
             <section aria-labelledby="money-heading" className="mt-8">
-              <h2 id="money-heading" className="text-lg font-semibold text-indigo-night-900">
+              <h2 id="money-heading" className="text-lg font-semibold text-ink">
                 Money
               </h2>
               {view.moneyWithheld === 'STEP_UP' ? (
@@ -292,7 +290,7 @@ export default async function AnalyticsPage({ searchParams }) {
                   <p className="mt-3 text-sm">
                     <Link
                       href={`/sign-in?next=${encodeURIComponent(`/analytics?organizationId=${view.organizationId}`)}`}
-                      className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                     >
                       Confirm your identity
                     </Link>
@@ -308,12 +306,12 @@ export default async function AnalyticsPage({ searchParams }) {
           )}
 
           <section aria-labelledby="tickets-heading" className="mt-8">
-            <h2 id="tickets-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="tickets-heading" className="text-lg font-semibold text-ink">
               Tickets and attendance
             </h2>
             <ScrollableTable label="Tickets and attendance">
               <table className={TABLE}>
-                <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+                <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                   Tickets and attendance
                 </caption>
                 <thead>
@@ -371,14 +369,14 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="inventory-heading" className="mt-8">
-            <h2 id="inventory-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="inventory-heading" className="text-lg font-semibold text-ink">
               Inventory
             </h2>
 
             {view.inventory.generalAdmission.length > 0 ? (
               <ScrollableTable label="General admission inventory">
                 <table className={TABLE}>
-                  <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+                  <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                     General admission
                   </caption>
                   <thead>
@@ -426,7 +424,7 @@ export default async function AnalyticsPage({ searchParams }) {
             {view.inventory.reserved.bySection.length > 0 ? (
               <ScrollableTable label="Reserved seats by section">
                 <table className={TABLE}>
-                  <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+                  <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                     Reserved seats by section
                   </caption>
                   <thead>
@@ -468,7 +466,7 @@ export default async function AnalyticsPage({ searchParams }) {
             {view.inventory.reserved.byPriceZone.length > 0 ? (
               <ScrollableTable label="Reserved seats by price zone">
                 <table className={TABLE}>
-                  <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+                  <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                     Reserved seats by price zone
                   </caption>
                   <thead>
@@ -505,10 +503,10 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="sales-heading" className="mt-8">
-            <h2 id="sales-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="sales-heading" className="text-lg font-semibold text-ink">
               Sales
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-ink-muted">
               Line value is what the order lines were priced at — not revenue. What the organisation
               keeps after fees, tax and everything given back is in the money section above.
             </p>
@@ -540,13 +538,13 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="operations-heading" className="mt-8">
-            <h2 id="operations-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="operations-heading" className="text-lg font-semibold text-ink">
               Operations
             </h2>
 
             <ScrollableTable label="Notifications and exceptions">
               <table className={TABLE}>
-                <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+                <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                   Notifications and exceptions
                 </caption>
                 <thead>
@@ -586,13 +584,13 @@ export default async function AnalyticsPage({ searchParams }) {
           </section>
 
           <section aria-labelledby="funnel-heading" className="mt-8">
-            <h2 id="funnel-heading" className="text-lg font-semibold text-indigo-night-900">
+            <h2 id="funnel-heading" className="text-lg font-semibold text-ink">
               From hold to payment
             </h2>
 
             <ScrollableTable label="From hold to payment">
               <table className={TABLE}>
-                <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
+                <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">
                   From hold to payment
                 </caption>
                 <thead>
@@ -619,7 +617,7 @@ export default async function AnalyticsPage({ searchParams }) {
             </ScrollableTable>
 
             {view.funnel.missing.map((missing) => (
-              <p key={missing} className="mt-3 text-sm text-slate-700">
+              <p key={missing} className="mt-3 text-sm text-ink-muted">
                 {missing}
               </p>
             ))}
@@ -628,12 +626,12 @@ export default async function AnalyticsPage({ searchParams }) {
           <p className="mt-8">
             <a
               href={`/api/v1/analytics/export.csv?organizationId=${encodeURIComponent(organizationId)}&currency=${encodeURIComponent(view.currency)}`}
-              className="inline-flex rounded-lg bg-indigo-night-900 px-4 py-2 text-sm font-semibold text-white focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none hover:bg-indigo-night-800"
+              className="inline-flex rounded-lg bg-action-primary px-4 py-2 text-sm font-semibold text-action-primary-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none hover:bg-action-primary-hover"
             >
               Download as CSV
             </a>
           </p>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-ink-muted">
             The export carries the same figures under an explicit column list — no buyer, no
             address, and nothing about how anybody paid. Its first rows say which payment mode
             produced it.

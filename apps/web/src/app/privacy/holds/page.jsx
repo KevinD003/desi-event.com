@@ -77,8 +77,8 @@ export default async function PrivacyHoldsPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-indigo-night-900">Privacy holds</h1>
-        <p className="mt-2 max-w-3xl text-slate-700">
+        <h1 className="text-2xl font-bold text-ink">Privacy holds</h1>
+        <p className="mt-2 max-w-3xl text-ink-muted">
           A hold stops an erasure from running. While one is active, a request against that subject
           is refused and nothing is changed. Releasing a hold is its own recorded decision.
         </p>
@@ -104,7 +104,7 @@ export default async function PrivacyHoldsPage({ searchParams }) {
                 Holds in {selected.organizationName ?? 'this organisation'}
               </caption>
               <thead>
-                <tr className="border-b border-slate-300 text-slate-700">
+                <tr className="border-b border-line-strong text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-semibold">
                     Subject
                   </th>
@@ -127,16 +127,16 @@ export default async function PrivacyHoldsPage({ searchParams }) {
               </thead>
               <tbody>
                 {holds.map((hold) => (
-                  <tr key={hold.id} className="border-b border-slate-200 align-top">
-                    <td className="py-3 pr-4 font-mono text-xs break-all text-indigo-night-900">
+                  <tr key={hold.id} className="border-b border-line align-top">
+                    <td className="py-3 pr-4 font-mono text-xs break-all text-ink">
                       {hold.subjectId}
                     </td>
-                    <td className="py-3 pr-4 text-slate-700">{holdKindLabel(hold.kind)}</td>
+                    <td className="py-3 pr-4 text-ink-muted">{holdKindLabel(hold.kind)}</td>
                     <td className="py-3 pr-4">
                       <StateBadge state={hold.state} label={holdStateLabel(hold.state)} />
                     </td>
-                    <td className="py-3 pr-4 break-all text-slate-700">{hold.matterReference}</td>
-                    <td className="py-3 pr-4 text-slate-700">
+                    <td className="py-3 pr-4 break-all text-ink-muted">{hold.matterReference}</td>
+                    <td className="py-3 pr-4 text-ink-muted">
                       <time dateTime={hold.placedAt}>{hold.placedAt}</time>
                     </td>
                     <td className="py-3">
@@ -147,7 +147,7 @@ export default async function PrivacyHoldsPage({ searchParams }) {
                           releaseOnly
                         />
                       ) : (
-                        <span className="text-xs text-slate-600">
+                        <span className="text-xs text-ink-muted">
                           {hold.releaseReasonCode ?? 'Released'}
                         </span>
                       )}

@@ -206,7 +206,7 @@ export function ModerationDecision({ event, onDecided }) {
 
   return (
     <div>
-      <p role="status" aria-live="polite" className="text-sm font-medium text-slate-700">
+      <p role="status" aria-live="polite" className="text-sm font-medium text-ink-muted">
         {announcement}
       </p>
 
@@ -251,13 +251,13 @@ export function ModerationDecision({ event, onDecided }) {
           tabIndex={-1}
           role="group"
           aria-labelledby="decision-heading"
-          className="mt-4 rounded-card border-2 border-indigo-night-900 bg-white p-4"
+          className="mt-4 rounded-card border-2 border-ink bg-surface-raised p-4"
         >
-          <h3 id="decision-heading" className="text-lg font-semibold text-indigo-night-900">
+          <h3 id="decision-heading" className="text-lg font-semibold text-ink">
             {decision.label}
           </h3>
 
-          {decision.confirm ? <p className="mt-2 text-slate-700">{decision.confirm}</p> : null}
+          {decision.confirm ? <p className="mt-2 text-ink-muted">{decision.confirm}</p> : null}
 
           {error ? (
             <Alert variant="error" title="That did not work" className="mt-3">
@@ -292,9 +292,9 @@ export function ModerationDecision({ event, onDecided }) {
           </div>
 
           {pending === 'request_changes' ? (
-            <div className="mt-4 rounded-lg bg-slate-50 p-3">
-              <h4 className="text-sm font-medium text-slate-800">Notes against specific parts</h4>
-              <p className="mt-1 text-sm text-slate-600">
+            <div className="mt-4 rounded-lg bg-surface-subtle p-3">
+              <h4 className="text-sm font-medium text-ink">Notes against specific parts</h4>
+              <p className="mt-1 text-sm text-ink-muted">
                 Optional, and much more useful than one paragraph. Write the note above, choose what
                 it is about, and add it.
               </p>
@@ -322,7 +322,7 @@ export function ModerationDecision({ event, onDecided }) {
               </div>
 
               {Object.keys(notes).length > 0 ? (
-                <ul className="mt-3 space-y-1 text-sm text-slate-700">
+                <ul className="mt-3 space-y-1 text-sm text-ink-muted">
                   {Object.entries(notes).map(([key, note]) => (
                     <li key={key} className="flex flex-wrap items-baseline gap-2">
                       <span className="font-medium">
@@ -338,7 +338,7 @@ export function ModerationDecision({ event, onDecided }) {
                             return next
                           })
                         }
-                        className="rounded-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         Remove
                       </button>
@@ -364,7 +364,7 @@ export function ModerationDecision({ event, onDecided }) {
           </div>
 
           {blocked ? (
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-ink-muted">
               A reason is required, or at least one note against a specific part.
             </p>
           ) : null}

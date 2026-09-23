@@ -149,7 +149,7 @@ export function Tabs({
         aria-orientation={orientation}
         onKeyDown={handleKeyDown}
         className={cn(
-          'flex gap-1 border-slate-200',
+          'flex gap-1 border-line',
           orientation === 'vertical' ? 'flex-col border-r pr-2' : 'flex-row border-b',
           listClassName,
         )}
@@ -175,11 +175,11 @@ export function Tabs({
               onClick={() => select(index, { moveFocus: false })}
               className={cn(
                 'rounded-t-lg px-4 py-2 text-sm font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500',
-                'disabled:cursor-not-allowed disabled:text-slate-300',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+                'disabled:cursor-not-allowed disabled:text-ink-subtle',
                 selected
-                  ? 'border-b-2 border-marigold-600 text-marigold-800'
-                  : 'text-slate-600 hover:text-slate-900',
+                  ? 'border-b-2 border-accent text-accent-strong'
+                  : 'text-ink-muted hover:text-ink',
               )}
             >
               {item.label}
@@ -197,7 +197,7 @@ export function Tabs({
           hidden={index !== selectedIndex}
           tabIndex={0}
           className={cn(
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
             panelClassName,
           )}
         >

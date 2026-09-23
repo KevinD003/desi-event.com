@@ -77,18 +77,18 @@ const OFFERED = Object.freeze({
  */
 function ChecklistItem({ ready, title, blockers }) {
   return (
-    <li className="rounded-card border border-slate-200 bg-white p-4">
+    <li className="rounded-card border border-line bg-surface-raised p-4">
       <div className="flex flex-wrap items-center gap-2">
         {/* The word, not the colour. A tick alone is a shape a screen reader
             does not read and a colourblind person cannot tell from a cross. */}
         <Badge variant={ready ? 'success' : 'warning'} srLabel="Status:">
           {ready ? 'Ready' : 'Not yet'}
         </Badge>
-        <span className="font-medium text-indigo-night-900">{title}</span>
+        <span className="font-medium text-ink">{title}</span>
       </div>
 
       {blockers.length > 0 ? (
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-700">
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-ink-muted">
           {blockers.map((blocker) => (
             <li key={blocker}>{blocker}</li>
           ))}
@@ -300,11 +300,11 @@ export function EventLifecyclePanel({
 
   return (
     <section aria-labelledby="review-heading" className="space-y-5">
-      <h2 id="review-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="review-heading" className="text-xl font-bold text-ink">
         Review and publish
       </h2>
 
-      <p role="status" aria-live="polite" className="text-sm font-medium text-slate-700">
+      <p role="status" aria-live="polite" className="text-sm font-medium text-ink-muted">
         {announcement}
       </p>
 
@@ -314,22 +314,22 @@ export function EventLifecyclePanel({
             <Badge variant={reading.tone} size="lg" srLabel="State:">
               {reading.label}
             </Badge>
-            <span className="text-sm text-slate-600">
+            <span className="text-sm text-ink-muted">
               Waiting on {reading.whose === 'nobody' ? 'nothing' : reading.whose}
             </span>
           </div>
-          <p className="mt-2 text-slate-700">{reading.next}</p>
+          <p className="mt-2 text-ink-muted">{reading.next}</p>
 
           <p className="mt-3 text-sm">
             <a
-              className="underline underline-offset-4 hover:text-marigold-700"
+              className="underline underline-offset-4 hover:text-accent-strong"
               href={`/events/${event.slug}`}
               target="_blank"
               rel="noreferrer"
             >
               Preview the public page
             </a>{' '}
-            <span className="text-slate-600">
+            <span className="text-ink-muted">
               — opens what a visitor sees. Before publication only your team can load it.
             </span>
           </p>
@@ -359,7 +359,7 @@ export function EventLifecyclePanel({
       ) : null}
 
       <div>
-        <h3 className="text-lg font-semibold text-indigo-night-900">Before it can go public</h3>
+        <h3 className="text-lg font-semibold text-ink">Before it can go public</h3>
         <ul className="mt-3 space-y-3">
           <ChecklistItem
             ready={readiness.organizerVerified}
@@ -420,12 +420,12 @@ export function EventLifecyclePanel({
 
               {/* Two different sentences, kept apart. */}
               {unentitled ? (
-                <p className="mt-1 max-w-xs text-sm text-slate-600">
+                <p className="mt-1 max-w-xs text-sm text-ink-muted">
                   Somebody with more permission than you has to do this.
                 </p>
               ) : null}
               {blocked && !unentitled ? (
-                <ul className="mt-1 max-w-xs list-disc space-y-1 pl-5 text-sm text-slate-600">
+                <ul className="mt-1 max-w-xs list-disc space-y-1 pl-5 text-sm text-ink-muted">
                   {entry.blockers.map((blocker) => (
                     <li key={blocker}>{blocker}</li>
                   ))}
@@ -443,13 +443,13 @@ export function EventLifecyclePanel({
           role="dialog"
           aria-modal="false"
           aria-labelledby="command-heading"
-          className="rounded-card border-2 border-indigo-night-900 bg-white p-4"
+          className="rounded-card border-2 border-ink bg-surface-raised p-4"
         >
-          <h3 id="command-heading" className="text-lg font-semibold text-indigo-night-900">
+          <h3 id="command-heading" className="text-lg font-semibold text-ink">
             {command.label}
           </h3>
 
-          {command.confirm ? <p className="mt-2 text-slate-700">{command.confirm}</p> : null}
+          {command.confirm ? <p className="mt-2 text-ink-muted">{command.confirm}</p> : null}
 
           {error ? (
             <Alert variant="error" title="That did not work" className="mt-3">
@@ -508,7 +508,7 @@ export function EventLifecyclePanel({
           ) : null}
 
           {pending === 'cancel' ? (
-            <p className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-900">
+            <p className="mt-3 rounded-lg bg-status-danger-soft p-3 text-sm text-status-danger">
               A refund will be <span className="font-medium">requested</span> against every paid
               order. Nothing is sent to a payment provider by this action and no money moves until a
               refund is actually processed.
@@ -533,23 +533,23 @@ export function EventLifecyclePanel({
 
       {history.length > 0 ? (
         <div>
-          <h3 className="text-lg font-semibold text-indigo-night-900">History</h3>
+          <h3 className="text-lg font-semibold text-ink">History</h3>
           <ol className="mt-3 space-y-2">
             {history.map((entry) => (
               <li
                 key={entry.id}
-                className="rounded-card border border-slate-200 bg-white p-3 text-sm"
+                className="rounded-card border border-line bg-surface-raised p-3 text-sm"
               >
-                <p className="font-medium text-indigo-night-900">
+                <p className="font-medium text-ink">
                   {entry.fromStatus ? `${statusReading(entry.fromStatus).label} → ` : ''}
                   {statusReading(entry.toStatus).label}
                 </p>
-                <p className="text-slate-600">
+                <p className="text-ink-muted">
                   <time dateTime={entry.createdAt}>
                     {new Date(entry.createdAt).toLocaleString('en-GB')}
                   </time>
                 </p>
-                {entry.reason ? <p className="mt-1 text-slate-700">{entry.reason}</p> : null}
+                {entry.reason ? <p className="mt-1 text-ink-muted">{entry.reason}</p> : null}
               </li>
             ))}
           </ol>

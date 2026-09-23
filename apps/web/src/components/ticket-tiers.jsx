@@ -46,7 +46,7 @@ export function TicketTiers({ ticketTypes }) {
   return (
     <ul
       aria-label="Ticket types"
-      className="divide-y divide-slate-200 rounded-card border border-slate-200 bg-white"
+      className="divide-y divide-line rounded-card border border-line bg-surface-raised"
     >
       {ticketTypes.map((tier) => {
         const availability = availabilityLabel(tier)
@@ -57,9 +57,9 @@ export function TicketTiers({ ticketTypes }) {
             className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"
           >
             <div className="min-w-0">
-              <p className="font-medium text-indigo-night-900">{tier.name}</p>
+              <p className="font-medium text-ink">{tier.name}</p>
               {tier.description ? (
-                <p className="mt-1 text-sm text-slate-600">{tier.description}</p>
+                <p className="mt-1 text-sm text-ink-muted">{tier.description}</p>
               ) : null}
               <p className="mt-2">
                 <Badge variant={availability.variant} srLabel="Availability:">
@@ -68,7 +68,7 @@ export function TicketTiers({ ticketTypes }) {
               </p>
             </div>
             <p className="shrink-0 text-right">
-              <span className="font-display text-lg font-semibold text-indigo-night-900">
+              <span className="font-display text-lg font-semibold text-ink">
                 {formatPrice(tier.priceCents, tier.currency)}
               </span>
               <span className="sr-only"> per ticket</span>

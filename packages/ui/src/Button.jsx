@@ -2,23 +2,32 @@ import { cn } from './cn.js'
 import { Spinner } from './Spinner.jsx'
 
 /**
- * Tailwind classes per button variant.
+ * Tailwind classes per button variant, in semantic tokens only.
  *
- * `primary` sits on marigold-**700**, not 600. White on marigold-600 is 3.12:1,
- * and WCAG AA asks for 4.5:1 at this text size; 700 is 4.70:1. The brand colour
- * is unchanged everywhere it is a surface rather than a background for small
- * white text — this is a contrast decision about one component, not a repaint.
- * The scanner in `accessibility-sweep.spec.js` is what found it.
+ * `primary` is the register's primary action: deep marigold on public pages,
+ * indigo inside a signed-in area. It was marigold-700 with white text at
+ * 4.70:1, chosen because white on marigold-600 is 3.12:1; the token is darker
+ * still, 7.22:1, and `token-contrast.test.js` pins it resting and hovered in
+ * both registers.
+ *
+ * `secondary` is every other action a screen offers beside the primary one —
+ * cancel, dismiss, clear, stop — so it is outlined rather than filled: a
+ * second filled colour next to the primary made two buttons compete for one
+ * decision. `outline` is the same thing under its older name, kept so no
+ * caller changes meaning.
+ *
+ * Every variant uses the one focus ring. It used to be a different colour per
+ * variant, and three of the five were below 3:1 against white.
  */
+const SECONDARY =
+  'border border-action-secondary-line bg-action-secondary text-action-secondary-ink hover:bg-action-secondary-hover'
+
 const BUTTON_VARIANTS = {
-  primary:
-    'bg-marigold-700 text-white shadow-sm hover:bg-marigold-800 focus-visible:ring-marigold-600',
-  secondary:
-    'bg-indigo-night-700 text-white shadow-sm hover:bg-indigo-night-900 focus-visible:ring-indigo-night-500',
-  outline:
-    'border border-slate-300 bg-white text-slate-900 hover:bg-slate-50 focus-visible:ring-marigold-500',
-  ghost: 'bg-transparent text-slate-700 hover:bg-slate-100 focus-visible:ring-slate-400',
-  danger: 'bg-rose-600 text-white shadow-sm hover:bg-rose-700 focus-visible:ring-rose-500',
+  primary: 'bg-action-primary text-action-primary-ink shadow-sm hover:bg-action-primary-hover',
+  secondary: SECONDARY,
+  outline: SECONDARY,
+  ghost: 'bg-transparent text-ink-muted hover:bg-surface-subtle hover:text-ink',
+  danger: 'bg-action-danger text-action-danger-ink shadow-sm hover:bg-action-danger-hover',
 }
 
 /** Tailwind classes per button size. */
@@ -80,7 +89,7 @@ export function Button({
       data-loading={loading ? 'true' : undefined}
       className={cn(
         'inline-flex items-center justify-center rounded-lg font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2',
         'disabled:cursor-not-allowed disabled:opacity-60',
         BUTTON_VARIANTS[variant] ?? BUTTON_VARIANTS.primary,
         BUTTON_SIZES[size] ?? BUTTON_SIZES.md,

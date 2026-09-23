@@ -35,13 +35,13 @@ export default function RouteError({ error, reset }) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-20 text-center">
-      <p aria-hidden="true" className="font-display text-6xl text-marigold-500">
+      <p aria-hidden="true" className="font-display text-6xl text-accent">
         ◍
       </p>
-      <h1 className="mt-6 text-3xl font-bold text-indigo-night-900 sm:text-4xl">
+      <h1 className="mt-6 text-3xl font-bold text-ink sm:text-4xl">
         Something went wrong at our end
       </h1>
-      <p className="mt-4 text-lg text-slate-700">
+      <p className="mt-4 text-lg text-ink-muted">
         The page could not be loaded. Nothing has been ordered and you have not been charged. Try
         again — and if it keeps happening, the listings below are still reachable.
       </p>
@@ -51,7 +51,7 @@ export default function RouteError({ error, reset }) {
         </Button>
         <Link
           href="/events"
-          className="inline-flex h-12 items-center justify-center rounded-lg border border-slate-300 bg-white px-6 text-base font-medium text-slate-900 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+          className="inline-flex h-12 items-center justify-center rounded-lg border border-line-strong bg-surface-raised px-6 text-base font-medium text-ink transition-colors hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
         >
           Browse every event
         </Link>

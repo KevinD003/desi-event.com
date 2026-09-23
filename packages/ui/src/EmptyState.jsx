@@ -36,18 +36,18 @@ export function EmptyState({
     <div
       data-slot="empty-state"
       className={cn(
-        'flex flex-col items-center gap-3 rounded-card border border-dashed border-slate-300 px-6 py-12 text-center',
+        'flex flex-col items-center gap-3 rounded-card border border-dashed border-line-strong px-6 py-12 text-center',
         className,
       )}
       {...rest}
     >
       {icon ? (
-        <span aria-hidden="true" className="text-3xl text-slate-400">
+        <span aria-hidden="true" className="text-3xl text-ink-subtle">
           {icon}
         </span>
       ) : null}
-      <Heading className="text-lg font-semibold text-slate-900">{title}</Heading>
-      {description ? <p className="max-w-prose text-sm text-slate-600">{description}</p> : null}
+      <Heading className="text-lg font-semibold text-ink">{title}</Heading>
+      {description ? <p className="max-w-prose text-sm text-ink-muted">{description}</p> : null}
       {children}
       {action ? <div className="mt-2">{action}</div> : null}
     </div>

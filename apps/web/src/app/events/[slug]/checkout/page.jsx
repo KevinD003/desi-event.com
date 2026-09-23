@@ -63,12 +63,12 @@ export default async function CheckoutPage({ params }) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <ol className="flex flex-wrap items-center gap-1">
           <li>
             <Link
               href="/events"
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               Events
             </Link>
@@ -77,22 +77,20 @@ export default async function CheckoutPage({ params }) {
           <li>
             <Link
               href={`/events/${event.slug}`}
-              className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600"
+              className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
             >
               {event.title}
             </Link>
           </li>
           <li aria-hidden="true">/</li>
-          <li aria-current="page" className="text-slate-600">
+          <li aria-current="page" className="text-ink-muted">
             Tickets
           </li>
         </ol>
       </nav>
 
-      <h1 className="mt-6 text-3xl font-bold text-indigo-night-900 sm:text-4xl">
-        Tickets for {event.title}
-      </h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="mt-6 text-3xl font-bold text-ink sm:text-4xl">Tickets for {event.title}</h1>
+      <p className="mt-2 text-ink-muted">
         {formatEventWhen(event)} · {formatEventLocation(event)}
       </p>
 
@@ -109,7 +107,7 @@ export default async function CheckoutPage({ params }) {
             action={
               <Link
                 href={`/events/${event.slug}`}
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
               >
                 Back to the event
               </Link>

@@ -448,7 +448,7 @@ export function EventEditor({
           <Badge variant={reading.tone} srLabel="State:">
             {reading.label}
           </Badge>
-          <span className="text-sm text-slate-600">Revision {revision}</span>
+          <span className="text-sm text-ink-muted">Revision {revision}</span>
         </div>
 
         {/*
@@ -461,13 +461,13 @@ export function EventEditor({
           data-save-state={save.kind}
           role="status"
           aria-live="polite"
-          className="text-sm font-medium text-slate-700"
+          className="text-sm font-medium text-ink-muted"
         >
           {save.message}
         </p>
       </div>
 
-      <p className="mt-2 text-sm text-slate-600">{reading.next}</p>
+      <p className="mt-2 text-sm text-ink-muted">{reading.next}</p>
 
       {conflict ? (
         <Alert
@@ -496,14 +496,14 @@ export function EventEditor({
           ref={summaryRef}
           tabIndex={-1}
           data-testid="validation-summary"
-          className="mt-4 rounded-card border border-rose-200 bg-rose-50 p-4"
+          className="mt-4 rounded-card border border-status-danger/25 bg-status-danger-soft p-4"
         >
-          <h2 className="text-sm font-semibold text-rose-900">
+          <h2 className="text-sm font-semibold text-status-danger">
             {allProblems.length === 1
               ? 'One thing needs fixing before this can be saved'
               : `${allProblems.length} things need fixing before this can be saved`}
           </h2>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-900">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-status-danger">
             {allProblems.map((problem) => (
               <li key={problem.id}>
                 {problem.field ? (
@@ -522,15 +522,15 @@ export function EventEditor({
       {gaps.length > 0 && editable ? (
         <div
           data-testid="readiness-gaps"
-          className="mt-4 rounded-card border border-amber-200 bg-amber-50 p-4"
+          className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4"
         >
-          <h2 className="text-sm font-semibold text-amber-900">
+          <h2 className="text-sm font-semibold text-status-warning">
             Still to do before this can be published
           </h2>
-          <p className="mt-1 text-sm text-amber-900">
+          <p className="mt-1 text-sm text-status-warning">
             None of this stops the draft saving. The review step has the full list.
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-status-warning">
             {gaps.map((gap) => (
               <li key={gap.field}>
                 <a className="underline underline-offset-4" href={`#event-${gap.field}`}>
@@ -559,10 +559,10 @@ export function EventEditor({
                   type="button"
                   onClick={() => setStep(entry.id)}
                   aria-current={step === entry.id ? 'step' : undefined}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none ${
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none ${
                     step === entry.id
-                      ? 'bg-indigo-night-900 font-semibold text-white'
-                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      ? 'bg-action-primary font-semibold text-action-primary-ink'
+                      : 'bg-surface-subtle text-ink-muted hover:bg-line'
                   }`}
                 >
                   {/* Full opacity, not 70%. Dimming inherited text to 70% on
@@ -633,7 +633,7 @@ export function EventEditor({
               <Button type="button" onClick={() => commit()} disabled={save.kind === 'saving'}>
                 {dirty ? 'Save now' : 'Saved'}
               </Button>
-              <span className="text-sm text-slate-600">
+              <span className="text-sm text-ink-muted">
                 Changes save on their own about a second after you stop typing.
               </span>
             </div>
@@ -661,7 +661,7 @@ export function EventEditor({
 function DetailsStep({ values, setField, editable }) {
   return (
     <section aria-labelledby="details-heading" className="space-y-5">
-      <h2 id="details-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="details-heading" className="text-xl font-bold text-ink">
         Details
       </h2>
 
@@ -770,7 +770,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
 
   return (
     <section aria-labelledby="schedule-heading" className="space-y-5">
-      <h2 id="schedule-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="schedule-heading" className="text-xl font-bold text-ink">
         When and where
       </h2>
 
@@ -821,17 +821,17 @@ function ScheduleStep({ values, setField, editable, venues }) {
         />
       </FormField>
 
-      <fieldset className="rounded-card border border-slate-200 p-4">
-        <legend className="px-1 text-sm font-medium text-slate-800">How people attend</legend>
+      <fieldset className="rounded-card border border-line p-4">
+        <legend className="px-1 text-sm font-medium text-ink">How people attend</legend>
 
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-ink-muted">
           <input
             type="checkbox"
             id="event-isOnline"
             checked={values.isOnline}
             disabled={!editable}
             onChange={(change) => setField('isOnline', change.target.checked)}
-            className="size-4 rounded border-slate-300"
+            className="size-4 rounded border-line-strong"
           />
           This event is online
         </label>
@@ -904,7 +904,7 @@ function PoliciesStep({ values, setField, editable }) {
 
   return (
     <section aria-labelledby="policies-heading" className="space-y-5">
-      <h2 id="policies-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="policies-heading" className="text-xl font-bold text-ink">
         Policies and access
       </h2>
 
@@ -974,24 +974,22 @@ function PoliciesStep({ values, setField, editable }) {
         />
       </FormField>
 
-      <fieldset className="rounded-card border border-slate-200 p-4">
-        <legend className="px-1 text-sm font-medium text-slate-800">
-          Accessibility for this event
-        </legend>
-        <p className="mt-1 text-sm text-slate-600">
+      <fieldset className="rounded-card border border-line p-4">
+        <legend className="px-1 text-sm font-medium text-ink">Accessibility for this event</legend>
+        <p className="mt-1 text-sm text-ink-muted">
           These are added to whatever the venue already claims. Tick only what is true: somebody is
           going to decide whether they can come on the strength of it.
         </p>
 
         <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {Object.entries(ACCESSIBILITY_LABELS).map(([code, label]) => (
-            <label key={code} className="flex items-center gap-2 text-sm text-slate-700">
+            <label key={code} className="flex items-center gap-2 text-sm text-ink-muted">
               <input
                 type="checkbox"
                 checked={values.accessFeatures.includes(code)}
                 disabled={!editable}
                 onChange={(change) => toggle(code, change.target.checked)}
-                className="size-4 rounded border-slate-300"
+                className="size-4 rounded border-line-strong"
               />
               {label}
             </label>
@@ -1026,7 +1024,7 @@ function PoliciesStep({ values, setField, editable }) {
 function MediaStep({ values, setField, editable }) {
   return (
     <section aria-labelledby="media-heading" className="space-y-5">
-      <h2 id="media-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="media-heading" className="text-xl font-bold text-ink">
         Media
       </h2>
 
@@ -1052,9 +1050,9 @@ function MediaStep({ values, setField, editable }) {
           <img
             src={values.coverImageUrl}
             alt=""
-            className="w-full rounded-card border border-slate-200"
+            className="w-full rounded-card border border-line"
           />
-          <figcaption className="mt-2 text-sm text-slate-600">
+          <figcaption className="mt-2 text-sm text-ink-muted">
             If this is blank or broken, the address is wrong.
           </figcaption>
         </figure>

@@ -84,22 +84,22 @@ export default async function VenueMapsPage({ params }) {
 
   return (
     <div>
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <Link
           href="/organizer/venues"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Your venues
         </Link>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold text-indigo-night-900">Seating maps — {venue.name}</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="mt-4 text-3xl font-bold text-ink">Seating maps — {venue.name}</h1>
+      <p className="mt-2 text-ink-muted">
         A map is one way of laying the hall out. Each map keeps every version it has ever had.
       </p>
 
       {maps.length === 0 ? (
-        <p className="mt-6 text-slate-700">
+        <p className="mt-6 text-ink-muted">
           This venue has no seating maps. Without one it sells general admission only.
         </p>
       ) : (
@@ -108,13 +108,11 @@ export default async function VenueMapsPage({ params }) {
             <li key={map.id}>
               <Card>
                 <CardBody>
-                  <h2 className="font-display text-xl font-semibold text-indigo-night-900">
-                    {map.name}
-                  </h2>
-                  {map.notes ? <p className="mt-1 text-sm text-slate-600">{map.notes}</p> : null}
+                  <h2 className="font-display text-xl font-semibold text-ink">{map.name}</h2>
+                  {map.notes ? <p className="mt-1 text-sm text-ink-muted">{map.notes}</p> : null}
 
-                  <h3 className="mt-5 text-sm font-medium text-slate-600">Version history</h3>
-                  <ul className="mt-2 divide-y divide-slate-200">
+                  <h3 className="mt-5 text-sm font-medium text-ink-muted">Version history</h3>
+                  <ul className="mt-2 divide-y divide-line">
                     {map.versions.map((version) => {
                       const state = versionState(version)
 
@@ -125,17 +123,17 @@ export default async function VenueMapsPage({ params }) {
                         >
                           <div className="min-w-0">
                             <p className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium text-indigo-night-900">
+                              <span className="font-medium text-ink">
                                 Version {version.version}
                               </span>
                               <Badge variant={state.variant} srLabel="State:">
                                 {state.label}
                               </Badge>
-                              <span className="text-sm text-slate-600">
+                              <span className="text-sm text-ink-muted">
                                 {version.seatCount.toLocaleString('en-IN')} seats
                               </span>
                             </p>
-                            <p className="mt-1 text-sm text-slate-600">{state.note}</p>
+                            <p className="mt-1 text-sm text-ink-muted">{state.note}</p>
                           </div>
 
                           <div className="flex shrink-0 flex-wrap gap-3 text-sm">
@@ -143,7 +141,7 @@ export default async function VenueMapsPage({ params }) {
                               <>
                                 <Link
                                   href={`/organizer/map-versions/${version.id}`}
-                                  className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                                  className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                                 >
                                   View layout
                                 </Link>
@@ -152,7 +150,7 @@ export default async function VenueMapsPage({ params }) {
                             ) : (
                               <Link
                                 href={`/organizer/map-versions/${version.id}`}
-                                className="rounded-sm font-medium underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                                className="rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                               >
                                 Edit layout
                               </Link>
@@ -169,8 +167,8 @@ export default async function VenueMapsPage({ params }) {
         </ul>
       )}
 
-      <div className="mt-10 border-t border-slate-200 pt-6">
-        <h2 className="text-xl font-bold text-indigo-night-900">Add a map</h2>
+      <div className="mt-10 border-t border-line pt-6">
+        <h2 className="text-xl font-bold text-ink">Add a map</h2>
         <div className="mt-4 max-w-md">
           <CreateMapForm venueId={venue.id} />
         </div>

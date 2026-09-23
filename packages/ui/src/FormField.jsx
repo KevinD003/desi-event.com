@@ -83,13 +83,13 @@ export function FormField({
         {label}
       </Label>
       {description ? (
-        <p id={descriptionId} className="text-sm text-slate-600">
+        <p id={descriptionId} className="text-sm text-ink-muted">
           {description}
         </p>
       ) : null}
       {control}
       {error ? (
-        <p id={errorId} role="alert" className="text-sm font-medium text-rose-700">
+        <p id={errorId} role="alert" className="text-sm font-medium text-status-danger">
           {error}
         </p>
       ) : null}

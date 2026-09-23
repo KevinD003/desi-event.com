@@ -161,7 +161,7 @@ export function TicketTransferActions({
 
   return (
     <div className="mt-4">
-      <p aria-live="polite" role="status" className="text-sm text-slate-700">
+      <p aria-live="polite" role="status" className="text-sm text-ink-muted">
         {announcement}
       </p>
 
@@ -172,7 +172,7 @@ export function TicketTransferActions({
               <Button type="button" onClick={(pressed) => begin('offer', pressed.currentTarget)}>
                 Offer this ticket to somebody
               </Button>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 They get an invitation at the address you give. Until they accept it the ticket
                 stays yours and still admits you.
               </p>
@@ -188,7 +188,7 @@ export function TicketTransferActions({
               >
                 Withdraw the offer
               </Button>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 Cancels the outstanding invitation. Whoever it went to can no longer accept it.
               </p>
             </li>
@@ -203,7 +203,7 @@ export function TicketTransferActions({
               >
                 Withdraw this ticket
               </Button>
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-ink-muted">
                 Stops it admitting anybody, permanently. It does not give any money back — a refund
                 is a separate decision with its own record.
               </p>
@@ -211,14 +211,14 @@ export function TicketTransferActions({
           ) : null}
 
           {holder && seatBlocked && OFFERABLE.includes(ticket.status) && !outstanding ? (
-            <li className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <li className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
               This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on yet.
               It stays yours and still admits you.
             </li>
           ) : null}
 
           {!offerable && !withdrawable && !mayRevoke && !(holder && seatBlocked) ? (
-            <li className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <li className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
               There is nothing to do with this ticket. A ticket that has been handed on, withdrawn,
               refunded or already admitted cannot be offered again.
             </li>
@@ -238,7 +238,7 @@ export function TicketTransferActions({
                 ? 'Withdraw the offer'
                 : 'Withdraw this ticket'
           }
-          className="mt-3 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {error ? (
             <div className="mb-3">
@@ -267,7 +267,7 @@ export function TicketTransferActions({
 
           {pending === 'offer' ? (
             <>
-              <h3 className="font-semibold text-indigo-night-900">Offer this ticket</h3>
+              <h3 className="font-semibold text-ink">Offer this ticket</h3>
               <div className="mt-3">
                 <FormField
                   label="Their email address"
@@ -321,8 +321,8 @@ export function TicketTransferActions({
 
           {pending === 'withdraw' ? (
             <>
-              <h3 className="font-semibold text-indigo-night-900">Withdraw the offer</h3>
-              <p className="mt-1 text-sm text-slate-700">
+              <h3 className="font-semibold text-ink">Withdraw the offer</h3>
+              <p className="mt-1 text-sm text-ink-muted">
                 The invitation stops working. The ticket has been yours the whole time and stays
                 yours.
               </p>
@@ -349,8 +349,8 @@ export function TicketTransferActions({
 
           {pending === 'revoke' ? (
             <>
-              <h3 className="font-semibold text-indigo-night-900">Withdraw this ticket</h3>
-              <p className="mt-1 text-sm text-slate-700">
+              <h3 className="font-semibold text-ink">Withdraw this ticket</h3>
+              <p className="mt-1 text-sm text-ink-muted">
                 Permanent. It will admit nobody, and whoever holds it is told. No money moves — a
                 refund is a separate decision with its own record.
               </p>

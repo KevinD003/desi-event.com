@@ -149,7 +149,7 @@ export function ConnectActions({ organizationId, state }) {
 
   return (
     <section aria-labelledby="connect-actions-heading" className="mt-8">
-      <h2 id="connect-actions-heading" className="text-lg font-semibold text-indigo-night-900">
+      <h2 id="connect-actions-heading" className="text-lg font-semibold text-ink">
         Move the simulation
       </h2>
 
@@ -158,7 +158,7 @@ export function ConnectActions({ organizationId, state }) {
       </p>
 
       {available.length === 0 ? (
-        <p className="mt-3 max-w-3xl rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <p className="mt-3 max-w-3xl rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
           There is nothing to do here. The simulation has reached the last step this deployment
           offers, and nothing moves it out of that.
         </p>
@@ -175,10 +175,10 @@ export function ConnectActions({ organizationId, state }) {
                 else triggerRefs.current.delete(button.action)
               }}
               onClick={() => open(button.action)}
-              className={`rounded-sm px-4 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none ${
+              className={`rounded-sm px-4 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none ${
                 button.destructive
-                  ? 'bg-rose-700 text-white hover:bg-rose-800'
-                  : 'border border-slate-300 bg-white text-indigo-night-900 hover:bg-slate-50'
+                  ? 'bg-action-danger text-action-danger-ink hover:bg-action-danger-hover'
+                  : 'border border-line-strong bg-surface-raised text-ink hover:bg-surface-subtle'
               }`}
             >
               {button.label}
@@ -193,22 +193,22 @@ export function ConnectActions({ organizationId, state }) {
           tabIndex={-1}
           role="group"
           aria-labelledby="connect-pending-heading"
-          className="mt-4 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-4 rounded-card border border-line-strong bg-surface-raised p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <h3 id="connect-pending-heading" className="font-semibold text-indigo-night-900">
+          <h3 id="connect-pending-heading" className="font-semibold text-ink">
             {open_.label}
           </h3>
 
           {refusal ? (
             <p
               role="alert"
-              className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900"
+              className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-3 text-sm text-status-danger"
             >
               <span className="font-medium">{refusal.title}.</span> {refusal.detail}
             </p>
           ) : null}
 
-          <p className="mt-2 max-w-2xl text-sm text-slate-700">{open_.confirmation}</p>
+          <p className="mt-2 max-w-2xl text-sm text-ink-muted">{open_.confirmation}</p>
 
           {stepUp ? (
             <div className="mt-4">
@@ -227,7 +227,7 @@ export function ConnectActions({ organizationId, state }) {
                 type="button"
                 onClick={send}
                 disabled={busy}
-                className="rounded-sm bg-indigo-night-900 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-night-800 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-sm bg-action-primary px-4 py-2 text-sm font-medium text-action-primary-ink hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? 'Working…' : 'Record it'}
               </button>
@@ -235,7 +235,7 @@ export function ConnectActions({ organizationId, state }) {
                 type="button"
                 onClick={dismiss}
                 disabled={busy}
-                className="rounded-sm border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-indigo-night-900 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2 focus-visible:outline-none"
+                className="rounded-sm border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 Back
               </button>

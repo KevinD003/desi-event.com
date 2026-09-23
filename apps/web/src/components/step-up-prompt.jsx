@@ -83,12 +83,12 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
     <form
       onSubmit={onSubmit}
       aria-labelledby="step-up-heading"
-      className="rounded-card border-2 border-indigo-night-900 bg-white p-4"
+      className="rounded-card border-2 border-ink bg-surface-raised p-4"
     >
-      <h3 id="step-up-heading" className="text-lg font-semibold text-indigo-night-900">
+      <h3 id="step-up-heading" className="text-lg font-semibold text-ink">
         Confirm it is you
       </h3>
-      <p className="mt-1 text-sm text-slate-700">
+      <p className="mt-1 text-sm text-ink-muted">
         You are signed in, but it has been a while. Confirm your identity to {action}.
       </p>
 

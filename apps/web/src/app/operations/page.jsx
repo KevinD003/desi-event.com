@@ -71,15 +71,15 @@ async function attempt(load) {
 function QueueSection({ id, title, description, failure, count, children }) {
   return (
     <section aria-labelledby={id} className="mt-8">
-      <h2 id={id} className="text-lg font-semibold text-indigo-night-900">
-        {title} {failure ? null : <span className="font-normal text-slate-600">({count})</span>}
+      <h2 id={id} className="text-lg font-semibold text-ink">
+        {title} {failure ? null : <span className="font-normal text-ink-muted">({count})</span>}
       </h2>
-      <p className="mt-1 text-sm text-slate-700">{description}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
 
       {failure ? (
         <p
           role="alert"
-          className="mt-3 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+          className="mt-3 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
         >
           This queue could not be loaded: {failure}.
         </p>
@@ -125,14 +125,14 @@ export default async function OperationsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-indigo-night-900">Operations</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="text-2xl font-bold text-ink">Operations</h1>
+      <p className="mt-2 text-ink-muted">
         What the machine could not finish on its own. Nothing is actioned from this page — each item
         links to where the work is done, behind its own second factor.
       </p>
 
       {!platform ? (
-        <p className="mt-4 rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
           The reconciliation and notification queues are platform work and are not shown here. Your
           organisation’s refunds are below.
         </p>
@@ -158,18 +158,18 @@ export default async function OperationsPage() {
               {reconciliation.value.tasks.map((task) => (
                 <li
                   key={task.id}
-                  className="rounded-card border border-slate-200 bg-white p-4 focus-within:ring-2 focus-within:ring-marigold-500"
+                  className="rounded-card border border-line bg-surface-raised p-4 focus-within:ring-2 focus-within:ring-focus"
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">
+                    <p className="font-medium text-ink">
                       <Link
                         href={`/operations/reconciliation/${task.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {task.kind.replace(/_/gu, ' ').toLowerCase()}
                       </Link>
                       {task.orderReference ? (
-                        <span className="ml-2 font-mono text-sm text-slate-600">
+                        <span className="ml-2 font-mono text-sm text-ink-muted">
                           {task.orderReference}
                         </span>
                       ) : null}
@@ -177,7 +177,7 @@ export default async function OperationsPage() {
                     <AgingBadge band={task.aging} hours={task.ageHours} />
                   </div>
                   {task.lastError ? (
-                    <p className="mt-1 text-sm text-slate-700">{task.lastError}</p>
+                    <p className="mt-1 text-sm text-ink-muted">{task.lastError}</p>
                   ) : null}
                 </li>
               ))}
@@ -204,16 +204,19 @@ export default async function OperationsPage() {
           ) : (
             <ul className="mt-3 space-y-2">
               {stuck.map((message) => (
-                <li key={message.id} className="rounded-card border border-slate-200 bg-white p-4">
+                <li
+                  key={message.id}
+                  className="rounded-card border border-line bg-surface-raised p-4"
+                >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">{message.template}</p>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                    <p className="font-medium text-ink">{message.template}</p>
+                    <span className="rounded-full border border-line-strong bg-surface-subtle px-2 py-0.5 text-xs font-medium text-ink">
                       {message.status.replace(/_/gu, ' ').toLowerCase()} · {message.attempts}/
                       {message.maxAttempts}
                     </span>
                   </div>
                   {message.lastError ? (
-                    <p className="mt-1 text-sm text-slate-700">{message.lastError}</p>
+                    <p className="mt-1 text-sm text-ink-muted">{message.lastError}</p>
                   ) : null}
                 </li>
               ))}
@@ -240,26 +243,29 @@ export default async function OperationsPage() {
           ) : (
             <ul className="mt-3 space-y-2">
               {unresolved.map((refund) => (
-                <li key={refund.id} className="rounded-card border border-slate-200 bg-white p-4">
+                <li
+                  key={refund.id}
+                  className="rounded-card border border-line bg-surface-raised p-4"
+                >
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-medium text-indigo-night-900">
+                    <p className="font-medium text-ink">
                       <Link
                         href={`/finance/refunds/${refund.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {formatPrice(refund.amountCents, refund.currency)}
                       </Link>
                       {refund.orderReference ? (
-                        <span className="ml-2 font-mono text-sm text-slate-600">
+                        <span className="ml-2 font-mono text-sm text-ink-muted">
                           {refund.orderReference}
                         </span>
                       ) : null}
                     </p>
-                    <span className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                    <span className="rounded-full border border-line-strong bg-surface-subtle px-2 py-0.5 text-xs font-medium text-ink">
                       {refund.status.replace(/_/gu, ' ').toLowerCase()}
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-700">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {refund.reason.replace(/_/gu, ' ').toLowerCase()}
                     {refund.attempts > 0 ? ` · ${refund.attempts} submission attempt(s)` : ''}
                   </p>
@@ -270,8 +276,8 @@ export default async function OperationsPage() {
         </QueueSection>
       ) : null}
 
-      <p className="mt-10 text-sm text-slate-700">
-        <Link href="/finance" className="underline underline-offset-4 hover:text-marigold-700">
+      <p className="mt-10 text-sm text-ink-muted">
+        <Link href="/finance" className="underline underline-offset-4 hover:text-accent-strong">
           The finance overview
         </Link>{' '}
         has the figures these queues are about.

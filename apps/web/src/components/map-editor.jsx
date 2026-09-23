@@ -228,7 +228,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id={headingId} className="text-xl font-bold text-indigo-night-900">
+        <h2 id={headingId} className="text-xl font-bold text-ink">
           Layout
           {readOnly ? (
             <Badge variant="success" className="ml-3" srLabel="State:">
@@ -311,7 +311,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
       ) : null}
 
       {status ? (
-        <p className="mt-4 text-sm text-slate-700" aria-hidden="true">
+        <p className="mt-4 text-sm text-ink-muted" aria-hidden="true">
           {status}
         </p>
       ) : null}
@@ -333,7 +333,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
                   {issue.key ? (
                     <button
                       type="button"
-                      className="rounded-sm text-left underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                      className="rounded-sm text-left underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       onClick={() => {
                         setSelected(issue.key)
                         document.getElementById(`seat-${issue.key}`)?.focus()
@@ -379,19 +379,19 @@ export function MapEditor({ version, initialLayout, readOnly }) {
       ) : null}
 
       {confirmingPublish ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface-inverse/50 p-4">
           <div
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="publish-title"
             tabIndex={-1}
-            className="w-full max-w-lg rounded-card bg-white p-6 shadow-lg"
+            className="w-full max-w-lg rounded-card bg-surface-raised p-6 shadow-lg"
           >
-            <h3 id="publish-title" className="text-xl font-bold text-indigo-night-900">
+            <h3 id="publish-title" className="text-xl font-bold text-ink">
               Publish this version?
             </h3>
-            <div className="mt-3 space-y-3 text-slate-700">
+            <div className="mt-3 space-y-3 text-ink-muted">
               <p>
                 Publishing freezes this layout permanently. After it, no section, row or seat in
                 this version can be changed, renamed or removed — by you or by anybody else.
@@ -464,25 +464,22 @@ function PlanView({ sections, selected, onSelect }) {
     <div className="mt-6 space-y-8 overflow-x-auto">
       {sections.map((section) => (
         <section key={section.key} aria-labelledby={`section-${section.key}`}>
-          <h3
-            id={`section-${section.key}`}
-            className="font-display text-lg font-semibold text-indigo-night-900"
-          >
+          <h3 id={`section-${section.key}`} className="font-display text-lg font-semibold text-ink">
             {section.name}{' '}
-            <span className="text-sm font-normal text-slate-600">
+            <span className="text-sm font-normal text-ink-muted">
               ({section.kind.toLowerCase()})
             </span>
           </h3>
 
           {section.kind === 'STANDING' ? (
-            <p className="mt-2 text-slate-700">
+            <p className="mt-2 text-ink-muted">
               Standing, capacity {section.standingCapacity ?? '—'}. No numbered seats.
             </p>
           ) : null}
 
           {(section.rows ?? []).map((row) => (
             <div key={row.key} className="mt-3 flex items-center gap-3">
-              <span className="w-12 shrink-0 text-sm font-medium text-slate-600">{row.label}</span>
+              <span className="w-12 shrink-0 text-sm font-medium text-ink-muted">{row.label}</span>
               <div role="group" aria-label={`Row ${row.label}`} className="flex flex-wrap gap-1">
                 {(row.seats ?? []).map((seat, index) => (
                   <SeatButton
@@ -563,7 +560,7 @@ function PreviewView({ layout }) {
         saved. Nothing here is for sale; no seat can be picked.
       </Alert>
 
-      <p className="mt-4 text-slate-700">
+      <p className="mt-4 text-ink-muted">
         {seats.length.toLocaleString('en-IN')} seats
         {accessible > 0 ? `, ${accessible.toLocaleString('en-IN')} wheelchair spaces` : ''}
         {companions > 0 ? `, ${companions.toLocaleString('en-IN')} companion seats` : ''}
@@ -572,7 +569,7 @@ function PreviewView({ layout }) {
 
       {zones.length > 0 ? (
         <div className="mt-4">
-          <h3 className="text-sm font-semibold text-indigo-night-900">Price zones</h3>
+          <h3 className="text-sm font-semibold text-ink">Price zones</h3>
           <ul className="mt-2 flex flex-wrap gap-2">
             {zones.map((zone) => (
               <li key={zone.key}>
@@ -588,20 +585,20 @@ function PreviewView({ layout }) {
           <section key={section.key} aria-labelledby={`preview-section-${section.key}`}>
             <h3
               id={`preview-section-${section.key}`}
-              className="font-display text-lg font-semibold text-indigo-night-900"
+              className="font-display text-lg font-semibold text-ink"
             >
               {section.name}
             </h3>
 
             {section.kind === 'STANDING' ? (
-              <p className="mt-2 text-slate-700">
+              <p className="mt-2 text-ink-muted">
                 Standing room for {section.standingCapacity ?? '—'}. No numbered seats.
               </p>
             ) : null}
 
             {(section.rows ?? []).map((row) => (
               <div key={row.key} className="mt-3 flex items-center gap-3">
-                <span className="w-12 shrink-0 text-sm font-medium text-slate-600">
+                <span className="w-12 shrink-0 text-sm font-medium text-ink-muted">
                   {row.label}
                 </span>
                 <div role="group" aria-label={`Row ${row.label}`} className="flex flex-wrap gap-1">
@@ -656,8 +653,8 @@ function PreviewSeat({ seat, zoneName }) {
       className={[
         'inline-flex h-9 min-w-9 items-center justify-center rounded border px-1 text-xs font-medium',
         seat.restricted
-          ? 'border-slate-200 bg-slate-100 text-slate-600 line-through'
-          : 'border-slate-300 bg-white text-slate-700',
+          ? 'border-line bg-surface-subtle text-ink-muted line-through'
+          : 'border-line-strong bg-surface-raised text-ink-muted',
       ].join(' ')}
     >
       <span className="sr-only">
@@ -711,10 +708,10 @@ function SeatButton({ seat, section, row, selected, tabIndex, onSelect, onKeyDow
       onKeyDown={onKeyDown}
       className={[
         'h-9 min-w-9 rounded border px-1 text-xs font-medium transition-colors',
-        'focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-1 focus-visible:outline-none',
+        'focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-1 focus-visible:outline-none',
         selected
-          ? 'border-marigold-600 bg-marigold-100 text-indigo-night-900'
-          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
+          ? 'border-accent bg-accent-soft text-ink'
+          : 'border-line-strong bg-surface-raised text-ink-muted hover:bg-surface-subtle',
       ].join(' ')}
     >
       {/* A marker as well as the colour, so the state survives greyscale. */}
@@ -744,7 +741,7 @@ function ListView({ sections, selected, onSelect }) {
           Every seat in this layout, with its section, row and attributes.
         </caption>
         <thead>
-          <tr className="border-b border-slate-300 text-left">
+          <tr className="border-b border-line-strong text-left">
             <th scope="col" className="py-2 pr-4">
               Seat
             </th>
@@ -773,8 +770,8 @@ function ListView({ sections, selected, onSelect }) {
               ),
               ...(section.seats ?? []).map((seat) => ({ seat, section, row: null })),
             ].map(({ seat, row }) => (
-              <tr key={seat.key} className="border-b border-slate-200">
-                <th scope="row" className="py-2 pr-4 text-left font-medium text-indigo-night-900">
+              <tr key={seat.key} className="border-b border-line">
+                <th scope="row" className="py-2 pr-4 text-left font-medium text-ink">
                   {seat.label}
                 </th>
                 <td className="py-2 pr-4">{section.name}</td>
@@ -824,7 +821,7 @@ function StructureControls({ layout, change }) {
   return (
     <Card className="mt-8">
       <CardBody>
-        <h3 className="font-display text-lg font-semibold text-indigo-night-900">Structure</h3>
+        <h3 className="font-display text-lg font-semibold text-ink">Structure</h3>
 
         <div className="mt-4 flex flex-wrap gap-3">
           <Button
@@ -870,7 +867,7 @@ function StructureControls({ layout, change }) {
 
         <ul className="mt-5 space-y-4">
           {(layout.sections ?? []).map((section, sIndex) => (
-            <li key={section.key} className="rounded border border-slate-200 p-4">
+            <li key={section.key} className="rounded border border-line p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <FormField label={`Section ${sIndex + 1} name`} id={`section-name-${section.key}`}>
                   <Input
@@ -948,7 +945,7 @@ function StructureControls({ layout, change }) {
               )}
 
               {(section.rows ?? []).map((row, rIndex) => (
-                <div key={row.key} className="mt-3 border-t border-slate-200 pt-3">
+                <div key={row.key} className="mt-3 border-t border-line pt-3">
                   <div className="flex flex-wrap items-end gap-3">
                     <FormField label="Row label" id={`row-label-${row.key}`}>
                       <Input
@@ -1001,7 +998,7 @@ function StructureControls({ layout, change }) {
                       Remove row {row.label}
                     </Button>
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="mt-2 text-sm text-ink-muted">
                     {(row.seats ?? []).length} seat{(row.seats ?? []).length === 1 ? '' : 's'}
                   </p>
                 </div>
@@ -1090,9 +1087,7 @@ function SeatProperties({ layout, seatKey, change, readOnly, onClose }) {
     <Card className="mt-8">
       <CardBody>
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-display text-lg font-semibold text-indigo-night-900">
-            Seat {seat.label}
-          </h3>
+          <h3 className="font-display text-lg font-semibold text-ink">Seat {seat.label}</h3>
           <Button type="button" size="sm" variant="ghost" onClick={onClose}>
             Close<span className="sr-only"> seat properties</span>
           </Button>
@@ -1126,7 +1121,7 @@ function SeatProperties({ layout, seatKey, change, readOnly, onClose }) {
         </div>
 
         <fieldset className="mt-4">
-          <legend className="text-sm font-medium text-slate-700">Attributes</legend>
+          <legend className="text-sm font-medium text-ink-muted">Attributes</legend>
           <div className="mt-2 space-y-2">
             {[
               ['accessible', 'Wheelchair space', 'Never inferred from the label.'],
@@ -1142,8 +1137,8 @@ function SeatProperties({ layout, seatKey, change, readOnly, onClose }) {
                   onChange={(event) => set(field, event.target.checked)}
                 />
                 <span>
-                  <span className="font-medium text-slate-800">{label}</span>
-                  <span className="block text-slate-600">{hint}</span>
+                  <span className="font-medium text-ink">{label}</span>
+                  <span className="block text-ink-muted">{hint}</span>
                 </span>
               </label>
             ))}

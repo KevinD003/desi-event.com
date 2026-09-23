@@ -178,8 +178,8 @@ export default async function ExportRegisterPage({ searchParams }) {
   return (
     <>
       <header>
-        <h1 className="text-2xl font-bold text-indigo-night-900">Export register</h1>
-        <p className="mt-2 max-w-3xl text-slate-700">
+        <h1 className="text-2xl font-bold text-ink">Export register</h1>
+        <p className="mt-2 max-w-3xl text-ink-muted">
           Which exports this organisation has produced, and whether any of them is known to contain
           a person. It records that an export happened — never what was in it — and there is nothing
           to download here: every export is streamed to whoever asked and nothing is kept.
@@ -216,7 +216,7 @@ export default async function ExportRegisterPage({ searchParams }) {
                 Exports produced by {selected.organizationName ?? 'this organisation'}, newest first
               </caption>
               <thead>
-                <tr className="border-b border-slate-300 text-slate-700">
+                <tr className="border-b border-line-strong text-ink-muted">
                   <th scope="col" className="py-2 pr-4 font-semibold">
                     Kind
                   </th>
@@ -239,8 +239,8 @@ export default async function ExportRegisterPage({ searchParams }) {
               </thead>
               <tbody>
                 {artifacts.map((artifact) => (
-                  <tr key={artifact.id} className="border-b border-slate-200 align-top">
-                    <th scope="row" className="py-3 pr-4 font-medium text-indigo-night-900">
+                  <tr key={artifact.id} className="border-b border-line align-top">
+                    <th scope="row" className="py-3 pr-4 font-medium text-ink">
                       {artifact.kind}
                     </th>
                     <td className="py-3 pr-4">{stateLabel(artifact.state)}</td>
@@ -257,7 +257,7 @@ export default async function ExportRegisterPage({ searchParams }) {
           </div>
 
           {pagination ? (
-            <p className="mt-4 text-sm text-slate-600">
+            <p className="mt-4 text-sm text-ink-muted">
               Showing {artifacts.length} of {pagination.total ?? artifacts.length}.
             </p>
           ) : null}

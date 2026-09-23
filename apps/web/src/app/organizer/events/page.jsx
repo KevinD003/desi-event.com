@@ -52,10 +52,10 @@ export default async function OrganizerEventsPage() {
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="text-2xl font-bold text-indigo-night-900">Your events</h1>
+        <h1 className="text-2xl font-bold text-ink">Your events</h1>
         <Link
           href="/organizer/events/new"
-          className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-800 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink shadow-sm hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Create an event
         </Link>
@@ -64,7 +64,7 @@ export default async function OrganizerEventsPage() {
       {failure ? (
         <p
           role="alert"
-          className="mt-6 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+          className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
         >
           Your events could not be loaded: {failure}. Nothing has been guessed at — reload, and if
           it keeps happening the service is down.
@@ -86,7 +86,7 @@ export default async function OrganizerEventsPage() {
             */}
             <Link
               href="/organizer/events/new"
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white shadow-sm hover:bg-marigold-800 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2 focus-visible:outline-none"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink shadow-sm hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               Create your first event
             </Link>
@@ -102,19 +102,19 @@ export default async function OrganizerEventsPage() {
             return (
               <li
                 key={event.id}
-                className="rounded-card border border-slate-200 bg-white p-4 focus-within:ring-2 focus-within:ring-marigold-500"
+                className="rounded-card border border-line bg-surface-raised p-4 focus-within:ring-2 focus-within:ring-focus"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="font-display text-lg font-semibold text-indigo-night-900">
+                    <h2 className="font-display text-lg font-semibold text-ink">
                       <Link
                         href={`/organizer/events/${event.id}`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:outline-none"
                       >
                         {event.title}
                       </Link>
                     </h2>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-ink-muted">
                       {formatEventDate(event.startsAt, event.timezone)}
                       {event.venueName ? ` · ${event.venueName}` : ''}
                       {event.city ? `, ${event.city}` : ''}
@@ -125,7 +125,7 @@ export default async function OrganizerEventsPage() {
                     <Badge variant={reading.tone} srLabel="State:">
                       {reading.label}
                     </Badge>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-ink-muted">
                       {reading.whose === 'nobody' ? 'Nothing to do' : `Waiting on ${reading.whose}`}
                     </p>
                   </div>

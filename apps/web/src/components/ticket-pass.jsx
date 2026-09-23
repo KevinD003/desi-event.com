@@ -153,14 +153,14 @@ export function TicketPass({ ticketId }) {
             role="img"
             aria-labelledby={titleId}
             viewBox={`0 0 ${drawing.size} ${drawing.size}`}
-            className="h-auto w-full max-w-[18rem] bg-white"
+            className="h-auto w-full max-w-[18rem] bg-surface-raised"
             shapeRendering="crispEdges"
           >
             <title id={titleId}>Your entry pass, as a QR code for the door to scan</title>
             <rect width={drawing.size} height={drawing.size} fill="#ffffff" />
             <path d={drawing.path} fill="#000000" />
           </svg>
-          <figcaption className="mt-3 space-y-2 text-sm text-slate-700">
+          <figcaption className="mt-3 space-y-2 text-sm text-ink-muted">
             <p>
               <strong>Show this at the door.</strong> Turn your screen brightness up if the scanner
               struggles.
@@ -187,7 +187,7 @@ export function TicketPass({ ticketId }) {
           <Button ref={showButton} type="button" loading={busy} onClick={show}>
             Show my entry pass
           </Button>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-ink-muted">
             Shown only on this device, only while this page is open. It is not stored anywhere.
           </p>
         </div>

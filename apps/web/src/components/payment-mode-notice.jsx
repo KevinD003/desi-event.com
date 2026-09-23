@@ -33,7 +33,7 @@ export function PaymentModeNotice() {
     <aside
       data-testid="payment-mode-notice"
       aria-labelledby="payment-mode-heading"
-      className="mt-6 rounded-card border border-amber-300 bg-amber-50 p-4 text-amber-900"
+      className="mt-6 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-status-warning"
     >
       <p id="payment-mode-heading" className="font-semibold">
         {PRODUCTION_PAYMENTS_DISABLED_MESSAGE}

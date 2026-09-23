@@ -45,8 +45,8 @@ export function ModeBanner({ mode, notice }) {
       role="status"
       className={`mt-4 rounded-card border p-4 text-sm ${
         demonstration
-          ? 'border-marigold-300 bg-marigold-50 text-indigo-night-900'
-          : 'border-sky-300 bg-sky-50 text-indigo-night-900'
+          ? 'border-accent-line bg-accent-soft text-ink'
+          : 'border-status-info/25 bg-status-info-soft text-ink'
       }`}
     >
       <span className="font-semibold">{demonstration ? 'Demonstration data' : 'Sandbox data'}</span>{' '}
@@ -71,8 +71,8 @@ export function ModeBanner({ mode, notice }) {
  */
 export function Figure({ label, cents, currency = 'INR', hint }) {
   return (
-    <div className="rounded-card border border-slate-200 bg-white p-4">
-      <dt className="text-sm text-slate-600">{label}</dt>
+    <div className="rounded-card border border-line bg-surface-raised p-4">
+      <dt className="text-sm text-ink-muted">{label}</dt>
       {/*
         The hint lives inside the `dd`, not beside it. A `div` wrapping a
         definition-list group may contain only `dt` and `dd` — a `p` as a third
@@ -81,10 +81,10 @@ export function Figure({ label, cents, currency = 'INR', hint }) {
         1.3.1. Found by the sweep on this component's first run.
       */}
       <dd className="mt-1">
-        <span className="block font-display text-2xl font-semibold text-indigo-night-900 tabular-nums">
+        <span className="block font-display text-2xl font-semibold text-ink tabular-nums">
           {formatPrice(cents, currency)}
         </span>
-        {hint ? <span className="mt-1 block text-xs text-slate-600">{hint}</span> : null}
+        {hint ? <span className="mt-1 block text-xs text-ink-muted">{hint}</span> : null}
       </dd>
     </div>
   )
@@ -114,7 +114,7 @@ export function ScrollableTable({ label, children }) {
       role="region"
       aria-label={label}
       tabIndex={0}
-      className="mt-3 overflow-x-auto focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+      className="mt-3 overflow-x-auto focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
     >
       {children}
     </div>
@@ -138,9 +138,9 @@ export function ScrollableTable({ label, children }) {
  */
 export function AgingBadge({ band, hours }) {
   const tone = {
-    FRESH: 'border-slate-300 bg-slate-100 text-slate-800',
-    AGING: 'border-amber-300 bg-amber-50 text-amber-900',
-    OVERDUE: 'border-rose-300 bg-rose-50 text-rose-900',
+    FRESH: 'border-line-strong bg-surface-subtle text-ink',
+    AGING: 'border-status-warning/30 bg-status-warning-soft text-status-warning',
+    OVERDUE: 'border-status-danger/25 bg-status-danger-soft text-status-danger',
   }[band]
 
   const reading = { FRESH: 'Fresh', AGING: 'Ageing', OVERDUE: 'Overdue' }[band] ?? band

@@ -15,15 +15,15 @@
 
 /** Tailwind classes per state. Unknown states fall back to slate. */
 const TONES = Object.freeze({
-  REQUESTED: 'border-amber-300 bg-amber-50 text-amber-900',
-  QUEUED: 'border-sky-300 bg-sky-50 text-sky-900',
-  PROCESSING: 'border-sky-300 bg-sky-50 text-sky-900',
-  COMPLETED: 'border-emerald-300 bg-emerald-50 text-emerald-900',
-  HELD: 'border-violet-300 bg-violet-50 text-violet-900',
-  FAILED_SAFE: 'border-rose-300 bg-rose-50 text-rose-900',
-  CANCELLED: 'border-slate-300 bg-slate-100 text-slate-700',
-  ACTIVE: 'border-violet-300 bg-violet-50 text-violet-900',
-  RELEASED: 'border-slate-300 bg-slate-100 text-slate-700',
+  REQUESTED: 'border-status-warning/30 bg-status-warning-soft text-status-warning',
+  QUEUED: 'border-status-info/25 bg-status-info-soft text-status-info',
+  PROCESSING: 'border-status-info/25 bg-status-info-soft text-status-info',
+  COMPLETED: 'border-status-success/25 bg-status-success-soft text-status-success',
+  HELD: 'border-status-refusal/25 bg-status-refusal-soft text-status-refusal',
+  FAILED_SAFE: 'border-status-danger/25 bg-status-danger-soft text-status-danger',
+  CANCELLED: 'border-line-strong bg-surface-subtle text-ink-muted',
+  ACTIVE: 'border-status-refusal/25 bg-status-refusal-soft text-status-refusal',
+  RELEASED: 'border-line-strong bg-surface-subtle text-ink-muted',
 })
 
 /**
@@ -39,7 +39,7 @@ const TONES = Object.freeze({
  * @returns {JSX.Element} The badge.
  */
 export function StateBadge({ state, label }) {
-  const tone = TONES[state] ?? 'border-slate-300 bg-slate-100 text-slate-700'
+  const tone = TONES[state] ?? 'border-line-strong bg-surface-subtle text-ink-muted'
 
   return (
     <span

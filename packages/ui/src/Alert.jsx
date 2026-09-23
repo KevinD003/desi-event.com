@@ -1,11 +1,36 @@
 import { cn } from './cn.js'
+import { StatusIcon } from './StatusIcon.jsx'
 
-/** Tailwind classes per alert variant. */
+/**
+ * Semantic classes per alert variant.
+ *
+ * The body is always `ink`, and only the title and the icon take the status
+ * colour. Body copy in amber or rose was harder to read than it needed to be,
+ * and the colour was doing a job the icon, the title and the role already do.
+ * Every pairing — body on each soft ground, status word on it — is pinned in
+ * `token-contrast.test.js`.
+ */
 const ALERT_VARIANTS = {
-  info: 'border-indigo-night-100 bg-indigo-night-50 text-indigo-night-900',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-  warning: 'border-amber-200 bg-amber-50 text-amber-900',
-  error: 'border-rose-200 bg-rose-50 text-rose-900',
+  info: {
+    box: 'border-status-info/25 bg-status-info-soft',
+    accent: 'text-status-info',
+    tone: 'info',
+  },
+  success: {
+    box: 'border-status-success/25 bg-status-success-soft',
+    accent: 'text-status-success',
+    tone: 'success',
+  },
+  warning: {
+    box: 'border-status-warning/30 bg-status-warning-soft',
+    accent: 'text-status-warning',
+    tone: 'warning',
+  },
+  error: {
+    box: 'border-status-danger/25 bg-status-danger-soft',
+    accent: 'text-status-danger',
+    tone: 'danger',
+  },
 }
 
 /**
@@ -45,6 +70,7 @@ export function Alert({
   ...rest
 }) {
   const urgent = URGENT_VARIANTS.has(variant)
+  const styles = ALERT_VARIANTS[variant] ?? ALERT_VARIANTS.info
 
   return (
     <div
@@ -53,21 +79,22 @@ export function Alert({
       data-slot="alert"
       data-variant={variant}
       className={cn(
-        'flex items-start gap-3 rounded-lg border px-4 py-3 text-sm',
-        ALERT_VARIANTS[variant] ?? ALERT_VARIANTS.info,
+        'flex items-start gap-3 rounded-lg border px-4 py-3 text-sm text-ink',
+        styles.box,
         className,
       )}
       {...rest}
     >
-      <div className="flex-1">
-        {title ? <p className="font-semibold">{title}</p> : null}
+      <StatusIcon tone={styles.tone} className={cn('mt-px', styles.accent)} />
+      <div className="min-w-0 flex-1">
+        {title ? <p className={cn('font-semibold', styles.accent)}>{title}</p> : null}
         {children ? <div className={cn(title && 'mt-1')}>{children}</div> : null}
       </div>
       {onDismiss ? (
         <button
           type="button"
           onClick={onDismiss}
-          className="-mr-1 rounded p-1 leading-none text-current/70 hover:text-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
+          className="-mr-1 inline-flex h-6 w-6 items-center justify-center rounded text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           <span aria-hidden="true">×</span>
           <span className="sr-only">{dismissLabel}</span>

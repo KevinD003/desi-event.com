@@ -62,8 +62,8 @@ export default async function PrivacyLayout({ children }) {
   if (!allowed) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-12">
-        <h1 className="text-2xl font-bold text-indigo-night-900">Not for you</h1>
-        <p className="mt-2 text-slate-700">
+        <h1 className="text-2xl font-bold text-ink">Not for you</h1>
+        <p className="mt-2 text-ink-muted">
           This area erases people from an organisation&rsquo;s records, which is not something that
           can be undone. It is held by organisation owners alone. If you think you should have
           access, ask whoever runs the organisation — nothing on this page can grant it to you.
@@ -71,7 +71,7 @@ export default async function PrivacyLayout({ children }) {
         <p className="mt-4">
           <Link
             href="/"
-            className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+            className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             Back to the site
           </Link>
@@ -82,13 +82,13 @@ export default async function PrivacyLayout({ children }) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 pb-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-4">
         <nav aria-label="Privacy">
           <ul className="flex flex-wrap items-center gap-4 text-sm">
             <li>
               <Link
                 href="/privacy"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Requests
               </Link>
@@ -96,7 +96,7 @@ export default async function PrivacyLayout({ children }) {
             <li>
               <Link
                 href="/privacy/exports"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Exports
               </Link>
@@ -104,14 +104,14 @@ export default async function PrivacyLayout({ children }) {
             <li>
               <Link
                 href="/privacy/holds"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Holds
               </Link>
             </li>
           </ul>
         </nav>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Signed in as <span className="font-medium">{session.user?.displayName}</span>
         </p>
       </div>

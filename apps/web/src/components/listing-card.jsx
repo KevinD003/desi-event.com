@@ -49,7 +49,7 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
         <Card
           as="article"
           interactive
-          className="relative flex h-full flex-col overflow-hidden bg-white"
+          className="relative flex h-full flex-col overflow-hidden bg-surface-raised"
         >
           <EventPoster event={event} />
 
@@ -64,18 +64,18 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
               {event.isOnline ? <Badge variant="info">Online</Badge> : null}
             </div>
 
-            <Heading className="font-display text-lg leading-snug font-semibold text-indigo-night-900">
+            <Heading className="font-display text-lg leading-snug font-semibold text-ink">
               <Link
                 href={`/events/${event.slug}`}
-                className="rounded-sm after:absolute after:inset-0 after:content-[''] hover:text-marigold-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:ring-offset-2"
+                className="rounded-sm after:absolute after:inset-0 after:content-[''] hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
               >
                 {event.title}
               </Link>
             </Heading>
 
-            <p className="line-clamp-3 text-sm text-slate-600">{event.summary}</p>
+            <p className="line-clamp-3 text-sm text-ink-muted">{event.summary}</p>
 
-            <dl className="mt-auto space-y-1 pt-2 text-sm text-slate-700">
+            <dl className="mt-auto space-y-1 pt-2 text-sm text-ink-muted">
               <div className="flex gap-2">
                 <dt className="sr-only">Date</dt>
                 <dd>
@@ -88,17 +88,17 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3' }) {
               </div>
               <div className="flex gap-2">
                 <dt className="sr-only">Location</dt>
-                <dd className="text-slate-600">{formatEventLocation(event)}</dd>
+                <dd className="text-ink-muted">{formatEventLocation(event)}</dd>
               </div>
             </dl>
           </CardBody>
 
-          <CardFooter className="justify-between bg-marigold-50/60">
-            <p className="text-sm text-slate-700">
-              <span className="text-slate-600">From </span>
-              <span className="font-semibold text-indigo-night-900">{priceLabel}</span>
+          <CardFooter className="justify-between bg-accent-soft/60">
+            <p className="text-sm text-ink-muted">
+              <span className="text-ink-muted">From </span>
+              <span className="font-semibold text-ink">{priceLabel}</span>
             </p>
-            <span aria-hidden="true" className="text-sm font-medium text-marigold-700">
+            <span aria-hidden="true" className="text-sm font-medium text-accent-strong">
               Details →
             </span>
           </CardFooter>

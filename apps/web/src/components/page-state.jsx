@@ -40,21 +40,21 @@ import Link from 'next/link'
 export function Breadcrumbs({ trail }) {
   return (
     <nav aria-label="Breadcrumb" className="text-sm">
-      <ol className="flex flex-wrap items-center gap-2 text-slate-600">
+      <ol className="flex flex-wrap items-center gap-2 text-ink-muted">
         {trail.map((crumb, index) => {
           const last = index === trail.length - 1
 
           return (
             <li key={`${crumb.label}-${index}`} className="flex items-center gap-2">
               {index > 0 ? (
-                <span aria-hidden="true" className="text-slate-400">
+                <span aria-hidden="true" className="text-ink-subtle">
                   /
                 </span>
               ) : null}
               {crumb.href && !last ? (
                 <Link
                   href={crumb.href}
-                  className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                  className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                 >
                   {crumb.label}
                 </Link>
@@ -92,7 +92,7 @@ export function Failure({ what, detail }) {
   return (
     <p
       role="alert"
-      className="mt-6 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"
+      className="mt-6 rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-status-danger"
     >
       {what} could not be loaded{detail ? `: ${detail}` : ''}. Nothing here is stale — it is absent,
       and a figure guessed from a cache would be worse than none.
@@ -118,15 +118,15 @@ export function Failure({ what, detail }) {
 export function Forbidden({ area, backHref = '/', backLabel = 'Back to the site' }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="text-2xl font-bold text-indigo-night-900">Not for you</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="text-2xl font-bold text-ink">Not for you</h1>
+      <p className="mt-2 text-ink-muted">
         {area} is not something this account can open. If you think it should be, ask whoever runs
         the organisation — nothing on this page can grant it to you.
       </p>
       <p className="mt-4">
         <Link
           href={backHref}
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           {backLabel}
         </Link>
@@ -153,9 +153,9 @@ export function Forbidden({ area, backHref = '/', backLabel = 'Back to the site'
  */
 export function Empty({ title, description }) {
   return (
-    <div className="mt-6 rounded-card border border-dashed border-slate-300 bg-slate-50 p-6">
-      <p className="font-medium text-indigo-night-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-700">{description}</p>
+    <div className="mt-6 rounded-card border border-dashed border-line-strong bg-surface-subtle p-6">
+      <p className="font-medium text-ink">{title}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </div>
   )
 }
@@ -177,7 +177,7 @@ export function Empty({ title, description }) {
  */
 export function Loading({ label }) {
   return (
-    <p role="status" className="mt-6 text-sm text-slate-700">
+    <p role="status" className="mt-6 text-sm text-ink-muted">
       Loading {label}…
     </p>
   )
@@ -200,7 +200,7 @@ export function Loading({ label }) {
  */
 export function AsOf({ asOf }) {
   return (
-    <p className="mt-2 text-sm text-slate-600">
+    <p className="mt-2 text-sm text-ink-muted">
       Read at <time dateTime={asOf}>{asOf}</time>. This page does not refresh itself; reload it to
       see anything that has changed since.
     </p>

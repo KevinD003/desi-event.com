@@ -22,16 +22,16 @@ import Link from 'next/link'
 
 /** Shared link styling for the primary action. */
 const primaryLink =
-  'inline-flex h-12 items-center justify-center rounded-lg bg-marigold-700 px-6 text-base ' +
-  'font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 ' +
+  'inline-flex h-12 items-center justify-center rounded-lg bg-action-primary px-6 text-base ' +
+  'font-medium text-action-primary-ink shadow-sm transition-colors hover:bg-action-primary-hover ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ' +
   'focus-visible:ring-offset-2'
 
 /** Shared link styling for the secondary actions. */
 const secondaryLink =
-  'inline-flex h-12 items-center justify-center rounded-lg border border-slate-300 bg-white ' +
-  'px-6 text-base font-medium text-slate-900 transition-colors hover:bg-slate-50 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 ' +
+  'inline-flex h-12 items-center justify-center rounded-lg border border-line-strong bg-surface-raised ' +
+  'px-6 text-base font-medium text-ink transition-colors hover:bg-surface-subtle ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus ' +
   'focus-visible:ring-offset-2'
 
 /**
@@ -42,13 +42,11 @@ const secondaryLink =
 export function NotFoundView() {
   return (
     <div data-testid="not-found-view" className="mx-auto max-w-2xl px-4 py-20 text-center">
-      <p aria-hidden="true" className="font-display text-6xl text-marigold-500">
+      <p aria-hidden="true" className="font-display text-6xl text-accent">
         ✺
       </p>
-      <h1 className="mt-6 text-3xl font-bold text-indigo-night-900 sm:text-4xl">
-        This one is not on the bill
-      </h1>
-      <p className="mt-4 text-lg text-slate-700">
+      <h1 className="mt-6 text-3xl font-bold text-ink sm:text-4xl">This one is not on the bill</h1>
+      <p className="mt-4 text-lg text-ink-muted">
         The page you were looking for has either finished its run or never existed. The rest of the
         programme is still going.
       </p>

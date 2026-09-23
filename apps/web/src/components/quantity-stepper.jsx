@@ -68,7 +68,7 @@ export function QuantityStepper({
   const atCeiling = value >= max
 
   const buttonClasses =
-    'flex h-9 w-9 shrink-0 items-center justify-center text-lg leading-none text-indigo-night-900 transition-colors hover:bg-marigold-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-marigold-500 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent'
+    'flex h-9 w-9 shrink-0 items-center justify-center text-lg leading-none text-ink transition-colors hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus disabled:cursor-not-allowed disabled:text-ink-subtle disabled:hover:bg-transparent'
 
   return (
     <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ export function QuantityStepper({
         Quantity of {label}
       </label>
       <div
-        className={`inline-flex items-center overflow-hidden rounded-lg border border-slate-300 bg-white${
+        className={`inline-flex items-center overflow-hidden rounded-lg border border-line-strong bg-surface-raised${
           disabled ? ' opacity-60' : ''
         }`}
       >
@@ -93,7 +93,7 @@ export function QuantityStepper({
           id={inputId}
           type="number"
           inputMode="numeric"
-          className="h-9 w-12 border-x border-slate-200 text-center text-sm font-semibold text-indigo-night-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-marigold-500"
+          className="h-9 w-12 border-x border-line text-center text-sm font-semibold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
           value={value}
           min={0}
           max={max}

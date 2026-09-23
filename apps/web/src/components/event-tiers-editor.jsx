@@ -222,10 +222,10 @@ export function EventTiersEditor({
 
   return (
     <section aria-labelledby="tiers-heading" className="space-y-5">
-      <h2 id="tiers-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="tiers-heading" className="text-xl font-bold text-ink">
         Tickets
       </h2>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         The all-in column is what a buyer is charged, worked out by the same code that charges them.
         It is on this screen so that the number you set and the number they pay are never a surprise
         to either of you.
@@ -245,7 +245,7 @@ export function EventTiersEditor({
       ) : null}
 
       {tiers.length === 0 ? (
-        <p className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
           No ticket types yet. An event cannot go on sale without at least one.
         </p>
       ) : (
@@ -259,16 +259,16 @@ export function EventTiersEditor({
                   <CardBody>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="font-medium text-indigo-night-900">
+                        <p className="font-medium text-ink">
                           {tier.name}{' '}
                           <Badge variant="neutral" srLabel="State:">
                             {tier.status}
                           </Badge>
                         </p>
                         {tier.description ? (
-                          <p className="mt-1 text-sm text-slate-600">{tier.description}</p>
+                          <p className="mt-1 text-sm text-ink-muted">{tier.description}</p>
                         ) : null}
-                        <p className="mt-2 text-sm text-slate-700">
+                        <p className="mt-2 text-sm text-ink-muted">
                           Face value {formatPrice(tier.priceCents, tier.currency)} ·{' '}
                           {tier.quantityTotal.toLocaleString('en-IN')} available ·{' '}
                           {tier.quantitySold.toLocaleString('en-IN')} sold
@@ -276,10 +276,10 @@ export function EventTiersEditor({
 
                         {money ? (
                           <p className="mt-1 text-sm">
-                            <span className="font-medium text-indigo-night-900">
+                            <span className="font-medium text-ink">
                               {formatPrice(money.allInCents, money.currency)} all in
                             </span>{' '}
-                            <span className="text-slate-600">
+                            <span className="text-ink-muted">
                               ({formatPrice(money.feesCents, money.currency)} fee
                               {money.taxCents > 0
                                 ? ` + ${formatPrice(money.taxCents, money.currency)} tax`
@@ -288,7 +288,7 @@ export function EventTiersEditor({
                             </span>
                           </p>
                         ) : (
-                          <p className="mt-1 text-sm text-slate-600">
+                          <p className="mt-1 text-sm text-ink-muted">
                             The all-in price has not been worked out for this tier yet.
                           </p>
                         )}
@@ -333,8 +333,8 @@ export function EventTiersEditor({
       )}
 
       {editable ? (
-        <form onSubmit={addTier} className="space-y-4 rounded-card border border-slate-200 p-4">
-          <h3 className="text-lg font-semibold text-indigo-night-900">Add a ticket type</h3>
+        <form onSubmit={addTier} className="space-y-4 rounded-card border border-line p-4">
+          <h3 className="text-lg font-semibold text-ink">Add a ticket type</h3>
 
           <FormField label="Name" id="tier-name" required>
             <Input
@@ -424,24 +424,24 @@ export function EventTiersEditor({
             </FormField>
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-ink-muted">
             <input
               type="checkbox"
               checked={draft.reserved}
               onChange={(change) => setDraft({ ...draft, reserved: change.target.checked })}
-              className="size-4 rounded border-slate-300"
+              className="size-4 rounded border-line-strong"
             />
             Reserved seating — buyers choose a specific seat
           </label>
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-ink-muted">
             <input
               type="checkbox"
               checked={draft.status === 'ON_SALE'}
               onChange={(change) =>
                 setDraft({ ...draft, status: change.target.checked ? 'ON_SALE' : 'DRAFT' })
               }
-              className="size-4 rounded border-slate-300"
+              className="size-4 rounded border-line-strong"
             />
             Put this tier on sale straight away
           </label>

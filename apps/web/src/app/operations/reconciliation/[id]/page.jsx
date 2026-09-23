@@ -43,10 +43,10 @@ export const metadata = { robots: { index: false, follow: false } }
 const TABLE = 'min-w-full border-collapse text-sm'
 
 /** A header cell. */
-const TH = 'border-b border-slate-200 px-3 py-2 text-left font-semibold text-indigo-night-900'
+const TH = 'border-b border-line px-3 py-2 text-left font-semibold text-ink'
 
 /** A body cell. */
-const TD = 'border-b border-slate-100 px-3 py-2 text-slate-800'
+const TD = 'border-b border-line px-3 py-2 text-ink'
 
 /**
  * What each kind of item means, in a sentence.
@@ -125,9 +125,7 @@ function Evidence({ caption, evidence, absent }) {
   return (
     <div className="mt-4 overflow-x-auto">
       <table className={TABLE}>
-        <caption className="px-3 py-2 text-left text-sm font-semibold text-indigo-night-900">
-          {caption}
-        </caption>
+        <caption className="px-3 py-2 text-left text-sm font-semibold text-ink">{caption}</caption>
         <thead>
           <tr>
             <th scope="col" className={TH}>
@@ -199,7 +197,7 @@ export default async function ReconciliationDetailPage({ params }) {
             { href: null, label: 'Reconciliation item' },
           ]}
         />
-        <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">Reconciliation item</h1>
+        <h1 className="mt-3 text-2xl font-bold text-ink">Reconciliation item</h1>
         <Failure what="This item" detail={failure} />
       </div>
     )
@@ -214,14 +212,14 @@ export default async function ReconciliationDetailPage({ params }) {
         ]}
       />
 
-      <h1 className="mt-3 text-2xl font-bold text-indigo-night-900">
+      <h1 className="mt-3 text-2xl font-bold text-ink">
         {task.kind.replace(/_/gu, ' ').toLowerCase()}
       </h1>
-      <p className="mt-2 text-slate-700">{KINDS[task.kind] ?? 'Something needs establishing.'}</p>
+      <p className="mt-2 text-ink-muted">{KINDS[task.kind] ?? 'Something needs establishing.'}</p>
       <AsOf asOf={new Date().toISOString()} />
 
       <section aria-labelledby="status-heading" className="mt-8">
-        <h2 id="status-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="status-heading" className="text-lg font-semibold text-ink">
           Where it stands
         </h2>
         {/*
@@ -234,27 +232,27 @@ export default async function ReconciliationDetailPage({ params }) {
           same comment.
         */}
         <dl className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-card border border-slate-200 bg-white p-4">
-            <dt className="text-sm text-slate-600">State</dt>
+          <div className="rounded-card border border-line bg-surface-raised p-4">
+            <dt className="text-sm text-ink-muted">State</dt>
             <dd className="mt-1">
-              <span className="block font-semibold text-indigo-night-900">{task.state}</span>
-              <span className="mt-1 block text-sm text-slate-600">{STATES[task.state]}</span>
+              <span className="block font-semibold text-ink">{task.state}</span>
+              <span className="mt-1 block text-sm text-ink-muted">{STATES[task.state]}</span>
             </dd>
           </div>
-          <div className="rounded-card border border-slate-200 bg-white p-4">
-            <dt className="text-sm text-slate-600">Open for</dt>
+          <div className="rounded-card border border-line bg-surface-raised p-4">
+            <dt className="text-sm text-ink-muted">Open for</dt>
             <dd className="mt-1">
-              <span className="block font-semibold text-indigo-night-900">
+              <span className="block font-semibold text-ink">
                 {task.ageHours} hour{task.ageHours === 1 ? '' : 's'}
               </span>
-              <span className="mt-1 block text-sm text-slate-600">{AGING[task.aging]}</span>
+              <span className="mt-1 block text-sm text-ink-muted">{AGING[task.aging]}</span>
             </dd>
           </div>
-          <div className="rounded-card border border-slate-200 bg-white p-4">
-            <dt className="text-sm text-slate-600">Times the provider has been asked</dt>
+          <div className="rounded-card border border-line bg-surface-raised p-4">
+            <dt className="text-sm text-ink-muted">Times the provider has been asked</dt>
             <dd className="mt-1">
-              <span className="block font-semibold text-indigo-night-900">{task.attempts}</span>
-              <span className="mt-1 block text-sm text-slate-600">
+              <span className="block font-semibold text-ink">{task.attempts}</span>
+              <span className="mt-1 block text-sm text-ink-muted">
                 Asking again reads an answer; it does not change one.
               </span>
             </dd>
@@ -262,30 +260,28 @@ export default async function ReconciliationDetailPage({ params }) {
         </dl>
 
         {task.lastError ? (
-          <p className="mt-3 rounded-card border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="mt-3 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-status-warning">
             {task.lastError}
           </p>
         ) : null}
       </section>
 
       <section aria-labelledby="what-heading" className="mt-8">
-        <h2 id="what-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="what-heading" className="text-lg font-semibold text-ink">
           What it is about
         </h2>
         <dl className="mt-3 space-y-2 text-sm">
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Order</dt>
-            <dd className="font-mono text-indigo-night-900">
-              {task.orderReference ?? 'No order named'}
-            </dd>
+            <dt className="text-ink-muted">Order</dt>
+            <dd className="font-mono text-ink">{task.orderReference ?? 'No order named'}</dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Provider reference</dt>
-            <dd className="font-mono text-indigo-night-900">{task.providerRef ?? 'None'}</dd>
+            <dt className="text-ink-muted">Provider reference</dt>
+            <dd className="font-mono text-ink">{task.providerRef ?? 'None'}</dd>
           </div>
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Organisation</dt>
-            <dd className="text-indigo-night-900">
+            <dt className="text-ink-muted">Organisation</dt>
+            <dd className="text-ink">
               {task.organizationId
                 ? 'Scoped to one organisation'
                 : 'Not scoped — only the platform can see this one'}
@@ -295,10 +291,10 @@ export default async function ReconciliationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="evidence-heading" className="mt-8">
-        <h2 id="evidence-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="evidence-heading" className="text-lg font-semibold text-ink">
           Both sides of the evidence
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           What this system believed when the problem happened, beside what the provider last said.
           Neither is the provider’s raw object: both are reduced to a reviewed list of fields before
           they leave the server.
@@ -317,7 +313,7 @@ export default async function ReconciliationDetailPage({ params }) {
       </section>
 
       <section aria-labelledby="history-heading" className="mt-8">
-        <h2 id="history-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="history-heading" className="text-lg font-semibold text-ink">
           What people have written
         </h2>
         {(task.notes?.length ?? 0) === 0 ? (
@@ -330,19 +326,19 @@ export default async function ReconciliationDetailPage({ params }) {
             {task.notes.map((entry, index) => (
               <li
                 key={`${entry.at}-${index}`}
-                className="rounded-card border border-slate-200 bg-white p-4"
+                className="rounded-card border border-line bg-surface-raised p-4"
               >
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-ink-muted">
                   <time dateTime={entry.at}>{entry.at}</time>
                 </p>
-                <p className="mt-1 text-slate-800">{entry.note}</p>
+                <p className="mt-1 text-ink">{entry.note}</p>
               </li>
             ))}
           </ol>
         )}
 
         {task.resolution ? (
-          <p className="mt-3 rounded-card border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <p className="mt-3 rounded-card border border-status-success/25 bg-status-success-soft p-4 text-sm text-status-success">
             Closed as <strong>{task.resolution}</strong>
             {task.resolvedAt ? (
               <>
@@ -355,17 +351,17 @@ export default async function ReconciliationDetailPage({ params }) {
         ) : null}
 
         {task.escalationReason ? (
-          <p className="mt-3 rounded-card border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="mt-3 rounded-card border border-status-warning/30 bg-status-warning-soft p-4 text-sm text-status-warning">
             Escalated: {task.escalationReason}
           </p>
         ) : null}
       </section>
 
       <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="actions-heading" className="text-lg font-semibold text-ink">
           What you can do
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           Five things, and none of them writes a payment, an order, a ticket, a refund or a ledger
           row directly. Resolving asks the provider once more and applies what it says — so an
           unknown answer leaves the item open, and a disagreement has to be escalated rather than
@@ -377,7 +373,7 @@ export default async function ReconciliationDetailPage({ params }) {
       <p className="mt-8 text-sm">
         <Link
           href="/operations"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Back to operations
         </Link>

@@ -49,10 +49,10 @@ export default async function OrganizerVenuesPage() {
   return (
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-4">
-        <h1 className="text-3xl font-bold text-indigo-night-900">Your venues</h1>
+        <h1 className="text-3xl font-bold text-ink">Your venues</h1>
         <Link
           href="/organizer/venues/new"
-          className="inline-flex h-11 items-center justify-center rounded-lg bg-marigold-700 px-5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-marigold-800 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2 focus-visible:outline-none"
+          className="inline-flex h-11 items-center justify-center rounded-lg bg-action-primary px-5 text-sm font-medium text-action-primary-ink shadow-sm transition-colors hover:bg-action-primary-hover focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
         >
           Add a venue
         </Link>
@@ -67,14 +67,14 @@ export default async function OrganizerVenuesPage() {
       ) : null}
 
       {organizations.length === 0 ? (
-        <p className="mt-6 text-slate-700">
+        <p className="mt-6 text-ink-muted">
           You are not a member of an organisation that can manage venues. Ask an owner or admin to
           give you the event manager role.
         </p>
       ) : null}
 
       {!failure && organizations.length > 0 && venues.length === 0 ? (
-        <p className="mt-6 text-slate-700">
+        <p className="mt-6 text-ink-muted">
           You have no venues of your own yet. You can still list an event at a shared venue — adding
           one here is for a hall you run.
         </p>
@@ -87,10 +87,10 @@ export default async function OrganizerVenuesPage() {
               <Card>
                 <CardBody>
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <h2 className="font-display text-lg font-semibold text-indigo-night-900">
+                    <h2 className="font-display text-lg font-semibold text-ink">
                       <Link
                         href={`/organizer/venues/${venue.id}/maps`}
-                        className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
+                        className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                       >
                         {venue.name}
                       </Link>
@@ -101,25 +101,25 @@ export default async function OrganizerVenuesPage() {
                       </Badge>
                     ) : null}
                   </div>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <p className="mt-1 text-sm text-ink-muted">
                     {venue.city}
                     {venue.region ? `, ${venue.region}` : ''}
                   </p>
                   {venue.capacity ? (
-                    <p className="mt-2 text-sm text-slate-600">
+                    <p className="mt-2 text-sm text-ink-muted">
                       Capacity {venue.capacity.toLocaleString('en-IN')}
                     </p>
                   ) : null}
                   <p className="mt-4 flex flex-wrap gap-3 text-sm">
                     <Link
                       href={`/organizer/venues/${venue.id}/maps`}
-                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                     >
                       Seating maps
                     </Link>
                     <Link
                       href={`/organizer/venues/${venue.id}/edit`}
-                      className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:outline-none"
+                      className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                     >
                       Edit details
                     </Link>

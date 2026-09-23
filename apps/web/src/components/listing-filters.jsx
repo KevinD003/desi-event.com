@@ -139,7 +139,7 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
       method="get"
       onSubmit={handleSubmit}
       aria-label="Filter events"
-      className="grid grid-cols-1 gap-4 rounded-card border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr_auto] lg:items-end"
+      className="grid grid-cols-1 gap-4 rounded-card border border-line bg-surface-raised p-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_2fr_auto] lg:items-end"
     >
       <FormField label="Category" id="filter-category">
         <Select
@@ -196,7 +196,7 @@ export function EventFilters({ categories, cities, filters, anyActive = false, r
         */}
         <a
           href="#event-results"
-          className="rounded-lg px-3 py-2 text-sm font-medium text-indigo-night-700 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-500"
+          className="rounded-lg px-3 py-2 text-sm font-medium text-accent-strong underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
         >
           Skip to results
         </a>

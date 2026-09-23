@@ -22,20 +22,20 @@ const FOOTER_CATEGORIES = EVENT_CATEGORIES.slice(0, 6)
  */
 export function SiteFooter() {
   return (
-    <footer className="mt-16 border-t border-slate-200 bg-indigo-night-950 text-slate-300">
+    <footer className="mt-16 border-t border-line bg-surface-inverse text-ink-inverse-muted">
       <div className="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
         <div className="sm:col-span-2 lg:col-span-1">
-          <p className="font-display text-lg font-bold text-white">
-            Desi<span className="text-marigold-400">-</span>Event
+          <p className="font-display text-lg font-bold text-ink-inverse">
+            Desi<span className="text-accent-inverse">-</span>Event
           </p>
-          <p className="mt-3 max-w-prose text-sm text-slate-400">
+          <p className="mt-3 max-w-prose text-sm text-ink-inverse-muted">
             Garba nights, qawwali mehfils, melas and stand-up — ticketed properly, for the South
             Asian diaspora and everyone who turns up with them.
           </p>
         </div>
 
         <nav aria-labelledby="footer-categories">
-          <h2 id="footer-categories" className="text-sm font-semibold text-white">
+          <h2 id="footer-categories" className="text-sm font-semibold text-ink-inverse">
             Browse
           </h2>
           <ul className="mt-3 space-y-2 text-sm">
@@ -43,7 +43,7 @@ export function SiteFooter() {
               <li key={category.value}>
                 <Link
                   href={buildEventsHref({ category: category.value })}
-                  className="rounded-sm text-slate-400 transition-colors hover:text-marigold-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-indigo-night-950"
+                  className="rounded-sm text-ink-inverse-muted transition-colors hover:text-accent-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-inverse"
                 >
                   {category.label}
                 </Link>
@@ -53,7 +53,7 @@ export function SiteFooter() {
         </nav>
 
         <nav aria-labelledby="footer-cities">
-          <h2 id="footer-cities" className="text-sm font-semibold text-white">
+          <h2 id="footer-cities" className="text-sm font-semibold text-ink-inverse">
             Cities
           </h2>
           <ul className="mt-3 space-y-2 text-sm">
@@ -61,7 +61,7 @@ export function SiteFooter() {
               <li key={city}>
                 <Link
                   href={buildEventsHref({ city })}
-                  className="rounded-sm text-slate-400 transition-colors hover:text-marigold-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-indigo-night-950"
+                  className="rounded-sm text-ink-inverse-muted transition-colors hover:text-accent-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-inverse"
                 >
                   {city}
                 </Link>
@@ -71,15 +71,15 @@ export function SiteFooter() {
         </nav>
 
         <div>
-          <h2 className="text-sm font-semibold text-white">Organisers</h2>
-          <p className="mt-3 text-sm text-slate-400">
-            Running a night of your own? Desi-Event handles ticketing, holds, door scanning and
-            payouts in your own currency.
+          <h2 className="text-sm font-semibold text-ink-inverse">Organisers</h2>
+          <p className="mt-3 text-sm text-ink-inverse-muted">
+            Running a night of your own? Desi-Event handles listings, ticketing, holds and door
+            check-in. Payments and payouts in this build are simulated; no money moves.
           </p>
-          <p className="mt-3 text-sm text-slate-400">
+          <p className="mt-3 text-sm text-ink-inverse-muted">
             <a
               href="mailto:organisers@desi-event.example"
-              className="rounded-sm text-marigold-300 underline underline-offset-4 hover:text-marigold-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-indigo-night-950"
+              className="rounded-sm text-accent-inverse underline underline-offset-4 hover:text-ink-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-inverse"
             >
               organisers@desi-event.example
             </a>
@@ -87,10 +87,10 @@ export function SiteFooter() {
         </div>
       </div>
 
-      <div className="border-t border-white/10">
-        {/* slate-400, not 500: on the indigo-night footer, 500 is 3.74:1 and
-            AA asks for 4.5:1 at this size. 400 is 6.78:1. */}
-        <p className="mx-auto max-w-6xl px-4 py-5 text-xs text-slate-400">
+      <div className="border-t border-ink-inverse/10">
+        {/* ink-inverse-muted is 12:1 on the inverse band; slate-500, which
+            this once was, is 3.74:1 and below AA at this size. */}
+        <p className="mx-auto max-w-6xl px-4 py-5 text-xs text-ink-inverse-muted">
           A demonstration project. Every event, organiser and price on this site is fictional.
         </p>
       </div>

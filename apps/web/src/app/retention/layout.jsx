@@ -56,15 +56,15 @@ export default async function RetentionLayout({ children }) {
   if (!sessionCan(session, 'retention:view')) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-12">
-        <h1 className="text-2xl font-bold text-indigo-night-900">Not for you</h1>
-        <p className="mt-2 text-slate-700">
+        <h1 className="text-2xl font-bold text-ink">Not for you</h1>
+        <p className="mt-2 text-ink-muted">
           This area shows what a retention rehearsal counted across the whole platform. It is not
           held by any role inside an organisation, and nothing on this page can grant it to you.
         </p>
         <p className="mt-4">
           <Link
             href="/"
-            className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+            className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
           >
             Back to the site
           </Link>
@@ -75,20 +75,20 @@ export default async function RetentionLayout({ children }) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-200 pb-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-4">
         <nav aria-label="Retention">
           <ul className="flex flex-wrap items-center gap-4 text-sm">
             <li>
               <Link
                 href="/retention"
-                className="rounded-sm font-medium text-indigo-night-900 underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+                className="rounded-sm font-medium text-ink underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
               >
                 Rehearsals
               </Link>
             </li>
           </ul>
         </nav>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Signed in as <span className="font-medium">{session.user?.displayName}</span>
         </p>
       </div>

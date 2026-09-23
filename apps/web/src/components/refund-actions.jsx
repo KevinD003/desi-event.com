@@ -212,7 +212,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
 
   if (available.length === 0) {
     return (
-      <p className="mt-4 rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <p className="mt-4 rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
         There is nothing to do here — either this refund has reached a state nothing follows, or the
         next step is somebody else’s. Its history stays readable either way.
       </p>
@@ -223,7 +223,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
 
   return (
     <div className="mt-4">
-      <p aria-live="polite" role="status" className="text-sm text-slate-700">
+      <p aria-live="polite" role="status" className="text-sm text-ink-muted">
         {announcement}
       </p>
 
@@ -238,7 +238,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
               >
                 {candidate.label}
               </Button>
-              <p className="mt-1 text-sm text-slate-600">{candidate.description}</p>
+              <p className="mt-1 text-sm text-ink-muted">{candidate.description}</p>
             </li>
           ))}
         </ul>
@@ -250,10 +250,10 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
           tabIndex={-1}
           role="group"
           aria-label={action.label}
-          className="mt-3 rounded-card border border-slate-300 bg-white p-4 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="mt-3 rounded-card border border-line-strong bg-surface-raised p-4 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
-          <h3 className="font-semibold text-indigo-night-900">{action.label}</h3>
-          <p className="mt-1 text-sm text-slate-700">{action.description}</p>
+          <h3 className="font-semibold text-ink">{action.label}</h3>
+          <p className="mt-1 text-sm text-ink-muted">{action.description}</p>
 
           {error ? (
             <div className="mt-3">

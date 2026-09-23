@@ -19,9 +19,13 @@
     scroll-behavior: smooth;
   }
 
+  /*
+   * The editorial register's page and ink. A signed-in area repaints its own
+   * part of the page through `[data-register='courtyard']`, which sets both.
+   */
   body {
-    background-color: var(--color-marigold-50);
-    color: var(--color-slate-900);
+    background-color: var(--color-page);
+    color: var(--color-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -46,9 +50,13 @@
   /*
    * A visible focus ring for anything that has not styled its own. Never
    * `outline: none` without a replacement — keyboard users navigate by it.
+   *
+   * The focus token, not marigold-600: that was 2.89:1 on the warm page, below
+   * the 3:1 WCAG 1.4.11 asks of a focus indicator. The token clears 3:1 on
+   * every ground, the dark footer included.
    */
   :focus-visible {
-    outline: 2px solid var(--color-marigold-600);
+    outline: 2px solid var(--color-focus);
     outline-offset: 2px;
   }
 
@@ -69,12 +77,12 @@
     top: -4rem;
     z-index: 100;
     border-radius: 0.5rem;
-    background-color: var(--color-indigo-night-900);
+    background-color: var(--color-ink);
     padding: 0.625rem 1rem;
     font-size: 0.875rem;
     font-weight: 600;
-    color: white;
-    transition: top 150ms ease;
+    color: var(--color-ink-inverse);
+    transition: top var(--duration-fast) var(--ease-standard);
   }
 
   .skip-link:focus {

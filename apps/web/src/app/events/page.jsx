@@ -73,8 +73,8 @@ export default async function EventsPage({ searchParams }) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl font-bold text-indigo-night-900 sm:text-4xl">What&rsquo;s on</h1>
-      <p className="mt-2 max-w-2xl text-slate-700">
+      <h1 className="text-3xl font-bold text-ink sm:text-4xl">What&rsquo;s on</h1>
+      <p className="mt-2 max-w-2xl text-ink-muted">
         Ten cities’ worth of ambition, four cities’ worth of listings. Filter it down to the night
         you actually want.
       </p>
@@ -99,7 +99,7 @@ export default async function EventsPage({ searchParams }) {
       <p
         role="status"
         data-testid="result-count"
-        className="mt-6 text-sm font-medium text-slate-600"
+        className="mt-6 text-sm font-medium text-ink-muted"
       >
         {resultSummary(pagination, filters)}
       </p>
@@ -119,7 +119,7 @@ export default async function EventsPage({ searchParams }) {
             action={
               <Link
                 href="/events"
-                className="inline-flex h-10 items-center justify-center rounded-lg bg-marigold-700 px-4 text-sm font-medium text-white transition-colors hover:bg-marigold-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-action-primary px-4 text-sm font-medium text-action-primary-ink transition-colors hover:bg-action-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
               >
                 Clear all filters
               </Link>
@@ -135,7 +135,7 @@ export default async function EventsPage({ searchParams }) {
           {pagination.hasPreviousPage ? (
             <Link
               href={buildEventsHref({ ...filters, page: pagination.page - 1 })}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+              className="rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
             >
               ← Previous
             </Link>
@@ -143,14 +143,14 @@ export default async function EventsPage({ searchParams }) {
             <span />
           )}
 
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Page {pagination.page} of {pagination.totalPages}
           </p>
 
           {pagination.hasNextPage ? (
             <Link
               href={buildEventsHref({ ...filters, page: pagination.page + 1 })}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-marigold-600 focus-visible:ring-offset-2"
+              className="rounded-lg border border-line-strong bg-surface-raised px-4 py-2 text-sm font-medium text-ink hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2"
             >
               Next →
             </Link>

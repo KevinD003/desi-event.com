@@ -231,10 +231,10 @@ export function EventSessionsEditor({
 
   return (
     <section aria-labelledby="sessions-heading" className="space-y-5">
-      <h2 id="sessions-heading" className="text-xl font-bold text-indigo-night-900">
+      <h2 id="sessions-heading" className="text-xl font-bold text-ink">
         Sessions
       </h2>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-ink-muted">
         One per performance. A single-night event has one; a nine-night festival has nine, and a
         ticket type belongs to exactly one of them.
       </p>
@@ -259,7 +259,7 @@ export function EventSessionsEditor({
       ) : null}
 
       {sessions.length === 0 ? (
-        <p className="rounded-card border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
           No sessions yet. An event cannot be published without at least one.
         </p>
       ) : (
@@ -270,7 +270,7 @@ export function EventSessionsEditor({
                 <CardBody>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="font-medium text-indigo-night-900">
+                      <p className="font-medium text-ink">
                         Session {index + 1}
                         {session.venueMapVersionId ? (
                           <>
@@ -288,15 +288,15 @@ export function EventSessionsEditor({
                           </>
                         )}
                       </p>
-                      <p className="mt-1 text-sm text-slate-700">
+                      <p className="mt-1 text-sm text-ink-muted">
                         {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')} —{' '}
                         {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
-                        <span className="text-slate-600">
+                        <span className="text-ink-muted">
                           ({session.timezone} {zoneAbbreviation(session.timezone)})
                         </span>
                       </p>
                       {session.capacity ? (
-                        <p className="mt-1 text-sm text-slate-600">
+                        <p className="mt-1 text-sm text-ink-muted">
                           Capacity {session.capacity.toLocaleString('en-IN')}
                         </p>
                       ) : null}
@@ -333,8 +333,8 @@ export function EventSessionsEditor({
       )}
 
       {editable ? (
-        <form onSubmit={addSession} className="space-y-4 rounded-card border border-slate-200 p-4">
-          <h3 className="text-lg font-semibold text-indigo-night-900">Add a session</h3>
+        <form onSubmit={addSession} className="space-y-4 rounded-card border border-line p-4">
+          <h3 className="text-lg font-semibold text-ink">Add a session</h3>
 
           <FormField
             label="Time zone"
@@ -459,7 +459,7 @@ export function EventSessionsEditor({
           </FormField>
 
           {mapVersions.length === 0 ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               This venue has no published seating map, so sessions here are general admission.
               Publish a map version on the venue first to sell reserved seats.
             </p>

@@ -18,7 +18,7 @@ import { cn } from './cn.js'
  * @returns {JSX.Element} The rendered placeholder.
  */
 export function Skeleton({ as: Component = 'span', lines = 1, className, ...rest }) {
-  const bar = 'block animate-pulse rounded-md bg-slate-200/80 dark:bg-slate-700/60'
+  const bar = 'block animate-pulse rounded-md bg-line/80'
 
   if (lines > 1) {
     return (

@@ -43,7 +43,7 @@ export default async function EditVenuePage({ params }) {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-3xl font-bold text-indigo-night-900">{venue.name}</h1>
+      <h1 className="text-3xl font-bold text-ink">{venue.name}</h1>
       {venue.shared ? (
         <div className="mt-4">
           <Alert variant="info" title="This venue is shared">

@@ -154,7 +154,7 @@ export function PrimaryNav({ groups }) {
         aria-expanded={open}
         aria-controls={sheetId}
         onClick={() => (open ? close() : setOpen(true))}
-        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border border-line px-3 text-sm font-medium text-ink transition-colors duration-(--duration-fast) hover:bg-canvas-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 md:hidden"
+        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg border border-line px-3 text-sm font-medium text-ink transition-colors duration-(--duration-fast) hover:bg-surface-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 md:hidden"
       >
         <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="currentColor">
           {open ? (

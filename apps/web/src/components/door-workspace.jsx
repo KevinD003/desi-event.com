@@ -350,17 +350,17 @@ export function DoorWorkspace({ events }) {
       ) : null}
 
       <section aria-labelledby="door-event-heading">
-        <h2 id="door-event-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="door-event-heading" className="text-lg font-semibold text-ink">
           Event
         </h2>
         {events.length === 1 ? (
-          <div className="mt-3 rounded-card border border-slate-200 p-4 text-sm">
-            <p className="font-medium break-words text-indigo-night-900">{events[0].event.title}</p>
-            <p className="mt-1 text-slate-700">
+          <div className="mt-3 rounded-card border border-line p-4 text-sm">
+            <p className="font-medium break-words text-ink">{events[0].event.title}</p>
+            <p className="mt-1 text-ink-muted">
               {doorTime(events[0].event.startsAt, events[0].event.timezone)} ·{' '}
               {events[0].event.timezone}
             </p>
-            <p className="mt-1 text-slate-600">{authorityLabel(events[0])}</p>
+            <p className="mt-1 text-ink-muted">{authorityLabel(events[0])}</p>
           </div>
         ) : (
           <FormField label="Event you are admitting to" className="mt-3 max-w-xl">
@@ -382,13 +382,13 @@ export function DoorWorkspace({ events }) {
           </FormField>
         )}
         {selected && events.length > 1 ? (
-          <p className="mt-2 text-sm text-slate-600">{authorityLabel(selected)}</p>
+          <p className="mt-2 text-sm text-ink-muted">{authorityLabel(selected)}</p>
         ) : null}
       </section>
 
       {selected ? (
         <section aria-labelledby="door-present-heading">
-          <h2 id="door-present-heading" className="text-lg font-semibold text-indigo-night-900">
+          <h2 id="door-present-heading" className="text-lg font-semibold text-ink">
             Present a ticket
           </h2>
 
@@ -460,7 +460,7 @@ export function DoorWorkspace({ events }) {
           </div>
         </section>
       ) : (
-        <p className="text-sm text-slate-700">Choose the event you are admitting to first.</p>
+        <p className="text-sm text-ink-muted">Choose the event you are admitting to first.</p>
       )}
 
       {problem && !preview ? (
@@ -469,7 +469,7 @@ export function DoorWorkspace({ events }) {
             id={answerId}
             ref={headingRef}
             tabIndex={-1}
-            className="text-lg font-semibold text-indigo-night-900"
+            className="text-lg font-semibold text-ink"
           >
             Not found
           </h2>
@@ -506,23 +506,23 @@ export function DoorWorkspace({ events }) {
       ) : null}
 
       <section aria-labelledby="door-recent-heading">
-        <h2 id="door-recent-heading" className="text-lg font-semibold text-indigo-night-900">
+        <h2 id="door-recent-heading" className="text-lg font-semibold text-ink">
           This session
         </h2>
         {recent.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-ink-muted">
             Nothing yet. Tickets you look up appear here until you leave this page; nothing is
             saved.
           </p>
         ) : (
-          <ol className="mt-3 divide-y divide-slate-200 text-sm">
+          <ol className="mt-3 divide-y divide-line text-sm">
             {recent.map((entry) => (
               <li key={entry.key} className="flex flex-wrap justify-between gap-2 py-2">
                 <span className="min-w-0 break-words">
-                  <span className="font-medium text-indigo-night-900">{entry.name}</span>
-                  {entry.tier ? <span className="text-slate-600"> · {entry.tier}</span> : null}
+                  <span className="font-medium text-ink">{entry.name}</span>
+                  {entry.tier ? <span className="text-ink-muted"> · {entry.tier}</span> : null}
                 </span>
-                <span className="text-slate-700">
+                <span className="text-ink-muted">
                   {entry.outcome} ·{' '}
                   <time dateTime={entry.at}>
                     {new Date(entry.at).toLocaleTimeString('en-IN', { timeStyle: 'short' })}
@@ -577,50 +577,45 @@ function PreviewCard({
     <section
       aria-labelledby={headingId}
       className={`rounded-card border p-4 ${
-        preview.outcome === 'ADMISSIBLE' ? 'border-slate-300' : 'border-rose-300 bg-rose-50'
+        preview.outcome === 'ADMISSIBLE'
+          ? 'border-line-strong'
+          : 'border-status-danger/25 bg-status-danger-soft'
       }`}
     >
-      <h2
-        id={headingId}
-        ref={headingRef}
-        tabIndex={-1}
-        className="text-lg font-semibold text-indigo-night-900"
-      >
+      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-ink">
         {heading}
       </h2>
 
-      <p className="mt-3 text-2xl font-bold break-words text-indigo-night-900">
+      <p className="mt-3 text-2xl font-bold break-words text-ink">
         {preview.attendeeName ?? 'No name on this ticket'}
       </p>
 
       <dl className="mt-3 space-y-1 text-sm">
         <div className="flex flex-wrap gap-2">
-          <dt className="text-slate-600">Event</dt>
-          <dd className="break-words text-indigo-night-900">{preview.event.title}</dd>
+          <dt className="text-ink-muted">Event</dt>
+          <dd className="break-words text-ink">{preview.event.title}</dd>
         </div>
         <div className="flex flex-wrap gap-2">
-          <dt className="text-slate-600">Starts</dt>
-          <dd className="text-indigo-night-900">
+          <dt className="text-ink-muted">Starts</dt>
+          <dd className="text-ink">
             {doorTime(preview.event.startsAt, preview.event.timezone)} · {preview.event.timezone}
           </dd>
         </div>
         {preview.tier ? (
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Ticket</dt>
-            <dd className="text-indigo-night-900">{preview.tier.name}</dd>
+            <dt className="text-ink-muted">Ticket</dt>
+            <dd className="text-ink">{preview.tier.name}</dd>
           </div>
         ) : null}
         {seat ? (
           <div className="flex flex-wrap gap-2">
-            <dt className="text-slate-600">Seat</dt>
-            <dd className="text-indigo-night-900">{seat}</dd>
+            <dt className="text-ink-muted">Seat</dt>
+            <dd className="text-ink">{seat}</dd>
           </div>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <dt className="text-slate-600">Presented as</dt>
-          <dd className="text-indigo-night-900">
-            {preview.method === 'QR_SCAN' ? 'QR pass' : 'Printed code'}
-          </dd>
+          <dt className="text-ink-muted">Presented as</dt>
+          <dd className="text-ink">{preview.method === 'QR_SCAN' ? 'QR pass' : 'Printed code'}</dd>
         </div>
       </dl>
 
@@ -698,20 +693,15 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
   return (
     <section
       aria-labelledby={headingId}
-      className={`rounded-card border p-4 ${admitted ? 'border-emerald-300 bg-emerald-50' : 'border-rose-300 bg-rose-50'}`}
+      className={`rounded-card border p-4 ${admitted ? 'border-status-success/25 bg-status-success-soft' : 'border-status-danger/25 bg-status-danger-soft'}`}
     >
-      <h2
-        id={headingId}
-        ref={headingRef}
-        tabIndex={-1}
-        className="text-lg font-semibold text-indigo-night-900"
-      >
+      <h2 id={headingId} ref={headingRef} tabIndex={-1} className="text-lg font-semibold text-ink">
         {admitted ? 'Admitted' : 'Already admitted by another steward'}
       </h2>
-      <p className="mt-3 text-2xl font-bold break-words text-indigo-night-900">
+      <p className="mt-3 text-2xl font-bold break-words text-ink">
         {result.attendeeName ?? 'Ticket holder'}
       </p>
-      <p className="mt-2 text-sm text-slate-700">
+      <p className="mt-2 text-sm text-ink-muted">
         {result.outcome === 'ADMITTED'
           ? `Admitted at ${when}.`
           : result.checkedInByYou

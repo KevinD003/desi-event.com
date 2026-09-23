@@ -245,7 +245,7 @@ export function DoorCamera({ onPass, onOther, paused }) {
 
   return (
     <div>
-      <p role="status" aria-live="polite" className="text-sm text-slate-700">
+      <p role="status" aria-live="polite" className="text-sm text-ink-muted">
         {CAMERA_STATES[shown]}
       </p>
 

@@ -25,8 +25,8 @@ export default async function NewEventPage() {
 
   return (
     <div className="max-w-2xl">
-      <h1 className="text-3xl font-bold text-indigo-night-900">Create an event</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="text-3xl font-bold text-ink">Create an event</h1>
+      <p className="mt-2 text-ink-muted">
         Five things to start with. Sessions, tickets, seating and policies come next, in an editor
         that saves as you go.
       </p>

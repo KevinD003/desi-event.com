@@ -53,17 +53,17 @@ export default async function MapVersionPage({ params }) {
 
   return (
     <div>
-      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+      <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
         <Link
           href="/organizer/venues"
-          className="rounded-sm underline underline-offset-4 hover:text-marigold-700 focus-visible:ring-2 focus-visible:ring-marigold-500 focus-visible:outline-none"
+          className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
         >
           Your venues
         </Link>
       </nav>
 
-      <h1 className="mt-4 text-3xl font-bold text-indigo-night-900">Version {version.version}</h1>
-      <p className="mt-2 text-slate-700">
+      <h1 className="mt-4 text-3xl font-bold text-ink">Version {version.version}</h1>
+      <p className="mt-2 text-ink-muted">
         {version.seatCount.toLocaleString('en-IN')} seats.
         {version.inUse ? ' A session is selling against this layout.' : ''}
       </p>
