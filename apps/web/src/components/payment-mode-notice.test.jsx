@@ -18,7 +18,7 @@ describe('PaymentModeNotice', () => {
 
     expect(document.body).toHaveTextContent(/will not be asked for a\s+card/i)
     expect(document.body).toHaveTextContent(/no money moves/i)
-    expect(document.body).toHaveTextContent(/admits nobody/i)
+    expect(document.body).toHaveTextContent(/a demonstration, not a ticket to a real event/i)
   })
 
   it('marks what the flow produces as DEMO', () => {

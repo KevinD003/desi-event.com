@@ -4,8 +4,10 @@ import { render, screen } from '@testing-library/react'
 vi.mock('../../../../lib/api.js', () => ({
   loadEventBySlug: vi.fn(),
 }))
+vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
 
 const { loadEventBySlug } = await import('../../../../lib/api.js')
+const { readSession } = await import('../../../../lib/session.js')
 const { default: CheckoutPage, generateMetadata } = await import('./page.jsx')
 
 const missing = { params: Promise.resolve({ slug: 'no-such-event-at-all' }) }
@@ -65,6 +67,22 @@ describe('the checkout page when the event exists', () => {
   beforeEach(() => {
     loadEventBySlug.mockReset()
     loadEventBySlug.mockResolvedValue({ event, usedFallback: false })
+    readSession.mockReset()
+    readSession.mockResolvedValue(null)
+  })
+
+  it('asks who is signed in, because buying needs an account', async () => {
+    render(await CheckoutPage({ params: Promise.resolve({ slug: event.slug }) }))
+
+    expect(readSession).toHaveBeenCalled()
+  })
+
+  it('does not ask on the offline sample catalogue, where nothing can be bought', async () => {
+    loadEventBySlug.mockResolvedValue({ event, usedFallback: true })
+
+    render(await CheckoutPage({ params: Promise.resolve({ slug: event.slug }) }))
+
+    expect(readSession).not.toHaveBeenCalled()
   })
 
   it('tells the buyer production payments are disabled before they pick a quantity', async () => {

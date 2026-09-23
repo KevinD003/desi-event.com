@@ -241,6 +241,12 @@ export const ticketTypeSchema = z.object({
   salesEndAt: timestampSchema.nullish(),
   status: ticketTypeStatusSchema.default('DRAFT'),
   sortOrder: z.int().min(0).max(10_000).default(0),
+  /**
+   * Sold by seat rather than by quantity. Its stock is its seats, so its
+   * quantity columns say nothing about availability, and a page that read them
+   * called every seated tier sold out.
+   */
+  reserved: z.boolean().optional(),
   ...auditColumns,
 })
 

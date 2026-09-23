@@ -118,14 +118,19 @@ export function toEventSummary(event, { feeConfigFor = null, now = new Date() } 
   }
 
   // Omitted rather than guessed when the event has no tiers at all: `false`
-  // would claim stock exists and `true` would claim it is gone.
-  if (ticketTypes.length > 0) {
-    summary.soldOut = ticketTypes.every(
+  // would claim stock exists and `true` would claim it is gone. Counted over
+  // general-admission tiers only: a seated tier's stock is its seats, which
+  // this listing does not load, and its quantity column says nothing about
+  // them — a seated-only show read as sold out from the day it was announced.
+  const counted = ticketTypes.filter((ticketType) => !ticketType.reserved)
+
+  if (counted.length > 0) {
+    summary.soldOut = counted.every(
       (ticketType) => ticketType.quantityTotal - ticketType.quantitySold <= 0,
     )
     summary.salesOpen =
       BOOKABLE_STATUSES.has(event.status) &&
-      ticketTypes.some(
+      counted.some(
         (ticketType) =>
           ticketType.quantityTotal - ticketType.quantitySold > 0 && inSalesWindow(ticketType, now),
       )

@@ -13329,6 +13329,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -14570,6 +14573,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -15381,6 +15387,9 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 10000
+                              },
+                              "reserved": {
+                                "type": "boolean"
                               },
                               "createdAt": {
                                 "type": "string",
@@ -16721,6 +16730,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -17587,6 +17599,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -18416,6 +18431,9 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 10000
+                              },
+                              "reserved": {
+                                "type": "boolean"
                               },
                               "createdAt": {
                                 "type": "string",
@@ -19278,6 +19296,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -20139,6 +20160,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -20995,6 +21019,9 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 10000
+                              },
+                              "reserved": {
+                                "type": "boolean"
                               },
                               "createdAt": {
                                 "type": "string",
@@ -21886,6 +21913,9 @@
                                 "type": "integer",
                                 "minimum": 0,
                                 "maximum": 10000
+                              },
+                              "reserved": {
+                                "type": "boolean"
                               },
                               "createdAt": {
                                 "type": "string",
@@ -36098,6 +36128,9 @@
                                 "minimum": 0,
                                 "maximum": 10000
                               },
+                              "reserved": {
+                                "type": "boolean"
+                              },
                               "createdAt": {
                                 "type": "string",
                                 "format": "date-time",
@@ -37449,6 +37482,9 @@
                           "minimum": 0,
                           "maximum": 10000
                         },
+                        "reserved": {
+                          "type": "boolean"
+                        },
                         "createdAt": {
                           "type": "string",
                           "format": "date-time",
@@ -37828,6 +37864,9 @@
                           "type": "integer",
                           "minimum": 0,
                           "maximum": 10000
+                        },
+                        "reserved": {
+                          "type": "boolean"
                         },
                         "createdAt": {
                           "type": "string",
@@ -38729,6 +38768,9 @@
                             "minimum": 0,
                             "maximum": 10000
                           },
+                          "reserved": {
+                            "type": "boolean"
+                          },
                           "createdAt": {
                             "type": "string",
                             "format": "date-time",
@@ -38934,6 +38976,9 @@
                           "type": "integer",
                           "minimum": 0,
                           "maximum": 10000
+                        },
+                        "reserved": {
+                          "type": "boolean"
                         },
                         "createdAt": {
                           "type": "string",

@@ -1,9 +1,11 @@
 /**
- * Checkout: choose quantities, see what it comes to.
+ * Checkout: choose quantities, see what it comes to, reserve, and book.
  *
  * The page itself is a Server Component that loads the event and its live
- * availability; only the basket is a Client Component, because only the basket
- * has state.
+ * availability, and asks who is signed in; only the basket is a Client
+ * Component, because only the basket has state. The buyer's name and address
+ * are passed to it because the order needs them — they are the signed-in
+ * person's own, on their own page — and nothing else about the session is.
  *
  * @module app/events/slug/checkout/page
  */
@@ -17,6 +19,8 @@ import { CheckoutBasket } from '../../../../components/checkout-basket.jsx'
 import { PaymentModeNotice } from '../../../../components/payment-mode-notice.jsx'
 import { NotFoundView } from '../../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../../components/sample-data-notice.jsx'
+import { signInHref } from '../../../../lib/next-path.js'
+import { readSession } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +64,8 @@ export default async function CheckoutPage({ params }) {
   if (!event) return <NotFoundView />
 
   const ticketTypes = event.ticketTypes ?? []
+  const session = usedFallback ? null : await readSession()
+  const buyer = session?.user ? { name: session.user.displayName, email: session.user.email } : null
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
@@ -114,7 +120,12 @@ export default async function CheckoutPage({ params }) {
             }
           />
         ) : (
-          <CheckoutBasket event={event} ticketTypes={ticketTypes} />
+          <CheckoutBasket
+            event={event}
+            ticketTypes={ticketTypes}
+            buyer={buyer}
+            signInHref={signInHref(`/events/${event.slug}/checkout`)}
+          />
         )}
       </div>
     </div>

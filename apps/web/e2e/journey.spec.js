@@ -42,7 +42,14 @@ test.describe('home → events → event → checkout', () => {
       .click()
 
     await expect(total).not.toHaveText(emptyTotal)
-    await expect(page.getByRole('button', { name: 'Reserve tickets' })).toBeEnabled()
+    // Signed out, the next step is signing in, and it comes back to this page:
+    // tickets are kept in an account and this build sends no email.
+    const signIn = page.getByRole('link', { name: 'Sign in to buy' })
+
+    await expect(signIn).toBeVisible()
+    expect(await signIn.getAttribute('href')).toMatch(
+      /^\/sign-in\?next=%2Fevents%2F[a-z0-9-]+%2Fcheckout$/,
+    )
     await expect(page.getByText(/1 ticket for /)).toBeVisible()
   })
 

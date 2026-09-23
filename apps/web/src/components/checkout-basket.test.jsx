@@ -59,12 +59,33 @@ function renderBasket(props = {}) {
     <CheckoutBasket
       event={event}
       ticketTypes={ticketTypes}
+      buyer={BUYER}
       reserve={vi.fn().mockResolvedValue([])}
+      release={vi.fn().mockResolvedValue(undefined)}
+      placeOrder={vi.fn()}
       {...props}
     />,
   )
 
   return userEvent.setup()
+}
+
+/** A signed-in buyer: their own name and address, as the checkout page passes them. */
+const BUYER = { name: 'Meera Iyer', email: 'meera@example.com' }
+
+/** Two holds, as the API returns them. */
+const HOLDS = [
+  { id: 'ckhold00000000000000001', expiresAt: '2026-10-01T10:10:00.000Z' },
+  { id: 'ckhold00000000000000002', expiresAt: '2026-10-01T10:10:00.000Z' },
+]
+
+/** An order, as the API returns it. */
+const ORDER = {
+  reference: 'DE-7K2M9Q',
+  status: 'PAID',
+  currency: 'INR',
+  totalCents: 297_562,
+  tickets: [{ id: 'cktk1' }, { id: 'cktk2' }],
 }
 
 describe('maxSelectable', () => {
@@ -226,9 +247,10 @@ describe('CheckoutBasket', () => {
     expect(document.body.textContent).not.toContain('ECONNREFUSED')
   })
 
-  it('clears a stale outcome as soon as the selection changes', async () => {
-    const reserve = vi.fn().mockResolvedValue([])
-    const user = renderBasket({ reserve })
+  it('clears a stale outcome as soon as the selection changes, and gives the holds back', async () => {
+    const reserve = vi.fn().mockResolvedValue(HOLDS)
+    const release = vi.fn().mockResolvedValue(undefined)
+    const user = renderBasket({ reserve, release })
 
     await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
     await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
@@ -237,5 +259,155 @@ describe('CheckoutBasket', () => {
     await user.click(screen.getByRole('button', { name: 'Add one Lawn Entry' }))
 
     expect(screen.queryByText('Tickets held')).not.toBeInTheDocument()
+    expect(release).toHaveBeenCalledWith(HOLDS.map((hold) => hold.id))
+  })
+})
+
+describe('buying', () => {
+  it('asks a signed-out visitor to sign in, and comes back here, before anything is held', async () => {
+    const reserve = vi.fn()
+    const user = renderBasket({
+      buyer: null,
+      reserve,
+      signInHref: '/sign-in?next=%2Fevents%2Fqawwali-under-the-banyan%2Fcheckout',
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+
+    const link = screen.getByRole('link', { name: 'Sign in to buy' })
+
+    expect(link.getAttribute('href')).toBe(
+      '/sign-in?next=%2Fevents%2Fqawwali-under-the-banyan%2Fcheckout',
+    )
+    expect(screen.queryByRole('button', { name: 'Reserve tickets' })).not.toBeInTheDocument()
+    // The price is still shown in full before signing in.
+    expect(screen.getByTestId('summary-total')).not.toHaveTextContent('₹0.00')
+    expect(reserve).not.toHaveBeenCalled()
+  })
+
+  it('holds, then books with the simulated payment, spending exactly those holds once', async () => {
+    const placeOrder = vi.fn().mockResolvedValue(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+
+    const pay = await screen.findByRole('button', { name: /^Pay .* \(simulated\)$/ })
+
+    expect(screen.getByText(/no money moves/)).toBeInTheDocument()
+
+    await user.click(pay)
+
+    expect(await screen.findByRole('heading', { name: 'Booked' })).toBeInTheDocument()
+    expect(placeOrder).toHaveBeenCalledTimes(1)
+
+    const [request] = placeOrder.mock.calls[0]
+
+    expect(request).toMatchObject({
+      eventId: event.id,
+      buyer: BUYER,
+      holdIds: HOLDS.map((hold) => hold.id),
+    })
+    expect(request.lines).toEqual([
+      expect.objectContaining({ ticketTypeId: 'ttqawwaligarden', quantity: 1 }),
+    ])
+    expect(request.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('says the booking was simulated, and where the tickets are', async () => {
+    const user = renderBasket({
+      reserve: vi.fn().mockResolvedValue(HOLDS),
+      placeOrder: vi.fn().mockResolvedValue(ORDER),
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(screen.getByText('DE-7K2M9Q')).toBeInTheDocument()
+    expect(screen.getByText(/no card was asked for and no money moved/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Your tickets' })).toHaveAttribute('href', '/tickets')
+    expect(screen.getByRole('link', { name: 'This order' })).toHaveAttribute(
+      'href',
+      '/account/orders/DE-7K2M9Q',
+    )
+    expect(document.body.textContent).not.toMatch(/payment successful|charged to your card/i)
+  })
+
+  it('retries a lost answer with the same key, so one attempt cannot book twice', async () => {
+    const placeOrder = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+    expect(await screen.findByText(/Trying again is safe/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Pay / }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0].idempotencyKey).toBe(
+      placeOrder.mock.calls[1][0].idempotencyKey,
+    )
+  })
+
+  it('says the hold ran out, charges nothing, and asks to reserve again', async () => {
+    const expired = Object.assign(new Error('Hold expired'), {
+      status: 410,
+      code: 'HOLD_EXPIRED',
+    })
+    const user = renderBasket({
+      reserve: vi.fn().mockResolvedValue(HOLDS),
+      placeOrder: vi.fn().mockRejectedValue(expired),
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+    expect(await screen.findByText('The hold ran out')).toBeInTheDocument()
+    expect(screen.getByText(/Nothing was charged/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reserve tickets' })).toBeEnabled()
+  })
+
+  it('shows the API’s reason when a hold is refused, not its raw wording for a server fault', async () => {
+    const refused = Object.assign(new Error('This event is not on sale.'), {
+      status: 422,
+      code: 'UNPROCESSABLE',
+    })
+    const user = renderBasket({ reserve: vi.fn().mockRejectedValue(refused) })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+
+    expect(await screen.findByText('Nothing was reserved')).toBeInTheDocument()
+    expect(screen.getByText('This event is not on sale.')).toBeInTheDocument()
+  })
+
+  it('shows a seated tier and does not sell it, because this site has no seat picker', () => {
+    renderBasket({
+      ticketTypes: [
+        ...ticketTypes,
+        {
+          id: 'ttqawwalibalcony',
+          name: 'Balcony',
+          priceCents: 199_900,
+          currency: 'INR',
+          reserved: true,
+          availableQuantity: 0,
+          isSoldOut: true,
+        },
+      ],
+    })
+
+    expect(screen.queryByLabelText('Quantity of Balcony')).not.toBeInTheDocument()
+    expect(screen.getByText('Not sold here')).toBeInTheDocument()
+    expect(screen.getByText(/which this site does not have/)).toBeInTheDocument()
   })
 })

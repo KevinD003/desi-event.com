@@ -4,6 +4,14 @@ import { render, screen, within } from '@testing-library/react'
 import { TicketTiers, availabilityLabel } from './ticket-tiers.jsx'
 
 describe('availabilityLabel', () => {
+  it('does not call a seated tier sold out, and says it is not sold on this site', () => {
+    // Its quantity is zero by design: a seated tier's stock is its seats.
+    expect(availabilityLabel({ reserved: true, availableQuantity: 0, isSoldOut: true })).toEqual({
+      text: 'Seated — not sold on this site',
+      variant: 'neutral',
+    })
+  })
+
   it('shows the exact count when stock is low, rather than a vague "selling fast"', () => {
     expect(availabilityLabel({ availableQuantity: 9, isSoldOut: false })).toEqual({
       text: 'Only 9 left',

@@ -41,7 +41,7 @@ export function PaymentModeNotice() {
       <p className="mt-2 text-sm">
         Checkout runs against an in-memory demonstration provider. You will not be asked for a card,
         no money moves, and every order, receipt and ticket this produces is marked {DEMO_LABEL}. A
-        ticket issued here admits nobody.
+        ticket issued here is a demonstration, not a ticket to a real event.
       </p>
     </aside>
   )

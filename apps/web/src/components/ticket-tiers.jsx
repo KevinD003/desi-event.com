@@ -23,6 +23,10 @@ const LOW_STOCK_THRESHOLD = 25
  * @returns {{text: string, variant: string}} Badge text and its colour token.
  */
 export function availabilityLabel(tier) {
+  // Before the quantity check: a seated tier's quantity is zero by design, and
+  // reading it called every seated tier sold out. There is no seat picker on
+  // this site, so the honest sentence is that it is not sold here.
+  if (tier.reserved) return { text: 'Seated — not sold on this site', variant: 'neutral' }
   if (tier.isSoldOut || tier.availableQuantity <= 0) return { text: 'Sold out', variant: 'danger' }
   if (tier.availableQuantity <= LOW_STOCK_THRESHOLD) {
     return { text: `Only ${tier.availableQuantity} left`, variant: 'warning' }

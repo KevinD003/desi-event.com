@@ -402,6 +402,33 @@ describe('GET /v1/events', () => {
     })
   })
 
+  it('does not call a seated show sold out from its quantity columns', async () => {
+    // A seated tier's stock is its seats. Its quantity is zero by design, and
+    // reading it made every seated-only show "Sold out" from the day it was
+    // announced. The summary says nothing rather than something false.
+    const { app, prisma, ids } = await createTestApp()
+    const tiers = await prisma.ticketType.findMany({ where: { eventId: ids.publishedEvent.id } })
+
+    for (const tier of tiers) {
+      await prisma.ticketType.update({
+        where: { id: tier.id },
+        data: { reserved: true, quantityTotal: 0, quantitySold: 0 },
+      })
+    }
+
+    const [card] = (await list(app, 'q=garba')).data
+
+    expect(card).not.toHaveProperty('soldOut')
+    expect(card).not.toHaveProperty('salesOpen')
+
+    const { data: event } = (
+      await app.inject({ method: 'GET', url: `/v1/events/${ids.publishedEvent.slug}` })
+    ).json()
+
+    // And the page is told which tiers are seated, so it can say so.
+    expect(event.ticketTypes.every((tier) => tier.reserved === true)).toBe(true)
+  })
+
   it('says a card is on sale only when a ticket could be bought now', async () => {
     const { app, prisma, ids } = await createTestApp()
 
