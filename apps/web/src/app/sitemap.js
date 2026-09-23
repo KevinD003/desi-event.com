@@ -63,6 +63,10 @@ function staticRoutes() {
   return [
     { url: `${siteUrl}/`, changeFrequency: 'daily', priority: 1 },
     { url: `${siteUrl}/events`, changeFrequency: 'daily', priority: 0.9 },
+    { url: `${siteUrl}/categories`, changeFrequency: 'daily', priority: 0.7 },
+    { url: `${siteUrl}/venues`, changeFrequency: 'weekly', priority: 0.6 },
+    { url: `${siteUrl}/organizers`, changeFrequency: 'daily', priority: 0.6 },
+    { url: `${siteUrl}/limitations`, changeFrequency: 'monthly', priority: 0.3 },
   ]
 }
 

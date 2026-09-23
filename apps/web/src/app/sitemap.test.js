@@ -7,6 +7,9 @@ vi.mock('../lib/api-client.js', () => ({
 const { getApiClient } = await import('../lib/api-client.js')
 const { default: sitemap } = await import('./sitemap.js')
 
+/** The routes listed whatever the catalogue holds, in the order they are listed. */
+const STATIC = ['/', '/events', '/categories', '/venues', '/organizers', '/limitations']
+
 /**
  * A client whose listing endpoint answers with the given pages in order.
  *
@@ -32,7 +35,7 @@ describe('the sitemap', () => {
 
     const entries = await sitemap()
 
-    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/events'])
+    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(STATIC)
   })
 
   it("asks for the server's public set rather than naming one status", async () => {
@@ -66,7 +69,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events', '/events/on-sale', '/events/paused', '/events/gone'])
+    expect(paths).toEqual([...STATIC, '/events/on-sale', '/events/paused', '/events/gone'])
   })
 
   it('omits a finished, postponed or cancelled event: a sitemap says what is on', async () => {
@@ -85,7 +88,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events', '/events/live'])
+    expect(paths).toEqual([...STATIC, '/events/live'])
   })
 
   it('omits a private event even if the API hands one back', async () => {
@@ -109,7 +112,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events', '/events/live', '/organizers/real'])
+    expect(paths).toEqual([...STATIC, '/events/live', '/organizers/real'])
   })
 
   it('omits an event with no status at all rather than assuming it is public', async () => {
@@ -119,7 +122,7 @@ describe('the sitemap', () => {
 
     const paths = (await sitemap()).map((entry) => new URL(entry.url).pathname)
 
-    expect(paths).toEqual(['/', '/events'])
+    expect(paths).toEqual(STATIC)
   })
 
   it('lists an organiser page once, however many events they have', async () => {
@@ -181,8 +184,7 @@ describe('the sitemap', () => {
     const entries = await sitemap()
 
     expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual([
-      '/',
-      '/events',
+      ...STATIC,
       '/events/one',
       '/events/two',
     ])
@@ -210,7 +212,7 @@ describe('the sitemap', () => {
 
     const entries = await sitemap()
 
-    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(['/', '/events'])
+    expect(entries.map((entry) => new URL(entry.url).pathname)).toEqual(STATIC)
   })
 
   it('skips a row with no slug rather than emitting a broken URL', async () => {
@@ -222,6 +224,6 @@ describe('the sitemap', () => {
 
     const entries = await sitemap()
 
-    expect(entries).toHaveLength(3)
+    expect(entries).toHaveLength(STATIC.length + 1)
   })
 })
