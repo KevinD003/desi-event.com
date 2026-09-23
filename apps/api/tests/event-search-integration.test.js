@@ -15,7 +15,7 @@ import { listEventsQuerySchema } from '@desi-event/schemas'
 
 import { requireDatabaseOrWarn } from './helpers/database.js'
 
-import { buildEventQuery } from '../src/routes/events.js'
+import { buildEventQuery, resolveSearchTerms } from '../src/routes/events.js'
 
 const CONNECTION =
   process.env.TEST_DATABASE_URL ??
@@ -34,11 +34,14 @@ let reachable = false
  * cannot change the answer.
  *
  * @param {string} q The search text.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.resolve] Resolve venues and organisers first, as the route does; false filters through the relations, the path a word naming too many of them takes.
  * @returns {Promise<string[]>} The slugs found, sorted.
  */
-async function search(q) {
+async function search(q, { resolve = true } = {}) {
   const query = listEventsQuerySchema.parse({ q, perPage: '100' })
-  const { where, orderBy } = buildEventQuery(query, null)
+  const resolved = resolve ? await resolveSearchTerms(prisma, query.q) : []
+  const { where, orderBy } = buildEventQuery(query, null, { search: resolved })
   const rows = await prisma.event.findMany({
     where: { AND: [where, { organization: { slug: `${TAG}-org` } }] },
     orderBy,
@@ -156,5 +159,13 @@ describe('the listing search on PostgreSQL', () => {
 
     expect(await search('garba marigoldton')).toEqual([`${TAG}-garba-night`])
     expect(await search('garba nowhereville')).toEqual([])
+  })
+
+  it('answers the same through the relations as through the resolved ids', async () => {
+    if (!reachable) return
+
+    for (const q of ['garba', 'juniperwick', 'marigoldton', 'quillfeather', 'garba marigoldton']) {
+      expect(await search(q, { resolve: false })).toEqual(await search(q))
+    }
   })
 })

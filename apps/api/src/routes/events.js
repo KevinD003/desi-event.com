@@ -86,6 +86,13 @@ export function visibilityFilter(actor, options = {}) {
 const MAX_SEARCH_TERMS = 8
 
 /**
+ * The most venues or organisers one word is resolved to up front. Past this
+ * the word falls back to filtering through the relation, which is slower but
+ * never wrong.
+ */
+const MAX_RESOLVED_IDS = 1000
+
+/**
  * Split a free-text search into the words that must each match.
  *
  * @param {string|undefined} q The validated, trimmed query.
@@ -98,13 +105,89 @@ export function searchTerms(q) {
 }
 
 /**
+ * @typedef {object} ResolvedTerm
+ * @property {string} term The word.
+ * @property {string[]|null} venueIds Venues whose name or city holds it, or null when too many to list.
+ * @property {string[]|null} organizationIds Organisers whose name holds it, or null when too many to list.
+ */
+
+/**
+ * Find, for each word of a search, the venues and organisers it names.
+ *
+ * Venues and organisers are small tables beside the events. Looking them up
+ * first and filtering events by id keeps a search as fast as one over the
+ * event's own text; asking Postgres to reach through both relations inside
+ * the same OR more than doubled it under load.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {string|undefined} q The validated, trimmed query.
+ * @returns {Promise<ResolvedTerm[]>} One entry per word, in order.
+ */
+export async function resolveSearchTerms(prisma, q) {
+  return Promise.all(
+    searchTerms(q).map(async (term) => {
+      const contains = { contains: term, mode: 'insensitive' }
+      const [venues, organizations] = await Promise.all([
+        prisma.venue.findMany({
+          where: { OR: [{ name: contains }, { city: contains }] },
+          select: { id: true },
+          take: MAX_RESOLVED_IDS + 1,
+        }),
+        prisma.organization.findMany({
+          where: { name: contains },
+          select: { id: true },
+          take: MAX_RESOLVED_IDS + 1,
+        }),
+      ])
+
+      return {
+        term,
+        venueIds: venues.length > MAX_RESOLVED_IDS ? null : venues.map((row) => row.id),
+        organizationIds:
+          organizations.length > MAX_RESOLVED_IDS ? null : organizations.map((row) => row.id),
+      }
+    }),
+  )
+}
+
+/**
+ * The condition one search word adds: it must appear in the event's own text,
+ * its venue, the venue's city or its organiser.
+ *
+ * @param {string} term The word.
+ * @param {ResolvedTerm|undefined} resolved What {@link resolveSearchTerms} found for it, if it ran.
+ * @returns {object} A Prisma `where` fragment.
+ */
+function searchCondition(term, resolved) {
+  const contains = { contains: term, mode: 'insensitive' }
+  const venue = resolved?.venueIds
+    ? { venueId: { in: resolved.venueIds } }
+    : { venue: { OR: [{ name: contains }, { city: contains }] } }
+  const organization = resolved?.organizationIds
+    ? { organizationId: { in: resolved.organizationIds } }
+    : { organization: { name: contains } }
+
+  return {
+    OR: [
+      { title: contains },
+      { summary: contains },
+      { description: contains },
+      venue,
+      organization,
+    ],
+  }
+}
+
+/**
  * Translate a validated list query into Prisma arguments.
  *
  * @param {object} query The parsed `listEventsQuerySchema` value.
  * @param {object|null} actor The request actor.
+ * @param {object} [options] Options.
+ * @param {ResolvedTerm[]} [options.search] The search words already resolved to venues and organisers; any word missing here filters through the relation instead.
  * @returns {{where: object, orderBy: object[], skip: number, take: number}} Prisma query arguments.
  */
-export function buildEventQuery(query, actor) {
+export function buildEventQuery(query, actor, { search = [] } = {}) {
   /** @type {object[]} */
   const conditions = [visibilityFilter(actor)]
 
@@ -118,19 +201,10 @@ export function buildEventQuery(query, actor) {
   // by: its own text, its venue, the venue's city or its organiser. So
   // "garba houston" finds a garba night in Houston, and a search for an
   // organiser's name finds their events.
-  for (const term of searchTerms(query.q)) {
-    const contains = { contains: term, mode: 'insensitive' }
+  const resolvedByTerm = new Map(search.map((entry) => [entry.term, entry]))
 
-    conditions.push({
-      OR: [
-        { title: contains },
-        { summary: contains },
-        { description: contains },
-        { venue: { name: contains } },
-        { venue: { city: contains } },
-        { organization: { name: contains } },
-      ],
-    })
+  for (const term of searchTerms(query.q)) {
+    conditions.push(searchCondition(term, resolvedByTerm.get(term)))
   }
 
   /** @type {Record<string, Date>} */
@@ -287,7 +361,10 @@ export function registerEventRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.list', {
     handler: async (request) => {
-      const { where, orderBy, skip, take } = buildEventQuery(request.query, request.actor)
+      const search = await resolveSearchTerms(prisma, request.query.q)
+      const { where, orderBy, skip, take } = buildEventQuery(request.query, request.actor, {
+        search,
+      })
 
       const [events, total] = await Promise.all([
         prisma.event.findMany({ where, orderBy, skip, take, include: EVENT_INCLUDE }),

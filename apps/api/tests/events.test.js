@@ -12,7 +12,7 @@ import {
   taxRateBps,
 } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
-import { searchTerms } from '../src/routes/events.js'
+import { resolveSearchTerms, searchTerms } from '../src/routes/events.js'
 
 /**
  * Fetch the event list and return the parsed body.
@@ -514,6 +514,20 @@ describe('searchTerms', () => {
   it('has nothing to add for an empty search', () => {
     expect(searchTerms(undefined)).toEqual([])
     expect(searchTerms('')).toEqual([])
+  })
+
+  it('resolves each word to its venues and organisers, and gives up listing past a thousand', async () => {
+    const rows = (count) => Array.from({ length: count }, (_, index) => ({ id: `id${index}` }))
+    const prisma = {
+      venue: { findMany: async () => rows(1001) },
+      organization: { findMany: async () => rows(2) },
+    }
+
+    const [resolved] = await resolveSearchTerms(prisma, 'hall')
+
+    // Too many venues to list: that word filters through the relation instead.
+    expect(resolved).toEqual({ term: 'hall', venueIds: null, organizationIds: ['id0', 'id1'] })
+    expect(await resolveSearchTerms(prisma, undefined)).toEqual([])
   })
 
   it('stops at eight words, so one request cannot add unbounded conditions', () => {

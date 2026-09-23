@@ -132,30 +132,42 @@ describe('posterArt', () => {
 
   it('builds a tree of drawing elements only, with plain attribute values', () => {
     const allowed = new Set(POSTER_ELEMENTS)
+    // Every rule is checked for every attribute of every poster, and each
+    // breach is written down; one assertion at the end reports them all. A
+    // separate expect() per attribute made this the slowest test in the suite
+    // without checking anything more.
+    const breaches = []
 
     for (const seed of SLUGS) {
       for (const category of CATEGORIES) {
         for (const variant of ['card', 'hero']) {
+          const where = `${seed}/${category}/${variant}`
           const nodes = walk(posterArt({ seed, category, variant }).children)
 
-          expect(nodes.length).toBeGreaterThan(50)
+          if (nodes.length <= 50) breaches.push(`${where}: only ${nodes.length} elements`)
 
           for (const node of nodes) {
-            expect(allowed.has(node.tag), node.tag).toBe(true)
-            expect(Array.isArray(node.children)).toBe(true)
+            if (!allowed.has(node.tag)) breaches.push(`${where}: <${node.tag}> is not drawable`)
+            if (!Array.isArray(node.children)) breaches.push(`${where}: <${node.tag}> children`)
 
             for (const [name, value] of Object.entries(node.attrs)) {
+              const at = `${where}: <${node.tag} ${name}=${value}>`
+
               // SVG attribute spelling, and nothing that is an event handler.
-              expect(name).toMatch(/^[a-z][a-z0-9-]*$/)
-              expect(name.startsWith('on')).toBe(false)
-              expect(['string', 'number'].includes(typeof value), `${name}=${value}`).toBe(true)
-              if (typeof value === 'number') expect(Number.isFinite(value), name).toBe(true)
-              expect(String(value)).not.toMatch(/[<>"]|javascript:/i)
+              if (!/^[a-z][a-z0-9-]*$/.test(name)) breaches.push(`${at} is not an SVG name`)
+              if (name.startsWith('on')) breaches.push(`${at} is an event handler`)
+              if (!['string', 'number'].includes(typeof value)) breaches.push(`${at} is not plain`)
+              if (typeof value === 'number' && !Number.isFinite(value)) {
+                breaches.push(`${at} is not finite`)
+              }
+              if (/[<>"]|javascript:/i.test(String(value))) breaches.push(`${at} could escape`)
             }
           }
         }
       }
     }
+
+    expect(breaches).toEqual([])
   })
 
   it('defines every gradient it paints with, under the prefix it was given', () => {
