@@ -11,7 +11,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import { SignInForm } from '../../components/sign-in-form.jsx'
-import { safeNextPath } from '../../lib/next-path.js'
+import { DEFAULT_NEXT_PATH, safeNextPath } from '../../lib/next-path.js'
 import { readSession } from '../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -21,6 +21,16 @@ export const metadata = {
   // Nothing here is worth indexing, and an indexed sign-in page is a phishing
   // target with our name on it.
   robots: { index: false, follow: false },
+}
+
+/**
+ * The account-creation page, carrying the same `next`.
+ *
+ * @param {string} next A path already checked by `safeNextPath`.
+ * @returns {string} The link.
+ */
+function registerHref(next) {
+  return next === DEFAULT_NEXT_PATH ? '/register' : `/register?next=${encodeURIComponent(next)}`
 }
 
 /**
@@ -52,6 +62,16 @@ export default async function SignInPage({ searchParams }) {
       </div>
 
       <p className="mt-8 text-sm text-ink-muted">
+        New here?{' '}
+        <Link
+          href={registerHref(next)}
+          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+        >
+          Create an account
+        </Link>
+      </p>
+
+      <p className="mt-3 text-sm text-ink-muted">
         <Link
           href="/events"
           className="rounded-sm underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"

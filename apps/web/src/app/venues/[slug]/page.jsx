@@ -250,8 +250,9 @@ export default async function VenuePage({ params }) {
           </h2>
           {features.length === 0 && !note ? (
             <p className="mt-4 text-ink-muted">
-              This venue has not published its accessibility details. Ask Desi-Event support before
-              booking and we will find out for you rather than guess.
+              This venue has not published its accessibility details, so this page cannot say what
+              access there is, and nothing here should be read as step-free. This site has no way
+              to ask the venue on your behalf.
             </p>
           ) : (
             <>

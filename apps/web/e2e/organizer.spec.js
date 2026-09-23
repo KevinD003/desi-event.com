@@ -76,11 +76,9 @@ test.describe('event → organiser', () => {
   test('no organiser contact address is published on the page', async ({ page }) => {
     await page.goto('/organizers/swar-sadhana-trust')
 
-    // Scoped to the article: the site footer carries a mailto for organisers
-    // who want to list with us, which is a different thing entirely.
-    const article = page.getByRole('article')
-
-    await expect(article.locator('a[href^="mailto:"]')).toHaveCount(0)
+    // The whole page, footer included: the footer once carried an invented
+    // address for organisers, and no address on this site reaches anybody.
+    await expect(page.locator('a[href^="mailto:"]')).toHaveCount(0)
     await expect(page.getByText(/@swarsadhana\.example/)).toHaveCount(0)
   })
 })

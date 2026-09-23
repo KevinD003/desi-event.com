@@ -28,6 +28,7 @@
  * @module components/ticket-transfer-actions
  */
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
@@ -212,8 +213,14 @@ export function TicketTransferActions({
 
           {holder && seatBlocked && OFFERABLE.includes(ticket.status) && !outstanding ? (
             <li className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
-              This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on yet.
-              It stays yours and still admits you.
+              This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on on
+              this site. It stays yours and still admits you.{' '}
+              <Link
+                href="/limitations"
+                className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+              >
+                Why seated tickets cannot be handed on
+              </Link>
             </li>
           ) : null}
 
@@ -273,7 +280,7 @@ export function TicketTransferActions({
                   label="Their email address"
                   id="transfer-to"
                   required
-                  description="The invitation goes here and nowhere else. It expires, and until it is accepted the ticket stays yours."
+                  description="The invitation is addressed here and nowhere else. It expires, and until it is accepted the ticket stays yours. This site delivers no email, so the invitation is recorded but not sent."
                 >
                   <Input
                     type="email"
@@ -306,7 +313,7 @@ export function TicketTransferActions({
                         toEmail: toEmail.trim(),
                         ...(message.trim() ? { message: message.trim() } : {}),
                       },
-                      'Offered. They have been sent an invitation.',
+                      'Offered. The invitation is recorded, and the ticket stays yours until it is accepted. This site delivers no email, so nothing has been sent to them.',
                     )
                   }
                 >

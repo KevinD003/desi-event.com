@@ -47,12 +47,13 @@ export default async function HomePage() {
             className="mt-5 text-4xl leading-tight font-bold text-ink sm:text-5xl"
           >
             Nine nights of garba. One qawwali that runs past midnight.{' '}
-            <span className="text-accent-strong">Tickets that actually work.</span>
+            <span className="text-accent-strong">One price, fees included.</span>
           </h1>
           <p className="mt-5 max-w-2xl text-lg text-ink-muted">
             Desi-Event is where the diaspora finds its nights out — raas circles in Ahmedabad,
-            mehfils in Bombay, melas in Mississauga and stand-up in Limehouse. Real inventory, real
-            holds at checkout, prices in your own currency.
+            mehfils in Bombay, melas in Mississauga and stand-up in Limehouse. Live availability,
+            tickets held for ten minutes while you decide, and every price shown with its booking
+            fee. Payments on this site are simulated: nothing is charged.
           </p>
         </FadeIn>
 

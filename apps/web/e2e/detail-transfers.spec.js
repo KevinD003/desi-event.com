@@ -60,7 +60,9 @@ test.describe.serial('the ticket and transfer screens', () => {
     await owner.getByLabel(/their email address/i).fill('harsha.offered+tickets@elsewhere.test')
     await owner.getByRole('button', { name: /send the offer/i }).click()
 
-    await expect(owner.getByText(/offered\. they have been sent an invitation/i)).toBeVisible()
+    await expect(owner.getByText(/offered\. the invitation is recorded/i)).toBeVisible()
+    // Nothing was delivered, and the page must not say otherwise.
+    await expect(owner.getByText(/have been sent/i)).toHaveCount(0)
 
     await owner.reload()
 

@@ -274,7 +274,7 @@ test.describe.serial('the ticket wallet', () => {
       await owner.getByRole('button', { name: /offer this ticket/i }).click()
       await owner.getByLabel(/their email address/i).fill('meenakshi.wallet+x@elsewhere.test')
       await owner.getByRole('button', { name: /send the offer/i }).click()
-      await expect(owner.getByText(/offered\. they have been sent an invitation/i)).toBeVisible()
+      await expect(owner.getByText(/offered\. the invitation is recorded/i)).toBeVisible()
 
       try {
         await owner.goto('/tickets')

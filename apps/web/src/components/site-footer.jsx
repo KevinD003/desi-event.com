@@ -78,12 +78,16 @@ export function SiteFooter() {
             nothing is paid out.
           </p>
           <p className="mt-3 text-sm text-ink-inverse-muted">
-            <a
-              href="mailto:organisers@desi-event.example"
+            Organiser accounts are set up by the platform in this build; there is no sign-up for an
+            organisation.
+          </p>
+          <p className="mt-3 text-sm">
+            <Link
+              href="/limitations"
               className="rounded-sm text-accent-inverse underline underline-offset-4 hover:text-ink-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-surface-inverse"
             >
-              organisers@desi-event.example
-            </a>
+              What this site does not do
+            </Link>
           </p>
         </div>
       </div>

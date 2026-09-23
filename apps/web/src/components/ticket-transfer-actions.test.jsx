@@ -70,7 +70,12 @@ describe('what a holder is offered', () => {
     )
 
     expect(screen.queryByRole('button', { name: /offer this ticket/i })).toBeNull()
-    expect(screen.getByText(/reserved-seat tickets cannot be handed on yet/i)).toBeTruthy()
+    expect(screen.getByText(/reserved-seat tickets cannot be handed on on this site/i)).toBeTruthy()
+    expect(
+      screen
+        .getByRole('link', { name: 'Why seated tickets cannot be handed on' })
+        .getAttribute('href'),
+    ).toBe('/limitations')
   })
 
   it('still lets the holder withdraw an offer made before seated transfers were refused', () => {
@@ -171,6 +176,10 @@ describe('offering a ticket', () => {
 
     expect(path).toBe('/v1/tickets/ticket000000000000000001/transfers')
     expect(JSON.parse(options.body)).toEqual({ toEmail: 'rival@dhol.example' })
+
+    // This build delivers no email; the confirmation must not claim a send.
+    expect(await screen.findByText(/the invitation is recorded/i)).toBeInTheDocument()
+    expect(screen.queryByText(/have been sent/i)).toBeNull()
   })
 
   it('repeats a refusal rather than retrying it', async () => {

@@ -275,15 +275,11 @@ export default async function OrganizerPage({ params }) {
                   ))}
                 </div>
               ) : (
-                <p className="text-ink-muted">
-                  {organizer.name} has not published a refund policy. The terms shown at checkout
-                  are the ones that apply to your order.
-                </p>
+                <p className="text-ink-muted">{organizer.name} has not published a refund policy.</p>
               )}
               <p className="mt-4 text-sm text-ink-muted">
-                Whatever an organiser publishes here, the policy attached to your order at the
-                moment you paid is the one that governs it. A later edit does not change what you
-                agreed to.
+                This is the policy as it reads now. This site does not keep a copy of it as it stood
+                when you bought, so if the terms matter to you, read them before you buy.
               </p>
             </CardBody>
           </Card>
@@ -296,14 +292,15 @@ export default async function OrganizerPage({ params }) {
           {/*
             No email address, by design. The organisation's contact address is
             an account detail, not a box office, and publishing it here would
-            both expose it to scrapers and route order questions somewhere with
-            no record of the order. Support reaches the organiser on the buyer's
-            behalf instead.
+            expose it to scrapers. This used to promise a support desk and a
+            confirmation email to reply to; this build has neither, so it says
+            what there is.
           */}
           <p className="mt-4 text-ink-muted">
-            Questions about an order go through Desi-Event support, using the reply address on your
-            confirmation email. Support puts you in touch with {organizer.name} and keeps the thread
-            attached to your booking.
+            This site does not pass messages between buyers and organisers, and sends no email.{' '}
+            {organizer.websiteUrl
+              ? `${organizer.name}'s own website, linked above, is the way to reach them.`
+              : `${organizer.name} has not given a website, so this page has no way to reach them.`}
           </p>
         </section>
       </div>

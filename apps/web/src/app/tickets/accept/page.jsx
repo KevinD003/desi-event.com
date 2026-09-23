@@ -15,6 +15,8 @@
  * @module app/tickets/accept/page
  */
 
+import Link from 'next/link'
+
 import { TicketTransferResponse } from '../../../components/ticket-transfer-actions.jsx'
 
 export const dynamic = 'force-dynamic'
@@ -31,8 +33,17 @@ export default function AcceptTransferPage() {
     <div>
       <h1 className="text-2xl font-bold text-ink">Accept a ticket</h1>
       <p className="mt-2 text-ink-muted">
-        Somebody has offered you a ticket. Paste the code they sent you below. Accepting puts the
+        Somebody has offered you a ticket. Paste the invitation code below. Accepting puts the
         ticket in this account and stops the sender’s pass working; declining leaves it with them.
+      </p>
+      <p className="mt-2 text-sm text-ink-muted">
+        This site delivers no email, so an invitation code does not arrive on its own.{' '}
+        <Link
+          href="/limitations"
+          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+        >
+          What this site does not do
+        </Link>
       </p>
       <p className="mt-2 text-sm text-ink-muted">
         The code is only ever typed in, never carried in a web address — an address with a secret in

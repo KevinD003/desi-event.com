@@ -169,4 +169,11 @@ describe('refusalSentence', () => {
   it('falls back when the API said nothing', () => {
     expect(refusalSentence(409, null, 'The draft moved on.')).toBe('The draft moved on.')
   })
+
+  it('says how long to wait when it is given the Retry-After', () => {
+    const body = { error: { code: 'RATE_LIMITED', message: 'Too many requests.' } }
+
+    expect(refusalSentence(429, body, 'x', 120)).toMatch(/2 minutes/)
+    expect(refusalSentence(429, body, 'x')).not.toMatch(/minute/)
+  })
 })

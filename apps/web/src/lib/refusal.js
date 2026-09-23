@@ -271,12 +271,13 @@ export async function refusalFromResponse(response) {
  * @param {number} status The response status.
  * @param {object|null} body The parsed response body.
  * @param {string} fallback What to say when the API said nothing usable.
+ * @param {number|null} [retryAfterSeconds] The response's `Retry-After`, parsed, so a rate limit can say how long.
  * @returns {string} The sentence.
  */
-export function refusalSentence(status, body, fallback) {
+export function refusalSentence(status, body, fallback, retryAfterSeconds = null) {
   const code = body?.error?.code ?? null
   const message = typeof body?.error?.message === 'string' ? body.error.message.trim() : ''
-  const refusal = describeApiRefusal({ status, code, message })
+  const refusal = describeApiRefusal({ status, code, message, retryAfterSeconds })
 
   if (REPLACED_STATES.has(refusal.state)) return refusal.detail
 
