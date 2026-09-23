@@ -365,6 +365,7 @@ when()('an acceptance that loses a race', () => {
         ticket: stale,
         eventSessionId: w.session.id,
         scannedByUserId: w.holder.id,
+        method: 'QR_SCAN',
         now: new Date(),
       }),
     )

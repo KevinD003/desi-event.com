@@ -43,6 +43,8 @@
 
 import { createHash, randomBytes } from 'node:crypto'
 
+import { RECORDED_CHECK_IN_METHODS } from '@desi-event/schemas'
+
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { conflict, forbidden, httpError, notFound, unprocessable } from './errors.js'
 import { issueTicketCredential } from './ticket-credentials.js'
@@ -319,11 +321,12 @@ export async function transition(tx, { ticket, to, data = {} }) {
  * @param {string|null} [params.scannedByUserId] Who scanned it.
  * @param {string|null} [params.deviceId] A `Device` row this system issued, or null.
  * @param {string|null} [params.scannerId] What the scanner calls itself. Audit only.
- * @param {string} [params.method] A `CheckInMethod`.
+ * @param {string} params.method `QR_SCAN` or `MANUAL_CODE`: what was presented, never a default.
  * @param {string|null} [params.gate] The door.
  * @param {string|null} [params.authority] `ORGANIZATION_ROLE` or `EVENT_SCOPE`.
  * @param {Date} params.now The instant.
  * @returns {Promise<{admitted: boolean, checkIn: object|null}>} What happened.
+ * @throws {TypeError} When `method` is missing or not one the door records.
  */
 export async function admit(tx, params) {
   const {
@@ -338,13 +341,24 @@ export async function admit(tx, params) {
     // is.
     deviceId = null,
     scannerId = null,
-    method = 'QR_SCAN',
+    method,
     gate = null,
     // Where the scanner's authority came from — an organisation-wide role or an
     // event scope. Recorded so a reviewer can tell the two apart afterwards.
     authority = null,
     now,
   } = params
+
+  // No default, and nothing unrecognised. The method is a claim about what was
+  // presented — the secure pass credential, or the printed reference — and a
+  // caller that forgot to say would otherwise record QR_SCAN, from this
+  // function or from the column's own default, for a code somebody typed.
+  // `ASSISTED` is refused too: nothing can tell it apart from a typed code.
+  if (!RECORDED_CHECK_IN_METHODS.includes(method)) {
+    throw new TypeError(
+      `An admission needs the method that was presented, ${RECORDED_CHECK_IN_METHODS.join(' or ')}; received ${method}.`,
+    )
+  }
 
   // The attendance row first, while the ticket is still admissible.
   //
@@ -718,7 +732,8 @@ export async function revokeTicket(tx, { ticket, reason, actorId, requestId = nu
       at: now.toISOString(),
       previousStatus: ticket.status,
       reason,
-      ticketCode: ticket.code,
+      // No printed code: it admits at the door by hand, and an audit row is
+      // read by operators and exports. The row names the ticket by its id.
     },
   })
 

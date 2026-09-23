@@ -217,8 +217,10 @@ describe('POST /v1/tickets/:id/transfers', () => {
     expect(queued).toHaveLength(1)
     expect(queued[0].suppressible).toBe(false)
     // The payload is read by a worker and by whoever is debugging it. A token
-    // in one would be a bearer secret in a log.
+    // in one would be a bearer secret in a log, and so would the printed code,
+    // which still admits the sender's ticket until the offer is accepted.
     expect(JSON.stringify(queued[0].payload)).not.toMatch(/token/i)
+    expect(JSON.stringify(queued[0].payload)).not.toContain(tickets[0].code)
 
     await app.close()
   })
@@ -688,6 +690,15 @@ describe('POST /v1/tickets/:id/revoke', () => {
 
     expect(revoked.revokedReason).toMatch(/disputed/)
     expect(revoked.credentialHash).toBeNull()
+
+    // The audit row names the ticket by id. The printed code admits at the
+    // door by hand, and an audit row is read by operators and exports.
+    const audit = prisma._store.auditLog.filter(
+      (row) => row.action === 'ticket.revoked' && row.entityId === tickets[0].id,
+    )
+
+    expect(audit).toHaveLength(1)
+    expect(JSON.stringify(audit[0])).not.toContain(tickets[0].code)
 
     await app.close()
   })

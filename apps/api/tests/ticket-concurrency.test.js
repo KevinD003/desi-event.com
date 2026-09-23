@@ -251,6 +251,9 @@ function scan(ticket, scannedByUserId, eventSessionId) {
         eventSessionId,
         scannedByUserId,
         scannerId: `scanner-${scannedByUserId}`,
+        // What the route records for a presented pass credential. Required:
+        // `admit` has no default to fall back on.
+        method: 'QR_SCAN',
         now: new Date(),
       }),
     )
@@ -331,7 +334,52 @@ when()('two scanners reaching for one ticket', () => {
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow()
+      // The trigger's own refusal, word for word, rather than any error at all:
+      // a Prisma validation error would satisfy a bare toThrow() too.
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${ticket.id} is CHECKED_IN, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(1)
+  })
+})
+
+when()('an admission that does not say how the ticket was presented', () => {
+  it.each([
+    ['no method at all', {}],
+    ['ASSISTED, which the server cannot tell from a typed code', { method: 'ASSISTED' }],
+  ])('refuses %s, and writes nothing', async (_label, presented) => {
+    const world = await buildIssuedTickets()
+    const [ticket] = world.issued
+
+    // Against the database rather than the stub, because `CheckIn.method`
+    // defaults to QR_SCAN there: a missing method that reached the insert would
+    // be recorded as a scanned pass without anybody having said so.
+    const refusal = await prisma
+      .$transaction((tx) =>
+        admit(tx, {
+          ticket,
+          eventSessionId: world.session.id,
+          scannedByUserId: world.holder.id,
+          ...presented,
+          now: new Date(),
+        }),
+      )
+      .catch((error) => error)
+
+    expect(refusal).toBeInstanceOf(TypeError)
+    expect(refusal.message).toMatch(/needs the method that was presented/)
+    expect(await prisma.checkIn.count({ where: { ticketId: ticket.id } })).toBe(0)
+    expect((await prisma.ticket.findUnique({ where: { id: ticket.id } })).status).toBe(
+      TICKET_STATES.VALID,
+    )
   })
 })
 
@@ -499,7 +547,18 @@ when()('a revocation racing a check-in', () => {
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow(/admissible|revoked/i)
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${revoked.id} is REVOKED, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: revoked.id } })).toBe(0)
   })
 })
 
@@ -591,7 +650,18 @@ when()('a refund racing a transfer', () => {
           scannedAt: new Date(),
         },
       }),
-    ).rejects.toThrow(/admissible|refunded/i)
+    ).rejects.toMatchObject({
+      meta: {
+        driverAdapterError: {
+          cause: {
+            originalCode: 'P0001',
+            originalMessage: `check-in refused: ticket ${refunded.id} is REFUNDED, which does not admit`,
+          },
+        },
+      },
+    })
+
+    expect(await prisma.checkIn.count({ where: { ticketId: refunded.id } })).toBe(0)
   })
 })
 

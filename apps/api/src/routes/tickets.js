@@ -412,7 +412,8 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
             payload: {
               ticketId: ticket.id,
               transferId: outcome.transfer.id,
-              ticketCode: ticket.code,
+              // Not the printed code: the email never shows it, and until the
+              // offer is accepted it still admits the sender's ticket by hand.
               expiresAt: expiresAt.toISOString(),
             },
             businessEvent: `ticket.transfer.invited:${outcome.transfer.id}`,

@@ -1939,7 +1939,8 @@ model TicketTransfer {
 }
 
 enum CheckInMethod {
-  /// A camera read the QR pass.
+  /// The secure pass credential was presented. The door's camera path sends
+  /// it, but the server cannot attest that a camera was involved.
   QR_SCAN
   /// A human typed the printed reference, because the camera could not. Was
   /// `MANUAL_LOOKUP`; renamed in place so existing rows kept their meaning.
