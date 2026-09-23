@@ -86,7 +86,7 @@ const DISPLAY_NAME = 'Kavya Buyer'
 const isSessionCookie = (cookie) => /^(?:__Host-)?desi_session$/u.test(cookie.name)
 
 /** The buyer's password. Test-only, and it says so. At least eight characters. */
-const PASSWORD = 'e2e-buyer-password-not-a-real-secret'
+const PASSWORD = 'e2e-test-buyer-password-not-a-real-secret'
 
 /**
  * An order reference as `generateOrderReference` issues it: `DE-` and eight of
