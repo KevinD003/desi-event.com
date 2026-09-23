@@ -20,6 +20,16 @@ with its own classification. Neither phase is described as complete as a
 whole. Phase 4 is not yet implemented, and is not described here as though it
 were.
 
+_Status, 2026-09-23, after the Phase 3 closure audit. Both paragraphs above
+are left as written._ Still **IN PROGRESS**. Phase 1 is complete and verified.
+Phase 2 is closed on ten separate outcomes. Phase 3 is **COMPLETE — VERIFIED ON
+REMEDIATION SHA `3fe58a7`**, on fourteen separate outcomes. That follows an
+audit that found defects and gaps in the evidence, and fixed them ("Phase 3
+closure audit", below). Its QR scanner is complete in Chromium simulation
+only, and reserved-seat transfer is still blocked. None of this describes the
+ticketing product as complete. Phase 4 is not yet implemented, and is not
+described here as though it were.
+
 ---
 
 ## Starting repository state
@@ -2068,6 +2078,571 @@ still external.
 `PAYMENT_MODE` stayed `MOCK`. No real Stripe or Stripe Connect operation, no
 production payment path, no external provider credential, no external
 financial operation and no destructive retention was enabled at any point.
+
+---
+
+## Phase 3 closure audit
+
+_Added 2026-09-23, after Phase 3 was provisionally accepted on exact-SHA run
+`35793993188`. Everything above is left as written. Where this audit found a
+sentence above to be untrue, it says so here._
+
+The owner asked for the evidence the closure message had left out, before any
+Phase 4 work. The audit had three stages:
+
+1. **Gather.** Fourteen agents gathered the evidence from the CI API, the CI
+   logs and the code, then verified it adversarially. Each claim was re-checked
+   by an agent told to refute it.
+2. **Critique.** A completeness critic compared the result with the owner's
+   checklist. 64 of 88 lines were evidenced. The other 24 held two real
+   defects, two tests that passed for the wrong reason, and a set of gaps in
+   the evidence.
+3. **Remediate.** Everything found was fixed in five commits. Each fix was
+   reviewed adversarially, with a mutation check for every new test, and
+   verified through a new exact-SHA run (§A11).
+
+### A1. Commits
+
+| Role                                                                            | Full SHA                                   |
+| ------------------------------------------------------------------------------- | ------------------------------------------ |
+| Original Phase 3 implementation (its exact-SHA run failed)                      | `48185a17c7b4fb23c8419ce33e781a09e80c4e07` |
+| Phase 3 remediation (hydration)                                                 | `16357f38e50b1f0aa556bb3708c94f0464d9a954` |
+| Documentation-only report closure                                               | `95fc3effc945375cecd8b9725053e8ffcd40cf4c` |
+| Audit: door camera, test artefacts                                              | `43173f8f7b6a5c4d8876f050beec2de8a96cccb1` |
+| Audit: method, printed code                                                     | `06cd70daa2e4badcf79237d3391f1072bd539c68` |
+| Audit: admission evidence on PostgreSQL                                         | `2448476b7ba3347a432cd24aac6b8d0bd68584bf` |
+| Audit: notification queue evidence                                              | `ef39795a124d35ed500a899cc6a8087caa7d3235` |
+| Audit: fresh-report hardening, CI evidence tail — **the audit remediation SHA** | `3fe58a7fdb0c9c811c51d73f96926029362063f4` |
+
+### A2. Run `35793993188`, item by item
+
+Sources: the Actions API for run and job metadata; the job logs, read through
+the connector, which returns at most the last 5,000 lines of a log. The verify
+job's log is 7,832 lines, so its first 2,832 lines could not be read here. The
+logs archive could not be downloaded either: the egress proxy refused the
+connection.
+
+| #     | Item                             | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Head SHA                         | `16357f38e50b1f0aa556bb3708c94f0464d9a954`, read back from the run                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 2     | Trigger, attempt                 | `workflow_dispatch`, attempt 1, run number 71                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 3     | Timestamps                       | created and started 2026-09-22T22:44:48Z; completed (last update) 22:54:27Z. Jobs ran from 22:44:52Z to 22:54:26Z                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 4     | Jobs                             | All eight **success**: verify `106968884970`; production build `106968885148`; public catalogue `106968885284`; event lifecycle `106968885314`; organiser venue maps `106968885333`; refusals `106968885331`; accessibility sweep `106968885377`; commerce and operations detail `106968885417`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 5     | Skipped steps                    | Eight, one per job, each skipped because nothing failed. Verify step 27 "Upload failure artefacts" is `if: failure()` (ci.yml:208). Step 11 "Upload Playwright artefacts" in each browser job is `if: failure()` (ci.yml:337). No other step in any job was skipped                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 6     | Cancelled or rerun               | None. The `all` and `latest` job listings are the same eight ids, every one attempt 1, every conclusion success                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 7     | Fresh non-browser total          | **Not observable in CI for this run.** Step 16's own table falls in the unreadable 2,832 lines. The step concluded success, and the command exits nonzero on any refusal, so zero failed and zero skipped follows from the code; it was not seen. The Coverage step is a second run of the same test files, and it is visible: 15 packages, 222 files, **5,684 cases, all passed**, no skip marker. `@desi-event/config` has no coverage script, so its 72 cases are the difference from the local total of 5,756 for the same tree. From §A11 on, the verify job's last step prints the command's table again, inside the readable tail                                                                                                                                                                |
+| 8     | Coverage                         | The step succeeded: 18 tasks, 0 cached. No threshold changed in Phase 3 (`git diff 21af69a..16357f3` over every vitest config, turbo.json and package.json has no coverage line). Thresholds are 80/80/75/80 (lines, functions, branches, statements) in api, worker, api-contract, auth, inventory, ledger, logger, notifications, permissions, pricing, providers and schemas. `db`, `web` and `ui` have none. `config` resolves to the default but has no coverage script, so it is not enforced                                                                                                                                                                                                                                                                                                     |
+| 9     | Fresh and upgrade database       | Fresh: **99/99 checks**. The db package ran 3 files and 102 cases against it, and the API's database suites ran 11 files and 168 cases, including admission-integration 28, notification-lease-integration 11 and seat-transfer-block-integration 4. Upgrade: **26/26 checks**. Every migration was applied over existing rows, the admission migration `20260922200000_admission_scope_and_method` among them, and the upgraded database matched a fresh one on 1,488 catalogue entries. Both disposable databases were destroyed                                                                                                                                                                                                                                                                      |
+| 10    | Reliability smoke                | Three scenarios, all PASS. General-admission hold contention: 4,728 calls. Reserved-seat hold contention: 6,558 calls. Check-in concurrency: 3,328 calls. The runner prints an invariant only when it breaks, and no invariant line appeared; that, plus the PASS verdicts, is the evidence that they held                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 11    | Payment kill switch              | 1 file, **12/12** (`payment-kill-switch.test.js`). `PAYMENT_MODE` appears nowhere in the workflow, so it resolves to `MOCK`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 12    | Dependency audit                 | `pnpm audit --audit-level moderate`: no known vulnerabilities                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 13    | Build, bundle scan               | Build: 3 tasks. The api and web builds were replays of cache misses executed earlier in the same job. Bundle scan: OK, **362** browser-deliverable files, nothing server-only, **no service workers**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 14    | Contract, OpenAPI, manifest      | Validate API contract: step success. Its output is in the unreadable part of the log. OpenAPI drift: `openapi.json` up to date. Route manifest: 134 routes written, and `git diff --exit-code` printed nothing                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 15–16 | Browser collection and execution | Each job's own "Running N tests" line against its summary: public catalogue **118 / 118 passed**; production build **19 / 19**; event lifecycle **20 / 20**; organiser venue maps **13 / 13**; refusals **4 / 4**; accessibility sweep **63 / 63**; detail **79 / 79**. In every job, collected equals executed: no failure, flake, skip, did-not-run or retry marker. Locally, `playwright test --list` on the same tree gives the same seven numbers, 316 in all                                                                                                                                                                                                                                                                                                                                      |
+| 17    | Accessibility sweep              | 63 / 63, including the door cases at seven widths, 200% zoom, reduced motion and a refused camera                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 18    | PostgreSQL and Redis ran         | CI sets `REQUIRE_DATABASE=1` workflow-wide, and the command forces it on its child. The PostgreSQL helper then turns an unreachable database into a failure rather than a skip. The two worker Redis suites skip when Redis is unreachable, but the fresh-report command refuses any skip not on the allow-list, and the allow-list is empty. In the Coverage step's visible output, every database and Redis suite shows as run and passed with its case count: admission-integration 28, notification-lease-integration 11, seat-transfer-block-integration 4, ticket-concurrency 14, refund-concurrency 13, reserved-seat-concurrency 15, settlement-invariants 14, redis-integration 6, redis-retention 4, retention-postgres 7, and others. There is no skip marker anywhere in the visible window |
+
+**Failed run `35789914694` stays a product defect.** It failed on
+`48185a1`: sweep job `106955683187` and detail job `106955683206`. Four door
+cases failed the same way: a printed code typed before the page's script took
+hold was on screen while **Look up** stayed disabled, or only its tail was
+sent. §17 above gives the mechanism, reproduced deterministically, and its fix
+in `16357f3`. It was not flaky timing and is not recorded as such.
+
+### A3. The fresh-report command
+
+It was implemented in `8ccbb81`, before any Phase 3 feature work, and hardened
+by this audit in `3fe58a7`.
+
+- **Script:** `"verify:tests:fresh": "node scripts/verify-tests-fresh.mjs"` in
+  the root `package.json`. It also sits in the local gate: `pnpm verify` ran
+  a cacheable `pnpm run test` until `3fe58a7`, and now runs this command.
+- **Implementation:** `scripts/verify-tests-fresh.mjs`, with
+  `scripts/lib/vitest-reports.mjs`. The allow-list is
+  `scripts/skipped-tests-allowlist.json`, currently `[]`. Every entry needs a
+  pattern and a reason of at least ten characters.
+- **Expected manifest:** the packages that must report are read from
+  Turborepo's own plan (`turbo run test --dry=json`): every `test` task with a
+  real command. The expected report is `<package>/vitest-report.json`. An
+  expected report that is absent is refused. A report anywhere else is
+  refused. An empty plan exits 2.
+- **Deleting old reports:** the whole tree is walked for `vitest-report.json`,
+  skipping node_modules, .git, .next, .turbo, coverage and dist. Every report
+  found is deleted first, before the run's clock starts. Since `3fe58a7`:
+  - a report that is a symbolic link is deleted (the link itself);
+  - a directory link the walk cannot follow refuses the run;
+  - a deletion error other than ENOENT refuses the run before it starts,
+    naming the file.
+- **Start time and identity:** `runStartedAt` is taken after deletion and
+  before the child is spawned. A report is accepted only if both hold:
+  - its modification time is no more than 2 s before that instant;
+  - the `startTime` Vitest writes inside it is at or after that instant, with
+    no allowance.
+
+  Since `3fe58a7`, a `startTime` later than the moment of judgement plus 2 s
+  is refused too. Identity is time-based. Vitest's JSON reporter carries no
+  run id to bind to, so a concurrent Vitest write on the same machine inside
+  the window could not be told apart. That limitation is recorded rather than
+  papered over.
+
+- **What is refused, and where it is tested**
+  (`packages/config/tests/verify-tests-fresh.test.js`):
+
+| Report                      | Tested by                                                                                                                                                                                                                                                                                          |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Missing                     | "refuses a missing report — what a Turborepo cache hit leaves behind"; "refuses a package expected to run that produced no report"                                                                                                                                                                 |
+| Malformed                   | "refuses a malformed report", and since `3fe58a7` "refuses %s as malformed instead of crashing on it" for a null entry, a case with no status and cases that are not a list                                                                                                                        |
+| Empty                       | "refuses an empty report"                                                                                                                                                                                                                                                                          |
+| Not a report                | "refuses valid JSON that is not a report" (a structural check)                                                                                                                                                                                                                                     |
+| Stale by mtime              | "refuses a cached result that leaves an old report unchanged on disk"; the boundary: "allows a modification time a coarse filesystem rounded down, and no more"                                                                                                                                    |
+| Stale contents, fresh mtime | "refuses a report restored with a fresh timestamp and old contents"; "refuses a report with no startTime…"                                                                                                                                                                                         |
+| Future-stamped              | "refuses a report stamped a year in the future"; "judges the future from when the report is read, not from when the run began" (since `3fe58a7`)                                                                                                                                                   |
+| Symbolic link               | "deletes a report that is a symbolic link — the link, not what it points at"; "refuses a report that is a symbolic link, even to a report this run wrote"; "refuses the run, before it starts, when a directory link hides what is behind it" (since `3fe58a7`)                                    |
+| Skipped                     | "refuses a report containing skipped tests"                                                                                                                                                                                                                                                        |
+| Todo, pending               | "refuses `todo` and Jest's `pending` too"                                                                                                                                                                                                                                                          |
+| Zero-test package           | "refuses a package that ran no tests at all"                                                                                                                                                                                                                                                       |
+| Zero-test file              | "refuses one test file with no tests inside a package that ran plenty"                                                                                                                                                                                                                             |
+| Failed with exit 0          | "refuses a failed test even when the run itself exited zero"                                                                                                                                                                                                                                       |
+| Unknown status              | "refuses a case whose status it does not know, rather than counting it as nothing" (since `3fe58a7`; no allow-list escape)                                                                                                                                                                         |
+| Failure outside any case    | "refuses a test file that failed outside its cases, though every case passed"; "refuses a report that says the run did not succeed, even with nothing marked failed" (since `3fe58a7`)                                                                                                             |
+| Counters that disagree      | "refuses a report whose counters disagree with the cases it lists" (pending and todo), and since `3fe58a7` "refuses a report whose %s disagrees with the cases it lists" for `numTotalTests`, `numPassedTests` and `numFailedTests`. Checked first against real Vitest 5 reports, where they agree |
+
+- **Turbo cache:** Turborepo runs as `run test --force`, placed before the
+  `--`. Vitest's own flags go after it (pinned by a test). CI also deletes
+  `.turbo` first. `vitest-report.json` is not a cached output of the test
+  task, so a cache hit can only leave a report unwritten, and a missing report
+  is refused.
+- **Local run matches CI:** CI runs exactly `pnpm run verify:tests:fresh`
+  (ci.yml, step "Test, with fresh reports and no undeclared skip"). The
+  command forces `REQUIRE_DATABASE=1` itself. `turbo.json` declares
+  `REQUIRE_DATABASE` and `TEST_DATABASE_URL` in `globalEnv`. `ci:check`
+  refuses:
+  - a workflow that writes or judges reports any other way;
+  - a `turbo.json` without those variables;
+  - since `3fe58a7`, a verify job that does not end by printing the
+    command's table from `test-results/verify-tests-fresh.txt` with no
+    condition and no `continue-on-error`.
+- **Regression tests:** the file had 26 cases at `8ccbb81`. At `3fe58a7` the
+  config package runs 103, all passing. Every new rejection fails with its
+  check removed (mutation checks recorded in the commit). The deletion refusal
+  is proved for EACCES, EPERM and EBUSY.
+- **CI line:** `run: pnpm run verify:tests:fresh`, plus, since `3fe58a7`, a
+  last step `run: cat test-results/verify-tests-fresh.txt`.
+
+**Classification: IMPLEMENTED.** The approved requirement is met. The audit's
+hardening goes beyond it.
+
+### A4. QR evidence
+
+- **Packages:**
+
+| Role    | Package | Pin          | Licence    | Transitive dependencies |
+| ------- | ------- | ------------ | ---------- | ----------------------- |
+| Encoder | `uqr`   | 0.1.3, exact | MIT        | 0                       |
+| Decoder | `jsqr`  | 1.4.0, exact | Apache-2.0 | 0                       |
+
+They are the only two direct dependencies Phase 3 added to `apps/web`.
+`pnpm audit` reports no known vulnerabilities.
+
+- **Bundle effect**, measured from production builds of `21af69a` and
+  `16357f3` in throwaway worktrees, gzip level 9:
+  - `/tickets/[id]` grows by 13,723 B raw / **5,004 B gzip**, all of it in
+    that route's page chunk, which holds uqr's `encode`, `lib/qr.js` and the
+    pass component. uqr's own share is about 3.7 KB gzip.
+  - `/organizer/check-in` loads 151,301 B gzip on first load, and none of it
+    is jsqr.
+  - jsqr is a single chunk of 129,980 B raw / **46,372 B gzip**. It is named
+    only by a 215 B loader stub and fetched only by the dynamic import when
+    decoding starts.
+  - No other route's first load contains either package.
+- **No network calls:** every shipped file of both packages was scanned for
+  `fetch(`, XMLHttpRequest, WebSocket, EventSource, sendBeacon, importScripts,
+  `new Worker`, `import(`, http requires, `eval(` and `new Function`. There
+  were no hits. The only `http` strings are an SVG namespace and licence
+  URLs.
+- **No TypeScript copied:** `git ls-files '*.ts' '*.tsx' '*.mts' '*.cts'` is
+  empty. No `.d.ts`, licence header or identifier from either package is in a
+  tracked file. The packages' own `.d.ts` stay inside `node_modules`, which
+  the language policy permits.
+- **The QR holds the secure credential:** `/tickets/:id/pass` mints the HMAC
+  credential, checks it against the stored digest and returns
+  `{ticketId, credential, credentialVersion, issuedAt}`, with no printed code.
+  The component encodes `data.credential` and keeps only the drawing. The
+  browser test decodes the drawing, gets a 43-character credential, and the
+  admission it causes is recorded as `QR_SCAN` in PostgreSQL. One consequence
+  of the shape rule is worth noting: printed codes are pass-shaped. A QR that
+  encoded a printed code would be sent as a credential and refused with a 404.
+  It fails closed and is not an admission path.
+- **Where the credential never goes:**
+  - URLs: the path carries the ticket id only, and the door sends the
+    credential in a POST body.
+  - Browser storage: the holder page is tested since Phase 3; the door page
+    (storage, cookies, IndexedDB, address) since `43173f8`.
+  - Logs: redaction keys cover `credential` and `previewReference`. Since
+    `2448476`, a capture test asserts that no log line carries the credential,
+    its digest, a printed code or a reference.
+  - Analytics: there is no analytics code in the web app.
+  - Snapshots: no snapshot assertions exist.
+  - Screenshots: the detail spec turns screenshots, traces and video off.
+    Since `43173f8` the sweep never draws a real pass, and a guard refuses any
+    spec that could. **Correction:** until then the sweep could have kept a
+    screenshot of a live pass on failure. §9 and the closure table above say
+    otherwise; they were wrong.
+  - Service-worker caches: there is no service worker (the bundle scan
+    counts 0).
+  - Audit metadata: no admission audit write carries the credential, code or
+    reference. Since `2448476` this is asserted on PostgreSQL over every row
+    the admission suite causes, refusals included. Since `06cd70d` the
+    revocation audit row and the transfer-invitation outbox payload no longer
+    carry the printed code.
+- **Camera:**
+  - Frames are drawn to an off-screen canvas and decoded on the device. There
+    is no upload path.
+  - **Correction:** "nothing is kept; tracks stop" (§9 and the closure table)
+    was not true in one race. A camera granted after the steward had stopped,
+    switched to typing or left kept running. Fixed in `43173f8`: a stream that
+    arrives after a stop is stopped at once and never shown.
+  - Stop now demonstrably forgets the last pass and frame.
+- **Decode leads to preview only:** a decode calls the preview endpoint.
+  `/check-in` is called only from **Admit**, and only with a reference.
+- **Both steps enforce scope and admissibility:** preview and confirmation
+  each read membership, scope and ticket state from the database. The
+  confirmation re-derives all of it under lock (§A5).
+- **QR scanning was verified in Chromium using a simulated camera.** The
+  camera was a canvas stream painting the holder's QR. **Physical-device and
+  non-Chromium camera verification: EXTERNAL DEVICE VERIFICATION PENDING.**
+  Those environments are not classified as verified.
+
+### A5. Authorisation evidence
+
+"PG" means real PostgreSQL (`admission-integration.test.js` unless another file
+is named); "stub" means the Prisma stub.
+
+| Scenario                                           | Test                                                                                                                                                                                                                  | DB  |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
+| Scanner on event A previews event B                | "1. a scanner scoped to event A cannot preview a ticket for event B" — 404, identical to an invented code                                                                                                             | PG  |
+| Scanner on event A checks in event B               | "2. … cannot check in a ticket for event B, even with a signed reference" — 403, no row                                                                                                                               | PG  |
+| Scanner of organisation A, organisation B's ticket | Since `2448476`: a SCANNER of the rival organisation, scoped to its own event — preview by code and by credential 404, confirmation with a signed reference 403, no row. Also "3. an owner of organisation A cannot…" | PG  |
+| No ScannerScope                                    | "4. a scanner with no scope admits nobody"                                                                                                                                                                            | PG  |
+| Scope revoked between preview and confirmation     | "10. a scope withdrawn between preview and confirmation…"; "5. a scope withdrawal in flight…" (forced interleaving); since `2448476` also by credential                                                               | PG  |
+| Membership removed                                 | "5. a removed membership admits nobody, even to a caller still holding the old actor"                                                                                                                                 | PG  |
+| Missing capability                                 | "7. a role without ticket:check_in is refused, even with a scope row"; since `2448476` a demotion after a credential preview                                                                                          | PG  |
+| Browser event id conflicts                         | Preview: "8. the event id a browser sends never decides authority". Confirmation: since `2448476`, 409 `WRONG_EVENT` by code and by credential, no row                                                                | PG  |
+| Transferred after preview                          | "8. a transfer accepted after the preview leaves the old pass admitting nobody" (real transfer services)                                                                                                              | PG  |
+| Revoked after preview                              | "6. a revocation in flight…" (real revoke, forced interleaving)                                                                                                                                                       | PG  |
+| Refunded after preview                             | "7. a ticket refunded after its preview is refused, by pass and by code". Since `2448476` it drives the real refund service, not a copy of its writes                                                                 | PG  |
+| Another scanner admits after preview               | "4. a preview overtaken by another steward's admission confirms as already in"                                                                                                                                        | PG  |
+| Two simultaneous confirmations                     | "1. two simultaneous confirmations of one preview admit once"; "2. two stewards…"; "10. a network retry…"                                                                                                             | PG  |
+| QR and manual racing                               | "3. a QR scan and a typed code racing for one ticket admit once, recording the winner's method"                                                                                                                       | PG  |
+
+- **A successful preview grants nothing.** The confirmation runs the door
+  authority check again and verifies the reference's MAC and expiry. It then
+  uses the reference only as a binding: same account, same method, same
+  ticket, event and organisation. Inside its transaction it locks the ticket
+  and re-reads membership, scope and ticket state. Negatives 2, 3, 4, 7, 10
+  and 11 confirm with a validly signed reference and are refused.
+- **The event and organisation come from the ticket's own rows.** The chain
+  is ticket → order item → order → event → organisation. A browser-sent
+  `expectedEventId` is only compared against it and never grants anything.
+- **Correction:** the forced-interleaving helper used to wait for any lock
+  waiter in the whole database, so the interleaving was attempted, not
+  verified. Since `2448476` it waits for a session blocked by the holding
+  transaction itself (`pg_blocking_pids`). It was shown to catch a mutant
+  that the old helper passed.
+
+### A6. Method
+
+- **How the server decides:** `QR_SCAN` is recorded when the secure credential
+  was presented, and `MANUAL_CODE` when the printed code was. The server
+  cannot know whether a camera produced the credential. The door screen sends
+  a credential only from its camera path, but that is a property of the
+  client. **Stated limitation:** `QR_SCAN` means "the credential was
+  presented", nothing more. The schema comment claimed a camera and was
+  corrected in `06cd70d`.
+- **No override method:** there is no `ORGANIZER_OVERRIDE`. `ASSISTED`
+  exists in the enum and is written by nothing. No override endpoint exists.
+- **The browser cannot choose the method:**
+  - both request schemas are strict, so a body naming `method` is a 400
+    (route test);
+  - the preview reference is MAC-bound to the method, so a code preview
+    cannot be confirmed as a scan (`PREVIEW_MISMATCH`, route test);
+  - since `06cd70d`, `admit()` has no default method and refuses anything but
+    the two it records (PostgreSQL test).
+
+### A7. Member email and the notification queue
+
+**The email matrix.** The server decides, in `emailVisibilityFor`: a caller
+who can invite gets full addresses, everyone else gets masked ones. A
+discriminated response schema then enforces the decision; a masked entry has
+no `email` key, and `emailMasked` must contain `*`. CSS plays no part.
+
+| Caller                                               | Team list                             |
+| ---------------------------------------------------- | ------------------------------------- |
+| Owner                                                | full email                            |
+| Administrator                                        | full email                            |
+| Manager                                              | full email                            |
+| Staff                                                | masked email                          |
+| Viewer                                               | masked email                          |
+| Event manager, finance                               | masked email                          |
+| Scanner                                              | no email (403; no member list at all) |
+| Platform administrator (SUPER_ADMIN)                 | full email                            |
+| Other platform roles, member of another organisation | no email (403)                        |
+
+Two conditions on the matrix:
+
+- **Second factor:** the full-address roles are privileged. They see anything
+  only once their second factor is confirmed; before that the answer is 403.
+- **What the mask reveals:** the first and last characters of the local
+  part, its length, and the domain, next to the member's display name. The
+  owner has since recommended a generic form that reveals less (§A10). It is
+  not implemented here: this closure is documentation-only, and the same
+  masker serves the transfer screens.
+
+The "whole-body" door test was searching an empty list. It is fixed in
+`2448476`.
+
+**Retry lease tests** (PG = `notification-lease-integration.test.js`):
+
+| Case                           | Test                                                                                                                                                                                                                                                      | DB                       |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| Ordinary failed-message retry  | Dead letter; since `ef39795` also FAILED and RETRY_SCHEDULED, each reset and audited                                                                                                                                                                      | PG                       |
+| Retry while leased             | "refuses a message a worker is sending, and leaves the lease exactly as it was"                                                                                                                                                                           | PG                       |
+| Retry after lease expiry       | Refused by design (the worker reclaims): "refuses a message whose lease has lapsed…"                                                                                                                                                                      | PG                       |
+| Retry racing worker completion | "cannot undo a worker's completion that lands while the operator is looking"                                                                                                                                                                              | PG                       |
+| Two simultaneous retries       | "turns two operators pressing retry at once into one requeue and one audit row"                                                                                                                                                                           | PG                       |
+| Cross-organisation denial      | The routes are platform-only (`reconciliation:manage`). The message organisation's own owner, a manager, and since `ef39795` a member of another organisation are all refused with `FORBIDDEN` asserted. So is every platform role without the capability | stub (a capability gate) |
+| Audit without leakage          | The audit metadata holds status, template, attempts and reason. The tests assert recipient, payload and dedupe key are absent                                                                                                                             | PG                       |
+
+### A8. The hydration remediation
+
+- **Mechanism:** one mount effect in `door-workspace.jsx` with an empty
+  dependency list. It reads the event select's and the code field's DOM
+  values through refs and adopts each one that is non-empty. Both inputs stay
+  controlled with string values. After mount, React state is the only source.
+- **No warning:**
+  - Every hydration case, and since `43173f8` every case in the file, fails
+    on any React complaint on the console.
+  - Every hydration goes through `onRecoverableError`, and a recovered
+    mismatch fails the case.
+  - Both traps were proved: a forced switch from controlled to uncontrolled
+    input fails 4 cases, and a forced render mismatch fails 5.
+  - In Chromium, the slow-page cases assert no console error or warning.
+- **Cannot overwrite valid input:** values are adopted only when non-empty,
+  and only once, on mount (Strict Mode runs the effect again against the same
+  DOM). Typing after hydration updates state directly, and a unit case shows
+  it is never overwritten.
+- **Coverage of the five value kinds:**
+
+| Case                           | Unit test                  | Chromium                                                      |
+| ------------------------------ | -------------------------- | ------------------------------------------------------------- |
+| Empty                          | yes                        | probe                                                         |
+| Partially typed, then finished | yes                        | test, since `43173f8`                                         |
+| Pasted                         | yes                        | probe, using the real clipboard                               |
+| Autofilled                     | yes                        | probe                                                         |
+| Preselected event              | yes, including Strict Mode | not exercised: no seeded door account has more than one event |
+
+"Autofilled" means a value set with input and change events, which is what
+autofill does at the DOM level. Chromium's own autofill needs profile data
+and was not driven.
+
+- **Regression test:** it holds every script back 3 s, types first, and
+  checks that **Look up** is still disabled. It then checks that the button
+  becomes enabled and the lookup works. Without the fix it fails with the CI
+  symptom.
+- **Mutations:**
+  - Removing the code half fails exactly the code-adoption cases, 5 in all.
+  - Removing the event half fails exactly the 2 event cases.
+  - Removing the camera guard fails exactly the race cases.
+- **The keyboard test** still types the code and submits with Enter, never a
+  click, and asserts the preview heading is focused. The only added line
+  waits for **Look up** to be enabled. The diff removes no assertion and
+  raises no timeout; the Playwright configurations are unchanged since
+  `21af69a`.
+
+### A9. What the audit found and fixed
+
+| Found                                                                                                                                                                                                                                                     | Fixed in             |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| A camera granted after a stop kept running; a stop during `play()` left the panel saying the camera was on                                                                                                                                                | `43173f8`            |
+| The sweep drew a live pass under screenshot-on-failure; closing the context in `finally` does not prevent the capture                                                                                                                                     | `43173f8`            |
+| `admit()` defaulted the method to `QR_SCAN`; the schema comment claimed a camera                                                                                                                                                                          | `06cd70d`            |
+| The printed code was in the revocation audit row and the invitation outbox payload                                                                                                                                                                        | `06cd70d`            |
+| Two tests passed for the wrong reason: the door email search ran on an empty list, and a refunded-ticket check-in refusal passed on a Prisma validation error. Three more refusal matchers were loose                                                     | `2448476`, `06cd70d` |
+| No real-PostgreSQL case for a cross-organisation SCANNER, a confirmation-time event mismatch, or scope and role withdrawal after a QR preview; refunds were simulated; audit absence was asserted only on the stub; the interleaving helper was too loose | `2448476`            |
+| No log-capture evidence                                                                                                                                                                                                                                   | `2448476`            |
+| Only the dead-letter retry was proved; organiser refusals were not asserted by code                                                                                                                                                                       | `ef39795`            |
+| Fresh-report gaps: symbolic links, undeletable reports, future timestamps, unknown statuses, failures outside any case, counters; `pnpm verify` bypassed the command; the CI table was unreadable from the log tail                                       | `3fe58a7`            |
+
+Also corrected in the documentation commit: `docs/SECURITY.md` said "No
+screen renders a pass". A dated correction now stands beside it.
+
+### A10. Still open, and not claimed
+
+- **Test-only, by the owner's own limitation:** physical camera devices and
+  non-Chromium browsers.
+- **Owner recommendation, recorded 2026-09-23 and not yet implemented:**
+  lower-privilege roles should see a stable, generic form that keeps neither
+  the local part's length nor its last character, such as `Hidden email` or
+  `k•••@example.com`. Owners and authorised membership administrators keep
+  full addresses, after required step-up authentication. This is a code
+  change, and it needs its own exact-SHA run, so it is not part of this
+  documentation-only closure. It will have to settle three things:
+  - `maskRecipient` also masks the recipient on the transfer screens and in
+    the operations outbox. The change covers the team list alone or all
+    three, and that has to be decided explicitly.
+  - The team response schema requires `emailMasked` to contain `*`. A generic
+    form without one needs the schema to change with it.
+  - Today, full addresses need `team:invite` (OWNER, ADMIN, MANAGER, or a
+    platform SUPER_ADMIN) and an enrolled second factor, which each of those
+    roles must have. The team list declares no step-up window, so "after
+    required step-up" is new work. So is deciding whether MANAGER counts as
+    an authorised membership administrator.
+- **Seen in run `35814340442`, not traced:** the detail job's server output
+  carries one Node `DeprecationWarning` from `pg` 8.23.0: "Calling
+  client.query() when the client is already executing a query is deprecated
+  and will be removed in pg@9.0". Node prints a warning like this once per
+  process. So it shows only that some path issues two queries at once on one
+  connection. It fails nothing today, and it is recorded here for the pg 9
+  upgrade.
+- **Unchanged from §18:** the proxy-shared global rate limit, the preview's
+  timing residue, lease clocks, invitation scopes not being applied, `jsqr`'s
+  maintenance, the trigger's breadth, and admission windows.
+- **Not implemented:** reserved-seat transfer, offline admission, group
+  booking.
+- **External:** every real Stripe and Connect operation.
+
+### A11. Exact-SHA CI for the audit remediation
+
+Run `35814340442`, run number 72, `workflow_dispatch`, attempt 1. The sources
+are the same as in §A2. This time everything the owner asked to see falls
+inside the last 5,000 lines of each log.
+
+| Condition the owner set                  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exact head SHA                           | `3fe58a7fdb0c9c811c51d73f96926029362063f4`, read back from the run. It is the audit remediation SHA (§A1) and is still the head of the branch                                                                                                                                                                                                                                                                                      |
+| Timestamps                               | Created and started 2026-09-23T03:26:37Z; completed (last update) 03:35:54Z                                                                                                                                                                                                                                                                                                                                                        |
+| All eight jobs successful                | Each **success**, each attempt 1: verify `107032536354`; commerce and operations detail `107032536443`; accessibility sweep `107032536459`; public catalogue `107032536473`; production build `107032536477`; refusals `107032536524`; organiser venue maps `107032536547`; event lifecycle `107032536649`. The `all` job listing holds exactly these eight                                                                        |
+| Only failure-conditional uploads skipped | Eight skipped steps, one per job. In verify it is step 28, "Upload failure artefacts" (`if: failure()`, ci.yml:217). In each browser job it is step 11, "Upload Playwright artefacts" (`if: failure()`, ci.yml:346). Every other step in every job succeeded                                                                                                                                                                       |
+| No rerun                                 | The run and all eight jobs are attempt 1. It is the only run on `3fe58a7`. The run before it, `35793993188`, was on `16357f3`                                                                                                                                                                                                                                                                                                      |
+| Fresh-report summary visible in CI       | Verify step 27, "Fresh-report summary", printed the table below at 03:34:21Z. It ends about 970 lines before the end of the 8,354-line log. Everything after it is post-job cleanup and the service containers' own logs                                                                                                                                                                                                           |
+| Database                                 | Fresh: **99/99 checks passed**. Its API database suite ran 11 files and 177 cases, against 168 in §A2, and the disposable database was destroyed. Upgrade: **26/26 checks passed**. Every migration applied over existing rows, the admission migration `20260922200000_admission_scope_and_method` among them, and the upgraded database matched a fresh one on 1,488 catalogue entries. Both disposable databases were destroyed |
+| PostgreSQL and Redis ran                 | `REQUIRE_DATABASE: 1` is in every step's environment, so an unreachable database fails the run instead of skipping. The fresh-report table shows 0 skipped across 5,860 cases, and a Redis suite that skipped would have been refused                                                                                                                                                                                              |
+| Coverage                                 | `Tasks: 18 successful, 18 total` and `Cached: 0 cached, 18 total`. A missed threshold fails its task, and none failed. The narrowest margin visible is api's branch coverage, 77.52% against 75%. No threshold changed in the audit: across `16357f3..3fe58a7`, the only change to a vitest config, `turbo.json` or a `package.json` is the root `verify` script                                                                   |
+| Reliability                              | Three scenarios, `ga-hold-contention`, `seat-hold-contention` and `check-in-concurrency`, each `1/1 scenario(s) passed`                                                                                                                                                                                                                                                                                                            |
+| Payment kill switch                      | `tests/payment-kill-switch.test.js`: 1 file, **12 passed (12)**. `PAYMENT_MODE` appears nowhere in the workflow, so it resolves to `MOCK`                                                                                                                                                                                                                                                                                          |
+| Dependency audit                         | `No known vulnerabilities found`                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Bundle scan                              | `Browser bundle scan: OK — 362 browser-deliverable files, nothing server-only present.`                                                                                                                                                                                                                                                                                                                                            |
+| Contract                                 | Validate API contract: step success. As in §A2, its output is above the readable window. OpenAPI drift: `openapi.json is up to date with the route contract`. Route-manifest drift: step success                                                                                                                                                                                                                                   |
+| Browser jobs                             | All seven successful, and collected equals executed in each (table below)                                                                                                                                                                                                                                                                                                                                                          |
+| Accessibility sweep                      | **63 / 63**. Since `43173f8`, its holder's-pass case draws a synthetic credential, not a real pass                                                                                                                                                                                                                                                                                                                                 |
+
+The fresh-report table, as the log printed it (timestamps removed):
+
+```text
+package                     files   tests  passed  failed skipped  verdict
+@desi-event/api                73    1464    1464       0       0  ok
+@desi-event/api-contract        8     191     191       0       0  ok
+@desi-event/auth                7     356     356       0       0  ok
+@desi-event/config              5     103     103       0       0  ok
+@desi-event/db                  3     102     102       0       0  ok
+@desi-event/inventory           8     291     291       0       0  ok
+@desi-event/ledger              1      33      33       0       0  ok
+@desi-event/logger              4      66      66       0       0  ok
+@desi-event/notifications       2      56      56       0       0  ok
+@desi-event/permissions         4     612     612       0       0  ok
+@desi-event/pricing             5     116     116       0       0  ok
+@desi-event/providers          12     494     494       0       0  ok
+@desi-event/schemas            15     734     734       0       0  ok
+@desi-event/ui                 12      97      97       0       0  ok
+@desi-event/web                49     839     839       0       0  ok
+@desi-event/worker             21     306     306       0       0  ok
+total                         229    5860    5860       0       0  16 package(s)
+
+Run started 2026-09-23T03:27:55.759Z; 0 report(s) deleted beforehand.
+Fresh-report verification: OK — 5860 case(s) ran across 16 fresh report(s); 0 failed, 0 skipped, 0 undeclared.
+```
+
+- **5,860 cases, 0 failed, 0 skipped.** The same total as the local run of
+  the same command on this tree.
+- **0 reports deleted.** That is what a fresh checkout should show: reports
+  are git-ignored and none is tracked.
+- **16 packages.** That is every `test` task in Turborepo's plan. The run's
+  other three tasks are the `build` tasks of api, db and web, which the tests
+  depend on.
+
+The browser jobs, from each job's own `Running N tests` line and its summary:
+
+| Configuration                                      | Job            | Collected | Executed       | Time    |
+| -------------------------------------------------- | -------------- | --------- | -------------- | ------- |
+| public catalogue (`test:e2e`)                      | `107032536473` | 118       | **118 passed** | 1.9 min |
+| production build (`test:e2e:prod`)                 | `107032536477` | 19        | **19 passed**  | 7.2 s   |
+| event lifecycle (`test:e2e:events`)                | `107032536649` | 20        | **20 passed**  | 55.5 s  |
+| organiser venue maps (`test:e2e:organizer`)        | `107032536547` | 13        | **13 passed**  | 21.9 s  |
+| refusals (`test:e2e:refusals`)                     | `107032536524` | 4         | **4 passed**   | 21.0 s  |
+| accessibility sweep (`test:e2e:sweep`)             | `107032536459` | 63        | **63 passed**  | 1.3 min |
+| commerce and operations detail (`test:e2e:detail`) | `107032536443` | 80        | **80 passed**  | 2.3 min |
+| **All seven**                                      |                | **317**   | **317**        |         |
+
+- **Per-test lines counted too.** Each job ran on one worker. Its per-test
+  lines were counted as well as its summary read: indices 1 to N, each once,
+  every one ✓, none with a retry suffix. No job printed a skipped, flaky,
+  failed, did-not-run or interrupted line.
+- **Detail is 80, not §A2's 79.** The difference is the half-typed slow-page
+  case added in `43173f8`. The local run of this tree gave the same seven
+  numbers.
+- **One server line in the detail job.**
+  `[WebServer] ⨯ Error: The destination stream closed early.` It came 0.4 s
+  after case 59 passed and before case 60 started. React's server renderer
+  prints this when a response's `close` event arrives before a streamed
+  render finishes (`react-dom-server`): the client went away mid-stream. The
+  line names no request. A browser context closing at the end of case 59
+  would produce it, but that is an inference. No case failed or retried, and
+  nothing more is claimed from it.
+
+**Correction.** The commit message of `3fe58a7` says the new step makes the
+table end the log. The step comment in `ci.yml` says the same. It ends the
+job's steps. After it, the runner's post-job cleanup prints the service
+containers' logs, about 970 lines here. The table sits well inside the 5,000
+lines the connector returns, and that was the step's purpose. The workflow
+comment will be corrected with the next code change, not in this
+documentation-only commit.
+
+### A12. Phase 3 classification
+
+Run `35814340442` meets every condition the owner set for it (§A11). This
+section is the documentation-only closure, committed after that result.
+
+Phase 3 is therefore **COMPLETE — VERIFIED ON REMEDIATION SHA `3fe58a7`**.
+
+As before, that means fourteen separate outcomes. It does not mean the
+ticketing product is complete. The closure table above is left as written.
+Where the two tables differ, this one stands: the QR scanner is complete in
+Chromium simulation only, and the corrections in §A4 and §A5 apply.
+
+| Requirement                        | Classification                                                            | Evidence in this audit                                                                                                                                                          |
+| ---------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Event-scoped scanner authorisation | **COMPLETE**                                                              | §A5: fourteen scenarios on PostgreSQL, including a SCANNER from a rival organisation                                                                                            |
+| Non-mutating admission preview     | **COMPLETE**                                                              | §5 above: the ticket row is byte-identical before and after, on PostgreSQL. §A5: a preview grants nothing                                                                       |
+| Final authorisation revalidation   | **COMPLETE**                                                              | §A5: the confirmation locks the ticket and re-reads membership, scope and ticket state. Negatives 2, 3, 4, 7, 10 and 11 confirm with a validly signed reference and are refused |
+| Exactly-once check-in              | **COMPLETE**                                                              | §A5: the races on PostgreSQL. Since `2448476`, `pg_blocking_pids` proves the interleaving happened                                                                              |
+| Manual admission                   | **COMPLETE**                                                              | §A6: `MANUAL_CODE` follows from what was presented. §A8: a code typed before the page's script arrives is kept                                                                  |
+| Attendee secure QR pass            | **COMPLETE**                                                              | §A4: the QR holds the HMAC credential, never the printed code. The credential stays out of URLs, storage, logs, audit rows and test artefacts                                   |
+| QR scanner                         | **COMPLETE IN CHROMIUM SIMULATION; EXTERNAL DEVICE VERIFICATION PENDING** | §A4: verified in Chromium, with a canvas stream standing in for the camera. Physical devices and non-Chromium browsers are not verified                                         |
+| Organiser check-in UI              | **COMPLETE**                                                              | §A8. In §A11, the sweep and detail jobs (63 and 80 cases)                                                                                                                       |
+| Member-email exposure              | **FIXED**                                                                 | §A7. The shape of the mask is an owner recommendation, recorded in §A10 and not yet implemented                                                                                 |
+| Notification retry lease           | **FIXED**                                                                 | §A7: every retryable state, on PostgreSQL                                                                                                                                       |
+| Reserved-seat transfer             | **BLOCKED — UNIQUE-SEAT TRANSFER DEFECT**                                 | Unchanged: ADR 0005, §12                                                                                                                                                        |
+| Offline admission                  | **NOT IMPLEMENTED**                                                       | Unchanged                                                                                                                                                                       |
+| Group booking                      | **NOT IMPLEMENTED**                                                       | Unchanged                                                                                                                                                                       |
+| Real Stripe and Stripe Connect     | **EXTERNAL VERIFICATION PENDING**                                         | `PAYMENT_MODE` resolved to `MOCK`. Kill switch 12 of 12 in §A11                                                                                                                 |
+
+The fresh-report command is not one of the fourteen. It decided whether this
+classification could be COMPLETE rather than PARTIAL. It is **IMPLEMENTED**
+(§A3).
+
+Phase 4 has not begun. This audit wrote no Phase 4 code, and Phase 4 waits on
+the owner's authorisation. `PAYMENT_MODE` stayed `MOCK`. Destructive retention
+stayed disabled.
 
 ---
 

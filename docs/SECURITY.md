@@ -299,6 +299,29 @@ its event and its transfer history and carries no credential, no digest and no
 token; three browser cases assert the markup contains none of the three names
 they go by.
 
+_Corrected 2026-09-23, Phase 3 closure audit. The paragraph above is left as
+written; it described Phase 2._ Since Phase 3 (`739cc58`), one screen does
+render a pass. The holder's ticket page draws it as a QR code, and only when
+the holder presses **Show my entry pass**. The drawing comes from
+`GET /v1/tickets/:id/pass`. It answers the holder alone, gives anyone else a
+404, and is `private, no-store`.
+
+- The component keeps the drawing and never the credential text. It drops the
+  drawing on **Hide pass**, when the page is hidden, on `pagehide`, and when
+  the page is left.
+- The page tells the holder that anybody holding the code, a screenshot
+  included, can use it to get in once. It claims no way of preventing a
+  screenshot.
+- `GET /v1/tickets/:id` itself still carries no credential, digest or token
+  (`ticket-lifecycle.test.js`). The ticket page's markup still carries none of
+  `credentialHash`, `credentialVersion` or `ticket-pass-v1`
+  (`detail-transfers.spec.js`). The drawing arrives only from the pass
+  endpoint, after the press.
+- No end-to-end spec shows a real pass where a screenshot, trace or video
+  could keep it. Either the spec file turns all three off, or the case answers
+  the pass request itself. `apps/web/src/lib/e2e-pass-hygiene.test.js`
+  enforces this.
+
 **A transfer invitation is a bearer secret and is treated as one.** It is
 delivered out of band, never in a response, and the screen that accepts it takes
 it as a pasted value in a password field. The accept route reads no query
