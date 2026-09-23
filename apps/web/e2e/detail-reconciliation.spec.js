@@ -70,14 +70,32 @@ test.describe('the reconciliation detail screen', () => {
   })
 
   test('refuses the command even when it is issued directly', async ({ owner }) => {
+    // Sent as the page itself would send it — this origin, and the CSRF token
+    // echoed from its cookie — so the forgery guard lets it through and the
+    // refusal can only be the capability check. Without both headers the 403
+    // came from the guard, and the case would have passed even if claiming
+    // admitted an organiser.
+    await owner.goto('/operations')
+
+    const csrf = (await owner.context().cookies()).find(({ name }) => name.endsWith('desi_csrf'))
+
+    expect(csrf, 'the session carries no CSRF cookie to echo').toBeTruthy()
+
     const response = await owner.request.post(
       `/api/v1/operations/reconciliation/${ids().reconciliationTaskId}/claim`,
-      { data: {} },
+      {
+        data: {},
+        headers: {
+          origin: new URL(owner.url()).origin,
+          'x-desi-csrf': decodeURIComponent(csrf.value),
+        },
+      },
     )
 
     // The buttons are not the authorisation. Issuing the HTTP command anyway is
     // refused by the same check that decided not to draw them.
     expect(response.status()).toBe(403)
+    expect((await response.json()).error.code).toBe('FORBIDDEN')
   })
 
   test('answers a direct URL for another organisation as it answers for nothing', async ({

@@ -1,10 +1,13 @@
 import AxeBuilder from '@axe-core/playwright'
+import { createPrismaClient } from '@desi-event/db'
 import { expect, test } from '@playwright/test'
 
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
 import {
+  CONNECTION,
   PASSWORD,
+  TOTP_SECRET,
   cleanupRefusals,
   currentCode,
   forgetCodeUse,
@@ -54,6 +57,43 @@ import {
  * cannot reach it. The seed grows a tagged `SUPER_ADMIN` for exactly this, and
  * the sign-in for it is separate from {@link signIn} because that helper ends
  * by asserting `/organizer/events`, which a platform reader never sees.
+ *
+ * ## The Phase 4 surfaces
+ *
+ * Phase 4 added a public discovery layer (the three directories, the
+ * limitations page, sign-in, registration and checkout), the attendee's own
+ * pages under `/account`, and three workspace lists (the team, the refund list
+ * and the reconciliation list) plus the platform's notification queue. The
+ * last block of this file sweeps every one of them at the seven widths the
+ * door is held to and at 200% zoom, scans four of those sizes, and holds each
+ * page to one level-one heading and a titled document.
+ *
+ * Each page is swept with real rows on it, and each case says which before it
+ * measures anything: a Live Music count read from the API, the alpha
+ * organisation among the organisers, the seeded order in the history and on
+ * its own page, the door scanner's scope on the team screen, the seeded refund
+ * and reconciliation item in their lists. A page that degraded to a refusal
+ * would fail that first, rather than being scanned and called clean.
+ *
+ * Two rows are written for the block and deleted after it, in the way the
+ * world's own seeds write theirs: a shared venue with a long name and eight
+ * accessibility claims, because the anonymous venue directory is otherwise
+ * empty in a fresh database and a directory with no card in it reflows
+ * trivially; and one dead-lettered outbox message, because nothing in this
+ * world enqueues mail and the queue's sixty-rem table would otherwise never be
+ * drawn at 320.
+ *
+ * The public pages are opened in a window nobody has signed in to — sign-in
+ * and registration redirect a signed-in visitor, so they cannot be swept any
+ * other way — and no case in the block signs anybody in. The attendee and
+ * workspace pages reuse the organiser's window (the alpha owner holds the
+ * seeded order), and the notification queue reuses the platform reader's.
+ *
+ * Two cases close the block. At 320 the header's four ways into the catalogue
+ * are behind a menu button, so a keyboard has to reach the button, open it and
+ * walk the links, and Escape has to bring focus back. And with motion reduced,
+ * nothing inside the home page's animated content may run for longer than
+ * the stylesheet's 0.01 ms, or be left short of its resting state.
  *
  * ## Why these tests live in this file rather than a new one
  *
@@ -375,6 +415,557 @@ async function signInWithoutFactor(page, email) {
 const DOOR_WIDTHS = Object.freeze(
   [320, 375, 390, 768, 1024, 1280, 1440].map((width) => ({ width, height: 900 })),
 )
+
+/**
+ * The 200% zoom case, as the layout sees it.
+ *
+ * Playwright sets a viewport in CSS pixels, and a 1280 × 900 window at 200%
+ * zoom lays out at 640 × 450 CSS pixels, so this is that window. The earlier
+ * zoom cases in this file keep the height at 900, which is a taller window
+ * than any 200% zoom produces; the Phase 4 block halves both, so each page is
+ * reflowed and scanned in the window somebody zoomed in actually has.
+ *
+ * @type {Readonly<{width: number, height: number}>}
+ */
+const ZOOM_200 = Object.freeze({ width: 640, height: 450 })
+
+/**
+ * The widths the scanner runs at in the Phase 4 block.
+ *
+ * Every size is measured for reflow; four are scanned — the narrowest, the
+ * tablet, the laptop and the zoomed window — because a scan costs seconds and
+ * the other three widths differ from their neighbours in layout, not in
+ * markup.
+ *
+ * @type {ReadonlySet<number>}
+ */
+const SCANNED_WIDTHS = new Set([320, 768, 1280, ZOOM_200.width])
+
+/**
+ * Every size a Phase 4 surface is measured at: the door's seven, then zoom.
+ *
+ * @type {ReadonlyArray<{width: number, height: number, label: string}>}
+ */
+const PHASE_4_SIZES = Object.freeze([
+  ...DOOR_WIDTHS.map((size) => ({ ...size, label: `${size.width} px` })),
+  { ...ZOOM_200, label: '200% zoom (640 × 450)' },
+])
+
+/** The seeded published event's title, as `seed-refusals.mjs` writes it. */
+const EVENT_TITLE = `Alpha's Evening ${TAG}`
+
+/** The seeded published event's slug. */
+const EVENT_SLUG = `alpha-event-${TAG}`
+
+/** The sample catalogue's notice: its absence is the sign the API answered. */
+const SAMPLE_NOTICE = 'Showing our sample programme'
+
+/**
+ * The shared venue the Phase 4 block writes, and the claims it asserts.
+ *
+ * Shared — no organisation — because `GET /v1/venues` keeps an organisation's
+ * own venues out of an anonymous caller's list, so the world's venues never
+ * reach the directory. In a city named for this run, so the directory can be
+ * narrowed to exactly this card. The name is long and the claims are many
+ * because a card that wraps is the case worth measuring at 320. Each claim is
+ * paired with the words `lib/accessibility.js` shows for it, written out
+ * rather than imported: a test that read the table it checks would agree
+ * with any table.
+ *
+ * @type {Readonly<{name: string, slug: string, city: string, claims: ReadonlyArray<Array<string>>}>}
+ */
+const SWEEP_VENUE = Object.freeze({
+  name: `Shri Shanmukhananda Fine Arts and Sangeetha Sabha Auditorium ${TAG}`,
+  slug: `sweep-auditorium-${TAG}`,
+  city: `Sweep Test Town ${TAG}`,
+  claims: Object.freeze([
+    ['STEP_FREE_ENTRANCE', 'Step-free entrance'],
+    ['STEP_FREE_TO_SEATING', 'Step-free route to the seating'],
+    ['ACCESSIBLE_TOILET', 'Accessible toilet'],
+    ['WHEELCHAIR_SPACES', 'Wheelchair spaces'],
+    ['HEARING_LOOP', 'Hearing loop'],
+    ['SIGN_LANGUAGE', 'Sign language interpretation'],
+    ['ASSISTANCE_DOGS_WELCOME', 'Assistance dogs welcome'],
+    ['LIFT_ACCESS', 'Lift access'],
+  ]),
+})
+
+/**
+ * The outbox message the Phase 4 block writes.
+ *
+ * The recipient is fictional, on a `.test` domain, and the marker is what the
+ * payload carries. The queue says neither recipients nor contents are shown,
+ * so neither may appear anywhere in what the page sends.
+ *
+ * @type {Readonly<{template: string, dedupeKey: string, recipient: string, marker: string}>}
+ */
+const OUTBOX_PROBE = Object.freeze({
+  template: `sweep-probe-${TAG}`,
+  dedupeKey: `sweep-probe:${TAG}`,
+  recipient: `outbox-sweep-${TAG}@attendee.test`,
+  marker: `sweep-payload-${TAG}`,
+})
+
+/**
+ * The header's four ways into the catalogue, in order.
+ *
+ * `PUBLIC_ITEMS` in `lib/navigation.js`, written out for the same reason as
+ * the venue's claims.
+ *
+ * @type {ReadonlyArray<{label: string, path: string}>}
+ */
+const HEADER_ENTRIES = Object.freeze([
+  { label: 'Discover events', path: '/events' },
+  { label: 'Categories', path: '/categories' },
+  { label: 'Venues', path: '/venues' },
+  { label: 'Organisers', path: '/organizers' },
+])
+
+/**
+ * What no page may carry, in its markup or its address.
+ *
+ * The page's markup includes the streamed server-component payload, so a field
+ * handed to a client component is caught here even when nothing draws it. The
+ * printed ticket codes are on the list because a code is what the door looks a
+ * ticket up by; the order page's own module doc says it never renders one.
+ *
+ * @type {ReadonlyArray<Array<string>>}
+ */
+const SECRETS = Object.freeze([
+  ['credentialHash', 'a credential digest field'],
+  ['ticket-pass-v1', 'the pass derivation label'],
+  [TOTP_SECRET, 'the seeded TOTP secret'],
+  [TOTP_SECRET.match(/.{1,4}/gu).join(' '), 'the seeded TOTP secret, grouped for typing'],
+  [PASSWORD, 'the seeded password'],
+  [`DE-SWP-${TAG}-`, 'a seeded ticket’s printed code'],
+  [`DE-DOOR-${TAG.toUpperCase()}-`, 'a door ticket’s printed code'],
+])
+
+/**
+ * A visitor's window: a context nobody has signed in to, opened by the Phase 4
+ * block for the public pages.
+ *
+ * @type {object}
+ */
+let visitorContext
+/**
+ * The one page in {@link visitorContext}.
+ *
+ * @type {object}
+ */
+let visitor
+
+/**
+ * Assert that neither the page nor its address carries a secret.
+ *
+ * @param {object} page The page.
+ * @param {string} where What the page is, for the message.
+ * @returns {Promise<void>} Resolves when checked.
+ */
+async function expectNoSecrets(page, where) {
+  const markup = await page.content()
+  const address = decodeURIComponent(page.url())
+
+  for (const [needle, what] of SECRETS) {
+    expect(markup, `${where} carries ${what}`).not.toContain(needle)
+    expect(address, `the address bar on ${where} carries ${what}`).not.toContain(needle)
+  }
+}
+
+/**
+ * The text of every level-one heading in the document.
+ *
+ * Read from the document itself rather than through a locator, because
+ * Playwright's CSS engine reaches into open shadow roots, and Next's
+ * development overlay is one — its markup is not the page's.
+ *
+ * @param {object} page The page.
+ * @returns {Promise<string[]>} Each heading's text, whitespace collapsed.
+ */
+function levelOneHeadings(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('h1, [role="heading"][aria-level="1"]')].map((heading) =>
+      heading.textContent.replace(/\s+/gu, ' ').trim(),
+    ),
+  )
+}
+
+/**
+ * The window a surface is opened in.
+ *
+ * @param {'visitor'|'organiser'|'platform'} kind Whose.
+ * @returns {Promise<object>} The page.
+ */
+async function windowFor(kind) {
+  if (kind === 'visitor') return visitor
+  if (kind === 'platform') return platformReader()
+
+  return organiser
+}
+
+/**
+ * Choose one General admission ticket at checkout.
+ *
+ * Retried until the quantity reads 1, because a click that lands before the
+ * basket hydrates does nothing. The click is only repeated while the quantity
+ * is still 0, so a late press cannot choose two.
+ *
+ * @param {object} page The page, on the checkout.
+ * @returns {Promise<void>} Resolves once one ticket is chosen.
+ */
+async function chooseOneTicket(page) {
+  const quantity = page.getByLabel('Quantity of General admission')
+  const add = page.getByRole('button', { name: 'Add one General admission', exact: true })
+
+  await expect(quantity).toHaveValue('0')
+
+  await expect(async () => {
+    if ((await quantity.inputValue()) === '0') await add.click()
+
+    await expect(quantity).toHaveValue('1', { timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+}
+
+/**
+ * Open the header's narrow-viewport menu, however early the first press was.
+ *
+ * A press that lands before hydration does nothing, because the server's
+ * button has no handler yet. The press is repeated only while the button still
+ * says it is closed, so a late one cannot close the menu again.
+ *
+ * @param {object} page The page.
+ * @param {function(): Promise<void>} press How to press it: a click or a key.
+ * @returns {Promise<void>} Resolves once the menu says it is open.
+ */
+async function openMenu(page, press) {
+  const menu = page.getByRole('banner').getByRole('button', { name: 'Menu', exact: true })
+
+  await expect(async () => {
+    if ((await menu.getAttribute('aria-expanded')) !== 'true') await press()
+
+    await expect(menu).toHaveAttribute('aria-expanded', 'true', { timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+}
+
+/**
+ * @typedef {object} SweptSurface
+ * @property {string} name What the page is, for the test title.
+ * @property {'visitor'|'organiser'|'platform'} window Whose window it is opened in.
+ * @property {function(): string} path Where it is.
+ * @property {function(): string} heading Its one level-one heading, exactly.
+ * @property {function(): string} title Its document title, before the site's suffix.
+ * @property {function(object): Promise<void>} arrived Waits for, and asserts, what makes it real.
+ */
+
+/**
+ * The Phase 4 surfaces, each with the rows that make it more than markup.
+ *
+ * Paths, headings and titles are functions because the seeded ids exist only
+ * once `beforeAll` has run, and this list is read when the file is collected.
+ * Every heading and title is the page's own, from its source.
+ *
+ * @type {ReadonlyArray<SweptSurface>}
+ */
+const PHASE_4_SURFACES = Object.freeze([
+  {
+    name: 'the category directory',
+    window: 'visitor',
+    path: () => '/categories',
+    heading: () => 'Browse by category',
+    title: () => 'Categories',
+    async arrived(page) {
+      // The facets came from the API, not the sample catalogue, and Live Music
+      // has at least one listed event: the alpha event is MUSIC_CONCERT and
+      // PUBLISHED. At least one, not exactly one — other runs' events may be
+      // in the same database — so "Nothing listed right now" is what fails.
+      await expect(page.getByText(SAMPLE_NOTICE)).toHaveCount(0)
+
+      const music = page
+        .getByRole('list', { name: 'Event categories', exact: true })
+        .getByRole('listitem')
+        .filter({ has: page.getByRole('heading', { name: 'Live Music', exact: true }) })
+
+      await expect(music.getByTestId('category-count')).toHaveText(/^\d[\d,]* events?$/u)
+    },
+  },
+  {
+    name: 'the venue directory',
+    window: 'visitor',
+    path: () => `/venues?city=${encodeURIComponent(SWEEP_VENUE.city)}`,
+    heading: () => 'Venues',
+    title: () => 'Venues',
+    async arrived(page) {
+      // The summary is drawn only when the API answered; a failed read is a
+      // refusal with no summary at all.
+      await expect(page.getByTestId('venue-summary')).toHaveText('1 venue on this page')
+
+      const card = page
+        .getByRole('list', { name: 'Venues', exact: true })
+        .getByRole('listitem')
+        .filter({ has: page.getByRole('link', { name: SWEEP_VENUE.name, exact: true }) })
+
+      await expect(
+        card
+          .getByRole('list', { name: `Accessibility at ${SWEEP_VENUE.name}`, exact: true })
+          .getByRole('listitem'),
+      ).toHaveText(SWEEP_VENUE.claims.map(([, label]) => label))
+      await expect(card).toContainText('The venue adds an accessibility note on its page.')
+    },
+  },
+  {
+    name: 'the organiser directory',
+    window: 'visitor',
+    path: () => '/organizers',
+    heading: () => 'Organisers',
+    title: () => 'Organisers',
+    async arrived(page) {
+      await expect(page.getByText(SAMPLE_NOTICE)).toHaveCount(0)
+      await expect(
+        page
+          .getByRole('list', { name: 'Organisers', exact: true })
+          .getByRole('link', { name: `Alpha Collective ${TAG}`, exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'the limitations page',
+    window: 'visitor',
+    path: () => '/limitations',
+    heading: () => 'What this site does not do',
+    title: () => 'What this site does not do',
+    async arrived(page) {
+      // Asks nothing of the API: every statement is a property of the build.
+      await expect(
+        page.getByRole('heading', { level: 2, name: 'Email', exact: true }),
+      ).toBeVisible()
+      await expect(page.getByText('EXTERNAL VERIFICATION PENDING', { exact: true })).toBeVisible()
+    },
+  },
+  {
+    name: 'the registration page',
+    window: 'visitor',
+    path: () => '/register',
+    heading: () => 'Create an account',
+    title: () => 'Create an account',
+    async arrived(page) {
+      // Still here: a session would have been redirected onwards.
+      await expect(page).toHaveURL((url) => url.pathname === '/register')
+      await expect(page.getByLabel('Your name')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Create account', exact: true })).toBeVisible()
+    },
+  },
+  {
+    name: 'the sign-in page',
+    window: 'visitor',
+    path: () => '/sign-in',
+    heading: () => 'Sign in',
+    title: () => 'Sign in',
+    async arrived(page) {
+      await expect(page).toHaveURL((url) => url.pathname === '/sign-in')
+      await expect(page.getByLabel('Email address')).toBeVisible()
+      await expect(page.getByLabel('Password')).toBeVisible()
+      // The second factor is asked for only after a password is accepted.
+      await expect(page.getByLabel(/^Six-digit code/u)).toHaveCount(0)
+    },
+  },
+  {
+    name: 'the alpha event’s checkout, signed out',
+    window: 'visitor',
+    path: () => `/events/${EVENT_SLUG}/checkout`,
+    heading: () => `Tickets for ${EVENT_TITLE}`,
+    title: () => `Tickets for ${EVENT_TITLE}`,
+    async arrived(page) {
+      const notice = page.getByTestId('payment-mode-notice')
+
+      await expect(notice).toContainText('Payments on this site are simulated')
+      await expect(notice).toContainText('You will not be asked for a card, no money moves')
+
+      // Swept with a ticket chosen, which is the state only a visitor sees: a
+      // summary priced from the seeded tier and a link to sign in instead of
+      // a reserve button.
+      await chooseOneTicket(page)
+
+      await expect(page.getByTestId('summary-subtotal')).toHaveText('₹1,000.00')
+      await expect(page.getByRole('link', { name: 'Sign in to buy', exact: true })).toHaveAttribute(
+        'href',
+        `/sign-in?next=${encodeURIComponent(`/events/${EVENT_SLUG}/checkout`)}`,
+      )
+      await expect(page.getByRole('button', { name: 'Reserve tickets', exact: true })).toHaveCount(
+        0,
+      )
+      await expect(page.getByRole('button', { name: /^Pay /u })).toHaveCount(0)
+    },
+  },
+  {
+    name: 'the order history',
+    window: 'organiser',
+    path: () => '/account/orders',
+    heading: () => 'Your orders',
+    title: () => 'Orders',
+    async arrived(page) {
+      await expect(page.getByText('Payments on this site are simulated.')).toBeVisible()
+
+      const card = page.getByRole('listitem').filter({ hasText: commerce.orderReference })
+
+      await expect(card.getByRole('link', { name: EVENT_TITLE, exact: true })).toBeVisible()
+      await expect(card).toContainText('Paid — simulated')
+    },
+  },
+  {
+    name: 'the seeded order',
+    window: 'organiser',
+    path: () => `/account/orders/${encodeURIComponent(commerce.orderReference)}`,
+    heading: () => EVENT_TITLE,
+    title: () => 'Order',
+    async arrived(page) {
+      await expect(page.getByRole('region', { name: 'The order', exact: true })).toContainText(
+        commerce.orderReference,
+      )
+      await expect(
+        page.getByText('Simulated payment — no card was charged and no money moved.', {
+          exact: true,
+        }),
+      ).toBeVisible()
+      // Both seeded tickets, linked because this account holds them — and by
+      // position, never by the code the order payload carries for each.
+      await expect(
+        page.getByRole('region', { name: 'Tickets on this order', exact: true }).getByRole('link'),
+      ).toHaveText(['Ticket 1 of 2', 'Ticket 2 of 2'])
+    },
+  },
+  {
+    name: 'the transfers page',
+    window: 'organiser',
+    path: () => '/account/transfers',
+    heading: () => 'Transfers',
+    title: () => 'Transfers',
+    async arrived(page) {
+      // Both of the owner's tickets are bought and never offered, so the
+      // wallet read comes back with nothing to arrange. The accept section is
+      // drawn only when that read succeeded.
+      await expect(page.getByText('Nothing handed on or received', { exact: true })).toBeVisible()
+      await expect(page.getByRole('region', { name: 'Accept a ticket', exact: true })).toBeVisible()
+    },
+  },
+  {
+    name: 'the account security page',
+    window: 'organiser',
+    path: () => '/account/security',
+    heading: () => 'Account security',
+    title: () => 'Account security',
+    async arrived(page) {
+      // The seeded confirmed factor, and the session this window is using.
+      await expect(
+        page.getByRole('region', { name: 'Two-step sign-in', exact: true }),
+      ).toContainText(
+        'On. Signing in asks for a code from your authenticator app as well as your password.',
+      )
+      await expect(
+        page.getByRole('region', { name: 'Where you are signed in', exact: true }),
+      ).toContainText('This session')
+    },
+  },
+  {
+    name: 'the account privacy page',
+    window: 'organiser',
+    path: () => '/account/privacy',
+    heading: () => 'Privacy',
+    title: () => 'Privacy',
+    async arrived(page) {
+      // Static prose inside the account area, which admitted this session: the
+      // header names the person the API says is signed in.
+      await expect(
+        page
+          .getByRole('banner')
+          .getByRole('button', { name: 'Alpha Collective Owner, account', exact: true }),
+      ).toBeVisible()
+      await expect(
+        page.getByRole('region', { name: 'What cannot be done from here', exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'the team screen',
+    window: 'organiser',
+    path: () => '/organizer/team',
+    heading: () => 'Team and roles',
+    title: () => 'Team and roles',
+    async arrived(page) {
+      // The door seed's scanner, with the scope it wrote, named by its event.
+      const scanner = page
+        .getByRole('region', { name: 'Members', exact: true })
+        .getByRole('row')
+        .filter({ has: page.getByRole('rowheader', { name: 'Door Scanner', exact: true }) })
+
+      // The role by its own cell: the seeded name is "Door Scanner", which
+      // differs from the role's words only in case, so a row-wide match would
+      // be one capital letter away from matching the name instead.
+      await expect(scanner.getByRole('cell', { name: 'Door scanner', exact: true })).toBeVisible()
+      await expect(scanner).toContainText(`Admits to: ${EVENT_TITLE}`)
+    },
+  },
+  {
+    name: 'the refund list',
+    window: 'organiser',
+    path: () => '/finance/refunds',
+    heading: () => 'Refunds',
+    title: () => 'Refunds',
+    async arrived(page) {
+      await expect(page.getByRole('status').filter({ hasText: 'Demonstration data' })).toBeVisible()
+
+      const row = page
+        .getByRole('region', { name: 'Refunds', exact: true })
+        .getByRole('row')
+        .filter({ hasText: commerce.orderReference })
+
+      await expect(
+        row.getByRole('link', { name: `Refund on ${commerce.orderReference}`, exact: true }),
+      ).toBeVisible()
+      await expect(row).toContainText('Requested')
+      await expect(row).toContainText('₹1,000.00')
+    },
+  },
+  {
+    name: 'the reconciliation list',
+    window: 'organiser',
+    path: () => '/operations/reconciliation',
+    heading: () => 'Reconciliation',
+    title: () => 'Reconciliation',
+    async arrived(page) {
+      // Seeded open, and ninety-six hours old, so the API bands it overdue.
+      const row = page
+        .getByRole('region', { name: 'Reconciliation items', exact: true })
+        .getByRole('row')
+        .filter({ hasText: commerce.orderReference })
+
+      await expect(row.getByRole('link', { name: 'Payment timeout', exact: true })).toBeVisible()
+      await expect(row).toContainText('Open')
+      await expect(row).toContainText('Overdue')
+    },
+  },
+  {
+    name: 'the notification queue',
+    window: 'platform',
+    path: () => '/operations/notifications',
+    heading: () => 'Notification queue',
+    title: () => 'Notification queue',
+    async arrived(page) {
+      const row = page
+        .getByRole('region', { name: 'Notification queue', exact: true })
+        .getByRole('row')
+        .filter({ has: page.getByRole('link', { name: OUTBOX_PROBE.template, exact: true }) })
+
+      await expect(row).toContainText('Dead letter')
+      await expect(row).toContainText('5 of 5')
+
+      // The page says neither recipients nor contents are shown.
+      const markup = await page.content()
+
+      expect(markup, 'the queue carries a recipient address').not.toContain(OUTBOX_PROBE.recipient)
+      expect(markup, 'the queue carries a message payload').not.toContain(OUTBOX_PROBE.marker)
+    },
+  },
+])
 
 test.describe.serial('the Phase 2 screens, swept', () => {
   test.beforeAll(async ({ browser }) => {
@@ -1226,5 +1817,304 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     } finally {
       await context.close()
     }
+  })
+
+  test.describe('the Phase 4 surfaces, swept', () => {
+    test.beforeAll(async ({ browser }) => {
+      const prisma = createPrismaClient({ connectionString: CONNECTION })
+
+      // Upserted, so a run re-started with the same `SWEEP_E2E_TAG` after one
+      // that stopped before its `afterAll` finds these rows rather than
+      // failing on their unique keys. (A failure inside this serial group
+      // skips the cases after it; it does not re-run this hook.)
+      try {
+        const venue = {
+          name: SWEEP_VENUE.name,
+          addressLine1: '1 Sweep Road',
+          city: SWEEP_VENUE.city,
+          region: 'Maharashtra',
+          postalCode: '400001',
+          // No organisation: a shared venue, which is what the anonymous
+          // directory lists.
+          organizationId: null,
+          provenance: 'moderator',
+          accessibility: {
+            features: SWEEP_VENUE.claims.map(([code]) => code),
+            note: 'The step-free entrance is at Gate 3; ring the bell there for the lift.',
+          },
+        }
+
+        await prisma.venue.upsert({
+          where: { slug: SWEEP_VENUE.slug },
+          update: venue,
+          create: { slug: SWEEP_VENUE.slug, ...venue },
+        })
+
+        const { template, dedupeKey, recipient, marker } = OUTBOX_PROBE
+        const message = {
+          template,
+          channel: 'EMAIL',
+          recipient,
+          payload: { note: marker },
+          status: 'DEAD_LETTER',
+          attempts: 5,
+          maxAttempts: 5,
+          // Older than anything else in the queue, so it heads the first page:
+          // dead letters come first, longest-waiting first.
+          scheduledFor: new Date('1999-01-01T00:00:00.000Z'),
+          lastAttemptAt: new Date(Date.now() - 3_600_000),
+          failureCategory: 'PERMANENT',
+          lastError: 'the simulated mail service refused the sweep’s probe message',
+        }
+
+        await prisma.notificationOutbox.upsert({
+          where: { dedupeKey },
+          update: message,
+          create: { dedupeKey, ...message },
+        })
+      } finally {
+        await prisma.$disconnect()
+      }
+
+      // Nobody signs in here, and nobody ever will: the public pages are what
+      // a visitor sees, and sign-in and registration redirect anybody else.
+      visitorContext = await browser.newContext()
+      visitor = await visitorContext.newPage()
+    })
+
+    test.afterAll(async () => {
+      await visitorContext?.close()
+
+      const prisma = createPrismaClient({ connectionString: CONNECTION })
+
+      // Nothing references either row, so both deletes succeed.
+      try {
+        await prisma.venue.deleteMany({ where: { slug: SWEEP_VENUE.slug } })
+        await prisma.notificationOutbox.deleteMany({ where: { dedupeKey: OUTBOX_PROBE.dedupeKey } })
+      } finally {
+        await prisma.$disconnect()
+      }
+    })
+
+    for (const surface of PHASE_4_SURFACES) {
+      test(`${surface.name} reflows at every width and at 200% zoom, and scans clean`, async () => {
+        const page = await windowFor(surface.window)
+        const path = surface.path()
+        const heading = surface.heading()
+
+        // Opened once, at the narrowest width, and resized from there: the
+        // state a case sets up on arrival — a ticket chosen at checkout — is
+        // then measured at every size rather than rebuilt for each.
+        await page.setViewportSize(DOOR_WIDTHS[0])
+        await page.goto(path)
+        await expect(
+          page.getByRole('heading', { level: 1, name: heading, exact: true }),
+        ).toBeVisible()
+
+        await surface.arrived(page)
+
+        await expect(page).toHaveTitle(`${surface.title()} · Desi-Event`)
+        // Exactly one, and it is the page's own: a second level-one heading
+        // from a shell or a state component would be a second "what is this
+        // page" for anybody navigating by headings.
+        expect(await levelOneHeadings(page), `${path}'s level-one headings`).toEqual([heading])
+
+        for (const size of PHASE_4_SIZES) {
+          await page.setViewportSize({ width: size.width, height: size.height })
+
+          expect(
+            await sidewaysOverflow(page),
+            `${path} scrolls sideways at ${size.label}`,
+          ).toBeLessThanOrEqual(1)
+
+          if (SCANNED_WIDTHS.has(size.width)) {
+            const violations = await scan(page)
+
+            expect(violations, `${path} at ${size.label}\n  ${describe(violations)}`).toHaveLength(
+              0,
+            )
+          }
+        }
+
+        await expectNoSecrets(page, path)
+      })
+    }
+
+    test('at 320 px the header’s way into the catalogue is reached, opened and walked by keyboard', async () => {
+      // `components/primary-nav.jsx`: below 768 px the four discovery links
+      // are not drawn in the header row at all; a disclosure button reveals
+      // them. So what a keyboard has to reach is that button, and then the
+      // links it reveals — and the focus contract the component states:
+      // opening moves focus into the sheet, Escape closes it and puts focus
+      // back on the button.
+      const page = visitor
+      const banner = page.getByRole('banner')
+      const menu = banner.getByRole('button', { name: 'Menu', exact: true })
+
+      await page.setViewportSize(DOOR_WIDTHS[0])
+      await page.goto('/')
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+      // Not in the row at this width, so the menu is the only way to them.
+      for (const entry of HEADER_ENTRIES) {
+        await expect(banner.getByRole('link', { name: entry.label, exact: true })).toHaveCount(0)
+      }
+
+      await page.keyboard.press('Tab')
+      await expect(
+        page.getByRole('link', { name: 'Skip to main content', exact: true }),
+      ).toBeFocused()
+      await page.keyboard.press('Tab')
+      await expect(banner.getByRole('link', { name: 'Desi-Event', exact: true })).toBeFocused()
+      await page.keyboard.press('Tab')
+      await expect(menu).toBeFocused()
+      await expect(menu).toHaveAttribute('aria-expanded', 'false')
+
+      await openMenu(page, () => page.keyboard.press('Enter'))
+
+      const sheet = page.locator(`[id="${await menu.getAttribute('aria-controls')}"]`)
+
+      await expect(sheet).toBeFocused()
+
+      // The open sheet's navigation is the only one named Primary that is
+      // drawn: the row's is `display: none` at this width.
+      const nav = banner.getByRole('navigation', { name: 'Primary', exact: true })
+
+      for (const entry of HEADER_ENTRIES) {
+        await page.keyboard.press('Tab')
+
+        const link = nav.getByRole('link', { name: entry.label, exact: true })
+
+        await expect(link).toBeFocused()
+        await expect(link).toHaveAttribute('href', entry.path)
+      }
+
+      // Open, the sheet adds a column of links to the header; it must not
+      // widen the page to do it.
+      expect(await sidewaysOverflow(page), 'the open menu at 320 px').toBeLessThanOrEqual(1)
+
+      await page.keyboard.press('Escape')
+
+      await expect(menu).toHaveAttribute('aria-expanded', 'false')
+      await expect(menu).toBeFocused()
+      await expect(sheet).toHaveCount(0)
+    })
+
+    test('with motion reduced, nothing on the home page moves for longer than 0.01 ms or stays hidden', async () => {
+      // The contract is in two places. `components/motion.jsx` renders the
+      // plain element, with no animation at all, when the platform asks for
+      // reduced motion; the shared stylesheet's reduced-motion block cuts
+      // every CSS animation and transition to 0.01 ms and forces every
+      // `[data-motion]` element to its resting state. Either one failing
+      // leaves something moving, or something invisible, on the home page.
+      const page = await visitorContext.newPage()
+
+      try {
+        await page.emulateMedia({ reducedMotion: 'reduce' })
+        // Narrow, for the menu button below.
+        await page.setViewportSize({ width: 375, height: 900 })
+        await page.goto('/')
+        await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+        expect(
+          await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches),
+        ).toBe(true)
+
+        // Hydrated before anything is measured: an entrance animation can only
+        // start once Framer Motion is running in the page, so measuring the
+        // server's markup alone could not see one. The menu opening proves the
+        // client has taken over.
+        const menu = page.getByRole('banner').getByRole('button', { name: 'Menu', exact: true })
+
+        await openMenu(page, () => menu.click())
+        await page.keyboard.press('Escape')
+        await expect(menu).toHaveAttribute('aria-expanded', 'false')
+
+        const found = await page.evaluate(async (limit) => {
+          const frames = () =>
+            new Promise((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(resolve))
+            })
+          const name = (element) => {
+            const classes =
+              typeof element.className === 'string'
+                ? element.className.trim().split(/\s+/u).slice(0, 3).join('.')
+                : ''
+
+            return `${element.tagName.toLowerCase()}${classes ? `.${classes}` : ''}`
+          }
+          // "1e-05s", "150ms" or a comma-separated list of either, in ms.
+          const toMs = (value) =>
+            Math.max(
+              0,
+              ...value.split(',').map((part) => {
+                const trimmed = part.trim()
+                const number = Number.parseFloat(trimmed)
+
+                return trimmed.endsWith('ms') ? number : number * 1000
+              }),
+            )
+          const tooLong = (ms) => ms - limit > 1e-6
+
+          const animated = [...document.querySelectorAll('[data-motion]')]
+          const running = new Set()
+
+          // Each one scrolled into view, because the ones below the fold would
+          // only begin their entrance once they are seen.
+          for (const element of animated) {
+            element.scrollIntoView({ block: 'center' })
+            await frames()
+
+            for (const animation of document.getAnimations()) {
+              const target = animation.effect?.target
+
+              if (
+                animation.playState === 'running' &&
+                target?.closest?.('[data-motion]') &&
+                tooLong(animation.effect.getComputedTiming().endTime)
+              ) {
+                running.add(
+                  `${name(target)}: ${animation.constructor.name} running for ${animation.effect.getComputedTiming().endTime} ms`,
+                )
+              }
+            }
+          }
+
+          window.scrollTo(0, 0)
+
+          const slow = []
+
+          for (const element of document.querySelectorAll('[data-motion], [data-motion] *')) {
+            const style = getComputedStyle(element)
+            const transition = toMs(style.transitionDuration)
+            const animation = style.animationName === 'none' ? 0 : toMs(style.animationDuration)
+
+            if (tooLong(transition) || tooLong(animation)) {
+              slow.push(
+                `${name(element)}: transition ${style.transitionDuration}, animation ${style.animationName} ${style.animationDuration}`,
+              )
+            }
+          }
+
+          const unsettled = animated
+            .filter((element) => {
+              const style = getComputedStyle(element)
+
+              return Number.parseFloat(style.opacity) < 1 || style.transform !== 'none'
+            })
+            .map(name)
+
+          return { count: animated.length, running: [...running], slow, unsettled }
+        }, 0.01)
+
+        // Not vacuous: the home page's hero and sections are animated content.
+        expect(found.count, 'the home page has [data-motion] content').toBeGreaterThan(0)
+        expect(found.running, 'animations still running under reduced motion').toEqual([])
+        expect(found.slow, 'transitions or animations longer than 0.01 ms').toEqual([])
+        expect(found.unsettled, '[data-motion] content not at rest').toEqual([])
+      } finally {
+        await page.close()
+      }
+    })
   })
 })
