@@ -366,3 +366,81 @@ describe('a material change to a published event', () => {
     await app.close()
   })
 })
+
+describe('a change to one night of a published event', () => {
+  it('queues a notice only for the orders of that night, and of tiers for every night', async () => {
+    const { createPrismaStub } = await import('./helpers/prisma-stub.js')
+    const { materialChangeWork } = await import('../src/lib/event-material-change.js')
+    const event = { id: 'ckv9w1p0a0000qz0l7h2k3ev1', organizationId: 'org', title: 'Nights' }
+    const tiers = [
+      { id: 'tier-one', eventId: event.id, eventSessionId: 'night-one' },
+      { id: 'tier-two', eventId: event.id, eventSessionId: 'night-two' },
+      { id: 'tier-every', eventId: event.id, eventSessionId: null },
+    ]
+    const order = (id, extra = {}) => ({
+      id,
+      eventId: event.id,
+      status: 'PAID',
+      buyerEmail: `${id}@example.test`,
+      userId: null,
+      reference: id.toUpperCase(),
+      eventSessionId: null,
+      ...extra,
+    })
+    const prisma = createPrismaStub({
+      ticketType: tiers,
+      order: [
+        order('by-session', { eventSessionId: 'night-two' }),
+        order('by-tier'),
+        order('every-night'),
+        order('other-night'),
+        order('cancelled', { status: 'CANCELLED' }),
+      ],
+      orderItem: [
+        { id: 'i1', orderId: 'by-tier', ticketTypeId: 'tier-two', quantity: 1 },
+        { id: 'i2', orderId: 'every-night', ticketTypeId: 'tier-every', quantity: 1 },
+        { id: 'i3', orderId: 'other-night', ticketTypeId: 'tier-one', quantity: 1 },
+        { id: 'i4', orderId: 'cancelled', ticketTypeId: 'tier-two', quantity: 1 },
+      ],
+    })
+
+    const work = await materialChangeWork(prisma, {
+      event,
+      revision: 9,
+      material: ['doorsOpenAt', 'startsAt'],
+      before: { startsAt: '2027-01-01T19:00:00.000Z' },
+      after: { startsAt: '2027-01-02T19:00:00.000Z' },
+      reason: 'Moved a day.',
+      session: { id: 'night-two', startsAt: new Date('2027-01-02T19:00:00.000Z') },
+    })
+
+    expect(work).toEqual({ orders: 3, notifications: 3 })
+
+    const notices = prisma._store.notificationOutbox
+
+    expect(notices.map((row) => row.payload.orderId).sort()).toEqual([
+      'by-session',
+      'by-tier',
+      'every-night',
+    ])
+    expect(notices[0].payload).toMatchObject({
+      sessionId: 'night-two',
+      sessionStartsAt: '2027-01-02T19:00:00.000Z',
+      // Session fields read in the session's order, the door time among them.
+      changed: ['the start time', 'the door time'],
+    })
+  })
+
+  it('describes session fields in their declared order and keeps the live list in one place', async () => {
+    const { LIVE_STATUSES, describeSessionFields } =
+      await import('../src/lib/event-material-change.js')
+    const lifecycle = await import('@desi-event/schemas/lifecycle')
+
+    expect(describeSessionFields(['timezone', 'doorsOpenAt', 'startsAt', 'venueId'])).toEqual([
+      'the start time',
+      'the time zone',
+      'the door time',
+    ])
+    expect(LIVE_STATUSES).toBe(lifecycle.LIVE_STATUSES)
+  })
+})

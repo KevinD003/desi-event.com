@@ -23,14 +23,18 @@ import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { Alert, Badge, Card, CardBody } from '../../../../components/ui.jsx'
 import { ModerationDecision } from '../../../../components/moderation-decision.jsx'
 import { ModerationMediaReview } from '../../../../components/moderation-media-review.jsx'
+import { RichText } from '../../../../components/rich-text.jsx'
 import { accessibilityLabel, mergedAccessibility } from '../../../../lib/accessibility.js'
 import { formatEventDate, formatEventTime, formatVenueAddress } from '../../../../lib/format.js'
 import { mediaReadFailure } from '../../../../lib/media.js'
 import { statusReading } from '../../../../lib/event-status.js'
+import { SOCIAL_NETWORK_LABELS, SOCIAL_NETWORKS } from '../../../../lib/event-content.js'
+import { formatPrice } from '../../../../lib/pricing.js'
 import {
   getEventMedia,
   getEventReadiness,
   getEventSessions,
+  getEventTicketTypes,
   getModerationHistory,
   getOrganizerEvent,
 } from '../../../../lib/organizer-api.js'
@@ -108,8 +112,11 @@ export default async function ReviewEventPage({ params }) {
     )
   }
 
-  const [sessions, readiness, history, media] = await Promise.all([
+  const [sessions, tiers, readiness, history, media] = await Promise.all([
     getEventSessions(id).catch(() => ({ data: [] })),
+    // The organiser's read, so hidden and complimentary ticket types are
+    // flagged here; the event's own list is the fallback.
+    getEventTicketTypes(id).catch(() => null),
     getEventReadiness(id).catch(() => ({
       ready: false,
       status: event.status,
@@ -131,6 +138,12 @@ export default async function ReviewEventPage({ params }) {
   const address = formatVenueAddress(event.venue)
   const access = mergedAccessibility(event)
   const policies = event.policies ?? {}
+  const ticketTypes = tiers?.data ?? event.ticketTypes ?? []
+  const performers =
+    event.performers?.length > 0
+      ? event.performers
+      : (event.artists ?? []).map((name) => ({ name, role: null, bio: null }))
+  const links = SOCIAL_NETWORKS.filter((network) => event.socialLinks?.[network])
 
   return (
     <div>
@@ -174,7 +187,13 @@ export default async function ReviewEventPage({ params }) {
                   </div>
                   <div>
                     <dt className="font-medium text-ink">Description</dt>
-                    <dd className="whitespace-pre-line text-ink-muted">{event.description}</dd>
+                    {/* Rendered the way the public page renders it, so what is
+                        approved is what is published — with every link's
+                        address written out after its label, because a label
+                        can say anything and point anywhere. */}
+                    <dd className="text-ink-muted">
+                      <RichText text={event.description} showDestinations />
+                    </dd>
                   </div>
                   <div>
                     <dt className="font-medium text-ink">When</dt>
@@ -203,10 +222,130 @@ export default async function ReviewEventPage({ params }) {
                       <dd className="text-ink-muted">{event.ageRestriction} and over</dd>
                     </div>
                   ) : null}
-                  {event.artists?.length > 0 ? (
+                  {performers.length > 0 ? (
                     <div>
                       <dt className="font-medium text-ink">Line-up</dt>
-                      <dd className="text-ink-muted">{event.artists.join(', ')}</dd>
+                      <dd className="text-ink-muted">
+                        <ol className="list-decimal space-y-1 pl-5">
+                          {performers.map((performer, index) => (
+                            <li key={`${performer.name}-${index}`}>
+                              {performer.name}
+                              {performer.role ? ` — ${performer.role}` : ''}
+                              {performer.bio ? (
+                                <span className="block text-xs">{performer.bio}</span>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {event.runningOrder?.length > 0 ? (
+                    <div>
+                      <dt className="font-medium text-ink">Running order</dt>
+                      <dd className="text-ink-muted">
+                        <ul className="space-y-1">
+                          {event.runningOrder.map((item, index) => (
+                            <li key={`${item.time}-${index}`}>
+                              {item.time} {item.title}
+                              {item.note ? ` (${item.note})` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {event.faq?.length > 0 ? (
+                    <div>
+                      <dt className="font-medium text-ink">Questions people ask</dt>
+                      <dd className="text-ink-muted">
+                        <ul className="space-y-2">
+                          {event.faq.map((item, index) => (
+                            <li key={`${item.question}-${index}`}>
+                              <span className="font-medium text-ink">{item.question}</span>
+                              <span className="block whitespace-pre-line">{item.answer}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {event.dressCode ? (
+                    <div>
+                      <dt className="font-medium text-ink">Dress code</dt>
+                      <dd className="whitespace-pre-line text-ink-muted">{event.dressCode}</dd>
+                    </div>
+                  ) : null}
+                  {event.directions ? (
+                    <div>
+                      <dt className="font-medium text-ink">Parking and directions</dt>
+                      <dd className="whitespace-pre-line text-ink-muted">{event.directions}</dd>
+                    </div>
+                  ) : null}
+                  {event.publicEmail || event.publicPhone ? (
+                    <div>
+                      <dt className="font-medium text-ink">Public contact</dt>
+                      <dd className="text-ink-muted">
+                        {[event.publicEmail, event.publicPhone].filter(Boolean).join(' · ')}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {/* Each link written out in full, not as a label, so the
+                      moderator sees where it goes before approving it. */}
+                  {links.length > 0 ? (
+                    <div>
+                      <dt className="font-medium text-ink">Links</dt>
+                      <dd className="text-ink-muted">
+                        <ul className="space-y-1">
+                          {links.map((network) => (
+                            <li key={network} className="break-all">
+                              {SOCIAL_NETWORK_LABELS[network]}: {event.socialLinks[network]}
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {event.sponsors?.length > 0 ? (
+                    <div>
+                      <dt className="font-medium text-ink">Sponsors</dt>
+                      <dd className="text-ink-muted">
+                        <ul className="space-y-1">
+                          {event.sponsors.map((sponsor, index) => (
+                            <li key={`${sponsor.name}-${index}`} className="break-all">
+                              {sponsor.name}
+                              {sponsor.level ? ` (${sponsor.level})` : ''}
+                              {sponsor.url ? ` — ${sponsor.url}` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
+                    </div>
+                  ) : null}
+                  {ticketTypes.length > 0 ? (
+                    <div>
+                      <dt className="font-medium text-ink">Ticket types</dt>
+                      <dd className="text-ink-muted">
+                        <ul className="space-y-1">
+                          {ticketTypes.map((tier) => (
+                            <li key={tier.id} className="flex flex-wrap items-center gap-2">
+                              <span>
+                                {tier.name} — {formatPrice(tier.priceCents, tier.currency)}
+                              </span>
+                              {tier.visibility === 'HIDDEN' ? (
+                                <Badge variant="neutral" srLabel="Visibility:">
+                                  Hidden
+                                </Badge>
+                              ) : null}
+                              {tier.complimentary ? (
+                                <Badge variant="info" srLabel="Kind:">
+                                  Complimentary
+                                </Badge>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ul>
+                      </dd>
                     </div>
                   ) : null}
                   {access.features.length > 0 ? (

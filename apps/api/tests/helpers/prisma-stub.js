@@ -148,6 +148,8 @@ const RELATIONS = {
     // Provenance for a self-service organisation, and the per-account
     // creation cap. Never returned by a route.
     createdBy: { kind: 'one', model: 'user', from: 'createdById', to: 'id' },
+    // The platform door list names the organisations with a door open now.
+    events: { kind: 'many', model: 'event', from: 'id', to: 'organizationId' },
   },
   eventSeat: {
     seat: { kind: 'one', model: 'seat', from: 'seatId', to: 'id' },
@@ -738,6 +740,14 @@ const PARTIAL_UNIQUE = {
       name: 'TicketType_reserved_session_zone_key',
       key: (row) => [row.eventSessionId, row.priceZoneId],
       when: (row) => row.reserved === true,
+    },
+    // Not partial, but hand-written in a migration like the one above, and a
+    // rename is an update: listed here because these are checked on update as
+    // well as create, and COMPOUND_UNIQUE is checked on create only.
+    {
+      name: 'TicketType_eventId_name_key',
+      key: (row) => [row.eventId, row.name],
+      when: () => true,
     },
   ],
   invitation: [

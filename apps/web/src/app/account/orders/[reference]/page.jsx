@@ -41,6 +41,20 @@
  * page says a ticket's page is for follows the tickets' states: a refunded or
  * used ticket has no pass to show and cannot be handed on.
  *
+ * ## The group pass
+ *
+ * An order whose buyer still holds two to fifty tickets that admit has a group
+ * pass: one QR that lets in all of them, for arriving together. The order
+ * payload says only whether there is one and how many it admits
+ * (`order.groupPass`, present for the account that bought it and nobody else);
+ * the pass itself is drawn by `GroupPass`, which fetches it from its own
+ * buyer-only, `no-store` endpoint when asked and never before. It is offered
+ * only when this account holds the tickets, like the ticket links above it. An
+ * order with more than fifty such tickets says so instead of drawing a pass the
+ * API would refuse. A ticket on offer to somebody is still let in by the group
+ * pass until the offer is accepted, and the page says so, because letting it in
+ * first means the offer can no longer be accepted.
+ *
  * ## Money
  *
  * Every payment is simulated, and the page says so under the total. Refunds
@@ -52,6 +66,7 @@
 
 import Link from 'next/link'
 
+import { GroupPass } from '../../../../components/group-pass.jsx'
 import { Breadcrumbs } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getMyOrder } from '../../../../lib/account-api.js'
@@ -320,6 +335,57 @@ function Tickets({ order, holder, now }) {
 }
 
 /**
+ * The order's group pass, when this account holds its tickets and there is one.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.order The order.
+ * @param {string} props.holder Whose the tickets are, from {@link ticketHolder}.
+ * @returns {JSX.Element|null} The section, or nothing.
+ */
+function GroupPassSection({ order, holder }) {
+  const summary = order.groupPass
+
+  if (holder !== 'this-account' || !summary) return null
+
+  if (!summary.available) {
+    if (summary.unavailableReason !== 'TOO_MANY_TICKETS') return null
+
+    return (
+      <section id="group-pass" aria-labelledby="order-group-pass" className="mt-8">
+        <h2 id="order-group-pass" className="text-xl font-semibold text-ink">
+          Group pass
+        </h2>
+        <p className="mt-2 max-w-prose text-sm text-ink">
+          This order has more than 50 tickets that admit, which is more than one group pass lets in.
+          Use each ticket’s own pass at the door.
+        </p>
+      </section>
+    )
+  }
+
+  const offered = currentTickets(order).some((ticket) => ticket.status === 'TRANSFER_PENDING')
+
+  return (
+    <section id="group-pass" aria-labelledby="order-group-pass" className="mt-8">
+      <h2 id="order-group-pass" className="text-xl font-semibold text-ink">
+        Group pass (admits {summary.admits})
+      </h2>
+      <p className="mt-2 max-w-prose text-sm text-ink">
+        One QR that lets in every ticket on this order that you still hold. Each ticket keeps its
+        own pass as well.
+      </p>
+      {offered ? (
+        <p className="mt-2 max-w-prose text-sm text-ink-muted">
+          A ticket you have offered to somebody is let in by the group pass until they accept. If it
+          is let in first, the offer can no longer be accepted.
+        </p>
+      ) : null}
+      <GroupPass reference={order.reference} admits={summary.admits} />
+    </section>
+  )
+}
+
+/**
  * @typedef {object} OrderPageProps
  * @property {Promise<{reference: string}>} params The route parameters.
  */
@@ -476,6 +542,8 @@ export default async function OrderPage({ params }) {
         </h2>
         <Tickets order={order} holder={holder} now={new Date()} />
       </section>
+
+      <GroupPassSection order={order} holder={holder} />
     </div>
   )
 }

@@ -898,3 +898,401 @@ describe('DoorWorkspace: the camera', () => {
     expect(sent(1)).toEqual({ credential: pass, expectedEventId: EVENT.id })
   })
 })
+
+describe('DoorWorkspace: a group pass', () => {
+  const GROUP_CODE = 'DEG-ABCDEFGH2345'
+  const GROUP_CREDENTIAL = `G1.${'Q'.repeat(43)}`
+  const IDS = [
+    'ticketaaaaaaaaaaaaaaaaaaa',
+    'ticketbbbbbbbbbbbbbbbbbbb',
+    'ticketccccccccccccccccccc',
+  ]
+
+  /**
+   * One ticket of a group preview.
+   *
+   * @param {number} index Which.
+   * @param {object} [overrides] Fields to change.
+   * @returns {object} The ticket.
+   */
+  function groupTicket(index, overrides = {}) {
+    return {
+      ticketId: IDS[index],
+      outcome: 'ADMISSIBLE',
+      refusal: null,
+      tier: { name: 'General Admission' },
+      seat: null,
+      attendeeName: `Guest ${index + 1}`,
+      checkedInAt: null,
+      ...overrides,
+    }
+  }
+
+  const GROUP_PREVIEW = {
+    data: {
+      outcome: 'ADMISSIBLE',
+      refusal: null,
+      method: 'MANUAL_CODE',
+      event: EVENT,
+      tickets: [groupTicket(0), groupTicket(1), groupTicket(2)],
+      counts: { admissible: 3, alreadyIn: 0, refused: 0 },
+      handedOn: 1,
+      previewReference: REFERENCE,
+      previewExpiresAt: '2026-10-01T13:02:00.000Z',
+    },
+  }
+
+  it('sends a typed group code to the group lookup, and lists a checkbox per admissible ticket', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, GROUP_PREVIEW))
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE.toLowerCase())
+
+    expect(apiFetch.mock.calls[0][0]).toBe('/v1/tickets/admission/group/preview')
+    expect(sent(0)).toEqual({ code: GROUP_CODE, expectedEventId: EVENT.id })
+
+    const heading = await screen.findByRole('heading', { name: 'Check the group, then admit' })
+
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+
+    const group = screen.getByRole('group', { name: 'Who is at the door now' })
+    const boxes = within(group).getAllByRole('checkbox')
+
+    expect(boxes).toHaveLength(3)
+    expect(boxes.every((box) => box.checked)).toBe(true)
+    expect(within(group).getByLabelText(/Guest 1 · General Admission/u)).toBeTruthy()
+    // Said once on the card: the summary line carries it, and nothing repeats it.
+    expect(
+      within(heading.closest('section')).getAllByText(
+        /handed to somebody else; they have their own pass/u,
+      ),
+    ).toHaveLength(1)
+    expect(
+      heading
+        .closest('section')
+        .textContent.split('1 ticket from this order was handed to somebody else').length - 1,
+    ).toBe(1)
+    expect(screen.getByRole('button', { name: 'Admit 3' })).toBeTruthy()
+  })
+
+  it('admits only the ticked tickets, and says what it did', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, GROUP_PREVIEW)).mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          outcome: 'ADMITTED',
+          admitted: 2,
+          alreadyIn: 0,
+          method: 'MANUAL_CODE',
+          event: EVENT,
+          tickets: [0, 2].map((index) => ({
+            ticketId: IDS[index],
+            outcome: 'ADMITTED',
+            checkedInAt: '2026-10-01T13:31:00.000Z',
+            checkedInByYou: true,
+            tier: { name: 'General Admission' },
+            seat: null,
+            attendeeName: `Guest ${index + 1}`,
+          })),
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+    await user.click(await screen.findByLabelText(/Guest 2/u))
+
+    expect(screen.getByRole('button', { name: 'Admit 2' })).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Admit 2' }))
+
+    expect(apiFetch.mock.calls[1][0]).toBe('/v1/tickets/admission/group/check-in')
+    expect(sent(1)).toEqual({
+      code: GROUP_CODE,
+      previewReference: REFERENCE,
+      expectedEventId: EVENT.id,
+      ticketIds: [IDS[0], IDS[2]],
+    })
+
+    const done = await screen.findByRole('heading', { name: 'Admitted 2' })
+
+    expect(within(done.closest('section')).getByText('Admitted 2.')).toBeTruthy()
+    expect(screen.getByText(/Group: 2 admitted/u)).toBeTruthy()
+
+    // The session list names the people admitted, not a ticket with no name.
+    const [row] = within(screen.getByRole('region', { name: 'This session' })).getAllByRole(
+      'listitem',
+    )
+
+    expect(row.textContent).toMatch(/^Guest 1 and 1 more/u)
+    expect(row.textContent).toMatch(/Group: 2 admitted/u)
+    expect(row.textContent).not.toMatch(/No name on the ticket/u)
+  })
+
+  it('names a refused group in the session list by the tickets that were ticked', async () => {
+    const user = userEvent.setup()
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, GROUP_PREVIEW))
+      .mockResolvedValueOnce(
+        answer(409, { error: { code: 'CONFLICT', reason: 'REFUNDED', message: 'x' } }),
+      )
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+    await user.click(await screen.findByLabelText(/Guest 1/u))
+    await user.click(screen.getByRole('button', { name: 'Admit 2' }))
+
+    await screen.findByText(/This ticket was refunded/u)
+
+    const [row] = within(screen.getByRole('region', { name: 'This session' })).getAllByRole(
+      'listitem',
+    )
+
+    expect(row.textContent).toMatch(/^Guest 2 and 1 more/u)
+    expect(row.textContent).toMatch(/Group: refused/u)
+  })
+
+  it('names a group with nobody left to admit by its people, or as a group pass when unnamed', async () => {
+    const user = userEvent.setup()
+    const allIn = (attendeeName) => ({
+      data: {
+        ...GROUP_PREVIEW.data,
+        outcome: 'ALREADY_CHECKED_IN',
+        tickets: [0, 1].map((index) =>
+          groupTicket(index, {
+            outcome: 'ALREADY_CHECKED_IN',
+            checkedInAt: '2026-10-01T13:32:00.000Z',
+            attendeeName,
+          }),
+        ),
+        counts: { admissible: 0, alreadyIn: 2, refused: 0 },
+        handedOn: 0,
+        previewReference: null,
+        previewExpiresAt: null,
+      },
+    })
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, allIn('Guest 1')))
+      .mockResolvedValueOnce(answer(200, allIn(null)))
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+    await screen.findByRole('heading', { name: 'Nobody in this group can be admitted' })
+    await user.click(screen.getByRole('button', { name: 'Next ticket' }))
+    await lookUp(user, GROUP_CODE)
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('region', { name: 'This session' })).getAllByRole('listitem'),
+      ).toHaveLength(2),
+    )
+
+    const [latest, first] = within(
+      screen.getByRole('region', { name: 'This session' }),
+    ).getAllByRole('listitem')
+
+    expect(first.textContent).toMatch(/^Guest 1 and 1 more/u)
+    expect(first.textContent).toMatch(/Group: already in/u)
+    expect(latest.textContent).toMatch(/^Group pass/u)
+    expect(latest.textContent).not.toMatch(/No name on the ticket/u)
+  })
+
+  it('lists already-in and refused tickets as text, with why, and offers no box for them', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...GROUP_PREVIEW.data,
+          tickets: [
+            groupTicket(0),
+            groupTicket(1, {
+              outcome: 'ALREADY_CHECKED_IN',
+              checkedInAt: '2026-10-01T13:32:00.000Z',
+            }),
+            groupTicket(2, { outcome: 'REFUSED', refusal: 'REFUNDED' }),
+          ],
+          counts: { admissible: 1, alreadyIn: 1, refused: 1 },
+          handedOn: 0,
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+
+    const group = await screen.findByRole('group', { name: 'Who is at the door now' })
+
+    expect(within(group).getAllByRole('checkbox')).toHaveLength(1)
+    expect(screen.getByText(/Guest 2 · General Admission — already in at/u)).toBeTruthy()
+    expect(screen.getByText(/Guest 3 · General Admission — This ticket was refunded/u)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Admit 1' })).toBeTruthy()
+  })
+
+  it('refuses a changed group, offers a fresh lookup, and admits nobody', async () => {
+    const user = userEvent.setup()
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, GROUP_PREVIEW))
+      .mockResolvedValueOnce(
+        answer(409, { error: { code: 'CONFLICT', reason: 'GROUP_CHANGED', message: 'x' } }),
+      )
+      .mockResolvedValueOnce(answer(200, GROUP_PREVIEW))
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+    await user.click(await screen.findByRole('button', { name: 'Admit 3' }))
+
+    expect(await screen.findByText(/changed after it was looked up/u)).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'Look it up again' }))
+
+    expect(apiFetch.mock.calls[2][0]).toBe('/v1/tickets/admission/group/preview')
+    expect(sent(2)).toEqual({ code: GROUP_CODE, expectedEventId: EVENT.id })
+  })
+
+  it('does not admit with nobody ticked', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...GROUP_PREVIEW.data,
+          tickets: [groupTicket(0)],
+          counts: { admissible: 1, alreadyIn: 0, refused: 0 },
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+    await user.click(await screen.findByLabelText(/Guest 1/u))
+
+    expect(screen.getByRole('button', { name: 'Admit 0' })).toBeDisabled()
+  })
+
+  it('keeps no group code or pass in the page once cleared', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, GROUP_PREVIEW))
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    await lookUp(user, GROUP_CODE)
+    await user.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    expect(document.body.innerHTML).not.toContain(GROUP_CODE)
+    expect(document.body.innerHTML).not.toContain(GROUP_CREDENTIAL)
+    expect(document.body.innerHTML).not.toContain(REFERENCE)
+  })
+})
+
+describe('DoorWorkspace: a platform administrator', () => {
+  const PLATFORM_ENTRIES = [
+    {
+      event: EVENT,
+      organization: { id: 'orgaaaaaaaaaaaaaaaaaaaaaa', name: 'Rangoli' },
+      authority: 'PLATFORM_ROLE',
+      role: 'SUPER_ADMIN',
+    },
+    {
+      event: { ...EVENT, id: 'eventbbbbbbbbbbbbbbbbbbbb', title: 'Dhol Night' },
+      organization: { id: 'orgbbbbbbbbbbbbbbbbbbbbbb', name: 'Dhol Nation' },
+      authority: 'PLATFORM_ROLE',
+      role: 'SUPER_ADMIN',
+    },
+  ]
+
+  it('says, persistently, that it admits on platform authority and is recorded', () => {
+    render(<DoorWorkspace events={PLATFORM_ENTRIES} platform />)
+
+    expect(
+      screen.getByText(
+        /You are admitting with platform administrator authority\. Every lookup and admission is recorded against your account on the event.s record\./u,
+      ),
+    ).toBeTruthy()
+  })
+
+  it('names the organisation beside each event when the list spans more than one', async () => {
+    const user = userEvent.setup()
+
+    render(<DoorWorkspace events={PLATFORM_ENTRIES} platform />)
+
+    const options = within(screen.getByLabelText(/event you are admitting to/iu))
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+
+    expect(options[1]).toMatch(/^Navratri Garba Night — Rangoli — /u)
+    expect(options[2]).toMatch(/^Dhol Night — Dhol Nation — /u)
+
+    await user.selectOptions(
+      screen.getByLabelText(/event you are admitting to/iu),
+      'eventbbbbbbbbbbbbbbbbbbbb',
+    )
+
+    expect(screen.getByText('Any event on the platform (platform administrator)')).toBeTruthy()
+  })
+
+  it('shows no platform notice to a member', () => {
+    render(<DoorWorkspace events={[ENTRY]} />)
+
+    expect(screen.queryByText(/platform administrator authority/u)).toBeNull()
+  })
+})
+
+describe('DoorWorkspace: a group pass by camera', () => {
+  const original = navigator.mediaDevices
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'mediaDevices', { value: original, configurable: true })
+  })
+
+  it('sends a scanned group QR to the group lookup, as a QR scan', async () => {
+    const user = userEvent.setup()
+    const credential = `G1.${'Q'.repeat(43)}`
+
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })) },
+      configurable: true,
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'readyState', 'get').mockReturnValue(4)
+    vi.spyOn(HTMLVideoElement.prototype, 'videoWidth', 'get').mockReturnValue(1280)
+    vi.spyOn(HTMLVideoElement.prototype, 'videoHeight', 'get').mockReturnValue(720)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+      getImageData: vi.fn(() => ({ data: new Uint8ClampedArray(4), width: 1, height: 1 })),
+      clearRect: vi.fn(),
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+    decodeFrame.mockResolvedValue({ groupPass: credential })
+    apiFetch.mockResolvedValue(
+      answer(200, {
+        data: {
+          outcome: 'ADMISSIBLE',
+          refusal: null,
+          method: 'QR_SCAN',
+          event: EVENT,
+          tickets: [],
+          counts: { admissible: 0, alreadyIn: 0, refused: 0 },
+          handedOn: 0,
+          previewReference: null,
+          previewExpiresAt: null,
+        },
+      }),
+    )
+
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await user.click(screen.getByRole('button', { name: /scan the qr pass/iu }))
+    await user.click(screen.getByRole('button', { name: /start camera/iu }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled(), { timeout: 2_000 })
+
+    expect(apiFetch.mock.calls[0][0]).toBe('/v1/tickets/admission/group/preview')
+    expect(sent(0)).toEqual({ credential, expectedEventId: EVENT.id })
+    expect(document.body.innerHTML).not.toContain(credential)
+  })
+})

@@ -64,6 +64,35 @@ export const AUDIT_ACTIONS = Object.freeze({
   TICKET_TRANSFER_ENDED: 'ticket.transfer_ended',
   /// A holder asked for their own admission pass. The credential is not in the row.
   TICKET_PASS_ISSUED: 'ticket.pass_issued',
+  /**
+   * A platform super administrator looked up or admitted a ticket on its own
+   * platform authority, at an event of an organisation it is not a member of.
+   * Written on the Event, so the organisation's record shows platform presence
+   * at its door. Ids, the operation and the outcome — never a credential,
+   * code or preview reference.
+   */
+  TICKET_ADMISSION_PLATFORM_AUTHORITY: 'ticket.admission_platform_authority',
+  /**
+   * A buyer took their order's group pass out. The version and instant are
+   * recorded; the QR content and the printed group code never are.
+   */
+  TICKET_GROUP_PASS_ISSUED: 'ticket.group_pass_issued',
+  /**
+   * A buyer replaced their order's group pass. The versions are recorded; the
+   * old and new QR content and codes never are.
+   */
+  TICKET_GROUP_PASS_ROTATED: 'ticket.group_pass_rotated',
+  /**
+   * A door looked a group pass up without admitting anybody. Counts and the
+   * method are recorded; the pass, its code and the preview reference never are.
+   */
+  TICKET_GROUP_ADMISSION_PREVIEWED: 'ticket.group_admission_previewed',
+  /**
+   * A door admitted people through a group pass, in one transaction, alongside
+   * each ticket's own `ticket.checked_in` row. The ticket ids and counts are
+   * recorded; the pass, its code and the preview reference never are.
+   */
+  TICKET_GROUP_ADMITTED: 'ticket.group_admitted',
   NOTIFICATION_REQUEUED: 'notification.requeued',
   NOTIFICATION_CANCELLED: 'notification.cancelled',
   REFUND_REQUESTED: 'refund.requested',
@@ -146,6 +175,18 @@ export const AUDIT_ACTIONS = Object.freeze({
   EVENT_MEDIA_REMOVED: 'event.media_removed',
   MEDIA_APPROVED: 'moderation.media_approved',
   MEDIA_REJECTED: 'moderation.media_rejected',
+
+  // --- Event authoring ----------------------------------------------------------
+  //
+  // Tier and session writes carry the changed field names, never their values;
+  // a material change keeps its before and after, as the event's own does.
+  EVENT_RESCHEDULED: 'event.rescheduled',
+  EVENT_SESSION_MATERIAL_CHANGE: 'event.session_material_change',
+  /**
+   * Seats assigned to, or taken back from, the reserved ticket type pricing
+   * their zone. Counts and the session, never a seat list.
+   */
+  SEATS_BOUND: 'event.seats_bound',
 })
 
 /**

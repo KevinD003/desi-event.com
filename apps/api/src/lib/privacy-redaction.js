@@ -486,6 +486,12 @@ export async function redactNotificationDelivery(
  * exactly the case where it is personal data about them. Compared case-
  * insensitively, because addresses are stored as entered.
  *
+ * `Event.publicContactEmail` — the address an organiser chose to print on the
+ * event page — follows the same rule, and matters more: it is public. Phone
+ * numbers (`Event.publicContactPhone`) are not matched, because there is no
+ * reliable phone number to match them against: a subject's account carries an
+ * optional, unverified phone that is not a key for anything.
+ *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Parameters.
  * @param {string} params.organizationId The organisation named in the path.
@@ -516,20 +522,32 @@ export async function redactContactAddresses(tx, { organizationId, subjectEmail 
   }
 
   const events = await tx.event.findMany({
-    where: { organizationId, contactEmail: { not: null } },
-    select: { id: true, contactEmail: true },
+    where: {
+      organizationId,
+      OR: [{ contactEmail: { not: null } }, { publicContactEmail: { not: null } }],
+    },
+    select: { id: true, contactEmail: true, publicContactEmail: true },
   })
 
   for (const event of events) {
-    if (!event.contactEmail) continue
-    if (event.contactEmail.toLowerCase() !== subjectEmail) continue
+    /** @type {Record<string, string>} */
+    const data = {}
 
-    await tx.event.update({
-      where: { id: event.id },
-      data: { contactEmail: redactedEmail('Event.contactEmail', event.id) },
-    })
+    if (event.contactEmail && event.contactEmail.toLowerCase() === subjectEmail) {
+      data.contactEmail = redactedEmail('Event.contactEmail', event.id)
+    }
 
-    count += 1
+    if (event.publicContactEmail && event.publicContactEmail.toLowerCase() === subjectEmail) {
+      data.publicContactEmail = redactedEmail('Event.publicContactEmail', event.id)
+    }
+
+    const replaced = Object.keys(data).length
+
+    if (replaced === 0) continue
+
+    await tx.event.update({ where: { id: event.id }, data })
+
+    count += replaced
   }
 
   return {
@@ -562,12 +580,18 @@ export async function countContactAddresses(tx, { organizationId, subjectEmail }
   let count = organization?.contactEmail?.toLowerCase() === subjectEmail ? 1 : 0
 
   const events = await tx.event.findMany({
-    where: { organizationId, contactEmail: { not: null } },
-    select: { contactEmail: true },
+    where: {
+      organizationId,
+      OR: [{ contactEmail: { not: null } }, { publicContactEmail: { not: null } }],
+    },
+    select: { contactEmail: true, publicContactEmail: true },
   })
 
   for (const event of events) {
     if (event.contactEmail && event.contactEmail.toLowerCase() === subjectEmail) count += 1
+    if (event.publicContactEmail && event.publicContactEmail.toLowerCase() === subjectEmail) {
+      count += 1
+    }
   }
 
   return count

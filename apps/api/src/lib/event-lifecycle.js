@@ -53,6 +53,7 @@ import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { ACTORS, GATES, findTransition, transitionsFrom } from '@desi-event/schemas/lifecycle'
 
 import { recordAudit } from './audit.js'
+import { bindReservedSeatsAudited } from './event-authoring.js'
 import { conflict, forbidden, notFound, unprocessable } from './errors.js'
 
 /**
@@ -182,12 +183,38 @@ export function publishabilityProblems(event) {
 }
 
 /**
+ * How many seats each on-sale reserved ticket type has behind it.
+ *
+ * A reserved tier sells the seats whose `EventSeat.ticketTypeId` names it, and
+ * nothing else; one with none is a price with nothing to buy.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} event The event, with its ticket types.
+ * @returns {Promise<Map<string, number>>} Bound seat count per reserved on-sale tier id.
+ */
+export async function boundSeatCounts(prisma, event) {
+  const tiers = (event.ticketTypes ?? []).filter(
+    (tier) => tier.reserved && tier.status === 'ON_SALE',
+  )
+  const entries = await Promise.all(
+    tiers.map(async (tier) => [
+      tier.id,
+      await prisma.eventSeat.count({ where: { ticketTypeId: tier.id } }),
+    ]),
+  )
+
+  return new Map(/** @type {Array<Array<*>>} */ (entries))
+}
+
+/**
  * Why an event has nothing to sell.
  *
  * @param {object} event The event, loaded by {@link loadForTransition}.
+ * @param {object} [options] Options.
+ * @param {Map<string, number>} [options.boundSeats] From {@link boundSeatCounts}; without it the seat check is skipped.
  * @returns {string[]} Human-readable reasons. Empty means sellable.
  */
-export function sellabilityProblems(event) {
+export function sellabilityProblems(event, { boundSeats = null } = {}) {
   const problems = []
   const tiers = (event.ticketTypes ?? []).filter((tier) => tier.status === 'ON_SALE')
 
@@ -206,6 +233,10 @@ export function sellabilityProblems(event) {
 
     if (tier.reserved && !tier.priceZoneId) {
       problems.push(`Reserved ticket type "${tier.name}" needs a price zone.`)
+    } else if (tier.reserved && boundSeats && (boundSeats.get(tier.id) ?? 0) === 0) {
+      problems.push(
+        `Reserved ticket type "${tier.name}" has no seats yet. Prepare its session's inventory, and check its price zone has seats on the map.`,
+      )
     }
   }
 
@@ -273,7 +304,9 @@ async function checkGate(gate, prisma, event) {
   }
 
   if (gate === GATES.PUBLISHABLE) return publishabilityProblems(event)
-  if (gate === GATES.SELLABLE) return sellabilityProblems(event)
+  if (gate === GATES.SELLABLE) {
+    return sellabilityProblems(event, { boundSeats: await boundSeatCounts(prisma, event) })
+  }
   if (gate === GATES.INVENTORY_PREPARED) return inventoryProblems(prisma, event)
 
   // An unknown gate is a programming error, and failing closed is the only safe
@@ -409,6 +442,20 @@ export async function transitionEvent(prisma, options) {
 
   // 2. Is this actor entitled to it?
   assertEntitled(move, actor, event)
+
+  // Opening sales binds every seated session's free seats to the reserved tier
+  // pricing their zone first, so the sellable gate below counts seats that can
+  // actually be sold. Idempotent, and only after the entitlement check: a caller
+  // who may not open sales changes nothing.
+  if (to === 'ON_SALE') {
+    const seated = (event.sessions ?? []).filter((session) => session.venueMapVersionId)
+
+    for (const session of seated) {
+      await prisma.$transaction((tx) =>
+        bindReservedSeatsAudited(tx, { eventId: event.id, eventSessionId: session.id, actor }),
+      )
+    }
+  }
 
   // 3. Are the gates open? Every one of them, before any write.
   /** @type {string[]} */

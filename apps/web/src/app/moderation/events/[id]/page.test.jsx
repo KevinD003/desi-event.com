@@ -24,6 +24,7 @@ vi.mock('../../../../lib/organizer-api.js', async () => {
     getEventMedia: vi.fn(),
     getEventReadiness: vi.fn(),
     getEventSessions: vi.fn(),
+    getEventTicketTypes: vi.fn(),
     getModerationHistory: vi.fn(),
     getOrganizerEvent: vi.fn(),
   }
@@ -34,6 +35,7 @@ const {
   getEventMedia,
   getEventReadiness,
   getEventSessions,
+  getEventTicketTypes,
   getModerationHistory,
   getOrganizerEvent,
 } = await import('../../../../lib/organizer-api.js')
@@ -90,6 +92,7 @@ beforeEach(() => {
   apiFetch.mockReset()
   getOrganizerEvent.mockResolvedValue(EVENT)
   getEventSessions.mockResolvedValue({ data: [] })
+  getEventTicketTypes.mockResolvedValue({ data: [], meta: { revision: 6 } })
   getEventReadiness.mockResolvedValue({
     ready: true,
     status: 'REVIEW_PENDING',
@@ -167,5 +170,80 @@ describe('the pictures on the review page', () => {
       decision: 'approve',
       revision: 6,
     })
+  })
+})
+
+describe('what the listing says, as the moderator reads it', () => {
+  it('renders the description as the public page will, and every link in full', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      description: 'A **long** night.\n\n- Chai\n- Samosas',
+      performers: [{ name: 'Nizami Bandhu', role: 'Qawwals', bio: null }],
+      socialLinks: { instagram: 'https://instagram.com/banyan.nights' },
+      sponsors: [{ name: 'Chai Point', url: 'https://chai.example/sponsor', level: 'Gold' }],
+      dressCode: 'Comfortable.',
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('long').tagName).toBe('STRONG')
+    expect(screen.getByText('Chai').tagName).toBe('LI')
+    expect(screen.getByText('Instagram: https://instagram.com/banyan.nights')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Chai Point \(Gold\) — https:\/\/chai\.example\/sponsor/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Nizami Bandhu — Qawwals/)).toBeInTheDocument()
+    expect(screen.getByText('Comfortable.')).toBeInTheDocument()
+  })
+
+  it('writes out where every link in the description goes, not only its label', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      description:
+        'Buy from [Official tickets](https://phish.example/buy?ref=1) only.\n\n- See https://banyan.example/faq',
+    })
+
+    await renderPage()
+
+    const link = screen.getByRole('link', { name: 'Official tickets' })
+
+    expect(link).toHaveAttribute('href', 'https://phish.example/buy?ref=1')
+    // The address, in full, as text beside the label.
+    expect(screen.getByText('(https://phish.example/buy?ref=1)')).toBeInTheDocument()
+    // A bare address is its own label, and is not written twice.
+    expect(screen.getByRole('link', { name: 'https://banyan.example/faq' })).toBeInTheDocument()
+    expect(screen.queryByText('(https://banyan.example/faq)')).not.toBeInTheDocument()
+  })
+
+  it('flags hidden and complimentary ticket types', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+    getEventTicketTypes.mockResolvedValue({
+      data: [
+        {
+          id: 'tguest',
+          name: 'Guest list',
+          priceCents: 0,
+          currency: 'USD',
+          visibility: 'HIDDEN',
+          complimentary: true,
+        },
+        {
+          id: 'tgeneral',
+          name: 'General',
+          priceCents: 3500,
+          currency: 'USD',
+          visibility: 'PUBLIC',
+        },
+      ],
+      meta: { revision: 6 },
+    })
+
+    await renderPage()
+
+    expect(screen.getByText('Hidden')).toBeInTheDocument()
+    expect(screen.getByText('Complimentary')).toBeInTheDocument()
+    expect(screen.getByText(/General — \$35\.00/)).toBeInTheDocument()
   })
 })

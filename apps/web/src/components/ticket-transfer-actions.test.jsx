@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -11,6 +11,9 @@ const { TicketTransferActions, TicketTransferResponse } =
 
 /** A token long enough for the schema's sixteen-character minimum. */
 const TOKEN = 'abcdefghijklmnopqrstuvwx'
+
+/** A one-time transfer code as the API mints one: 43 url-safe characters. */
+const CODE = 'Q29kZS1zaG93bi1vbmNlLXRvLXRoZS1zZW5kZXItMDA'
 
 /**
  * A ticket in a given state.
@@ -56,36 +59,30 @@ beforeEach(() => {
 })
 
 describe('what a holder is offered', () => {
-  it('does not offer a reserved-seat ticket, and says why', () => {
-    // Seated transfer is blocked on the server; a button here would only lead
-    // to a refusal.
+  it('offers a reserved-seat ticket like any other', () => {
+    // Seated transfer used to be refused on the server (ADR 0005); since ADR
+    // 0006 the seat goes with the ticket, and the screen offers it.
     render(
       <TicketTransferActions
-        ticket={ticket()}
+        ticket={ticket({ eventSeatId: 'eventseat000000000000001' })}
         transfers={[]}
         holder
         mayRevoke={false}
-        transferBlockedReason="RESERVED_SEAT"
       />,
     )
 
-    expect(screen.queryByRole('button', { name: /offer this ticket/i })).toBeNull()
-    expect(screen.getByText(/reserved-seat tickets cannot be handed on on this site/i)).toBeTruthy()
-    expect(
-      screen
-        .getByRole('link', { name: 'Why seated tickets cannot be handed on' })
-        .getAttribute('href'),
-    ).toBe('/limitations')
+    expect(screen.getByRole('button', { name: /offer this ticket/i })).toBeInTheDocument()
+    expect(screen.queryByText(/cannot be handed on/i)).toBeNull()
+    expect(screen.queryByRole('link', { name: /seated tickets/i })).toBeNull()
   })
 
-  it('still lets the holder withdraw an offer made before seated transfers were refused', () => {
+  it('lets the holder withdraw an outstanding offer on a seated ticket', () => {
     render(
       <TicketTransferActions
-        ticket={ticket({ status: 'TRANSFER_PENDING' })}
+        ticket={ticket({ status: 'TRANSFER_PENDING', eventSeatId: 'eventseat000000000000001' })}
         transfers={[transfer()]}
         holder
         mayRevoke={false}
-        transferBlockedReason="RESERVED_SEAT"
       />,
     )
 
@@ -159,7 +156,11 @@ describe('offering a ticket', () => {
   it('sends the address and nothing that could name another ticket', async () => {
     const user = userEvent.setup()
 
-    apiFetch.mockResolvedValue(answer(201, { data: transfer() }))
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
 
     render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
 
@@ -177,9 +178,117 @@ describe('offering a ticket', () => {
     expect(path).toBe('/v1/tickets/ticket000000000000000001/transfers')
     expect(JSON.parse(options.body)).toEqual({ toEmail: 'rival@dhol.example' })
 
-    // This build delivers no email; the confirmation must not claim a send.
-    expect(await screen.findByText(/the invitation is recorded/i)).toBeInTheDocument()
-    expect(screen.queryByText(/have been sent/i)).toBeNull()
+    // This build sends no email; the confirmation must not claim a send.
+    expect(
+      await screen.findByText(/give them the code shown below; it is shown only once/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/have been sent|has been sent/i)).toBeNull()
+  })
+
+  it('says no email is sent, and that the address must be the one they sign in with', async () => {
+    const user = userEvent.setup()
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    const field = screen.getByRole('textbox', { name: /their email address/i })
+    const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
+
+    expect(described.textContent).toMatch(/must be signed in with this address/i)
+    expect(described.textContent).toMatch(/this site sends no email/i)
+    expect(described.textContent).toMatch(/one-time code to give them yourself/i)
+  })
+
+  it('shows the one-time code after a MANUAL offer, focuses it, and forgets it on Done', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    const heading = await screen.findByRole('heading', { name: 'Give them this code' })
+
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.getByRole('textbox', { name: 'Ticket transfer code' })).toHaveValue(CODE)
+    expect(document.body.textContent).toMatch(/••••@dhol\.example/u)
+    expect(document.body.textContent).toMatch(/withdraw the offer and make a new one/i)
+
+    // Nothing of it in storage or the address bar.
+    expect(window.location.href).not.toContain(CODE)
+    expect(JSON.stringify({ ...window.localStorage })).not.toContain(CODE)
+    expect(JSON.stringify({ ...window.sessionStorage })).not.toContain(CODE)
+
+    await user.click(screen.getByRole('button', { name: 'I have handed it over' }))
+
+    expect(screen.queryByRole('heading', { name: 'Give them this code' })).toBeNull()
+    expect(document.body.innerHTML).not.toContain(CODE)
+  })
+
+  it('forgets the code when the page is left', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: { ...transfer(), delivery: { mode: 'MANUAL', invitationCode: CODE } },
+      }),
+    )
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+    await screen.findByRole('heading', { name: 'Give them this code' })
+
+    // Hiding the tab keeps it: the sender switches apps to paste it.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+
+    expect(document.body.innerHTML).toContain(CODE)
+
+    act(() => {
+      window.dispatchEvent(new Event('pagehide'))
+    })
+
+    expect(document.body.innerHTML).not.toContain(CODE)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+  })
+
+  it('shows no code when a delivery provider sent it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, { data: { ...transfer(), delivery: { mode: 'EMAIL', invitationCode: null } } }),
+    )
+
+    render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /their email address/i }),
+      'rival@dhol.example',
+    )
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    expect(await screen.findByText('Offered. The invitation has been sent.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Give them this code' })).toBeNull()
   })
 
   it('repeats a refusal rather than retrying it', async () => {

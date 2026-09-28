@@ -48,8 +48,8 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {string} [deps.version] Version string reported by the health endpoint.
  * @param {object} [deps.payments] The resolved payment mode, reported by the health endpoint.
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the credential-endpoint rate limit.
- * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit.
- * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door (preview and check-in) rate limit.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit, shared by a ticket's pass and an order's group pass.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door (preview and check-in, single and group) rate limit.
  * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
  * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How single-use codes reach people, resolved once by `buildApp`.
  * @param {object} [deps.mediaStorage] Where picture bytes live; see `lib/media-storage.js`.

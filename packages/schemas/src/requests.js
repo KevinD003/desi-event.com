@@ -17,6 +17,8 @@ import {
   cuidSchema,
   currencySchema,
   emailSchema,
+  groupCodeSchema,
+  groupPassCredentialSchema,
   localeSchema,
   nonEmptyStringSchema,
   orderReferenceSchema,
@@ -41,9 +43,22 @@ import {
   refundReasonSchema,
   refundStatusSchema,
   ticketTypeStatusSchema,
+  ticketTypeVisibilitySchema,
 } from './enums.js'
 import { connectActionSchema } from './connect.js'
 import { eventPoliciesSchema } from './entities.js'
+import {
+  dressCodeSchema,
+  eventDirectionsSchema,
+  eventFaqSchema,
+  eventPerformersSchema,
+  eventRunningOrderSchema,
+  eventSocialLinksSchema,
+  eventSponsorsSchema,
+  publicEmailSchema,
+  publicPhoneSchema,
+} from './event-content.js'
+import { revisionQueryParamSchema } from './media.js'
 import { venueAccessibilitySchema } from './venues.js'
 
 /** Sort orders accepted by the event listing endpoint. */
@@ -105,6 +120,27 @@ const eventWritableFields = {
   accessibility: venueAccessibilitySchema.optional(),
   policies: eventPoliciesSchema.optional(),
   /**
+   * The event page's own content. The JSON ones follow the rule above: an
+   * empty list or object clears them, never `null`.
+   *
+   * `performers` is the line-up's source of truth; the server keeps `artists`
+   * in step with it, because structured data and older clients read the names.
+   */
+  faq: eventFaqSchema.optional(),
+  performers: eventPerformersSchema.optional(),
+  runningOrder: eventRunningOrderSchema.optional(),
+  sponsors: eventSponsorsSchema.optional(),
+  socialLinks: eventSocialLinksSchema.optional(),
+  /** Text columns: blank or null clears them. */
+  dressCode: dressCodeSchema.optional(),
+  directions: eventDirectionsSchema.optional(),
+  /**
+   * A contact the organiser chose to publish on the event page. Not the
+   * private `Event.contactEmail`, which stays out of every public payload.
+   */
+  publicEmail: publicEmailSchema.optional(),
+  publicPhone: publicPhoneSchema.optional(),
+  /**
    * Refused, with a sentence naming the replacement. The cover used to be an
    * external address the editor's preview fetched from wherever it pointed;
    * pictures are uploaded now, and an old client that still sends the key is
@@ -132,14 +168,14 @@ const createEventObject = eventWritableObject.extend({
 })
 
 /**
- * Apply the event invariants that span more than one field.
+ * Refuse a window that ends at or before it starts.
  *
  * @param {object} value Candidate event payload.
  * @param {z.RefinementCtx} ctx Zod refinement context used to report issues.
  * @returns {void}
  */
 function checkEventWindow(value, ctx) {
-  const { startsAt, endsAt, isOnline, onlineUrl } = value
+  const { startsAt, endsAt } = value
 
   if (startsAt && endsAt && Date.parse(endsAt) <= Date.parse(startsAt)) {
     ctx.addIssue({
@@ -148,8 +184,22 @@ function checkEventWindow(value, ctx) {
       message: 'endsAt must be strictly after startsAt',
     })
   }
+}
 
-  if (isOnline === true && !onlineUrl) {
+/**
+ * Refuse an online event created without its joining link.
+ *
+ * Create only. An update is an autosave from a form that ticks "online" before
+ * the link is typed, and refusing that save lost the organiser's work on every
+ * keystroke. A draft may be online without a link; publication refuses it, and
+ * a live event is refused it by the update route.
+ *
+ * @param {object} value Candidate event payload.
+ * @param {z.RefinementCtx} ctx Zod refinement context used to report issues.
+ * @returns {void}
+ */
+function requireOnlineLink(value, ctx) {
+  if (value.isOnline === true && !value.onlineUrl) {
     ctx.addIssue({
       code: 'custom',
       path: ['onlineUrl'],
@@ -158,8 +208,14 @@ function checkEventWindow(value, ctx) {
   }
 }
 
-/** Create an event. Rejects a window that ends at or before it starts. */
-export const createEventRequestSchema = createEventObject.superRefine(checkEventWindow)
+/**
+ * Create an event. Rejects a window that ends at or before it starts, and an
+ * online event with no joining link.
+ */
+export const createEventRequestSchema = createEventObject.superRefine((value, ctx) => {
+  checkEventWindow(value, ctx)
+  requireOnlineLink(value, ctx)
+})
 
 /**
  * Update an event. Every field is optional, but at least one must be present,
@@ -413,6 +469,34 @@ function exactlyOnePresentation(value, ctx) {
 }
 
 /**
+ * Control characters: C0, DEL and C1.
+ *
+ * A gate, a scanner's name and a door search are typed by a person, and none of
+ * these is. NUL in particular is refused by PostgreSQL in every text and JSON
+ * column, so one let through here reaches the database and comes back as a 500
+ * rather than as the 400 it is.
+ */
+const CONTROL_CHARACTER = /\p{Cc}/u
+
+/**
+ * The same string schema, refusing any control character.
+ *
+ * @param {z.ZodType} schema A schema whose output is a string.
+ * @returns {z.ZodType} The schema, refined.
+ */
+function withoutControlCharacters(schema) {
+  return schema.refine((value) => !CONTROL_CHARACTER.test(value), {
+    message: 'Remove the control character.',
+  })
+}
+
+/** Which door, when the venue distinguishes them. Recorded as-is. */
+const doorGateSchema = withoutControlCharacters(z.string().trim().min(1).max(60))
+
+/** What the scanner calls itself. Audit only, and labelled self-reported. */
+const scannerNameSchema = withoutControlCharacters(nonEmptyStringSchema)
+
+/**
  * Look a ticket up at the door without admitting it.
  *
  * Strict, so an unknown key is a 400 rather than silently dropped. The fields a
@@ -463,9 +547,83 @@ export const checkInRequestSchema = z
       .max(600)
       .regex(/^[A-Za-z0-9_.-]+$/u),
     /** Which door, when the venue distinguishes them. Recorded as-is. */
-    gate: z.string().trim().min(1).max(60).optional(),
+    gate: doorGateSchema.optional(),
     /** What the scanner calls itself. Audit only, and labelled self-reported. */
-    deviceId: nonEmptyStringSchema.optional(),
+    deviceId: scannerNameSchema.optional(),
+  })
+  .strict()
+  .superRefine(exactlyOnePresentation)
+
+/**
+ * Which door events to list: `GET /v1/tickets/admission/events`.
+ *
+ * Only a platform super administrator's list is long enough to need it; on a
+ * membership list the same filter narrows what the memberships already give.
+ * Neither value is a secret, so both travel in the query string.
+ */
+export const admissionEventsQuerySchema = z
+  .object({
+    /** One organisation's events. */
+    organizationId: cuidSchema.optional(),
+    /** Matches the event title or the organisation name, ignoring case. */
+    q: withoutControlCharacters(z.string().trim().min(1).max(100)).optional(),
+  })
+  .strict()
+
+/**
+ * The ticket ids a group confirmation admits: one to fifty, each once.
+ *
+ * Explicit rather than "everyone the preview found", so the steward admits the
+ * people standing at the door and nobody who is still in the car park.
+ */
+const groupTicketIdsSchema = z
+  .array(cuidSchema)
+  .min(1)
+  .max(50)
+  .superRefine((ids, ctx) => {
+    if (new Set(ids).size !== ids.length) {
+      ctx.addIssue({ code: 'custom', message: 'Each ticket may be named once' })
+    }
+  })
+
+/**
+ * Look a group pass up at the door without admitting anybody.
+ *
+ * The group's QR (`credential`) or its printed code (`code`), never both, and
+ * never a ticket's own pass: the shapes are disjoint, so a ticket credential
+ * sent here is a 400 rather than a lookup.
+ */
+export const groupAdmissionPreviewRequestSchema = z
+  .object({
+    credential: groupPassCredentialSchema.optional(),
+    code: groupCodeSchema.optional(),
+    /** As on a single ticket: an expectation, never an authority. */
+    expectedEventId: cuidSchema.optional(),
+  })
+  .strict()
+  .superRefine(exactlyOnePresentation)
+
+/**
+ * Admit some or all of a previewed group.
+ *
+ * The same presentation again, the preview's reference, and the tickets being
+ * admitted now — which must all have been admissible in that preview.
+ */
+export const groupCheckInRequestSchema = z
+  .object({
+    credential: groupPassCredentialSchema.optional(),
+    code: groupCodeSchema.optional(),
+    expectedEventId: cuidSchema.optional(),
+    /** From the group preview. Longer than a single one: it names the tickets. */
+    previewReference: z
+      .string()
+      .trim()
+      .min(20)
+      .max(4096)
+      .regex(/^[A-Za-z0-9_.-]+$/u),
+    ticketIds: groupTicketIdsSchema,
+    gate: doorGateSchema.optional(),
+    deviceId: scannerNameSchema.optional(),
   })
   .strict()
   .superRefine(exactlyOnePresentation)
@@ -1018,39 +1176,128 @@ export const createSessionRequestSchema = z.object({
   sortOrder: z.number().int().min(0).max(1000).optional(),
 })
 
-/** Update a session. Every field optional, but the revision is not. */
-export const updateSessionRequestSchema = z.object({
-  ...revisionPrecondition,
-  startsAt: timestampSchema.optional(),
-  endsAt: timestampSchema.optional(),
-  doorsOpenAt: timestampSchema.nullish(),
-  timezone: timezoneSchema.optional(),
-  salesStartAt: timestampSchema.nullish(),
-  salesEndAt: timestampSchema.nullish(),
-  venueMapVersionId: cuidSchema.nullish(),
-  capacity: z.number().int().min(1).max(1_000_000).nullish(),
-  sortOrder: z.number().int().min(0).max(1000).optional(),
-})
+/** The request keys that steer a write rather than change content. */
+const CONTROL_FIELDS = Object.freeze(['revision', 'confirmMaterialChange', 'changeReason'])
+
+/**
+ * Refuse a body that carries only control fields.
+ *
+ * @param {object} value The parsed body.
+ * @param {z.RefinementCtx} ctx Zod refinement context used to report issues.
+ * @returns {void}
+ */
+function requireContentField(value, ctx) {
+  const fields = Object.keys(value).filter(
+    (key) => !CONTROL_FIELDS.includes(key) && value[key] !== undefined,
+  )
+
+  if (fields.length === 0) {
+    ctx.addIssue({ code: 'custom', path: [], message: 'Provide at least one field to update' })
+  }
+}
+
+/**
+ * Update a session. Every field optional, but the revision is not.
+ *
+ * On a live event, moving a session's start, end, door time or time zone is a
+ * change to what somebody bought for that night. It needs
+ * `confirmMaterialChange: true` and a `changeReason`, exactly as the event's
+ * own dates do on `PATCH /v1/events/:id`; without them the route answers 422
+ * naming the fields.
+ */
+export const updateSessionRequestSchema = z
+  .object({
+    ...revisionPrecondition,
+    startsAt: timestampSchema.optional(),
+    endsAt: timestampSchema.optional(),
+    doorsOpenAt: timestampSchema.nullish(),
+    timezone: timezoneSchema.optional(),
+    salesStartAt: timestampSchema.nullish(),
+    salesEndAt: timestampSchema.nullish(),
+    venueMapVersionId: cuidSchema.nullish(),
+    capacity: z.number().int().min(1).max(1_000_000).nullish(),
+    sortOrder: z.number().int().min(0).max(1000).optional(),
+    /** "I know this moves a night somebody bought a ticket for." Live events only. */
+    confirmMaterialChange: z.boolean().optional(),
+    /** Why, in prose a ticket holder reads. */
+    changeReason: z.string().trim().min(1).max(2000).optional(),
+  })
+  .superRefine(requireContentField)
+
+/**
+ * The revision precondition of a DELETE, which travels in the query string.
+ *
+ * A query string carries text, so a plain `z.number()` refused every real
+ * request and Remove answered 400 however it was called. Only plain decimal
+ * digits become a number — `revisionQueryParamSchema`, the parser the picture
+ * routes use — so an empty string is refused rather than read as revision 0.
+ */
+export const revisionQuerySchema = z.object({ revision: revisionQueryParamSchema })
 
 /** Remove a session. The revision guards it like any other authoring write. */
-export const deleteSessionRequestSchema = z.object({ ...revisionPrecondition })
+export const deleteSessionRequestSchema = revisionQuerySchema
 
-/** Create a ticket type. */
-export const authorTicketTypeRequestSchema = z.object({
+/**
+ * Trim a string and turn a blank one into null.
+ *
+ * @param {unknown} value Raw input.
+ * @returns {unknown} The trimmed string, null for a blank one, or `value` unchanged.
+ */
+function blankToNull(value) {
+  if (typeof value !== 'string') return value
+
+  const text = value.trim()
+
+  return text.length === 0 ? null : text
+}
+
+/**
+ * The most a tier field may carry on the wire.
+ *
+ * Deliberately wider than what a ticket type may hold. The real limits — a
+ * name of 120 characters, a description of 500 and 1 to 50 per order, the
+ * entity's (`ticketTypeSchema`) and the database's — are checked by the route
+ * against the row as it would be stored, and refused with 422 and a sentence
+ * that names the field, before any write. They used to be looser here than in
+ * the entity and checked nowhere else, so a tier the request accepted was
+ * written and then failed its own response, and every read of the event after
+ * it answered 500. These bounds only keep an absurd body from being read at all.
+ */
+const TIER_WIRE_CAPS = Object.freeze({ name: 500, description: 5000, perOrder: 1000 })
+
+/** The fields of a ticket type an organiser writes. */
+const authorTicketTypeObject = z.object({
   ...revisionPrecondition,
-  name: nonEmptyStringSchema,
-  description: z.string().trim().max(2000).nullish(),
+  name: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() : value),
+    z.string().min(1).max(TIER_WIRE_CAPS.name),
+  ),
+  /**
+   * Blank is stored as null rather than as an empty description. At most
+   * `EVENT_CONTENT_LIMITS.tierDescription` characters are stored.
+   */
+  description: z
+    .preprocess(blankToNull, z.string().max(TIER_WIRE_CAPS.description).nullable())
+    .optional(),
   priceCents: centsSchema,
   currency: currencySchema.optional(),
   quantityTotal: z.number().int().min(0).max(1_000_000).optional(),
-  minPerOrder: z.number().int().min(1).max(100).optional(),
-  maxPerOrder: z.number().int().min(1).max(100).optional(),
+  /** Stored between 1 and `EVENT_CONTENT_LIMITS.perOrderMax`, and never above the most. */
+  minPerOrder: z.int().min(1).max(TIER_WIRE_CAPS.perOrder).optional(),
+  maxPerOrder: z.int().min(1).max(TIER_WIRE_CAPS.perOrder).optional(),
   salesStartAt: timestampSchema.nullish(),
   salesEndAt: timestampSchema.nullish(),
   eventSessionId: cuidSchema.nullish(),
   priceZoneId: cuidSchema.nullish(),
   reserved: z.boolean().optional(),
+  /** A guest-list tier: free, and hidden from the public page. */
   complimentary: z.boolean().optional(),
+  /**
+   * Whether the public event page lists the tier. `HIDDEN` is bookable only by
+   * the organisation's own team (`ticketType:manage`), which is how a guest
+   * list goes through the ordinary checkout.
+   */
+  visibility: ticketTypeVisibilitySchema.optional(),
   sortOrder: z.number().int().min(0).max(1000).optional(),
   /**
    * Whether this tier is selling.
@@ -1069,13 +1316,23 @@ export const authorTicketTypeRequestSchema = z.object({
   status: z.enum(['DRAFT', 'ON_SALE', 'PAUSED']).optional(),
 })
 
-/** Update a ticket type. */
-export const updateAuthorTicketTypeRequestSchema = authorTicketTypeRequestSchema.partial().extend({
-  ...revisionPrecondition,
-})
+/**
+ * Create a ticket type.
+ *
+ * The shape only. Whether the tier is coherent — its limits, its window, a
+ * complimentary tier being free and hidden, a reserved tier's session and
+ * zone — is decided by the route against the whole row, and refused with 422.
+ */
+export const authorTicketTypeRequestSchema = authorTicketTypeObject
 
-/** Remove a ticket type. */
-export const deleteTicketTypeRequestSchema = z.object({ ...revisionPrecondition })
+/** Update a ticket type: any of its fields, the revision, and at least one field. */
+export const updateAuthorTicketTypeRequestSchema = authorTicketTypeObject
+  .partial()
+  .extend({ ...revisionPrecondition })
+  .superRefine(requireContentField)
+
+/** Remove a ticket type. The revision travels in the query string. */
+export const deleteTicketTypeRequestSchema = revisionQuerySchema
 
 /**
  * Prepare a session's seat inventory.
@@ -1088,10 +1345,84 @@ export const prepareInventoryRequestSchema = z.object({
 })
 
 /**
+ * Bring a postponed event back with a new date, in one command.
+ *
+ * The event's new start and end, every session that moves with it, and where
+ * it returns to: `PUBLISHED` (sales stay closed) or `ON_SALE`. The dates and
+ * the status move in one transaction, so there is never a live event carrying
+ * the date it was postponed from. `confirm` must be literally true and the
+ * reason is recorded with the notice queued for every current order.
+ */
+export const rescheduleEventRequestSchema = z
+  .object({
+    revision: z.number().int().min(0),
+    startsAt: timestampSchema,
+    endsAt: timestampSchema,
+    sessions: z
+      .array(
+        z
+          .object({
+            id: cuidSchema,
+            startsAt: timestampSchema,
+            endsAt: timestampSchema,
+            doorsOpenAt: timestampSchema.nullish(),
+            salesStartAt: timestampSchema.nullish(),
+            salesEndAt: timestampSchema.nullish(),
+          })
+          .strict(),
+      )
+      .max(60)
+      .default([]),
+    resume: z.enum(['PUBLISHED', 'ON_SALE']),
+    confirm: z.literal(true),
+    reason: z.string().trim().min(1).max(2000),
+  })
+  .superRefine((value, ctx) => {
+    checkEventWindow(value, ctx)
+
+    const seen = new Set()
+
+    value.sessions.forEach((session, index) => {
+      if (seen.has(session.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sessions', index, 'id'],
+          message: 'Name each session once.',
+        })
+      }
+      seen.add(session.id)
+
+      if (Date.parse(session.endsAt) <= Date.parse(session.startsAt)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sessions', index, 'endsAt'],
+          message: 'A session must end after it starts.',
+        })
+      }
+
+      if (
+        session.salesStartAt &&
+        session.salesEndAt &&
+        Date.parse(session.salesEndAt) <= Date.parse(session.salesStartAt)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['sessions', index, 'salesEndAt'],
+          message: 'Sales must close after they open.',
+        })
+      }
+    })
+  })
+
+/**
  * Confirm a material change to a published event.
  *
  * `confirm` must be explicitly true. A default of true would make the
  * confirmation a formality, which is the opposite of what it is for.
+ *
+ * Not used by a route: a material change travels on `PATCH /v1/events/:id` as
+ * `confirmMaterialChange` and `changeReason`, and on a session's PATCH the same
+ * way. Kept for callers that validate a change before sending it.
  */
 export const materialChangeRequestSchema = z.object({
   ...revisionPrecondition,

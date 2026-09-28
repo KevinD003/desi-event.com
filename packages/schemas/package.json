@@ -13,6 +13,7 @@
     "./payments": "./src/payments.js",
     "./connect": "./src/connect.js",
     "./media": "./src/media.js",
+    "./event-content": "./src/event-content.js",
     "./package.json": "./package.json"
   },
   "files": [

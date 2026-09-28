@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 
-import { TicketTiers, availabilityLabel, tierAllIn } from './ticket-tiers.jsx'
+import { TicketTiers, availabilityLabel, salesWindowText, tierAllIn } from './ticket-tiers.jsx'
 
 describe('availabilityLabel', () => {
   it('does not call a seated tier sold out, and says it is not sold on this site', () => {
@@ -201,5 +201,40 @@ describe('TicketTiers with the fee terms', () => {
     render(<TicketTiers ticketTypes={tiers} />)
 
     expect(screen.queryByText(/with fees/)).toBeNull()
+  })
+})
+
+describe('a tier’s own sales window', () => {
+  const now = new Date('2027-09-20T12:00:00.000Z')
+
+  it('says when an early-bird tier closes, in the venue’s zone', () => {
+    expect(
+      salesWindowText(
+        { salesStartAt: null, salesEndAt: '2027-10-01T03:59:00.000Z' },
+        'America/New_York',
+        now,
+      ),
+    ).toBe('On sale until Sep 30, 11:59 PM EDT')
+  })
+
+  it('says when a later tier opens, and when one has closed', () => {
+    expect(
+      salesWindowText(
+        { salesStartAt: '2027-10-01T04:00:00.000Z', salesEndAt: null },
+        'America/New_York',
+        now,
+      ),
+    ).toBe('On sale from Oct 1, 12:00 AM EDT')
+    expect(
+      salesWindowText(
+        { salesStartAt: null, salesEndAt: '2027-09-01T04:00:00.000Z' },
+        'America/Chicago',
+        now,
+      ),
+    ).toBe('Sales ended Aug 31, 11:00 PM CDT')
+  })
+
+  it('says nothing for a tier with no window', () => {
+    expect(salesWindowText({ salesStartAt: null, salesEndAt: null }, 'UTC', now)).toBeNull()
   })
 })

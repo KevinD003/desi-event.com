@@ -332,9 +332,9 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(organiser.getByText(/no ticket types yet/i)).toBeVisible()
 
     await organiser.getByLabel(/^Name/).fill('General admission')
-    // Face values are entered in the currency's minor units, and a new tier is
-    // in US dollars unless the organiser picks another currency.
-    await organiser.getByLabel(/face value, in cents/i).fill('3500')
+    // Face values are typed in dollars, as a person reads a price, and a new
+    // tier is in US dollars unless the organiser picks another currency.
+    await organiser.getByLabel(/^Face value \(USD\)/).fill('35.00')
     await organiser.getByLabel(/how many/i).fill('200')
     await organiser.getByLabel(/put this tier on sale straight away/i).check()
     await organiser.getByRole('button', { name: 'Add ticket type' }).click()
@@ -527,12 +527,17 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
   })
 
   test('journey 19: a material change to a live event has to be meant', async () => {
-    // The generic editor refuses to touch a published event at all, which is the
-    // first line of defence. The confirmation is the second, and it is what the
-    // API asks for — so this journey goes at it the way a client would.
-    await organiser.goto(`/organizer/events/${eventId}`)
+    // The editor autosaves a live event's housekeeping only, and keeps its date,
+    // place and terms behind a panel that asks for a reason and a tick — the
+    // first line of defence. The confirmation the API asks for is the second,
+    // so this journey goes at it the way a client would.
+    await openStep(organiser, /^step 2/i)
 
-    await expect(organiser.getByText(/not open for editing/i)).toBeVisible()
+    await expect(organiser.getByText('This event is public').first()).toBeVisible()
+    await expect(organiser.getByLabel(/^Starts/).first()).toBeDisabled()
+    await expect(
+      organiser.getByRole('button', { name: 'Change date, place or terms…' }),
+    ).toBeVisible()
 
     const refused = await organiser.evaluate(async (id) => {
       const token = document.cookie.match(/(?:^|;\s*)(?:__Host-)?desi_csrf=([^;]*)/)

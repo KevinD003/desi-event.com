@@ -62,6 +62,8 @@ import {
   settleCheckout,
 } from '../lib/checkout.js'
 import { defineRoute } from '../lib/register.js'
+import { groupPassSummary, retrieveGroupPass, rotateGroupPass } from '../lib/group-passes.js'
+import { passRateLimit } from '../plugins/rate-limit.js'
 
 /** Everything an order payload needs, in one query. */
 /**
@@ -244,9 +246,10 @@ function ownsOrder(actor, order) {
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.providers The provider registry.
  * @param {object} deps.env The parsed API environment.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the pass rate limit, which the group pass shares; supplied by tests.
  * @returns {void} Nothing.
  */
-export function registerOrderRoutes(app, { prisma, providers, env }) {
+export function registerOrderRoutes(app, { prisma, providers, env, passLimit }) {
   defineRoute(app, 'orders.create', {
     handler: async (request) => {
       const body = request.body
@@ -616,7 +619,55 @@ export function registerOrderRoutes(app, { prisma, providers, env }) {
 
       // Only the buyer gets their own address back. `order:view` reaches every
       // organisation role from VIEWER up, and none of them needs it.
-      return { data: toOrder(order, { buyerAddress: buyer }) }
+      //
+      // Whether there is a group pass is the account holder's to know, so the
+      // summary is null for everybody else — including somebody signed in at
+      // the buyer's address on another account. It carries no secret.
+      return {
+        data: {
+          ...toOrder(order, { buyerAddress: buyer }),
+          groupPass: groupPassSummary(order, { viewerUserId: request.actor?.id }),
+        },
+      }
+    },
+  })
+
+  // The group pass: holder-only, derived, `no-store`. The reasoning is in
+  // ../lib/group-passes.js; nothing here logs the payload.
+  defineRoute(app, 'orders.groupPass', {
+    config: { rateLimit: passRateLimit(passLimit) },
+    handler: async (request, reply) => {
+      const data = await retrieveGroupPass({
+        prisma,
+        env,
+        actor: request.actor,
+        reference: request.params.reference,
+        requestId: request.id,
+        log: request.log,
+      })
+
+      reply.header('cache-control', 'no-store, private')
+      reply.header('pragma', 'no-cache')
+
+      return { data }
+    },
+  })
+
+  defineRoute(app, 'orders.rotateGroupPass', {
+    config: { rateLimit: passRateLimit(passLimit) },
+    handler: async (request, reply) => {
+      const data = await rotateGroupPass({
+        prisma,
+        env,
+        actor: request.actor,
+        reference: request.params.reference,
+        requestId: request.id,
+      })
+
+      reply.header('cache-control', 'no-store, private')
+      reply.header('pragma', 'no-cache')
+
+      return { data }
     },
   })
 

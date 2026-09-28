@@ -20,7 +20,12 @@
  * @file lib/event-status
  */
 
-import { LIVE_STATUSES } from '@desi-event/schemas/lifecycle'
+import {
+  EDITABLE_STATUSES,
+  LIVE_STATUSES,
+  MATERIAL_FIELDS as LIFECYCLE_MATERIAL_FIELDS,
+  SESSION_MATERIAL_FIELDS as LIFECYCLE_SESSION_MATERIAL_FIELDS,
+} from '@desi-event/schemas/lifecycle'
 
 /**
  * @typedef {object} StatusReading
@@ -90,7 +95,7 @@ const READINGS = Object.freeze({
     label: 'Postponed',
     tone: 'warning',
     whose: 'you',
-    next: 'Ticket holders have been told. Set a new date to bring it back.',
+    next: 'A notice has been recorded for every ticket holder. Set a new date to bring it back.',
   },
   CANCELLED: {
     label: 'Cancelled',
@@ -102,7 +107,7 @@ const READINGS = Object.freeze({
     label: 'Rejected',
     tone: 'danger',
     whose: 'you',
-    next: 'A moderator said no and gave a reason. A rejected event can be reworked as a new draft.',
+    next: 'A moderator said no and gave a reason. You can move it back to draft, rework it and send it for review again.',
   },
   ARCHIVED: {
     label: 'Archived',
@@ -157,6 +162,60 @@ export const EDITABLE = new Set(['DRAFT', 'CHANGES_REQUIRED'])
 export const LIVE = LIVE_STATUSES
 
 /**
+ * The event fields whose change after publication needs a confirmation and a
+ * reason: the date, the zone, the venue, the age limit, whether it is online,
+ * its link and the policies. From the same lifecycle subpath the API reads.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const MATERIAL_FIELDS = LIFECYCLE_MATERIAL_FIELDS
+
+/**
+ * The same, for one session: its start, end, time zone and door time.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const SESSION_MATERIAL_FIELDS = LIFECYCLE_SESSION_MATERIAL_FIELDS
+
+/**
+ * How each material field reads to a person, mirroring the API's
+ * `FIELD_LABELS` in `lib/event-material-change.js`, so the panel's "You are
+ * changing …" and the server's refusal use the same words.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const MATERIAL_FIELD_LABELS = Object.freeze({
+  startsAt: 'the start time',
+  endsAt: 'the end time',
+  timezone: 'the time zone',
+  venueId: 'the venue',
+  policies: 'the policies',
+  ageRestriction: 'the age restriction',
+  isOnline: 'whether it is online',
+  onlineUrl: 'the online address',
+  doorsOpenAt: 'the door time',
+})
+
+/**
+ * How the editor treats an event in a status.
+ *
+ * - `draft`: every field is an input and saves as it is typed.
+ * - `live`: the page is public. Housekeeping still saves as it is typed; the
+ *   date, place and terms are read-only here and change through the material
+ *   change panel, with a reason.
+ * - `locked`: in review, approved, rejected or finished; nothing is edited here.
+ *
+ * @param {string} status An `EventStatus`.
+ * @returns {'draft'|'live'|'locked'} The mode.
+ */
+export function editMode(status) {
+  if (EDITABLE_STATUSES.has(status)) return 'draft'
+  if (LIVE_STATUSES.has(status)) return 'live'
+
+  return 'locked'
+}
+
+/**
  * The lifecycle commands, and how each one asks.
  *
  * `reason` says whether the command needs one, and `confirm` whether it is the
@@ -173,6 +232,23 @@ export const COMMANDS = Object.freeze({
     label: 'Send for review',
     verb: 'Sending for review',
     reason: 'optional',
+    confirm: null,
+    tone: 'primary',
+  },
+  rework: {
+    path: 'rework',
+    label: 'Rework as a draft',
+    verb: 'Moving back to draft',
+    reason: 'none',
+    confirm:
+      'This moves the event back to draft so you can change it and send it for review again. The moderator’s reasons stay in the history.',
+    tone: 'primary',
+  },
+  reschedule: {
+    path: 'reschedule',
+    label: 'Set a new date and bring it back',
+    verb: 'Bringing it back',
+    reason: 'required',
     confirm: null,
     tone: 'primary',
   },
@@ -213,7 +289,8 @@ export const COMMANDS = Object.freeze({
     label: 'Postpone',
     verb: 'Postponing',
     reason: 'required',
-    confirm: 'Postponing tells every ticket holder the date is off. Continue?',
+    confirm:
+      'Postponing records a notice for every ticket holder that the date is off. This build does not send email, so tell them yourself too. Continue?',
     tone: 'secondary',
   },
   cancel: {

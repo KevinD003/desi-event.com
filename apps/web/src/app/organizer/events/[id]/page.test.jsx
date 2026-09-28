@@ -25,6 +25,7 @@ vi.mock('../../../../lib/organizer-api.js', async () => {
     getEventMedia: vi.fn(),
     getEventReadiness: vi.fn(),
     getEventSessions: vi.fn(),
+    getEventTicketTypes: vi.fn(),
     getEventTransitions: vi.fn(),
     getModerationHistory: vi.fn(),
     getOrganizerEvent: vi.fn(),
@@ -95,6 +96,7 @@ async function openMediaStep() {
 beforeEach(() => {
   api.getOrganizerEvent.mockResolvedValue(EVENT)
   api.getEventSessions.mockResolvedValue({ data: [], meta: { revision: 3 } })
+  api.getEventTicketTypes.mockResolvedValue({ data: [], meta: { revision: 3 } })
   api.getEventReadiness.mockResolvedValue({
     ready: false,
     status: 'DRAFT',

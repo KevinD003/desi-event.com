@@ -12,6 +12,9 @@
  *     one table the ticket and order pages share.
  *   - **Every group is a region named by its heading**, and each ticket's
  *     heading link is the event's title.
+ *   - **A group pass is a link, never a pass.** An order with two to fifty
+ *     tickets this account bought and that still admit gets a card linking to
+ *     the order's group pass; the count is not given from a cut-short list.
  *
  * @module app/tickets/page.test
  */
@@ -162,5 +165,69 @@ describe('MyTicketsPage', () => {
     expect(screen.getAllByRole('heading', { level: 1 }).map((h) => h.textContent)).toEqual([
       'My tickets',
     ])
+  })
+})
+
+describe('group passes', () => {
+  /** A second ticket on the same order as {@link walletTicket}'s default. */
+  const PARTNER = { id: 'tkt00000000000000000002', code: 'DE-SWP-8R3L' }
+
+  it('lists an order with two admitting tickets above the tickets, linking to its group pass', async () => {
+    const { container } = await renderWallet([walletTicket(), walletTicket(PARTNER)])
+
+    const region = screen.getByRole('region', { name: 'Group passes' })
+    const card = within(region).getByRole('listitem')
+
+    expect(within(card).getByRole('heading', { level: 3 }).textContent).toBe(
+      'Navratri Night One: Garba Under the Lights',
+    )
+    expect(within(card).getByText('Group pass (admits 2)')).toBeTruthy()
+
+    const link = within(card).getByRole('link', { name: /^show group pass/iu })
+
+    expect(link.textContent).toBe('Show group pass for Navratri Night One: Garba Under the Lights')
+    expect(link.getAttribute('href')).toBe('/account/orders/DE-8F3K2Q#group-pass')
+    // Above the ticket sections, and nothing of a pass on the page.
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
+
+    expect(headings.indexOf('Group passes')).toBeLessThan(headings.indexOf('Coming up'))
+    expect(container.textContent).not.toMatch(/DEG-|G1\./)
+  })
+
+  it('has none when each order has one ticket', async () => {
+    await renderWallet([walletTicket(), walletTicket({ ...PARTNER, orderReference: 'DE-9G4L3R' })])
+
+    expect(screen.queryByRole('region', { name: 'Group passes' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /show group pass/iu })).toBeNull()
+  })
+
+  it('counts only tickets this account bought and that still admit', async () => {
+    await renderWallet([
+      walletTicket(),
+      walletTicket({ ...PARTNER, holderRelationship: 'RECEIVED' }),
+      walletTicket({
+        id: 'tkt00000000000000000003',
+        status: 'CHECKED_IN',
+        admits: false,
+        admissionRefusal: 'This ticket has already been used.',
+      }),
+    ])
+
+    expect(screen.queryByRole('region', { name: 'Group passes' })).toBeNull()
+  })
+
+  it('does not count from a cut-short list, and sends the reader to the order for it', async () => {
+    getMyTickets.mockResolvedValue({
+      tickets: [walletTicket(), walletTicket(PARTNER)],
+      pagination: { hasNextPage: true, total: 140 },
+    })
+
+    render(await MyTicketsPage())
+
+    const card = within(screen.getByRole('region', { name: 'Group passes' })).getByRole('listitem')
+
+    expect(within(card).queryByText(/admits \d/)).toBeNull()
+    expect(within(card).getByText('Group pass')).toBeTruthy()
+    expect(within(card).getByText(/how many it admits is on the order’s page/)).toBeTruthy()
   })
 })

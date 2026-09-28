@@ -275,22 +275,25 @@ describe('what is always said', () => {
     ).toBe('/tickets/accept')
   })
 
-  it('does not say the sender sent the code, which the API never gives them', async () => {
+  it('says the code was shown once to whoever made the offer, and that no email is sent', async () => {
+    // The old copy said the sender never sees the code; with no delivery
+    // provider the code is shown to them once, to pass on themselves.
     await renderPage([GIVEN])
 
     const accept = screen.getByRole('region', { name: 'Accept a ticket' })
 
-    expect(accept.textContent).not.toMatch(/sent you|they sent/i)
-    expect(accept.textContent).toMatch(/never sees that code/)
-    expect(accept.textContent).toMatch(/delivers no email/)
+    expect(accept.textContent).not.toMatch(/sent you|they sent|we sent|emailed/i)
+    expect(accept.textContent).toMatch(/shown to the person who made it, once/)
+    expect(accept.textContent).toMatch(/this site sends no email/)
   })
 
-  it('says reserved-seat tickets cannot be handed on, and promises nothing', async () => {
+  it('says a reserved seat goes with its ticket, and promises nothing else', async () => {
     const { container } = await renderPage([GIVEN])
     const seats = screen.getByRole('region', { name: 'Reserved seats' })
 
-    expect(seats.textContent).toMatch(/Tickets for reserved seats cannot be handed on\./)
-    expect(seats.textContent).not.toMatch(/\byet\b/i)
+    expect(seats.textContent).toMatch(/A reserved seat goes with its ticket/)
+    expect(seats.textContent).not.toMatch(/cannot be handed on/)
+    expect(seats.textContent).not.toMatch(/\byet\b|\bsoon\b|planned/i)
     expect(container.textContent).not.toMatch(/coming soon/i)
   })
 

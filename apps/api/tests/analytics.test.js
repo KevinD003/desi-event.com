@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ACCOUNTS, CREDIT, DEBIT } from '@desi-event/ledger'
 
+import { LIVE_TICKET_STATES } from '../src/lib/analytics.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { expectNoNeedles } from './helpers/payloads.js'
 import { LEDGER_ACCOUNTS, makeWorld } from './helpers/fixtures.js'
@@ -228,6 +229,42 @@ describe('GET /v1/analytics/summary', () => {
     expect(view.moneyWithheld).toBeNull()
     expect(view.money.totals.grossCollectedCents).toBe(COLLECTED_CENTS)
     expect(JSON.stringify(view.money)).not.toContain('999999999')
+  })
+
+  it('counts a handed-on ticket once, as its successor', async () => {
+    // A ticket handed on is two rows — the sender's, now TRANSFERRED, and the
+    // recipient's successor on the same order line — and one sale. Counting
+    // TRANSFERRED as live counted it twice.
+    expect(LIVE_TICKET_STATES).toEqual(['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'])
+
+    const { app, prisma, ids } = await worldWithSales()
+    const valid = prisma._store.ticket.find((row) => row.status === 'VALID')
+    const successorId = cuid()
+
+    valid.status = 'TRANSFERRED'
+    valid.credentialHash = null
+    prisma._store.ticket.push({
+      ...valid,
+      id: successorId,
+      serial: 'ANL-successor',
+      status: 'VALID',
+      credentialHash: 'hash-successor',
+      supersedesTicketId: valid.id,
+    })
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/analytics/summary?organizationId=${ids.organization.id}&currency=INR`,
+      headers: await asUser(app, OWNER),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const view = response.json().data
+
+    // The successor and the admitted ticket: two, as before the handover.
+    expect(view.tickets.live).toBe(2)
+    expect(view.checkIns.live).toBe(2)
   })
 
   it('omits the money from the payload for a viewer, rather than from the page', async () => {

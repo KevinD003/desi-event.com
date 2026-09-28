@@ -28,39 +28,38 @@
 
 import { useState } from 'react'
 
-import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
+import { SessionForm, toSessionForm } from './session-form.jsx'
+import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refusalSentence } from '../lib/refusal.js'
-import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
-
-/**
- * A blank session, timed like the event itself.
- *
- * @param {object} event The event.
- * @returns {object} Form values for a new session.
- */
-function blankSession(event) {
-  return {
-    startsAt: event.startsAt ?? '',
-    endsAt: event.endsAt ?? '',
-    doorsOpenAt: '',
-    timezone: event.timezone ?? 'America/New_York',
-    salesStartAt: '',
-    salesEndAt: '',
-    venueMapVersionId: '',
-    capacity: '',
-  }
-}
+import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /**
  * @typedef {object} EventSessionsEditorProps
  * @property {object} event The event.
- * @property {object[]} sessions The sessions as loaded.
+ * @property {object[]} sessions The sessions as loaded, with their usage and price zones.
  * @property {number} revision The event's current revision, owned by the editor shell.
  * @property {Function} onRevision Called with the new revision after every write.
+ * @property {Function} [onSessions] Called with the list after it changes, so the tickets step sees new sessions.
  * @property {object[]} mapVersions Published map versions for the event's venue.
- * @property {boolean} editable Whether the event's state allows changes.
+ * @property {boolean} [editable] Whether the event's state allows changes. Superseded by `mode`.
+ * @property {'draft'|'live'|'locked'} [mode] The editing mode.
  */
+
+/**
+ * A session's usage line, in words.
+ *
+ * @param {object} session The session.
+ * @returns {string|null} For example `120 of 200 sold · 4 held`, or null when nothing is known.
+ */
+function usageLine(session) {
+  if (!session.usage) return null
+
+  const { sold, held } = session.usage
+  const of = session.capacity ? ` of ${session.capacity.toLocaleString('en-US')}` : ''
+
+  return `${sold.toLocaleString('en-US')}${of} sold · ${held.toLocaleString('en-US')} held`
+}
 
 /**
  * The sessions step.
@@ -73,40 +72,58 @@ export function EventSessionsEditor({
   sessions: initial = [],
   revision = 0,
   onRevision = () => {},
+  onSessions = () => {},
   mapVersions = [],
   editable = true,
+  mode: givenMode = null,
 }) {
-  const [sessions, setSessions] = useState(initial)
-  const [draft, setDraft] = useState(() => blankSession(event))
+  const mode = givenMode ?? (editable ? 'draft' : 'locked')
+  const canEdit = mode !== 'locked'
+  const [sessions, setSessionsState] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [problems, setProblems] = useState([])
   const [notice, setNotice] = useState(null)
+  const [editing, setEditing] = useState(null)
+  const [confirmRemove, setConfirmRemove] = useState(null)
+  const [addKey, setAddKey] = useState(0)
+
+  /**
+   * Keep the list, and tell the shell.
+   *
+   * @param {object[]} next The sessions.
+   * @returns {void}
+   */
+  const setSessions = (next) => {
+    setSessionsState(next)
+    onSessions(next)
+  }
 
   /**
    * Send one authoring write and fold the answer back in.
    *
    * @param {string} path The path under the event.
-   * @param {string} method The HTTP method.
-   * @param {object} [body] The body, which always carries the revision.
+   * @param {object} init `apiFetch` options, without the revision.
+   * @param {object|null} [body] A JSON body; the revision is added to it.
    * @returns {Promise<object|null>} The response body, or null when it failed.
    */
-  async function write(path, method, body = {}) {
+  async function write(path, init, body = null) {
     setBusy(true)
     setError(null)
     setProblems([])
+    setNotice(null)
 
     try {
       const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}${path}`, {
-        method,
-        body: JSON.stringify({ ...body, revision }),
+        ...init,
+        ...(body ? { body: JSON.stringify({ ...body, revision }) } : { query: { revision } }),
       })
 
       const parsed = await response.json().catch(() => null)
 
       if (response.ok) {
         if (Number.isInteger(parsed?.meta?.revision)) onRevision(parsed.meta.revision)
-        return parsed
+        return parsed ?? {}
       }
 
       setError(refusalSentence(response.status, parsed, 'The change was refused.'))
@@ -121,7 +138,7 @@ export function EventSessionsEditor({
   }
 
   /**
-   * Re-read the list after a change that moved more than one row.
+   * Re-read the list, with every session's usage.
    *
    * @returns {Promise<void>} Resolves when reloaded.
    */
@@ -136,42 +153,58 @@ export function EventSessionsEditor({
   }
 
   /**
-   * Add the session in the form.
+   * Add a session.
    *
-   * @param {object} submitted The submit event.
+   * @param {object} body The session.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
-  async function addSession(submitted) {
-    submitted.preventDefault()
-
-    const body = {
-      startsAt: draft.startsAt || undefined,
-      endsAt: draft.endsAt || undefined,
-      doorsOpenAt: draft.doorsOpenAt || null,
-      timezone: draft.timezone,
-      salesStartAt: draft.salesStartAt || null,
-      salesEndAt: draft.salesEndAt || null,
-      venueMapVersionId: draft.venueMapVersionId || null,
-      capacity: draft.capacity === '' ? null : Number(draft.capacity),
-    }
-
-    const result = await write('/sessions', 'POST', body)
+  async function addSession(body) {
+    const result = await write('/sessions', { method: 'POST' }, body)
 
     if (!result) return
 
-    setSessions((current) => [...current, result.data])
-    setDraft(blankSession(event))
+    await reload()
+    setAddKey((current) => current + 1)
     setNotice('Session added.')
   }
 
   /**
-   * Remove one session.
+   * Save an edit to a session.
+   *
+   * @param {object} session The session.
+   * @param {object} patch What changed, with any confirmation.
+   * @returns {Promise<void>} Resolves when the attempt is over.
+   */
+  async function saveSession(session, patch) {
+    const result = await write(
+      `/sessions/${encodeURIComponent(session.id)}`,
+      { method: 'PATCH' },
+      patch,
+    )
+
+    if (!result) return
+
+    await reload()
+    setEditing(null)
+    setNotice(
+      patch.confirmMaterialChange
+        ? 'Session changed. A notice has been recorded for every order for this night.'
+        : 'Session saved.',
+    )
+  }
+
+  /**
+   * Remove one session. The revision travels in the query string.
    *
    * @param {object} session The session.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
   async function removeSession(session) {
-    const result = await write(`/sessions/${encodeURIComponent(session.id)}`, 'DELETE')
+    const result = await write(`/sessions/${encodeURIComponent(session.id)}`, {
+      method: 'DELETE',
+    })
+
+    setConfirmRemove(null)
 
     if (!result) return
 
@@ -206,7 +239,7 @@ export function EventSessionsEditor({
 
       // `created` and `prepared` are separate in the response precisely so that
       // a second run can say "already done" rather than claiming work.
-      const { kind, created, prepared, expected } = body.data
+      const { kind, created, prepared, expected, assigned = 0 } = body.data
 
       if (kind === 'general_admission') {
         // Nothing to prepare, and saying "already prepared: 0 of 0" would read
@@ -218,11 +251,16 @@ export function EventSessionsEditor({
         return
       }
 
-      setNotice(
+      const made =
         created === 0
           ? `Already prepared: ${prepared} of ${expected} seats exist. Nothing new was created.`
-          : `Prepared ${created} new seat${created === 1 ? '' : 's'}; ${prepared} of ${expected} now exist.`,
-      )
+          : `Prepared ${created} new seat${created === 1 ? '' : 's'}; ${prepared} of ${expected} now exist.`
+      const priced =
+        assigned > 0
+          ? ` ${assigned} seat${assigned === 1 ? ' was' : 's were'} matched to the reserved ticket type that prices ${assigned === 1 ? 'its' : 'their'} zone.`
+          : ''
+
+      setNotice(`${made}${priced}`)
     } catch {
       setError('The service is not responding.')
     } finally {
@@ -240,11 +278,20 @@ export function EventSessionsEditor({
         ticket type belongs to exactly one of them.
       </p>
 
-      {notice ? (
-        <Alert variant="success" title="Done">
-          <p>{notice}</p>
-        </Alert>
+      {mode === 'live' ? (
+        <p className="text-sm text-ink-muted">
+          This event is public. You can add a night, move one, or remove one nobody has a ticket
+          for. Moving a night people have tickets for records a notice for each of their orders.
+        </p>
       ) : null}
+
+      <div aria-live="polite">
+        {notice ? (
+          <Alert variant="success" title="Done">
+            <p>{notice}</p>
+          </Alert>
+        ) : null}
+      </div>
 
       {error ? (
         <Alert variant="error" title="That did not work">
@@ -265,212 +312,165 @@ export function EventSessionsEditor({
         </p>
       ) : (
         <ol className="space-y-3">
-          {sessions.map((session, index) => (
-            <li key={session.id}>
-              <Card>
-                <CardBody>
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-ink">
-                        Session {index + 1}
-                        {session.venueMapVersionId ? (
-                          <>
-                            {' '}
+          {sessions.map((session, index) => {
+            const usage = usageLine(session)
+            const zones = session.priceZones ?? []
+
+            return (
+              <li key={session.id}>
+                <Card>
+                  <CardBody>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-medium text-ink">
+                          {session.label || `Session ${index + 1}`}{' '}
+                          {session.venueMapVersionId ? (
                             <Badge variant="info" srLabel="Seating:">
                               Reserved seating
                             </Badge>
-                          </>
-                        ) : (
-                          <>
-                            {' '}
+                          ) : (
                             <Badge variant="neutral" srLabel="Seating:">
                               General admission
                             </Badge>
-                          </>
-                        )}
-                      </p>
-                      <p className="mt-1 text-sm text-ink-muted">
-                        {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')} —{' '}
-                        {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
-                        <span className="text-ink-muted">
-                          ({session.timezone}{' '}
-                          {zoneAbbreviation(session.timezone, new Date(session.startsAt))})
-                        </span>
-                      </p>
-                      {session.capacity ? (
+                          )}
+                        </h3>
                         <p className="mt-1 text-sm text-ink-muted">
-                          Capacity {session.capacity.toLocaleString('en-US')}
+                          {toLocalInputValue(session.startsAt, session.timezone).replace('T', ' ')}{' '}
+                          — {toLocalInputValue(session.endsAt, session.timezone).replace('T', ' ')}{' '}
+                          <span className="text-ink-muted">
+                            ({session.timezone}{' '}
+                            {zoneAbbreviation(session.timezone, new Date(session.startsAt))})
+                          </span>
                         </p>
-                      ) : null}
+                        {session.capacity ? (
+                          <p className="mt-1 text-sm text-ink-muted">
+                            Capacity {session.capacity.toLocaleString('en-US')}
+                          </p>
+                        ) : null}
+                        {zones.length > 0 ? (
+                          <p className="mt-1 text-sm text-ink-muted">
+                            Price zones: {zones.map((zone) => zone.name).join(', ')}
+                          </p>
+                        ) : null}
+                        {usage ? <p className="mt-1 text-sm text-ink-muted">{usage}</p> : null}
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => prepare(session)}
+                        >
+                          Prepare inventory
+                        </Button>
+                        {canEdit && editing !== session.id ? (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            disabled={busy}
+                            aria-label={`Edit session ${index + 1}`}
+                            onClick={() => {
+                              setConfirmRemove(null)
+                              setEditing(session.id)
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        ) : null}
+                        {canEdit && session.removable !== false && confirmRemove !== session.id ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            aria-label={`Remove session ${index + 1}`}
+                            onClick={() => setConfirmRemove(session.id)}
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => prepare(session)}
-                      >
-                        Prepare inventory
-                      </Button>
-                      {editable ? (
+                    {canEdit && session.removable === false ? (
+                      <p className="mt-2 text-sm text-ink-muted">
+                        Cannot be removed: this night has orders, baskets or check-ins. Move it
+                        instead, or cancel the event.
+                      </p>
+                    ) : null}
+
+                    {confirmRemove === session.id ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-card border border-line p-3">
+                        <p className="text-sm text-ink">
+                          Remove this session? Its ticket types have to go first.
+                        </p>
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => removeSession(session)}
+                        >
+                          Yes, remove it
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
                           disabled={busy}
-                          onClick={() => removeSession(session)}
+                          onClick={() => setConfirmRemove(null)}
                         >
-                          Remove
+                          Keep it
                         </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </CardBody>
-              </Card>
-            </li>
-          ))}
+                      </div>
+                    ) : null}
+
+                    {editing === session.id ? (
+                      <div className="mt-4 border-t border-line pt-4">
+                        <SessionForm
+                          kind="edit"
+                          idPrefix={`session-${session.id}`}
+                          initial={toSessionForm(session)}
+                          mode={mode}
+                          mapVersions={mapVersions}
+                          usage={session.usage ?? null}
+                          busy={busy}
+                          onSubmit={(patch) => saveSession(session, patch)}
+                          onCancel={() => setEditing(null)}
+                        />
+                      </div>
+                    ) : null}
+                  </CardBody>
+                </Card>
+              </li>
+            )
+          })}
         </ol>
       )}
 
-      {editable ? (
-        <form onSubmit={addSession} className="space-y-4 rounded-card border border-line p-4">
+      {canEdit ? (
+        <div className="space-y-4 rounded-card border border-line p-4">
           <h3 className="text-lg font-semibold text-ink">Add a session</h3>
-
-          <FormField
-            label="Time zone"
-            id="session-timezone"
-            required
-            description="The venue's local time for this session. A festival that moves venue mid-week moves zone with it."
-          >
-            <Select
-              value={draft.timezone}
-              onChange={(change) => setDraft({ ...draft, timezone: change.target.value })}
-            >
-              {[...new Set([draft.timezone, event.timezone, 'America/New_York'])]
-                .filter(Boolean)
-                .map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone}
-                  </option>
-                ))}
-            </Select>
-          </FormField>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Starts" id="session-startsAt" required>
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.startsAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    startsAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField label="Ends" id="session-endsAt" required>
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.endsAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    endsAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField label="Doors open" id="session-doorsOpenAt">
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.doorsOpenAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    doorsOpenAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField
-              label="Capacity"
-              id="session-capacity"
-              description="General admission only. A reserved session's capacity is its map."
-            >
-              <Input
-                type="number"
-                min="0"
-                value={draft.capacity}
-                onChange={(change) => setDraft({ ...draft, capacity: change.target.value })}
-              />
-            </FormField>
-
-            <FormField
-              label="Sales open"
-              id="session-salesStartAt"
-              description="Leave empty to sell as soon as the event does."
-            >
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.salesStartAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    salesStartAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-
-            <FormField label="Sales close" id="session-salesEndAt">
-              <Input
-                type="datetime-local"
-                value={toLocalInputValue(draft.salesEndAt, draft.timezone)}
-                onChange={(change) =>
-                  setDraft({
-                    ...draft,
-                    salesEndAt: fromLocalInputValue(change.target.value, draft.timezone) ?? '',
-                  })
-                }
-              />
-            </FormField>
-          </div>
-
-          <FormField
-            label="Seating map"
-            id="session-venueMapVersionId"
-            description="Only published versions appear here. A version somebody is still editing cannot back a session, because the seats would move underneath the tickets."
-          >
-            <Select
-              value={draft.venueMapVersionId}
-              onChange={(change) => setDraft({ ...draft, venueMapVersionId: change.target.value })}
-            >
-              <option value="">General admission — no seating map</option>
-              {mapVersions.map((version) => (
-                <option key={version.id} value={version.id}>
-                  {version.mapName} v{version.version} — {version.seatCount} seats
-                </option>
-              ))}
-            </Select>
-          </FormField>
-
           {mapVersions.length === 0 ? (
             <p className="text-sm text-ink-muted">
               This venue has no published seating map, so sessions here are general admission.
               Publish a map version on the venue first to sell reserved seats.
             </p>
           ) : null}
-
-          <Button type="submit" disabled={busy}>
-            {busy ? 'Adding…' : 'Add session'}
-          </Button>
-        </form>
+          <SessionForm
+            key={addKey}
+            kind="create"
+            idPrefix="session"
+            initial={toSessionForm(event)}
+            mode={mode}
+            mapVersions={mapVersions}
+            busy={busy}
+            onSubmit={addSession}
+          />
+        </div>
       ) : null}
     </section>
   )

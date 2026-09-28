@@ -74,6 +74,20 @@ const CONTRACT_EXPORTS = [
   'eventMediaListResponseSchema',
   'eventMediaResponseSchema',
   'mediaBytesSchema',
+  // Event authoring and the event page's content
+  'ticketTypeVisibilitySchema',
+  'revisionQuerySchema',
+  'rescheduleEventRequestSchema',
+  'authorTicketTypeRequestSchema',
+  'updateAuthorTicketTypeRequestSchema',
+  'authorTicketTypeSchema',
+  'authorTicketTypeListResponseSchema',
+  'eventFaqSchema',
+  'eventPerformersSchema',
+  'eventRunningOrderSchema',
+  'eventSponsorsSchema',
+  'eventSocialLinksSchema',
+  'httpsUrlSchema',
 ]
 
 /**

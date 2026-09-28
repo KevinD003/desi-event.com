@@ -84,7 +84,13 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'coverImage',
       'createdAt',
       'description',
+      // The event page's own content, public because the organiser chose to
+      // publish it. The contact is the one typed into the public contact
+      // fields, never the private `contactEmail` (NF-14, asserted below).
+      'directions',
+      'dressCode',
       'endsAt',
+      'faq',
       // The booking fee is part of the price; see `feeTerms` in the schema.
       'feeTerms',
       'gallery',
@@ -94,11 +100,17 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'onlineUrl',
       'organization',
       'organizationId',
+      'performers',
       'policies',
       'previousStartsAt',
+      'publicEmail',
+      'publicPhone',
       'publishedAt',
       'revision',
+      'runningOrder',
       'slug',
+      'socialLinks',
+      'sponsors',
       'startsAt',
       'status',
       'summary',

@@ -544,3 +544,110 @@ describe('other refusals', () => {
     expect(container.textContent).not.toContain('There is no order with that reference')
   })
 })
+
+describe('the group pass', () => {
+  /** The summary the API gives the buyer of an order with two admitting tickets. */
+  const AVAILABLE = { admits: 2, available: true, unavailableReason: null }
+
+  it('is offered to the buyer holding the tickets, under its own heading, and fetches nothing', async () => {
+    const { apiFetch } = await import('../../../../lib/api-fetch.js')
+
+    apiFetch.mockReset()
+    getMyOrder.mockResolvedValue(order({ event: LATER, groupPass: AVAILABLE }))
+
+    const { container } = await renderPage()
+    const section = screen.getByRole('region', { name: 'Group pass (admits 2)' })
+
+    expect(section.id).toBe('group-pass')
+    expect(section.textContent).toContain(
+      'One QR that lets in every ticket on this order that you still hold. Each ticket keeps its own pass as well.',
+    )
+    expect(screen.getByRole('button', { name: 'Show group pass' })).toBeInTheDocument()
+    // Nothing is asked for, and nothing secret is drawn, until the buyer asks.
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(container.textContent).not.toMatch(/DEG-|G1\./)
+    expect(section.textContent).not.toMatch(/offered to somebody/)
+  })
+
+  it('says a ticket on offer is let in until the offer is accepted', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        event: LATER,
+        groupPass: AVAILABLE,
+        tickets: [
+          ticket({ id: 'tkt00000000000000000001' }),
+          ticket({ id: 'tkt00000000000000000002', status: 'TRANSFER_PENDING' }),
+        ],
+      }),
+    )
+
+    await renderPage()
+
+    expect(screen.getByRole('region', { name: 'Group pass (admits 2)' }).textContent).toMatch(
+      /let in by the group pass until they accept\. If it is let in first, the offer can no longer be accepted\./,
+    )
+  })
+
+  it.each([
+    ['another account', { userId: 'usr00000000000000000009' }],
+    ['a guest checkout', { userId: null }],
+  ])('is not offered for an order placed from %s', async (_label, overrides) => {
+    getMyOrder.mockResolvedValue(order({ event: LATER, groupPass: AVAILABLE, ...overrides }))
+
+    await renderPage()
+
+    expect(screen.queryByRole('region', { name: /Group pass/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Show group pass' })).toBeNull()
+  })
+
+  it('is not offered when the account reading could not be checked', async () => {
+    readSession.mockRejectedValue(new Error('down'))
+    getMyOrder.mockResolvedValue(order({ event: LATER, groupPass: AVAILABLE }))
+
+    await renderPage()
+
+    expect(screen.queryByRole('button', { name: 'Show group pass' })).toBeNull()
+  })
+
+  it.each([
+    ['one ticket', 'TOO_FEW_TICKETS'],
+    ['an unpaid order', 'ORDER_NOT_PAID'],
+    ['a cancelled event', 'EVENT_CANCELLED'],
+  ])('says nothing about a group pass for %s', async (_label, reason) => {
+    getMyOrder.mockResolvedValue(
+      order({
+        event: LATER,
+        groupPass: { admits: 1, available: false, unavailableReason: reason },
+      }),
+    )
+
+    await renderPage()
+
+    expect(screen.queryByRole('region', { name: /Group pass/ })).toBeNull()
+  })
+
+  it('says to use each ticket’s own pass when there are more than fifty, without a pass', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        event: LATER,
+        groupPass: { admits: 51, available: false, unavailableReason: 'TOO_MANY_TICKETS' },
+      }),
+    )
+
+    await renderPage()
+
+    const section = screen.getByRole('region', { name: 'Group pass' })
+
+    expect(section.textContent).toMatch(/more than 50 tickets that admit/)
+    expect(section.textContent).toMatch(/Use each ticket’s own pass at the door\./)
+    expect(screen.queryByRole('button', { name: 'Show group pass' })).toBeNull()
+  })
+
+  it('is absent from an order the API gave no summary for', async () => {
+    getMyOrder.mockResolvedValue(order({ event: LATER }))
+
+    await renderPage()
+
+    expect(screen.queryByRole('region', { name: /Group pass/ })).toBeNull()
+  })
+})

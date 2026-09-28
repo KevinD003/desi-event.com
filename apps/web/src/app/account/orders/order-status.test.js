@@ -130,6 +130,13 @@ describe('what opening a ticket is for', () => {
     )
   })
 
+  it('no longer carves reserved seats out of handing on, because the seat goes with its ticket', () => {
+    const hint = openTicketHint([{ status: 'VALID' }])
+
+    expect(hint).toBe('Open a ticket to show its pass at the door or to hand it on.')
+    expect(hint).not.toMatch(/reserved/)
+  })
+
   it('offers the pass and withdrawing while a ticket is on offer', () => {
     const hint = openTicketHint([{ status: 'TRANSFER_PENDING' }])
 

@@ -6,7 +6,8 @@
  * and against PostgreSQL in `admission-integration.test.js`.
  */
 
-import { ADMISSION_REFUSAL_REASONS } from '@desi-event/schemas'
+import { ADMISSION_AUTHORITIES as PERMISSION_AUTHORITIES } from '@desi-event/permissions'
+import { ADMISSION_AUTHORITIES, ADMISSION_REFUSAL_REASONS } from '@desi-event/schemas'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -14,7 +15,9 @@ import {
   admissionConflict,
   holdsDoorAuthority,
   presentationOf,
+  readGroupPreviewReference,
   readPreviewReference,
+  signGroupPreviewReference,
   signPreviewReference,
 } from '../src/lib/admission.js'
 import { ADMISSION_REFUSAL_SENTENCES } from '../src/lib/tickets.js'
@@ -173,12 +176,128 @@ describe('holdsDoorAuthority', () => {
     }
   })
 
-  it('is false for everyone else, including a platform super-administrator', () => {
+  it('is true for a platform super-administrator with no membership', () => {
+    // ADR 0007: the platform super administrator admits on its own authority.
+    expect(holdsDoorAuthority({ role: 'SUPER_ADMIN', memberships: [] })).toBe(true)
+    expect(holdsDoorAuthority({ role: 'SUPER_ADMIN' })).toBe(true)
+  })
+
+  it('is false for every other role, platform or organisation', () => {
     for (const role of ['VIEWER', 'EVENT_MANAGER', 'FINANCE']) {
       expect(holdsDoorAuthority({ memberships: [{ role }] }), role).toBe(false)
     }
 
-    expect(holdsDoorAuthority({ role: 'SUPER_ADMIN', memberships: [] })).toBe(false)
+    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN', 'ORGANIZER', 'ATTENDEE']) {
+      expect(holdsDoorAuthority({ role, memberships: [] }), role).toBe(false)
+    }
+
     expect(holdsDoorAuthority(null)).toBe(false)
+  })
+})
+
+describe('the group preview reference', () => {
+  const claims = {
+    secret: SECRET,
+    groupPassId: 'groupaaaaaaaaaaa',
+    groupPassVersion: 2,
+    eventId: 'eventaaaaaaaaaaa',
+    organizationId: 'orgaaaaaaaaaaaaa',
+    actorId: 'actoraaaaaaaaaaa',
+    method: 'MANUAL_CODE',
+    ticketIds: ['ticketaaaaaaaaaa', 'ticketbbbbbbbbbb'],
+    expiresAt: new Date(NOW.getTime() + PREVIEW_TTL_MS),
+  }
+
+  it('round-trips the pass, its version and the admissible tickets', () => {
+    const read = readGroupPreviewReference({
+      secret: SECRET,
+      reference: signGroupPreviewReference(claims),
+      now: NOW,
+    })
+
+    expect(read).toEqual({
+      ok: true,
+      claims: expect.objectContaining({
+        v: 1,
+        g: 'groupaaaaaaaaaaa',
+        gv: 2,
+        e: 'eventaaaaaaaaaaa',
+        o: 'orgaaaaaaaaaaaaa',
+        a: 'actoraaaaaaaaaaa',
+        m: 'MANUAL_CODE',
+        ts: ['ticketaaaaaaaaaa', 'ticketbbbbbbbbbb'],
+      }),
+    })
+  })
+
+  it('is refused when its MAC is tampered with', () => {
+    const signed = signGroupPreviewReference(claims)
+    const [body, mac] = signed.split('.')
+    const flipped = `${body}.${mac.slice(0, -2)}${mac.endsWith('AA') ? 'BB' : 'AA'}`
+    const widened = Buffer.from(
+      JSON.stringify({
+        ...JSON.parse(Buffer.from(body, 'base64url').toString('utf8')),
+        ts: ['ticketaaaaaaaaaa', 'ticketbbbbbbbbbb', 'ticketcccccccccc'],
+      }),
+    ).toString('base64url')
+
+    expect(readGroupPreviewReference({ secret: SECRET, reference: flipped, now: NOW })).toEqual({
+      ok: false,
+      reason: 'PREVIEW_INVALID',
+    })
+    expect(
+      readGroupPreviewReference({ secret: SECRET, reference: `${widened}.${mac}`, now: NOW }),
+    ).toEqual({ ok: false, reason: 'PREVIEW_INVALID' })
+  })
+
+  it('expires', () => {
+    const reference = signGroupPreviewReference(claims)
+    const later = new Date(NOW.getTime() + PREVIEW_TTL_MS + 1)
+
+    expect(readGroupPreviewReference({ secret: SECRET, reference, now: later })).toEqual({
+      ok: false,
+      reason: 'PREVIEW_EXPIRED',
+    })
+  })
+
+  it('is never read as a single ticket’s reference, nor the other way round', () => {
+    // Distinct HKDF purposes: the MAC one was signed with never verifies as
+    // the other, so a single ticket's lookup cannot confirm a group and a
+    // group's cannot confirm one ticket.
+    const group = signGroupPreviewReference(claims)
+    const single = reference()
+
+    expect(readPreviewReference({ secret: SECRET, reference: group, now: NOW })).toEqual({
+      ok: false,
+      reason: 'PREVIEW_INVALID',
+    })
+    expect(readGroupPreviewReference({ secret: SECRET, reference: single, now: NOW })).toEqual({
+      ok: false,
+      reason: 'PREVIEW_INVALID',
+    })
+  })
+
+  it('carries no credential, code or address', () => {
+    const body = signGroupPreviewReference(claims).split('.')[0]
+    const decoded = Buffer.from(body, 'base64url').toString('utf8')
+
+    expect(decoded).not.toMatch(/G1\.|DEG-|@/u)
+  })
+})
+
+describe('GROUP_CHANGED', () => {
+  it('builds a 409 with its own sentence', () => {
+    expect(admissionConflict('GROUP_CHANGED')).toMatchObject({
+      statusCode: 409,
+      details: { reason: 'GROUP_CHANGED' },
+      message: ADMISSION_REFUSAL_SENTENCES.GROUP_CHANGED,
+    })
+  })
+})
+
+describe('the authority vocabulary', () => {
+  it('is the same in the permissions package and the schemas', () => {
+    expect(Object.values(PERMISSION_AUTHORITIES).sort()).toEqual([...ADMISSION_AUTHORITIES].sort())
+    expect(ADMISSION_AUTHORITIES).toContain('PLATFORM_ROLE')
   })
 })

@@ -12,7 +12,10 @@
  *   - **A token works only for the address it was sent to.** Otherwise a
  *     forwarded email is a way to take somebody else's ticket.
  *   - **Neither the pass nor the transfer token is ever returned twice**, and
- *     neither is stored: the database holds digests.
+ *     neither is stored: the database holds digests. With no delivery provider
+ *     (MANUAL, this build) the transfer code is in the offer's 201 exactly
+ *     once, `no-store`, for the sender to pass on; it is never in any later
+ *     read, a log line, an audit row or the outbox.
  *
  * The real-PostgreSQL races — two scanners, a transfer against a check-in, a
  * refund against a transfer — are in `ticket-concurrency.test.js`, because a
@@ -21,6 +24,7 @@
  * @module @desi-event/api/tests/ticket-lifecycle
  */
 
+import { createLogger } from '@desi-event/logger'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -188,10 +192,29 @@ describe('POST /v1/tickets/:id/transfers', () => {
     expect(response.body).not.toContain('rival')
     expect(response.body).not.toMatch(/r\*+l/u)
 
-    // The token is not in the response. It is a bearer secret, and a response
-    // carrying it would put it wherever the sender's browser keeps responses.
+    // No `token` and no digest under any name. With no delivery provider the
+    // one-time code is present once, as `delivery.invitationCode`, in this
+    // 201, which no cache may keep; it is never in any later read.
     expect(data).not.toHaveProperty('token')
     expect(data).not.toHaveProperty('tokenHash')
+    expect(data.delivery.mode).toBe('MANUAL')
+    expect(data.delivery.invitationCode).toEqual(expect.any(String))
+    expect(response.headers['cache-control']).toBe('no-store, private')
+    expect(response.headers.pragma).toBe('no-cache')
+
+    const stored = prisma._store.ticketTransfer.find((row) => row.id === data.id)
+
+    expect(transferTokenDigest(data.delivery.invitationCode)).toBe(stored.tokenHash)
+    expect(JSON.stringify(prisma._store)).not.toContain(data.delivery.invitationCode)
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${tickets[0].id}`,
+      headers: bearer(token),
+    })
+
+    expect(detail.statusCode).toBe(200)
+    expect(detail.body).not.toContain(data.delivery.invitationCode)
 
     const ticket = prisma._store.ticket.find((row) => row.id === tickets[0].id)
 
@@ -199,6 +222,146 @@ describe('POST /v1/tickets/:id/transfers', () => {
     // Still admittable. An invitation nobody accepted must not leave a paying
     // attendee at the door.
     expect(ticket.credentialHash).not.toBeNull()
+
+    await app.close()
+  })
+
+  it('records how the code went out, and never the code: audit, outbox and logs', async () => {
+    const chunks = []
+    const logger = createLogger({
+      name: 'api',
+      level: 'debug',
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    const harness = await createTestApp({ logger })
+    const { app, prisma, ids } = harness
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+    const [ticket] = bought.json().data.tickets
+
+    claim(prisma, [ticket], ids.attendee.id)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+
+    const code = response.json().data.delivery.invitationCode
+
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: 'ticket.transfer_started',
+        entityId: ticket.id,
+        metadata: expect.objectContaining({ delivery: 'MANUAL' }),
+      }),
+    )
+    expect(JSON.stringify(prisma._store.auditLog)).not.toContain(code)
+    expect(JSON.stringify(prisma._store.notificationOutbox)).not.toContain(code)
+    expect(chunks.join('')).not.toContain(code)
+    expect(chunks.join('')).toContain('issued a ticket transfer invitation')
+
+    await app.close()
+  })
+
+  it('hands the code to a delivery provider when one is wired, and returns none', async () => {
+    const delivered = []
+    const harness = await createTestApp({
+      deliver: async (message) => {
+        delivered.push(message)
+      },
+    })
+    const { app, prisma, ids } = harness
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+      },
+    })
+    const [ticket] = bought.json().data.tickets
+
+    claim(prisma, [ticket], ids.attendee.id)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${ticket.id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+    expect(response.json().data.delivery).toEqual({ mode: 'EMAIL', invitationCode: null })
+    expect(response.headers['cache-control']).toBe('no-store, private')
+    expect(delivered).toHaveLength(1)
+    expect(delivered[0]).toMatchObject({ purpose: 'ticket-transfer', to: RECIPIENT })
+    expect(response.body).not.toContain(delivered[0].token)
+
+    // The delivered code accepts.
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(await signIn(app, RECIPIENT)),
+      payload: { token: delivered[0].token },
+    })
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: 'ticket.transfer_started',
+        metadata: expect.objectContaining({ delivery: 'EMAIL' }),
+      }),
+    )
+
+    await app.close()
+  })
+
+  it('accepts the code from the offer only for the address it was offered to', async () => {
+    const { app, prisma, tickets } = await withOwnedTickets()
+    const offered = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${tickets[0].id}/transfers`,
+      headers: bearer(await signIn(app, BUYER)),
+      payload: { toEmail: RECIPIENT },
+    })
+    const code = offered.json().data.delivery.invitationCode
+
+    const wrongPerson = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+      payload: { token: code },
+    })
+
+    expect(wrongPerson.statusCode).toBe(403)
+    expect(wrongPerson.json().error.code).toBe('TRANSFER_NOT_YOURS')
+    expect(prisma._store.ticket.find((row) => row.id === tickets[0].id).status).toBe(
+      'TRANSFER_PENDING',
+    )
+
+    const rightPerson = await app.inject({
+      method: 'POST',
+      url: '/v1/ticket-transfers/accept',
+      headers: bearer(await signIn(app, RECIPIENT)),
+      payload: { token: code },
+    })
+
+    expect(rightPerson.statusCode, rightPerson.body).toBe(200)
+    expect(prisma._store.ticket.find((row) => row.id === tickets[0].id).status).toBe('TRANSFERRED')
 
     await app.close()
   })

@@ -666,3 +666,71 @@ describe('the event detail page in the new design', () => {
     )
   })
 })
+
+describe('the event detail page and the organiser’s own content', () => {
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  it('formats the description as elements, and links only https addresses', async () => {
+    const { container } = await renderEvent({
+      ...selling,
+      description:
+        'A **full** night of *qawwali*.\n\n- Free chai\n- Shoes off inside\n\n[Tickets help](https://help.example) and [not this](javascript:alert(1)).',
+    })
+
+    const about = screen.getByRole('region', { name: 'About this event' })
+
+    expect(within(about).getByText('full').tagName).toBe('STRONG')
+    expect(within(about).getByText('qawwali').tagName).toBe('EM')
+    expect(within(about).getByText('Free chai').tagName).toBe('LI')
+    expect(within(about).getByRole('link', { name: 'Tickets help' })).toHaveAttribute(
+      'href',
+      'https://help.example',
+    )
+    expect(within(about).queryByRole('link', { name: 'not this' })).not.toBeInTheDocument()
+    expect(container.innerHTML).not.toMatch(/href="javascript:/)
+  })
+
+  it('shows the line-up with roles, the running order, questions, contact, links and sponsors', async () => {
+    await renderEvent({
+      ...selling,
+      performers: [{ name: 'Nizami Bandhu', role: 'Qawwals', bio: 'Delhi gharana.' }],
+      artists: ['Nizami Bandhu'],
+      runningOrder: [{ time: '20:00', title: 'First set', note: null }],
+      faq: [{ question: 'Is there food?', answer: 'Biryani stalls from seven.' }],
+      publicEmail: 'hello@swar-sadhana.test',
+      publicPhone: null,
+      socialLinks: { instagram: 'https://instagram.com/swarsadhana' },
+      sponsors: [{ name: 'Chai Point', url: null, level: 'Partner' }],
+      dressCode: 'Whatever you are comfortable in.',
+      directions: 'Enter from the east gate.',
+    })
+
+    expect(screen.getByText('Nizami Bandhu')).toBeInTheDocument()
+    expect(screen.getByText(/Qawwals/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Running order' })).toHaveTextContent('8:00 PM')
+    expect(screen.getByRole('region', { name: 'Questions people ask' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'hello@swar-sadhana.test' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Instagram' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Supported by' })).toHaveTextContent('Chai Point')
+    expect(screen.getByRole('region', { name: 'Dress code' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Getting there' })).toBeInTheDocument()
+  })
+
+  it('shows none of those sections for an event without them', async () => {
+    await renderEvent(selling)
+
+    for (const name of [
+      'Running order',
+      'Questions people ask',
+      'Contact the organiser',
+      'Links',
+      'Supported by',
+      'Dress code',
+      'Getting there',
+    ]) {
+      expect(screen.queryByRole('region', { name })).not.toBeInTheDocument()
+    }
+  })
+})

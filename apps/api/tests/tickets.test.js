@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { AUDIT_ACTIONS } from '../src/lib/audit.js'
 import { PREVIEW_TTL_MS, signPreviewReference } from '../src/lib/admission.js'
 import { mintTicketCredential } from '../src/lib/ticket-credentials.js'
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
 import { TEST_AUTH_SECRET } from './helpers/fixtures.js'
 
 const PREVIEW_URL = '/v1/tickets/admission/preview'
@@ -26,6 +26,7 @@ const MANAGER = 'arun@rangoli.example'
 const VIEWER = 'finance@rangoli.example'
 const RIVAL = 'rival@dhol.example'
 const PLATFORM = 'ops@desi-event.example'
+const MODERATOR = 'maya@desi-event.example'
 const ATTENDEE = 'priya@example.com'
 
 /**
@@ -217,10 +218,13 @@ describe('GET /v1/tickets/admission/events', () => {
     await app.close()
   })
 
-  it('shows nothing to an unscoped manager, a viewer, a platform administrator or an attendee', async () => {
+  it('shows nothing to an unscoped manager, a viewer, a platform moderator or an attendee', async () => {
+    // The platform super administrator used to be in this list; ADR 0007 gave
+    // it door authority (the next cases). Every other platform role still sees
+    // nothing, and the moderator stands in for them here.
     const { app } = await createTestApp()
 
-    for (const email of [MANAGER, VIEWER, PLATFORM, ATTENDEE]) {
+    for (const email of [MANAGER, VIEWER, MODERATOR, ATTENDEE]) {
       const response = await app.inject({
         method: 'GET',
         url: EVENTS_URL,
@@ -229,7 +233,120 @@ describe('GET /v1/tickets/admission/events', () => {
 
       expect(response.statusCode, email).toBe(200)
       expect(response.json().data, email).toEqual([])
+      expect(response.json().meta, email).toEqual({
+        scope: 'MEMBERSHIPS',
+        organizations: [],
+        truncated: false,
+      })
     }
+
+    await app.close()
+  })
+
+  it('lists every current door event of every organisation to a platform super-administrator, on platform authority', async () => {
+    const { app, ids } = await createTestApp()
+    const response = await app.inject({
+      method: 'GET',
+      url: EVENTS_URL,
+      headers: bearer(await signIn(app, PLATFORM)),
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.headers['cache-control']).toBe('private, no-store')
+
+    const { data, meta } = response.json()
+    const eventIds = data.map((entry) => entry.event.id)
+
+    // Both organisations' door events, and no draft.
+    expect(eventIds).toContain(ids.publishedEvent.id)
+    expect(eventIds).toContain(ids.onlineEvent.id)
+    expect(eventIds).not.toContain(ids.draftEvent.id)
+    expect(data.every((entry) => entry.authority === 'PLATFORM_ROLE')).toBe(true)
+    expect(data.every((entry) => entry.role === 'SUPER_ADMIN')).toBe(true)
+    expect(data.find((entry) => entry.event.id === ids.onlineEvent.id).organization).toEqual({
+      id: ids.otherOrganization.id,
+      name: ids.otherOrganization.name,
+    })
+    // Soonest first.
+    const starts = data.map((entry) => Date.parse(entry.event.startsAt))
+
+    expect(starts).toEqual([...starts].sort((left, right) => left - right))
+    expect(meta.scope).toBe('PLATFORM')
+    expect(meta.truncated).toBe(false)
+    expect(meta.organizations.map((organization) => organization.name)).toEqual(
+      [ids.otherOrganization.name, ids.organization.name].sort(),
+    )
+
+    await app.close()
+  })
+
+  it('filters the platform list by organisation and by a search of title or organisation name', async () => {
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, PLATFORM)
+
+    /**
+     * The list for one query string.
+     *
+     * @param {string} query The query string.
+     * @returns {Promise<object>} The response.
+     */
+    const list = (query) =>
+      app.inject({ method: 'GET', url: `${EVENTS_URL}?${query}`, headers: bearer(token) })
+
+    const byOrganization = await list(`organizationId=${ids.otherOrganization.id}`)
+
+    expect(byOrganization.statusCode).toBe(200)
+    expect(byOrganization.json().data.map((entry) => entry.event.id)).toEqual([ids.onlineEvent.id])
+    // The filter's own options are not narrowed by the filter.
+    expect(byOrganization.json().meta.organizations).toHaveLength(2)
+
+    const byTitle = await list('q=masterclass')
+
+    expect(byTitle.json().data.map((entry) => entry.event.id)).toEqual([ids.onlineEvent.id])
+
+    const byOrganizationName = await list('q=RANGOLI')
+    const named = byOrganizationName.json().data.map((entry) => entry.event.id)
+
+    expect(named).toContain(ids.publishedEvent.id)
+    expect(named).not.toContain(ids.onlineEvent.id)
+
+    const nothing = await list('q=no-event-is-called-this')
+
+    expect(nothing.statusCode).toBe(200)
+    expect(nothing.json().data).toEqual([])
+
+    expect((await list(`q=${'x'.repeat(101)}`)).statusCode).toBe(400)
+    // PostgreSQL refuses NUL in text, so a search carrying one is refused here,
+    // as a 400, rather than by the database as a 500.
+    expect((await list('q=gar%00ba')).statusCode).toBe(400)
+    expect((await list('q=gar%09ba')).statusCode).toBe(400)
+    expect((await list('organizationId=not-a-cuid')).statusCode).toBe(400)
+    expect((await list('page=2')).statusCode).toBe(400)
+
+    await app.close()
+  })
+
+  it('says when the platform list was cut at 100', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    for (let index = 0; index < 101; index += 1) {
+      prisma._store.event.push({
+        ...prisma._store.event.find((row) => row.id === ids.publishedEvent.id),
+        id: `cplatformlist${String(index).padStart(11, '0')}`,
+        slug: `platform-list-${index}`,
+        title: `Door list ${index}`,
+      })
+    }
+
+    const response = await app.inject({
+      method: 'GET',
+      url: EVENTS_URL,
+      headers: bearer(await signIn(app, PLATFORM)),
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data).toHaveLength(100)
+    expect(response.json().meta.truncated).toBe(true)
 
     await app.close()
   })
@@ -414,17 +531,75 @@ describe('POST /v1/tickets/admission/preview', () => {
     await app.close()
   })
 
-  it('does not let a platform super-administrator stand at a door, and records that it tried', async () => {
+  it('lets a platform super-administrator admit at any event, and records the platform authority distinctly', async () => {
+    // ADR 0007 reverses the old rule here: the super administrator, with no
+    // membership in the event's organisation, admits on PLATFORM_ROLE — and
+    // every lookup and admission is also written on the event's own record.
     const { app, prisma, ids, tickets } = harness
-    const response = await preview(app, await signIn(app, PLATFORM), { code: tickets[0].code })
+    const token = await signIn(app, PLATFORM)
+    const { preview: looked, confirmation } = await previewThenConfirm(app, token, {
+      code: tickets[0].code,
+    })
+
+    expect(looked.json().data.outcome).toBe('ADMISSIBLE')
+    expect(confirmation.statusCode, confirmation.body).toBe(200)
+    expect(confirmation.json().data).toMatchObject({ outcome: 'ADMITTED', checkedInByYou: true })
+    expect(checkInsFor(prisma, tickets[0].id)).toEqual([
+      expect.objectContaining({ scannedByUserId: ids.platformAdmin.id, method: 'MANUAL_CODE' }),
+    ])
+
+    for (const action of [
+      AUDIT_ACTIONS.TICKET_ADMISSION_PREVIEWED,
+      AUDIT_ACTIONS.TICKET_CHECKED_IN,
+    ]) {
+      expect(prisma._store.auditLog, action).toContainEqual(
+        expect.objectContaining({
+          action,
+          entityId: tickets[0].id,
+          actorId: ids.platformAdmin.id,
+          // The admission's own record names the role and whose event it was,
+          // not only the authority (design D3(a)).
+          metadata: expect.objectContaining({
+            authority: 'PLATFORM_ROLE',
+            role: 'SUPER_ADMIN',
+            organizationId: ids.organization.id,
+          }),
+        }),
+      )
+    }
+
+    const onTheEvent = prisma._store.auditLog.filter(
+      (row) => row.action === AUDIT_ACTIONS.TICKET_ADMISSION_PLATFORM_AUTHORITY,
+    )
+
+    expect(onTheEvent.map((row) => row.metadata.operation).sort()).toEqual(['check_in', 'preview'])
+    expect(
+      onTheEvent.every(
+        (row) =>
+          row.entityType === 'Event' &&
+          row.entityId === ids.publishedEvent.id &&
+          row.metadata.organizationId === ids.organization.id,
+      ),
+    ).toBe(true)
+    expect(JSON.stringify(onTheEvent)).not.toContain(tickets[0].code)
+
+    await app.close()
+  })
+
+  it('refuses a platform moderator at the door and records that it tried', async () => {
+    const { app, prisma, ids, tickets } = harness
+    const response = await preview(app, await signIn(app, MODERATOR), { code: tickets[0].code })
 
     expect(response.statusCode).toBe(403)
     expect(prisma._store.auditLog).toContainEqual(
       expect.objectContaining({
         action: AUDIT_ACTIONS.TICKET_ADMISSION_REFUSED,
         entityType: 'User',
-        entityId: ids.platformAdmin.id,
-        metadata: expect.objectContaining({ reason: 'PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY' }),
+        entityId: ids.moderator.id,
+        metadata: expect.objectContaining({
+          reason: 'PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY',
+          platformRole: 'MODERATOR',
+        }),
       }),
     )
 
@@ -557,6 +732,46 @@ describe('POST /v1/tickets/check-in', () => {
     expect(data.checkedInAt).toBe(rows[0].scannedAt.toISOString())
     expect(confirmation.body).not.toContain(ATTENDEE)
     expect(confirmation.body).not.toContain(tickets[0].code)
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: AUDIT_ACTIONS.TICKET_CHECKED_IN,
+        entityId: tickets[0].id,
+        actorId: ids.staff.id,
+        metadata: expect.objectContaining({
+          authority: 'EVENT_SCOPE',
+          role: 'STAFF',
+          organizationId: ids.organization.id,
+          groupPassId: null,
+        }),
+      }),
+    )
+
+    await app.close()
+  })
+
+  it('refuses a control character in the gate or the device name with a 400, admitting nobody', async () => {
+    const { app, prisma, tickets } = harness
+    const token = await signIn(app, DOOR)
+    const looked = await preview(app, token, { code: tickets[0].code })
+
+    expect(looked.statusCode, looked.body).toBe(200)
+
+    for (const extra of [
+      { gate: '\u0000' },
+      { gate: 'North\u0000' },
+      { deviceId: 'ipad\u00003' },
+    ]) {
+      const response = await confirm(app, token, {
+        code: tickets[0].code,
+        previewReference: looked.json().data.previewReference,
+        ...extra,
+      })
+
+      expect(response.statusCode, response.body).toBe(400)
+    }
+
+    expect(checkInsFor(prisma, tickets[0].id)).toHaveLength(0)
+    expect(storedTicket(prisma, tickets[0].id).status).toBe('VALID')
 
     await app.close()
   })
@@ -854,3 +1069,353 @@ describe('POST /v1/tickets/check-in', () => {
     await app.close()
   })
 })
+
+describe('the group door, over the routes', () => {
+  const GROUP_PREVIEW_URL = '/v1/tickets/admission/group/preview'
+  const GROUP_CHECK_IN_URL = '/v1/tickets/admission/group/check-in'
+
+  /**
+   * A paid order of three tickets held by the attendee's account, and its
+   * group pass as the attendee took it out.
+   *
+   * @param {object} [options] Harness options.
+   * @returns {Promise<object>} The harness, the tickets, and `pass`.
+   */
+  async function withGroup(options = {}) {
+    const harness = await createTestApp(options)
+    const bought = await harness.app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: harness.ids.publishedEvent.id,
+        buyerEmail: ATTENDEE,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: harness.ids.generalAdmission.id, quantity: 3 }],
+      },
+    })
+
+    expect(bought.statusCode).toBe(201)
+
+    const order = bought.json().data
+
+    claim(harness.prisma, order.tickets, harness.ids.attendee.id)
+
+    const pass = await harness.app.inject({
+      method: 'GET',
+      url: `/v1/orders/${order.reference}/group-pass`,
+      headers: bearer(await signIn(harness.app, ATTENDEE)),
+    })
+
+    expect(pass.statusCode, pass.body).toBe(200)
+
+    return { ...harness, order, tickets: order.tickets, pass: pass.json().data }
+  }
+
+  /**
+   * POST to a group door route.
+   *
+   * @param {object} app The application.
+   * @param {string} url The route.
+   * @param {string} token A bearer token.
+   * @param {object} payload The body.
+   * @returns {Promise<object>} The injected response.
+   */
+  function door(app, url, token, payload) {
+    return app.inject({ method: 'POST', url, headers: bearer(token), payload })
+  }
+
+  it('previews a group by its QR, lists every ticket, writes no admission, and is never cached', async () => {
+    const { app, prisma, tickets, pass } = await withGroup()
+    const before = structuredClone(prisma._store.ticket)
+    const response = await door(app, GROUP_PREVIEW_URL, await signIn(app, DOOR), {
+      credential: pass.credential,
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.headers['cache-control']).toBe('private, no-store')
+    expect(response.headers.pragma).toBe('no-cache')
+
+    const { data } = response.json()
+
+    expect(data).toMatchObject({
+      outcome: 'ADMISSIBLE',
+      refusal: null,
+      method: 'QR_SCAN',
+      counts: { admissible: 3, alreadyIn: 0, refused: 0 },
+      handedOn: 0,
+    })
+    expect(data.tickets.map((ticket) => ticket.ticketId).sort()).toEqual(
+      tickets.map((ticket) => ticket.id).sort(),
+    )
+    expect(data.previewReference).toEqual(expect.any(String))
+    expect(prisma._store.checkIn ?? []).toHaveLength(0)
+    expect(prisma._store.ticket).toEqual(before)
+
+    for (const secret of [pass.credential, pass.groupCode]) {
+      expect(response.body).not.toContain(secret)
+    }
+    expect(response.body).not.toMatch(/credentialHash|codeHash/u)
+    expect(response.body).not.toContain(prisma._store.groupPass[0].codeHash)
+
+    await app.close()
+  })
+
+  it('derives MANUAL_CODE from a typed group code, in any case', async () => {
+    const { app, pass } = await withGroup()
+    const response = await door(app, GROUP_PREVIEW_URL, await signIn(app, DOOR), {
+      code: pass.groupCode.toLowerCase(),
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data.method).toBe('MANUAL_CODE')
+
+    await app.close()
+  })
+
+  it('answers an out-of-scope scanner holding a real group exactly as it answers an invented one', async () => {
+    const { app, pass } = await withGroup()
+    const token = await signIn(app, RIVAL)
+
+    const byCredential = await door(app, GROUP_PREVIEW_URL, token, { credential: pass.credential })
+    const byCode = await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })
+    const inventedCredential = await door(app, GROUP_PREVIEW_URL, token, {
+      credential: `G1.${'Q'.repeat(43)}`,
+    })
+    const inventedCode = await door(app, GROUP_PREVIEW_URL, token, { code: 'DEG-ABCDEFGHJKLM' })
+
+    expect(byCredential.statusCode).toBe(404)
+    expect(refusalShape(byCredential)).toEqual(refusalShape(inventedCredential))
+    expect(refusalShape(byCode)).toEqual(refusalShape(inventedCode))
+    expect(refusalShape(byCode)).toEqual(refusalShape(inventedCredential))
+    expect(byCredential.body).not.toMatch(/rangoli/iu)
+
+    await app.close()
+  })
+
+  it('refuses a control character in the gate or the device name with a 400, admitting nobody', async () => {
+    const { app, prisma, tickets, pass } = await withGroup()
+    const token = await signIn(app, DOOR)
+    const looked = (await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).json().data
+
+    for (const extra of [{ gate: 'North\u0000' }, { deviceId: 'ipad\u00003' }]) {
+      const response = await door(app, GROUP_CHECK_IN_URL, token, {
+        code: pass.groupCode,
+        previewReference: looked.previewReference,
+        ticketIds: [tickets[0].id],
+        ...extra,
+      })
+
+      expect(response.statusCode, response.body).toBe(400)
+    }
+
+    expect(prisma._store.checkIn ?? []).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('refuses a method key, and a ticket pass where a group pass belongs', async () => {
+    const { app, pass } = await withGroup()
+    const token = await signIn(app, DOOR)
+
+    const withMethod = await door(app, GROUP_PREVIEW_URL, token, {
+      code: pass.groupCode,
+      method: 'QR_SCAN',
+    })
+    const ticketShaped = await door(app, GROUP_PREVIEW_URL, token, { credential: 'a'.repeat(43) })
+
+    expect(withMethod.statusCode).toBe(400)
+    expect(ticketShaped.statusCode).toBe(400)
+
+    await app.close()
+  })
+
+  it('admits the selected tickets, records the group on each admission, and answers a retry as already in', async () => {
+    const { app, prisma, tickets, pass } = await withGroup()
+    const token = await signIn(app, DOOR)
+    const looked = (await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).json().data
+    const chosen = [tickets[0].id, tickets[2].id]
+
+    const body = {
+      code: pass.groupCode,
+      previewReference: looked.previewReference,
+      ticketIds: chosen,
+    }
+    const admitted = await door(app, GROUP_CHECK_IN_URL, token, body)
+
+    expect(admitted.statusCode, admitted.body).toBe(200)
+    expect(admitted.headers['cache-control']).toBe('private, no-store')
+    expect(admitted.json().data).toMatchObject({
+      outcome: 'ADMITTED',
+      admitted: 2,
+      alreadyIn: 0,
+      method: 'MANUAL_CODE',
+    })
+    expect(prisma._store.checkIn.map((row) => row.ticketId).sort()).toEqual([...chosen].sort())
+    expect(
+      prisma._store.checkIn.every((row) => row.groupPassId === prisma._store.groupPass[0].id),
+    ).toBe(true)
+    expect(prisma._store.ticket.find((row) => row.id === tickets[1].id).status).toBe('VALID')
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: AUDIT_ACTIONS.TICKET_GROUP_ADMITTED,
+        metadata: expect.objectContaining({ admittedTicketIds: [...chosen].sort() }),
+      }),
+    )
+
+    const retried = await door(app, GROUP_CHECK_IN_URL, token, body)
+
+    expect(retried.statusCode).toBe(200)
+    expect(retried.json().data).toMatchObject({ outcome: 'ALREADY_CHECKED_IN', admitted: 0 })
+    expect(retried.json().data.tickets.every((ticket) => ticket.checkedInByYou)).toBe(true)
+    expect(prisma._store.checkIn).toHaveLength(2)
+
+    const everything = JSON.stringify(prisma._store.auditLog)
+
+    for (const secret of [pass.credential, pass.groupCode, looked.previewReference]) {
+      expect(everything).not.toContain(secret)
+    }
+
+    await app.close()
+  })
+
+  it('refuses a ticket the preview did not find admissible with PREVIEW_MISMATCH', async () => {
+    const { app, prisma, tickets, pass } = await withGroup()
+    const token = await signIn(app, DOOR)
+    const looked = (await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).json().data
+
+    const response = await door(app, GROUP_CHECK_IN_URL, token, {
+      code: pass.groupCode,
+      previewReference: looked.previewReference,
+      ticketIds: [tickets[0].id, harnessOutsider()],
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.reason).toBe('PREVIEW_MISMATCH')
+    expect(prisma._store.checkIn ?? []).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('confirms nothing after the pass was replaced', async () => {
+    const { app, prisma, order, tickets, pass } = await withGroup()
+    const token = await signIn(app, DOOR)
+    const looked = (
+      await door(app, GROUP_PREVIEW_URL, token, { credential: pass.credential })
+    ).json().data
+
+    const replaced = await app.inject({
+      method: 'POST',
+      url: `/v1/orders/${order.reference}/group-pass/rotate`,
+      headers: bearer(await signIn(app, ATTENDEE)),
+    })
+
+    expect(replaced.statusCode).toBe(200)
+
+    const again = await door(app, GROUP_PREVIEW_URL, token, { credential: pass.credential })
+    const confirmed = await door(app, GROUP_CHECK_IN_URL, token, {
+      credential: pass.credential,
+      previewReference: looked.previewReference,
+      ticketIds: [tickets[0].id],
+    })
+
+    expect(again.statusCode).toBe(404)
+    expect(confirmed.statusCode).toBe(409)
+    expect(confirmed.json().error.reason).toBe('PREVIEW_MISMATCH')
+    expect(prisma._store.checkIn ?? []).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('refuses the whole selection with GROUP_CHANGED when one ticket stopped admitting', async () => {
+    const { app, prisma, tickets, pass } = await withGroup()
+    const token = await signIn(app, DOOR)
+    const looked = (await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).json().data
+
+    prisma._store.ticket.find((row) => row.id === tickets[1].id).status = 'REFUNDED'
+
+    const response = await door(app, GROUP_CHECK_IN_URL, token, {
+      code: pass.groupCode,
+      previewReference: looked.previewReference,
+      ticketIds: tickets.map((ticket) => ticket.id),
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.reason).toBe('GROUP_CHANGED')
+    expect(prisma._store.checkIn ?? []).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('is rate-limited per scanner', async () => {
+    const { app, pass } = await withGroup({
+      rateLimit: {
+        global: { max: 10_000, timeWindow: '1 minute' },
+        admission: { max: 2, timeWindow: '1 minute' },
+      },
+    })
+    const token = await signIn(app, DOOR)
+
+    expect((await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).statusCode).toBe(
+      200,
+    )
+    expect((await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).statusCode).toBe(
+      200,
+    )
+    expect((await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })).statusCode).toBe(
+      429,
+    )
+
+    await app.close()
+  })
+
+  it('lets a platform super-administrator admit a group, recorded on the event', async () => {
+    const { app, prisma, ids, tickets, pass } = await withGroup()
+    const token = await signIn(app, PLATFORM)
+    const looked = await door(app, GROUP_PREVIEW_URL, token, { code: pass.groupCode })
+
+    expect(looked.statusCode, looked.body).toBe(200)
+
+    const admitted = await door(app, GROUP_CHECK_IN_URL, token, {
+      code: pass.groupCode,
+      previewReference: looked.json().data.previewReference,
+      ticketIds: [tickets[0].id],
+    })
+
+    expect(admitted.statusCode, admitted.body).toBe(200)
+
+    const onTheEvent = prisma._store.auditLog.filter(
+      (row) =>
+        row.action === AUDIT_ACTIONS.TICKET_ADMISSION_PLATFORM_AUTHORITY &&
+        row.entityId === ids.publishedEvent.id,
+    )
+
+    expect(onTheEvent.map((row) => row.metadata.operation).sort()).toEqual([
+      'group_check_in',
+      'group_preview',
+    ])
+    expect(prisma._store.auditLog).toContainEqual(
+      expect.objectContaining({
+        action: AUDIT_ACTIONS.TICKET_CHECKED_IN,
+        entityId: tickets[0].id,
+        actorId: ids.platformAdmin.id,
+        metadata: expect.objectContaining({
+          authority: 'PLATFORM_ROLE',
+          role: 'SUPER_ADMIN',
+          organizationId: ids.organization.id,
+          groupPassId: prisma._store.groupPass[0].id,
+        }),
+      }),
+    )
+
+    await app.close()
+  })
+})
+
+/**
+ * A CUID-shaped id that names no ticket, for a selection the preview never made.
+ *
+ * @returns {string} The id.
+ */
+function harnessOutsider() {
+  return 'cnotinthepreview000000000'.slice(0, 25)
+}

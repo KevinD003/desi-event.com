@@ -117,10 +117,15 @@ export const WORKSPACE_GROUPS = Object.freeze([
       {
         href: '/organizer/check-in',
         label: 'Check-in',
-        // Door authority comes only from a membership: the API refuses a
-        // platform role at the door, so a platform-administrator shortcut
-        // would offer a door that does not open.
-        offered: (session) => membershipsWith(session, 'ticket:check_in').length > 0,
+        // Door authority comes from a membership, or from the platform role
+        // that holds `ticket:check_in` itself. The unscoped question consults
+        // the platform capability list, and the permissions package refuses at
+        // load any table in which a platform role other than the super
+        // administrator holds it — so no other platform role is offered a door
+        // the API would refuse (ADR 0007).
+        offered: (session) =>
+          membershipsWith(session, 'ticket:check_in').length > 0 ||
+          sessionCan(session, 'ticket:check_in'),
       },
       {
         href: '/organizer/organization',

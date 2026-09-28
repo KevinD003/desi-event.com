@@ -22,6 +22,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refusalSentence } from '../lib/refusal.js'
@@ -30,7 +31,7 @@ import { refusalSentence } from '../lib/refusal.js'
 // exactly what it did: `LIVE_MUSIC` is not in `eventCategorySchema`, and every
 // create was answered "Invalid request body".
 import { EVENT_CATEGORIES } from '../lib/catalog.js'
-import { COMMON_ZONES, fromLocalInputValue, toLocalInputValue } from '../lib/zoned-time.js'
+import { fromLocalInputValue, toLocalInputValue } from '../lib/zoned-time.js'
 
 /**
  * @typedef {object} CreateEventFormProps
@@ -181,13 +182,8 @@ export function CreateEventForm({ organizations = [] }) {
         required
         description="The venue's local time, not yours. Every time below is read in this zone."
       >
-        <Select value={timezone} onChange={(change) => setTimezone(change.target.value)}>
-          {COMMON_ZONES.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </Select>
+        {/* The common zones first, then every zone the browser knows. */}
+        <TimeZoneSelect value={timezone} onChange={(change) => setTimezone(change.target.value)} />
       </FormField>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

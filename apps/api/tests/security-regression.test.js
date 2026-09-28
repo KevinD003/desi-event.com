@@ -774,3 +774,75 @@ describe('event pictures', () => {
     await app.close()
   })
 })
+
+describe('the door, group-pass and manual-transfer surfaces', () => {
+  /** The route ids this work added. */
+  const ADDED = [
+    'tickets.previewGroupAdmission',
+    'tickets.checkInGroup',
+    'orders.groupPass',
+    'orders.rotateGroupPass',
+  ]
+
+  it('puts every new route in the contract, session-only and authorised in its handler', () => {
+    // Door authority and group-pass ownership are both decided against rows
+    // read from the database — the order's event, the order's buyer — so there
+    // is no capability to declare, exactly like `tickets.get`. What the
+    // contract must say is that a session is needed.
+    for (const id of ADDED) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      expect(route, `${id} is not in the contract`).toBeTruthy()
+      expect(route.auth, id).toBe('session')
+      expect(route.capability ?? null, id).toBeNull()
+      expect(route.stepUp ?? null, id).toBeNull()
+    }
+  })
+
+  it('documents the uniform 404 and the 403 on the group preview, and the 409 reasons on the pass', () => {
+    const codes = (id) =>
+      apiRoutes.find((candidate) => candidate.id === id).errors.map((error) => error.code)
+
+    expect(codes('tickets.previewGroupAdmission')).toEqual(
+      expect.arrayContaining(['FORBIDDEN', 'NOT_FOUND', 'RATE_LIMITED']),
+    )
+    expect(codes('tickets.checkInGroup')).toEqual(
+      expect.arrayContaining(['FORBIDDEN', 'NOT_FOUND', 'CONFLICT', 'RATE_LIMITED']),
+    )
+    expect(codes('orders.groupPass')).toEqual(
+      expect.arrayContaining(['NOT_FOUND', 'CONFLICT', 'RATE_LIMITED']),
+    )
+    // Holder-only by a 404, never a 403: a 403 would tell an organiser the
+    // order has a buyer account.
+    expect(codes('orders.groupPass')).not.toContain('FORBIDDEN')
+    expect(codes('orders.rotateGroupPass')).not.toContain('FORBIDDEN')
+  })
+
+  it('rate-limits the group door per scanner and the group pass per account', () => {
+    const tickets = readFileSync(new URL('../src/routes/tickets.js', import.meta.url), 'utf8')
+    const orders = readFileSync(new URL('../src/routes/orders.js', import.meta.url), 'utf8')
+
+    for (const id of ['tickets.previewGroupAdmission', 'tickets.checkInGroup']) {
+      const at = tickets.indexOf(`'${id}'`)
+
+      expect(at, id).toBeGreaterThan(-1)
+      expect(tickets.slice(at, at + 200), id).toMatch(/admissionRateLimit\(admissionLimit\)/u)
+    }
+
+    for (const id of ['orders.groupPass', 'orders.rotateGroupPass']) {
+      const at = orders.indexOf(`'${id}'`)
+
+      expect(at, id).toBeGreaterThan(-1)
+      expect(orders.slice(at, at + 200), id).toMatch(/passRateLimit\(passLimit\)/u)
+    }
+  })
+
+  it('names the show-once transfer code invitationCode, never token, in the offer’s response', () => {
+    const route = apiRoutes.find((candidate) => candidate.id === 'tickets.startTransfer')
+    const data = route.response.shape.data
+
+    expect(data.shape.delivery).toBeDefined()
+    expect(data.shape.token).toBeUndefined()
+    expect(data.shape.tokenHash).toBeUndefined()
+  })
+})

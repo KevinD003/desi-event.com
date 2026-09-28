@@ -1224,12 +1224,15 @@ async function main() {
         'tests/privacy-redaction-integration.test.js',
         'tests/privacy-lifecycle-integration.test.js',
         'tests/payout-currency-trigger.test.js',
-        // The door, the operator's outbox actions, and the seat-transfer block:
+        // The door, the operator's outbox actions, and reserved-seat transfer:
         // each depends on a lock, a trigger or a constraint only a real, freshly
         // migrated database has.
         'tests/admission-integration.test.js',
         'tests/notification-lease-integration.test.js',
-        'tests/seat-transfer-block-integration.test.js',
+        'tests/seat-transfer-integration.test.js',
+        // Group passes at the door: the order, pass and ticket locks, the
+        // group-pass trigger and the races against refunds and single scans.
+        'tests/group-admission-integration.test.js',
         // Who sees a colleague's address: real sessions, memberships and
         // second factors, read from their rows.
         'tests/team-email-integration.test.js',
@@ -1242,6 +1245,10 @@ async function main() {
         // Event pictures: the gallery trigger under parallel uploads, the
         // cover index, cascades and a 10 MiB bytea, against real rows.
         'tests/event-media-integration.test.js',
+        // Authoring after publication: every tier rule the database enforces
+        // refused first by the API as a 4xx, a quantity cut racing live holds,
+        // and a reschedule whose revision moved leaving the event untouched.
+        'tests/event-authoring-live-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

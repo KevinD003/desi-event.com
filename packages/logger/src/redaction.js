@@ -98,6 +98,11 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   // `code` precisely so it can be redacted by name without blanking every
   // error code in every log line.
   'invitationCode',
+  // A group pass's printed code, and the digests a group pass row keeps. The
+  // code opens a door on its own; the digest identifies a pass by a value
+  // only its holder should know, like `credentialHash` above.
+  'groupCode',
+  'codeHash',
 ])
 
 /**
@@ -128,6 +133,10 @@ export const WILDCARD_KEYS = Object.freeze([
   'buyerEmail',
   // `{ delivery: { invitationCode } }`, the shape of the response that carries it.
   'invitationCode',
+  // `{ data: { groupCode } }`, the shape of the group pass response, and
+  // `{ groupPass: { codeHash } }`, the shape of a group pass row logged whole.
+  'groupCode',
+  'codeHash',
 ])
 
 /**

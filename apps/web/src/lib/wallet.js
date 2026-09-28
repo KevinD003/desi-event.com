@@ -293,3 +293,65 @@ export function seatText(ticket) {
 
   return parts.join(', ')
 }
+
+/**
+ * The fewest tickets a group pass covers: a mirror of `GROUP_PASS_MIN_TICKETS`
+ * in `@desi-event/schemas`, which a browser module may not import. The test
+ * beside this module keeps the two equal.
+ *
+ * @type {number}
+ */
+export const GROUP_PASS_MIN_TICKETS = 2
+
+/**
+ * The most tickets a group pass covers: a mirror of `GROUP_PASS_MAX_TICKETS`.
+ *
+ * @type {number}
+ */
+export const GROUP_PASS_MAX_TICKETS = 50
+
+/**
+ * @typedef {object} GroupPassSummary
+ * @property {string} orderReference The order.
+ * @property {object} event Its event, as the wallet row carries it.
+ * @property {number} admits How many of its tickets this page lists as still admitting.
+ */
+
+/**
+ * The orders on this page that have a group pass, and how many each admits.
+ *
+ * A group pass lets in every ticket on an order that its buyer still holds,
+ * so only tickets this account bought (`PURCHASED`) and that would open a door
+ * now (`admits`, the server's own answer) count. Nothing is fetched and no
+ * pass is drawn here: the pass lives on the order's page, on request.
+ *
+ * @param {WalletTicket[]} tickets Every row the API returned, with `orderReference`.
+ * @returns {GroupPassSummary[]} One entry per order with two to fifty such tickets, soonest first.
+ */
+export function groupPassSummaries(tickets) {
+  const byOrder = new Map()
+
+  for (const ticket of tickets) {
+    if (ticket.holderRelationship !== 'PURCHASED' || !ticket.admits || !ticket.orderReference) {
+      continue
+    }
+
+    const entry = byOrder.get(ticket.orderReference) ?? {
+      orderReference: ticket.orderReference,
+      event: ticket.event,
+      admits: 0,
+    }
+
+    entry.admits += 1
+    byOrder.set(ticket.orderReference, entry)
+  }
+
+  return [...byOrder.values()]
+    .filter(
+      (entry) => entry.admits >= GROUP_PASS_MIN_TICKETS && entry.admits <= GROUP_PASS_MAX_TICKETS,
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(left.event?.startsAt ?? '') - Date.parse(right.event?.startsAt ?? ''),
+    )
+}

@@ -13,11 +13,20 @@ import {
   ADMISSION_AUTHORITIES,
   EVENT_SCOPED_ADMISSION_ROLES,
   ORGANIZATION_WIDE_ADMISSION_ROLES,
+  PLATFORM_ADMISSION_ROLES,
+  REFUSED_PLATFORM_ADMISSION_ROLES,
   admissionAuthorityFor,
   assertAdmissionPolicy,
+  assertPlatformAdmissionPolicy,
+  platformAdmissionAuthorityFor,
   requiresAdmissionScope,
 } from './admission.js'
-import { CAPABILITIES, ORG_ROLE_CAPABILITIES, ORG_ROLE_ORDER } from './capabilities.js'
+import {
+  CAPABILITIES,
+  ORG_ROLE_CAPABILITIES,
+  ORG_ROLE_ORDER,
+  PLATFORM_ROLE_CAPABILITIES,
+} from './capabilities.js'
 
 const EVENT_A = 'eventaaaaaaaaaa'
 const EVENT_B = 'eventbbbbbbbbbb'
@@ -130,6 +139,10 @@ describe('admissionAuthorityFor', () => {
 
   it('refuses no membership, an unknown role, and a missing event', () => {
     expect(admissionAuthorityFor(null, EVENT_A)).toBeNull()
+    // A *membership* row carrying a platform role's name is not an
+    // organisation role, and grants nothing. The platform role's own door
+    // authority is a separate question, answered by
+    // platformAdmissionAuthorityFor from the account's platform role.
     expect(admissionAuthorityFor({ role: 'SUPER_ADMIN' }, EVENT_A)).toBeNull()
     expect(admissionAuthorityFor({ role: 'OWNER' }, '')).toBeNull()
     expect(admissionAuthorityFor({ role: 'OWNER' }, undefined)).toBeNull()
@@ -143,5 +156,80 @@ describe('requiresAdmissionScope', () => {
     )
     expect(requiresAdmissionScope('OWNER')).toBe(false)
     expect(requiresAdmissionScope('VIEWER')).toBe(false)
+  })
+})
+
+describe('platform door authority', () => {
+  it('belongs to SUPER_ADMIN and to no other platform role', () => {
+    expect(PLATFORM_ADMISSION_ROLES).toEqual(['SUPER_ADMIN'])
+    expect(platformAdmissionAuthorityFor('SUPER_ADMIN')).toEqual({
+      authority: ADMISSION_AUTHORITIES.PLATFORM_ROLE,
+      role: 'SUPER_ADMIN',
+    })
+
+    for (const role of [
+      'ATTENDEE',
+      'ORGANIZER',
+      'SUPPORT',
+      'MODERATOR',
+      'FINANCE_ADMIN',
+      undefined,
+      null,
+      '',
+      'OWNER',
+    ]) {
+      expect(platformAdmissionAuthorityFor(role), String(role)).toBeNull()
+    }
+  })
+
+  it('names the platform roles that hold capabilities but are refused at the door', () => {
+    expect([...REFUSED_PLATFORM_ADMISSION_ROLES].sort()).toEqual(
+      ['FINANCE_ADMIN', 'MODERATOR', 'SUPPORT'].sort(),
+    )
+
+    for (const role of REFUSED_PLATFORM_ADMISSION_ROLES) {
+      expect(PLATFORM_ROLE_CAPABILITIES[role], role).not.toContain(CAPABILITIES.TICKET_CHECK_IN)
+    }
+  })
+
+  it('accepts the shipped platform role table', () => {
+    expect(() => assertPlatformAdmissionPolicy(PLATFORM_ROLE_CAPABILITIES)).not.toThrow()
+  })
+
+  it('refuses a table where another platform role gained ticket:check_in', () => {
+    // The drift the load-time assertion exists for: a finance administrator
+    // given the door capability "just for one event" would admit everywhere.
+    const drifted = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      FINANCE_ADMIN: [...PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN, CAPABILITIES.TICKET_CHECK_IN],
+    }
+
+    expect(() => assertPlatformAdmissionPolicy(drifted)).toThrow(
+      /Platform admission policy out of date/u,
+    )
+  })
+
+  it('refuses a table where SUPER_ADMIN lost platform:admin', () => {
+    const drifted = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      SUPER_ADMIN: PLATFORM_ROLE_CAPABILITIES.SUPER_ADMIN.filter(
+        (capability) => capability !== CAPABILITIES.PLATFORM_ADMIN,
+      ),
+    }
+
+    expect(() => assertPlatformAdmissionPolicy(drifted)).toThrow(/does not hold platform:admin/u)
+  })
+
+  it('refuses a table where SUPER_ADMIN lost ticket:check_in', () => {
+    const drifted = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      SUPER_ADMIN: PLATFORM_ROLE_CAPABILITIES.SUPER_ADMIN.filter(
+        (capability) => capability !== CAPABILITIES.TICKET_CHECK_IN,
+      ),
+    }
+
+    expect(() => assertPlatformAdmissionPolicy(drifted)).toThrow(
+      /Platform admission policy out of date/u,
+    )
   })
 })

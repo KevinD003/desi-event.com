@@ -290,6 +290,35 @@ export const MATERIAL_FIELDS = Object.freeze([
 ])
 
 /**
+ * Fields of one session whose change after publication is material.
+ *
+ * A session is a night somebody bought a ticket for, so moving its start, its
+ * end, its door time or its time zone is moving the deal for that night. Its
+ * sales window, its capacity and its position in the list are housekeeping:
+ * nobody who already holds a ticket is affected by them.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const SESSION_MATERIAL_FIELDS = Object.freeze([
+  'startsAt',
+  'endsAt',
+  'timezone',
+  'doorsOpenAt',
+])
+
+/**
+ * Which of a session patch's fields are material, in declaration order.
+ *
+ * @param {object} changes The session fields being changed.
+ * @returns {string[]} The material field names present. Unknown keys are ignored.
+ */
+export function sessionMaterialChanges(changes) {
+  if (!changes || typeof changes !== 'object') return []
+
+  return SESSION_MATERIAL_FIELDS.filter((field) => Object.hasOwn(changes, field))
+}
+
+/**
  * The moves available from a status, optionally narrowed to one kind of actor.
  *
  * @param {string} from The current status.

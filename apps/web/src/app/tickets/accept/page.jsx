@@ -7,8 +7,9 @@
  * browser's history, in the `Referer` header of whatever page loaded next, in
  * every proxy's access log along the way, and in any screenshot of the address
  * bar — and it would still be there after the invitation had been used. So the
- * code arrives out of band and is pasted into a field, and this route accepts
- * no query parameter that could carry one.
+ * code arrives out of band — shown once to the sender, who passes it on, since
+ * this build sends no email — and is pasted into a field, and this route
+ * accepts no query parameter that could carry one.
  *
  * The server holds only the code's digest. It has never held the code.
  *
@@ -36,11 +37,12 @@ export default function AcceptTransferPage() {
       </p>
       <h1 className="mt-2 text-h2 font-semibold text-ink">Accept a ticket</h1>
       <p className="mt-2 text-ink-muted">
-        Somebody has offered you a ticket. Paste the invitation code below. Accepting puts the
-        ticket in this account and stops the sender’s pass working; declining leaves it with them.
+        Somebody has offered you a ticket. Accepting puts the ticket in this account and stops the
+        sender’s pass working; declining leaves it with them. A reserved seat goes with its ticket.
       </p>
       <p className="mt-2 text-sm text-ink-muted">
-        This site delivers no email, so an invitation code does not arrive on its own.{' '}
+        The person offering you the ticket gives you the code themselves — this site sends no email.
+        Sign in with the address they offered it to, then paste the code below.{' '}
         <Link
           href="/limitations"
           className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"

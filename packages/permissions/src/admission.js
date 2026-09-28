@@ -31,14 +31,30 @@
  *   each needs an active `ScannerScope` naming the event. No scope, no
  *   admission: the model's comment is now what the code does.
  *
- * ## What is deliberately absent
+ * ## One platform role, and only one
  *
- * **Platform roles admit nobody.** `SUPER_ADMIN` holds every capability for
- * support and moderation, but admission is a physical-world act performed by the
- * organiser's own staff. A platform administrator who genuinely needs to scan is
- * given a membership — which the team routes audit — rather than a silent
- * override this module would have to remember to record. The API audits a
- * refused platform attempt like any other refusal.
+ * **`SUPER_ADMIN` admits at any event, on its own authority.** It is a third
+ * authority, `PLATFORM_ROLE`, and it rests on the same argument as the
+ * OWNER/ADMIN bypass: a super administrator can grant itself any membership
+ * (and the platform routes let it), so refusing it at the door would be
+ * ceremony rather than control. Unlike the membership path, it is recorded
+ * distinctly: the API writes a `ticket.admission_platform_authority` row on
+ * the event for every platform lookup and admission, so the organisation can
+ * see that somebody outside it stood at its door. (ADR 0007 reverses the
+ * earlier rule that platform roles admit nobody.)
+ *
+ * Membership wins. A super administrator who is also a member of the event's
+ * organisation is recorded on the membership's authority; the platform
+ * authority is the fallback, never the first answer.
+ *
+ * **Every other platform role admits nobody.** `SUPPORT`, `MODERATOR` and
+ * `FINANCE_ADMIN` hold capabilities, but not `ticket:check_in`, and a
+ * module-load assertion below refuses a platform role table in which that
+ * stops being true — so granting the capability to one of them later fails
+ * every process rather than silently opening doors. The API audits a refused
+ * attempt from one of them against the account.
+ *
+ * ## What is deliberately absent
  *
  * **There is no expiry.** A `Membership` has no status or end date in this
  * schema; removing somebody deletes the row and its scopes with it. Because the
@@ -49,7 +65,7 @@
  * @module @desi-event/permissions/admission
  */
 
-import { CAPABILITIES, ORG_ROLE_CAPABILITIES } from './capabilities.js'
+import { CAPABILITIES, ORG_ROLE_CAPABILITIES, PLATFORM_ROLE_CAPABILITIES } from './capabilities.js'
 
 /**
  * Where an admission's authority came from.
@@ -57,11 +73,12 @@ import { CAPABILITIES, ORG_ROLE_CAPABILITIES } from './capabilities.js'
  * Recorded on the admission audit, so a reviewer can tell a scoped door scanner
  * from an owner who happened to be at the door.
  *
- * @type {Readonly<{ORGANIZATION_ROLE: 'ORGANIZATION_ROLE', EVENT_SCOPE: 'EVENT_SCOPE'}>}
+ * @type {Readonly<{ORGANIZATION_ROLE: 'ORGANIZATION_ROLE', EVENT_SCOPE: 'EVENT_SCOPE', PLATFORM_ROLE: 'PLATFORM_ROLE'}>}
  */
 export const ADMISSION_AUTHORITIES = Object.freeze({
   ORGANIZATION_ROLE: 'ORGANIZATION_ROLE',
   EVENT_SCOPE: 'EVENT_SCOPE',
+  PLATFORM_ROLE: 'PLATFORM_ROLE',
 })
 
 /**
@@ -126,6 +143,91 @@ export function assertAdmissionPolicy(roleCapabilities) {
 }
 
 assertAdmissionPolicy(ORG_ROLE_CAPABILITIES)
+
+/**
+ * Platform roles that may admit at any event, on platform authority.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const PLATFORM_ADMISSION_ROLES = Object.freeze(['SUPER_ADMIN'])
+
+/**
+ * Platform roles that hold some capability but may not admit anybody.
+ *
+ * Derived rather than listed, so a platform role added later with any
+ * capability lands here by default — refused, and audited when it tries —
+ * until somebody decides otherwise in this file.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const REFUSED_PLATFORM_ADMISSION_ROLES = Object.freeze(
+  Object.entries(PLATFORM_ROLE_CAPABILITIES)
+    .filter(
+      ([role, capabilities]) => capabilities.length > 0 && !PLATFORM_ADMISSION_ROLES.includes(role),
+    )
+    .map(([role]) => role),
+)
+
+/**
+ * Refuse a platform role table in which door authority drifted.
+ *
+ * The platform roles holding `ticket:check_in` must be exactly
+ * {@link PLATFORM_ADMISSION_ROLES}, and each of those must hold
+ * `platform:admin` — the power to grant itself any membership, which is what
+ * makes the bypass honest.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} platformCapabilities Capabilities per platform role.
+ * @returns {void}
+ * @throws {Error} When another platform role gained the capability, or a door role lost `platform:admin`.
+ */
+export function assertPlatformAdmissionPolicy(platformCapabilities) {
+  const admitting = Object.entries(platformCapabilities)
+    .filter(([, capabilities]) => capabilities.includes(CAPABILITIES.TICKET_CHECK_IN))
+    .map(([role]) => role)
+    .sort()
+
+  const expected = [...PLATFORM_ADMISSION_ROLES].sort()
+
+  if (JSON.stringify(admitting) !== JSON.stringify(expected)) {
+    throw new Error(
+      `Platform admission policy out of date: platform roles holding ${CAPABILITIES.TICKET_CHECK_IN} ` +
+        `are [${admitting.join(', ')}] but only [${expected.join(', ')}] may admit on platform authority.`,
+    )
+  }
+
+  for (const role of PLATFORM_ADMISSION_ROLES) {
+    if (!platformCapabilities[role]?.includes(CAPABILITIES.PLATFORM_ADMIN)) {
+      throw new Error(
+        `Platform admission policy: ${role} admits on platform authority but does not hold ` +
+          `${CAPABILITIES.PLATFORM_ADMIN}. The bypass belongs only to a role that could grant ` +
+          'itself any membership anyway.',
+      )
+    }
+  }
+}
+
+assertPlatformAdmissionPolicy(PLATFORM_ROLE_CAPABILITIES)
+
+/**
+ * The authority a platform role carries at the door, or null.
+ *
+ * Pure. The caller reads the role from the database — never from a claim the
+ * browser made — and consults this only when the membership path gave nothing.
+ *
+ * @param {string|null|undefined} platformRole The caller's platform role.
+ * @returns {{authority: 'PLATFORM_ROLE', role: string}|null} The authority, or null.
+ */
+export function platformAdmissionAuthorityFor(platformRole) {
+  if (typeof platformRole !== 'string' || !PLATFORM_ADMISSION_ROLES.includes(platformRole)) {
+    return null
+  }
+
+  if (!(PLATFORM_ROLE_CAPABILITIES[platformRole] ?? []).includes(CAPABILITIES.TICKET_CHECK_IN)) {
+    return null
+  }
+
+  return { authority: ADMISSION_AUTHORITIES.PLATFORM_ROLE, role: platformRole }
+}
 
 /**
  * The authority a membership carries for one event, or null when it carries none.

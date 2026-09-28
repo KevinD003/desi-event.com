@@ -8,9 +8,9 @@ import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 
 import { notFound } from '../lib/errors.js'
 import { readAvailabilityMap } from '../lib/inventory.js'
-import { toTicketType } from '../lib/presenters.js'
+import { isPublicTier, toTicketType } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
-import { loadVisibleEvent } from './events.js'
+import { loadVisibleEvent, maySeeDrafts } from './events.js'
 
 /**
  * Register the ticket type routes.
@@ -25,10 +25,17 @@ export function registerTicketTypeRoutes(app, { prisma }) {
     handler: async (request) => {
       const event = await loadVisibleEvent(prisma, { id: request.params.eventId }, request.actor)
 
-      const ticketTypes = await prisma.ticketType.findMany({
+      const all = await prisma.ticketType.findMany({
         where: { eventId: event.id },
         orderBy: [{ sortOrder: 'asc' }, { priceCents: 'asc' }],
       })
+
+      // The same rule as the event page: a draft tier is the organiser holding
+      // something back, and a hidden one is a guest list. Both are for the
+      // organisation and moderators only.
+      const ticketTypes = maySeeDrafts(event, request.actor)
+        ? all
+        : all.filter((ticketType) => ticketType.status !== 'DRAFT' && isPublicTier(ticketType))
 
       // Availability is read live rather than taken from `quantitySold`, so a
       // tier with every remaining seat in somebody's cart reads as sold out

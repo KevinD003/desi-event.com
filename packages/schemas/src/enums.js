@@ -334,7 +334,7 @@ export const RECORDED_CHECK_IN_METHODS = Object.freeze(['QR_SCAN', 'MANUAL_CODE'
  *
  * A closed vocabulary rather than sentences, so a scanner screen can choose its
  * own wording and an audit query can count refusals by kind. The first seven
- * come from the ticket, its order or its event; the last four from the
+ * come from the ticket, its order or its event; the rest from the
  * admission workflow itself.
  */
 export const ADMISSION_REFUSAL_REASONS = Object.freeze([
@@ -351,6 +351,12 @@ export const ADMISSION_REFUSAL_REASONS = Object.freeze([
   'PREVIEW_EXPIRED',
   'PREVIEW_INVALID',
   'PREVIEW_MISMATCH',
+  /**
+   * A group confirmation found that a ticket it named stopped admitting after
+   * the lookup — refunded, withdrawn, handed on. Nothing was admitted; the
+   * group is looked up again.
+   */
+  'GROUP_CHANGED',
 ])
 
 /** What an admission preview found. */
@@ -363,8 +369,49 @@ export const ADMISSION_PREVIEW_OUTCOMES = Object.freeze([
 /** What a confirmed admission did. Refusals are 409s and carry a reason instead. */
 export const CHECK_IN_OUTCOMES = Object.freeze(['ADMITTED', 'ALREADY_CHECKED_IN'])
 
-/** Where the authority for an admission came from. */
-export const ADMISSION_AUTHORITIES = Object.freeze(['ORGANIZATION_ROLE', 'EVENT_SCOPE'])
+/**
+ * Where the authority for an admission came from.
+ *
+ * `PLATFORM_ROLE` is a platform super administrator admitting at an event of
+ * an organisation it holds no membership in (ADR 0007). Recorded distinctly so
+ * the organisation can see it.
+ */
+export const ADMISSION_AUTHORITIES = Object.freeze([
+  'ORGANIZATION_ROLE',
+  'EVENT_SCOPE',
+  'PLATFORM_ROLE',
+])
+
+/**
+ * The role an admission authority rests on: an organisation role, or the one
+ * platform role that may admit.
+ */
+export const ADMISSION_ROLES = Object.freeze([...ORG_ROLES, 'SUPER_ADMIN'])
+
+/**
+ * Whose door events a list covers: the caller's own memberships, or every
+ * organisation on the platform (a super administrator).
+ */
+export const ADMISSION_EVENT_SCOPES = Object.freeze(['MEMBERSHIPS', 'PLATFORM'])
+
+/** The fewest tickets a group pass covers. One ticket has its own pass. */
+export const GROUP_PASS_MIN_TICKETS = 2
+
+/**
+ * The most tickets a group pass covers.
+ *
+ * The order-line bound (`quantitySchema`), and the most one admitting
+ * transaction is asked to lock.
+ */
+export const GROUP_PASS_MAX_TICKETS = 50
+
+/** Why an order has no group pass to show. */
+export const GROUP_PASS_UNAVAILABLE_REASONS = Object.freeze([
+  'TOO_FEW_TICKETS',
+  'TOO_MANY_TICKETS',
+  'ORDER_NOT_PAID',
+  'EVENT_CANCELLED',
+])
 
 export const NOTIFICATION_CHANNELS = Object.freeze(['EMAIL', 'SMS', 'PUSH'])
 
@@ -517,6 +564,15 @@ export const checkInOutcomeSchema = z.enum([...CHECK_IN_OUTCOMES])
 
 /** `ADMISSION_AUTHORITIES` as a Zod enum. */
 export const admissionAuthoritySchema = z.enum([...ADMISSION_AUTHORITIES])
+
+/** `ADMISSION_ROLES` as a Zod enum. */
+export const admissionRoleSchema = z.enum([...ADMISSION_ROLES])
+
+/** `ADMISSION_EVENT_SCOPES` as a Zod enum. */
+export const admissionEventScopeSchema = z.enum([...ADMISSION_EVENT_SCOPES])
+
+/** `GROUP_PASS_UNAVAILABLE_REASONS` as a Zod enum. */
+export const groupPassUnavailableReasonSchema = z.enum([...GROUP_PASS_UNAVAILABLE_REASONS])
 
 /** `NOTIFICATION_CHANNELS` as a Zod enum. */
 export const notificationChannelSchema = z.enum([...NOTIFICATION_CHANNELS])

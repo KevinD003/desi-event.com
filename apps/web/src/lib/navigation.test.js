@@ -213,8 +213,14 @@ describe('workspace offers, by role', () => {
     expect(offered(member('OWNER'))).not.toContain('/operations/notifications')
   })
 
-  it('never offers check-in on a platform role: the API refuses one at the door', () => {
-    expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/check-in')
+  it('offers check-in to a platform super-administrator, and to no other platform role', () => {
+    // ADR 0007: the super administrator admits on its own authority; every
+    // other platform role is refused at the door, so is never offered it.
+    expect(offered(platform('SUPER_ADMIN'))).toContain('/organizer/check-in')
+
+    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN', 'ORGANIZER', 'ATTENDEE']) {
+      expect(offered(platform(role)), role).not.toContain('/organizer/check-in')
+    }
   })
 
   it('offers a destination held in any one organisation, not only the first', () => {

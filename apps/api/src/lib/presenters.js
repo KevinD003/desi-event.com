@@ -13,6 +13,16 @@ import { salesWindowState } from '@desi-event/inventory'
 import { computeOrderTotals, resolveTaxPolicy } from '@desi-event/pricing'
 import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import {
+  EVENT_CONTENT_LIMITS,
+  eventFaqItemSchema,
+  eventPerformerSchema,
+  eventRunningOrderItemSchema,
+  eventSocialLinksSchema,
+  eventSponsorSchema,
+  publicEmailSchema,
+  publicPhoneSchema,
+} from '@desi-event/schemas/event-content'
+import {
   HIDDEN_EMAIL,
   RECONCILIATION_EVIDENCE_KEYS,
   domainOnlyAddress,
@@ -25,6 +35,7 @@ import {
   publicCover,
   publicGallery,
 } from './event-media.js'
+import { REDACTED_EMAIL_DOMAIN } from './privacy-placeholders.js'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
 import { BADGED_STATES } from './verification.js'
@@ -34,6 +45,153 @@ const ON_SALE = 'ON_SALE'
 
 /** `TicketStatus.TRANSFERRED`, inlined for the same reason. */
 const TRANSFERRED = 'TRANSFERRED'
+
+/** `TicketTypeVisibility.HIDDEN`, inlined for the same reason. */
+const HIDDEN = 'HIDDEN'
+
+/**
+ * Whether the public may see a tier at all.
+ *
+ * A hidden tier is a guest list or a team allocation: it is left off the page,
+ * off the listing's price and out of structured data, and only the
+ * organisation's own team can book it.
+ *
+ * @param {object} tier A `TicketType` row.
+ * @returns {boolean} True when it may appear to a stranger.
+ */
+export function isPublicTier(tier) {
+  return tier.visibility !== HIDDEN
+}
+
+/**
+ * A tier as the public payload may carry it, whatever the row says.
+ *
+ * The request limits and the database now hold a tier to a 500-character
+ * description and 1 to 50 per order, but a row written before they did can
+ * still say more, and the public schema — correctly strict — would refuse the
+ * whole page over it. So the page gets the row made to fit: the description
+ * cut at 500 with an ellipsis, the per-order bounds clamped, and the sort order
+ * brought into range. The organiser's own read shows the row as it is.
+ *
+ * @param {object} tier A `TicketType` row.
+ * @returns {object} The same tier, safe for `ticketTypeSchema`.
+ */
+export function toPublicTier(tier) {
+  const limit = EVENT_CONTENT_LIMITS.tierDescription
+  const maxOrder = EVENT_CONTENT_LIMITS.perOrderMax
+  const clamp = (value, low, high, fallback) =>
+    Number.isInteger(value) ? Math.min(Math.max(value, low), high) : fallback
+  const description =
+    typeof tier.description === 'string' && tier.description.trim().length > 0
+      ? tier.description.length > limit
+        ? `${tier.description.slice(0, limit - 1).trimEnd()}…`
+        : tier.description
+      : null
+  const maxPerOrder = clamp(tier.maxPerOrder, 1, maxOrder, 10)
+  const minPerOrder = Math.min(clamp(tier.minPerOrder, 1, maxOrder, 1), maxPerOrder)
+
+  return {
+    ...tier,
+    name: typeof tier.name === 'string' ? tier.name.slice(0, 500) : tier.name,
+    description,
+    minPerOrder,
+    maxPerOrder,
+    sortOrder: clamp(tier.sortOrder, 0, 10_000, 0),
+  }
+}
+
+/**
+ * Keep the items of a stored content list that still parse.
+ *
+ * A rule tightened after a row was written must not take the page down: an
+ * item that no longer parses is dropped, the rest are shown.
+ *
+ * @param {unknown} value The stored JSON.
+ * @param {object} schema The item schema.
+ * @param {number} max The most items the list may carry.
+ * @returns {object[]|null} The items that parse, or null when there were none stored.
+ */
+function parsedItems(value, schema, max) {
+  if (!Array.isArray(value)) return null
+
+  return value
+    .map((item) => schema.safeParse(item))
+    .filter((result) => result.success)
+    .map((result) => result.data)
+    .slice(0, max)
+}
+
+/**
+ * Parse one stored value, or give null.
+ *
+ * @param {unknown} value The stored value.
+ * @param {object} schema The schema.
+ * @returns {unknown} The parsed value, or null.
+ */
+function parsedOrNull(value, schema) {
+  if (value == null) return null
+
+  const result = schema.safeParse(value)
+
+  return result.success ? result.data : null
+}
+
+/**
+ * The event page's own content, each part parsed before it is published.
+ *
+ * All of it is public because the organiser chose to publish it. The contact
+ * is the one they typed into the public contact fields, never the private
+ * `Event.contactEmail` or the organisation's account address (NF-14).
+ *
+ * `performers` falls back to `artists` for a row written before the line-up
+ * had roles and bios.
+ *
+ * @param {object} event An `Event` row.
+ * @returns {object} The content fields of `eventWithRelationsSchema`.
+ */
+export function toPublicEventContent(event) {
+  const limits = EVENT_CONTENT_LIMITS
+  const performers =
+    parsedItems(event.performers, eventPerformerSchema, limits.performers) ??
+    (Array.isArray(event.artists)
+      ? event.artists
+          .filter((name) => typeof name === 'string' && name.trim().length > 0)
+          .slice(0, limits.performers)
+          .map((name) => ({
+            name: name.trim().slice(0, limits.performerName),
+            role: null,
+            bio: null,
+          }))
+      : null)
+  const socialLinks = parsedOrNull(event.socialLinks, eventSocialLinksSchema)
+  const text = (value, max) =>
+    typeof value === 'string' && value.trim().length > 0 ? value.trim().slice(0, max) : null
+
+  return {
+    faq: parsedItems(event.faq, eventFaqItemSchema, limits.faqItems),
+    performers,
+    runningOrder: parsedItems(
+      event.runningOrder,
+      eventRunningOrderItemSchema,
+      limits.runningOrderItems,
+    ),
+    sponsors: parsedItems(event.sponsors, eventSponsorSchema, limits.sponsors),
+    socialLinks: socialLinks
+      ? Object.fromEntries(Object.entries(socialLinks).filter(([, href]) => href))
+      : null,
+    dressCode: text(event.dressCode, limits.dressCode),
+    directions: text(event.directions, limits.directions),
+    // An address a privacy redaction replaced is a placeholder, not a contact.
+    // Stored as `publicContactEmail`/`publicContactPhone`; published under
+    // names that do not contain the private column's.
+    publicEmail:
+      typeof event.publicContactEmail === 'string' &&
+      event.publicContactEmail.endsWith(`@${REDACTED_EMAIL_DOMAIN}`)
+        ? null
+        : parsedOrNull(event.publicContactEmail, publicEmailSchema),
+    publicPhone: parsedOrNull(event.publicContactPhone, publicPhoneSchema),
+  }
+}
 
 /**
  * Whether a tier is inside its sales window now, as the hold route judges it.
@@ -77,7 +235,9 @@ function inSalesWindow(ticketType, now) {
  * @returns {object} A payload satisfying `eventSummarySchema`.
  */
 export function toEventSummary(event, { feeConfigFor = null, now = new Date() } = {}) {
-  const ticketTypes = event.ticketTypes ?? []
+  // A hidden tier — a guest list at $0 — is not a price anybody can pay, so it
+  // is no part of the "from" price or of whether the event reads as on sale.
+  const ticketTypes = (event.ticketTypes ?? []).filter(isPublicTier)
   const onSale = ticketTypes.filter((ticketType) => ticketType.status === ON_SALE)
   const priced = onSale.length > 0 ? onSale : ticketTypes
 
@@ -216,9 +376,13 @@ export function toPublicOrganizer(organization) {
  */
 export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor = null } = {}) {
   const { venue = null, organization = null, ticketTypes = [] } = event
-  const visibleTiers = includeDraftTiers
-    ? ticketTypes
-    : ticketTypes.filter((tier) => tier.status !== 'DRAFT')
+  // Drafts and hidden tiers are the organiser's business; the same insiders
+  // who may see one may see the other.
+  const visibleTiers = (
+    includeDraftTiers
+      ? ticketTypes
+      : ticketTypes.filter((tier) => tier.status !== 'DRAFT' && isPublicTier(tier))
+  ).map(toPublicTier)
 
   const detail = {
     id: event.id,
@@ -244,6 +408,7 @@ export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor =
     accessibility: event.accessibility ?? null,
     artists: event.artists ?? [],
     policies: event.policies ?? null,
+    ...toPublicEventContent(event),
     // Only meaningful once something has moved, and then it is the whole point:
     // "postponed" alone does not tell somebody the date in their calendar is
     // dead.
@@ -281,10 +446,12 @@ export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor =
  * @returns {object} A payload satisfying the ticket type list response schema.
  */
 export function toTicketType(ticketType, availability) {
-  if (!availability) return { ...ticketType }
+  const tier = toPublicTier(ticketType)
+
+  if (!availability) return tier
 
   return {
-    ...ticketType,
+    ...tier,
     availableQuantity: availability.availableQuantity,
     isSoldOut: availability.isSoldOut,
   }

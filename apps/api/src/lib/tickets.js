@@ -32,6 +32,25 @@
  * row's `credentialHash` is cleared so the old pass matches nothing. The
  * recipient's pass is derived, never stored — see `./ticket-credentials.js`.
  *
+ * ## A reserved seat goes with its ticket
+ *
+ * `Ticket.eventSeatId` is unique among *live* tickets only (VALID,
+ * TRANSFER_PENDING, CHECKED_IN — the partial index
+ * `Ticket_eventSeatId_live_key`, ADR 0006). The predecessor leaves that set
+ * (to TRANSFERRED) before the successor, which copies the seat, enters it, all
+ * in one transaction; the old row keeps its pointer as history. The order line
+ * is locked `FOR UPDATE` first, the same lock a refund takes before it reads
+ * the line's tickets, so an acceptance and a refund of the same line take
+ * turns: a refund can never read the predecessor, return the money, and leave
+ * a live successor behind.
+ *
+ * ## How the code reaches the recipient
+ *
+ * The token is minted by the route and handed to `../lib/delivery.js`: with no
+ * delivery provider it is returned to the sender once, `no-store`, to pass on
+ * themselves; with one, the provider gets it. Either way the database keeps
+ * only its digest, and the acceptor must be signed in at the offered address.
+ *
  * ## What is never stored
  *
  * The credential itself. The database holds a SHA-256 of it and nothing else,
@@ -118,36 +137,6 @@ export const ADMISSIBLE_STATES = Object.freeze([
 export const TRANSFER_TTL_HOURS = 72
 
 /**
- * Why a ticket may not be handed on, when the reason is not its state.
- *
- * `RESERVED_SEAT`: `Ticket.eventSeatId` is unique over every row, ever, so a
- * successor ticket for the same seat cannot be inserted while its predecessor
- * keeps the pointer — and the predecessor must keep it, or the seat drops out
- * of the sender's history. Until the index becomes one-live-ticket-per-seat
- * (see `docs/adr/0005-reserved-seat-transfer.md`), a seated ticket is refused
- * at the start of a transfer, and an invitation started before this refusal
- * existed is refused at acceptance, rather than failing with a 500 on every
- * attempt the way it used to.
- *
- * @type {Readonly<{RESERVED_SEAT: string}>}
- */
-export const TRANSFER_BLOCKED_REASONS = Object.freeze({ RESERVED_SEAT: 'RESERVED_SEAT' })
-
-/**
- * Why this ticket may not be handed on regardless of its state, or null.
- *
- * @param {{eventSeatId?: string|null}} ticket The ticket.
- * @returns {string|null} A value of {@link TRANSFER_BLOCKED_REASONS}, or null.
- */
-export function transferBlockedReason(ticket) {
-  return ticket?.eventSeatId ? TRANSFER_BLOCKED_REASONS.RESERVED_SEAT : null
-}
-
-/** What a steward or a holder is told about a seated ticket's transfer. */
-const RESERVED_SEAT_SENTENCE =
-  'Reserved-seat tickets cannot be handed on yet. The ticket stays yours and still admits you.'
-
-/**
  * Whether one ticket state may become another.
  *
  * @param {string} from The current state.
@@ -228,6 +217,7 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
   PREVIEW_EXPIRED: 'That check took too long. Look the ticket up again.',
   PREVIEW_INVALID: 'That check could not be confirmed. Look the ticket up again.',
   PREVIEW_MISMATCH: 'The pass presented is not the one that was checked. Look it up again.',
+  GROUP_CHANGED: 'Some tickets in this group changed after it was looked up.',
 })
 
 /**
@@ -323,7 +313,10 @@ export async function transition(tx, { ticket, to, data = {} }) {
  * @param {string|null} [params.scannerId] What the scanner calls itself. Audit only.
  * @param {string} params.method `QR_SCAN` or `MANUAL_CODE`: what was presented, never a default.
  * @param {string|null} [params.gate] The door.
- * @param {string|null} [params.authority] `ORGANIZATION_ROLE` or `EVENT_SCOPE`.
+ * @param {string|null} [params.authority] `ORGANIZATION_ROLE`, `EVENT_SCOPE` or `PLATFORM_ROLE`.
+ * @param {string|null} [params.role] The role that authority came with: an organisation role, or `SUPER_ADMIN`.
+ * @param {string|null} [params.organizationId] The organisation whose event it is.
+ * @param {string|null} [params.groupPassId] The order's group pass, when admitted through it.
  * @param {Date} params.now The instant.
  * @returns {Promise<{admitted: boolean, checkIn: object|null}>} What happened.
  * @throws {TypeError} When `method` is missing or not one the door records.
@@ -343,9 +336,20 @@ export async function admit(tx, params) {
     scannerId = null,
     method,
     gate = null,
-    // Where the scanner's authority came from — an organisation-wide role or an
-    // event scope. Recorded so a reviewer can tell the two apart afterwards.
+    // Where the scanner's authority came from — an organisation-wide role, an
+    // event scope, or the platform super administrator's own. Recorded so a
+    // reviewer can tell them apart afterwards.
     authority = null,
+    // And the role it came with, and whose event it is: for a platform
+    // admission, `SUPER_ADMIN` at another organisation's door, which the
+    // admission's own record should say without a reader having to join it to
+    // the event's.
+    role = null,
+    organizationId = null,
+    // Set when the ticket was admitted through its order's group pass. The
+    // trigger `desi_check_in_group_pass_matches` refuses a value naming a pass
+    // for another order, or a ticket its buyer no longer holds.
+    groupPassId = null,
     now,
   } = params
 
@@ -382,6 +386,7 @@ export async function admit(tx, params) {
       method,
       gate,
       scannedAt: now,
+      groupPassId,
     },
   })
 
@@ -423,6 +428,9 @@ export async function admit(tx, params) {
       method,
       gate,
       authority,
+      role,
+      organizationId,
+      groupPassId,
       previousStatus: ticket.status,
     },
   })
@@ -445,19 +453,25 @@ export async function admit(tx, params) {
  * @param {string} params.tokenHash From {@link mintTransferToken}.
  * @param {Date} params.expiresAt When the invitation lapses.
  * @param {string|null} [params.requestId] For the audit trail.
+ * @param {'MANUAL'|'EMAIL'|null} [params.delivery] How the code reaches the recipient, for the audit trail.
  * @param {Date} params.now The instant.
  * @returns {Promise<{transfer: object|null, started: boolean}>} What was written.
- * @throws {Error} 422 when the ticket is being sent to whoever already holds it, or holds a reserved seat.
+ * @throws {Error} 422 when the ticket is being sent to whoever already holds it.
  */
 export async function startTransfer(tx, params) {
-  const { ticket, toEmail, fromUserId, tokenHash, expiresAt, requestId = null, now } = params
+  const {
+    ticket,
+    toEmail,
+    fromUserId,
+    tokenHash,
+    expiresAt,
+    requestId = null,
+    delivery = null,
+    now,
+  } = params
 
-  // Before anything is written or sent: a seated ticket cannot be accepted, so
-  // it must not be offered. See TRANSFER_BLOCKED_REASONS.
-  if (transferBlockedReason(ticket)) {
-    throw unprocessable(RESERVED_SEAT_SENTENCE, { reason: TRANSFER_BLOCKED_REASONS.RESERVED_SEAT })
-  }
-
+  // A reserved seat is offered like any other ticket: the seat goes with it at
+  // acceptance (see the module doc and ADR 0006).
   const holder = fromUserId ? await tx.user.findUnique({ where: { id: fromUserId } }) : null
 
   if (holder && holder.email.toLowerCase() === toEmail) {
@@ -499,6 +513,9 @@ export async function startTransfer(tx, params) {
       // the token either: that is a bearer secret, and an audit row is read by
       // more people than a database row.
       expiresAt: expiresAt.toISOString(),
+      // How the code went out, never the code: MANUAL means the sender was
+      // shown it once to pass on themselves.
+      delivery,
     },
   })
 
@@ -535,13 +552,14 @@ export async function acceptTransfer(tx, params) {
     now,
   } = params
 
-  // An invitation for a seated ticket started before the refusal in
-  // startTransfer existed. Refused before anything is written; the sender can
-  // withdraw it. It used to reach the insert below and fail on the unique seat
-  // index with a 500, on every attempt, until the invitation lapsed.
-  if (transferBlockedReason(ticket)) {
-    throw conflict(RESERVED_SEAT_SENTENCE, { reason: TRANSFER_BLOCKED_REASONS.RESERVED_SEAT })
-  }
+  // The order line first, before anything is read or written. A refund
+  // settling this line takes the same lock before it reads the line's live
+  // tickets, so the two take turns: either the refund goes first and this
+  // acceptance finds the ticket REFUNDED (TICKET_CHANGED below), or this goes
+  // first and the refund finds — and refunds — the successor. Without it a
+  // refund could read the predecessor, return the money, and leave the
+  // successor admitting (ADR 0005's "quiet double admission"; ADR 0006).
+  await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${ticket.orderItemId} FOR UPDATE`
 
   // Conditional on the transfer still being PENDING. Two people cannot accept
   // one invitation, and the same person clicking twice accepts once.
@@ -620,6 +638,10 @@ export async function acceptTransfer(tx, params) {
       transferId: transfer.id,
       newTicketId: issued.id,
       fromUserId: transfer.fromUserId,
+      // A reserved seat moves with the ticket; the audit names which one, so a
+      // seat's history reads from the log as well as from the rows.
+      eventSeatId: ticket.eventSeatId ?? null,
+      seatCarried: Boolean(ticket.eventSeatId),
       // No credential and no token. Neither belongs in a row somebody reads.
       oldCredentialRevoked: true,
     },

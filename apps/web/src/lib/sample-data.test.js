@@ -552,3 +552,33 @@ describe('findSampleOrganizer', () => {
     expect(findSampleOrganizer('liberty-bell-navratri').verified).toBe(false)
   })
 })
+
+describe('the event page content in the sample catalogue', () => {
+  it('has one event that shows every content section, and it parses as the API would send it', async () => {
+    const {
+      eventFaqSchema,
+      eventPerformersSchema,
+      eventRunningOrderSchema,
+      eventSocialLinksSchema,
+      eventSponsorsSchema,
+    } = await import('@desi-event/schemas/event-content')
+    const withContent = SAMPLE_EVENTS.filter((event) => event.performers?.length > 0)
+
+    expect(withContent.length).toBeGreaterThan(0)
+
+    for (const event of withContent) {
+      expect(eventPerformersSchema.safeParse(event.performers).success).toBe(true)
+      expect(eventRunningOrderSchema.safeParse(event.runningOrder).success).toBe(true)
+      expect(eventFaqSchema.safeParse(event.faq).success).toBe(true)
+      expect(eventSocialLinksSchema.safeParse(event.socialLinks).success).toBe(true)
+      expect(eventSponsorsSchema.safeParse(event.sponsors).success).toBe(true)
+      // The names alone stay in step with the line-up, as the server keeps them.
+      expect(event.artists).toEqual(event.performers.map((performer) => performer.name))
+
+      for (const href of Object.values(event.socialLinks)) {
+        expect(new URL(href).hostname).toMatch(/\.example$/)
+      }
+      expect(event.publicEmail).toMatch(/\.example$/)
+    }
+  })
+})

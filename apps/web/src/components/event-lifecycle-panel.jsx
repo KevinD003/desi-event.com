@@ -52,6 +52,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { EventRescheduleForm } from './event-reschedule-form.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -74,7 +75,8 @@ const OFFERED = Object.freeze({
   ON_SALE: ['pauseSales', 'postpone', 'cancel'],
   SALES_PAUSED: ['openSales', 'postpone', 'cancel'],
   SOLD_OUT: ['pauseSales', 'postpone', 'cancel'],
-  POSTPONED: ['cancel'],
+  POSTPONED: ['reschedule', 'cancel'],
+  REJECTED: ['rework'],
 })
 
 /**
@@ -138,6 +140,8 @@ function withLists(result) {
  * @property {object} transitions The server's available transitions.
  * @property {object[]} history The moderation history, newest first.
  * @property {number} [revision] The event's revision, so the checklist can re-read when other steps save.
+ * @property {object[]} [sessions] The event's sessions, which move with it when a postponed event comes back.
+ * @property {function(object): void} [onChanged] Called with the event as the server returns it after every command that succeeded, so the editor around this panel takes its new status and revision rather than keeping the ones it was rendered with.
  */
 
 /**
@@ -170,6 +174,8 @@ export function EventLifecyclePanel({
   transitions: initialTransitions,
   history = [],
   revision = 0,
+  sessions = [],
+  onChanged = () => {},
 }) {
   const router = useRouter()
   const [readiness, setReadiness] = useState(() => withLists(initialReadiness))
@@ -255,7 +261,7 @@ export function EventLifecyclePanel({
     setStepUpFor(null)
     setNeedsEnrolment(false)
 
-    if (command.confirm || command.reason !== 'none') {
+    if (key === 'reschedule' || command.confirm || command.reason !== 'none') {
       setPending(key)
       queueMicrotask(() => dialogRef.current?.focus())
       return
@@ -337,6 +343,10 @@ export function EventLifecyclePanel({
 
       setStatus(next)
       setPending(null)
+      // The editor's own copy of the status and revision: without this a
+      // rework leaves every field locked, and the next save after any command
+      // that moved the revision is refused as somebody else's edit.
+      onChanged(parsed.data)
       // The move changes what is available next, so ask rather than infer.
       await refresh().catch(() => {})
       // Announced rather than merely drawn: a lifecycle change is the most
@@ -351,7 +361,26 @@ export function EventLifecyclePanel({
     }
   }
 
-  const command = pending ? COMMANDS[pending] : null
+  const command = pending && pending !== 'reschedule' ? COMMANDS[pending] : null
+
+  /**
+   * A postponed event is back: take the server's word for its new state.
+   *
+   * @param {object|null} detail The event as the server now has it.
+   * @returns {Promise<void>} Resolves when the panel has caught up.
+   */
+  async function rescheduled(detail) {
+    const next = detail?.status ?? status
+
+    setStatus(next)
+    setPending(null)
+    // The reschedule moved the revision, the dates and the nights; the editor
+    // has to hold the new ones before anything else is saved.
+    if (detail) onChanged(detail)
+    await refresh().catch(() => {})
+    setAnnouncement(`${statusReading(next).label}. ${statusReading(next).next}`)
+    router.refresh()
+  }
 
   return (
     <section aria-labelledby="review-heading" className="space-y-5">
@@ -505,6 +534,21 @@ export function EventLifecyclePanel({
         />
       ) : null}
 
+      {pending === 'reschedule' ? (
+        <EventRescheduleForm
+          event={event}
+          sessions={sessions}
+          revision={revision}
+          onSale={
+            (transitions?.transitions ?? []).find(
+              (entry) => entry.to === 'ON_SALE' && entry.actor === 'organizer',
+            ) ?? null
+          }
+          onDone={rescheduled}
+          onCancel={dismiss}
+        />
+      ) : null}
+
       {command ? (
         <div
           ref={dialogRef}
@@ -581,7 +625,7 @@ export function EventLifecyclePanel({
                 required={command.reason === 'required'}
                 description={
                   command.reason === 'required'
-                    ? 'Sent to everybody holding a ticket. Write it for them, not for the file.'
+                    ? 'Recorded with the notice for every current order. This build does not send email, so tell ticket holders yourself as well.'
                     : 'Optional. Kept on the record.'
                 }
               >
@@ -654,6 +698,10 @@ export function EventLifecyclePanel({
 const DESTINATIONS = Object.freeze({
   submitReview: 'REVIEW_PENDING',
   withdrawReview: 'DRAFT',
+  rework: 'DRAFT',
+  // Coming back published is always a way out of POSTPONED; whether it can
+  // come back on sale is the form's question, asked of the ON_SALE entry.
+  reschedule: 'PUBLISHED',
   publish: 'PUBLISHED',
   openSales: 'ON_SALE',
   pauseSales: 'SALES_PAUSED',

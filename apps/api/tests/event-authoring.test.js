@@ -219,20 +219,75 @@ describe('what may be edited, and when', () => {
     await app.close()
   })
 
-  it('refuses to edit a published event through the authoring routes', async () => {
-    const { app, ids } = await createTestApp()
+  // Replaces "refuses to edit a published event through the authoring routes":
+  // a live event now takes the edits that cannot take anything away from a
+  // buyer, a new night among them. What stays refused is below.
+  it('adds a session to a published event', async () => {
+    const { app, prisma, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
     const headers = bearer(token)
+    const revision = await revisionOf(app, ids.publishedEvent.id, headers)
 
     const response = await app.inject({
       method: 'POST',
       url: `/v1/events/${ids.publishedEvent.id}/sessions`,
       headers,
+      payload: session(revision),
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().meta.revision).toBe(revision + 1)
+
+    const audit = prisma._store.auditLog.filter((row) => row.action === 'event.session_added')
+
+    expect(audit).toHaveLength(1)
+    expect(audit[0].metadata).toMatchObject({
+      sessionId: response.json().data.id,
+      revision: revision + 1,
+      mode: 'live',
+    })
+    expect(audit[0].metadata.fields).toContain('startsAt')
+
+    await app.close()
+  })
+
+  it.each([
+    ['approvedEvent', 'APPROVED', /moderator holds this version/i],
+    ['rejectedEvent', 'REJECTED', /rework it as a draft/i],
+  ])('refuses authoring on an %s (409 NOT_EDITABLE)', async (key, _status, message) => {
+    const { app, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids[key].id}/sessions`,
+      headers: bearer(token),
       payload: session(0),
     })
 
     expect(response.statusCode).toBe(409)
-    expect(response.json().error.message).toMatch(/material-change/i)
+    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(response.json().error.message).toMatch(message)
+
+    await app.close()
+  })
+
+  it('refuses authoring on a cancelled event, which is final', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = 'CANCELLED'
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/tiers`,
+      headers: bearer(token),
+      payload: tier(0),
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(response.json().error.message).toMatch(/final/i)
 
     await app.close()
   })

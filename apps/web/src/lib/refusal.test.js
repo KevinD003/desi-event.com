@@ -209,3 +209,31 @@ describe('refusalSentence', () => {
     expect(refusalSentence(429, body, 'x')).not.toMatch(/minute/)
   })
 })
+
+describe('fieldIssues', () => {
+  it('keys each validation issue by its field, first message first', async () => {
+    const { fieldIssues } = await import('./refusal.js')
+
+    expect(
+      fieldIssues({
+        error: {
+          code: 'VALIDATION_ERROR',
+          issues: [
+            { path: 'maxPerOrder', message: 'Too big' },
+            { path: '/body/priceCents', message: 'Too small' },
+            { path: 'sessions.0.endsAt', message: 'Ends too soon' },
+            { path: 'maxPerOrder', message: 'A second message' },
+            { path: '', message: 'About the whole body' },
+          ],
+        },
+      }),
+    ).toEqual({ maxPerOrder: 'Too big', priceCents: 'Too small', sessions: 'Ends too soon' })
+  })
+
+  it('answers nothing for a body without issues', async () => {
+    const { fieldIssues } = await import('./refusal.js')
+
+    expect(fieldIssues(null)).toEqual({})
+    expect(fieldIssues({ error: { code: 'CONFLICT' } })).toEqual({})
+  })
+})

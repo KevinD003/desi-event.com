@@ -31,11 +31,17 @@ describe('a new ticket type', () => {
     expect(offered).toEqual(expect.arrayContaining(['INR', 'GBP', 'CAD', 'AUD']))
   })
 
-  it('asks for the face value in cents, with a dollar example', () => {
+  // Replaces "asks for the face value in cents": a price is typed the way a
+  // person says it, and the form turns it into minor units.
+  it('asks for the face value in dollars, with a dollar example', () => {
     render(<EventTiersEditor event={{ id: 'evtdefaults', ticketTypes: [] }} />)
 
-    expect(screen.getByLabelText(/^Face value, in cents/)).toBeInTheDocument()
-    expect(screen.getByText(/\$35\.00 is 3500/)).toBeInTheDocument()
+    const price = screen.getByLabelText(/^Face value \(USD\)/)
+
+    expect(price).toBeInTheDocument()
+    expect(price).toHaveAttribute('inputmode', 'decimal')
+    expect(screen.getByText(/35\.00 for thirty-five dollars/)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/in cents/i)).not.toBeInTheDocument()
   })
 })
 

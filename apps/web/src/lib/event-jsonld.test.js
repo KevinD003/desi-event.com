@@ -263,3 +263,36 @@ describe('what a lifecycle state says to a person', () => {
     }
   })
 })
+
+describe('the line-up and the offers in structured data', () => {
+  it('names the performers from the line-up, falling back to the names alone', () => {
+    const withPerformers = eventJsonLd({
+      ...event,
+      artists: ['Old name'],
+      performers: [
+        { name: 'Nizami Bandhu', role: 'Qawwals', bio: 'Delhi.' },
+        { name: 'Warsi Brothers', role: null, bio: null },
+      ],
+    })
+
+    expect(withPerformers.performer).toEqual([
+      { '@type': 'PerformingGroup', name: 'Nizami Bandhu' },
+      { '@type': 'PerformingGroup', name: 'Warsi Brothers' },
+    ])
+    expect(eventJsonLd({ ...event, performers: [] }).performer).toEqual([
+      { '@type': 'PerformingGroup', name: 'Nizami Bandhu' },
+    ])
+  })
+
+  it('offers no hidden tier to the public', () => {
+    const data = eventJsonLd({
+      ...event,
+      ticketTypes: [
+        { id: 'tt_1', name: 'General', priceCents: 149_900, currency: 'INR' },
+        { id: 'tt_2', name: 'Guest list', priceCents: 0, currency: 'INR', visibility: 'HIDDEN' },
+      ],
+    })
+
+    expect(data.offers.map((offer) => offer.name)).toEqual(['General'])
+  })
+})

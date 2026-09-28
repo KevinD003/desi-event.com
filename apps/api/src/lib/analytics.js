@@ -56,14 +56,16 @@ import { financeSummary } from './finance-reporting.js'
  * ticket that was sold, and excluding them would make "tickets sold" fall
  * during an event.
  *
+ * `TRANSFERRED` is not. A ticket handed on is two rows — the sender's,
+ * now TRANSFERRED, and the recipient's successor — and one sale. Counting
+ * both counted every handed-on ticket twice; it now counts once, as its
+ * successor. The same three states are the database's "live ticket" for a
+ * seat (the partial index `Ticket_eventSeatId_live_key`, ADR 0006) and the
+ * load suite's "no seat sold twice".
+ *
  * @type {ReadonlyArray<string>}
  */
-export const LIVE_TICKET_STATES = Object.freeze([
-  'VALID',
-  'TRANSFER_PENDING',
-  'CHECKED_IN',
-  'TRANSFERRED',
-])
+export const LIVE_TICKET_STATES = Object.freeze(['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'])
 
 /**
  * Ticket states that mean the ticket is gone and why.

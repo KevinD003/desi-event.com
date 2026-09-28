@@ -60,6 +60,50 @@ export function availabilityLabel(tier, now = new Date()) {
 }
 
 /**
+ * An instant in the event's zone, as a buyer reads it: `Oct 1, 11:59 PM EDT`.
+ *
+ * @param {string} value An ISO instant.
+ * @param {string} zone The event's IANA zone.
+ * @returns {string} The reading.
+ */
+function atLocal(value, zone) {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }).format(new Date(value))
+  } catch {
+    return String(value)
+  }
+}
+
+/**
+ * The tier's own sales window in a sentence, when it has one worth saying.
+ *
+ * An early-bird tier that closes on the first of the month says so, in the
+ * venue's zone: a buyer deciding whether to wait needs the date, not a badge.
+ * Read with the same `tierSalesWindow` the badge and the hold route use.
+ *
+ * @param {object} tier A ticket type with `salesStartAt` and `salesEndAt`.
+ * @param {string} zone The event's IANA zone.
+ * @param {Date} [now] The moment in question.
+ * @returns {string|null} For example `On sale until Oct 1, 11:59 PM EDT`, or null.
+ */
+export function salesWindowText(tier, zone, now = new Date()) {
+  const state = tierSalesWindow(tier, now)
+
+  if (state === 'not-started') return `On sale from ${atLocal(tier.salesStartAt, zone)}`
+  if (state === 'ended') return `Sales ended ${atLocal(tier.salesEndAt, zone)}`
+  if (state === 'open' && tier.salesEndAt) return `On sale until ${atLocal(tier.salesEndAt, zone)}`
+
+  return null
+}
+
+/**
  * What one ticket of a tier comes to with the booking fee and any tax, or null
  * when that is the face value anyway, or cannot be worked out.
  *
@@ -90,6 +134,7 @@ export function tierAllIn(tier, place, feeTerms) {
  * @property {object[]} ticketTypes Ticket tiers with availability folded in.
  * @property {{country?: string, region?: string}|null} [place] Where the event is held, for the fee-inclusive price. Without it only face values are shown.
  * @property {Array<object>|null} [feeTerms] The fee terms the API published for the event.
+ * @property {string} [timezone] The event's zone, for the sales-window sentence.
  */
 
 /**
@@ -98,12 +143,13 @@ export function tierAllIn(tier, place, feeTerms) {
  * @param {TicketTiersProps} props Component props.
  * @returns {JSX.Element} The rendered tier list.
  */
-export function TicketTiers({ ticketTypes, place = null, feeTerms = null }) {
+export function TicketTiers({ ticketTypes, place = null, feeTerms = null, timezone = 'UTC' }) {
   return (
     <ul aria-label="Ticket types" className="divide-y divide-line">
       {ticketTypes.map((tier) => {
         const availability = availabilityLabel(tier)
         const allIn = availability.text === 'Sold out' ? null : tierAllIn(tier, place, feeTerms)
+        const salesWindow = salesWindowText(tier, timezone)
 
         return (
           <li
@@ -120,6 +166,7 @@ export function TicketTiers({ ticketTypes, place = null, feeTerms = null }) {
                   {availability.text}
                 </Badge>
               </p>
+              {salesWindow ? <p className="mt-1 text-sm text-ink-muted">{salesWindow}</p> : null}
             </div>
             <p className="shrink-0 sm:text-right">
               <span className="block text-lg font-bold text-ink tabular-nums">

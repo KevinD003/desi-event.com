@@ -12,7 +12,7 @@
  * @module lib/qr-decode
  */
 
-import { looksLikePass } from './pass-shape.js'
+import { looksLikeGroupPass, looksLikePass } from './pass-shape.js'
 
 /** @type {Promise<Function>|null} */
 let loading = null
@@ -31,14 +31,20 @@ function decoder() {
 /**
  * Decode one frame.
  *
+ * A group pass is told apart from a ticket's own pass by its shape (`G1.`
+ * and a `.` a ticket pass never has), so the door sends it to the group
+ * lookup and nowhere else.
+ *
  * @param {{data: Uint8ClampedArray, width: number, height: number}} frame RGBA pixels, as `getImageData` returns them.
- * @returns {Promise<{pass: string}|{other: true}|null>} A pass, something that is not one, or nothing found.
+ * @returns {Promise<{pass: string}|{groupPass: string}|{other: true}|null>} A pass, a group pass, something that is neither, or nothing found.
  */
 export async function decodeFrame(frame) {
   const jsQR = await decoder()
   const found = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'dontInvert' })
 
   if (!found?.data) return null
+
+  if (looksLikeGroupPass(found.data)) return { groupPass: found.data }
 
   return looksLikePass(found.data) ? { pass: found.data } : { other: true }
 }

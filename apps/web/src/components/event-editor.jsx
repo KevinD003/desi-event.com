@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The event editor: seven steps, one draft, and a save that cannot silently
+ * The event editor: nine steps, one draft, and a save that cannot silently
  * lose somebody else's work.
  *
  * ## Why it autosaves, and why that is dangerous
@@ -31,6 +31,16 @@
  * moves focus to its field. That is the pattern a keyboard user needs and the
  * one a mouse user gets for free.
  *
+ * ## After publication
+ *
+ * A public event is still edited here, in `live` mode. The description, the
+ * line-up, the questions and the other housekeeping still autosave, and only
+ * those fields are sent. The date, the place and the terms are read-only in
+ * the steps: somebody bought a ticket on the strength of them, so they change
+ * through the material change panel, with a reason and a confirmation, and the
+ * API records a notice for every current order. In review, approved, rejected
+ * or finished, nothing is edited here (`locked`).
+ *
  * ## What it does not decide
  *
  * Nothing. The steps are a way through the same `PATCH /v1/events/:id` the API
@@ -47,28 +57,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Alert, Badge, Button, FormField, Input, Select, Textarea } from './ui.jsx'
+import { GuestInfoStep, ProgrammeStep } from './event-content-steps.jsx'
 import { EventLifecyclePanel } from './event-lifecycle-panel.jsx'
 import { EventMediaEditor } from './event-media-editor.jsx'
 import { EventSessionsEditor } from './event-sessions-editor.jsx'
 import { EventTiersEditor } from './event-tiers-editor.jsx'
+import { MaterialChangePanel } from './material-change-panel.jsx'
+import { RichTextField } from './rich-text-field.jsx'
+import { TimeZoneSelect } from './time-zone-select.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refusalSentence } from '../lib/refusal.js'
 import { ACCESSIBILITY_LABELS } from '../lib/accessibility.js'
 // The one list of categories this application has. Duplicating it here is how
 // a select ends up offering a value the API has never heard of.
 import { EVENT_CATEGORIES } from '../lib/catalog.js'
-import { EDITABLE, statusReading } from '../lib/event-status.js'
 import {
-  COMMON_ZONES,
-  fromLocalInputValue,
-  toLocalInputValue,
-  zoneAbbreviation,
-} from '../lib/zoned-time.js'
+  CONTENT_LIMITS,
+  DESCRIPTION_LIMIT,
+  contentProblems,
+  fromEventContent,
+  toContentPatch,
+} from '../lib/event-content.js'
+import { MATERIAL_FIELDS, editMode, statusReading } from '../lib/event-status.js'
+import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /** How long to wait after the last keystroke before saving. */
 const AUTOSAVE_DELAY_MS = 1500
 
-/** The steps, in the order somebody works through them. */
+/**
+ * The steps, in the order somebody works through them.
+ *
+ * The first six keep the numbers they have always had — people, tests and the
+ * browser suites find "Step 3 Sessions" and "Step 6 Media" by them — and the
+ * two content steps come after the pictures, before the review. No new step's
+ * name contains "details" or "review", so a search for either still finds one.
+ */
 const STEPS = Object.freeze([
   { id: 'details', title: 'Details' },
   { id: 'schedule', title: 'When and where' },
@@ -76,7 +99,30 @@ const STEPS = Object.freeze([
   { id: 'tickets', title: 'Tickets' },
   { id: 'policies', title: 'Policies and access' },
   { id: 'media', title: 'Media' },
+  { id: 'programme', title: 'Line-up and running order' },
+  { id: 'guests', title: 'Guest information' },
   { id: 'review', title: 'Review' },
+])
+
+/** The steps whose fields belong to the event itself and save through the shell. */
+const FORM_STEPS = new Set(['details', 'schedule', 'policies', 'programme', 'guests'])
+
+/**
+ * The form fields that carry a material field, and are changed on a public
+ * event only through the material change panel.
+ */
+const MATERIAL_FORM_FIELDS = Object.freeze([
+  'startsAt',
+  'endsAt',
+  'timezone',
+  'venueId',
+  'isOnline',
+  'onlineUrl',
+  'ageRestriction',
+  'policyEntry',
+  'policyRefund',
+  'policyConduct',
+  'policyAgeNote',
 ])
 
 /**
@@ -96,7 +142,6 @@ function toFormValues(event) {
     category: event.category ?? 'OTHER',
     slug: event.slug ?? '',
     languages: (event.languages ?? []).join(', '),
-    artists: (event.artists ?? []).join(', '),
     timezone: event.timezone ?? 'America/New_York',
     startsAt: event.startsAt ?? '',
     endsAt: event.endsAt ?? '',
@@ -110,6 +155,9 @@ function toFormValues(event) {
     policyAgeNote: event.policies?.ageNote ?? '',
     accessFeatures: event.accessibility?.features ?? [],
     accessNote: event.accessibility?.note ?? '',
+    // The line-up, running order, questions, contact, links, sponsors, dress
+    // code and directions.
+    ...fromEventContent(event),
   }
 }
 
@@ -119,7 +167,7 @@ function toFormValues(event) {
  * @param {object} values The form's values.
  * @returns {object} A body `updateEventRequestSchema` accepts.
  */
-function toPatch(values) {
+export function toPatch(values) {
   /**
    * A comma-separated box as a list, with the empties dropped.
    *
@@ -139,7 +187,6 @@ function toPatch(values) {
     category: values.category,
     slug: values.slug.trim(),
     languages: list(values.languages),
-    artists: list(values.artists),
     timezone: values.timezone,
     startsAt: values.startsAt || undefined,
     endsAt: values.endsAt || undefined,
@@ -169,6 +216,27 @@ function toPatch(values) {
   if (values.accessFeatures.length > 0 || note) {
     patch.accessibility = { features: values.accessFeatures, note }
   }
+
+  // The line-up is sent as performers; the server keeps the names in
+  // `artists` in step with them.
+  return { ...patch, ...toContentPatch(values) }
+}
+
+/**
+ * The part of the update body a public event may autosave.
+ *
+ * Everything except the material fields. Those change only through the
+ * material change panel, with a reason — and leaving them out here means an
+ * autosave can never be refused for a change nobody meant, such as the same
+ * policies in a different key order.
+ *
+ * @param {object} values The form's values.
+ * @returns {object} The body, without the material fields.
+ */
+export function toHousekeepingPatch(values) {
+  const patch = toPatch(values)
+
+  for (const field of MATERIAL_FIELDS) delete patch[field]
 
   return patch
 }
@@ -203,6 +271,23 @@ export function formProblems(values) {
   }
   if (!values.description.trim()) {
     problems.push({ field: 'description', message: 'Describe the event.' })
+  } else if (values.description.trim().length > DESCRIPTION_LIMIT) {
+    problems.push({
+      field: 'description',
+      message: `Keep the description to ${DESCRIPTION_LIMIT.toLocaleString('en-US')} characters.`,
+    })
+  }
+
+  const slug = String(values.slug ?? '').trim()
+
+  if (!slug) {
+    problems.push({ field: 'slug', message: 'Give the event a web address.' })
+  } else if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug.toLowerCase()) || slug.length > 140) {
+    problems.push({
+      field: 'slug',
+      message:
+        'Use lower-case letters, numbers and single hyphens for the web address, such as diwali-mela-2026.',
+    })
   }
 
   if (values.startsAt && values.endsAt && new Date(values.endsAt) <= new Date(values.startsAt)) {
@@ -213,7 +298,7 @@ export function formProblems(values) {
     problems.push({ field: 'ageRestriction', message: 'An age restriction is a whole number.' })
   }
 
-  return problems
+  return [...problems, ...contentProblems(values)]
 }
 
 /**
@@ -251,10 +336,43 @@ export function formGaps(values) {
 }
 
 /**
+ * Which step holds a field, so a link in the problem summary can open it.
+ *
+ * @param {string} field The field id, without the `event-` prefix.
+ * @returns {string|null} The step's id, or null when no step holds it.
+ */
+export function stepOfField(field) {
+  if (['title', 'summary', 'description', 'category', 'slug', 'languages'].includes(field)) {
+    return 'details'
+  }
+  if (
+    ['timezone', 'startsAt', 'endsAt', 'venueId', 'isOnline', 'onlineUrl', 'directions'].includes(
+      field,
+    )
+  ) {
+    return 'schedule'
+  }
+  if (/^(policy|access)/u.test(field) || field === 'ageRestriction' || field === 'dressCode') {
+    return 'policies'
+  }
+  if (/^(performers|runningOrder)/u.test(field)) return 'programme'
+  if (
+    /^(faq|sponsors|social-)/u.test(field) ||
+    field === 'publicEmail' ||
+    field === 'publicPhone'
+  ) {
+    return 'guests'
+  }
+
+  return null
+}
+
+/**
  * @typedef {object} EventEditorProps
  * @property {object} event The event as loaded.
  * @property {object[]} venues Venues this organisation may use.
- * @property {object[]} sessions The event's sessions, as loaded.
+ * @property {object[]} sessions The event's sessions, as loaded, with their usage and price zones.
+ * @property {object[]} [tiers] The event's ticket types from the organiser's read (`GET /v1/events/:id/tiers`).
  * @property {object[]} mapVersions Published seating map versions for the event's venue.
  * @property {object[]} preview The server's all-in price breakdown per tier.
  * @property {object} readiness The server's readiness result.
@@ -274,6 +392,7 @@ export function EventEditor({
   event,
   venues = [],
   sessions = [],
+  tiers = null,
   mapVersions = [],
   preview = [],
   readiness = null,
@@ -289,6 +408,13 @@ export function EventEditor({
   // whenever another step is chosen, and a list kept inside it would come
   // back as the one the page first loaded.
   const [pictures, setPictures] = useState(media)
+  // The same for the sessions and the ticket types: each step reloads its list
+  // after a write and hands it back, and the tickets step offers the sessions
+  // the sessions step has just added.
+  const [sessionList, setSessionList] = useState(sessions)
+  const [tierList, setTierList] = useState(tiers)
+  const [pricePreview, setPricePreview] = useState(preview)
+  const [materialOpen, setMaterialOpen] = useState(false)
   const [status, setStatus] = useState(event.status)
   const [step, setStep] = useState('details')
   const [save, setSave] = useState({ kind: 'idle', message: 'No changes yet.' })
@@ -304,7 +430,11 @@ export function EventEditor({
   const summaryRef = useRef(null)
   const timer = useRef(null)
 
-  const editable = EDITABLE.has(status)
+  const mode = editMode(status)
+  // Whether the step fields accept input at all, and whether the material ones
+  // do. On a public event the second is false: they change through the panel.
+  const editable = mode !== 'locked'
+  const materialEditable = mode === 'draft'
   const reading = statusReading(status)
   const dirty = useMemo(
     () => JSON.stringify(values) !== JSON.stringify(baseline),
@@ -347,9 +477,12 @@ export function EventEditor({
       setServerProblems([])
 
       try {
+        // A public event autosaves its housekeeping only; the date, place and
+        // terms go through the material change panel.
+        const patch = mode === 'live' ? toHousekeepingPatch(values) : toPatch(values)
         const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}`, {
           method: 'PATCH',
-          body: JSON.stringify({ ...toPatch(values), revision }),
+          body: JSON.stringify({ ...patch, revision }),
         })
 
         const body = await response.json().catch(() => null)
@@ -388,7 +521,7 @@ export function EventEditor({
         })
       }
     },
-    [event.id, problems, revision, values],
+    [event.id, mode, problems, revision, values],
   )
 
   // Autosave. Deliberately not on an interval: a timer that fires while
@@ -426,6 +559,109 @@ export function EventEditor({
   }, [commit, conflict, dirty, editable, problems.length])
 
   /**
+   * Fold a saved material change back in.
+   *
+   * The panel's fields become the saved ones; anything else still in the boxes
+   * and not yet autosaved stays, and saves on its own as before.
+   *
+   * @param {object} detail The event the API returned.
+   * @returns {void}
+   */
+  function materialSaved(detail) {
+    const saved = toFormValues(detail)
+
+    setRevision(detail.revision)
+    setStatus(detail.status)
+    setBaseline(saved)
+    setValues((current) => ({
+      ...current,
+      ...Object.fromEntries(MATERIAL_FORM_FIELDS.map((field) => [field, saved[field]])),
+    }))
+    setMaterialOpen(false)
+    setSave({
+      kind: 'saved',
+      message: `Change saved at ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. A notice has been recorded for every current order.`,
+    })
+  }
+
+  /**
+   * Take a lifecycle command's answer as the event's new state.
+   *
+   * The review panel sends the command; this shell holds the status, the
+   * revision and the saved values every other step writes with. A rework
+   * moves REJECTED to DRAFT, which unlocks the fields; a reschedule moves the
+   * revision, the dates and the nights. Without taking both in here the fields
+   * stay locked until a reload, and the next save carries the old revision and
+   * is refused as if somebody else had edited the event. `router.refresh()`
+   * does not do this: it keeps client state as it was.
+   *
+   * A field the command changed on the server is taken into the boxes; one it
+   * left alone keeps whatever is typed there, saved or not.
+   *
+   * @param {object} detail The event as the server returned it.
+   * @returns {Promise<void>} Resolves once the nights are re-read.
+   */
+  async function lifecycleChanged(detail) {
+    if (!detail) return
+
+    const saved = toFormValues(detail)
+    const moved = Object.keys(saved).filter(
+      (field) => JSON.stringify(saved[field]) !== JSON.stringify(baseline[field]),
+    )
+
+    if (Number.isInteger(detail.revision)) setRevision(detail.revision)
+    if (detail.status) setStatus(detail.status)
+    setBaseline(saved)
+    setValues((current) => ({
+      ...current,
+      ...Object.fromEntries(moved.map((field) => [field, saved[field]])),
+    }))
+
+    // Only a reschedule moves the nights, and it moved the event's dates too.
+    if (!moved.includes('startsAt') && !moved.includes('endsAt')) return
+
+    try {
+      const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}/sessions`)
+      const body = await response.json().catch(() => null)
+
+      if (response.ok && Array.isArray(body?.data)) setSessionList(body.data)
+    } catch {
+      // The sessions step re-reads after its own next write; a failed read
+      // here leaves the old dates on screen, not a wrong revision.
+    }
+  }
+
+  /**
+   * Keep the sessions the sessions step saved, and re-read the ticket types.
+   *
+   * Removing a session removes the ticket types priced for it on the server,
+   * so the list the tickets step would open with is stale the moment a
+   * session goes: its Edit and Remove buttons would answer "no such ticket
+   * type". Re-read after every session write rather than guess which ones
+   * cascaded.
+   *
+   * @param {object[]} next The sessions as the server now lists them.
+   * @returns {Promise<void>} Resolves once the ticket types are re-read.
+   */
+  async function sessionsChanged(next) {
+    setSessionList(next)
+
+    try {
+      const [tiersResponse, previewResponse] = await Promise.all([
+        apiFetch(`/v1/events/${encodeURIComponent(event.id)}/tiers`),
+        apiFetch(`/v1/events/${encodeURIComponent(event.id)}/price-preview`),
+      ])
+      const tiersBody = await tiersResponse.json().catch(() => null)
+      const previewBody = await previewResponse.json().catch(() => null)
+
+      if (tiersResponse.ok && Array.isArray(tiersBody?.data)) setTierList(tiersBody.data)
+      if (previewResponse.ok && Array.isArray(previewBody?.data)) setPricePreview(previewBody.data)
+    } catch {
+      // The tickets step shows what it had; its own next write re-reads.
+    }
+  }
+
+  /**
    * Take the server's version, losing whatever is in the boxes.
    *
    * @returns {Promise<void>} Resolves when the reload is done.
@@ -451,9 +687,34 @@ export function EventEditor({
   }
 
   const allProblems = [
-    ...problems.map((problem) => ({ ...problem, id: `event-${problem.field}` })),
+    ...problems.map((problem, index) => ({ ...problem, id: `event-${problem.field}-${index}` })),
     ...serverProblems.map((message, index) => ({ field: null, message, id: `server-${index}` })),
   ]
+
+  // Problems by field, for the boxes of the content steps to show under themselves.
+  const fieldErrors = Object.fromEntries(
+    [...problems].reverse().map((problem) => [problem.field, problem.message]),
+  )
+
+  /**
+   * Follow a link in a summary to its field, opening the step that holds it.
+   *
+   * A plain `#event-title` link does nothing while another step is showing,
+   * because the field is not on the page.
+   *
+   * @param {object} click The click event.
+   * @param {string} field The field id, without the prefix.
+   * @returns {void}
+   */
+  function openField(click, field) {
+    const target = stepOfField(field)
+
+    if (!target || target === step) return
+
+    click.preventDefault()
+    setStep(target)
+    requestAnimationFrame(() => document.getElementById(`event-${field}`)?.focus())
+  }
 
   return (
     <div data-enhanced={enhanced ? 'true' : undefined}>
@@ -521,7 +782,11 @@ export function EventEditor({
             {allProblems.map((problem) => (
               <li key={problem.id}>
                 {problem.field ? (
-                  <a className="underline underline-offset-4" href={`#event-${problem.field}`}>
+                  <a
+                    className="underline underline-offset-4"
+                    href={`#event-${problem.field}`}
+                    onClick={(click) => openField(click, problem.field)}
+                  >
                     {problem.message}
                   </a>
                 ) : (
@@ -533,7 +798,7 @@ export function EventEditor({
         </div>
       ) : null}
 
-      {gaps.length > 0 && editable ? (
+      {gaps.length > 0 && mode === 'draft' ? (
         <div
           data-testid="readiness-gaps"
           className="mt-4 rounded-card border border-status-warning/30 bg-status-warning-soft p-4"
@@ -547,7 +812,11 @@ export function EventEditor({
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-status-warning">
             {gaps.map((gap) => (
               <li key={gap.field}>
-                <a className="underline underline-offset-4" href={`#event-${gap.field}`}>
+                <a
+                  className="underline underline-offset-4"
+                  href={`#event-${gap.field}`}
+                  onClick={(click) => openField(click, gap.field)}
+                >
                   {gap.message}
                 </a>
               </li>
@@ -556,10 +825,36 @@ export function EventEditor({
         </div>
       ) : null}
 
-      {!editable ? (
+      {mode === 'locked' ? (
         <Alert variant="info" title="This event is not open for editing" className="mt-4">
           <p>{reading.next}</p>
         </Alert>
+      ) : null}
+
+      {mode === 'live' ? (
+        <Alert variant="info" title="This event is public" className="mt-4">
+          <p>
+            The description, line-up, questions and other details save as you type. The date, place
+            and terms change through “Change date, place or terms…”, with a reason, because people
+            have bought tickets on the strength of them.
+          </p>
+        </Alert>
+      ) : null}
+
+      {materialOpen && mode === 'live' ? (
+        <MaterialChangePanel
+          event={event}
+          baseline={baseline}
+          revision={revision}
+          venues={venues}
+          onSaved={materialSaved}
+          onConflict={(message) => {
+            setMaterialOpen(false)
+            setConflict(message)
+            setSave({ kind: 'conflict', message: 'Not saved. Somebody else changed this event.' })
+          }}
+          onCancel={() => setMaterialOpen(false)}
+        />
       ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[14rem_1fr] lg:items-start">
@@ -593,10 +888,22 @@ export function EventEditor({
 
         <div className="min-w-0">
           {step === 'details' ? (
-            <DetailsStep values={values} setField={setField} editable={editable} />
+            <DetailsStep
+              values={values}
+              setField={setField}
+              editable={editable}
+              errors={fieldErrors}
+            />
           ) : null}
           {step === 'schedule' ? (
-            <ScheduleStep values={values} setField={setField} editable={editable} venues={venues} />
+            <ScheduleStep
+              values={values}
+              setField={setField}
+              editable={editable}
+              materialEditable={materialEditable}
+              onChangeMaterial={() => setMaterialOpen(true)}
+              venues={venues}
+            />
           ) : null}
           {/*
             Rendered here rather than handed down pre-rendered from the server,
@@ -609,9 +916,10 @@ export function EventEditor({
           {step === 'sessions' ? (
             <EventSessionsEditor
               event={event}
-              sessions={sessions}
+              sessions={sessionList}
+              onSessions={sessionsChanged}
               mapVersions={mapVersions}
-              editable={editable}
+              mode={mode}
               revision={revision}
               onRevision={setRevision}
             />
@@ -619,15 +927,26 @@ export function EventEditor({
           {step === 'tickets' ? (
             <EventTiersEditor
               event={event}
-              sessions={sessions}
-              preview={preview}
-              editable={editable}
+              sessions={sessionList}
+              tiers={tierList}
+              preview={pricePreview}
+              onTiers={(nextTiers, nextPreview) => {
+                setTierList(nextTiers)
+                setPricePreview(nextPreview)
+              }}
+              mode={mode}
               revision={revision}
               onRevision={setRevision}
             />
           ) : null}
           {step === 'policies' ? (
-            <PoliciesStep values={values} setField={setField} editable={editable} />
+            <PoliciesStep
+              values={values}
+              setField={setField}
+              editable={editable}
+              materialEditable={materialEditable}
+              onChangeMaterial={() => setMaterialOpen(true)}
+            />
           ) : null}
           {/* Shown in every status: the panel says which changes the event's
               state allows, and every one of them writes with the shell's
@@ -643,6 +962,22 @@ export function EventEditor({
               onRevision={setRevision}
             />
           ) : null}
+          {step === 'programme' ? (
+            <ProgrammeStep
+              values={values}
+              setField={setField}
+              editable={editable}
+              errors={fieldErrors}
+            />
+          ) : null}
+          {step === 'guests' ? (
+            <GuestInfoStep
+              values={values}
+              setField={setField}
+              editable={editable}
+              errors={fieldErrors}
+            />
+          ) : null}
           {step === 'review' && readiness ? (
             <EventLifecyclePanel
               event={{ ...event, status }}
@@ -650,14 +985,12 @@ export function EventEditor({
               transitions={transitions}
               history={history}
               revision={revision}
+              sessions={sessionList}
+              onChanged={lifecycleChanged}
             />
           ) : null}
 
-          {editable &&
-          step !== 'sessions' &&
-          step !== 'tickets' &&
-          step !== 'media' &&
-          step !== 'review' ? (
+          {editable && FORM_STEPS.has(step) ? (
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Button type="button" onClick={() => commit()} disabled={save.kind === 'saving'}>
                 {dirty ? 'Save now' : 'Saved'}
@@ -678,8 +1011,32 @@ export function EventEditor({
  * @property {object} values The form's values.
  * @property {Function} setField Change one field.
  * @property {boolean} editable Whether the fields accept input.
+ * @property {boolean} [materialEditable] Whether the date, place and terms accept input; false on a public event.
+ * @property {Function} [onChangeMaterial] Opens the material change panel.
+ * @property {Record<string, string>} [errors] Problems by field id.
  * @property {object[]} [venues] Venues to choose from.
  */
+
+/**
+ * The line a public event shows where its date, place or terms are.
+ *
+ * @param {object} props Component props.
+ * @param {Function} props.onChangeMaterial Opens the panel.
+ * @returns {JSX.Element} The note and its button.
+ */
+function MaterialNote({ onChangeMaterial }) {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface-subtle p-4">
+      <p className="text-sm text-ink-muted">
+        This event is public, so these fields change with a reason and a notice for every current
+        order.
+      </p>
+      <Button type="button" variant="secondary" size="sm" onClick={onChangeMaterial}>
+        Change date, place or terms…
+      </Button>
+    </div>
+  )
+}
 
 /**
  * What the event is.
@@ -687,7 +1044,7 @@ export function EventEditor({
  * @param {StepProps} props Component props.
  * @returns {JSX.Element} The step.
  */
-function DetailsStep({ values, setField, editable }) {
+function DetailsStep({ values, setField, editable, errors = {} }) {
   return (
     <section aria-labelledby="details-heading" className="space-y-5">
       <h2 id="details-heading" className="text-xl font-semibold text-ink">
@@ -716,14 +1073,15 @@ function DetailsStep({ values, setField, editable }) {
         />
       </FormField>
 
-      <FormField label="Description" id="event-description" required>
-        <Textarea
-          rows={8}
-          value={values.description}
-          disabled={!editable}
-          onChange={(change) => setField('description', change.target.value)}
-        />
-      </FormField>
+      <RichTextField
+        label="Description"
+        id="event-description"
+        required
+        value={values.description}
+        disabled={!editable}
+        error={errors.description ?? null}
+        onChange={(text) => setField('description', text)}
+      />
 
       <FormField label="Category" id="event-category" required>
         <Select
@@ -742,7 +1100,9 @@ function DetailsStep({ values, setField, editable }) {
       <FormField
         label="Web address"
         id="event-slug"
+        required
         description="The last part of the public URL. Changing it after people have shared the link will break their link."
+        {...(errors.slug ? { error: errors.slug } : {})}
       >
         <Input
           value={values.slug}
@@ -763,17 +1123,9 @@ function DetailsStep({ values, setField, editable }) {
         />
       </FormField>
 
-      <FormField
-        label="Line-up"
-        id="event-artists"
-        description="Separated by commas, in billing order."
-      >
-        <Input
-          value={values.artists}
-          disabled={!editable}
-          onChange={(change) => setField('artists', change.target.value)}
-        />
-      </FormField>
+      <p className="text-sm text-ink-muted">
+        The line-up, with roles and short bios, is on the “Line-up and running order” step.
+      </p>
     </section>
   )
 }
@@ -796,7 +1148,14 @@ function instantOr(value) {
  * @param {StepProps} props Component props.
  * @returns {JSX.Element} The step.
  */
-function ScheduleStep({ values, setField, editable, venues }) {
+function ScheduleStep({
+  values,
+  setField,
+  editable,
+  materialEditable = editable,
+  onChangeMaterial = () => {},
+  venues,
+}) {
   const zone = values.timezone
   // Read at the times themselves: New York is EDT in October and EST in
   // December, and a label read at any other instant says the wrong one.
@@ -818,23 +1177,19 @@ function ScheduleStep({ values, setField, editable, venues }) {
         When and where
       </h2>
 
+      {editable && !materialEditable ? <MaterialNote onChangeMaterial={onChangeMaterial} /> : null}
+
       <FormField
         label="Time zone"
         id="event-timezone"
         required
         description="The zone the times below are in. The venue's local time, not yours."
       >
-        <Select
+        <TimeZoneSelect
           value={zone}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setField('timezone', change.target.value)}
-        >
-          {[...new Set([zone, ...COMMON_ZONES])].filter(Boolean).map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </Select>
+        />
       </FormField>
 
       <FormField
@@ -846,7 +1201,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
         <Input
           type="datetime-local"
           value={toLocalInputValue(values.startsAt, zone)}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setInstant('startsAt', change.target.value)}
         />
       </FormField>
@@ -860,7 +1215,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
         <Input
           type="datetime-local"
           value={toLocalInputValue(values.endsAt, zone)}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setInstant('endsAt', change.target.value)}
         />
       </FormField>
@@ -873,7 +1228,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
             type="checkbox"
             id="event-isOnline"
             checked={values.isOnline}
-            disabled={!editable}
+            disabled={!materialEditable}
             onChange={(change) => setField('isOnline', change.target.checked)}
             className="size-4 rounded border-line-strong"
           />
@@ -886,12 +1241,12 @@ function ScheduleStep({ values, setField, editable, venues }) {
               label="Where to join"
               id="event-onlineUrl"
               required
-              description="The address attendees are sent. It is not shown publicly before they have a ticket."
+              description="The address ticket holders use to join. It is not shown on the public page."
             >
               <Input
                 type="url"
                 value={values.onlineUrl}
-                disabled={!editable}
+                disabled={!materialEditable}
                 onChange={(change) => setField('onlineUrl', change.target.value)}
               />
             </FormField>
@@ -906,7 +1261,7 @@ function ScheduleStep({ values, setField, editable, venues }) {
             >
               <Select
                 value={values.venueId}
-                disabled={!editable}
+                disabled={!materialEditable}
                 onChange={(change) => setField('venueId', change.target.value)}
               >
                 <option value="">Choose a venue…</option>
@@ -920,6 +1275,19 @@ function ScheduleStep({ values, setField, editable, venues }) {
           </div>
         )}
       </fieldset>
+
+      <FormField
+        label="Parking and directions for this event"
+        id="event-directions"
+        description={`Shown on the event page after the venue's own directions. For example: overflow parking at the school across the road. ${String(values.directions ?? '').length.toLocaleString('en-US')} of ${CONTENT_LIMITS.directions.toLocaleString('en-US')} characters.`}
+      >
+        <Textarea
+          rows={4}
+          value={values.directions}
+          disabled={!editable}
+          onChange={(change) => setField('directions', change.target.value)}
+        />
+      </FormField>
     </section>
   )
 }
@@ -930,7 +1298,13 @@ function ScheduleStep({ values, setField, editable, venues }) {
  * @param {StepProps} props Component props.
  * @returns {JSX.Element} The step.
  */
-function PoliciesStep({ values, setField, editable }) {
+function PoliciesStep({
+  values,
+  setField,
+  editable,
+  materialEditable = editable,
+  onChangeMaterial = () => {},
+}) {
   /**
    * Turn one accessibility claim on or off.
    *
@@ -955,10 +1329,13 @@ function PoliciesStep({ values, setField, editable }) {
       <Alert variant="info" title="These are copied onto every order">
         <p>
           The policies in force for an order are the ones as they stood when it was placed. Editing
-          them here changes the terms for future buyers, not past ones — and after publication, a
-          change to them has to be confirmed and is sent to everybody holding a ticket.
+          them here changes the terms for future buyers, not past ones. After publication, a change
+          to them needs a reason and a confirmation, and a notice is recorded for every current
+          order. This build does not send email, so tell ticket holders yourself as well.
         </p>
       </Alert>
+
+      {editable && !materialEditable ? <MaterialNote onChangeMaterial={onChangeMaterial} /> : null}
 
       <FormField
         label="Refunds"
@@ -968,7 +1345,7 @@ function PoliciesStep({ values, setField, editable }) {
         <Textarea
           rows={4}
           value={values.policyRefund}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setField('policyRefund', change.target.value)}
         />
       </FormField>
@@ -977,7 +1354,7 @@ function PoliciesStep({ values, setField, editable }) {
         <Textarea
           rows={4}
           value={values.policyEntry}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setField('policyEntry', change.target.value)}
         />
       </FormField>
@@ -986,7 +1363,7 @@ function PoliciesStep({ values, setField, editable }) {
         <Textarea
           rows={4}
           value={values.policyConduct}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setField('policyConduct', change.target.value)}
         />
       </FormField>
@@ -1001,7 +1378,7 @@ function PoliciesStep({ values, setField, editable }) {
           min="0"
           max="120"
           value={values.ageRestriction}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setField('ageRestriction', change.target.value)}
         />
       </FormField>
@@ -1013,7 +1390,7 @@ function PoliciesStep({ values, setField, editable }) {
       >
         <Input
           value={values.policyAgeNote}
-          disabled={!editable}
+          disabled={!materialEditable}
           onChange={(change) => setField('policyAgeNote', change.target.value)}
         />
       </FormField>
@@ -1055,6 +1432,19 @@ function PoliciesStep({ values, setField, editable }) {
           </FormField>
         </div>
       </fieldset>
+
+      <FormField
+        label="Dress code"
+        id="event-dressCode"
+        description={`Shown on the event page. For example: traditional dress welcome; comfortable shoes for garba. ${String(values.dressCode ?? '').length.toLocaleString('en-US')} of ${CONTENT_LIMITS.dressCode.toLocaleString('en-US')} characters.`}
+      >
+        <Textarea
+          rows={3}
+          value={values.dressCode}
+          disabled={!editable}
+          onChange={(change) => setField('dressCode', change.target.value)}
+        />
+      </FormField>
     </section>
   )
 }

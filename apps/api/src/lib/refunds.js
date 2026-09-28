@@ -696,6 +696,16 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
   let seatsWithheld = 0
 
   for (const item of items) {
+    // The order line, locked before its tickets are read. Accepting a transfer
+    // takes the same lock before it retires a ticket and issues its successor,
+    // so the two take turns: this read sees either the ticket before the
+    // handover or its successor after it, never the moment between — and never
+    // a predecessor whose successor then keeps admitting after the money went
+    // back (ADR 0006, superseding ADR 0005's deferral). The refund row and the
+    // order were locked by the updates above, so the order is Refund, Order,
+    // OrderItem, Tickets — the one order every writer follows.
+    await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${item.orderItemId} FOR UPDATE`
+
     const tickets = await tx.ticket.findMany({
       where: { orderItemId: item.orderItemId, status: { in: ['VALID', 'TRANSFER_PENDING'] } },
       orderBy: { createdAt: 'asc' },

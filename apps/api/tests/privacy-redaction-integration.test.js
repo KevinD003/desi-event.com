@@ -700,6 +700,73 @@ when()('contact addresses', () => {
 
     expect(isRedactedValue(after.contactEmail)).toBe(true)
   })
+
+  it('counts and replaces an event’s published contact when it is the subject’s own', async () => {
+    const graph = await organisation({ past: true })
+    const subject = await person('public-contact')
+    const other = await organisation({ past: true })
+
+    await paidOrder({ graph, buyer: subject })
+    // Stored as the organiser typed it: the match ignores case.
+    await prisma.event.update({
+      where: { id: graph.event.id },
+      data: { publicContactEmail: subject.email.toUpperCase() },
+    })
+
+    const scope = await previewScope(prisma, {
+      organizationId: graph.org.id,
+      subjectUserId: subject.id,
+    })
+    const account = scope.find((entry) => entry.category === PRIVACY_CATEGORIES.ACCOUNT_IDENTITY)
+
+    // The account itself, and the event's published contact.
+    expect(account.rows).toBe(2)
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const after = await prisma.event.findUnique({ where: { id: graph.event.id } })
+
+    expect(isRedactedValue(after.publicContactEmail)).toBe(true)
+
+    // Another organisation's event carrying the same address is not in scope.
+    await prisma.event.update({
+      where: { id: other.event.id },
+      data: { publicContactEmail: 'box-office@elsewhere.example' },
+    })
+
+    const untouched = await prisma.event.findUnique({ where: { id: other.event.id } })
+
+    expect(untouched.publicContactEmail).toBe('box-office@elsewhere.example')
+  })
+
+  it('leaves an event’s published contact alone when it is somebody else’s', async () => {
+    const graph = await organisation({ past: true })
+    const subject = await person('not-contact')
+
+    await paidOrder({ graph, buyer: subject })
+    await prisma.event.update({
+      where: { id: graph.event.id },
+      data: { publicContactEmail: 'box-office@venue.example' },
+    })
+
+    await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const after = await prisma.event.findUnique({ where: { id: graph.event.id } })
+
+    expect(after.publicContactEmail).toBe('box-office@venue.example')
+  })
 })
 
 when()('holds and open processes', () => {

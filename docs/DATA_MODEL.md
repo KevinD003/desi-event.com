@@ -157,6 +157,66 @@ the arithmetic that a form could get wrong and a database should not accept.
 
 ---
 
+## Event authoring: tiers and the event page
+
+Migration `20260928090000_event_authoring_content_and_tier_rules`. The rules
+the organiser's editor and the authoring routes keep are in
+`apps/api/src/lib/event-authoring.js`; these are the floor underneath them.
+
+`TicketTypeVisibility` is `PUBLIC` or `HIDDEN`, and `TicketType.visibility`
+defaults to `PUBLIC`. A `HIDDEN` tier is left out of every public read — the
+event page, its lowest price and its structured data — and is meant to be
+booked only by the organisation's own team. Every complimentary tier that
+existed before the migration was made `HIDDEN`.
+
+| Rule                                              | What it holds                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ticket_type_per_order_bounds`                    | At least 1 and at most 50 per order, and the least never above the most (existing rows were clamped first)                                       |
+| `ticket_type_complimentary_free_and_hidden`       | A complimentary tier costs 0 and is `HIDDEN`                                                                                                     |
+| trigger `desi_ticket_type_description_length`     | A description of at most 500 characters, checked on insert and when the text changes, so a longer legacy row stays readable and sellable         |
+| `TicketType_eventId_name_key`                     | Two tiers on one event do not share a name (hand-written in `20260916000000_event_draft_revision`; exact comparison)                             |
+| `TicketType_reserved_session_zone_key`            | One reserved tier prices a zone at a session (a partial unique index `WHERE "reserved"`, so it lives in the migration)                           |
+| trigger `desi_ticket_type_zone_matches_session`   | A tier's price zone is on the map version its session sells                                                                                      |
+| trigger `desi_event_session_map_keeps_tier_zones` | A session does not move to another map version, or to general admission, while a tier on it prices a zone of the version it has                  |
+| `event_session_capacity_positive`                 | A general-admission capacity, when set, is above zero                                                                                            |
+| `event_faq_shape`, `event_performers_shape`, …    | The event page's lists are JSON arrays of at most 30 questions, 64 performers, 40 running-order entries and 30 sponsors; the links are an object |
+| `event_content_text_lengths`                      | Dress code 500, directions 2,000, public email 254 and public phone 24 characters at most                                                        |
+
+`Event` gained nine columns for the public page, every one nullable:
+`performers`, `runningOrder`, `faq`, `sponsors`, `socialLinks` (JSON), and
+`dressCode`, `directions`, `publicContactEmail`, `publicContactPhone` (text).
+The public contact pair is the organiser's choice to publish and is distinct
+from `Organization.contactEmail`, which stays private; on the wire it is
+`publicEmail` and `publicPhone`. The migration filled `performers` from the old
+`artists` list, names only and in billing order. The shape of each entry — a
+performer's role and bio, https-only sponsor and social links, each social link
+on its own network's domains — is validated by `@desi-event/schemas` before a
+write; the database checks only the outer shape and the lengths.
+
+The zone rule has two sides because either write can break it: a tier naming a
+zone from another version, or a session moving versions under a tier. The tier
+trigger reads the session row `FOR SHARE`, which conflicts with the lock an
+update of the session takes, so the two writes run one after the other and the
+second sees the first. Checkout never takes that lock.
+
+Every one of these is refused by the API first, with a sentence rather than a
+constraint name: a taken name or zone, a zone from another version, a priced or
+public complimentary tier and a tier past a limit are all 422s, and a removal
+something still depends on is a 409. The two unique indexes are also the net
+under that check — a write racing past it is read as 409 `TIER_NAME_TAKEN` or
+`TIER_ZONE_TAKEN`, never a 500. `apps/api/tests/event-authoring-live-integration.test.js`
+drives those refusals through the real app on a freshly migrated database and
+provokes both indexes directly; `pnpm db:verify:fresh` pushes against the zone
+index beside the other partial indexes. The other checks and triggers are not
+yet pushed against directly by a probe.
+
+Removing a session deletes the ticket types priced for it (`onDelete: Cascade`)
+once nothing depends on them, and the `event.session_removed` audit row names
+them. A published or on-sale event keeps at least one session (409
+`LAST_SESSION`); that rule is the API's, not the database's.
+
+---
+
 ## Event pictures
 
 Migration `20260928130000_event_media`. The pipeline around these tables is in

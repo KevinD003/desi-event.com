@@ -42,6 +42,13 @@ import { addressFree } from './addresses.js'
 import { venueAccessibilitySchema } from './venues.js'
 import { publicMediaSchema } from './media.js'
 import {
+  eventFaqSchema,
+  eventPerformersSchema,
+  eventRunningOrderSchema,
+  eventSocialLinksSchema,
+  eventSponsorsSchema,
+} from './event-content.js'
+import {
   eventCategorySchema,
   eventStatusSchema,
   holdStatusSchema,
@@ -55,7 +62,9 @@ import {
   refundStatusSchema,
   ticketStatusSchema,
   ticketTypeStatusSchema,
+  ticketTypeVisibilitySchema,
   userRoleSchema,
+  groupPassUnavailableReasonSchema,
 } from './enums.js'
 
 /** Audit columns shared by most models. */
@@ -253,6 +262,12 @@ export const ticketTypeSchema = z.object({
    * called every seated tier sold out.
    */
   reserved: z.boolean().optional(),
+  /**
+   * `PUBLIC` or `HIDDEN`. A stranger never sees a hidden tier — the public
+   * payloads drop it — so on a public page this only ever reads `PUBLIC`; the
+   * organisation's own reads carry both.
+   */
+  visibility: ticketTypeVisibilitySchema.optional(),
   ...auditColumns,
 })
 
@@ -423,6 +438,27 @@ export const eventWithRelationsSchema = eventSchema.extend({
   artists: z.array(nonEmptyStringSchema).max(64).default([]),
   policies: eventPoliciesSchema.nullish(),
   /**
+   * The event page's own content, all of it public by the organiser's choice.
+   * The presenter drops any stored item that no longer parses rather than
+   * failing the page, so a stricter rule added later cannot 500 an old event.
+   */
+  faq: eventFaqSchema.nullish(),
+  /** The line-up with roles and bios; `artists` above carries the names alone. */
+  performers: eventPerformersSchema.nullish(),
+  /** Times are local to the event's time zone, `HH:mm`. */
+  runningOrder: eventRunningOrderSchema.nullish(),
+  sponsors: eventSponsorsSchema.nullish(),
+  socialLinks: eventSocialLinksSchema.nullish(),
+  dressCode: z.string().max(500).nullish(),
+  /** This event's parking and arrival notes, layered over the venue's. */
+  directions: z.string().max(2000).nullish(),
+  /**
+   * A contact the organiser chose to publish. Never the private
+   * `Event.contactEmail` or the organisation's account contact (NF-14).
+   */
+  publicEmail: emailSchema.nullish(),
+  publicPhone: phoneSchema.nullish(),
+  /**
    * The start time before a postponement.
    *
    * Public on purpose: it is what turns "this moved" into "this moved from the
@@ -541,6 +577,20 @@ export const orderWithItemsSchema = orderSchema.extend({
   items: z.array(orderItemSchema).default([]),
   tickets: z.array(orderTicketSchema).optional(),
   event: eventSummarySchema.nullish(),
+  /**
+   * Whether this order has a group pass for its reader, and why not.
+   *
+   * Only for the account that bought it; null for anybody else. `admits` is
+   * how many tickets the buyer still holds that would admit. No secret: the
+   * pass itself is a separate, holder-only, `no-store` request.
+   */
+  groupPass: z
+    .object({
+      admits: z.int().min(0),
+      available: z.boolean(),
+      unavailableReason: groupPassUnavailableReasonSchema.nullable(),
+    })
+    .nullish(),
 })
 
 /**

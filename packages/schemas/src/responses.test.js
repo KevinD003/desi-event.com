@@ -8,6 +8,10 @@ import {
   checkInResponseSchema,
   errorResponseSchema,
   eventDetailResponseSchema,
+  groupAdmissionPreviewResponseSchema,
+  groupCheckInResponseSchema,
+  groupPassResponseSchema,
+  startedTicketTransferResponseSchema,
   eventListResponseSchema,
   healthResponseSchema,
   holdResponseSchema,
@@ -413,6 +417,8 @@ describe('checkInResponseSchema', () => {
   })
 })
 
+const membershipsMeta = { scope: 'MEMBERSHIPS', organizations: [], truncated: false }
+
 describe('admissionEventsResponseSchema', () => {
   it('names each event with its organisation and the authority it rests on', () => {
     const parsed = admissionEventsResponseSchema.parse({
@@ -425,6 +431,7 @@ describe('admissionEventsResponseSchema', () => {
           ...HOSTILE,
         },
       ],
+      meta: membershipsMeta,
     })
 
     expect(Object.keys(parsed.data[0]).sort()).toEqual([
@@ -438,8 +445,244 @@ describe('admissionEventsResponseSchema', () => {
     expect(
       admissionEventsResponseSchema.safeParse({
         data: [{ ...parsed.data[0], authority: 'PLATFORM' }],
+        meta: membershipsMeta,
       }).success,
     ).toBe(false)
+  })
+
+  it('carries platform authority only on SUPER_ADMIN, and SUPER_ADMIN only on platform authority', () => {
+    const entry = {
+      event: { ...admissionEvent, status: 'ON_SALE' },
+      organization: { id: ids.org, name: 'Rangoli' },
+    }
+    const platformMeta = {
+      scope: 'PLATFORM',
+      organizations: [{ id: ids.org, name: 'Rangoli' }],
+      truncated: true,
+    }
+
+    const parsed = admissionEventsResponseSchema.parse({
+      data: [{ ...entry, authority: 'PLATFORM_ROLE', role: 'SUPER_ADMIN' }],
+      meta: platformMeta,
+    })
+
+    expect(parsed.data[0].authority).toBe('PLATFORM_ROLE')
+    expect(parsed.meta).toEqual(platformMeta)
+
+    for (const [authority, role] of [
+      ['PLATFORM_ROLE', 'OWNER'],
+      ['PLATFORM_ROLE', 'SCANNER'],
+      ['ORGANIZATION_ROLE', 'SUPER_ADMIN'],
+      ['EVENT_SCOPE', 'SUPER_ADMIN'],
+      ['PLATFORM_ROLE', 'MODERATOR'],
+    ]) {
+      expect(
+        admissionEventsResponseSchema.safeParse({
+          data: [{ ...entry, authority, role }],
+          meta: platformMeta,
+        }).success,
+        `${authority}/${role}`,
+      ).toBe(false)
+    }
+  })
+
+  it('needs the list meta, and bounds its organisations', () => {
+    const entry = {
+      event: { ...admissionEvent, status: 'ON_SALE' },
+      organization: { id: ids.org, name: 'Rangoli' },
+      authority: 'ORGANIZATION_ROLE',
+      role: 'OWNER',
+    }
+
+    expect(admissionEventsResponseSchema.safeParse({ data: [entry] }).success).toBe(false)
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [entry],
+        meta: { ...membershipsMeta, scope: 'EVERYWHERE' },
+      }).success,
+    ).toBe(false)
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [entry],
+        meta: {
+          ...membershipsMeta,
+          organizations: Array.from({ length: 501 }, () => ({ id: ids.org, name: 'x' })),
+        },
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('the group door schemas', () => {
+  const groupTicket = {
+    ticketId: ids.ticket,
+    outcome: 'ADMISSIBLE',
+    refusal: null,
+    tier: { name: 'General admission' },
+    seat: null,
+    attendeeName: 'Priya Sharma',
+    checkedInAt: null,
+  }
+  const preview = {
+    outcome: 'ADMISSIBLE',
+    refusal: null,
+    method: 'QR_SCAN',
+    event: admissionEvent,
+    tickets: [groupTicket],
+    counts: { admissible: 1, alreadyIn: 0, refused: 0 },
+    handedOn: 0,
+    previewReference: `${'a'.repeat(40)}.${'b'.repeat(43)}`,
+    previewExpiresAt: '2026-10-01T13:02:00.000Z',
+  }
+
+  it('describes each ticket of a group by name, tier and seat, and nothing more', () => {
+    const parsed = groupAdmissionPreviewResponseSchema.parse({
+      data: { ...preview, ...HOSTILE, tickets: [{ ...groupTicket, ...HOSTILE }] },
+    })
+
+    expect(Object.keys(parsed.data.tickets[0]).sort()).toEqual([
+      'attendeeName',
+      'checkedInAt',
+      'outcome',
+      'refusal',
+      'seat',
+      'ticketId',
+      'tier',
+    ])
+    expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+  })
+
+  it('refuses an address where an attendee name goes, in a preview and in a result', () => {
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, tickets: [{ ...groupTicket, attendeeName: 'priya@example.com' }] },
+      }).success,
+    ).toBe(false)
+
+    const result = {
+      outcome: 'ADMITTED',
+      admitted: 1,
+      alreadyIn: 0,
+      method: 'MANUAL_CODE',
+      event: admissionEvent,
+      tickets: [
+        {
+          ticketId: ids.ticket,
+          outcome: 'ADMITTED',
+          checkedInAt: '2026-10-01T13:01:00.000Z',
+          checkedInByYou: true,
+          tier: null,
+          seat: null,
+          attendeeName: 'Priya Sharma',
+        },
+      ],
+    }
+
+    expect(groupCheckInResponseSchema.parse({ data: result }).data.admitted).toBe(1)
+    expect(
+      groupCheckInResponseSchema.safeParse({
+        data: { ...result, tickets: [{ ...result.tickets[0], attendeeName: 'a@b.example' }] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('holds no more than fifty tickets, and refuses a refusal outside the vocabulary', () => {
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, tickets: Array.from({ length: 51 }, () => groupTicket) },
+      }).success,
+    ).toBe(false)
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, outcome: 'REFUSED', refusal: 'Some changed' },
+      }).success,
+    ).toBe(false)
+    expect(
+      groupAdmissionPreviewResponseSchema.parse({
+        data: { ...preview, outcome: 'REFUSED', refusal: 'GROUP_CHANGED' },
+      }).data.refusal,
+    ).toBe('GROUP_CHANGED')
+  })
+
+  it('shapes the group pass: a G1 credential, a DEG code, and two to fifty tickets', () => {
+    const pass = {
+      orderReference: 'DE-8F3K2QRT',
+      credential: `G1.${'A'.repeat(43)}`,
+      groupCode: 'DEG-ABCDEFGH2345',
+      credentialVersion: 1,
+      issuedAt: null,
+      admits: 2,
+      tickets: [
+        { id: ids.ticket, status: 'VALID', tier: null, seat: null, offered: false },
+        { id: ids.order, status: 'TRANSFER_PENDING', tier: null, seat: null, offered: true },
+      ],
+    }
+
+    expect(groupPassResponseSchema.parse({ data: pass }).data.admits).toBe(2)
+    expect(
+      groupPassResponseSchema.safeParse({ data: { ...pass, credential: 'A'.repeat(43) } }).success,
+    ).toBe(false)
+    expect(
+      groupPassResponseSchema.safeParse({ data: { ...pass, groupCode: 'DEG-ABCDEFGH234O' } })
+        .success,
+    ).toBe(false)
+    expect(groupPassResponseSchema.safeParse({ data: { ...pass, admits: 1 } }).success).toBe(false)
+  })
+})
+
+describe('startedTicketTransferResponseSchema', () => {
+  const transfer = {
+    id: ids.order,
+    ticketId: ids.ticket,
+    fromUserId: ids.user,
+    toEmailMasked: '••••@example.com',
+    status: 'PENDING',
+    expiresAt: '2026-10-01T13:00:00.000Z',
+    acceptedAt: null,
+    declinedAt: null,
+    cancelledAt: null,
+    resultTicketId: null,
+    createdAt: '2026-09-28T13:00:00.000Z',
+  }
+
+  it('carries the one-time code in MANUAL mode and never in EMAIL mode', () => {
+    const code = 'A'.repeat(43)
+
+    expect(
+      startedTicketTransferResponseSchema.parse({
+        data: { ...transfer, delivery: { mode: 'MANUAL', invitationCode: code } },
+      }).data.delivery.invitationCode,
+    ).toBe(code)
+    expect(
+      startedTicketTransferResponseSchema.parse({
+        data: { ...transfer, delivery: { mode: 'EMAIL', invitationCode: null } },
+      }).data.delivery.invitationCode,
+    ).toBeNull()
+    expect(
+      startedTicketTransferResponseSchema.safeParse({
+        data: { ...transfer, delivery: { mode: 'MANUAL', invitationCode: null } },
+      }).success,
+    ).toBe(false)
+    expect(
+      startedTicketTransferResponseSchema.safeParse({
+        data: { ...transfer, delivery: { mode: 'EMAIL', invitationCode: code } },
+      }).success,
+    ).toBe(false)
+    expect(startedTicketTransferResponseSchema.safeParse({ data: transfer }).success).toBe(false)
+  })
+
+  it('never carries the token or its digest under their own names', () => {
+    const parsed = startedTicketTransferResponseSchema.parse({
+      data: {
+        ...transfer,
+        token: 'x'.repeat(43),
+        tokenHash: 'f'.repeat(64),
+        delivery: { mode: 'EMAIL', invitationCode: null },
+      },
+    })
+
+    expect(parsed.data).not.toHaveProperty('token')
+    expect(parsed.data).not.toHaveProperty('tokenHash')
   })
 })
 

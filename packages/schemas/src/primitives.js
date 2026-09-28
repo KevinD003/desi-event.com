@@ -218,6 +218,27 @@ export const ticketCodeSchema = z.preprocess(
     .regex(/^[A-Z0-9-]+$/, 'Expected an alphanumeric ticket code'),
 )
 
+/**
+ * A group pass as its QR carries it: `G1.` and 43 base64url characters.
+ *
+ * The prefix is part of the secret, not a claim about it; it lets a scanner
+ * route the scan, and the `.` can never occur in a ticket credential, so the
+ * two shapes never overlap.
+ */
+export const groupPassCredentialSchema = z
+  .string()
+  .trim()
+  .regex(/^G1\.[A-Za-z0-9_-]{43}$/u, 'Expected a group pass')
+
+/**
+ * A group pass's printed code: `DEG-` and twelve characters from the ticket
+ * code alphabet, typed at the door when the QR will not scan.
+ */
+export const groupCodeSchema = z.preprocess(
+  trimmedUpper,
+  z.string().regex(/^DEG-[2-9A-HJ-NP-Z]{12}$/u, 'Expected a group code'),
+)
+
 /** A human-typed promotional code. Case is normalised so `save10` == `SAVE10`. */
 export const promoCodeStringSchema = z.preprocess(
   trimmedUpper,

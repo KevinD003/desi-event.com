@@ -72,7 +72,12 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   if (!event?.slug || !event?.title) return null
 
   const url = `${siteUrl}/events/${event.slug}`
-  const tiers = (event.ticketTypes ?? []).filter((tier) => Number.isFinite(tier.priceCents))
+  // A hidden tier — a guest list, a complimentary allocation — is not an offer
+  // to the public. The public payload leaves them out already; this holds
+  // even for a payload that did not.
+  const tiers = (event.ticketTypes ?? []).filter(
+    (tier) => Number.isFinite(tier.priceCents) && tier.visibility !== 'HIDDEN',
+  )
 
   /** @type {Record<string, unknown>} */
   const data = {
@@ -120,8 +125,15 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     }
   }
 
-  if (event.artists?.length > 0) {
-    data.performer = event.artists.map((name) => ({ '@type': 'PerformingGroup', name }))
+  // The line-up with roles is the source of truth; the names alone are what
+  // an event saved before it existed has.
+  const performers =
+    event.performers?.length > 0
+      ? event.performers.map((performer) => performer?.name).filter(Boolean)
+      : (event.artists ?? [])
+
+  if (performers.length > 0) {
+    data.performer = performers.map((name) => ({ '@type': 'PerformingGroup', name }))
   }
 
   // A cancelled event has no offers. Leaving them in would describe tickets on

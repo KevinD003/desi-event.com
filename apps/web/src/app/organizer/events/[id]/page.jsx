@@ -26,6 +26,7 @@ import {
   getEventReadiness,
   getEventMedia,
   getEventSessions,
+  getEventTicketTypes,
   getEventTransitions,
   getModerationHistory,
   getOrganizerEvent,
@@ -116,9 +117,14 @@ export default async function EditEventPage({ params }) {
   // Read together rather than in sequence: five round trips one after another
   // is five times the latency for no benefit, and they do not depend on each
   // other.
-  const [sessions, readiness, transitions, history, venues, mapVersions, media] = await Promise.all(
-    [
+  const [sessions, tiers, readiness, transitions, history, venues, mapVersions, media] =
+    await Promise.all([
       getEventSessions(id).catch(() => ({ data: [], meta: { revision: event.revision } })),
+      // The organiser's own read of the ticket types: hidden and draft ones,
+      // what is sold and held, and whether each can go. Null when it fails,
+      // so the tickets step falls back to the event's own list rather than
+      // showing none.
+      getEventTicketTypes(id).catch(() => null),
       getEventReadiness(id).catch(() => ({
         ready: false,
         status: event.status,
@@ -135,8 +141,7 @@ export default async function EditEventPage({ params }) {
       // would otherwise say there is no cover and offer an upload that
       // replaces the one it could not show.
       getEventMedia(id).catch((error) => ({ data: null, failure: mediaReadFailure(error) })),
-    ],
-  )
+    ])
 
   const preview = await getPricePreview(id).catch(() => [])
 
@@ -166,6 +171,7 @@ export default async function EditEventPage({ params }) {
           event={event}
           venues={venues}
           sessions={sessions.data ?? []}
+          tiers={tiers?.data ?? null}
           mapVersions={mapVersions}
           preview={preview}
           readiness={readiness}

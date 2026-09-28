@@ -33,9 +33,10 @@
  * Withdrawing an offer, or making one, happens on the ticket's own page, which
  * knows the ticket's state and asks the server before it offers anything. This
  * page links there rather than repeating it. Accepting has its own page too,
- * because the code for it is typed in and never carried in a link. The code
- * goes from the server to the recipient's address and never to the sender, and
- * this build delivers no email, so the page does not claim anybody sent one.
+ * because the code for it is typed in and never carried in a link. This build
+ * delivers no email: the code is shown once to the person who made the offer,
+ * when they made it, and they pass it on themselves. The page says exactly
+ * that and claims no email was sent.
  *
  * ## One clock
  *
@@ -45,8 +46,9 @@
  *
  * ## What cannot be done, said plainly
  *
- * A ticket for a reserved seat cannot be handed on: the API refuses the offer
- * and the ticket stays where it is. That is stated as it is.
+ * A ticket for a reserved seat is handed on like any other, and the seat goes
+ * with it: whoever accepts holds the same seat (ADR 0006). That is stated as it
+ * is.
  *
  * @module app/account/transfers/page
  */
@@ -315,9 +317,8 @@ export default async function TransfersPage() {
       {!failure ? (
         <Section id="transfers-accept" title="Accept a ticket">
           <p className="mt-2 text-sm text-ink">
-            An offer is accepted with the invitation code issued with it. The person who made the
-            offer never sees that code, and this site delivers no email, so it does not arrive on
-            its own. If you have one,{' '}
+            An offer is accepted with the code shown to the person who made it, once, when they made
+            it. They pass it on to you themselves; this site sends no email. If you have one,{' '}
             <Link href="/tickets/accept" className={LINK}>
               enter the code to accept the ticket
             </Link>
@@ -353,8 +354,7 @@ export default async function TransfersPage() {
       {!failure ? (
         <Section id="transfers-seats" title="Reserved seats">
           <p className="mt-2 text-sm text-ink">
-            Tickets for reserved seats cannot be handed on. An offer for one is refused, and the
-            ticket stays with you.
+            A reserved seat goes with its ticket: whoever accepts it holds the same seat.
           </p>
         </Section>
       ) : null}

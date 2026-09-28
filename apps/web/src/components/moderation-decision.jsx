@@ -81,6 +81,14 @@ const FIELDS = Object.freeze([
   ['policies', 'Policies'],
   ['venue', 'Venue'],
   ['ticketTypes', 'Ticket types'],
+  ['performers', 'Line-up'],
+  ['runningOrder', 'Running order'],
+  ['faq', 'Questions people ask'],
+  ['socialLinks', 'Links'],
+  ['sponsors', 'Sponsors'],
+  ['publicContact', 'Public contact'],
+  ['dressCode', 'Dress code'],
+  ['directions', 'Parking and directions'],
 ])
 
 /**

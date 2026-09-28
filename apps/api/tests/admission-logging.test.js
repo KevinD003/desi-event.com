@@ -26,6 +26,8 @@ import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
 
 const PREVIEW_URL = '/v1/tickets/admission/preview'
 const CHECK_IN_URL = '/v1/tickets/check-in'
+const GROUP_PREVIEW_URL = '/v1/tickets/admission/group/preview'
+const GROUP_CHECK_IN_URL = '/v1/tickets/admission/group/check-in'
 
 /** The buyer, who holds both tickets once the purchase is claimed. */
 const HOLDER = 'priya@example.com'
@@ -210,5 +212,103 @@ describe('the door and the logs', () => {
     // without its MAC, so it is searched for on its own as well.
     expect(raw).not.toContain(scannedReference.split('.')[0])
     expect(raw).not.toContain(typedReference.split('.')[0])
+  })
+
+  it('writes no group pass, group code, group reference or transfer code to any log line', async () => {
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    const { app, prisma, ids } = await createTestApp({ logger })
+
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: HOLDER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 3 }],
+      },
+    })
+
+    expect(bought.statusCode, bought.body).toBe(201)
+
+    const order = bought.json().data
+
+    claim(prisma, order.tickets, ids.attendee.id)
+
+    const holder = await signIn(app, HOLDER)
+    const pass = await send(app, holder, 'GET', `/v1/orders/${order.reference}/group-pass`)
+
+    expect(pass.statusCode, pass.body).toBe(200)
+
+    const { credential, groupCode } = pass.json().data
+    const door = await signIn(app, DOOR)
+
+    const scanned = await send(app, door, 'POST', GROUP_PREVIEW_URL, { credential })
+    const typed = await send(app, door, 'POST', GROUP_PREVIEW_URL, { code: groupCode })
+
+    expect(scanned.statusCode, scanned.body).toBe(200)
+    expect(typed.statusCode, typed.body).toBe(200)
+
+    const scannedReference = scanned.json().data.previewReference
+    const typedReference = typed.json().data.previewReference
+
+    const admitted = await send(app, door, 'POST', GROUP_CHECK_IN_URL, {
+      code: groupCode,
+      previewReference: typedReference,
+      ticketIds: [order.tickets[0].id],
+    })
+
+    expect(admitted.statusCode, admitted.body).toBe(200)
+
+    const unknown = await send(app, door, 'POST', GROUP_PREVIEW_URL, {
+      code: 'DEG-ABCDEFGHJKLM',
+    })
+
+    expect(unknown.statusCode).toBe(404)
+
+    // A transfer offered with no delivery provider: the code is in the 201.
+    const offered = await send(
+      app,
+      holder,
+      'POST',
+      `/v1/tickets/${order.tickets[2].id}/transfers`,
+      {
+        toEmail: 'rival@dhol.example',
+      },
+    )
+
+    expect(offered.statusCode, offered.body).toBe(201)
+
+    const invitationCode = offered.json().data.delivery.invitationCode
+
+    expect(invitationCode).toEqual(expect.any(String))
+
+    await app.close()
+
+    const lines = capture.lines()
+
+    expect(lines.some((line) => line.msg === 'group admitted')).toBe(true)
+    expect(lines.some((line) => line.msg === 'group admission preview: nothing resolved')).toBe(
+      true,
+    )
+    expect(lines.some((line) => line.msg === 'issued a ticket transfer invitation')).toBe(true)
+
+    const raw = capture.raw()
+    const secrets = {
+      credential,
+      groupCode,
+      scannedReference,
+      typedReference,
+      scannedClaims: scannedReference.split('.')[0],
+      typedClaims: typedReference.split('.')[0],
+      invitationCode,
+      codeHash: prisma._store.groupPass[0].codeHash,
+      credentialHash: prisma._store.groupPass[0].credentialHash,
+    }
+
+    for (const [name, value] of Object.entries(secrets)) {
+      expect(raw, `${name} reached a log line`).not.toContain(value)
+    }
   })
 })

@@ -41,7 +41,11 @@ export {
   ADMISSION_AUTHORITIES,
   EVENT_SCOPED_ADMISSION_ROLES,
   ORGANIZATION_WIDE_ADMISSION_ROLES,
+  PLATFORM_ADMISSION_ROLES,
+  REFUSED_PLATFORM_ADMISSION_ROLES,
   admissionAuthorityFor,
   assertAdmissionPolicy,
+  assertPlatformAdmissionPolicy,
+  platformAdmissionAuthorityFor,
   requiresAdmissionScope,
 } from './admission.js'

@@ -49,7 +49,6 @@ import {
   formatTimeZoneLabel,
   formatVenueAddress,
   toDateTimeAttribute,
-  toParagraphs,
 } from '../../../lib/format.js'
 import { initialOf } from '../../../lib/initial.js'
 import { formatPrice, priceSelection, taxLabelForPlace } from '../../../lib/pricing.js'
@@ -77,6 +76,17 @@ import { INVERSE_TEXT_LINK, PRIMARY_LINK, TEXT_LINK } from '../../../components/
 import { AvailabilityChip } from '../../../components/listing-card.jsx'
 import { EventArt } from '../../../components/event-art.jsx'
 import { EventGallery } from '../../../components/event-gallery.jsx'
+import {
+  EventContact,
+  EventDirections,
+  EventDressCode,
+  EventFaq,
+  EventLineUp,
+  EventRunningOrder,
+  EventSocialLinks,
+  EventSponsors,
+} from '../../../components/event-content.jsx'
+import { RichText } from '../../../components/rich-text.jsx'
 import { NotFoundView } from '../../../components/not-found-view.jsx'
 import { FadeIn, Reveal, Stagger, StaggerItem } from '../../../components/motion.jsx'
 import { Breadcrumbs } from '../../../components/page-state.jsx'
@@ -244,7 +254,6 @@ export default async function EventDetailPage({ params }) {
   const soldOut = allTiersSoldOut(ticketTypes)
   const address = formatVenueAddress(event.venue)
   const zoneLabel = formatTimeZoneLabel(event)
-  const paragraphs = toParagraphs(event.description)
 
   const notice = lifecycleNotice(event.status)
   const buyable = BUYABLE_STATUSES.has(event.status) && Boolean(cheapest)
@@ -254,7 +263,6 @@ export default async function EventDetailPage({ params }) {
   const allIn = allInPrice(cheapest, event.venue, event.feeTerms)
   const access = mergedAccessibility(event)
   const policies = event.policies ?? {}
-  const artists = event.artists ?? []
   const place = event.venue ? { country: event.venue.country, region: event.venue.region } : null
 
   // The state a card would show, read from the status alone: cancelled,
@@ -505,16 +513,13 @@ export default async function EventDetailPage({ params }) {
               <h2 id="about-heading" className="mt-3 text-h2 font-semibold text-ink">
                 About this event
               </h2>
-              <div className="mt-5 space-y-4 text-ink-muted">
-                {paragraphs.map((paragraph, index) => (
-                  <p
-                    key={paragraph.slice(0, 48)}
-                    className={index === 0 ? 'text-[1.1875rem] leading-8 text-ink' : 'text-body'}
-                  >
-                    {paragraph}
-                  </p>
-                ))}
-              </div>
+              {/* The organiser's own formatting — paragraphs, lists, bold,
+                  italic and https links — rendered as elements, never as
+                  HTML. The first paragraph leads, as it always has. */}
+              <RichText
+                text={event.description}
+                className="mt-5 text-body text-ink-muted [&>p:first-child]:text-[1.1875rem] [&>p:first-child]:leading-8 [&>p:first-child]:text-ink"
+              />
 
               {event.languages?.length > 0 ? (
                 <p className="mt-6 text-sm text-ink-muted">
@@ -525,21 +530,7 @@ export default async function EventDetailPage({ params }) {
 
               {/* Billing order, kept: for a lot of these events the order of the
                   names on the bill is the thing being negotiated. */}
-              {artists.length > 0 ? (
-                <div className="mt-6">
-                  <h3 className="font-sans text-sm font-bold text-ink">Line-up</h3>
-                  <ol className="mt-2.5 flex flex-wrap gap-2">
-                    {artists.map((artist) => (
-                      <li
-                        key={artist}
-                        className="rounded-full border border-line-strong bg-surface-raised px-3.5 py-1.5 text-sm font-semibold text-ink"
-                      >
-                        {artist}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              ) : null}
+              <EventLineUp performers={event.performers} artists={event.artists} />
             </Reveal>
 
             {/* The organiser's approved pictures, in their order. Renders
@@ -571,6 +562,12 @@ export default async function EventDetailPage({ params }) {
                 </ScheduleFact>
               </dl>
             </Reveal>
+
+            <EventRunningOrder
+              items={event.runningOrder}
+              timezone={event.timezone}
+              startsAt={event.startsAt}
+            />
 
             <Reveal as="section" aria-labelledby="venue-heading">
               <h2 id="venue-heading" className="text-h2 font-semibold text-ink">
@@ -619,6 +616,9 @@ export default async function EventDetailPage({ params }) {
                 </p>
               )}
             </Reveal>
+
+            {/* This event's own arrival notes, after the venue's address. */}
+            <EventDirections text={event.directions} />
 
             {/*
               Before you come: the two questions that decide whether somebody can
@@ -674,6 +674,10 @@ export default async function EventDetailPage({ params }) {
               </Reveal>
             ) : null}
 
+            <EventDressCode text={event.dressCode} />
+
+            <EventFaq items={event.faq} />
+
             {event.organization ? (
               <Reveal as="section" aria-labelledby="organiser-heading">
                 <h2 id="organiser-heading" className="text-h2 font-semibold text-ink">
@@ -711,6 +715,10 @@ export default async function EventDetailPage({ params }) {
                 </div>
               </Reveal>
             ) : null}
+
+            <EventContact email={event.publicEmail} phone={event.publicPhone} />
+            <EventSocialLinks links={event.socialLinks} />
+            <EventSponsors items={event.sponsors} />
 
             {/*
               The refund rule first. It is the one a person needs when something
@@ -798,6 +806,7 @@ export default async function EventDetailPage({ params }) {
                         ticketTypes={ticketTypes}
                         place={place}
                         feeTerms={event.feeTerms ?? null}
+                        timezone={event.timezone}
                       />
                     </div>
 

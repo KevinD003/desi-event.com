@@ -723,10 +723,14 @@ when()('a preview', () => {
 
   it('lists for a scoped scanner only the event its scope names', async () => {
     const w = await world()
-    const entries = await listAdmissionEvents({ prisma, actor: await actorFor(w.cast.scannerA) })
+    const { entries, meta } = await listAdmissionEvents({
+      prisma,
+      actor: await actorFor(w.cast.scannerA),
+    })
 
     expect(entries.map((entry) => entry.event.id)).toEqual([w.a.event.id])
     expect(entries[0]).toMatchObject({ authority: 'EVENT_SCOPE', role: 'SCANNER' })
+    expect(meta).toMatchObject({ scope: 'MEMBERSHIPS', truncated: false })
   })
 })
 
@@ -947,32 +951,169 @@ when()('scanner authorisation', () => {
     expect(await admissions(second)).toBe(0)
   })
 
-  it('does not let a platform super-administrator admit, and says so in the audit log', async () => {
-    const w = await world()
-    const [ticket] = w.a.tickets
-    const platform = await prisma.user.create({
+  /**
+   * A platform account with the given role and no membership anywhere.
+   *
+   * @param {string} role The platform role.
+   * @returns {Promise<object>} The user.
+   */
+  function platformUser(role) {
+    return prisma.user.create({
       data: {
-        id: id('platform'),
-        email: `platform-${unique()}@admission.example`,
-        displayName: 'Platform',
+        id: id(`platform-${role}`),
+        email: `platform-${role.toLowerCase()}-${unique()}@admission.example`,
+        displayName: `Platform ${role}`,
         passwordHash: 'not-a-hash-this-suite-never-signs-in',
-        role: 'SUPER_ADMIN',
+        role,
         emailVerified: true,
       },
     })
+  }
 
-    const looked = await previewAs(platform, { code: ticket.code })
+  it('lets a platform super-administrator admit at another organisation’s event, recorded as platform authority', async () => {
+    // ADR 0007 reverses the old rule ("platform roles admit nobody"): a super
+    // administrator could give itself a membership anyway, so it admits on its
+    // own authority — and is recorded distinctly, on the event's own record.
+    const w = await world()
+    const [ticket] = w.b.tickets
+    const platform = await platformUser('SUPER_ADMIN')
 
-    expect(looked.status).toBe(403)
+    const body = await previewed(platform, { code: ticket.code })
+    const admitted = await confirmAs(platform, body)
+
+    expect(admitted.status, admitted.message).toBe(200)
+    expect(admitted.data.outcome).toBe('ADMITTED')
+    expect(await admissions(ticket)).toBe(1)
+
+    const checkIn = await prisma.checkIn.findUnique({ where: { ticketId: ticket.id } })
+
+    expect(checkIn).toMatchObject({ scannedByUserId: platform.id, method: 'MANUAL_CODE' })
+
+    for (const action of ['ticket.admission_previewed', 'ticket.checked_in']) {
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            action,
+            entityId: ticket.id,
+            actorId: platform.id,
+            metadata: { path: ['authority'], equals: 'PLATFORM_ROLE' },
+          },
+        }),
+        action,
+      ).toBe(1)
+    }
+
+    // The admission's own record names the role and whose event it was.
+    const checkedIn = await prisma.auditLog.findFirst({
+      where: { action: 'ticket.checked_in', entityId: ticket.id, actorId: platform.id },
+    })
+
+    expect(checkedIn.metadata).toMatchObject({
+      authority: 'PLATFORM_ROLE',
+      role: 'SUPER_ADMIN',
+      organizationId: w.rival.organization.id,
+    })
+
+    const onTheEvent = await prisma.auditLog.findMany({
+      where: {
+        action: 'ticket.admission_platform_authority',
+        entityType: 'Event',
+        entityId: w.b.event.id,
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    expect(onTheEvent.map((row) => row.metadata.operation).sort()).toEqual(['check_in', 'preview'])
+    expect(onTheEvent.every((row) => row.actorId === platform.id)).toBe(true)
+    expect(onTheEvent.every((row) => row.metadata.organizationId === w.rival.organization.id)).toBe(
+      true,
+    )
+  })
+
+  it('refuses SUPPORT, MODERATOR and FINANCE_ADMIN and audits each with PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+
+    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN']) {
+      const staff = await platformUser(role)
+      const looked = await previewAs(staff, { code: ticket.code })
+      const confirmed = await confirmAs(staff, {
+        code: ticket.code,
+        previewReference: forgedButValid({ ticket, event: w.a.event, who: staff }),
+      })
+
+      expect(looked.status, role).toBe(403)
+      expect(confirmed.status, role).toBe(403)
+      expect(
+        await prisma.auditLog.count({
+          where: {
+            action: 'ticket.admission_refused',
+            entityType: 'User',
+            entityId: staff.id,
+            metadata: { path: ['reason'], equals: 'PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY' },
+          },
+        }),
+        role,
+      ).toBe(2)
+    }
+
+    expect(await admissions(ticket)).toBe(0)
+  })
+
+  it('a super-administrator demoted between preview and confirmation is refused at confirmation', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+    const platform = await platformUser('SUPER_ADMIN')
+
+    const body = await previewed(platform, { code: ticket.code })
+    // The actor the confirming request was built with, before the demotion:
+    // the transaction must read the role again rather than trust it.
+    const stale = await actorFor(platform)
+
+    await prisma.user.update({ where: { id: platform.id }, data: { role: 'ORGANIZER' } })
+
+    const confirmed = await outcome(confirmAdmission({ prisma, env: ENV, actor: stale, body }))
+
+    expect(confirmed.status).toBe(403)
+    expect(await admissions(ticket)).toBe(0)
+
+    // And a request built after the demotion is refused before any lookup.
+    expect((await confirmAs(platform, body)).status).toBe(403)
+    expect(await admissions(ticket)).toBe(0)
+  })
+
+  it('a super-administrator who is also OWNER is recorded as ORGANIZATION_ROLE', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+    const platform = await platformUser('SUPER_ADMIN')
+
+    await member(platform, w.home, 'OWNER')
+
+    const body = await previewed(platform, { code: ticket.code })
+    const admitted = await confirmAs(platform, body)
+
+    expect(admitted.status, admitted.message).toBe(200)
     expect(
       await prisma.auditLog.count({
         where: {
-          action: 'ticket.admission_refused',
-          entityId: platform.id,
-          metadata: { path: ['reason'], equals: 'PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY' },
+          action: 'ticket.checked_in',
+          entityId: ticket.id,
+          metadata: { path: ['authority'], equals: 'ORGANIZATION_ROLE' },
         },
       }),
     ).toBe(1)
+    expect(
+      (
+        await prisma.auditLog.findFirst({
+          where: { action: 'ticket.checked_in', entityId: ticket.id },
+        })
+      ).metadata,
+    ).toMatchObject({ role: 'OWNER', organizationId: w.home.organization.id })
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'ticket.admission_platform_authority', entityId: w.a.event.id },
+      }),
+    ).toBe(0)
   })
 
   it('a scanner of another organisation, scoped to its own event, is told nothing and admits nobody, finding AUZ-3', async () => {

@@ -183,7 +183,8 @@ export function ticketHolder(order, viewerId) {
  * The ticket's page shows a pass only for a ticket that still admits (`VALID`,
  * or `TRANSFER_PENDING` until the offer is taken), and a ticket can be offered
  * on only from `VALID` — refunded, used and withdrawn tickets have no way out
- * of their state. So the sentence follows the best ticket on the order, and
+ * of their state. A ticket for a reserved seat is handed on like any other, the
+ * seat going with it. So the sentence follows the best ticket on the order, and
  * once the event is over it promises nothing at the door.
  *
  * @param {object[]} tickets The listed tickets.
@@ -195,7 +196,7 @@ export function openTicketHint(tickets, { eventOver = false } = {}) {
   const statuses = new Set((tickets ?? []).map((ticket) => ticket.status))
 
   if (!eventOver && statuses.has('VALID')) {
-    return 'Open a ticket to show its pass at the door or, unless it is for a reserved seat, to hand it on.'
+    return 'Open a ticket to show its pass at the door or to hand it on.'
   }
 
   if (!eventOver && statuses.has('TRANSFER_PENDING')) {

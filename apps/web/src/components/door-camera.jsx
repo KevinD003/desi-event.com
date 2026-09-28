@@ -73,6 +73,7 @@ function whyRefused(error) {
 /**
  * @typedef {object} DoorCameraProps
  * @property {function(string): void} onPass Called with a pass read from a frame.
+ * @property {function(string): void} [onGroupPass] Called with a group pass read from a frame.
  * @property {function(): void} [onOther] Called when a QR code that is not a pass was read.
  * @property {boolean} paused Whether to stop looking for now.
  */
@@ -83,7 +84,7 @@ function whyRefused(error) {
  * @param {DoorCameraProps} props Component props.
  * @returns {JSX.Element} The panel.
  */
-export function DoorCamera({ onPass, onOther, paused }) {
+export function DoorCamera({ onPass, onGroupPass, onOther, paused }) {
   // Decided after mounting, not during render: the server has no navigator,
   // and a first render that differed between the two would not hydrate.
   const [state, setState] = useState('idle')
@@ -93,13 +94,13 @@ export function DoorCamera({ onPass, onOther, paused }) {
   const timer = useRef(null)
   const pausedRef = useRef(paused)
   const lastPass = useRef({ value: null, at: 0 })
-  const handlers = useRef({ onPass, onOther })
+  const handlers = useRef({ onPass, onGroupPass, onOther })
   // Counts stops. A request for the camera remembers the count it started
   // under; if the count has moved on by the time the browser answers, the
   // steward stopped, switched to typing or left while it was asking.
   const stops = useRef(0)
 
-  handlers.current = { onPass, onOther }
+  handlers.current = { onPass, onGroupPass, onOther }
   pausedRef.current = paused
 
   const stop = useCallback(() => {
@@ -172,13 +173,23 @@ export function DoorCamera({ onPass, onOther, paused }) {
       const found = await decodeFrame(context.getImageData(0, 0, width, height))
       const now = Date.now()
 
-      if (found?.pass && stream.current && !pausedRef.current) {
+      const read = found?.pass ?? found?.groupPass ?? null
+
+      if (read && stream.current && !pausedRef.current) {
         const repeat =
-          found.pass === lastPass.current.value && now - lastPass.current.at < SAME_PASS_COOLDOWN_MS
+          read === lastPass.current.value && now - lastPass.current.at < SAME_PASS_COOLDOWN_MS
 
         if (!repeat) {
-          lastPass.current = { value: found.pass, at: now }
-          handlers.current.onPass(found.pass)
+          lastPass.current = { value: read, at: now }
+
+          // A group pass goes to the group lookup; a screen that has none
+          // treats it as a code it does not know.
+          if (found.groupPass) {
+            if (handlers.current.onGroupPass) handlers.current.onGroupPass(found.groupPass)
+            else handlers.current.onOther?.()
+          } else {
+            handlers.current.onPass(found.pass)
+          }
         }
       } else if (found?.other) {
         handlers.current.onOther?.()

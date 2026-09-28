@@ -20,17 +20,22 @@ import {
   timestampSchema,
 } from './primitives.js'
 import {
+  ADMISSION_EVENT_SCOPES,
+  GROUP_PASS_MAX_TICKETS,
+  GROUP_PASS_MIN_TICKETS,
   admissionAuthoritySchema,
   admissionPreviewOutcomeSchema,
   admissionRefusalReasonSchema,
+  admissionRoleSchema,
   checkInOutcomeSchema,
   connectOnboardingStatusSchema,
   eventCategorySchema,
   eventStatusSchema,
   logLevelSchema,
-  orgRoleSchema,
   recordedCheckInMethodSchema,
+  ticketStatusSchema,
 } from './enums.js'
+import { invitationDeliverySchema } from './teams.js'
 import { PAYMENT_MODES } from './payments.js'
 import { publicMediaSchema } from './media.js'
 import {
@@ -276,16 +281,153 @@ export const checkInResponseSchema = z.object({
  * Derived from memberships and scopes read at request time. A scanner is shown
  * the events its scopes name and nothing else, so the door screen cannot even
  * offer an event the server would refuse.
+ *
+ * A platform super administrator is shown every organisation's current door
+ * events as well, on `PLATFORM_ROLE` authority — the only authority whose role
+ * is a platform role, which the refinement pins so neither half can drift.
+ * `meta.scope` says which kind of list this is; `meta.organizations` feeds the
+ * organisation filter; `meta.truncated` says the list was cut at its limit.
  */
 export const admissionEventsResponseSchema = z.object({
   data: z.array(
-    z.object({
-      event: admissionEventSchema.extend({ status: eventStatusSchema }),
-      organization: z.object({ id: cuidSchema, name: z.string() }),
-      authority: admissionAuthoritySchema,
-      role: orgRoleSchema,
-    }),
+    z
+      .object({
+        event: admissionEventSchema.extend({ status: eventStatusSchema }),
+        organization: z.object({ id: cuidSchema, name: z.string() }),
+        authority: admissionAuthoritySchema,
+        role: admissionRoleSchema,
+      })
+      .superRefine((entry, ctx) => {
+        if ((entry.authority === 'PLATFORM_ROLE') !== (entry.role === 'SUPER_ADMIN')) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['role'],
+            message: 'Platform authority rests on SUPER_ADMIN, and only platform authority does',
+          })
+        }
+      }),
   ),
+  meta: z.object({
+    scope: z.enum([...ADMISSION_EVENT_SCOPES]),
+    organizations: z.array(z.object({ id: cuidSchema, name: z.string() })).max(500),
+    truncated: z.boolean(),
+  }),
+})
+
+/**
+ * One ticket of a group, as the door is told about it before admitting.
+ *
+ * The same named fields as a single preview, per ticket, and the ticket's id so
+ * the steward can say which of them are standing at the door.
+ */
+export const groupAdmissionTicketSchema = z.object({
+  ticketId: cuidSchema,
+  outcome: admissionPreviewOutcomeSchema,
+  refusal: admissionRefusalReasonSchema.nullable(),
+  tier: z.object({ name: z.string() }).nullable(),
+  seat: admissionSeatSchema,
+  // Never an address: the presenter replaces one, and this refuses one it missed.
+  attendeeName: addressFree(z.string()).nullable(),
+  checkedInAt: timestampSchema.nullable(),
+})
+
+/**
+ * What a door is told about a group pass before admitting anybody on it.
+ *
+ * Every ticket the buyer still holds on the order, with its own outcome;
+ * counts of each; how many tickets from the order were handed to other people
+ * (who carry their own passes); and a reference only when at least one ticket
+ * can be admitted. Never the group credential, its code, or either digest.
+ */
+export const groupAdmissionPreviewResponseSchema = z.object({
+  data: z.object({
+    outcome: admissionPreviewOutcomeSchema,
+    refusal: admissionRefusalReasonSchema.nullable(),
+    method: recordedCheckInMethodSchema,
+    event: admissionEventSchema,
+    tickets: z.array(groupAdmissionTicketSchema).max(GROUP_PASS_MAX_TICKETS),
+    counts: z.object({
+      admissible: z.int().min(0).max(GROUP_PASS_MAX_TICKETS),
+      alreadyIn: z.int().min(0).max(GROUP_PASS_MAX_TICKETS),
+      refused: z.int().min(0).max(GROUP_PASS_MAX_TICKETS),
+    }),
+    handedOn: z.int().min(0),
+    previewReference: z.string().nullable(),
+    previewExpiresAt: timestampSchema.nullable(),
+  }),
+})
+
+/**
+ * What a group confirmation did, per ticket.
+ *
+ * `ADMITTED` when this request admitted at least one ticket; each ticket says
+ * whether it was admitted now or was already in. A group whose tickets changed
+ * since the lookup is not a 200: it is a 409 with `GROUP_CHANGED`, and nothing
+ * was admitted.
+ */
+export const groupCheckInResponseSchema = z.object({
+  data: z.object({
+    outcome: checkInOutcomeSchema,
+    admitted: z.int().min(0).max(GROUP_PASS_MAX_TICKETS),
+    alreadyIn: z.int().min(0).max(GROUP_PASS_MAX_TICKETS),
+    method: recordedCheckInMethodSchema,
+    event: admissionEventSchema,
+    tickets: z
+      .array(
+        z.object({
+          ticketId: cuidSchema,
+          outcome: checkInOutcomeSchema,
+          checkedInAt: timestampSchema.nullable(),
+          checkedInByYou: z.boolean(),
+          tier: z.object({ name: z.string() }).nullable(),
+          seat: admissionSeatSchema,
+          attendeeName: addressFree(z.string()).nullable(),
+        }),
+      )
+      .max(GROUP_PASS_MAX_TICKETS),
+  }),
+})
+
+/**
+ * `GET /orders/:reference/group-pass` — one QR for the buyer's party.
+ *
+ * Holder-only and `no-store`. `credential` is the group's QR content and
+ * `groupCode` the code printed beside it; both are derived, never stored, and
+ * both stop working when the pass is replaced. `tickets` are those the pass
+ * admits now; `offered` marks one with a transfer offer outstanding, which
+ * still admits until the offer is accepted.
+ */
+export const groupPassResponseSchema = z.object({
+  data: z.object({
+    orderReference: z.string(),
+    credential: z.string().regex(/^G1\.[A-Za-z0-9_-]{43}$/u),
+    groupCode: z.string().regex(/^DEG-[2-9A-HJ-NP-Z]{12}$/u),
+    credentialVersion: z.int().min(1),
+    issuedAt: timestampSchema.nullable(),
+    admits: z.int().min(GROUP_PASS_MIN_TICKETS).max(GROUP_PASS_MAX_TICKETS),
+    tickets: z
+      .array(
+        z.object({
+          id: cuidSchema,
+          status: ticketStatusSchema,
+          tier: z.object({ name: z.string() }).nullable(),
+          seat: admissionSeatSchema,
+          offered: z.boolean(),
+        }),
+      )
+      .max(GROUP_PASS_MAX_TICKETS),
+  }),
+})
+
+/**
+ * `POST /orders/:reference/group-pass/rotate` — the old QR and code stop
+ * working. No secret comes back; the holder fetches the new pass.
+ */
+export const groupPassRotatedResponseSchema = z.object({
+  data: z.object({
+    credentialVersion: z.int().min(2),
+    rotatedAt: timestampSchema,
+  }),
 })
 
 /**
@@ -320,9 +462,22 @@ export const ticketTransferSchema = z.object({
   createdAt: timestampSchema,
 })
 
-/** `POST /tickets/:id/transfers`, and the responses to one. */
+/** The responses to accepting, declining and withdrawing a transfer. */
 export const ticketTransferResponseSchema = z.object({
   data: ticketTransferSchema,
+})
+
+/**
+ * `POST /tickets/:id/transfers` — the offer, and how its code went out.
+ *
+ * The same `delivery` block as a team invitation. With no delivery provider
+ * (`MANUAL`, this build) the one-time `invitationCode` is here exactly once,
+ * sent `no-store`, and only its digest is kept; the recipient must also be
+ * signed in at the offered address to use it. With a provider (`EMAIL`) the
+ * code went to the recipient and this carries `null`.
+ */
+export const startedTicketTransferResponseSchema = z.object({
+  data: ticketTransferSchema.extend({ delivery: invitationDeliverySchema }),
 })
 
 /**
@@ -364,11 +519,6 @@ export const ticketDetailResponseSchema = z.object({
     organizationId: cuidSchema,
     /** Whether the caller is the person holding it, rather than the organiser. */
     holder: z.boolean(),
-    /**
-     * Why this ticket may not be handed on whatever its state, or null.
-     * `RESERVED_SEAT` until seated transfer is supported.
-     */
-    transferBlockedReason: z.enum(['RESERVED_SEAT']).nullable(),
     /** Every transfer this ticket has been through, oldest first. */
     transfers: z.array(ticketTransferSchema),
   }),
@@ -677,6 +827,25 @@ export const eventSessionSchema = z.object({
   venueMapVersionId: z.string().nullable(),
   capacity: z.number().nullable(),
   sortOrder: z.number(),
+  /**
+   * The price zones of this session's map version, so a reserved ticket type
+   * can be pointed at one. Empty for general admission.
+   */
+  priceZones: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      colourToken: z.string(),
+      sortOrder: z.number(),
+    }),
+  ),
+  /**
+   * Tickets sold and held against this session: general-admission tiers bound
+   * to it, and its seats. What a capacity cut is checked against.
+   */
+  usage: z.object({ sold: z.number().int(), held: z.number().int() }),
+  /** Whether nothing depends on it yet, so it can be removed. */
+  removable: z.boolean(),
 })
 
 /** A session, with the event's new revision so the editor can keep editing. */
@@ -698,9 +867,52 @@ export const eventSessionListResponseSchema = z.object({
   meta: z.object({ revision: z.number() }),
 })
 
+/**
+ * A ticket type as its organisation sees it.
+ *
+ * Deliberately tolerant: plain strings and integers rather than the entity's
+ * bounds. A row written before a limit tightened — a 900-character description,
+ * 100 per order — must still be readable by the people who can fix it, and a
+ * strict schema here turned exactly that row into a 500 on every read and every
+ * save. The public payload is the strict one, and its presenter clamps.
+ */
+export const authorTicketTypeSchema = z.object({
+  id: z.string(),
+  eventId: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  priceCents: z.number().int(),
+  currency: z.string(),
+  quantityTotal: z.number().int(),
+  quantitySold: z.number().int(),
+  minPerOrder: z.number().int(),
+  maxPerOrder: z.number().int(),
+  salesStartAt: z.string().nullable(),
+  salesEndAt: z.string().nullable(),
+  status: z.string(),
+  sortOrder: z.number().int(),
+  eventSessionId: z.string().nullable(),
+  priceZoneId: z.string().nullable(),
+  reserved: z.boolean(),
+  complimentary: z.boolean(),
+  visibility: z.enum(['PUBLIC', 'HIDDEN']),
+  /** Tickets in live holds right now: part of what a quantity cut must leave room for. */
+  heldQuantity: z.number().int(),
+  /** Whether any order has a line for it, paid or not. */
+  hasOrders: z.boolean(),
+  /** Whether nothing depends on it, so it can be removed rather than paused. */
+  removable: z.boolean(),
+})
+
 /** A ticket type, with the event's new revision. */
 export const authorTicketTypeResponseSchema = z.object({
-  data: ticketTypeSchema,
+  data: authorTicketTypeSchema,
+  meta: z.object({ revision: z.number() }),
+})
+
+/** Every ticket type of an event, as its organisation sees them, with the revision. */
+export const authorTicketTypeListResponseSchema = z.object({
+  data: z.array(authorTicketTypeSchema),
   meta: z.object({ revision: z.number() }),
 })
 
@@ -718,6 +930,12 @@ export const inventoryPreparationResponseSchema = z.object({
     expected: z.number(),
     prepared: z.number(),
     created: z.number(),
+    /**
+     * Seats newly assigned to the reserved ticket type pricing their zone.
+     * A seat with no tier behind it cannot be sold, so this is the number that
+     * says the session's seats are now for sale.
+     */
+    assigned: z.number(),
   }),
 })
 

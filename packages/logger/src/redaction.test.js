@@ -161,3 +161,67 @@ describe('the show-once invitation code', () => {
     expect(output).toContain('MANUAL')
   })
 })
+
+describe('the group pass code and its digests', () => {
+  /**
+   * Log one object through a real logger and return what was written.
+   *
+   * @param {object} fields The fields to log.
+   * @returns {Promise<string>} The raw output.
+   */
+  async function written(fields) {
+    const chunks = []
+    const logger = createLogger({
+      name: 'redaction-test',
+      level: 'info',
+      pretty: false,
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+
+    logger.info(fields, 'group pass')
+    logger.flush?.()
+
+    return chunks.join('')
+  }
+
+  const GROUP_CODE = 'DEG-ABCDEFGH2345'
+  const DIGEST = 'c0ffee'.repeat(10) + 'beef'
+  const INVITATION_CODE = 'U2VuZCB0aGlzIGNvZGUgdG8gdGhlbSB5b3Vyc2VsZgAA'
+
+  it('is on the lists by name, at the root and one level down', () => {
+    for (const key of ['groupCode', 'codeHash', 'invitationCode']) {
+      expect(SENSITIVE_FIELD_KEYS, key).toContain(key)
+      expect(WILDCARD_KEYS, key).toContain(key)
+      expect(REDACT_PATHS, key).toContain(key)
+      expect(REDACT_PATHS, key).toContain(`*.${key}`)
+      expect(REDACT_PATHS, key).toContain(`req.body.${key}`)
+    }
+  })
+
+  it('is censored at the top level of a log line', async () => {
+    const output = await written({
+      groupCode: GROUP_CODE,
+      codeHash: DIGEST,
+      invitationCode: INVITATION_CODE,
+    })
+
+    for (const secret of [GROUP_CODE, DIGEST, INVITATION_CODE]) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain(REDACTION_CENSOR)
+  })
+
+  it('is censored one level down, the shapes a pass response or a pass row takes', async () => {
+    const output = await written({
+      data: { groupCode: GROUP_CODE, admits: 3 },
+      groupPass: { codeHash: DIGEST, credentialVersion: 2 },
+      delivery: { mode: 'MANUAL', invitationCode: INVITATION_CODE },
+    })
+
+    for (const secret of [GROUP_CODE, DIGEST, INVITATION_CODE]) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain('"admits":3')
+    expect(output).toContain('"credentialVersion":2')
+  })
+})

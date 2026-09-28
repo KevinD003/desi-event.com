@@ -30,16 +30,28 @@
  *
  * `admissionAuthorityFor` in `@desi-event/permissions` holds the policy: OWNER
  * and ADMIN admit to any event of their organisation; MANAGER, STAFF and
- * SCANNER only to events a `ScannerScope` names; platform roles to none. This
- * module supplies it with the membership and scope read from the database on
- * every preview and inside every confirmation, where the rows are locked
- * `FOR SHARE` until the admission commits — so a scope revoked after a preview
- * refuses the confirmation, and a revocation racing the confirmation waits for
- * it rather than slipping underneath.
+ * SCANNER only to events a `ScannerScope` names. This module supplies it with
+ * the membership and scope read from the database on every preview and inside
+ * every confirmation, where the rows are locked `FOR SHARE` until the admission
+ * commits — so a scope revoked after a preview refuses the confirmation, and a
+ * revocation racing the confirmation waits for it rather than slipping
+ * underneath.
+ *
+ * A platform super administrator admits at any event on a third authority,
+ * `PLATFORM_ROLE` (ADR 0007), and only when no membership gives it one: a
+ * super administrator who is also an event's organiser is recorded as that.
+ * The platform role is read from the `User` row — per request for a preview,
+ * and again inside the confirming transaction together with `suspendedAt` — so
+ * a demotion between preview and confirmation refuses the confirmation. Every
+ * platform lookup and admission also writes `ticket.admission_platform_authority`
+ * on the Event, so the organisation's own record shows it. SUPPORT, MODERATOR
+ * and FINANCE_ADMIN admit nobody, and a refused attempt is audited.
  *
  * Locks are taken in one order everywhere: the ticket, then the membership, then
  * the scope. The team routes lock the membership before touching its scopes, so
- * a confirmation and a role change cannot deadlock on each other.
+ * a confirmation and a role change cannot deadlock on each other. A group
+ * admission (`./group-admission.js`) takes the order, the group pass and its
+ * tickets (sorted by id) first, then the same membership and scope.
  *
  * ## The method is derived, not declared
  *
@@ -64,8 +76,9 @@ import { deriveSealingKey } from '@desi-event/auth'
 import {
   CAPABILITIES,
   ORG_ROLE_CAPABILITIES,
-  PLATFORM_ROLE_CAPABILITIES,
+  REFUSED_PLATFORM_ADMISSION_ROLES,
   admissionAuthorityFor,
+  platformAdmissionAuthorityFor,
   requiresAdmissionScope,
 } from '@desi-event/permissions'
 import { ADMISSION_REFUSAL_REASONS, withoutAddresses } from '@desi-event/schemas'
@@ -89,6 +102,15 @@ import {
 export const PREVIEW_REFERENCE_PURPOSE = 'admission-preview-v1'
 
 /**
+ * The HKDF purpose for group preview references. Distinct from the single
+ * one, so a reference minted for a ticket can never be read as one for a
+ * group, or the other way round.
+ *
+ * @type {string}
+ */
+export const GROUP_PREVIEW_REFERENCE_PURPOSE = 'admission-group-preview-v1'
+
+/**
  * How long a preview may be confirmed for.
  *
  * Long enough to check a face against a name; short enough that a preview left
@@ -99,11 +121,12 @@ export const PREVIEW_REFERENCE_PURPOSE = 'admission-preview-v1'
 export const PREVIEW_TTL_MS = 120_000
 
 /**
- * The one answer an outsider gets, whatever the reason.
+ * The one answer an outsider gets, whatever the reason — for a ticket's pass
+ * and for a group's alike.
  *
  * @type {string}
  */
-const UNIFORM_NOT_FOUND = 'No ticket with that pass.'
+export const UNIFORM_NOT_FOUND = 'No ticket with that pass.'
 
 /**
  * Everything a door needs from a ticket, and nothing it does not.
@@ -181,15 +204,18 @@ async function resolve(db, presentation) {
 }
 
 /**
- * Whether an actor holds door authority in any organisation at all.
+ * Whether an actor holds door authority anywhere at all.
  *
  * The cheapest refusal, and one that reveals nothing about any ticket: it is a
- * statement about the caller. A platform role never counts — see the policy.
+ * statement about the caller. A platform super administrator holds it
+ * everywhere; every other platform role holds it only through a membership.
  *
  * @param {object} actor The request actor.
- * @returns {boolean} True when some membership carries `ticket:check_in`.
+ * @returns {boolean} True for a super administrator, or when some membership carries `ticket:check_in`.
  */
 export function holdsDoorAuthority(actor) {
+  if (platformAdmissionAuthorityFor(actor?.role)) return true
+
   return (actor?.memberships ?? []).some((membership) =>
     (ORG_ROLE_CAPABILITIES[membership.role] ?? []).includes(CAPABILITIES.TICKET_CHECK_IN),
   )
@@ -198,9 +224,10 @@ export function holdsDoorAuthority(actor) {
 /**
  * Refuse, before any lookup, a caller who could not admit anybody.
  *
- * A platform role that would hold the capability everywhere is refused like
- * anybody else — and, because that is a policy decision somebody may one day
- * question, the refusal is written to the audit log against the account.
+ * A platform role that holds capabilities but not door authority — SUPPORT,
+ * MODERATOR, FINANCE_ADMIN — is refused like anybody else, and, because
+ * somebody with platform powers trying the door is worth knowing about, the
+ * refusal is written to the audit log against the account.
  *
  * @param {object} db A Prisma client.
  * @param {object} actor The request actor.
@@ -211,11 +238,7 @@ export function holdsDoorAuthority(actor) {
 export async function assertDoorAuthority(db, actor, operation) {
   if (holdsDoorAuthority(actor)) return
 
-  const platformWouldGrant = (PLATFORM_ROLE_CAPABILITIES[actor?.role] ?? []).includes(
-    CAPABILITIES.TICKET_CHECK_IN,
-  )
-
-  if (platformWouldGrant) {
+  if (REFUSED_PLATFORM_ADMISSION_ROLES.includes(actor?.role)) {
     await recordAudit(db, {
       action: AUDIT_ACTIONS.TICKET_ADMISSION_REFUSED,
       entityType: 'User',
@@ -241,9 +264,14 @@ export async function assertDoorAuthority(db, actor, operation) {
  * seen. Locks first, then reads — reading first would leave a window in which a
  * row seen as present was deleted before it was locked.
  *
+ * Membership first; the platform authority only when the membership gives
+ * none. The platform role is the caller's, read from the `User` row by the
+ * caller of this function — never from anything the browser sent.
+ *
  * @param {object} db A Prisma client or transaction client.
  * @param {object} options Options.
  * @param {string} options.actorId Who is asking.
+ * @param {string|null} [options.platformRole] Their platform role, from the database.
  * @param {string} options.organizationId The event's organisation, from the database.
  * @param {string} options.eventId The ticket's event, from the database.
  * @param {boolean} [options.lock] Take `FOR SHARE` locks first. Only inside a transaction.
@@ -251,7 +279,7 @@ export async function assertDoorAuthority(db, actor, operation) {
  */
 export async function readAdmissionAuthority(
   db,
-  { actorId, organizationId, eventId, lock = false },
+  { actorId, platformRole = null, organizationId, eventId, lock = false },
 ) {
   if (lock) {
     await db.$queryRaw`
@@ -271,7 +299,38 @@ export async function readAdmissionAuthority(
     select: { role: true, scannerScopes: { where: { eventId }, select: { eventId: true } } },
   })
 
-  return admissionAuthorityFor(membership, eventId)
+  return admissionAuthorityFor(membership, eventId) ?? platformAdmissionAuthorityFor(platformRole)
+}
+
+/**
+ * Record, on the event, that a platform super administrator used its own
+ * authority at this door.
+ *
+ * On the Event rather than the ticket, so an organisation reading its event's
+ * record sees every platform lookup and admission in one place. Ids, the
+ * operation and the outcome — never what was presented.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {object} options Options.
+ * @param {string} options.actorId The super administrator.
+ * @param {string} options.eventId The event.
+ * @param {string} options.organizationId Its organisation.
+ * @param {'preview'|'check_in'|'group_preview'|'group_check_in'} options.operation What they did.
+ * @param {{ticketId?: string, groupPassId?: string, ticketIds?: string[]}} options.subject What they did it to.
+ * @param {string} options.outcome What came of it.
+ * @returns {Promise<void>} Resolves once recorded.
+ */
+export async function recordPlatformAuthorityUse(
+  db,
+  { actorId, eventId, organizationId, operation, subject, outcome },
+) {
+  await recordAudit(db, {
+    action: AUDIT_ACTIONS.TICKET_ADMISSION_PLATFORM_AUTHORITY,
+    entityType: 'Event',
+    entityId: eventId,
+    actorId,
+    metadata: { operation, ...subject, organizationId, outcome, authority: 'PLATFORM_ROLE' },
+  })
 }
 
 /**
@@ -280,7 +339,7 @@ export async function readAdmissionAuthority(
  * @param {object} event An event row from `ADMISSION_INCLUDE`.
  * @returns {object} A payload satisfying `admissionEventSchema`.
  */
-function toAdmissionEvent(event) {
+export function toAdmissionEvent(event) {
   return {
     id: event.id,
     title: event.title,
@@ -296,7 +355,7 @@ function toAdmissionEvent(event) {
  * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
  * @returns {{section: string|null, row: string|null, label: string}|null} The seat, or null.
  */
-function toAdmissionSeat(ticket) {
+export function toAdmissionSeat(ticket) {
   const seat = ticket.eventSeat?.seat
 
   if (!seat) return null
@@ -378,7 +437,7 @@ export function toAdmissionResult({ ticket, outcome, actorId }) {
  * @param {string|null|undefined} name The stored name.
  * @returns {string|null} The name to show.
  */
-function doorName(name) {
+export function doorName(name) {
   return withoutAddresses(name ?? null)
 }
 
@@ -401,45 +460,21 @@ export function admissionConflict(reason) {
 }
 
 /**
- * Sign a preview reference.
+ * Sign a reference: `base64url(json).base64url(hmac)` under one HKDF purpose.
  *
- * `base64url(json).base64url(hmac)`. The body names the ticket, event,
- * organisation, scanner, method and expiry — all things this scanner was just
- * shown or already is — so it is not secret, only unforgeable. It grants
- * nothing: a confirmation still needs the pass itself and re-checks everything.
+ * The body names only what the scanner was just shown or already is, so it is
+ * not secret, only unforgeable. It grants nothing: a confirmation still needs
+ * the pass itself and re-checks everything.
  *
  * @param {object} options Options.
  * @param {string} options.secret The deployment's `AUTH_SECRET`.
- * @param {string} options.ticketId The previewed ticket.
- * @param {string} options.eventId Its event.
- * @param {string} options.organizationId Its organisation.
- * @param {string} options.actorId Who previewed it.
- * @param {string} options.method How it was presented.
- * @param {Date} options.expiresAt When the reference lapses.
+ * @param {string} options.purpose The HKDF purpose, which separates kinds of reference.
+ * @param {object} options.claims What the reference says.
  * @returns {string} The reference.
  */
-export function signPreviewReference({
-  secret,
-  ticketId,
-  eventId,
-  organizationId,
-  actorId,
-  method,
-  expiresAt,
-}) {
-  const body = Buffer.from(
-    JSON.stringify({
-      v: 1,
-      t: ticketId,
-      e: eventId,
-      o: organizationId,
-      a: actorId,
-      m: method,
-      x: expiresAt.getTime(),
-    }),
-  ).toString('base64url')
-
-  const mac = createHmac('sha256', deriveSealingKey(secret, PREVIEW_REFERENCE_PURPOSE))
+export function signReference({ secret, purpose, claims }) {
+  const body = Buffer.from(JSON.stringify(claims)).toString('base64url')
+  const mac = createHmac('sha256', deriveSealingKey(secret, purpose))
     .update(body)
     .digest('base64url')
 
@@ -447,19 +482,23 @@ export function signPreviewReference({
 }
 
 /**
- * Read and verify a preview reference.
+ * Read and verify a reference signed by {@link signReference}.
  *
  * The MAC is compared in constant time before the body is trusted for anything.
  * An expired reference is distinguished from a forged one only after its MAC
- * verifies — a forger learns nothing from the difference.
+ * verifies — a forger learns nothing from the difference. A reference signed
+ * under another purpose fails its MAC here, which is what keeps a single
+ * ticket's reference from confirming a group and the other way round.
  *
  * @param {object} options Options.
  * @param {string} options.secret The deployment's `AUTH_SECRET`.
+ * @param {string} options.purpose The HKDF purpose it must have been signed under.
  * @param {string} options.reference What the scanner sent back.
  * @param {Date} options.now The instant.
+ * @param {function(object): boolean} options.validate Whether the verified claims are well formed.
  * @returns {{ok: true, claims: object}|{ok: false, reason: 'PREVIEW_INVALID'|'PREVIEW_EXPIRED'}} The result.
  */
-export function readPreviewReference({ secret, reference, now }) {
+export function readReference({ secret, purpose, reference, now, validate }) {
   const parts = typeof reference === 'string' ? reference.split('.') : []
 
   if (parts.length !== 2 || parts[0] === '' || parts[1] === '') {
@@ -467,9 +506,7 @@ export function readPreviewReference({ secret, reference, now }) {
   }
 
   const [body, presented] = parts
-  const expected = createHmac('sha256', deriveSealingKey(secret, PREVIEW_REFERENCE_PURPOSE))
-    .update(body)
-    .digest()
+  const expected = createHmac('sha256', deriveSealingKey(secret, purpose)).update(body).digest()
 
   let presentedBytes
 
@@ -491,18 +528,154 @@ export function readPreviewReference({ secret, reference, now }) {
     return { ok: false, reason: 'PREVIEW_INVALID' }
   }
 
-  const wellFormed =
-    claims?.v === 1 &&
-    ['t', 'e', 'o', 'a', 'm'].every(
-      (key) => typeof claims[key] === 'string' && claims[key] !== '',
-    ) &&
-    Number.isFinite(claims.x)
-
-  if (!wellFormed) return { ok: false, reason: 'PREVIEW_INVALID' }
+  if (!claims || typeof claims !== 'object' || !validate(claims) || !Number.isFinite(claims.x)) {
+    return { ok: false, reason: 'PREVIEW_INVALID' }
+  }
 
   if (now.getTime() > claims.x) return { ok: false, reason: 'PREVIEW_EXPIRED' }
 
   return { ok: true, claims }
+}
+
+/**
+ * Whether each named claim is a non-empty string.
+ *
+ * @param {object} claims The claims.
+ * @param {string[]} keys The keys.
+ * @returns {boolean} True when all are.
+ */
+function stringClaims(claims, keys) {
+  return keys.every((key) => typeof claims[key] === 'string' && claims[key] !== '')
+}
+
+/**
+ * Sign a preview reference for one ticket.
+ *
+ * @param {object} options Options.
+ * @param {string} options.secret The deployment's `AUTH_SECRET`.
+ * @param {string} options.ticketId The previewed ticket.
+ * @param {string} options.eventId Its event.
+ * @param {string} options.organizationId Its organisation.
+ * @param {string} options.actorId Who previewed it.
+ * @param {string} options.method How it was presented.
+ * @param {Date} options.expiresAt When the reference lapses.
+ * @returns {string} The reference.
+ */
+export function signPreviewReference({
+  secret,
+  ticketId,
+  eventId,
+  organizationId,
+  actorId,
+  method,
+  expiresAt,
+}) {
+  return signReference({
+    secret,
+    purpose: PREVIEW_REFERENCE_PURPOSE,
+    claims: {
+      v: 1,
+      t: ticketId,
+      e: eventId,
+      o: organizationId,
+      a: actorId,
+      m: method,
+      x: expiresAt.getTime(),
+    },
+  })
+}
+
+/**
+ * Read and verify a single ticket's preview reference.
+ *
+ * @param {object} options Options.
+ * @param {string} options.secret The deployment's `AUTH_SECRET`.
+ * @param {string} options.reference What the scanner sent back.
+ * @param {Date} options.now The instant.
+ * @returns {{ok: true, claims: object}|{ok: false, reason: 'PREVIEW_INVALID'|'PREVIEW_EXPIRED'}} The result.
+ */
+export function readPreviewReference({ secret, reference, now }) {
+  return readReference({
+    secret,
+    purpose: PREVIEW_REFERENCE_PURPOSE,
+    reference,
+    now,
+    validate: (claims) => claims.v === 1 && stringClaims(claims, ['t', 'e', 'o', 'a', 'm']),
+  })
+}
+
+/**
+ * Sign a preview reference for a group.
+ *
+ * It names the group pass and the version it was looked up at — so a pass
+ * replaced since cannot be confirmed — and the tickets that were admissible,
+ * which bounds what a confirmation may admit.
+ *
+ * @param {object} options Options.
+ * @param {string} options.secret The deployment's `AUTH_SECRET`.
+ * @param {string} options.groupPassId The group pass.
+ * @param {number} options.groupPassVersion Its credential version when looked up.
+ * @param {string} options.eventId The order's event.
+ * @param {string} options.organizationId Its organisation.
+ * @param {string} options.actorId Who looked it up.
+ * @param {string} options.method How it was presented.
+ * @param {string[]} options.ticketIds The tickets that were admissible.
+ * @param {Date} options.expiresAt When the reference lapses.
+ * @returns {string} The reference.
+ */
+export function signGroupPreviewReference({
+  secret,
+  groupPassId,
+  groupPassVersion,
+  eventId,
+  organizationId,
+  actorId,
+  method,
+  ticketIds,
+  expiresAt,
+}) {
+  return signReference({
+    secret,
+    purpose: GROUP_PREVIEW_REFERENCE_PURPOSE,
+    claims: {
+      v: 1,
+      g: groupPassId,
+      gv: groupPassVersion,
+      e: eventId,
+      o: organizationId,
+      a: actorId,
+      m: method,
+      ts: ticketIds,
+      x: expiresAt.getTime(),
+    },
+  })
+}
+
+/**
+ * Read and verify a group's preview reference.
+ *
+ * @param {object} options Options.
+ * @param {string} options.secret The deployment's `AUTH_SECRET`.
+ * @param {string} options.reference What the scanner sent back.
+ * @param {Date} options.now The instant.
+ * @returns {{ok: true, claims: object}|{ok: false, reason: 'PREVIEW_INVALID'|'PREVIEW_EXPIRED'}} The result.
+ */
+export function readGroupPreviewReference({ secret, reference, now }) {
+  return readReference({
+    secret,
+    purpose: GROUP_PREVIEW_REFERENCE_PURPOSE,
+    reference,
+    now,
+    validate: (claims) =>
+      claims.v === 1 &&
+      stringClaims(claims, ['g', 'e', 'o', 'a', 'm']) &&
+      Number.isInteger(claims.gv) &&
+      claims.gv >= 1 &&
+      Array.isArray(claims.ts) &&
+      claims.ts.length >= 1 &&
+      claims.ts.length <= 50 &&
+      claims.ts.every((id) => typeof id === 'string' && id !== ''),
+  })
 }
 
 /**
@@ -539,6 +712,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
 
   const authority = await readAdmissionAuthority(prisma, {
     actorId: actor.id,
+    platformRole: actor.role ?? null,
     organizationId: event.organizationId,
     eventId: event.id,
   })
@@ -603,8 +777,20 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
       authority: authority.authority,
       role: authority.role,
       eventId: event.id,
+      organizationId: event.organizationId,
     },
   })
+
+  if (authority.authority === 'PLATFORM_ROLE') {
+    await recordPlatformAuthorityUse(prisma, {
+      actorId: actor.id,
+      eventId: event.id,
+      organizationId: event.organizationId,
+      operation: 'preview',
+      subject: { ticketId: ticket.id },
+      outcome,
+    })
+  }
 
   return toAdmissionPreview({
     ticket,
@@ -755,6 +941,17 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
   // other sees what it did.
   await tx.$queryRaw`SELECT "id" FROM "Ticket" WHERE "id" = ${claims.t} FOR UPDATE`
 
+  // The caller's platform role and suspension, read now rather than trusted
+  // from the request: a super administrator demoted, or anybody suspended,
+  // since the preview is refused here. Not locked — nothing changes a platform
+  // role inside a transaction that also touches tickets, and a FOR SHARE here
+  // would wait on privacy redaction's own update of the row.
+  const user = await tx.user.findUnique({
+    where: { id: actor.id },
+    select: { role: true, suspendedAt: true },
+  })
+  const platformRole = user && !user.suspendedAt ? user.role : null
+
   const ticket = await resolve(tx, presentation)
 
   if (!ticket || ticket.id !== claims.t) {
@@ -774,6 +971,7 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
 
     const stillAuthorised = await readAdmissionAuthority(tx, {
       actorId: actor.id,
+      platformRole,
       organizationId: previewedEvent.organizationId,
       eventId: previewedEvent.id,
       lock: true,
@@ -799,12 +997,11 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
     return { kind: 'refused', ticketId: ticket.id, reason: 'PREVIEW_MISMATCH' }
   }
 
-  const user = await tx.user.findUnique({ where: { id: actor.id }, select: { suspendedAt: true } })
-
   const authority =
     user && !user.suspendedAt
       ? await readAdmissionAuthority(tx, {
           actorId: actor.id,
+          platformRole,
           organizationId: event.organizationId,
           eventId: event.id,
           lock: true,
@@ -832,8 +1029,23 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
     gate: body.gate ?? null,
     method: presentation.method,
     authority: authority.authority,
+    role: authority.role,
+    organizationId: event.organizationId,
     now,
   })
+
+  // In the admitting transaction, so the event's record and the admission
+  // commit or roll back together.
+  if (authority.authority === 'PLATFORM_ROLE') {
+    await recordPlatformAuthorityUse(tx, {
+      actorId: actor.id,
+      eventId: event.id,
+      organizationId: event.organizationId,
+      operation: 'check_in',
+      subject: { ticketId: ticket.id },
+      outcome: 'ADMITTED',
+    })
+  }
 
   const admitted = await tx.ticket.findUnique({
     where: { id: ticket.id },
@@ -867,15 +1079,71 @@ export const DOOR_EVENT_STATUSES = Object.freeze([
 const DOOR_GRACE_MS = 24 * 60 * 60 * 1000
 
 /**
+ * The most events a platform door list names at once.
+ *
+ * @type {number}
+ */
+export const PLATFORM_DOOR_LIST_LIMIT = 100
+
+/**
+ * The most organisations the platform door filter offers.
+ *
+ * @type {number}
+ */
+const PLATFORM_DOOR_ORGANIZATION_LIMIT = 500
+
+/**
+ * The events a door list may show, before any authority is considered.
+ *
+ * @param {Date} since The earliest `endsAt` still shown.
+ * @param {{organizationId?: string, q?: string}} filters The caller's filter.
+ * @returns {object} A Prisma `where` for `Event`.
+ */
+function doorEventWhere(since, filters) {
+  return {
+    status: { in: [...DOOR_EVENT_STATUSES] },
+    cancelledAt: null,
+    endsAt: { gte: since },
+    ...(filters.organizationId ? { organizationId: filters.organizationId } : {}),
+    ...(filters.q
+      ? {
+          OR: [
+            { title: { contains: filters.q, mode: 'insensitive' } },
+            { organization: { name: { contains: filters.q, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
+  }
+}
+
+/** The columns a door list reads from an event. */
+const DOOR_EVENT_SELECT = Object.freeze({
+  id: true,
+  title: true,
+  startsAt: true,
+  endsAt: true,
+  timezone: true,
+  status: true,
+})
+
+/**
  * The events this caller may admit to, and on what authority.
+ *
+ * Two kinds of list. A member's is built from their memberships, each passed
+ * through the same policy function the door uses, so this list and the door
+ * cannot disagree. A platform super administrator's is every organisation's
+ * door-eligible events, soonest first and cut at
+ * {@link PLATFORM_DOOR_LIST_LIMIT}; an event its memberships cover is labelled
+ * with the membership's authority, every other with `PLATFORM_ROLE`.
  *
  * @param {object} options Options.
  * @param {object} options.prisma A Prisma client.
  * @param {object} options.actor The request actor.
+ * @param {{organizationId?: string, q?: string}} [options.filters] Narrow by organisation and by title or organisation name.
  * @param {Date} [options.now] The instant.
- * @returns {Promise<Array<object>>} Entries satisfying `admissionEventsResponseSchema`'s items.
+ * @returns {Promise<{entries: Array<object>, meta: {scope: string, organizations: Array<{id: string, name: string}>, truncated: boolean}}>} The list.
  */
-export async function listAdmissionEvents({ prisma, actor, now = new Date() }) {
+export async function listAdmissionEvents({ prisma, actor, filters = {}, now = new Date() }) {
   const since = new Date(now.getTime() - DOOR_GRACE_MS)
 
   const memberships = await prisma.membership.findMany({
@@ -887,7 +1155,12 @@ export async function listAdmissionEvents({ prisma, actor, now = new Date() }) {
     },
   })
 
+  if (platformAdmissionAuthorityFor(actor.role)) {
+    return platformDoorList({ prisma, memberships, filters, since })
+  }
+
   const entries = []
+  let truncated = false
 
   for (const membership of memberships) {
     const doorRole = (ORG_ROLE_CAPABILITIES[membership.role] ?? []).includes(
@@ -895,6 +1168,8 @@ export async function listAdmissionEvents({ prisma, actor, now = new Date() }) {
     )
 
     if (!doorRole) continue
+
+    if (filters.organizationId && filters.organizationId !== membership.organization.id) continue
 
     // Candidates: the scoped events for a scoped role, otherwise the whole
     // organisation. Either way each is passed through the same policy function
@@ -909,25 +1184,18 @@ export async function listAdmissionEvents({ prisma, actor, now = new Date() }) {
 
     const events = await prisma.event.findMany({
       where: {
+        ...doorEventWhere(since, filters),
         organizationId: membership.organization.id,
         ...(scopedIds ? { id: { in: scopedIds } } : {}),
-        status: { in: [...DOOR_EVENT_STATUSES] },
-        cancelledAt: null,
-        endsAt: { gte: since },
       },
       orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
-      take: 100,
-      select: {
-        id: true,
-        title: true,
-        startsAt: true,
-        endsAt: true,
-        timezone: true,
-        status: true,
-      },
+      take: PLATFORM_DOOR_LIST_LIMIT + 1,
+      select: DOOR_EVENT_SELECT,
     })
 
-    for (const event of events) {
+    if (events.length > PLATFORM_DOOR_LIST_LIMIT) truncated = true
+
+    for (const event of events.slice(0, PLATFORM_DOOR_LIST_LIMIT)) {
       const authority = admissionAuthorityFor(membership, event.id)
 
       if (!authority) continue
@@ -941,5 +1209,70 @@ export async function listAdmissionEvents({ prisma, actor, now = new Date() }) {
     }
   }
 
-  return entries
+  const organizations = [
+    ...new Map(entries.map((entry) => [entry.organization.id, entry.organization])).values(),
+  ].sort((left, right) => left.name.localeCompare(right.name))
+
+  return { entries, meta: { scope: 'MEMBERSHIPS', organizations, truncated } }
+}
+
+/**
+ * A platform super administrator's door list.
+ *
+ * @param {object} options Options.
+ * @param {object} options.prisma A Prisma client.
+ * @param {Array<object>} options.memberships The caller's memberships, with scopes.
+ * @param {{organizationId?: string, q?: string}} options.filters The caller's filter.
+ * @param {Date} options.since The earliest `endsAt` still shown.
+ * @returns {Promise<{entries: Array<object>, meta: object}>} The list.
+ */
+async function platformDoorList({ prisma, memberships, filters, since }) {
+  const [events, organizations] = await Promise.all([
+    prisma.event.findMany({
+      where: doorEventWhere(since, filters),
+      orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+      take: PLATFORM_DOOR_LIST_LIMIT + 1,
+      select: { ...DOOR_EVENT_SELECT, organization: { select: { id: true, name: true } } },
+    }),
+    // Every organisation with a door open now, for the filter — not narrowed
+    // by the filter itself, so choosing one does not empty the list of others.
+    prisma.organization.findMany({
+      where: { events: { some: doorEventWhere(since, {}) } },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      take: PLATFORM_DOOR_ORGANIZATION_LIMIT,
+      select: { id: true, name: true },
+    }),
+  ])
+
+  const byOrganization = new Map(
+    memberships.map((membership) => [membership.organization.id, membership]),
+  )
+
+  const entries = events.slice(0, PLATFORM_DOOR_LIST_LIMIT).map((event) => {
+    // Membership wins, exactly as at the door: a super administrator who
+    // organises this event is recorded on that authority, not the platform's.
+    const authority =
+      admissionAuthorityFor(byOrganization.get(event.organization.id) ?? null, event.id) ??
+      platformAdmissionAuthorityFor('SUPER_ADMIN')
+    const { organization, ...row } = event
+
+    return {
+      event: { ...toAdmissionEvent(row), status: row.status },
+      organization: { id: organization.id, name: organization.name },
+      authority: authority.authority,
+      role: authority.role,
+    }
+  })
+
+  return {
+    entries,
+    meta: {
+      scope: 'PLATFORM',
+      organizations: organizations.map((organization) => ({
+        id: organization.id,
+        name: organization.name,
+      })),
+      truncated: events.length > PLATFORM_DOOR_LIST_LIMIT,
+    },
+  }
 }

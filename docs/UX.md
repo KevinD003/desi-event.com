@@ -14,7 +14,7 @@ separately here, on purpose.
 | Event page             | `/events/[slug]`                                    |
 | Checkout               | `/events/[slug]/checkout`                           |
 | Organiser event list   | `/organizer/events`                                 |
-| Event editor (7 steps) | `/organizer/events/[id]`                            |
+| Event editor (9 steps) | `/organizer/events/[id]`                            |
 | Venues and maps        | `/organizer/venues`, `/organizer/map-versions/[id]` |
 | Moderation queue       | `/moderation/events`                                |
 | Finance overview       | `/finance`                                          |
@@ -273,6 +273,74 @@ implementation would silently corrupt.
 
 Columns are an explicit allow list. An export cannot widen because a model
 gained a field.
+
+---
+
+## The event editor: draft, live and locked
+
+Nine steps, in this order: Details, When and where, Sessions, Tickets, Policies
+and access, Media, Line-up and running order, Guest information, Review. Media
+stays sixth because the pictures arrived before the two content steps did; the
+lifecycle commands are on the last step, beside the readiness checklist.
+
+The editor is in one of three modes, from the event's status:
+
+- **Draft** (`DRAFT`, `CHANGES_REQUIRED`): every field is editable and
+  autosaves about a second after typing stops.
+- **Live** (`PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT`, `POSTPONED`): an
+  alert headed "This event is public" says the description, line-up, questions
+  and other details still save as you type, and the date, place and terms do
+  not. Those fields are read-only on their steps, beside a "Change date, place or
+  terms…" button that opens a panel. The panel says "You are changing: …" in
+  words, asks "Why this is changing" (required, up to 2,000 characters) and a
+  tick — "I understand this changes what people bought, and a notice will be
+  recorded for every current order." — and sends only the fields that changed.
+  Tiers and sessions are still added and edited; a change that would take
+  something from a buyer (a sold tier's price, a quantity below what is sold and
+  held, a seating layout, the only night of the event) is refused with the
+  reason.
+- **Locked** (every other status): "This event is not open for editing", with
+  what happens next, and every field disabled.
+
+A lifecycle command on the Review step — rework, reschedule, publish and the
+rest — hands the event the server returned back to the editor. The editor takes
+its status, its revision and any field the command changed, so a reworked event
+unlocks at once and the next save after a reschedule carries the new revision
+rather than being refused as somebody else's edit. Removing a session re-reads
+the ticket types, because the ones priced for that night go with it.
+
+**Copy says "recorded", never "sent".** This build sends no email. Every place
+that used to say a change or a postponement was sent to ticket holders now says a
+notice is recorded for every current order, and where the organiser would
+otherwise assume people have been told, it adds "This build does not send email,
+so tell ticket holders yourself as well." That covers the material-change panel,
+the postpone and cancel reason field ("Recorded with the notice for every current
+order…"), the postpone confirmation, the policies step and the reschedule form.
+
+**A postponed event comes back in one step.** "Set a new date and bring it back"
+opens a form with the new start and end in the event's zone, every session
+prefilled and moved by the same amount unless that box is unticked, a choice of
+coming back published (sales closed) or on sale — the second offered only when
+the server says sales can reopen, with the reasons when they cannot — a reason
+and a tick. A lapsed step-up opens the second-factor prompt beside the form, not
+inside it. **A rejected event** offers "Rework as a draft", which says the
+moderator's reasons stay in the history.
+
+**Prices are typed in dollars.** "35", "$35.00", "35 USD" and "1,234.50" are
+read; a stray letter anywhere else ("12x5") is refused with "Type the price as a
+plain number, such as 35.00." rather than read as a different price.
+
+**The moderator sees where every link goes.** The review page renders the
+description as the public page will, and writes each link's full address after
+its label, so "Official tickets" cannot point somewhere unseen. Social and
+sponsor links are written out in full, and hidden and complimentary tiers are
+flagged.
+
+Checked by unit and component tests (`event-editor.test.jsx`,
+`event-lifecycle-panel.test.jsx`, `material-change-panel.test.jsx`,
+`event-reschedule-form.test.jsx`, the moderation page's test). The browser
+journeys for these flows are not written yet, and nothing in this section has
+been through the accessibility sweep.
 
 ---
 

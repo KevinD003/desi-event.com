@@ -156,6 +156,20 @@ export async function getEventSessions(id) {
 }
 
 /**
+ * An event's ticket types as its organiser sees them: hidden and draft ones
+ * too, with what is sold and held, whether each can be removed, and the
+ * event's revision.
+ *
+ * `GET /v1/events/:id/tiers`, answered only to members who may see drafts.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<{data: object[], meta: {revision: number}}>} The ticket types and the revision.
+ */
+export async function getEventTicketTypes(id) {
+  return callApi(`/v1/events/${encodeURIComponent(id)}/tiers`)
+}
+
+/**
  * An event's pictures, each with its review state, and the event's revision.
  *
  * For the organiser's editor and the moderator's review. Never a public read:
@@ -415,12 +429,27 @@ export async function getTicket(id) {
  * The events this account may admit people to, with the authority for each.
  *
  * `GET /v1/tickets/admission/events`. Asked of the server on every request:
- * a door scope granted or withdrawn a moment ago is already reflected.
+ * a door scope granted or withdrawn a moment ago is already reflected. A
+ * platform super administrator's list covers every organisation and can be
+ * narrowed by organisation and by a search; neither value is a secret, so
+ * both travel in the query string. Empty values are left out.
  *
- * @returns {Promise<Array<object>>} The entries.
+ * @param {object} [filters] Narrow the list.
+ * @param {string} [filters.organizationId] One organisation's events.
+ * @param {string} [filters.q] A search of the event title or organisation name.
+ * @returns {Promise<{entries: Array<object>, meta: {scope: string, organizations: Array<{id: string, name: string}>, truncated: boolean}}>} The list.
  */
-export async function getAdmissionEvents() {
-  const body = await callApi('/v1/tickets/admission/events')
+export async function getAdmissionEvents({ organizationId, q } = {}) {
+  const query = new URLSearchParams()
 
-  return body.data
+  if (organizationId) query.set('organizationId', organizationId)
+  if (q) query.set('q', q)
+
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/tickets/admission/events${suffix}`)
+
+  return {
+    entries: body.data ?? [],
+    meta: body.meta ?? { scope: 'MEMBERSHIPS', organizations: [], truncated: false },
+  }
 }

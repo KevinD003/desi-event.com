@@ -5,12 +5,20 @@
  *
  * ## The invitation is not in the URL
  *
- * A transfer is authorised by a bearer token. It is delivered out of band, to
- * the address the sender typed, and it is pasted into the field below — it is
+ * A transfer is authorised by a one-time code. This build sends no email, so
+ * the API returns the code exactly once, in the response to the offer, and the
+ * sender passes it on themselves; the shared `OneTimeCodePanel` is the only
+ * place it is drawn, it lives in this component's state and nowhere else, and
+ * it is dropped on "I have handed it over", on leaving the page and on
+ * unmount — not when the tab is hidden, so the sender can switch to a
+ * messaging app and paste it. The recipient pastes it into the field below —
  * never a query parameter, because a secret in a URL is a secret in the browser
  * history, in the `Referer` header of the next request, in the proxy's access
- * log and in every screenshot of the address bar. The API compares the token's
- * digest; it has never held the token itself.
+ * log and in every screenshot of the address bar. The API keeps only its
+ * digest, and a code alone takes nothing: the recipient must also be signed in
+ * at the address it was offered to.
+ *
+ * A reserved seat is offered like any other ticket; the seat goes with it.
  *
  * The field is a password input for the same reason a password is: this screen
  * gets used on a train.
@@ -28,11 +36,11 @@
  * @module components/ticket-transfer-actions
  */
 
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Alert, Button, FormField, Input, Textarea } from './ui.jsx'
+import { OneTimeCodePanel } from './one-time-code-panel.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 
@@ -53,7 +61,6 @@ const OFFERABLE = Object.freeze(['VALID'])
  * @property {Array<object>} transfers Its transfers, oldest first.
  * @property {boolean} holder Whether the caller is the person holding it.
  * @property {boolean} mayRevoke Whether the caller may withdraw it.
- * @property {string|null} [transferBlockedReason] The server's reason it may not be offered whatever its state.
  */
 
 /**
@@ -62,13 +69,7 @@ const OFFERABLE = Object.freeze(['VALID'])
  * @param {TicketTransferActionsProps} props Component props.
  * @returns {JSX.Element} The rendered panel.
  */
-export function TicketTransferActions({
-  ticket,
-  transfers,
-  holder,
-  mayRevoke,
-  transferBlockedReason = null,
-}) {
+export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) {
   const router = useRouter()
   const [pending, setPending] = useState(null)
   const [toEmail, setToEmail] = useState('')
@@ -78,16 +79,25 @@ export function TicketTransferActions({
   const [error, setError] = useState(null)
   const [stepUp, setStepUp] = useState(false)
   const [announcement, setAnnouncement] = useState('')
+  // The one-time code from an offer, with who it is for and until when. In
+  // state only; see the module doc for when it is dropped.
+  const [issued, setIssued] = useState(null)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
 
   const outstanding = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
-  // The server says when a ticket may not be offered whatever its state — a
-  // reserved seat, until seated transfer exists. The button is not drawn, so
-  // the screen does not offer something the server would refuse.
-  const seatBlocked = transferBlockedReason === 'RESERVED_SEAT'
-  const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding && !seatBlocked
+  const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding
   const withdrawable = holder && Boolean(outstanding)
+
+  // Leaving the page drops the code. Hiding the tab does not: the sender has
+  // to be able to switch to a messaging app and paste it.
+  useEffect(() => {
+    const drop = () => setIssued(null)
+
+    window.addEventListener('pagehide', drop)
+
+    return () => window.removeEventListener('pagehide', drop)
+  }, [])
 
   /**
    * Open one form.
@@ -119,7 +129,7 @@ export function TicketTransferActions({
    *
    * @param {string} path The path under `/v1`.
    * @param {object|null} body The payload, or null for none.
-   * @param {string} said What to announce on success.
+   * @param {string|function(object): string} said What to announce on success, or how to say it from the answer.
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
   async function send(path, body, said) {
@@ -135,11 +145,22 @@ export function TicketTransferActions({
       const parsed = await response.json().catch(() => null)
 
       if (response.ok) {
+        const code = parsed?.data?.delivery?.invitationCode ?? null
+
         setPending(null)
         setToEmail('')
         setMessage('')
         setReason('')
-        setAnnouncement(said)
+        setAnnouncement(typeof said === 'function' ? said(parsed?.data ?? null) : said)
+
+        if (code) {
+          setIssued({
+            code,
+            recipient: parsed.data.toEmailMasked ?? null,
+            expiresAt: parsed.data.expiresAt ?? null,
+          })
+        }
+
         router.refresh()
         return
       }
@@ -166,6 +187,20 @@ export function TicketTransferActions({
         {announcement}
       </p>
 
+      {issued ? (
+        <OneTimeCodePanel
+          code={issued.code}
+          heading="Give them this code"
+          codeLabel="Ticket transfer code"
+          recipient={issued.recipient}
+          expiresAt={issued.expiresAt}
+          acceptPath="/tickets/accept"
+          acceptPlace="Your account → Transfers → Accept a ticket"
+          lostAdvice="If you lose it, withdraw the offer and make a new one."
+          onDone={() => setIssued(null)}
+        />
+      ) : null}
+
       {pending === null ? (
         <ul className="mt-2 space-y-3">
           {offerable ? (
@@ -174,8 +209,8 @@ export function TicketTransferActions({
                 Offer this ticket to somebody
               </Button>
               <p className="mt-1 text-sm text-ink-muted">
-                They get an invitation at the address you give. Until they accept it the ticket
-                stays yours and still admits you.
+                You are shown a one-time code to give them yourself; they accept it signed in at the
+                address you name. Until they do, the ticket stays yours and still admits you.
               </p>
             </li>
           ) : null}
@@ -211,20 +246,7 @@ export function TicketTransferActions({
             </li>
           ) : null}
 
-          {holder && seatBlocked && OFFERABLE.includes(ticket.status) && !outstanding ? (
-            <li className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
-              This ticket is for a reserved seat, and reserved-seat tickets cannot be handed on on
-              this site. It stays yours and still admits you.{' '}
-              <Link
-                href="/limitations"
-                className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-              >
-                Why seated tickets cannot be handed on
-              </Link>
-            </li>
-          ) : null}
-
-          {!offerable && !withdrawable && !mayRevoke && !(holder && seatBlocked) ? (
+          {!offerable && !withdrawable && !mayRevoke ? (
             <li className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
               There is nothing to do with this ticket. A ticket that has been handed on, withdrawn,
               refunded or already admitted cannot be offered again.
@@ -280,7 +302,7 @@ export function TicketTransferActions({
                   label="Their email address"
                   id="transfer-to"
                   required
-                  description="The invitation is addressed here and nowhere else. It expires, and until it is accepted the ticket stays yours. This site delivers no email, so the invitation is recorded but not sent."
+                  description="They must be signed in with this address to accept. This site sends no email: after you offer it you are shown a one-time code to give them yourself."
                 >
                   <Input
                     type="email"
@@ -313,7 +335,10 @@ export function TicketTransferActions({
                         toEmail: toEmail.trim(),
                         ...(message.trim() ? { message: message.trim() } : {}),
                       },
-                      'Offered. The invitation is recorded, and the ticket stays yours until it is accepted. This site delivers no email, so nothing has been sent to them.',
+                      (data) =>
+                        data?.delivery?.mode === 'EMAIL'
+                          ? 'Offered. The invitation has been sent.'
+                          : 'Offered. Give them the code shown below; it is shown only once.',
                     )
                   }
                 >

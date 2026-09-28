@@ -261,3 +261,67 @@ describe('POST /v1/events/:eventId/waitlist', () => {
     await app.close()
   })
 })
+
+describe('GET /v1/events/:eventId/ticket-types, draft and hidden tiers', () => {
+  /**
+   * The published event with one draft tier and one hidden guest list added.
+   *
+   * @returns {Promise<object>} The harness and the two tier ids.
+   */
+  async function withPrivateTiers() {
+    const harness = await createTestApp()
+    const { prisma, ids } = harness
+    const draftId = `${ids.generalAdmission.id.slice(0, -4)}dr01`
+    const hiddenId = `${ids.generalAdmission.id.slice(0, -4)}hd01`
+
+    prisma._store.ticketType.push(
+      { ...ids.generalAdmission, id: draftId, name: 'Unannounced', status: 'DRAFT' },
+      {
+        ...ids.generalAdmission,
+        id: hiddenId,
+        name: 'Guest list',
+        priceCents: 0,
+        complimentary: true,
+        visibility: 'HIDDEN',
+      },
+    )
+
+    return { ...harness, draftId, hiddenId }
+  }
+
+  it('lists neither to a stranger', async () => {
+    const { app, ids, draftId, hiddenId } = await withPrivateTiers()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const listed = response.json().data.map((tier) => tier.id)
+
+    expect(listed).toContain(ids.generalAdmission.id)
+    expect(listed).not.toContain(draftId)
+    expect(listed).not.toContain(hiddenId)
+
+    await app.close()
+  })
+
+  it('lists both to the organisation', async () => {
+    const { app, ids, draftId, hiddenId } = await withPrivateTiers()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(token),
+    })
+
+    const listed = response.json().data.map((tier) => tier.id)
+
+    expect(listed).toEqual(expect.arrayContaining([draftId, hiddenId]))
+
+    await app.close()
+  })
+})

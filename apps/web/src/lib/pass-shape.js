@@ -21,3 +21,31 @@
 export function looksLikePass(text) {
   return typeof text === 'string' && /^[A-Za-z0-9_-]{16,200}$/u.test(text)
 }
+
+/**
+ * Whether decoded text has the shape of a group pass.
+ *
+ * `G1.` and 43 url-safe characters — the group door's request schema. The `.`
+ * never occurs in a ticket's own pass, so the two shapes cannot both match
+ * and a scan is routed to exactly one lookup.
+ *
+ * @param {unknown} text Decoded text.
+ * @returns {boolean} True when it could be a group pass.
+ */
+export function looksLikeGroupPass(text) {
+  return typeof text === 'string' && /^G1\.[A-Za-z0-9_-]{43}$/u.test(text)
+}
+
+/**
+ * Whether a typed code has the shape of a printed group code.
+ *
+ * `DEG-` and twelve characters from the ticket-code alphabet, however it was
+ * typed: spaces around it and lower case are forgiven, as the server forgives
+ * them.
+ *
+ * @param {unknown} code What the steward typed.
+ * @returns {boolean} True when it could be a group code.
+ */
+export function looksLikeGroupCode(code) {
+  return typeof code === 'string' && /^DEG-[2-9A-HJ-NP-Z]{12}$/u.test(code.trim().toUpperCase())
+}

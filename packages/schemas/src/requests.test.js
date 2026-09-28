@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_PAGE, DEFAULT_PER_PAGE, MAX_PER_PAGE } from './primitives.js'
 import {
+  admissionEventsQuerySchema,
   admissionPreviewRequestSchema,
   checkInRequestSchema,
+  groupAdmissionPreviewRequestSchema,
+  groupCheckInRequestSchema,
   createEventRequestSchema,
   createHoldRequestSchema,
   createOrderRequestSchema,
@@ -634,6 +637,25 @@ describe('checkInRequestSchema', () => {
         deviceId: 'ipad-3',
       }),
     ).toEqual({ credential, previewReference, gate: 'North', deviceId: 'ipad-3' })
+    expect(
+      checkInRequestSchema.parse({
+        credential,
+        previewReference,
+        gate: ' North Gate ',
+        deviceId: ' ipad 3 ',
+      }),
+    ).toEqual({ credential, previewReference, gate: 'North Gate', deviceId: 'ipad 3' })
+  })
+
+  it.each([
+    ['a NUL in the gate', { gate: 'North\u0000' }],
+    ['a tab inside the gate', { gate: 'North\tGate' }],
+    ['a NUL in the device name', { deviceId: '\u0000ipad' }],
+    ['DEL in the device name', { deviceId: 'ipad\u007f' }],
+  ])('refuses %s, which the database would refuse as a 500', (_name, extra) => {
+    expect(checkInRequestSchema.safeParse({ credential, previewReference, ...extra }).success).toBe(
+      false,
+    )
   })
 
   it('refuses a request that presents nothing, or presents both', () => {
@@ -666,6 +688,155 @@ describe('checkInRequestSchema', () => {
     expect(
       checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference, ...extra }).success,
     ).toBe(false)
+  })
+})
+
+describe('group door requests', () => {
+  const groupCredential = `G1.${'A'.repeat(43)}`
+  const groupCode = 'DEG-ABCDEFGH2345'
+  const previewReference = `${'a'.repeat(40)}.${'b'.repeat(43)}`
+  const ticketIds = [EVENT_ID, TT_ID]
+
+  it('accepts a group QR or a typed group code, upper-casing the code', () => {
+    expect(groupAdmissionPreviewRequestSchema.parse({ credential: groupCredential })).toEqual({
+      credential: groupCredential,
+    })
+    expect(groupAdmissionPreviewRequestSchema.parse({ code: ' deg-abcdefgh2345 ' })).toEqual({
+      code: groupCode,
+    })
+  })
+
+  it('refuses no presentation, or two', () => {
+    expect(groupAdmissionPreviewRequestSchema.safeParse({}).success).toBe(false)
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ credential: groupCredential, code: groupCode })
+        .success,
+    ).toBe(false)
+    expect(groupCheckInRequestSchema.safeParse({ previewReference, ticketIds }).success).toBe(false)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        credential: groupCredential,
+        code: groupCode,
+        previewReference,
+        ticketIds,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('refuses a ticket pass or a ticket code where a group one is expected', () => {
+    // The shapes are disjoint by construction: a ticket credential has no `.`,
+    // a ticket code no `DEG-` prefix and twelve-character body.
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ credential: 'a'.repeat(43) }).success,
+    ).toBe(false)
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ code: 'DET-ABCDEFGH234567' }).success,
+    ).toBe(false)
+    expect(groupAdmissionPreviewRequestSchema.safeParse({ code: 'DEG-ABCDEFGH234O' }).success).toBe(
+      false,
+    )
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ credential: `G1.${'A'.repeat(42)}` }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'QR_SCAN' }],
+    ['ticketIds', { ticketIds: [EVENT_ID] }],
+    ['previewReference', { previewReference }],
+  ])('refuses %s on a group preview rather than ignoring it', (_key, extra) => {
+    expect(
+      groupAdmissionPreviewRequestSchema.safeParse({ code: groupCode, ...extra }).success,
+    ).toBe(false)
+  })
+
+  it('confirms an explicit selection of one to fifty tickets, each named once', () => {
+    expect(
+      groupCheckInRequestSchema.parse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        gate: 'North',
+      }),
+    ).toEqual({ code: groupCode, previewReference, ticketIds, gate: 'North' })
+    expect(
+      groupCheckInRequestSchema.safeParse({ code: groupCode, previewReference, ticketIds: [] })
+        .success,
+    ).toBe(false)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds: Array.from({ length: 51 }, () => EVENT_ID),
+      }).success,
+    ).toBe(false)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds: [EVENT_ID, EVENT_ID],
+      }).success,
+    ).toBe(false)
+    expect(groupCheckInRequestSchema.safeParse({ code: groupCode, ticketIds }).success).toBe(false)
+  })
+
+  it.each([
+    ['method', { method: 'MANUAL_CODE' }],
+    ['checkedInAt', { checkedInAt: '2026-01-01T10:00:00.000Z' }],
+    ['groupPassId', { groupPassId: EVENT_ID }],
+  ])('refuses %s on a group confirmation', (_key, extra) => {
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        ...extra,
+      }).success,
+    ).toBe(false)
+  })
+
+  it.each([
+    ['a NUL in the gate', { gate: 'North\u0000' }],
+    ['a newline inside the gate', { gate: 'North\nGate' }],
+    ['a NUL in the device name', { deviceId: 'ipad\u00003' }],
+    ['a C1 control in the device name', { deviceId: 'ipad\u009b3' }],
+  ])('refuses %s on a group confirmation', (_name, extra) => {
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        ...extra,
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('admissionEventsQuerySchema', () => {
+  it('takes an organisation and a search, both optional', () => {
+    expect(admissionEventsQuerySchema.parse({})).toEqual({})
+    expect(admissionEventsQuerySchema.parse({ organizationId: ORG_ID, q: '  garba ' })).toEqual({
+      organizationId: ORG_ID,
+      q: 'garba',
+    })
+  })
+
+  it('bounds the search and refuses anything else', () => {
+    expect(admissionEventsQuerySchema.safeParse({ q: 'x'.repeat(101) }).success).toBe(false)
+    expect(admissionEventsQuerySchema.safeParse({ q: '   ' }).success).toBe(false)
+    expect(admissionEventsQuerySchema.safeParse({ organizationId: 'not a cuid' }).success).toBe(
+      false,
+    )
+    expect(admissionEventsQuerySchema.safeParse({ page: '2' }).success).toBe(false)
+  })
+
+  it.each([
+    ['NUL', 'gar\u0000ba'],
+    ['a tab', 'gar\tba'],
+    ['DEL', 'garba\u007f'],
+    ['a C1 control', 'gar\u0085ba'],
+  ])('refuses a search with %s in it, which the database would refuse as a 500', (_name, q) => {
+    expect(admissionEventsQuerySchema.safeParse({ q }).success).toBe(false)
   })
 })
 

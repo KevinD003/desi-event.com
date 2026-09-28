@@ -32,6 +32,8 @@ export const REFUSAL_SENTENCES = Object.freeze({
   PREVIEW_EXPIRED: 'That lookup took too long to confirm. Look the ticket up again.',
   PREVIEW_INVALID: 'That lookup could not be confirmed. Look the ticket up again.',
   PREVIEW_MISMATCH: 'The pass confirmed is not the one looked up. Look it up again.',
+  GROUP_CHANGED:
+    'Some tickets in this group changed after it was looked up. Look it up again before admitting anyone.',
 })
 
 /**
@@ -39,7 +41,12 @@ export const REFUSAL_SENTENCES = Object.freeze({
  *
  * @type {ReadonlyArray<string>}
  */
-export const LOOK_AGAIN = Object.freeze(['PREVIEW_EXPIRED', 'PREVIEW_INVALID', 'PREVIEW_MISMATCH'])
+export const LOOK_AGAIN = Object.freeze([
+  'PREVIEW_EXPIRED',
+  'PREVIEW_INVALID',
+  'PREVIEW_MISMATCH',
+  'GROUP_CHANGED',
+])
 
 /**
  * The sentence for a refusal code, with a safe fallback for one this build
@@ -59,6 +66,10 @@ export function refusalSentence(code) {
  * @returns {string} The label.
  */
 export function authorityLabel(entry) {
+  if (entry.authority === 'PLATFORM_ROLE') {
+    return 'Any event on the platform (platform administrator)'
+  }
+
   if (entry.authority === 'ORGANIZATION_ROLE') {
     return `Every event of ${entry.organization?.name ?? 'your organisation'} (${roleWord(entry.role)})`
   }
@@ -184,4 +195,100 @@ export function doorTime(iso, timezone) {
   } catch {
     return new Date(iso).toISOString()
   }
+}
+
+/**
+ * How an event is named in the door's event picker.
+ *
+ * The organisation is named too when the list spans more than one — the
+ * platform super administrator's list does — so two events with one title are
+ * never confused.
+ *
+ * @param {object} entry An admission-events entry: its `event` and, when known, its `organization`.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.withOrganization] Whether to name the organisation.
+ * @returns {string} The label.
+ */
+export function doorEventLabel(entry, { withOrganization = false } = {}) {
+  const when = doorTime(entry.event.startsAt, entry.event.timezone)
+
+  return withOrganization && entry.organization?.name
+    ? `${entry.event.title} — ${entry.organization.name} — ${when}`
+    : `${entry.event.title} — ${when}`
+}
+
+/**
+ * A number of tickets in words.
+ *
+ * @param {number} count How many.
+ * @returns {string} "1 ticket" or "3 tickets".
+ */
+function tickets(count) {
+  return `${count} ${count === 1 ? 'ticket' : 'tickets'}`
+}
+
+/**
+ * What a group lookup found, in one sentence.
+ *
+ * @param {{counts: {admissible: number, alreadyIn: number, refused: number}, handedOn: number}} preview A group preview.
+ * @returns {string} The sentence.
+ */
+export function groupLookupSentence(preview) {
+  const { admissible, alreadyIn, refused } = preview.counts
+  const parts = [`${tickets(admissible)} can be admitted`]
+
+  if (alreadyIn > 0) parts.push(`${alreadyIn} already in`)
+  if (refused > 0) parts.push(`${refused} refused`)
+
+  const found = `${parts.join(', ')}.`
+
+  if (!preview.handedOn) return found
+
+  return `${found} ${handedOnSentence(preview.handedOn)}`
+}
+
+/**
+ * Tickets from the order that were handed to other people.
+ *
+ * @param {number} count How many.
+ * @returns {string} The sentence.
+ */
+export function handedOnSentence(count) {
+  return count === 1
+    ? '1 ticket from this order was handed to somebody else; they have their own pass.'
+    : `${count} tickets from this order were handed to other people; they have their own passes.`
+}
+
+/**
+ * What a group admission did, in one sentence.
+ *
+ * @param {{admitted: number, alreadyIn: number}} result A group check-in result.
+ * @returns {string} The sentence.
+ */
+export function groupResultSentence(result) {
+  const admitted = `Admitted ${result.admitted}.`
+
+  if (!result.alreadyIn) return admitted
+
+  return `${admitted} ${result.alreadyIn} ${result.alreadyIn === 1 ? 'was' : 'were'} already in.`
+}
+
+/**
+ * Who a group was, for the door's session list.
+ *
+ * The first name on the group's tickets and how many more, so the steward
+ * reading the list back sees people rather than a ticket with no name. When no
+ * ticket carries a name, it says it was a group pass.
+ *
+ * @param {Array<{attendeeName: string|null}>} tickets The tickets the entry is about.
+ * @returns {string} The name for the list.
+ */
+export function groupSessionName(tickets) {
+  const named = tickets.find((ticket) => ticket.attendeeName)?.attendeeName
+
+  if (!named) return 'Group pass'
+
+  const others = tickets.length - 1
+
+  return others > 0 ? `${named} and ${others} more` : named
 }

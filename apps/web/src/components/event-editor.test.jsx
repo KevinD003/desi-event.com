@@ -9,7 +9,8 @@ vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { EventEditor, formGaps, formProblems } = await import('./event-editor.jsx')
+const { EventEditor, formGaps, formProblems, stepOfField, toHousekeepingPatch, toPatch } =
+  await import('./event-editor.jsx')
 
 /** A draft with everything the form needs. */
 const event = {
@@ -392,6 +393,14 @@ describe('the steps', () => {
     expect(screen.getByRole('heading', { name: 'Tickets', level: 2 })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /step 7/i }))
+    expect(
+      screen.getByRole('heading', { name: 'Line-up and running order', level: 2 }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+    expect(screen.getByRole('heading', { name: 'Guest information', level: 2 })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
     expect(screen.getByRole('heading', { name: /review and publish/i })).toBeInTheDocument()
   })
 
@@ -560,15 +569,454 @@ describe('an event that is not open for editing', () => {
     expect(screen.getByText(/a moderator has asked for something specific/i)).toBeInTheDocument()
   })
 
-  it('never autosaves one', async () => {
+  it.each(['REVIEW_PENDING', 'APPROVED', 'CANCELLED'])(
+    'never autosaves one that is %s',
+    async (status) => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+      render(<EventEditor event={{ ...event, status }} venues={venues} />)
+
+      await user.click(screen.getByRole('button', { name: /when and where/i }))
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(apiFetch).not.toHaveBeenCalled()
+    },
+  )
+})
+
+describe('after a lifecycle command on the review step', () => {
+  /**
+   * Answer each request the editor and its review panel make for what it is.
+   *
+   * @param {Record<string, object>} answers Answers by path suffix; the first match wins.
+   * @returns {void}
+   */
+  function routeFetch(answers) {
+    apiFetch.mockImplementation(async (path) => {
+      for (const [suffix, response] of Object.entries(answers)) {
+        if (path.endsWith(suffix)) return response
+      }
+
+      return answer(500, { error: { message: `No answer set up for ${path}.` } })
+    })
+  }
+
+  const readinessFor = (status) => ({
+    ready: true,
+    status,
+    publishable: [],
+    sellable: [],
+    inventory: [],
+    organizerVerified: true,
+  })
+
+  it('unlocks the fields after a rejected event is reworked as a draft', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const rejected = { ...event, status: 'REJECTED' }
+    const moves = {
+      status: 'REJECTED',
+      transitions: [{ to: 'DRAFT', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+
+    routeFetch({
+      '/readiness': answer(200, { data: readinessFor('REJECTED') }),
+      '/transitions': answer(200, { data: moves }),
+      '/rework': answer(200, { data: { ...rejected, status: 'DRAFT', revision: 4 } }),
+    })
+
+    render(
+      <EventEditor
+        event={rejected}
+        venues={venues}
+        readiness={readinessFor('REJECTED')}
+        transitions={moves}
+      />,
+    )
+
+    expect(screen.getByLabelText(/^Title/)).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+    await user.click(screen.getByRole('button', { name: 'Rework as a draft' }))
+    await user.click(screen.getByRole('button', { name: /^Yes, rework as a draft/i }))
+
+    await waitFor(() => expect(screen.getByText('Revision 4')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+
+    expect(screen.getByLabelText(/^Title/)).toBeEnabled()
+    expect(screen.queryByText(/not open for editing/i)).not.toBeInTheDocument()
+  })
+
+  it('saves the next edit after a reschedule with the revision the reschedule returned', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const postponed = { ...event, status: 'POSTPONED', timezone: 'America/New_York' }
+    const night = {
+      id: 'snight1',
+      timezone: 'America/New_York',
+      startsAt: postponed.startsAt,
+      endsAt: postponed.endsAt,
+    }
+    const week = 7 * 24 * 60 * 60 * 1000
+    const later = (instant) => new Date(new Date(instant).getTime() + week).toISOString()
+    const back = {
+      ...postponed,
+      status: 'PUBLISHED',
+      revision: 4,
+      startsAt: later(postponed.startsAt),
+      endsAt: later(postponed.endsAt),
+    }
+    const moves = {
+      status: 'POSTPONED',
+      transitions: [{ to: 'PUBLISHED', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+
+    routeFetch({
+      '/readiness': answer(200, { data: readinessFor('POSTPONED') }),
+      '/transitions': answer(200, { data: moves }),
+      '/reschedule': answer(200, { data: back }),
+      '/sessions': answer(200, {
+        data: [{ ...night, startsAt: back.startsAt, endsAt: back.endsAt }],
+        meta: { revision: 4 },
+      }),
+      [`/v1/events/${event.id}`]: answer(200, {
+        data: { ...back, title: 'Qawwali Under the Banyan!', revision: 5 },
+      }),
+    })
+
+    render(
+      <EventEditor
+        event={postponed}
+        venues={venues}
+        sessions={[night]}
+        readiness={readinessFor('POSTPONED')}
+        transitions={moves}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+    await user.click(screen.getByRole('button', { name: 'Set a new date and bring it back' }))
+    await user.type(
+      screen.getByLabelText(/^Why, for the people holding tickets/),
+      'The venue is ready again.',
+    )
+    await user.click(screen.getByRole('checkbox', { name: /I understand this changes the date/ }))
+    await user.click(screen.getByRole('button', { name: 'Bring it back' }))
+
+    await waitFor(() => expect(screen.getByText('Revision 4')).toBeInTheDocument())
+    expect(
+      JSON.parse(apiFetch.mock.calls.find(([path]) => path.endsWith('/reschedule'))[1].body),
+    ).toMatchObject({ revision: 3 })
+
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() =>
+      expect(apiFetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(true),
+    )
+
+    const [, patch] = apiFetch.mock.calls.find(([, options]) => options?.method === 'PATCH')
+    const body = JSON.parse(patch.body)
+
+    expect(body.revision).toBe(4)
+    expect(body.title).toBe('Qawwali Under the Banyan!')
+    // A public event's autosave carries no date; the new one is not undone.
+    expect(body).not.toHaveProperty('startsAt')
+    await waitFor(() => expect(screen.getByTestId('save-status')).toHaveTextContent(/Saved at/))
+    expect(screen.queryByText(/Somebody else changed this event/)).not.toBeInTheDocument()
+
+    // The sessions step shows the nights where they went.
+    expect(apiFetch.mock.calls.some(([path]) => path.endsWith('/sessions'))).toBe(true)
+  })
+})
+
+describe('the tickets step after a session goes', () => {
+  it('re-reads the ticket types, so ones removed with the session are not offered', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const night = {
+      id: 'snight1',
+      timezone: 'Asia/Kolkata',
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      capacity: 100,
+      usage: { sold: 0, held: 0 },
+      removable: true,
+      priceZones: [],
+    }
+    const onNight = {
+      id: 'ctieronnight1',
+      name: 'Night one pass',
+      priceCents: 3500,
+      currency: 'USD',
+      quantityTotal: 10,
+      status: 'DRAFT',
+      eventSessionId: night.id,
+      visibility: 'PUBLIC',
+      removable: true,
+      heldQuantity: 0,
+      hasOrders: false,
+    }
+
+    apiFetch.mockImplementation(async (path, options) => {
+      if (options?.method === 'DELETE') return answer(200, { ok: true, meta: { revision: 4 } })
+      if (path.endsWith('/sessions')) return answer(200, { data: [], meta: { revision: 4 } })
+      if (path.endsWith('/tiers')) return answer(200, { data: [], meta: { revision: 4 } })
+      if (path.endsWith('/price-preview')) return answer(200, { data: [] })
+
+      return answer(500, { error: { message: `No answer set up for ${path}.` } })
+    })
+
+    render(<EventEditor event={event} venues={venues} sessions={[night]} tiers={[onNight]} />)
+
+    await user.click(screen.getByRole('button', { name: /step 4/i }))
+    expect(screen.getByText('Night one pass')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /step 3/i }))
+    await user.click(screen.getByRole('button', { name: /^Remove/ }))
+    await user.click(screen.getByRole('button', { name: /^(Yes, )?remove/i }))
+
+    await waitFor(() =>
+      expect(apiFetch.mock.calls.some(([path]) => path.endsWith('/tiers'))).toBe(true),
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 4/i }))
+
+    await waitFor(() => expect(screen.queryByText('Night one pass')).not.toBeInTheDocument())
+  })
+})
+
+describe('a public event', () => {
+  const live = { ...event, status: 'ON_SALE' }
+
+  it('is not called closed for editing, and says how its date, place and terms change', () => {
+    render(<EventEditor event={live} venues={venues} />)
+
+    expect(screen.queryByText(/not open for editing/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/This event is public/)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Title/)).toBeEnabled()
+  })
+
+  it('autosaves its housekeeping only, never a material field', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
-    render(<EventEditor event={{ ...event, status: 'ON_SALE' }} venues={venues} />)
+    apiFetch.mockResolvedValue(answer(200, { data: { ...live, revision: 4 } }))
+
+    render(<EventEditor event={live} venues={venues} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+
+    const body = JSON.parse(apiFetch.mock.calls[0][1].body)
+
+    expect(body.title).toBe('Qawwali Under the Banyan!')
+    expect(body.revision).toBe(3)
+
+    for (const field of [
+      'startsAt',
+      'endsAt',
+      'timezone',
+      'venueId',
+      'policies',
+      'ageRestriction',
+      'isOnline',
+      'onlineUrl',
+      'confirmMaterialChange',
+    ]) {
+      expect(body).not.toHaveProperty(field)
+    }
+  })
+
+  it('keeps the date and place read-only, behind a button that opens the change panel', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={live} venues={venues} />)
 
     await user.click(screen.getByRole('button', { name: /when and where/i }))
-    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(screen.getByLabelText(/^Starts/, { selector: '#event-startsAt' })).toBeDisabled()
+    expect(screen.getByLabelText(/^Venue/, { selector: '#event-venueId' })).toBeDisabled()
+    expect(
+      screen.getByLabelText(/^Parking and directions/, { selector: '#event-directions' }),
+    ).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Change date, place or terms…' }))
+
+    const heading = screen.getByRole('heading', { name: 'Change date, place or terms' })
+
+    expect(heading).toHaveFocus()
+  })
+
+  it('sends a material change with the revision, only the changed field, a reason and the tick', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(answer(200, { data: { ...live, revision: 4, ageRestriction: 18 } }))
+
+    render(<EventEditor event={live} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /policies and access/i }))
+    await user.click(screen.getByRole('button', { name: 'Change date, place or terms…' }))
+
+    await user.type(
+      screen.getByLabelText(/^Minimum age/, { selector: '#material-ageRestriction' }),
+      '18',
+    )
+
+    expect(screen.getByText('You are changing: the age restriction.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Save the change' }))
+
+    expect(await screen.findAllByText('Say why this is changing.')).not.toHaveLength(0)
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    await user.type(screen.getByLabelText(/^Why this is changing/), 'The venue licence changed.')
+    await user.click(screen.getByRole('checkbox', { name: /I understand this changes/ }))
+    await user.click(screen.getByRole('button', { name: 'Save the change' }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      ageRestriction: 18,
+      revision: 3,
+      confirmMaterialChange: true,
+      changeReason: 'The venue licence changed.',
+    })
+    expect(
+      await screen.findByText(/A notice has been recorded for every current order/),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Revision 4')).toBeInTheDocument()
+  })
+
+  it('says what the policies step promises without claiming anybody was emailed', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={live} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /policies and access/i }))
+
+    expect(screen.getByText(/a notice is recorded for every current order/i)).toBeInTheDocument()
+    expect(screen.getByText(/This build does not send email/)).toBeInTheDocument()
+    expect(screen.queryByText(/is sent to everybody/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('the content steps', () => {
+  it('sends the line-up as performers, and never the old comma list', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(answer(200, { data: { ...event, revision: 4 } }))
+
+    render(<EventEditor event={event} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 7/i }))
+
+    // The older event's names come in as rows.
+    expect(screen.getByLabelText(/^Name/, { selector: '#event-performers-0-name' })).toHaveValue(
+      'Nizami Bandhu',
+    )
+
+    await user.type(
+      screen.getByLabelText(/^Role/, { selector: '#event-performers-0-role' }),
+      'Qawwals',
+    )
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+
+    const body = JSON.parse(apiFetch.mock.calls[0][1].body)
+
+    expect(body.performers).toEqual([{ name: 'Nizami Bandhu', role: 'Qawwals', bio: null }])
+    expect(body).not.toHaveProperty('artists')
+  })
+
+  it('refuses a half-filled question before sending, and the summary opens its step', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={event} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+    await user.click(screen.getByRole('button', { name: 'Add a question' }))
+    await user.type(
+      screen.getByLabelText(/^Question/, { selector: '#event-faq-0-question' }),
+      'Parking?',
+    )
+    await vi.advanceTimersByTimeAsync(2000)
 
     expect(apiFetch).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+    await user.click(screen.getByRole('link', { name: 'Answer question 1.' }))
+
+    expect(screen.getByRole('heading', { name: 'Guest information', level: 2 })).toBeInTheDocument()
+  })
+
+  it('refuses an Instagram link that points somewhere else', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={event} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+    await user.type(
+      screen.getByLabelText(/^Instagram/, { selector: '#event-social-instagram' }),
+      'https://instagram.example/desi',
+    )
+
+    expect(screen.getAllByText(/That address is not on Instagram/).length).toBeGreaterThan(0)
+  })
+})
+
+describe('the patches the editor builds', () => {
+  const values = {
+    title: 'A title',
+    summary: 'A summary',
+    description: 'A description',
+    category: 'OTHER',
+    slug: 'a-title',
+    languages: 'Hindi',
+    timezone: 'America/New_York',
+    startsAt: '2026-11-01T14:30:00.000Z',
+    endsAt: '2026-11-01T17:30:00.000Z',
+    venueId: 'vnbanyancourtyard',
+    isOnline: false,
+    onlineUrl: '',
+    ageRestriction: '',
+    policyEntry: '',
+    policyRefund: 'No refunds.',
+    policyConduct: '',
+    policyAgeNote: '',
+    accessFeatures: [],
+    accessNote: '',
+    performers: [],
+    runningOrder: [],
+    faq: [],
+    sponsors: [],
+    socialLinks: {},
+    dressCode: '',
+    directions: 'Park at the school.',
+    publicEmail: '',
+    publicPhone: '',
+  }
+
+  it('drops every material field from a public event’s autosave, and keeps the rest', () => {
+    const full = toPatch(values)
+    const housekeeping = toHousekeepingPatch(values)
+
+    expect(full).toHaveProperty('policies')
+    expect(full).toHaveProperty('startsAt')
+    expect(housekeeping).not.toHaveProperty('policies')
+    expect(housekeeping).not.toHaveProperty('startsAt')
+    expect(housekeeping).not.toHaveProperty('venueId')
+    expect(housekeeping).toMatchObject({ title: 'A title', directions: 'Park at the school.' })
+  })
+
+  it('knows which step holds each field', () => {
+    expect(stepOfField('slug')).toBe('details')
+    expect(stepOfField('directions')).toBe('schedule')
+    expect(stepOfField('dressCode')).toBe('policies')
+    expect(stepOfField('runningOrder-2-time')).toBe('programme')
+    expect(stepOfField('social-instagram')).toBe('guests')
+    expect(stepOfField('publicEmail')).toBe('guests')
   })
 })
 
@@ -647,10 +1095,30 @@ describe('the problems the form finds for itself', () => {
     onlineUrl: '',
     venueId: 'vnbanyancourtyard',
     ageRestriction: '',
+    slug: 'a-title',
   }
 
   it('finds nothing wrong with a complete form', () => {
     expect(formProblems(base)).toEqual([])
+  })
+
+  it('asks for a web address, because the save would be refused without one', () => {
+    expect(formProblems({ ...base, slug: ' ' })).toEqual([
+      { field: 'slug', message: 'Give the event a web address.' },
+    ])
+    expect(formProblems({ ...base, slug: 'Diwali Mela!' })[0].field).toBe('slug')
+  })
+
+  it('refuses a description over 20,000 characters', () => {
+    expect(formProblems({ ...base, description: 'x'.repeat(20_001) })).toEqual([
+      { field: 'description', message: 'Keep the description to 20,000 characters.' },
+    ])
+  })
+
+  it('includes the content steps’ problems', () => {
+    expect(
+      formProblems({ ...base, runningOrder: [{ time: 'late', title: 'Aarti', note: '' }] }),
+    ).toEqual([{ field: 'runningOrder-0-time', message: 'Give slot 1 a time, such as 19:30.' }])
   })
 
   it('refuses an event that ends before it starts', () => {

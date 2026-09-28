@@ -6,25 +6,31 @@
 
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
-import {
-  EDITABLE_STATUSES,
-  INDEXABLE_STATUSES,
-  PUBLICLY_VISIBLE_STATUSES,
-} from '@desi-event/schemas/lifecycle'
+import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { organizationsWhere } from '../lib/actor.js'
-import { availableTransitions, loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
-import { authorChange } from '../lib/event-authoring.js'
+import {
+  availableTransitions,
+  capabilityFor,
+  loadForTransition,
+  transitionEvent,
+} from '../lib/event-lifecycle.js'
+import {
+  AUTHORING_MODES,
+  authorChange,
+  authoringMode,
+  changedFields,
+  sessionProblems,
+} from '../lib/event-authoring.js'
 import { EVENT_COVER_INCLUDE, EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
 import { cancellationWork } from '../lib/event-cancellation.js'
 import {
-  LIVE_STATUSES,
   classifyChanges,
   materialChangeWork,
   refuseUnconfirmed,
 } from '../lib/event-material-change.js'
-import { recordAudit } from '../lib/audit.js'
-import { conflict, notFound, unprocessable } from '../lib/errors.js'
+import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
+import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
 import { toEventDetail, toEventSummary } from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
@@ -254,6 +260,76 @@ function withEventDates(body) {
 }
 
 /**
+ * The public contact's wire names, and the columns they are stored in.
+ *
+ * Published as `publicEmail`/`publicPhone` so no public payload carries the
+ * private column's name even as a substring; see `@desi-event/schemas/event-content`.
+ */
+const CONTACT_COLUMNS = Object.freeze({
+  publicEmail: 'publicContactEmail',
+  publicPhone: 'publicContactPhone',
+})
+
+/**
+ * Rename the public contact fields of a request body to their columns.
+ *
+ * @param {object} body The validated request body; not modified.
+ * @returns {object} The body, keyed by column.
+ */
+function toEventColumns(body) {
+  const data = { ...body }
+
+  for (const [wire, column] of Object.entries(CONTACT_COLUMNS)) {
+    if (!Object.hasOwn(data, wire)) continue
+
+    data[column] = data[wire]
+    delete data[wire]
+  }
+
+  return data
+}
+
+/**
+ * Keep the line-up's two columns in step.
+ *
+ * `performers` is the source of truth — names with roles and bios — and
+ * `artists`, the names alone, is what structured data and older clients read.
+ * Kept in step here, on the server, and nowhere else: two writers would drift.
+ *
+ *   - `performers` sent: `artists` becomes their names, in the same order.
+ *   - Only `artists` sent: `performers` is rebuilt from the names, keeping the
+ *     role and bio of any stored performer with the same name, so an older
+ *     client that edits the names does not wipe the bios.
+ *
+ * @param {object} body The validated request body; not modified.
+ * @param {object|null} [existing] The stored event, for the bios to keep.
+ * @returns {object} The body with both columns set, or unchanged when neither was sent.
+ */
+export function syncLineUp(body, existing = null) {
+  if (body.performers !== undefined) {
+    return { ...body, artists: body.performers.map((performer) => performer.name) }
+  }
+
+  if (body.artists === undefined) return body
+
+  const stored = Array.isArray(existing?.performers) ? existing.performers : []
+  const byName = new Map(
+    stored
+      .filter((performer) => typeof performer?.name === 'string')
+      .map((performer) => [performer.name.trim().toLowerCase(), performer]),
+  )
+
+  return {
+    ...body,
+    performers: body.artists.map((name) => {
+      const prior = byName.get(name.trim().toLowerCase())
+
+      return { name, role: prior?.role ?? null, bio: prior?.bio ?? null }
+    }),
+  }
+}
+
+/**
  * Load an event the caller is allowed to see, or throw a 404.
  *
  * "Not found" and "not yours" answer identically on purpose: distinguishing
@@ -306,7 +382,7 @@ function assertVisibleTo(event, actor) {
  * @param {object|null} actor The request actor.
  * @returns {boolean} True when the caller is staff or a member of the organisation.
  */
-function maySeeDrafts(event, actor) {
+export function maySeeDrafts(event, actor) {
   return (
     can(actor, CAPABILITIES.MODERATION_REVIEW) ||
     can(actor, CAPABILITIES.PLATFORM_ADMIN) ||
@@ -447,7 +523,7 @@ export function registerEventRoutes(app, { prisma, env }) {
       // no other way to make one, and the status field is ignored rather than
       // rejected so an old client keeps working and simply does not get its way.
       const { status: _ignored, ...writable } = body
-      const data = withEventDates({ ...writable, slug })
+      const data = withEventDates(syncLineUp(toEventColumns({ ...writable, slug })))
 
       const event = await prisma.event.create({
         data: { ...data, status: 'DRAFT', publishedAt: null },
@@ -492,9 +568,8 @@ export function registerEventRoutes(app, { prisma, env }) {
 
       await assertVenueExists(prisma, body.venueId)
 
-      const data = withEventDates(body)
+      const data = withEventDates(syncLineUp(toEventColumns(body), existing))
       const { material, before, after } = classifyChanges(existing, data)
-      const live = LIVE_STATUSES.has(existing.status)
 
       // Three worlds, and they are genuinely different rather than three
       // branches of one rule.
@@ -505,15 +580,22 @@ export function registerEventRoutes(app, { prisma, env }) {
       //   - Anything else — under review, approved, cancelled, rejected,
       //     archived, finished — is not the organiser's to edit at all. Editing
       //     a version a moderator is holding invalidates the decision rather
-      //     than amending it.
-      if (!EDITABLE_STATUSES.has(existing.status) && !live) {
-        throw conflict(
-          `This event is ${existing.status} and its content cannot be edited. ` +
-            (existing.status === 'REVIEW_PENDING'
-              ? 'Withdraw it from review first.'
-              : 'A moderator holds this version; it cannot be changed from here.'),
-          { status: existing.status, code: 'NOT_EDITABLE' },
-        )
+      //     than amending it. `authoringMode` refuses those with 409.
+      const live = authoringMode(existing) === AUTHORING_MODES.LIVE
+
+      // A draft may be online before its link is typed — the editor saves the
+      // tick on its own — and publication refuses it without one. A live event
+      // is somebody's plan for the evening, so it may not lose its link.
+      if (live) {
+        const isOnline = data.isOnline ?? existing.isOnline
+        const onlineUrl = data.onlineUrl !== undefined ? data.onlineUrl : existing.onlineUrl
+
+        if (isOnline && !onlineUrl) {
+          throw unprocessable('A published online event needs its joining link.', {
+            problems: ['A published online event needs its joining link.'],
+            fields: ['onlineUrl'],
+          })
+        }
       }
 
       if (live && material.length > 0 && !confirmMaterialChange) {
@@ -522,7 +604,7 @@ export function registerEventRoutes(app, { prisma, env }) {
 
       if (live && material.length > 0 && !changeReason) {
         throw unprocessable(
-          'A confirmed material change needs a reason, because it is sent to everybody holding a ticket.',
+          'A confirmed material change needs a reason, because a notice with it is recorded for everybody holding a ticket.',
           { problems: ['Give a reason for the change.'], fields: material },
         )
       }
@@ -538,6 +620,9 @@ export function registerEventRoutes(app, { prisma, env }) {
         revision: expected,
         actor: request.actor,
         action: material.length > 0 ? 'event.material_change' : 'event.updated',
+        // Which fields changed, never what they say: content values stay out of
+        // the audit row, except the before and after of a material change below.
+        metadata: { fields: changedFields(existing, data).sort() },
         write: async (tx) => {
           await tx.event.update({ where: { id: existing.id }, data })
 
@@ -592,17 +677,36 @@ export function registerEventRoutes(app, { prisma, env }) {
    *
    * @param {object} request The Fastify request.
    * @param {string} to The destination status.
-   * @param {object} [extra] `reason`, `requestedChanges`, `onCommit`.
+   * @param {object} [extra] `reason`, `requestedChanges`, `onCommit`, and `from`:
+   *   the source statuses this command is for, when the table allows the same
+   *   destination from more than one. A command called from any other status
+   *   answers 409 rather than making a move its name does not describe.
    * @returns {Promise<object>} The response body.
    */
   async function command(request, to, extra = {}) {
+    const { from = null, ...options } = extra
     const event = await loadForTransition(prisma, request.params.id)
+
+    if (from && !from.includes(event.status)) {
+      // "Not in that state" is only news to somebody who may see the event and
+      // make the move at all; everybody else gets the answer they would get
+      // for any other status.
+      assertVisibleTo(event, request.actor)
+      assertCan(request.actor, capabilityFor(to), { organizationId: event.organizationId })
+
+      throw httpError(
+        409,
+        'ILLEGAL_TRANSITION',
+        `This command is for an event that is ${from.join(' or ')}; this one is ${event.status}.`,
+        { from: event.status, to, expected: from },
+      )
+    }
 
     const updated = await transitionEvent(prisma, {
       event,
       to,
       actor: request.actor,
-      ...extra,
+      ...options,
     })
 
     request.log.info(
@@ -680,7 +784,193 @@ export function registerEventRoutes(app, { prisma, env }) {
   })
 
   defineRoute(app, 'events.withdrawReview', {
-    handler: (request) => command(request, 'DRAFT'),
+    // REJECTED → DRAFT is a legal move too, but it is a rework, not a
+    // withdrawal: it has its own route and its own name in the history.
+    handler: (request) => command(request, 'DRAFT', { from: ['REVIEW_PENDING'] }),
+  })
+
+  defineRoute(app, 'events.rework', {
+    handler: (request) => command(request, 'DRAFT', { from: ['REJECTED'] }),
+  })
+
+  defineRoute(app, 'events.reschedule', {
+    handler: async (request) => {
+      const { revision, startsAt, endsAt, sessions: moves, resume, reason } = request.body
+      const event = await loadForTransition(prisma, request.params.id)
+
+      // The dates are an edit; the return is a publication. Both authorities,
+      // the second asserted by the transition itself.
+      assertVisibleTo(event, request.actor)
+      assertCan(request.actor, CAPABILITIES.EVENT_UPDATE, {
+        organizationId: event.organizationId,
+      })
+
+      if (event.status !== 'POSTPONED') {
+        throw httpError(
+          409,
+          'ILLEGAL_TRANSITION',
+          `Only a postponed event is brought back with a new date; this one is ${event.status}.`,
+          { from: event.status, to: resume },
+        )
+      }
+
+      const now = new Date()
+      const byId = new Map((event.sessions ?? []).map((session) => [session.id, session]))
+      /** @type {string[]} */
+      const problems = []
+
+      if (new Date(startsAt) <= now) problems.push('The new start is in the past.')
+
+      for (const move of moves) {
+        if (!byId.has(move.id)) problems.push('That session belongs to a different event.')
+      }
+
+      // Every night as it will be after the move, moved or not: an event brought
+      // back with a night still in the past is a night nobody can attend.
+      const proposed = (event.sessions ?? []).map((session) => {
+        const move = moves.find((candidate) => candidate.id === session.id)
+
+        return move ? { ...session, ...move } : session
+      })
+
+      for (const session of proposed) {
+        const label = new Date(session.startsAt).toISOString()
+
+        if (new Date(session.startsAt) <= now) {
+          problems.push(`The session starting ${label} is in the past. Give it a new date too.`)
+        }
+
+        for (const problem of sessionProblems(session, event)) {
+          problems.push(`Session ${label}: ${problem}`)
+        }
+      }
+
+      if (problems.length > 0) {
+        throw unprocessable('That new date cannot be used.', {
+          problems: [...new Set(problems)],
+        })
+      }
+
+      await transitionEvent(prisma, {
+        event,
+        to: resume,
+        actor: request.actor,
+        reason,
+        /**
+         * The dates, the notices and the record, with the status change.
+         *
+         * @param {object} tx The transaction client.
+         * @returns {Promise<void>} Resolves when done.
+         */
+        onCommit: async (tx) => {
+          // The revision precondition, inside the transaction: somebody who
+          // saved since the form was read keeps their change, and nothing here
+          // — status included — commits.
+          const { count } = await tx.event.updateMany({
+            where: { id: event.id, revision },
+            data: {
+              revision: revision + 1,
+              startsAt: new Date(startsAt),
+              endsAt: new Date(endsAt),
+            },
+          })
+
+          if (count !== 1) {
+            const current = await tx.event.findUnique({
+              where: { id: event.id },
+              select: { revision: true },
+            })
+
+            throw httpError(
+              409,
+              'STALE_REVISION',
+              'Somebody else saved a change to this event while you were setting the new date. Reload and try again.',
+              { expectedRevision: revision, currentRevision: current?.revision ?? null },
+            )
+          }
+
+          /** @type {object[]} */
+          const moved = []
+
+          for (const move of moves) {
+            const existing = byId.get(move.id)
+            const data = {
+              startsAt: new Date(move.startsAt),
+              endsAt: new Date(move.endsAt),
+              ...(move.doorsOpenAt !== undefined
+                ? { doorsOpenAt: move.doorsOpenAt ? new Date(move.doorsOpenAt) : null }
+                : {}),
+              ...(move.salesStartAt !== undefined
+                ? { salesStartAt: move.salesStartAt ? new Date(move.salesStartAt) : null }
+                : {}),
+              ...(move.salesEndAt !== undefined
+                ? { salesEndAt: move.salesEndAt ? new Date(move.salesEndAt) : null }
+                : {}),
+            }
+            const fields = changedFields(existing, data)
+
+            await tx.eventSession.update({ where: { id: existing.id }, data })
+
+            if (fields.length > 0) {
+              moved.push({
+                id: existing.id,
+                fields,
+                before: { startsAt: existing.startsAt.toISOString() },
+                after: { startsAt: data.startsAt.toISOString() },
+              })
+            }
+          }
+
+          const change = classifyChanges(event, {
+            startsAt: new Date(startsAt),
+            endsAt: new Date(endsAt),
+          })
+          // One notice per order for the whole reschedule, naming the nights
+          // that moved, rather than one per session.
+          const work = await materialChangeWork(tx, {
+            event,
+            revision: revision + 1,
+            material: change.material,
+            before: change.before,
+            after: change.after,
+            reason,
+            sessions: moved,
+          })
+
+          await recordAudit(tx, {
+            action: AUDIT_ACTIONS.EVENT_RESCHEDULED,
+            entityType: 'Event',
+            entityId: event.id,
+            actorId: request.actor?.id ?? null,
+            metadata: {
+              from: event.status,
+              to: resume,
+              revision: revision + 1,
+              fields: change.material,
+              before: change.before,
+              after: change.after,
+              sessions: moved,
+              reason,
+              ordersAffected: work.orders,
+              // Created, not delivered: this build queues notices and sends none.
+              notificationsQueued: work.notifications,
+            },
+          })
+        },
+      })
+
+      request.log.info(
+        { eventId: event.id, to: resume, actorId: request.actor?.id },
+        'event rescheduled',
+      )
+
+      const full = await prisma.event.findUnique({
+        where: { id: event.id },
+        include: EVENT_INCLUDE,
+      })
+
+      return { data: toEventDetail(full, { includeDraftTiers: true, ...pricing }) }
+    },
   })
 
   defineRoute(app, 'events.publish', {

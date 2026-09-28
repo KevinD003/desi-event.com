@@ -1033,6 +1033,39 @@ const EVENT_DEFINITIONS = [
     category: 'MUSIC_CONCERT',
     ...evening(22, EASTERN, 19, 30, 4),
     languages: ['Gujarati', 'English'],
+    // The event page's own content, on one sample event so the fallback
+    // catalogue shows every section. Links are on reserved domains only.
+    artists: ['The Mirrorwork Ensemble'],
+    performers: [
+      {
+        name: 'The Mirrorwork Ensemble',
+        role: 'Dhol, tabla, harmonium, shehnai and three singers',
+        bio: 'The band behind Mirrorwork Events’ Navratri nights, playing the garba and folk songs of the season arranged for listening as well as dancing.',
+      },
+    ],
+    runningOrder: [
+      { time: '19:00', title: 'Doors open', note: 'Food and drink in the lobby.' },
+      { time: '19:30', title: 'First half', note: null },
+      { time: '20:30', title: 'Interval', note: null },
+      { time: '20:50', title: 'Second half', note: 'The standing floor is open for garba.' },
+    ],
+    faq: [
+      {
+        question: 'Can I dance in the balcony?',
+        answer:
+          'The balcony is seated, for listening. The standing floor is open to anyone who wants to dance.',
+      },
+      {
+        question: 'Can I bring food onto the dance floor?',
+        answer: 'Food and drink are served in the lobby and stay off the dance floor.',
+      },
+    ],
+    socialLinks: { website: 'https://mirrorwork.example' },
+    sponsors: [],
+    dressCode: 'Whatever you can dance in. Traditional dress is welcome and never required.',
+    directions: null,
+    publicEmail: 'tickets@mirrorwork.example',
+    publicPhone: null,
     organization: ORGANIZATIONS.mirrorwork,
     venue: VENUES.lamplight,
     currency: 'USD',

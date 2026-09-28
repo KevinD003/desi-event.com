@@ -198,9 +198,10 @@ async function ticket(
  *
  * The chain from venue to event seat is long and none of it is optional: a
  * `Ticket.eventSeatId` is a foreign key to `EventSeat`, which needs a session
- * and a seat, which needs a row, a section and a published map version. Case
- * 14 is about what the schema does with that column, so a stubbed seat would
- * answer the wrong question.
+ * and a seat, which needs a row, a section and a published map version. Cases
+ * 14 and 14b are about what the schema does with that column — one live ticket
+ * per seat, history rows allowed (ADR 0006) — so a stubbed seat would answer
+ * the wrong question.
  *
  * @param {string} eventId The event to hang a session from.
  * @param {string} ticketTypeId The tier the seat is sold at.
@@ -578,42 +579,52 @@ when()('what the database guarantees on its own', () => {
     )
   })
 
-  it('14 — a reserved seat cannot be carried down a lineage at all', async () => {
-    // Not a case the settlement invariant passes. A case it never meets.
-    //
-    // `acceptTransfer` mints the successor with `eventSeatId: ticket.eventSeatId`
-    // (apps/api/src/lib/tickets.js) while the predecessor still holds that seat,
-    // and nothing on the predecessor clears it — the transition writes only
-    // `credentialHash` and `credentialVersion`. `Ticket.eventSeatId` is unique,
-    // so that create violates `Ticket_eventSeatId_key` and the whole transfer
-    // transaction aborts. This is the defect already recorded as BLOCKED —
-    // UNIQUE-SEAT TRANSFER DEFECT, demonstrated here rather than asserted from
-    // reading the code.
-    //
-    // The consequence for the invariant has to be said plainly: **no seated
-    // lineage of more than one member can exist in the table**, so every
-    // settlement check passing on seated lines says nothing whatever about
-    // whether reserved-seat transfer is correct. It is not coverage. A case
-    // that built a seated chain by hand and watched the invariant accept it
-    // would read as though this worked, which is the one thing case 14 must not
-    // do. When the defect is fixed, this case fails, and that is the point:
-    // whoever fixes it is told that the invariant now has a shape to check.
+  it('14 — a reserved seat carried down a lineage leaves one live ticket for it, and every invariant accepts it', async () => {
+    // Before ADR 0006 this case recorded that no seated lineage could exist:
+    // `Ticket.eventSeatId` was unique over every row, so accepting a seated
+    // transfer failed on the successor's insert. The index is now partial —
+    // `Ticket_eventSeatId_live_key`, one *live* ticket per seat — so the shape
+    // `acceptTransfer` writes is legal: the predecessor TRANSFERRED keeping its
+    // seat as history, the successor VALID holding it. That shape now exists,
+    // so the invariants have to be shown to accept it, and to count it once.
+    const { orderItem, eventId, ticketTypeId } = await paidLine(1)
+    const seat = await reservedSeat(eventId, ticketTypeId, orderItem.id)
+
+    const predecessor = await ticket(orderItem.id, {
+      eventSeatId: seat.id,
+      live: false,
+      status: 'TRANSFERRED',
+    })
+    const successor = await ticket(orderItem.id, {
+      supersedes: predecessor.id,
+      eventSeatId: seat.id,
+    })
+
+    expect(successor.eventSeatId).toBe(predecessor.eventSeatId)
+
+    const checks = await checkAll(eventId)
+
+    expect(checks.get('no seat sold twice').ok, checks.get('no seat sold twice').detail).toBe(true)
+    expect(checks.get('no duplicate settlement').ok).toBe(true)
+    expect(checks.get('no surplus admission authority').ok).toBe(true)
+  })
+
+  it('14b — a second live ticket for the seat is refused by Ticket_eventSeatId_live_key', async () => {
+    // What the partial index still refuses: two rows in the live predicate on
+    // one seat — a successor VALID beside a predecessor that never left it.
     const { orderItem, eventId, ticketTypeId } = await paidLine(1)
     const seat = await reservedSeat(eventId, ticketTypeId, orderItem.id)
 
     const seated = await ticket(orderItem.id, { eventSeatId: seat.id, live: false })
 
-    // Since ADR 0006 the seat index is partial, `Ticket_eventSeatId_live_key`:
-    // unique among VALID, TRANSFER_PENDING and CHECKED_IN rows. Both rows here
-    // are VALID, so the successor is still refused.
     await expect(
       ticket(orderItem.id, { supersedes: seated.id, eventSeatId: seat.id }),
     ).rejects.toThrow(/Unique constraint failed on the constraint: `Ticket_eventSeatId_live_key`/u)
 
-    // And the line is left exactly as a blocked transfer leaves it: the one
-    // ticket that was issued, still current, still the only way in.
+    // And the line is left as it was: the one ticket, still the only way in.
     const checks = await checkAll(eventId)
 
+    expect(checks.get('no seat sold twice').ok).toBe(true)
     expect(checks.get('no duplicate settlement').ok).toBe(true)
     expect(checks.get('no surplus admission authority').ok).toBe(true)
   })

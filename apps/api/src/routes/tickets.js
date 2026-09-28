@@ -11,6 +11,13 @@
  * - `POST /v1/tickets/check-in` — present the same pass with the preview's
  *   reference; everything is re-checked inside the admitting transaction.
  *
+ * And the same pair for a whole order's group pass (`../lib/group-admission.js`):
+ *
+ * - `POST /v1/tickets/admission/group/preview` — every ticket the buyer still
+ *   holds on the order, each with its own outcome.
+ * - `POST /v1/tickets/admission/group/check-in` — admit the named tickets, in
+ *   one transaction, each exactly once.
+ *
  * A re-scan of an admitted ticket is a duplicate, not an error: it answers 200
  * with `ALREADY_CHECKED_IN` and the original instant. A ticket that must not be
  * admitted is a 409 carrying a reason from a closed vocabulary. Exactly one
@@ -20,7 +27,9 @@
  * ## Transfers
  *
  * Offering, accepting, declining and withdrawing. The reasoning lives in
- * `../lib/tickets.js`; what is here is who may do each one.
+ * `../lib/tickets.js`; what is here is who may do each one, and how the
+ * one-time code reaches the recipient (`../lib/delivery.js`): with no delivery
+ * provider it is returned once, `no-store`, to the sender to pass on.
  *
  * @module @desi-event/api/routes/tickets
  */
@@ -34,6 +43,7 @@ import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
 import { admissionRateLimit, passRateLimit } from '../plugins/rate-limit.js'
 import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
+import { DELIVERY_MODES, deliverCode } from '../lib/delivery.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { WALLET_INCLUDE, toWalletTicket, transferRecipient } from '../lib/presenters.js'
 import {
@@ -47,10 +57,10 @@ import {
   mintTransferToken,
   revokeTicket,
   startTransfer,
-  transferBlockedReason,
   transferTokenDigest,
 } from '../lib/tickets.js'
 import { confirmAdmission, listAdmissionEvents, previewAdmission } from '../lib/admission.js'
+import { confirmGroupAdmission, previewGroupAdmission } from '../lib/group-admission.js'
 import { defineRoute } from '../lib/register.js'
 
 /** Everything a scan needs in order to authorise itself. */
@@ -102,12 +112,18 @@ function toTicketTransfer(row, { party = true } = {}) {
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
  * @param {object} deps.env The parsed API environment.
- * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
+ * @param {function(object): Promise<void>} [deps.deliver] Where a single-use code is sent, in EMAIL mode.
+ * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How codes reach people, resolved once by `buildApp`.
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit; supplied by tests.
  * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door rate limit; supplied by tests and the load suite.
  * @returns {void} Nothing.
  */
-export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, admissionLimit }) {
+export function registerTicketRoutes(
+  app,
+  { prisma, env, deliver, deliveryMode, passLimit, admissionLimit },
+) {
+  const mode = deliveryMode ?? app.deliveryMode ?? DELIVERY_MODES.MANUAL
+
   // The door. The reasoning — resolve first, authorise against the ticket's own
   // event, preview without writing, confirm inside one locked transaction —
   // lives in ../lib/admission.js; what is here is only the wiring.
@@ -117,7 +133,13 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
       // cache is the wrong place for it.
       reply.header('cache-control', 'private, no-store')
 
-      return { data: await listAdmissionEvents({ prisma, actor: request.actor }) }
+      const { entries, meta } = await listAdmissionEvents({
+        prisma,
+        actor: request.actor,
+        filters: request.query ?? {},
+      })
+
+      return { data: entries, meta }
     },
   })
 
@@ -149,6 +171,45 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
 
       return {
         data: await confirmAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
+      }
+    },
+  })
+
+  // A group pass at the door: the same wiring as a single ticket, and the same
+  // rate limit per scanner. The pass, the printed code and the reference are
+  // never logged here; the logger redacts them by name as well.
+  defineRoute(app, 'tickets.previewGroupAdmission', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
+
+      return {
+        data: await previewGroupAdmission({
+          prisma,
+          env,
+          actor: request.actor,
+          body: request.body,
+          log: request.log,
+        }),
+      }
+    },
+  })
+
+  defineRoute(app, 'tickets.checkInGroup', {
+    config: { rateLimit: admissionRateLimit(admissionLimit) },
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'private, no-store')
+      reply.header('pragma', 'no-cache')
+
+      return {
+        data: await confirmGroupAdmission({
           prisma,
           env,
           actor: request.actor,
@@ -238,9 +299,6 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
           },
           organizationId: event.organizationId,
           holder,
-          // Why it may not be offered whatever its state — today only a reserved
-          // seat — so the screen does not offer what the server will refuse.
-          transferBlockedReason: transferBlockedReason(ticket),
           transfers: transfers.map((row) => toTicketTransfer(row, { party: holder })),
         },
       }
@@ -375,6 +433,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
           tokenHash,
           expiresAt,
           requestId: request.id,
+          delivery: mode,
           now,
         }),
       )
@@ -385,28 +444,33 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
         })
       }
 
-      // The token goes to the recipient and nowhere else. Not into this
-      // response — the sender does not need it, and a response carrying it
-      // would put a bearer secret wherever their browser keeps responses — and
-      // not into the outbox payload, which a worker and whoever is debugging it
-      // both read. The `deliver` seam is where single-use links go, and it is
-      // the same one email verification and password resets use.
-      if (typeof deliver === 'function') {
-        await deliver({
+      // The code reaches the recipient one way or the other, and never goes
+      // anywhere else. With a provider (EMAIL) the provider gets it and this
+      // response carries null. Without one (MANUAL, this build) this response
+      // is the only place it ever exists: the sender is shown it once and
+      // passes it on themselves, and the database keeps only its digest, so it
+      // cannot be shown again. Either way the response is `no-store`, and the
+      // code never reaches a log line, an audit row or the outbox payload.
+      const delivery = await deliverCode({
+        mode,
+        secret: token,
+        reply,
+        deliver,
+        message: {
           purpose: 'ticket-transfer',
-          token,
           to: toEmail,
           ticketId: ticket.id,
           transferId: outcome.transfer.id,
           expiresAt: expiresAt.toISOString(),
           message: request.body.message ?? null,
-        })
-      } else {
-        app.log.info(
-          { transferId: outcome.transfer.id },
-          'issued a ticket transfer invitation; no delivery provider is configured',
-        )
-      }
+        },
+      })
+
+      // Identifiers and the mode, never the code.
+      request.log.info(
+        { transferId: outcome.transfer.id, delivery: delivery.mode },
+        'issued a ticket transfer invitation',
+      )
 
       // The outbox row is the durable record that somebody is owed a message.
       // It carries who and about what, and no secret: a worker reads it, and so
@@ -442,7 +506,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
 
       reply.code(201)
 
-      return { data: toTicketTransfer(outcome.transfer) }
+      return { data: { ...toTicketTransfer(outcome.transfer), delivery } }
     },
   })
 

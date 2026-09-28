@@ -7,10 +7,17 @@
  * reader's timezone rather than the venue's.
  */
 
+import {
+  GROUP_PASS_MAX_TICKETS as SCHEMA_GROUP_PASS_MAX_TICKETS,
+  GROUP_PASS_MIN_TICKETS as SCHEMA_GROUP_PASS_MIN_TICKETS,
+} from '@desi-event/schemas'
 import { describe, expect, it } from 'vitest'
 
 import {
+  GROUP_PASS_MAX_TICKETS,
+  GROUP_PASS_MIN_TICKETS,
   REACHABLE_STATUSES,
+  groupPassSummaries,
   TICKET_STATUS_WORDS,
   eventIsOver,
   groupTickets,
@@ -355,5 +362,67 @@ describe('seatText', () => {
     })
 
     expect(seatText(reserved)).toBe('Standing, seat 12')
+  })
+})
+
+describe('groupPassSummaries', () => {
+  /**
+   * A row on an order.
+   *
+   * @param {string} reference The order.
+   * @param {object} [overrides] Fields to change.
+   * @returns {object} The row.
+   */
+  function onOrder(reference, overrides = {}) {
+    return ticket({ id: `${reference}-${Math.random()}`, orderReference: reference, ...overrides })
+  }
+
+  it('mirrors the bounds the server enforces', () => {
+    expect(GROUP_PASS_MIN_TICKETS).toBe(SCHEMA_GROUP_PASS_MIN_TICKETS)
+    expect(GROUP_PASS_MAX_TICKETS).toBe(SCHEMA_GROUP_PASS_MAX_TICKETS)
+  })
+
+  it('counts the tickets this account bought that still admit, per order', () => {
+    const summaries = groupPassSummaries([
+      onOrder('DE-AAAA'),
+      onOrder('DE-AAAA'),
+      onOrder('DE-AAAA', { admits: false, status: 'CHECKED_IN' }),
+      onOrder('DE-AAAA', { holderRelationship: 'RECEIVED' }),
+    ])
+
+    expect(summaries).toEqual([expect.objectContaining({ orderReference: 'DE-AAAA', admits: 2 })])
+  })
+
+  it('leaves out an order with fewer than two, or more than fifty, such tickets', () => {
+    const many = Array.from({ length: 51 }, () => onOrder('DE-MANY'))
+
+    expect(groupPassSummaries([onOrder('DE-ONE')])).toEqual([])
+    expect(groupPassSummaries(many)).toEqual([])
+    expect(groupPassSummaries(many.slice(0, 50))).toEqual([
+      expect.objectContaining({ orderReference: 'DE-MANY', admits: 50 }),
+    ])
+  })
+
+  it('ignores a ticket somebody gave this account, and one with no order reference', () => {
+    expect(
+      groupPassSummaries([
+        onOrder('DE-GIFT', { holderRelationship: 'RECEIVED' }),
+        onOrder('DE-GIFT', { holderRelationship: 'RECEIVED' }),
+        ticket({ orderReference: null }),
+        ticket({ orderReference: null }),
+      ]),
+    ).toEqual([])
+  })
+
+  it('orders the passes by when their events start, soonest first', () => {
+    const later = { ...ticket().event, id: 'evt_2', startsAt: '2026-11-01T14:00:00.000Z' }
+    const summaries = groupPassSummaries([
+      onOrder('DE-LATE', { event: later }),
+      onOrder('DE-LATE', { event: later }),
+      onOrder('DE-SOON'),
+      onOrder('DE-SOON'),
+    ])
+
+    expect(summaries.map((entry) => entry.orderReference)).toEqual(['DE-SOON', 'DE-LATE'])
   })
 })

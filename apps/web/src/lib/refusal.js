@@ -317,3 +317,32 @@ const REPLACED_STATES = new Set([
   'rate-limited',
   'server-error',
 ])
+
+/**
+ * A validation refusal's issues, keyed by the field they are about.
+ *
+ * The API names each issue's field with a dotted path (`maxPerOrder`,
+ * `sessions.0.endsAt`). A form wants the first segment, to put the message
+ * under the box it belongs to; the first message for a field wins, which is
+ * the one the schema found first.
+ *
+ * @param {object|null} body The parsed error body.
+ * @returns {Record<string, string>} Messages by field name; empty when there are none.
+ */
+export function fieldIssues(body) {
+  /** @type {Record<string, string>} */
+  const byField = {}
+
+  for (const issue of body?.error?.issues ?? []) {
+    const path = String(issue?.path ?? '')
+      .replace(/^\/+/u, '')
+      .replace(/^(body|query|querystring|params)[./]/u, '')
+    const field = path.split(/[./]/u)[0]
+
+    if (field && typeof issue?.message === 'string' && !(field in byField)) {
+      byField[field] = issue.message
+    }
+  }
+
+  return byField
+}

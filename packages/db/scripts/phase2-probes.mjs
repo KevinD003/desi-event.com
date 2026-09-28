@@ -587,6 +587,55 @@ export async function runPhase2Probes(prisma, { probe, record }) {
     ),
   )
 
+  // ---- ADR 0006: one live ticket per seat, history kept ---------------------
+
+  /**
+   * Two tickets for the probe seat on one order line, created inside the
+   * probe's transaction with the given statuses.
+   *
+   * @param {object} tx The probe's transaction.
+   * @param {string} first The first ticket's status.
+   * @param {string} second The second ticket's status.
+   * @returns {Promise<void>} Resolves once both are written.
+   */
+  async function twoTicketsForTheSeat(tx, first, second) {
+    const line = await tx.orderItem.findFirst({ orderBy: { id: 'asc' } })
+
+    if (!line) throw new Error('the seed has no order line')
+
+    const tag = Math.random().toString(36).slice(2, 10).toUpperCase()
+    const predecessor = await tx.ticket.create({
+      data: {
+        orderItemId: line.id,
+        code: `PROBE-SEAT-${tag}-1`,
+        eventSeatId: eventSeat.id,
+        status: first,
+      },
+    })
+
+    await tx.ticket.create({
+      data: {
+        orderItemId: line.id,
+        code: `PROBE-SEAT-${tag}-2`,
+        eventSeatId: eventSeat.id,
+        status: second,
+        supersedesTicketId: first === 'TRANSFERRED' ? predecessor.id : null,
+      },
+    })
+  }
+
+  results.push(
+    await probe(prisma, 'a seat has one live ticket', DUPLICATE, (tx) =>
+      twoTicketsForTheSeat(tx, 'VALID', 'TRANSFER_PENDING'),
+    ),
+  )
+
+  results.push(
+    await probe(prisma, "a handed-on seat's history row does not block its successor", null, (tx) =>
+      twoTicketsForTheSeat(tx, 'TRANSFERRED', 'VALID'),
+    ),
+  )
+
   // ---- NF-04: one organiser per order -------------------------------------
 
   results.push(
@@ -813,6 +862,96 @@ export async function runPhase2Probes(prisma, { probe, record }) {
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFER_PENDING' } })
       await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
     }),
+  )
+
+  // ---- Group passes: a group admission stays inside its own order ---------
+
+  /**
+   * A ticket on an order bought by an account, made admissible and held by
+   * that buyer, inside the probe's transaction — and a group pass for the order.
+   *
+   * @param {object} tx The probe's transaction.
+   * @returns {Promise<{ticket: object, order: object, pass: object}|null>} The rows.
+   */
+  async function buyersTicket(tx) {
+    const ticket = await tx.ticket.findFirst({
+      where: { orderItem: { order: { userId: { not: null } } } },
+      include: { orderItem: { select: { order: { select: { id: true, userId: true } } } } },
+      orderBy: { id: 'asc' },
+    })
+
+    if (!ticket) throw new Error('the seed has no ticket on an order bought by an account')
+
+    const order = ticket.orderItem.order
+
+    await tx.ticket.update({
+      where: { id: ticket.id },
+      data: { status: 'VALID', ownerUserId: order.userId },
+    })
+
+    const pass = await tx.groupPass.upsert({
+      where: { orderId: order.id },
+      create: { orderId: order.id },
+      update: {},
+    })
+
+    return { ticket, order, pass }
+  }
+
+  results.push(
+    await probe(
+      prisma,
+      "a group admission of the buyer's own ticket is accepted",
+      null,
+      async (tx) => {
+        const { ticket, pass } = await buyersTicket(tx)
+
+        await tx.checkIn.deleteMany({ where: { ticketId: ticket.id } })
+        await tx.checkIn.create({
+          data: { ticketId: ticket.id, eventSessionId: session.id, groupPassId: pass.id },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      "a group admission of another order's ticket is refused",
+      /group pass .* does not cover ticket/,
+      async (tx) => {
+        const { order, pass } = await buyersTicket(tx)
+        const other = await tx.ticket.findFirst({
+          where: { orderItem: { orderId: { not: order.id } } },
+          orderBy: { id: 'asc' },
+        })
+
+        if (!other) throw new Error('the seed has only one order with tickets')
+
+        await tx.ticket.update({ where: { id: other.id }, data: { status: 'VALID' } })
+        await tx.checkIn.deleteMany({ where: { ticketId: other.id } })
+        await tx.checkIn.create({
+          data: { ticketId: other.id, eventSessionId: session.id, groupPassId: pass.id },
+        })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a group admission of a ticket its buyer no longer holds is refused',
+      /not held by the group pass/,
+      async (tx) => {
+        const { ticket, pass } = await buyersTicket(tx)
+
+        await tx.ticket.update({ where: { id: ticket.id }, data: { ownerUserId: null } })
+        await tx.checkIn.deleteMany({ where: { ticketId: ticket.id } })
+        await tx.checkIn.create({
+          data: { ticketId: ticket.id, eventSessionId: session.id, groupPassId: pass.id },
+        })
+      },
+    ),
   )
 
   results.push(

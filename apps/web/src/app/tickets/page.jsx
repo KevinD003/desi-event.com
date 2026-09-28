@@ -20,6 +20,13 @@
  * will not scan. It is looked up only by somebody the server lets admit to that
  * event, and it is not the credential.
  *
+ * The same goes for a group pass, which lets in every ticket on an order at
+ * once. This page lists the orders that have one — two to fifty tickets this
+ * account bought and still holds, that admit — and links to the order's page,
+ * where the pass is drawn on request. When the list is cut short, how many a
+ * group pass admits is left to the order's page rather than counted from part
+ * of the tickets.
+ *
  * ## Four sections, and no ticket in two of them
  *
  * Coming up, given to you, handed on, past. They are disjoint by construction —
@@ -48,6 +55,7 @@ import { StatusChip } from '../account/orders/status-chip.jsx'
 import {
   REACHABLE_STATUSES,
   TICKET_STATUS_WORDS,
+  groupPassSummaries,
   groupTickets,
   usableCount,
   seatText,
@@ -207,6 +215,46 @@ function TicketCard({ ticket }) {
 }
 
 /**
+ * One order's group pass, as a wallet card: a way to it, never the pass.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.summary The order and what it admits, from `groupPassSummaries`.
+ * @param {boolean} props.partial Whether the page lists only some of this account's tickets.
+ * @returns {JSX.Element} The card.
+ */
+function GroupPassCard({ summary, partial }) {
+  const title = summary.event?.title ?? `Order ${summary.orderReference}`
+  const when = whenText(summary)
+
+  return (
+    <li className="rounded-card border border-line bg-surface-raised p-4 shadow-card sm:p-5">
+      <h3 className="text-lg font-semibold text-ink">{title}</h3>
+      <p className="mt-1 text-sm text-ink-muted">
+        {[when, `Order ${summary.orderReference}`].filter(Boolean).join(' · ')}
+      </p>
+      <p className="mt-3 text-sm font-medium text-ink">
+        {partial ? 'Group pass' : `Group pass (admits ${summary.admits})`}
+      </p>
+      {partial ? (
+        <p className="mt-1 text-sm text-ink-muted">
+          Not every ticket on this account is listed here, so how many it admits is on the order’s
+          page.
+        </p>
+      ) : null}
+      <p className="mt-4">
+        <Link
+          href={`/account/orders/${encodeURIComponent(summary.orderReference)}#group-pass`}
+          className={SECONDARY_LINK}
+        >
+          Show group pass
+          <span className="sr-only"> for {title}</span>
+        </Link>
+      </p>
+    </li>
+  )
+}
+
+/**
  * The list.
  *
  * @returns {Promise<JSX.Element>} The rendered page.
@@ -227,6 +275,8 @@ export default async function MyTicketsPage() {
 
   const groups = groupTickets(tickets)
   const usable = usableCount(groups)
+  const groupPasses = groupPassSummaries(tickets)
+  const partial = Boolean(pagination?.hasNextPage)
 
   return (
     <div>
@@ -261,13 +311,28 @@ export default async function MyTicketsPage() {
         </p>
       ) : null}
 
+      {groupPasses.length > 0 ? (
+        <Section
+          id="wallet-group-passes"
+          title="Group passes"
+          description="One QR for each order below that lets in every ticket on it you still hold, for arriving together. Each ticket keeps its own pass as well."
+          className="mt-8"
+        >
+          <ul className="mt-4 grid gap-4 sm:grid-cols-2">
+            {groupPasses.map((summary) => (
+              <GroupPassCard key={summary.orderReference} summary={summary} partial={partial} />
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
       {groups.map((group, index) => (
         <Section
           key={group.id}
           id={`wallet-${group.id}`}
           title={group.label}
           description={group.description}
-          className={index === 0 ? 'mt-8' : 'mt-12'}
+          className={index === 0 && groupPasses.length === 0 ? 'mt-8' : 'mt-12'}
         >
           <ul className="mt-4 grid gap-4">
             {group.tickets.map((ticket) => (
