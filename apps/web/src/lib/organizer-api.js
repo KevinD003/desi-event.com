@@ -156,6 +156,20 @@ export async function getEventSessions(id) {
 }
 
 /**
+ * An event's pictures, each with its review state, and the event's revision.
+ *
+ * For the organiser's editor and the moderator's review. Never a public read:
+ * the API answers it only to members who may see the event's drafts, to
+ * moderators and to platform administrators.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<{data: object[], meta: {revision: number}}>} The pictures and the revision.
+ */
+export async function getEventMedia(id) {
+  return callApi(`/v1/events/${encodeURIComponent(id)}/media`)
+}
+
+/**
  * Whether an event is ready to be published, and every reason it is not.
  *
  * @param {string} id The event id.

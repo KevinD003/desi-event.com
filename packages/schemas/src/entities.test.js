@@ -516,3 +516,59 @@ describe('eventWithRelationsSchema', () => {
     expect(parsed.venue).toBeNull()
   })
 })
+
+describe('event pictures on the event shapes', () => {
+  const cover = {
+    id: 'cmedia0000000000000000001',
+    url: '/v1/media/cmedia0000000000000000001',
+    altText: 'Dancers circling a lit garbo',
+    width: 1200,
+    height: 630,
+    contentType: 'image/jpeg',
+  }
+  const gallery = [
+    { ...cover, id: 'cmedia0000000000000000002', url: '/v1/media/cmedia0000000000000000002' },
+  ]
+
+  it('carries an uploaded cover on the summary and the detail, and the gallery on the detail', () => {
+    const summary = eventSummarySchema.parse({ ...prismaEvent, coverImage: cover })
+    const detail = eventWithRelationsSchema.parse({ ...prismaEvent, coverImage: cover, gallery })
+
+    expect(summary.coverImage).toEqual(cover)
+    expect(detail.coverImage).toEqual(cover)
+    expect(detail.gallery).toEqual(gallery)
+  })
+
+  it('defaults to no cover and an empty gallery', () => {
+    const detail = eventWithRelationsSchema.parse(prismaEvent)
+
+    expect(detail.coverImage).toBeUndefined()
+    expect(detail.gallery).toEqual([])
+    expect(eventSummarySchema.parse({ ...prismaEvent, coverImage: null }).coverImage).toBeNull()
+  })
+
+  it('refuses a cover served from anywhere but this platform', () => {
+    expect(
+      eventSummarySchema.safeParse({
+        ...prismaEvent,
+        coverImage: { ...cover, url: 'https://tracker.example/pixel.png' },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('no longer carries an external cover address at all', () => {
+    const parsed = eventWithRelationsSchema.parse({
+      ...prismaEvent,
+      coverImageUrl: 'https://tracker.example/pixel.png',
+    })
+
+    expect(parsed).not.toHaveProperty('coverImageUrl')
+  })
+
+  it('caps the gallery at eight', () => {
+    expect(
+      eventWithRelationsSchema.safeParse({ ...prismaEvent, gallery: Array(9).fill(gallery[0]) })
+        .success,
+    ).toBe(false)
+  })
+})

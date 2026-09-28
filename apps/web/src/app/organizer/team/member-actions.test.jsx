@@ -32,7 +32,8 @@ const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
 
 const { apiFetch } = await import('../../../lib/api-fetch.js')
-const { InvitationActions, MemberActions } = await import('./member-actions.jsx')
+const { InvitationActions, MemberActions, TransferOwnership } = await import('./member-actions.jsx')
+const { TeamAnnouncer } = await import('./team-announcer.jsx')
 
 /** The organisation. */
 const ORG = 'org00000000000000000001'
@@ -414,5 +415,235 @@ describe('withdrawing an invitation', () => {
 
     expect(apiFetch).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Withdraw the invitation/u })).toBeInTheDocument()
+  })
+})
+
+describe('issuing a new code for an invitation', () => {
+  const CODE = 'Ab3_dE6-gH9iJ2kL5mN8oP1qR4sT7uV0wX3yZ6aB9cD'
+
+  it('is offered only when the role is grantable', () => {
+    render(<InvitationActions organizationId={ORG} invitation={{ id: 'inv1', role: 'ADMIN' }} />)
+
+    expect(screen.queryByRole('button', { name: /Issue a new code/u })).not.toBeInTheDocument()
+  })
+
+  it('asks first, posts to the reissue route, and shows the new code once', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: {
+          id: 'inv2',
+          role: 'SCANNER',
+          status: 'PENDING',
+          expiresAt: '2026-10-12T15:00:00.000Z',
+          createdAt: '2026-09-28T15:00:00.000Z',
+          deliveryMode: 'MANUAL',
+          delivery: { mode: 'MANUAL', invitationCode: CODE },
+        },
+      }),
+    )
+
+    const { container } = render(
+      <InvitationActions
+        organizationId={ORG}
+        invitation={{ id: 'inv1', role: 'SCANNER' }}
+        reissuable
+        neverDelivered
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Issue a new code for the invitation to join as door scanner',
+      }),
+    )
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(screen.getByText(/The code issued before stops working at once/u)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Issue a new code' }))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+
+    expect(apiFetch.mock.calls[0][0]).toBe(`/v1/organizations/${ORG}/invitations/inv1/reissue`)
+    expect(apiFetch.mock.calls[0][1].method).toBe('POST')
+    expect(await screen.findByLabelText('Invitation code')).toHaveValue(CODE)
+    // Addressless: this caller was not given the address, so nobody is named.
+    expect(screen.getByText(/Send this code to the person it is for yourself/u)).toBeVisible()
+    expect(refresh).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'I have handed it over' }))
+
+    expect(container.innerHTML).not.toContain(CODE)
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it('keeps the new code on the page when the withdrawn invitation’s row goes', async () => {
+    // Issuing a code withdraws the invitation it replaces, so its row goes at
+    // the next refresh — and anything on the page can refresh it. The code
+    // must outlive the row until the person says it is handed over.
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(201, {
+        data: {
+          id: 'inv2',
+          role: 'STAFF',
+          status: 'PENDING',
+          expiresAt: '2026-10-12T15:00:00.000Z',
+          createdAt: '2026-09-28T15:00:00.000Z',
+          deliveryMode: 'MANUAL',
+          delivery: { mode: 'MANUAL', invitationCode: CODE },
+        },
+      }),
+    )
+
+    /**
+     * The team page's shape: the announcer above, the invitation's row below.
+     *
+     * @param {{row: boolean}} props Whether the old invitation's row is still listed.
+     * @returns {JSX.Element} The tree.
+     */
+    function Page({ row }) {
+      return (
+        <TeamAnnouncer>
+          {row ? (
+            <InvitationActions
+              organizationId={ORG}
+              invitation={{ id: 'inv1', role: 'STAFF' }}
+              reissuable
+            />
+          ) : null}
+        </TeamAnnouncer>
+      )
+    }
+
+    const { container, rerender } = render(<Page row />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Issue a new code for the invitation to join as staff' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Issue a new code' }))
+
+    expect(await screen.findByLabelText('Invitation code')).toHaveValue(CODE)
+
+    // A refresh from anywhere drops the withdrawn invitation's row.
+    rerender(<Page row={false} />)
+
+    expect(screen.getByLabelText('Invitation code')).toHaveValue(CODE)
+
+    await user.click(screen.getByRole('button', { name: 'I have handed it over' }))
+
+    expect(container.innerHTML).not.toContain(CODE)
+    expect(
+      await screen.findByText(/The new code for the invitation to join as staff is handed over/u),
+    ).toBeInTheDocument()
+  })
+
+  it('repeats the API’s refusal and shows no code', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(409, {
+        error: {
+          code: 'CONFLICT',
+          message: 'This invitation is no longer outstanding, so there is no code to replace.',
+        },
+      }),
+    )
+    render(
+      <InvitationActions
+        organizationId={ORG}
+        invitation={{ id: 'inv1', role: 'STAFF' }}
+        reissuable
+      />,
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: 'Issue a new code for the invitation to join as staff' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Issue a new code' }))
+
+    expect(await screen.findByText(/no longer outstanding/u)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Invitation code')).not.toBeInTheDocument()
+  })
+})
+
+describe('handing ownership on', () => {
+  it('asks first, then posts the member to the ownership route', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { previousOwnerRole: 'ADMIN' } }))
+    render(
+      <TransferOwnership
+        organizationId={ORG}
+        organizationName="Rangoli"
+        member={{ id: 'mem1', name: 'Asha Rao' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' }))
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(screen.getByText(/you become an administrator, in one step/u)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Make Asha Rao the owner' }))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+
+    expect(apiFetch.mock.calls[0][0]).toBe(`/v1/organizations/${ORG}/ownership`)
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ toMemberId: 'mem1' })
+    expect(await screen.findByText(/Asha Rao is now the owner/u)).toBeInTheDocument()
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it('offers the step-up when the API asks for one, then sends it again', async () => {
+    const user = userEvent.setup()
+
+    apiFetch
+      .mockResolvedValueOnce(
+        answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate at /v1/auth' } }),
+      )
+      .mockResolvedValueOnce(answer(200, { data: { ok: true } }))
+      .mockResolvedValueOnce(answer(200, { data: { previousOwnerRole: 'ADMIN' } }))
+    render(
+      <TransferOwnership
+        organizationId={ORG}
+        organizationName="Rangoli"
+        member={{ id: 'mem1', name: 'Asha Rao' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' }))
+    await user.click(screen.getByRole('button', { name: 'Make Asha Rao the owner' }))
+
+    expect(await screen.findByRole('heading', { name: 'Confirm it is you' })).toBeInTheDocument()
+    expect(screen.queryByText(/\/v1\/auth/u)).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Your password/u), 'correct horse')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3))
+    expect(apiFetch.mock.calls.map(([path]) => path)).toEqual([
+      `/v1/organizations/${ORG}/ownership`,
+      '/v1/auth/step-up',
+      `/v1/organizations/${ORG}/ownership`,
+    ])
+    expect(await screen.findByText(/Asha Rao is now the owner/u)).toBeInTheDocument()
+  })
+
+  it('can be backed out of without sending anything', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TransferOwnership
+        organizationId={ORG}
+        organizationName="Rangoli"
+        member={{ id: 'mem1', name: 'Asha Rao' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' }))
+    await user.click(screen.getByRole('button', { name: 'Keep ownership' }))
+
+    expect(apiFetch).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' })).toBeInTheDocument()
   })
 })

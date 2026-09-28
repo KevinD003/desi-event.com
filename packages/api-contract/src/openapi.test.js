@@ -177,6 +177,34 @@ describe('buildOpenApiDocument', () => {
     expect(document.paths['/health'].get).not.toHaveProperty('requestBody')
   })
 
+  it('documents a picture upload as raw bytes of each accepted type', () => {
+    const upload = document.paths['/v1/events/{id}/media'].post
+
+    expect(upload.requestBody.required).toBe(true)
+    expect(upload.requestBody.content).toEqual({
+      'image/jpeg': { schema: { type: 'string', contentMediaType: 'image/jpeg' } },
+      'image/png': { schema: { type: 'string', contentMediaType: 'image/png' } },
+      'image/webp': { schema: { type: 'string', contentMediaType: 'image/webp' } },
+      'application/octet-stream': {
+        schema: { type: 'string', contentMediaType: 'application/octet-stream' },
+      },
+    })
+    expect(upload.requestBody.content).not.toHaveProperty('application/json')
+    expect(upload.responses).toHaveProperty('413')
+    expect(upload.responses).toHaveProperty('415')
+    expect(upload.parameters.map((parameter) => parameter.name)).toEqual(
+      expect.arrayContaining(['id', 'kind', 'altText', 'revision']),
+    )
+  })
+
+  it('documents a picture read as image bytes, with no JSON success body', () => {
+    const read = document.paths['/v1/media/{id}'].get
+
+    expect(read.responses['200'].content).toEqual({ 'image/*': { schema: { type: 'string' } } })
+    expect(read).not.toHaveProperty('requestBody')
+    expect(document.tags.map((tag) => tag.name)).toContain('media')
+  })
+
   it('documents the success status the route declares, not a blanket 200', () => {
     expect(Object.keys(document.paths['/v1/auth/register'].post.responses)).toContain('201')
     expect(Object.keys(document.paths['/v1/auth/login'].post.responses)).toContain('200')

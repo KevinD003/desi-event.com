@@ -15,6 +15,7 @@ import {
 import { organizationsWhere } from '../lib/actor.js'
 import { availableTransitions, loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
 import { authorChange } from '../lib/event-authoring.js'
+import { EVENT_COVER_INCLUDE, EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
 import { cancellationWork } from '../lib/event-cancellation.js'
 import {
   LIVE_STATUSES,
@@ -30,8 +31,24 @@ import { feeConfigFor } from './orders.js'
 import { loadEventFacets } from '../lib/facets.js'
 import { defineRoute } from '../lib/register.js'
 
-/** Relations every event payload carries. */
-const EVENT_INCLUDE = Object.freeze({ venue: true, organization: true, ticketTypes: true })
+/**
+ * Relations every event detail carries: its approved pictures included. The
+ * presenter filters them again, and only a public event shows any.
+ */
+const EVENT_INCLUDE = Object.freeze({
+  venue: true,
+  organization: true,
+  ticketTypes: true,
+  ...EVENT_MEDIA_INCLUDE,
+})
+
+/** Relations a listing card carries: the approved cover only, never the gallery. */
+const EVENT_LIST_INCLUDE = Object.freeze({
+  venue: true,
+  organization: true,
+  ticketTypes: true,
+  ...EVENT_COVER_INCLUDE,
+})
 
 /** Query `sort` value to a Prisma `orderBy`. */
 const ORDER_BY = Object.freeze({
@@ -367,7 +384,7 @@ export function registerEventRoutes(app, { prisma, env }) {
       })
 
       const [events, total] = await Promise.all([
-        prisma.event.findMany({ where, orderBy, skip, take, include: EVENT_INCLUDE }),
+        prisma.event.findMany({ where, orderBy, skip, take, include: EVENT_LIST_INCLUDE }),
         prisma.event.count({ where }),
       ])
 

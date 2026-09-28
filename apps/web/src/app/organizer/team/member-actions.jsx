@@ -36,6 +36,18 @@
  * starts on "Choose a role", Save waits for a choice, and the panel says what
  * the member is now.
  *
+ * ## A new code for an invitation, and ownership handed on
+ *
+ * An open invitation can be given a new code (`…/reissue`) when the first was
+ * lost or never handed out. The old code stops working in the same moment, and
+ * the new one is shown once in {@link OneTimeCodePanel}. Offered only for a
+ * role the caller may grant, which is the bound the API applies.
+ *
+ * An owner can hand ownership to another member ({@link TransferOwnership}).
+ * It is one swap — they become the owner, the caller an administrator — and
+ * needs a recent second factor, so the step-up prompt is offered when the API
+ * asks for it and the request is sent again after.
+ *
  * ## Removing somebody is confirmed in place
  *
  * An inline panel, not a modal: it traps nothing, it says what removal does,
@@ -50,12 +62,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
+import { OneTimeCodePanel } from '../../../components/one-time-code-panel.jsx'
 import { StepUpPrompt } from '../../../components/step-up-prompt.jsx'
 import { Alert, Button, FormField, Select, Textarea } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { describeApiRefusal, parseRetryAfter, refusalSentence } from '../../../lib/refusal.js'
-import { useAnnounce } from './team-announcer.jsx'
+import { useAnnounce, useHoldCode } from './team-announcer.jsx'
 import {
+  ACCEPT_PATH,
+  ACCEPT_PLACE,
   REASON_MAX,
   REASON_MIN,
   ROLE_DESCRIPTIONS,
@@ -192,8 +207,8 @@ export function MemberActions({
   const router = useRouter()
   const id = useId()
   const { announce, region } = useOutcome()
-  // OWNER is never assignable — ownership moves by a route of its own — so it
-  // is filtered here as well as by the API.
+  // OWNER is never assignable here — ownership moves by its own route
+  // (`TransferOwnership`) — so it is filtered here as well as by the API.
   const grantable = assignableRoles.filter((role) => role !== 'OWNER')
   // A role that cannot be kept (an owner's) starts on no choice at all.
   const keepsRole = grantable.includes(member.role)
@@ -396,7 +411,7 @@ export function MemberActions({
             <FormField
               label="New role"
               id={`${id}-role`}
-              description="Only the roles your own role can grant. Owner is not among them: ownership is handed over separately."
+              description="Only the roles your own role can grant. Owner is not among them: an owner hands ownership over from the Ownership section."
             >
               <Select value={role} onChange={(changed) => setRole(changed.target.value)}>
                 {keepsRole ? null : (
@@ -521,8 +536,7 @@ export function MemberActions({
           </h3>
           <p className="mt-1 text-sm text-ink">
             Their role and every door scope in this organisation go at once, from their next
-            request. Their account stays. Bringing them back needs an invitation, and invitations
-            cannot be delivered in this build.
+            request. Their account stays. Bringing them back needs a new invitation.
           </p>
 
           <RefusalAlert refused={refused} />
@@ -586,31 +600,60 @@ export function MemberActions({
  * @typedef {object} InvitationActionsProps
  * @property {string} organizationId Whose team.
  * @property {{id: string, role: string}} invitation The invitation.
+ * @property {boolean} [reissuable] Whether this caller may issue a new code for it: its role is one they may grant.
+ * @property {string|null} [recipient] Its address, when this caller may see addresses; otherwise null.
+ * @property {boolean} [neverDelivered] Whether its code never reached anybody, so a new one is the only way in.
  */
 
 /**
- * Withdrawing one open invitation, confirmed in place.
+ * Withdrawing one open invitation, or giving it a new code, confirmed in place.
  *
- * `POST …/invitations/:id/revoke`. Idempotent on the API's side, so a second
- * press after a slow first one changes nothing.
+ * `POST …/invitations/:id/revoke`, idempotent on the API's side, so a second
+ * press after a slow first one changes nothing. `POST …/invitations/:id/reissue`
+ * answers with a new code once, which is drawn in the one-time panel and
+ * dropped when the person says they have handed it over.
  *
  * @param {InvitationActionsProps} props Component props.
  * @returns {JSX.Element} The control.
  */
-export function InvitationActions({ organizationId, invitation }) {
+export function InvitationActions({
+  organizationId,
+  invitation,
+  reissuable = false,
+  recipient = null,
+  neverDelivered = false,
+}) {
   const router = useRouter()
   const id = useId()
   const { announce, region } = useOutcome()
-  const [confirming, setConfirming] = useState(false)
+  const holdCode = useHoldCode()
+  const [confirming, setConfirming] = useState(null)
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState(null)
   const [stepUp, setStepUp] = useState(false)
+  const [issued, setIssued] = useState(null)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
   const what = `the invitation to join as ${roleLabel(invitation.role).toLowerCase()}`
+  const reissuing = confirming === 'reissue'
 
   /**
-   * Withdraw it.
+   * Open one panel.
+   *
+   * @param {'reissue'|'revoke'} key Which.
+   * @param {object} trigger The pressed element, so focus can come back.
+   * @returns {void}
+   */
+  function begin(key, trigger) {
+    returnFocus.current = trigger
+    setRefused(null)
+    setStepUp(false)
+    setConfirming(key)
+    queueMicrotask(() => panelRef.current?.focus())
+  }
+
+  /**
+   * Withdraw it, or give it a new code.
    *
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
@@ -620,20 +663,227 @@ export function InvitationActions({ organizationId, invitation }) {
 
     try {
       const response = await apiFetch(
-        `/v1/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitation.id)}/revoke`,
+        `/v1/organizations/${encodeURIComponent(organizationId)}/invitations/${encodeURIComponent(invitation.id)}/${reissuing ? 'reissue' : 'revoke'}`,
         { method: 'POST' },
       )
       const body = await response.json().catch(() => null)
 
+      if (response.ok && reissuing) {
+        setConfirming(null)
+
+        const code = body?.data?.delivery?.invitationCode
+
+        if (code) {
+          const fresh = {
+            code,
+            recipient: body?.data?.email ?? recipient,
+            expiresAt: body?.data?.expiresAt ?? null,
+          }
+
+          if (holdCode) {
+            // Held above the table, which a refresh does not replace. This
+            // row is the withdrawn invitation's and goes at the next refresh,
+            // so the list is read again at once: it shows the new invitation,
+            // and nothing offers a second code for the old one.
+            holdCode({ ...fresh, what })
+            router.refresh()
+          } else {
+            // No page around this control: held here until handed over.
+            setIssued(fresh)
+          }
+        } else {
+          announce(`A new invitation was emailed for ${what}.`, { focus: true })
+          router.refresh()
+        }
+
+        return
+      }
+
       if (response.ok) {
-        setConfirming(false)
+        setConfirming(null)
         announce(`Withdrawn: ${what} can no longer be accepted.`, { focus: true })
         router.refresh()
         return
       }
 
-      // The contract declares no step-up on revoke; if the auth plugin asks
+      // The contract declares no step-up on either; if the auth plugin asks
       // for one all the same, it is offered rather than left as a dead end.
+      if (body?.error?.code === 'STEP_UP_REQUIRED') {
+        setStepUp(true)
+        return
+      }
+
+      setRefused(refusedBecause(response, body))
+      queueMicrotask(() => panelRef.current?.focus())
+    } catch {
+      setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (issued) {
+    return (
+      <div>
+        {region}
+        <OneTimeCodePanel
+          code={issued.code}
+          heading="New invitation code"
+          recipient={issued.recipient}
+          expiresAt={issued.expiresAt}
+          acceptPath={ACCEPT_PATH}
+          acceptPlace={ACCEPT_PLACE}
+          onDone={() => {
+            // Dropped from memory first, then the list is read again.
+            setIssued(null)
+            announce(`The new code for ${what} is handed over.`, { focus: true })
+            router.refresh()
+          }}
+        />
+      </div>
+    )
+  }
+
+  let confirmLabel = busy ? 'Withdrawing…' : 'Withdraw it'
+
+  if (reissuing) confirmLabel = busy ? 'Issuing…' : 'Issue a new code'
+
+  return (
+    <div>
+      {region}
+
+      {confirming ? (
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          role="group"
+          aria-labelledby={`${id}-heading`}
+          className={PANEL}
+        >
+          <h3 id={`${id}-heading`} className="font-semibold text-ink">
+            {reissuing ? `Issue a new code for ${what}?` : `Withdraw ${what}?`}
+          </h3>
+          <p className="mt-1 text-sm text-ink-muted">
+            {reissuing
+              ? 'The code issued before stops working at once. The new one is shown to you once, to hand over yourself.'
+              : 'It stops working at once, and so does its code. Nobody is told: this site sends no email, so if you handed the code to somebody, let them know yourself.'}
+          </p>
+
+          <RefusalAlert refused={refused} />
+
+          {stepUp ? (
+            <div className="mt-3">
+              <StepUpPrompt
+                action={reissuing ? `issue a new code for ${what}` : `withdraw ${what}`}
+                onConfirmed={() => {
+                  setStepUp(false)
+                  void send()
+                }}
+                onCancel={() => setStepUp(false)}
+              />
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button type="button" className="min-h-11" onClick={send} disabled={busy}>
+              {confirmLabel}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-11"
+              disabled={busy}
+              onClick={() => {
+                setConfirming(null)
+                setRefused(null)
+                setStepUp(false)
+                queueMicrotask(() => returnFocus.current?.focus())
+              }}
+            >
+              {reissuing ? 'Keep the current code' : 'Keep it'}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {reissuable ? (
+            <Button
+              type="button"
+              variant={neverDelivered ? 'primary' : 'secondary'}
+              className="min-h-11"
+              aria-label={`Issue a new code for ${what}`}
+              onClick={(pressed) => begin('reissue', pressed.currentTarget)}
+            >
+              Issue a new code
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11"
+            aria-label={`Withdraw ${what}`}
+            onClick={(pressed) => begin('revoke', pressed.currentTarget)}
+          >
+            Withdraw
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * @typedef {object} TransferOwnershipProps
+ * @property {string} organizationId Whose ownership.
+ * @property {string} organizationName Its name, for the confirmation.
+ * @property {{id: string, name: string}} member The member it would go to, with a name already cleared of any address.
+ */
+
+/**
+ * Handing ownership to another member, confirmed in place.
+ *
+ * `POST /v1/organizations/:id/ownership` with `{ toMemberId }`. One swap on the
+ * server: the member becomes the owner and the caller an administrator. The
+ * API asks for a recent second factor under the `SECURITY_ROLE` policy; when it
+ * does, the step-up prompt is shown and the request sent again after it.
+ *
+ * @param {TransferOwnershipProps} props Component props.
+ * @returns {JSX.Element} The control.
+ */
+export function TransferOwnership({ organizationId, organizationName, member }) {
+  const router = useRouter()
+  const id = useId()
+  const { announce, region } = useOutcome()
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [refused, setRefused] = useState(null)
+  const [stepUp, setStepUp] = useState(false)
+  const panelRef = useRef(null)
+  const returnFocus = useRef(null)
+
+  /**
+   * Hand it over.
+   *
+   * @returns {Promise<void>} Resolves when the attempt is over.
+   */
+  async function send() {
+    setBusy(true)
+    setRefused(null)
+
+    try {
+      const response = await apiFetch(
+        `/v1/organizations/${encodeURIComponent(organizationId)}/ownership`,
+        { method: 'POST', body: JSON.stringify({ toMemberId: member.id }) },
+      )
+      const body = await response.json().catch(() => null)
+
+      if (response.ok) {
+        setConfirming(false)
+        announce(`${member.name} is now the owner. You are an administrator.`, { focus: true })
+        router.refresh()
+        return
+      }
+
       if (body?.error?.code === 'STEP_UP_REQUIRED') {
         setStepUp(true)
         return
@@ -658,13 +908,15 @@ export function InvitationActions({ organizationId, invitation }) {
           tabIndex={-1}
           role="group"
           aria-labelledby={`${id}-heading`}
-          className={PANEL}
+          className={DANGER_PANEL}
         >
-          <h3 id={`${id}-heading`} className="font-semibold text-ink">
-            Withdraw {what}?
+          <h3 id={`${id}-heading`} className="font-semibold text-status-danger">
+            Hand {organizationName} to {member.name}?
           </h3>
-          <p className="mt-1 text-sm text-ink-muted">
-            It stops working at once. Nothing was ever delivered for it, so nobody is told.
+          <p className="mt-1 text-sm text-ink">
+            {member.name} becomes the owner and you become an administrator, in one step. They are
+            signed out everywhere and sign in again as the owner, and must set up two-step sign-in
+            if they have not. Only they can hand it back.
           </p>
 
           <RefusalAlert refused={refused} />
@@ -672,7 +924,7 @@ export function InvitationActions({ organizationId, invitation }) {
           {stepUp ? (
             <div className="mt-3">
               <StepUpPrompt
-                action={`withdraw ${what}`}
+                action={`hand ownership to ${member.name}`}
                 onConfirmed={() => {
                   setStepUp(false)
                   void send()
@@ -683,8 +935,14 @@ export function InvitationActions({ organizationId, invitation }) {
           ) : null}
 
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button type="button" className="min-h-11" onClick={send} disabled={busy}>
-              {busy ? 'Withdrawing…' : 'Withdraw it'}
+            <Button
+              type="button"
+              variant="danger"
+              className="min-h-11"
+              onClick={send}
+              disabled={busy}
+            >
+              {busy ? 'Handing over…' : `Make ${member.name} the owner`}
             </Button>
             <Button
               type="button"
@@ -698,7 +956,7 @@ export function InvitationActions({ organizationId, invitation }) {
                 queueMicrotask(() => returnFocus.current?.focus())
               }}
             >
-              Keep it
+              Keep ownership
             </Button>
           </div>
         </div>
@@ -707,7 +965,7 @@ export function InvitationActions({ organizationId, invitation }) {
           type="button"
           variant="secondary"
           className="min-h-11"
-          aria-label={`Withdraw ${what}`}
+          aria-label={`Hand ownership to ${member.name}`}
           onClick={(pressed) => {
             returnFocus.current = pressed.currentTarget
             setRefused(null)
@@ -716,7 +974,7 @@ export function InvitationActions({ organizationId, invitation }) {
             queueMicrotask(() => panelRef.current?.focus())
           }}
         >
-          Withdraw
+          Hand ownership over
         </Button>
       )}
     </div>

@@ -19,6 +19,12 @@ import {
   withoutAddresses,
 } from '@desi-event/schemas'
 
+import {
+  PUBLIC_MEDIA_SELECT,
+  PUBLIC_MEDIA_WHERE,
+  publicCover,
+  publicGallery,
+} from './event-media.js'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
 import { BADGED_STATES } from './verification.js'
@@ -95,6 +101,9 @@ export function toEventSummary(event, { feeConfigFor = null, now = new Date() } 
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,
     venueSlug: event.venue?.slug ?? null,
+    // The approved cover, when the row was loaded with one and the event is
+    // public; otherwise null, and the card draws the generated poster.
+    coverImage: publicCover(event),
     minPriceCents,
     currency: priced[0]?.currency ?? null,
   }
@@ -239,6 +248,11 @@ export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor =
     // "postponed" alone does not tell somebody the date in their calendar is
     // dead.
     previousStartsAt: event.previousStartsAt ?? null,
+    // Approved pictures only, and only on a public event: filtered here as well
+    // as in the query, so a route that forgot the query's filter still cannot
+    // put an unreviewed picture on a page.
+    coverImage: publicCover(event),
+    gallery: publicGallery(event),
     venue,
     organization: toPublicOrganizer(organization),
     ticketTypes: [...visibleTiers].sort(
@@ -367,6 +381,13 @@ export const WALLET_INCLUDE = Object.freeze({
               venue: {
                 select: { name: true, city: true, region: true, country: true },
               },
+              // The approved cover, so the wallet shows the picture the event
+              // page shows. Filtered again by the presenter.
+              media: {
+                where: { ...PUBLIC_MEDIA_WHERE, kind: 'EVENT_COVER' },
+                select: PUBLIC_MEDIA_SELECT,
+                take: 1,
+              },
             },
           },
         },
@@ -477,6 +498,7 @@ export function toWalletTicket(ticket, { viewerUserId }) {
       timezone: event.timezone,
       status: event.status,
       cancelledAt: event.cancelledAt ?? null,
+      coverImage: publicCover(event),
     },
     venue: venue
       ? {

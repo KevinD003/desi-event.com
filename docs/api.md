@@ -146,23 +146,30 @@ bug — leaves through one handler in one shape:
 
 ### Codes
 
-| Status | Code                    | When                                                                                    |
-| ------ | ----------------------- | --------------------------------------------------------------------------------------- |
-| 400    | `VALIDATION_ERROR`      | The request failed schema validation; see `issues`                                      |
-| 401    | `UNAUTHORIZED`          | Bearer token missing, malformed or expired                                              |
-| 403    | `FORBIDDEN`             | Authenticated, but lacking the required capability                                      |
-| 404    | `NOT_FOUND`             | No such resource, or it is not visible to this caller                                   |
-| 409    | `CONFLICT`              | Collides with current state: a duplicate slug, a hold already spent                     |
-| 410    | `HOLD_EXPIRED`          | The hold the request depends on has lapsed                                              |
-| 422    | `UNPROCESSABLE`         | Well-formed but not actionable: sold out, outside the sales window, event not published |
-| 429    | `RATE_LIMITED`          | Too many attempts; the message says how long to wait                                    |
-| 500    | `INTERNAL_SERVER_ERROR` | A bug. In production the message is fixed and the detail stays in the logs              |
-| 503    | `SERVICE_UNAVAILABLE`   | The database is unreachable                                                             |
+| Status | Code                     | When                                                                                    |
+| ------ | ------------------------ | --------------------------------------------------------------------------------------- |
+| 400    | `VALIDATION_ERROR`       | The request failed schema validation; see `issues`                                      |
+| 401    | `UNAUTHORIZED`           | Bearer token missing, malformed or expired                                              |
+| 403    | `FORBIDDEN`              | Authenticated, but lacking the required capability                                      |
+| 404    | `NOT_FOUND`              | No such resource, or it is not visible to this caller                                   |
+| 409    | `CONFLICT`               | Collides with current state: a duplicate slug, a hold already spent                     |
+| 410    | `HOLD_EXPIRED`           | The hold the request depends on has lapsed                                              |
+| 413    | `PAYLOAD_TOO_LARGE`      | The body is larger than the route accepts (a picture: 10 MiB)                           |
+| 415    | `UNSUPPORTED_MEDIA_TYPE` | The body is not a type the route accepts; for a picture, judged from its bytes          |
+| 422    | `UNPROCESSABLE`          | Well-formed but not actionable: sold out, outside the sales window, event not published |
+| 429    | `RATE_LIMITED`           | Too many attempts; the message says how long to wait                                    |
+| 500    | `INTERNAL_SERVER_ERROR`  | A bug. In production the message is fixed and the detail stays in the logs              |
+| 503    | `SERVICE_UNAVAILABLE`    | The database is unreachable                                                             |
 
 Domain packages set these themselves — `InventoryError` carries
 `INSUFFICIENT_INVENTORY`, `BELOW_MINIMUM`, `ABOVE_MAXIMUM` and friends with
 their own statuses, and the handler reports what the package decided rather
 than re-deriving it.
+
+Event pictures add their own, each with a sentence the organiser can act on
+(see [MEDIA.md](MEDIA.md)): 400 `EMPTY_UPLOAD`; 409 `GALLERY_FULL`,
+`MEDIA_QUOTA_EXCEEDED`, `GALLERY_CHANGED` and `MEDIA_CHANGED`; and 422
+`MALFORMED_IMAGE`, `ANIMATED_IMAGE`, `IMAGE_TOO_SMALL` and `IMAGE_TOO_LARGE`.
 
 ## Pagination
 

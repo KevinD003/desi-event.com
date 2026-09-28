@@ -40,6 +40,7 @@ import {
 } from './primitives.js'
 import { addressFree } from './addresses.js'
 import { venueAccessibilitySchema } from './venues.js'
+import { publicMediaSchema } from './media.js'
 import {
   eventCategorySchema,
   eventStatusSchema,
@@ -169,6 +170,11 @@ export const eventSchema = z.object({
   onlineUrl: urlSchema.nullish(),
   languages: z.array(nonEmptyStringSchema).max(12).default([]),
   publishedAt: timestampSchema.nullish(),
+  /**
+   * The organiser's uploaded cover, once a moderator has approved it and the
+   * event is public. Null means the page draws the generated poster.
+   */
+  coverImage: publicMediaSchema.nullish(),
   ...auditColumns,
 })
 
@@ -200,6 +206,8 @@ export const eventSummarySchema = z.object({
   organizationSlug: slugSchema.nullish(),
   /** The venue's slug, for the same reason and with the same caveat. */
   venueSlug: slugSchema.nullish(),
+  /** The approved cover a card shows, or null for the generated poster. */
+  coverImage: publicMediaSchema.nullish(),
   minPriceCents: centsSchema.nullish(),
   /**
    * What one ticket of the cheapest tier costs all in: face value, the
@@ -403,6 +411,8 @@ export const eventPoliciesSchema = z.object({
  */
 export const eventWithRelationsSchema = eventSchema.extend({
   venue: venueSchema.nullish(),
+  /** Approved gallery pictures, in the organiser's order. */
+  gallery: z.array(publicMediaSchema).max(8).default([]),
   organization: publicOrganizerSummarySchema.nullish(),
   ticketTypes: z.array(ticketTypeSchema).default([]),
   /** Minimum age at the door. Null means there is no restriction. */

@@ -1,7 +1,7 @@
 /**
  * Team management.
  *
- * Six routes, and almost all of the code is about the four ways this is attacked.
+ * Eight routes, and almost all of the code is about the four ways this is attacked.
  * Stating them plainly, because each one is a specific defence below:
  *
  *   1. **Self-escalation.** A `MANAGER` who can invite people invites themselves
@@ -13,11 +13,18 @@
  *      from `canAssignOrgRole`, which compares capability sets rather than a
  *      seniority number.
  *   3. **Last-owner removal.** The only `OWNER` is demoted or removed, leaving an
- *      organisation whose record nobody can change. Closed by counting owners
- *      inside the transaction that would change one.
- *   4. **Invitation replay and forwarding.** A link is used twice, or forwarded to
+ *      organisation whose record nobody can change. Closed by locking the owner
+ *      rows and then counting them inside the transaction that would change one
+ *      (`lib/memberships.js`) — counting without the lock let two concurrent
+ *      demotions of two different owners each see two and both proceed.
+ *   4. **Invitation replay and forwarding.** A code is used twice, or passed on to
  *      somebody else. Closed by a conditional update on `status: PENDING`, and by
  *      requiring the accepting session to be signed in as the invited address.
+ *
+ * The code itself is a bearer-ish secret bound to an address. With no delivery
+ * provider (`DELIVERY_MODE` MANUAL, this build) it is returned once, in the 201
+ * that minted it, to whoever issued it; it is never logged, audited or stored —
+ * only its digest is. `lib/delivery.js` holds that rule.
  *
  * A fifth, quieter one runs through every route: **cross-tenant access.** Every
  * query is scoped by `organizationId` in the same `where` clause that finds the
@@ -30,6 +37,7 @@
 import {
   hashToken,
   issueToken,
+  sessionPolicyFor,
   stepUpSatisfied,
   stepUpWindowFor,
   tokenUsable,
@@ -42,12 +50,20 @@ import {
   orgRoleFor,
   CAPABILITIES,
   can,
-  requiresAdmissionScope,
 } from '@desi-event/permissions'
 import { withoutAddresses } from '@desi-event/schemas'
 
-import { recordAudit } from '../lib/audit.js'
-import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
+import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
+import { DELIVERY_MODES, deliverCode } from '../lib/delivery.js'
+import { conflict, databaseErrorCode, forbidden, notFound } from '../lib/errors.js'
+import { assertNotLastOwner, lockMembership, setScannerScopes } from '../lib/memberships.js'
+import {
+  revokeAllSessionsOf,
+  revokeOtherSessionsOf,
+  rotateOwnSession,
+  secureSessionAfterGain,
+  hasConfirmedFactor,
+} from '../lib/privilege-change.js'
 import { defineRoute } from '../lib/register.js'
 import { authRateLimit } from '../plugins/rate-limit.js'
 
@@ -139,6 +155,51 @@ function nameAt(name, visibility) {
 export const INVITATION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000
 
 /**
+ * An invitation as every team response shows it.
+ *
+ * One presenter for the list, the invite and the reissue, so how the code went
+ * out (`deliveryMode`) is reported the same way everywhere. It never carries
+ * the code or its digest: the code exists only in the one response that minted
+ * it, added beside this by the route, and the digest is nobody's business.
+ *
+ * @param {object} invitation The invitation row, with `invitedBy` included.
+ * @param {'FULL'|'STEP_UP_REQUIRED'|'HIDDEN'} visibility How much of an address the caller may see.
+ * @returns {object} The summary.
+ */
+export function toInvitationSummary(invitation, visibility) {
+  return {
+    id: invitation.id,
+    ...addressAt(invitation.email, visibility),
+    role: invitation.role,
+    status: invitation.status,
+    invitedByName: nameAt(invitation.invitedBy?.displayName ?? null, visibility),
+    expiresAt: invitation.expiresAt.toISOString(),
+    createdAt: invitation.createdAt.toISOString(),
+    deliveryMode: invitation.deliveryMode ?? null,
+  }
+}
+
+/**
+ * Whether an error is the database refusing a second live invitation.
+ *
+ * `Invitation_one_pending_per_address` is a partial unique index, so the
+ * refusal arrives as a unique violation — `P2002` from Prisma, or `23505`
+ * straight from the driver.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {boolean} True when it was a unique violation.
+ */
+function isUniqueViolation(error) {
+  const code = databaseErrorCode(error)
+
+  return code === 'P2002' || code === '23505'
+}
+
+/** The refusal for two invitations to one address issued at the same moment. */
+const CONCURRENT_INVITATION =
+  'Another invitation to that address was issued at the same moment. Reload the team page to see it.'
+
+/**
  * The roles a caller may grant in an organisation.
  *
  * Computed rather than listed, from `canAssignOrgRole` — which answers the
@@ -205,11 +266,26 @@ function assertMayActOn(actor, organizationId, targetRole) {
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the invitation rate limit.
- * @param {function(object): Promise<void>} [deps.deliver] Where an invitation link is sent.
+ * @param {function(object): Promise<void>} [deps.deliver] Where an invitation code is sent, in EMAIL mode.
+ * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How codes reach people, resolved once by `buildApp`.
  * @returns {void} Nothing.
  */
-export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
-  const limit = { rateLimit: authRateLimit(authLimit) }
+export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMode }) {
+  // The credential budget, keyed on the signed-in account rather than the
+  // address. Every one of these routes needs a session, and every browser
+  // request reaches the API through the web app's same-origin proxy — so keyed
+  // by address, the whole site shared one budget of ten invitations, new codes
+  // or acceptances a minute, and one busy team could lock everybody else out.
+  // Run at `preHandler`, after the session guard, so the account is known.
+  const limit = {
+    rateLimit: {
+      ...authRateLimit(authLimit),
+      hook: 'preHandler',
+      keyGenerator: (request) =>
+        request.actor?.id ? `team:actor:${request.actor.id}` : `team:ip:${request.ip}`,
+    },
+  }
+  const mode = deliveryMode ?? app.deliveryMode ?? DELIVERY_MODES.MANUAL
 
   /**
    * Load the organisation, refusing a caller who has no business in it.
@@ -236,70 +312,28 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
   }
 
   /**
-   * How many owners an organisation has.
+   * Hand a freshly minted code to whoever should have it, and say how.
    *
-   * @param {object} tx A Prisma client or transaction client.
-   * @param {string} organizationId Which organisation.
-   * @returns {Promise<number>} The count.
-   */
-  function ownerCount(tx, organizationId) {
-    return tx.membership.count({ where: { organizationId, role: 'OWNER' } })
-  }
-
-  /**
-   * Replace a member's event scopes.
-   *
-   * Scopes are kept for the event-scoped door roles — MANAGER, STAFF and
-   * SCANNER — and for nobody else. Those three may admit only to the events a
-   * scope names; OWNER and ADMIN admit across the organisation and need none;
-   * every other role cannot admit at all. So a promotion to ADMIN, or a demotion
-   * to VIEWER, leaves no scopes behind to be re-inherited later. See
-   * `@desi-event/permissions/admission` for the policy.
-   *
-   * Until the admission work only SCANNER kept scopes, which was harmless while
-   * nothing read them. Now that the door enforces them, STAFF and MANAGER would
-   * otherwise have been unable to admit anybody at all.
-   *
-   * ## A requested event that is not this organisation's is refused
-   *
-   * It used to be dropped without a word and the route answered `{ ok: true }`,
-   * so an administrator could believe a scanner was scoped to an event it was
-   * not — and find out at the door. The table now refuses such a row too
-   * (`desi_scanner_scope_same_organization`); this is the readable version of
-   * that refusal.
-   *
-   * @param {object} tx A transaction client.
    * @param {object} options Options.
-   * @param {object} options.membership The membership row, already updated.
-   * @param {string[]} options.eventIds Events to scope to.
-   * @param {string} options.organizationId The organisation, for scoping the event lookup.
-   * @returns {Promise<string[]>} The event ids scoped.
-   * @throws {Error} A 422 when a requested event is not one of this organisation's.
+   * @param {string} options.secret The code, which exists only in memory.
+   * @param {object} options.reply The reply, for the cache headers.
+   * @param {object} options.organization The organisation, for the provider's message.
+   * @param {object} options.invitation The invitation row.
+   * @returns {Promise<{mode: string, invitationCode: string|null}>} The `delivery` block.
    */
-  async function setScannerScopes(tx, { membership, eventIds, organizationId }) {
-    const wanted = requiresAdmissionScope(membership.role) ? [...new Set(eventIds)] : []
-
-    const events = wanted.length
-      ? await tx.event.findMany({
-          where: { id: { in: wanted }, organizationId },
-          select: { id: true },
-        })
-      : []
-
-    if (events.length !== wanted.length) {
-      throw unprocessable(
-        `${wanted.length - events.length} of the requested events are not events of this organisation. ` +
-          'A door scope can only name one of your own events.',
-      )
-    }
-
-    await tx.scannerScope.deleteMany({ where: { membershipId: membership.id } })
-
-    for (const event of events) {
-      await tx.scannerScope.create({ data: { membershipId: membership.id, eventId: event.id } })
-    }
-
-    return events.map((event) => event.id)
+  function handOver({ secret, reply, organization, invitation }) {
+    return deliverCode({
+      mode,
+      secret,
+      reply,
+      deliver,
+      message: {
+        purpose: 'TEAM_INVITATION',
+        email: invitation.email,
+        organizationName: organization.name,
+        role: invitation.role,
+      },
+    })
   }
 
   defineRoute(app, 'teams.list', {
@@ -345,15 +379,9 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
             joinedAt: membership.createdAt.toISOString(),
             self: membership.userId === request.actor.id,
           })),
-          invitations: invitations.map((invitation) => ({
-            id: invitation.id,
-            ...addressAt(invitation.email, emailVisibility),
-            role: invitation.role,
-            status: invitation.status,
-            invitedByName: nameAt(invitation.invitedBy?.displayName ?? null, emailVisibility),
-            expiresAt: invitation.expiresAt.toISOString(),
-            createdAt: invitation.createdAt.toISOString(),
-          })),
+          invitations: invitations.map((invitation) =>
+            toInvitationSummary(invitation, emailVisibility),
+          ),
           assignableRoles: assignableRoles(request.actor, organization.id),
         },
       }
@@ -362,7 +390,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
 
   defineRoute(app, 'teams.invite', {
     config: limit,
-    handler: async (request) => {
+    handler: async (request, reply) => {
       const organization = await organizationFor(request, CAPABILITIES.TEAM_INVITE)
       const { email, role, eventIds = [] } = request.body
 
@@ -383,63 +411,178 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
       const { secret, hash } = issueToken()
       const now = new Date()
 
-      // Supersede rather than accumulate: two live links to the same address is
-      // two ways in, and revoking one would leave the other working.
-      const invitation = await prisma.$transaction(async (tx) => {
-        await tx.invitation.updateMany({
-          where: { organizationId: organization.id, email, status: 'PENDING' },
-          data: { status: 'REVOKED', revokedAt: now },
-        })
+      let invitation
 
-        return tx.invitation.create({
-          data: {
-            organizationId: organization.id,
-            email,
-            role,
-            tokenHash: hash,
-            invitedById: request.actor.id,
-            expiresAt: new Date(now.getTime() + INVITATION_LIFETIME_MS),
-          },
-          include: { invitedBy: true },
+      try {
+        invitation = await prisma.$transaction(async (tx) => {
+          // Supersede rather than accumulate: two live codes to the same address
+          // is two ways in, and revoking one would leave the other working. The
+          // database holds the same rule (`Invitation_one_pending_per_address`),
+          // which is what decides between two invitations issued at once.
+          await tx.invitation.updateMany({
+            where: {
+              organizationId: organization.id,
+              // Case-insensitive, as the index is: a row written before
+              // addresses were lower-cased is still the same address.
+              email: { equals: email, mode: 'insensitive' },
+              status: 'PENDING',
+            },
+            data: { status: 'REVOKED', revokedAt: now },
+          })
+
+          const created = await tx.invitation.create({
+            data: {
+              organizationId: organization.id,
+              email,
+              role,
+              tokenHash: hash,
+              invitedById: request.actor.id,
+              expiresAt: new Date(now.getTime() + INVITATION_LIFETIME_MS),
+              deliveryMode: mode,
+            },
+            include: { invitedBy: true },
+          })
+
+          // The scopes cannot be attached yet — there is no membership until the
+          // invitation is accepted — so they ride along on the audit record and
+          // are applied by whoever sets the role next. How the code went out is
+          // recorded; the code and its digest never are.
+          await recordAudit(tx, {
+            actorId: request.actor.id,
+            action: AUDIT_ACTIONS.TEAM_INVITED,
+            entityType: 'Invitation',
+            entityId: created.id,
+            metadata: {
+              organizationId: organization.id,
+              role,
+              requestedEventIds: eventIds,
+              deliveryMode: mode,
+            },
+          })
+
+          return created
         })
+      } catch (error) {
+        if (isUniqueViolation(error)) throw conflict(CONCURRENT_INVITATION)
+
+        throw error
+      }
+
+      const delivery = await handOver({ secret, reply, organization, invitation })
+
+      // Identifiers and the mode, never the code: this line is read by
+      // whoever is on call, and a code in it would be a way in for them.
+      request.log.info(
+        { invitationId: invitation.id, organizationId: organization.id, deliveryMode: mode },
+        'issued a team invitation',
+      )
+
+      return { data: { ...toInvitationSummary(invitation, 'FULL'), delivery } }
+    },
+  })
+
+  defineRoute(app, 'teams.reissueInvitation', {
+    config: limit,
+    handler: async (request, reply) => {
+      const organization = await organizationFor(request, CAPABILITIES.TEAM_INVITE)
+
+      // Scoped by organisation in the query that finds it, so an invitation of
+      // another organisation is not found rather than found-and-refused.
+      const current = await prisma.invitation.findFirst({
+        where: { id: request.params.memberId, organizationId: organization.id },
       })
 
-      // The scopes cannot be attached yet — there is no membership until the
-      // invitation is accepted — so they ride along on the audit record and are
-      // applied by whoever sets the role next. Recorded rather than dropped, so
-      // the intent is not lost silently.
-      await recordAudit(prisma, {
-        actorId: request.actor.id,
-        action: 'team.invited',
-        entityType: 'Invitation',
-        entityId: invitation.id,
-        metadata: { organizationId: organization.id, role, requestedEventIds: eventIds },
-      })
+      if (!current) throw notFound('No such invitation.')
 
-      if (typeof deliver === 'function') {
-        await deliver({
-          purpose: 'TEAM_INVITATION',
-          email,
-          token: secret,
-          organizationName: organization.name,
-          role,
-        })
-      } else {
-        app.log.info(
-          { invitationId: invitation.id, organizationId: organization.id },
-          'issued a team invitation; no delivery provider is configured',
+      if (current.status !== 'PENDING') {
+        throw conflict(
+          'This invitation is no longer outstanding, so there is no code to replace. Invite the person again instead.',
         )
       }
 
+      // Bounded exactly like issuing one: a MANAGER cannot obtain a code for an
+      // ADMIN invitation an owner created, because holding the code is holding
+      // the invitation.
+      assertMayGrant(request.actor, organization.id, current.role)
+
+      const { secret, hash } = issueToken()
+      const now = new Date()
+
+      let invitation
+
+      try {
+        invitation = await prisma.$transaction(async (tx) => {
+          // The old code dies in the same transaction the new one is born in,
+          // and only if the invitation is still outstanding at that moment:
+          // an acceptance or a withdrawal that got there first wins.
+          const { count } = await tx.invitation.updateMany({
+            where: { id: current.id, status: 'PENDING' },
+            data: { status: 'REVOKED', revokedAt: now },
+          })
+
+          if (count !== 1) {
+            throw conflict(
+              'This invitation changed while the new code was being issued. Reload the team page.',
+            )
+          }
+
+          const created = await tx.invitation.create({
+            data: {
+              organizationId: organization.id,
+              email: current.email,
+              role: current.role,
+              tokenHash: hash,
+              invitedById: request.actor.id,
+              expiresAt: new Date(now.getTime() + INVITATION_LIFETIME_MS),
+              deliveryMode: mode,
+            },
+            include: { invitedBy: true },
+          })
+
+          await recordAudit(tx, {
+            actorId: request.actor.id,
+            action: AUDIT_ACTIONS.TEAM_INVITATION_REISSUED,
+            entityType: 'Invitation',
+            entityId: created.id,
+            metadata: {
+              organizationId: organization.id,
+              role: created.role,
+              supersedes: current.id,
+              deliveryMode: mode,
+            },
+          })
+
+          return created
+        })
+      } catch (error) {
+        if (isUniqueViolation(error)) throw conflict(CONCURRENT_INVITATION)
+
+        throw error
+      }
+
+      const delivery = await handOver({ secret, reply, organization, invitation })
+
+      request.log.info(
+        {
+          invitationId: invitation.id,
+          supersedes: current.id,
+          organizationId: organization.id,
+          deliveryMode: mode,
+        },
+        'reissued a team invitation',
+      )
+
+      // The address only for a caller who may see addresses on the team list.
+      // Everybody else reissues by id and is told the code, not who it is for:
+      // otherwise this route would be a way to read the addresses the list
+      // withholds from them.
+      const visibility = emailVisibilityFor(request.actor, organization.id, request.session)
+
       return {
         data: {
-          id: invitation.id,
-          email: invitation.email,
-          role: invitation.role,
-          status: invitation.status,
-          invitedByName: invitation.invitedBy?.displayName ?? null,
-          expiresAt: invitation.expiresAt.toISOString(),
-          createdAt: invitation.createdAt.toISOString(),
+          ...toInvitationSummary(invitation, 'HIDDEN'),
+          ...(visibility === 'FULL' ? { email: invitation.email } : {}),
+          delivery,
         },
       }
     },
@@ -447,7 +590,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
 
   defineRoute(app, 'teams.accept', {
     config: limit,
-    handler: async (request) => {
+    handler: async (request, reply) => {
       const invitation = await prisma.invitation.findUnique({
         where: { tokenHash: hashToken(request.body.token) },
         include: { organization: true },
@@ -471,25 +614,32 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
       }
 
       // The forwarding defence. An invitation is addressed to a person, not
-      // bearer-payable to whoever holds the link.
+      // bearer-payable to whoever holds the code.
       if (invitation.email.toLowerCase() !== request.currentUser.email.toLowerCase()) {
         throw forbidden(
-          // No part of the address. Whoever holds a forwarded link is by
-          // definition not the person it was sent to, and the address is not
-          // theirs to learn. The right person does not need it repeated: the
-          // link reached them at that address.
-          'This invitation was sent to a different address. Sign in with the address it was sent to, then open the link again.',
+          // No part of the address. Whoever holds a code passed on to them is
+          // by definition not the person it was issued for, and the address is
+          // not theirs to learn. The right person does not need it repeated.
+          'This invitation was sent to a different address. Sign in with the address it was sent to, then enter the code again.',
         )
       }
 
-      const membership = await prisma.$transaction(async (tx) => {
+      const now = new Date()
+
+      /**
+       * Spend the invitation and join, in one transaction.
+       *
+       * @param {object} tx The transaction client.
+       * @returns {Promise<{membership: object, created: boolean, siblingsRevoked: number}>} What happened.
+       */
+      const join = async (tx) => {
         // Conditional on PENDING: two simultaneous acceptances both read a
         // pending row, and only one of them writes.
         const { count } = await tx.invitation.updateMany({
           where: { id: invitation.id, status: 'PENDING' },
           data: {
             status: 'ACCEPTED',
-            acceptedAt: new Date(),
+            acceptedAt: now,
             acceptedByUserId: request.actor.id,
           },
         })
@@ -505,37 +655,80 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
           },
         })
 
-        if (already) {
-          // Somebody invited to an organisation they already belong to. The
-          // invitation is spent and the existing membership is left alone rather
-          // than being silently changed — a role change is a different action
-          // with a different capability behind it.
-          return already
-        }
+        // Somebody invited to an organisation they already belong to. The
+        // invitation is spent and the existing membership is left alone rather
+        // than being silently changed — a role change is a different action
+        // with a different capability behind it — so nothing was gained and no
+        // session needs to end.
+        const joined =
+          already ??
+          (await tx.membership.create({
+            data: {
+              userId: request.actor.id,
+              organizationId: invitation.organizationId,
+              role: invitation.role,
+              invitationId: invitation.id,
+            },
+          }))
 
-        return tx.membership.create({
-          data: {
-            userId: request.actor.id,
+        // Finding NF-10: the caller now holds authority their other sessions
+        // were not opened under. They end in the transaction that granted it.
+        const revoked = already ? 0 : await revokeOtherSessionsOf(tx, request, now)
+
+        await recordAudit(tx, {
+          actorId: request.actor.id,
+          action: AUDIT_ACTIONS.TEAM_INVITATION_ACCEPTED,
+          entityType: 'Membership',
+          entityId: joined.id,
+          metadata: {
             organizationId: invitation.organizationId,
-            role: invitation.role,
-            invitationId: invitation.id,
+            role: joined.role,
+            siblingsRevoked: revoked,
           },
         })
-      })
 
-      await recordAudit(prisma, {
-        actorId: request.actor.id,
-        action: 'team.invitation_accepted',
-        entityType: 'Membership',
-        entityId: membership.id,
-        metadata: { organizationId: invitation.organizationId, role: membership.role },
-      })
+        return { membership: joined, created: !already, siblingsRevoked: revoked }
+      }
+
+      // A super administrator's direct grant can add this account to the same
+      // organisation at the same moment. The database refuses the second
+      // membership; the whole acceptance rolls back — the code stays usable —
+      // and the caller is told why rather than handed a server error.
+      const { membership, created, siblingsRevoked } = await prisma
+        .$transaction(join)
+        .catch((error) => {
+          if (isUniqueViolation(error)) {
+            throw conflict(
+              'You were added to this organisation by another route at the same moment. Reload to see your role.',
+            )
+          }
+
+          throw error
+        })
+
+      const session = created
+        ? await secureSessionAfterGain(app, prisma, { request, reply, now })
+        : {
+            mfaRequired: sessionPolicyFor(request.actor).mfaRequired,
+            mfaEnrolled: await hasConfirmedFactor(prisma, request.actor.id),
+          }
+
+      request.log.info(
+        {
+          organizationId: invitation.organizationId,
+          membershipId: membership.id,
+          siblingsRevoked,
+        },
+        'accepted a team invitation',
+      )
 
       return {
         data: {
           organizationId: invitation.organizationId,
           organizationName: invitation.organization.name,
           role: membership.role,
+          joined: created,
+          session: { mfaRequired: session.mfaRequired, mfaEnrolled: session.mfaEnrolled },
         },
       }
     },
@@ -551,17 +744,25 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
 
       if (!invitation) throw notFound('No such invitation.')
 
-      await prisma.invitation.updateMany({
-        where: { id: invitation.id, status: 'PENDING' },
-        data: { status: 'REVOKED', revokedAt: new Date() },
-      })
+      // The withdrawal and its audit row commit together, and the row is
+      // written only when something was withdrawn: withdrawing an invitation
+      // that was already used, withdrawn or superseded changes nothing, and an
+      // audit trail that says otherwise is wrong.
+      await prisma.$transaction(async (tx) => {
+        const { count } = await tx.invitation.updateMany({
+          where: { id: invitation.id, status: 'PENDING' },
+          data: { status: 'REVOKED', revokedAt: new Date() },
+        })
 
-      await recordAudit(prisma, {
-        actorId: request.actor.id,
-        action: 'team.invitation_revoked',
-        entityType: 'Invitation',
-        entityId: invitation.id,
-        metadata: { organizationId: organization.id },
+        if (count !== 1) return
+
+        await recordAudit(tx, {
+          actorId: request.actor.id,
+          action: 'team.invitation_revoked',
+          entityType: 'Invitation',
+          entityId: invitation.id,
+          metadata: { organizationId: organization.id },
+        })
       })
 
       return { ok: true }
@@ -588,43 +789,51 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
         )
       }
 
+      // Answered from the committed row first, so a plain refusal opens no
+      // transaction. The decision that counts is made again below, from the
+      // row as it is once locked.
       assertMayActOn(request.actor, organization.id, membership.role)
       assertMayGrant(request.actor, organization.id, role)
 
-      const scoped = await prisma.$transaction(async (tx) => {
-        if (membership.role === 'OWNER' && role !== 'OWNER') {
-          // Counted inside the transaction, so two concurrent demotions cannot
-          // both see two owners and both proceed.
-          if ((await ownerCount(tx, organization.id)) <= 1) {
-            throw unprocessable(
-              'This is the only owner of the organisation. Make somebody else an owner first.',
-            )
-          }
+      await prisma.$transaction(async (tx) => {
+        // Locked, then read again: an ownership transfer that committed since
+        // the read above may have made this member an owner.
+        const current = await lockMembership(tx, organization.id, { id: membership.id })
+
+        if (!current) throw notFound('No such member.')
+
+        assertMayActOn(request.actor, organization.id, current.role)
+
+        if (current.role === 'OWNER' && role !== 'OWNER') {
+          // The owner rows are locked before they are counted. Counting alone,
+          // under READ COMMITTED, let two concurrent demotions of two different
+          // owners each see two owners and both proceed, leaving none.
+          await assertNotLastOwner(tx, organization.id)
         }
 
         const updated = await tx.membership.update({
-          where: { id: membership.id },
+          where: { id: current.id },
           data: { role },
         })
 
-        return setScannerScopes(tx, {
+        const scoped = await setScannerScopes(tx, {
           membership: updated,
           eventIds,
           organizationId: organization.id,
         })
-      })
 
-      await recordAudit(prisma, {
-        actorId: request.actor.id,
-        action: 'team.role_changed',
-        entityType: 'Membership',
-        entityId: membership.id,
-        metadata: {
-          organizationId: organization.id,
-          from: membership.role,
-          to: role,
-          scopedEventIds: scoped,
-        },
+        await recordAudit(tx, {
+          actorId: request.actor.id,
+          action: 'team.role_changed',
+          entityType: 'Membership',
+          entityId: current.id,
+          metadata: {
+            organizationId: organization.id,
+            from: current.role,
+            to: role,
+            scopedEventIds: scoped,
+          },
+        })
       })
 
       return { ok: true }
@@ -648,46 +857,157 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver }) {
         throw forbidden('You cannot remove yourself from an organisation here.')
       }
 
+      // Answered from the committed row first; decided again below from the
+      // locked one.
       assertMayActOn(request.actor, organization.id, membership.role)
 
       await prisma.$transaction(async (tx) => {
-        if (membership.role === 'OWNER' && (await ownerCount(tx, organization.id)) <= 1) {
-          throw unprocessable(
-            'This is the only owner of the organisation. Make somebody else an owner first.',
-          )
-        }
-
         // The membership row is locked before its scopes are touched. A door
         // confirmation locks the same two rows in the same order — membership,
         // then scope — so the two cannot deadlock: whichever starts first
-        // finishes, and the other sees what it did.
-        await tx.$queryRaw`SELECT "id" FROM "Membership" WHERE "id" = ${membership.id} FOR UPDATE`
+        // finishes, and the other sees what it did. The owners are locked
+        // before the membership (`lockMembership`), and its role is read again
+        // once it is locked: an ownership transfer that committed since the
+        // read above may have made this member the only owner.
+        const current = await lockMembership(tx, organization.id, { id: membership.id })
+
+        if (!current) throw notFound('No such member.')
+
+        assertMayActOn(request.actor, organization.id, current.role)
+
+        // Locked, then counted — see `lib/memberships.js`.
+        if (current.role === 'OWNER') await assertNotLastOwner(tx, organization.id)
 
         // Scopes go with the membership. Prisma's cascade would handle it, and
         // doing it explicitly means the behaviour does not depend on a schema
         // detail somebody could change.
-        await tx.scannerScope.deleteMany({ where: { membershipId: membership.id } })
-        await tx.membership.delete({ where: { id: membership.id } })
-      })
+        await tx.scannerScope.deleteMany({ where: { membershipId: current.id } })
+        await tx.membership.delete({ where: { id: current.id } })
 
-      // Every session that person holds keeps working: they still have an
-      // account, they are simply no longer in this organisation. Their
-      // capabilities are resolved per request, so the change takes effect on
-      // their next one.
-      await recordAudit(prisma, {
-        actorId: request.actor.id,
-        action: 'team.member_removed',
-        entityType: 'Membership',
-        entityId: membership.id,
-        metadata: {
-          organizationId: organization.id,
-          role: membership.role,
-          userId: membership.userId,
-          reason: request.body?.reason ?? null,
-        },
+        // Every session that person holds keeps working: they still have an
+        // account, they are simply no longer in this organisation. Their
+        // capabilities are resolved per request, so the change takes effect on
+        // their next one.
+        await recordAudit(tx, {
+          actorId: request.actor.id,
+          action: 'team.member_removed',
+          entityType: 'Membership',
+          entityId: current.id,
+          metadata: {
+            organizationId: organization.id,
+            role: current.role,
+            userId: current.userId,
+            reason: request.body?.reason ?? null,
+          },
+        })
       })
 
       return { ok: true }
+    },
+  })
+
+  defineRoute(app, 'teams.transferOwnership', {
+    handler: async (request, reply) => {
+      const organization = await organizationFor(request, CAPABILITIES.ORGANIZATION_MANAGE)
+
+      // Held through the caller's own membership, not through a platform role
+      // that answers yes everywhere. A platform administrator moving ownership
+      // uses the audited direct grant, which names its reason; this route is
+      // an owner handing on what is theirs.
+      if (
+        !orgCapabilitiesFor(request.actor, organization.id).includes(
+          CAPABILITIES.ORGANIZATION_MANAGE,
+        )
+      ) {
+        throw forbidden('Only an owner of this organisation can hand ownership on.')
+      }
+
+      const target = await prisma.membership.findFirst({
+        where: { id: request.body.toMemberId, organizationId: organization.id },
+      })
+
+      if (!target) throw notFound('No such member.')
+
+      if (target.userId === request.actor.id) {
+        throw forbidden('You already own this organisation. Name somebody else to hand it to.')
+      }
+
+      const now = new Date()
+
+      const outcome = await prisma.$transaction(async (tx) => {
+        // Every owner row is locked first, then the heir's, so a concurrent
+        // transfer, demotion or removal waits and then sees what this one did.
+        // The heir is read again once locked: a removal that committed since
+        // the read above leaves nobody to hand ownership to, and that is a 404
+        // with nothing changed rather than a failed write.
+        const heir = await lockMembership(tx, organization.id, { id: target.id })
+
+        if (!heir) throw notFound('No such member.')
+
+        const mine = await tx.membership.findFirst({
+          where: { userId: request.actor.id, organizationId: organization.id },
+        })
+
+        // The swap is conditional on the caller still being an owner at this
+        // moment: a concurrent change that demoted them wins, and this one
+        // changes nothing.
+        const demoted = await tx.membership.updateMany({
+          where: { id: mine?.id ?? '', organizationId: organization.id, role: 'OWNER' },
+          data: { role: 'ADMIN' },
+        })
+
+        if (demoted.count !== 1) {
+          throw conflict('You are no longer an owner of this organisation. Reload and try again.')
+        }
+
+        const promoted = await tx.membership.update({
+          where: { id: heir.id },
+          data: { role: 'OWNER' },
+        })
+
+        // An owner admits everywhere, so a door scope would mean nothing; the
+        // previous owner, now an administrator, needs none either.
+        await setScannerScopes(tx, {
+          membership: promoted,
+          eventIds: [],
+          organizationId: organization.id,
+        })
+
+        // The new owner signs in again under the role they now hold, and must
+        // then have a second factor before the workspace will answer them.
+        const sessionsRevoked = await revokeAllSessionsOf(tx, heir.userId, now)
+
+        await recordAudit(tx, {
+          actorId: request.actor.id,
+          action: AUDIT_ACTIONS.TEAM_OWNERSHIP_TRANSFERRED,
+          entityType: 'Membership',
+          entityId: promoted.id,
+          metadata: {
+            organizationId: organization.id,
+            fromUserId: request.actor.id,
+            toUserId: heir.userId,
+            toMembershipId: promoted.id,
+            previousRole: heir.role,
+            sessionsRevoked,
+          },
+        })
+
+        return { ownerMembershipId: promoted.id, previousOwnerMembershipId: mine.id }
+      })
+
+      // The caller lost authority, which is already effective — capabilities
+      // are read per request. Their cookie secret is replaced anyway, so no
+      // secret from before a privilege change survives it.
+      await rotateOwnSession(app, prisma, { request, reply, now })
+
+      return {
+        data: {
+          organizationId: organization.id,
+          ownerMembershipId: outcome.ownerMembershipId,
+          previousOwnerMembershipId: outcome.previousOwnerMembershipId,
+          previousOwnerRole: 'ADMIN',
+        },
+      }
     },
   })
 }

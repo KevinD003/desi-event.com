@@ -85,8 +85,9 @@ const FIELDS = Object.freeze([
 
 /**
  * @typedef {object} ModerationDecisionProps
- * @property {object} event The event under review.
+ * @property {object} event The event under review. Its `revision` is sent with the decision, so a decision is only ever taken on the version this page showed.
  * @property {Function} [onDecided] Called with the new status once the server accepts.
+ * @property {string|null} [approveBlockedReason] Why approving is not offered now, in a sentence; approving is then disabled and the sentence shown. Used when the page could not show everything an approval would approve.
  */
 
 /**
@@ -95,7 +96,7 @@ const FIELDS = Object.freeze([
  * @param {ModerationDecisionProps} props Component props.
  * @returns {JSX.Element} The rendered form.
  */
-export function ModerationDecision({ event, onDecided }) {
+export function ModerationDecision({ event, onDecided, approveBlockedReason = null }) {
   const router = useRouter()
   const [pending, setPending] = useState(null)
   const [reason, setReason] = useState('')
@@ -166,6 +167,10 @@ export function ModerationDecision({ event, onDecided }) {
 
       if (reason.trim()) body.reason = reason.trim()
       if (Object.keys(notes).length > 0) body.requestedChanges = notes
+      // The version this page showed. If the organiser withdrew, changed and
+      // resubmitted the event since, the server refuses with STALE_REVISION
+      // rather than deciding on something this moderator never saw.
+      if (Number.isInteger(event.revision)) body.revision = event.revision
 
       const response = await apiFetch(
         `/v1/moderation/events/${encodeURIComponent(event.id)}/decision`,
@@ -216,6 +221,12 @@ export function ModerationDecision({ event, onDecided }) {
         </Alert>
       ) : null}
 
+      {approveBlockedReason ? (
+        <p id="approve-blocked" className="mb-3 text-sm text-ink-muted">
+          {approveBlockedReason}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         {Object.entries(DECISIONS).map(([key, entry]) => (
           <Button
@@ -224,7 +235,10 @@ export function ModerationDecision({ event, onDecided }) {
             variant={
               entry.tone === 'danger' ? 'danger' : key === 'approve' ? 'primary' : 'secondary'
             }
-            disabled={busy}
+            disabled={busy || (key === 'approve' && Boolean(approveBlockedReason))}
+            aria-describedby={
+              key === 'approve' && approveBlockedReason ? 'approve-blocked' : undefined
+            }
             onClick={(pressed) => begin(key, pressed.currentTarget)}
           >
             {entry.label}

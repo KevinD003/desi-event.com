@@ -474,6 +474,33 @@ describe('the basket for an event in the United States', () => {
     expect(screen.queryByRole('img')).toBeNull()
   })
 
+  it('shows the approved cover there instead when there is one, still as decoration', () => {
+    const { container } = render(
+      <CheckoutBasket
+        event={{
+          ...edison,
+          coverImage: {
+            id: 'cmedia0000000000000000001',
+            url: '/v1/media/cmedia0000000000000000001',
+            altText: 'Dancers circling a lit garbo',
+            width: 1200,
+            height: 800,
+            contentType: 'image/jpeg',
+          },
+        }}
+        ticketTypes={tiers}
+        buyer={BUYER}
+      />,
+    )
+
+    const cover = container.querySelector('[data-slot="event-art"] img')
+
+    expect(container.querySelector('[data-slot="poster"]')).toBeNull()
+    expect(cover).toHaveAttribute('alt', '')
+    expect(cover.closest('[aria-hidden="true"]')).not.toBeNull()
+    expect(screen.queryByRole('img')).toBeNull()
+  })
+
   it('names the event on the booking once it is placed', async () => {
     const user = userEvent.setup()
 

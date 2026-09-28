@@ -105,6 +105,32 @@ describe('PosterThumb', () => {
     // Hidden, so it is not announced as an image before the card's heading.
     expect(screen.queryByRole('img')).toBeNull()
   })
+
+  it('draws the approved cover instead when there is one, still unheard', () => {
+    const { container } = render(
+      <PosterThumb
+        event={{
+          slug: 'navratri-night-one-edison',
+          title: 'Navratri Night One',
+          coverImage: {
+            id: 'cmedia0000000000000000001',
+            url: '/v1/media/cmedia0000000000000000001',
+            altText: 'Dancers circling a lit garbo',
+            width: 1200,
+            height: 800,
+            contentType: 'image/jpeg',
+          },
+        }}
+        className="w-36"
+      />,
+    )
+
+    const thumb = container.querySelector('[data-slot="poster-thumb"]')
+
+    expect(thumb.querySelector('svg[data-slot="poster"]')).toBeNull()
+    expect(thumb.querySelector('img')).toHaveAttribute('alt', '')
+    expect(screen.queryByRole('img')).toBeNull()
+  })
 })
 
 describe('class sets', () => {

@@ -589,6 +589,7 @@ describe('what the response schemas refuse to carry', () => {
       timezone: 'Asia/Kolkata',
       status: 'ON_SALE',
       cancelledAt: null,
+      coverImage: null,
     },
     venue: { name: 'Hall', city: 'Pune', region: 'MH', country: 'IN' },
     isOnline: false,

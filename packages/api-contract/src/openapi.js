@@ -260,6 +260,19 @@ export function buildOperation(route, components) {
         },
       },
     }
+  } else if (Array.isArray(route.consumes) && route.consumes.length > 0) {
+    // A raw body — an uploaded picture — is bytes, not a document, so there is
+    // no schema to render. Each accepted type is listed as an opaque string of
+    // that media type, which is what a client generator needs to send a file.
+    operation.requestBody = {
+      required: true,
+      content: Object.fromEntries(
+        route.consumes.map((type) => [
+          type,
+          { schema: { type: 'string', contentMediaType: type } },
+        ]),
+      ),
+    }
   }
 
   if (route.auth === 'bearer') {

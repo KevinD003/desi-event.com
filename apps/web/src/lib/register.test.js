@@ -24,6 +24,11 @@ describe('registerFor', () => {
     expect(registerFor('/organizers/rangoli-collective')).toBe('editorial')
   })
 
+  it('draws platform administration in the courtyard register', () => {
+    expect(registerFor('/admin/users')).toBe('courtyard')
+    expect(registerFor('/administration-tips')).toBe('editorial')
+  })
+
   it('does not treat a lookalike path as a signed-in area', () => {
     expect(registerFor('/tickets-and-passes')).toBe('editorial')
     expect(registerFor('/privacy-policy')).toBe('editorial')

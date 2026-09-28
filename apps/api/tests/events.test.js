@@ -79,11 +79,15 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'ageRestriction',
       'artists',
       'category',
+      // The approved cover and gallery: public by the moderator's decision,
+      // and absent until one is made.
+      'coverImage',
       'createdAt',
       'description',
       'endsAt',
       // The booking fee is part of the price; see `feeTerms` in the schema.
       'feeTerms',
+      'gallery',
       'id',
       'isOnline',
       'languages',

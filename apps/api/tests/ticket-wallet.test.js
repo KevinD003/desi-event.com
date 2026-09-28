@@ -33,6 +33,7 @@ import { describe, expect, it } from 'vitest'
 import { toOrder, toWalletTicket } from '../src/lib/presenters.js'
 import { credentialDigest } from '../src/lib/ticket-credentials.js'
 import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
+import { seedPicture } from './helpers/media-world.js'
 
 /** Whoever bought the tickets. */
 const BUYER = 'priya@example.com'
@@ -483,6 +484,54 @@ describe('the ownership classification, state by state', () => {
 
     expect(presented.tickets[0].ownerUserId).toBeUndefined()
     expect(presented.tickets[0].purchaserHolding).toBe('TRANSFERRED_AWAY')
+  })
+})
+
+describe('the event picture a holder sees', () => {
+  it('puts the approved cover on the wallet row and the ticket page, and nothing else', async () => {
+    const { app, prisma, ids, tickets } = await withWallet()
+    const token = await signIn(app, BUYER)
+    const read = async () => ({
+      wallet: (
+        await app.inject({ method: 'GET', url: '/v1/tickets', headers: bearer(token) })
+      ).json().data[0].event,
+      detail: (
+        await app.inject({
+          method: 'GET',
+          url: `/v1/tickets/${tickets[0].id}`,
+          headers: bearer(token),
+        })
+      ).json().data.event,
+    })
+
+    const bare = await read()
+
+    expect(bare.wallet.coverImage).toBeNull()
+    expect(bare.detail.coverImage).toBeNull()
+
+    // Waiting for review: still the poster.
+    const pending = seedPicture(prisma, { event: ids.publishedEvent, moderationStatus: 'PENDING' })
+
+    expect((await read()).wallet.coverImage).toBeNull()
+
+    prisma._store.mediaAsset.find((row) => row.id === pending.id).moderationStatus = 'APPROVED'
+    // A gallery picture is never a wallet's cover.
+    seedPicture(prisma, { event: ids.publishedEvent, kind: 'EVENT_GALLERY' })
+
+    const shown = await read()
+    const expected = {
+      id: pending.id,
+      url: `/v1/media/${pending.id}`,
+      altText: pending.altText,
+      width: 960,
+      height: 540,
+      contentType: 'image/png',
+    }
+
+    expect(shown.wallet.coverImage).toEqual(expected)
+    expect(shown.detail.coverImage).toEqual(expected)
+
+    await app.close()
   })
 })
 

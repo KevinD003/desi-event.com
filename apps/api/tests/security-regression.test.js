@@ -27,7 +27,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 
 import { describe, expect, it } from 'vitest'
 
-import { apiRoutes } from '@desi-event/api-contract'
+import { apiRoutes, buildOpenApiDocument } from '@desi-event/api-contract'
 import { apiRouteManifest } from '@desi-event/api-contract/manifest'
 import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
@@ -35,6 +35,7 @@ import { STEP_UP_POLICIES } from '@desi-event/auth'
 import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
 import { toConnectStatus } from '../src/lib/connect.js'
 import { toDispute, toEvidence, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
+import { mediaReadRateLimit, mediaUploadRateLimit } from '../src/plugins/rate-limit.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
 
 /** The organisation's owner, who holds `finance:view`. */
@@ -139,6 +140,40 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
         `${route.id} destroys personal data under the ${route.stepUp ?? 'no'} policy`,
       ).toBe('PRIVACY_ERASURE')
     }
+  })
+
+  it('demands SECURITY_ROLE on every platform-tag command, and on handing ownership on', () => {
+    // Every write on the platform surface changes who can do what, across the
+    // whole platform or inside an organisation from outside it. The one POST
+    // that is not a write is the account search, which takes its query in a
+    // body only so that an email address never lands in a URL, a log line or
+    // a browser's history.
+    const readsOverPost = new Set(['platform.searchUsers'])
+    const platform = apiRoutes.filter((route) => route.tags.includes('platform'))
+
+    expect(platform.map((route) => route.id).sort()).toEqual([
+      'platform.grantMembership',
+      'platform.searchOrganizations',
+      'platform.searchUsers',
+      'platform.setUserRole',
+    ])
+
+    for (const route of platform) {
+      expect(route.capability, `${route.id} is not held by platform:admin`).toBe('platform:admin')
+
+      if (route.method === 'GET' || readsOverPost.has(route.id)) {
+        expect(route.stepUp ?? null, `${route.id} is a read`).toBeNull()
+        continue
+      }
+
+      expect(route.stepUp, `${route.id} changes a role under the wrong policy`).toBe(
+        'SECURITY_ROLE',
+      )
+    }
+
+    expect(apiRoutes.find((route) => route.id === 'teams.transferOwnership').stepUp).toBe(
+      'SECURITY_ROLE',
+    )
   })
 
   it('reserves the privacy policy for the privacy surface', () => {
@@ -633,5 +668,109 @@ describe('the Stripe boundary', () => {
         )
       }
     }
+  })
+})
+
+describe('event pictures', () => {
+  /** Every route the picture surface added. */
+  const MEDIA_ROUTES = [
+    'events.media',
+    'events.addMedia',
+    'events.updateMedia',
+    'events.reorderMedia',
+    'events.removeMedia',
+    'media.get',
+    'moderation.decideMedia',
+  ]
+
+  /**
+   * Every property name a JSON Schema fragment declares, at any depth.
+   *
+   * @param {unknown} node The fragment.
+   * @param {Set<string>} [names] Where to collect them.
+   * @returns {Set<string>} The names.
+   */
+  function propertyNames(node, names = new Set()) {
+    if (Array.isArray(node)) {
+      for (const item of node) propertyNames(item, names)
+    } else if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'properties' && value && typeof value === 'object') {
+          for (const name of Object.keys(value)) names.add(name)
+        }
+
+        propertyNames(value, names)
+      }
+    }
+
+    return names
+  }
+
+  it('declares no response anywhere that could carry where bytes are kept, how they were checked, or who uploaded them', () => {
+    const document = buildOpenApiDocument()
+    const declared = propertyNames({ paths: document.paths, components: document.components })
+
+    for (const forbidden of ['storageKey', 'scanNote', 'uploadedById', 'moderatedById']) {
+      expect(declared.has(forbidden), forbidden).toBe(false)
+    }
+  })
+
+  it('leaves organisation authority to the handler, and decides on a picture only with a platform capability and a step-up', () => {
+    for (const id of MEDIA_ROUTES) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      expect(route, id).toBeDefined()
+      expect(route.capabilityScope, id).toBeUndefined()
+
+      if (id === 'moderation.decideMedia') {
+        expect(PLATFORM_ONLY_CAPABILITIES).toContain(route.capability)
+        expect(route.stepUp).toBe('MODERATION')
+      } else {
+        expect(route.capability ?? null, id).toBeNull()
+      }
+    }
+  })
+
+  it('refuses an upload before its body: the gate and the budget both run at onRequest', () => {
+    const source = readFileSync(new URL('../src/routes/media.js', import.meta.url), 'utf8')
+
+    expect(source).toMatch(
+      /onRequest: \[app\.requireMfaEnrolment, uploadGate, refuseNonPictureBody\]/u,
+    )
+    expect(mediaUploadRateLimit().hook).toBe('onRequest')
+    expect(mediaReadRateLimit().hook).toBe('preHandler')
+
+    const upload = apiRoutes.find((route) => route.id === 'events.addMedia')
+    const statuses = upload.errors.map((error) => error.status)
+
+    expect(statuses).toEqual(expect.arrayContaining([401, 403, 409, 413, 415, 422, 429]))
+  })
+
+  it('never answers a picture request with a storage key, whoever asks', async () => {
+    const { app, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'arun@rangoli.example'))
+    const { solidPng } = await import('./helpers/images.js')
+
+    const uploaded = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/media?kind=EVENT_COVER&altText=Stage%20at%20dusk&revision=0`,
+      headers: { ...headers, 'content-type': 'image/png' },
+      payload: solidPng(1200, 630),
+    })
+
+    expect(uploaded.statusCode).toBe(201)
+
+    const bodies = [
+      uploaded.body,
+      (await app.inject({ method: 'GET', url: `/v1/events/${ids.draftEvent.id}/media`, headers }))
+        .body,
+      (await app.inject({ method: 'GET', url: `/v1/events/${ids.draftEvent.id}`, headers })).body,
+      (await app.inject({ method: 'GET', url: '/v1/events' })).body,
+    ]
+
+    for (const body of bodies)
+      expect(body).not.toMatch(/storageKey|pg\/[0-9a-f]{8}-|scanNote|uploadedById/u)
+
+    await app.close()
   })
 })

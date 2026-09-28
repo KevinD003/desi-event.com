@@ -243,6 +243,23 @@ describe('updateEventRequestSchema', () => {
       title: 'X',
     })
   })
+
+  it('refuses an external cover address and names the upload route instead', () => {
+    for (const schema of [updateEventRequestSchema, createEventRequestSchema]) {
+      const result = schema.safeParse({
+        ...validEvent,
+        coverImageUrl: 'https://tracker.example/pixel.png',
+      })
+
+      expect(result.success).toBe(false)
+
+      const issue = result.error.issues.find((entry) => entry.path[0] === 'coverImageUrl')
+
+      expect(issue.message).toBe(
+        'Cover pictures are uploaded with POST /v1/events/:id/media; an external image address is not accepted.',
+      )
+    }
+  })
 })
 
 describe('publishEventRequestSchema', () => {

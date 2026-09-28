@@ -51,7 +51,7 @@ import {
 } from '../components/link-classes.js'
 import { EventGrid } from '../components/listing-card.jsx'
 import { FadeIn, Reveal, Stagger, StaggerItem } from '../components/motion.jsx'
-import { EventPoster } from '../components/poster.jsx'
+import { EventArt } from '../components/event-art.jsx'
 import { SampleDataNotice } from '../components/sample-data-notice.jsx'
 import { Input, Select } from '../components/ui.jsx'
 import { loadCatalogueFacets, loadCatalogueOverview } from '../lib/api.js'
@@ -221,7 +221,7 @@ function NextUp({ event }) {
     <div className="relative pb-10 lg:pb-8">
       <div className="rounded-[1.75rem] bg-ink-inverse/5 p-2 shadow-2xl ring-1 shadow-highlight/30 ring-accent-inverse/35 sm:p-2.5">
         <div className="aspect-[3/2] overflow-hidden rounded-card">
-          <EventPoster event={event} variant="hero" className="h-full" />
+          <EventArt event={event} variant="hero" className="h-full" priority />
         </div>
       </div>
       <Link
@@ -623,7 +623,7 @@ export default async function HomePage() {
                         aria-hidden="true"
                         className="h-10 w-15 shrink-0 overflow-hidden rounded-lg bg-surface-subtle"
                       >
-                        <EventPoster event={next} className="h-full" />
+                        <EventArt event={next} className="h-full" decorative sizes="60px" />
                       </span>
                       <span className="flex min-w-0 flex-col">
                         <span className="text-sm font-bold text-ink underline-offset-4 group-hover:text-accent-strong group-hover:underline">

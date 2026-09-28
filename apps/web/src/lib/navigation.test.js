@@ -80,14 +80,17 @@ const AREA_OF = Object.freeze({
   '/organizer/events': 'organizer',
   '/organizer/venues': 'organizer',
   '/organizer/check-in': 'organizer',
+  '/organizer/organization': 'organizer',
   '/organizer/team': 'organizer',
   '/analytics': 'analytics',
   '/finance': 'finance',
   '/operations': 'operations',
   '/operations/notifications': 'operations',
   '/moderation/events': 'moderation',
+  '/moderation/organizations': 'moderation',
   '/privacy': 'privacy',
   '/retention': 'retention',
+  '/admin/users': 'admin',
 })
 
 describe('navigationGroups', () => {
@@ -152,6 +155,7 @@ describe('workspace offers, by role', () => {
       '/organizer/events',
       '/organizer/venues',
       '/organizer/check-in',
+      '/organizer/organization',
       '/organizer/team',
       '/analytics',
       '/finance',
@@ -178,7 +182,10 @@ describe('workspace offers, by role', () => {
   })
 
   it('offers a platform moderator moderation, and no organisation door', () => {
-    expect(offered(platform('MODERATOR'))).toEqual(['/moderation/events'])
+    expect(offered(platform('MODERATOR'))).toEqual([
+      '/moderation/events',
+      '/moderation/organizations',
+    ])
     expect(workspaceHome(platform('MODERATOR'))).toBe('/moderation/events')
   })
 
@@ -256,7 +263,35 @@ describe('workspace offers, by role', () => {
       '/organizer/venues',
       '/moderation/events',
       '/retention',
+      '/moderation/organizations',
+      '/admin/users',
     ])
+  })
+
+  it('offers the organisation page to a member who may see it, and never to a platform role', () => {
+    expect(offered(member('VIEWER'))).toContain('/organizer/organization')
+    expect(offered(member('SCANNER'))).not.toContain('/organizer/organization')
+    expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/organization')
+  })
+
+  it('offers organisation checks to whoever moderation admits, and to nobody else', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/moderation/organizations'), role).toBe(
+        admits(platform(role), 'moderation'),
+      )
+    }
+
+    expect(offered(member('OWNER'))).not.toContain('/moderation/organizations')
+  })
+
+  it('offers people and roles to a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/admin/users'), role).toBe(role === 'SUPER_ADMIN')
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/admin/users')
+    }
   })
 })
 

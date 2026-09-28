@@ -12,6 +12,7 @@ import {
   buildRedactPaths,
   buildRedactOptions,
 } from './redaction.js'
+import { createLogger } from './create-logger.js'
 
 describe('redactPath', () => {
   it('uses dot notation for identifier-safe keys', () => {
@@ -112,5 +113,51 @@ describe('the admission pass', () => {
     expect(WILDCARD_KEYS).toContain('previewReference')
     expect(REDACT_PATHS).toContain('req.body.previewReference')
     expect(REDACT_PATHS).toContain('*.previewReference')
+  })
+})
+
+describe('the show-once invitation code', () => {
+  /**
+   * Log one object through a real logger and return what was written.
+   *
+   * @param {object} fields The fields to log.
+   * @returns {Promise<string>} The raw output.
+   */
+  async function written(fields) {
+    const chunks = []
+    const logger = createLogger({
+      name: 'redaction-test',
+      level: 'info',
+      pretty: false,
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+
+    logger.info(fields, 'issued')
+    logger.flush?.()
+
+    return chunks.join('')
+  }
+
+  const CODE = 'Q2hvb3NlIGEgY29kZSB0aGF0IGlzIGZvcnR5LXRocmVlAA'
+
+  it('is on the lists by name, at the root and one level down', () => {
+    expect(SENSITIVE_FIELD_KEYS).toContain('invitationCode')
+    expect(WILDCARD_KEYS).toContain('invitationCode')
+    expect(REDACT_PATHS).toContain('invitationCode')
+    expect(REDACT_PATHS).toContain('*.invitationCode')
+  })
+
+  it('is censored at the top level of a log line', async () => {
+    const output = await written({ invitationCode: CODE })
+
+    expect(output).not.toContain(CODE)
+    expect(output).toContain(REDACTION_CENSOR)
+  })
+
+  it('is censored one level down, the shape of the response that carries it', async () => {
+    const output = await written({ delivery: { mode: 'MANUAL', invitationCode: CODE } })
+
+    expect(output).not.toContain(CODE)
+    expect(output).toContain('MANUAL')
   })
 })

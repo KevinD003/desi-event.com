@@ -32,6 +32,7 @@ import {
   recordedCheckInMethodSchema,
 } from './enums.js'
 import { PAYMENT_MODES } from './payments.js'
+import { publicMediaSchema } from './media.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -357,6 +358,8 @@ export const ticketDetailResponseSchema = z.object({
       startsAt: timestampSchema,
       timezone: z.string(),
       status: z.string(),
+      /** The approved cover the event page shows, or null for the poster. */
+      coverImage: publicMediaSchema.nullable(),
     }),
     organizationId: cuidSchema,
     /** Whether the caller is the person holding it, rather than the organiser. */
@@ -456,6 +459,8 @@ export const walletTicketSchema = ticketSchema.extend({
     status: z.string(),
     /** Set when the organiser cancelled it, so a wallet can say why. */
     cancelledAt: timestampSchema.nullable(),
+    /** The approved cover the event page shows, or null for the poster. */
+    coverImage: publicMediaSchema.nullable(),
   }),
   /** Where it is. Null for an online event, or a venue not yet chosen. */
   venue: z

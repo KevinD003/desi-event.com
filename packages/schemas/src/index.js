@@ -30,6 +30,9 @@ export * from './responses.js'
 export * from './privacy.js'
 export * from './retention.js'
 export * from './connect.js'
+export * from './media.js'
+export * from './organizations.js'
+export * from './platform.js'
 
 // `env.js` and `jobs.js` are deliberately NOT re-exported here — finding NF-16.
 //

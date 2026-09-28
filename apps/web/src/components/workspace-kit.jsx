@@ -24,7 +24,7 @@
  * @module components/workspace-kit
  */
 
-import { EventPoster } from './poster.jsx'
+import { EventArt } from './event-art.jsx'
 
 /**
  * @typedef {object} PageHeaderProps
@@ -254,7 +254,12 @@ export function PosterThumb({ event, className = '' }) {
       data-slot="poster-thumb"
       className={`shrink-0 overflow-hidden bg-surface-subtle ${className}`}
     >
-      <EventPoster event={event} className="h-full" />
+      <EventArt
+        event={event}
+        className="h-full"
+        decorative
+        sizes="(min-width: 640px) 14rem, 100vw"
+      />
     </div>
   )
 }

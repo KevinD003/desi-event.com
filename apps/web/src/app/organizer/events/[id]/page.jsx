@@ -21,8 +21,10 @@ import Link from 'next/link'
 
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { EventEditor } from '../../../../components/event-editor.jsx'
+import { mediaReadFailure } from '../../../../lib/media.js'
 import {
   getEventReadiness,
+  getEventMedia,
   getEventSessions,
   getEventTransitions,
   getModerationHistory,
@@ -114,21 +116,27 @@ export default async function EditEventPage({ params }) {
   // Read together rather than in sequence: five round trips one after another
   // is five times the latency for no benefit, and they do not depend on each
   // other.
-  const [sessions, readiness, transitions, history, venues, mapVersions] = await Promise.all([
-    getEventSessions(id).catch(() => ({ data: [], meta: { revision: event.revision } })),
-    getEventReadiness(id).catch(() => ({
-      ready: false,
-      status: event.status,
-      publishable: ['Readiness could not be read.'],
-      sellable: [],
-      inventory: [],
-      organizerVerified: false,
-    })),
-    getEventTransitions(id).catch(() => ({ status: event.status, transitions: [] })),
-    getModerationHistory(id).catch(() => []),
-    listVenues(event.organizationId).catch(() => []),
-    publishedMapVersions(event.venueId),
-  ])
+  const [sessions, readiness, transitions, history, venues, mapVersions, media] = await Promise.all(
+    [
+      getEventSessions(id).catch(() => ({ data: [], meta: { revision: event.revision } })),
+      getEventReadiness(id).catch(() => ({
+        ready: false,
+        status: event.status,
+        publishable: ['Readiness could not be read.'],
+        sellable: [],
+        inventory: [],
+        organizerVerified: false,
+      })),
+      getEventTransitions(id).catch(() => ({ status: event.status, transitions: [] })),
+      getModerationHistory(id).catch(() => []),
+      listVenues(event.organizationId).catch(() => []),
+      publishedMapVersions(event.venueId),
+      // A failed read stays a failure, never an empty list: the Media step
+      // would otherwise say there is no cover and offer an upload that
+      // replaces the one it could not show.
+      getEventMedia(id).catch((error) => ({ data: null, failure: mediaReadFailure(error) })),
+    ],
+  )
 
   const preview = await getPricePreview(id).catch(() => [])
 
@@ -163,6 +171,8 @@ export default async function EditEventPage({ params }) {
           readiness={readiness}
           transitions={transitions}
           history={history}
+          media={media.data ?? []}
+          mediaFailure={media.failure ?? null}
         />
       </div>
     </div>

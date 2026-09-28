@@ -123,6 +123,13 @@ export const WORKSPACE_GROUPS = Object.freeze([
         offered: (session) => membershipsWith(session, 'ticket:check_in').length > 0,
       },
       {
+        href: '/organizer/organization',
+        label: 'Organisation',
+        // Membership only, as the page's picker is: the API reads an
+        // organisation's profile to somebody inside it.
+        offered: (session) => membershipsWith(session, 'organization:view_members').length > 0,
+      },
+      {
         href: '/organizer/team',
         label: 'Team',
         // Membership only, as the page's picker is: a platform role is not a
@@ -170,6 +177,16 @@ export const WORKSPACE_GROUPS = Object.freeze([
         href: '/retention',
         label: 'Retention',
         offered: (session) => admits(session, 'retention'),
+      },
+      {
+        href: '/moderation/organizations',
+        label: 'Organisation checks',
+        offered: (session) => admits(session, 'moderation'),
+      },
+      {
+        href: '/admin/users',
+        label: 'People and roles',
+        offered: (session) => admits(session, 'admin'),
       },
     ],
   },

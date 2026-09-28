@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -266,5 +266,107 @@ describe('when the decision is refused', () => {
     await user.click(screen.getByRole('button', { name: /not now/i }))
 
     await waitFor(() => expect(trigger).toHaveFocus())
+  })
+})
+
+describe('the pictures', () => {
+  it('offers them as a part a note can be about, sent under the key "images"', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'CHANGES_REQUIRED' } }))
+
+    render(<ModerationDecision event={event} />)
+
+    await user.click(screen.getByRole('button', { name: 'Request changes' }))
+
+    const about = screen.getByLabelText(/this note is about/i)
+
+    expect(within(about).getByRole('option', { name: 'Pictures' })).toHaveValue('images')
+    // The old key named a field that no longer exists.
+    expect(within(about).queryByRole('option', { name: /cover image/i })).toBeNull()
+
+    await user.type(
+      screen.getByLabelText(/what the organiser needs to know/i),
+      'The cover shows a face without consent.',
+    )
+    await user.selectOptions(about, 'images')
+    await user.click(screen.getByRole('button', { name: /add this note/i }))
+
+    expect(screen.getByText('Pictures:')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /yes, request changes/i }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      decision: 'request_changes',
+      requestedChanges: { images: 'The cover shows a face without consent.' },
+    })
+  })
+
+  it('does not offer approval when the page could not show them, and says why', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ModerationDecision
+        event={event}
+        approveBlockedReason="Approving is not offered while the pictures cannot be shown."
+      />,
+    )
+
+    const approve = screen.getByRole('button', { name: 'Approve' })
+
+    expect(approve).toBeDisabled()
+    expect(approve).toHaveAccessibleDescription(
+      'Approving is not offered while the pictures cannot be shown.',
+    )
+    // Asking for changes, and rejecting, need no picture to have been seen.
+    expect(screen.getByRole('button', { name: 'Request changes' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
+
+    await user.click(approve)
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('the version decided on', () => {
+  it('sends the revision the page showed with every decision', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'APPROVED' } }))
+
+    render(<ModerationDecision event={{ ...event, revision: 4 }} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+      decision: 'approve',
+      revision: 4,
+    })
+  })
+
+  it('shows the refusal when the organiser changed the event since, and decides nothing', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(409, {
+        error: {
+          code: 'STALE_REVISION',
+          message:
+            'The organiser changed this event after you opened it. Reload to review it as it is now. Nothing was decided.',
+        },
+      }),
+    )
+
+    render(<ModerationDecision event={{ ...event, revision: 4 }} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/changed this event after you opened it/)).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/this event is now/i)).toBeNull()
   })
 })

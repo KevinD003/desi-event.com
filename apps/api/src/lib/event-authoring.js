@@ -103,11 +103,12 @@ export function assertAuthorable(event, actor) {
  * @param {object} options.actor The request actor.
  * @param {string} options.action What to call this in the audit log.
  * @param {Function} options.write Given `(tx, event)`, does the work.
+ * @param {object|Function} [options.metadata] Extra audit metadata: an object, or a function given what `write` returned, called after it. Merged under the revision, which it cannot replace.
  * @returns {Promise<object>} The event after the write.
  * @throws {Error} A 409 when the revision has moved.
  */
 export async function authorChange(prisma, options) {
-  const { event, revision, actor, action, write } = options
+  const { event, revision, actor, action, write, metadata = null } = options
 
   return prisma.$transaction(async (tx) => {
     const { count } = await tx.event.updateMany({
@@ -139,14 +140,15 @@ export async function authorChange(prisma, options) {
       )
     }
 
-    await write(tx, event)
+    const written = await write(tx, event)
+    const extra = typeof metadata === 'function' ? await metadata(written) : metadata
 
     await recordAudit(tx, {
       action,
       entityType: 'Event',
       entityId: event.id,
       actorId: actor?.id ?? null,
-      metadata: { revision: revision + 1 },
+      metadata: { ...(extra ?? {}), revision: revision + 1 },
     })
 
     return tx.event.findUnique({ where: { id: event.id } })

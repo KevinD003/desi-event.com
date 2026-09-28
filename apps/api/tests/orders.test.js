@@ -6,6 +6,7 @@ import { createInMemoryProviderRegistry } from '@desi-event/providers'
 import { bearer, createTestApp, feeConfig, holdHeaders, signIn, taxRateBps } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
 import { makeWorld, minutesFromNow } from './helpers/fixtures.js'
+import { seedPicture } from './helpers/media-world.js'
 
 /** Face value of the General Admission tier in the fixtures. */
 const GA_PRICE = 150_000
@@ -537,6 +538,26 @@ describe('GET /v1/orders/:reference', () => {
     expect(response.statusCode).toBe(200)
     expect(response.json().data.reference).toBe(reference)
     expect(response.json().data.event.slug).toBe('navratri-garba-night')
+
+    await app.close()
+  })
+
+  it('carries the event’s approved cover, and no picture still waiting for review', async () => {
+    const { app, ids, prisma } = await createTestApp()
+    const reference = await place(app, ids)
+    const token = await signIn(app, 'priya@example.com')
+    const read = async () =>
+      (
+        await app.inject({ method: 'GET', url: `/v1/orders/${reference}`, headers: bearer(token) })
+      ).json().data.event.coverImage
+
+    const cover = seedPicture(prisma, { event: ids.publishedEvent, moderationStatus: 'PENDING' })
+
+    expect(await read()).toBeNull()
+
+    prisma._store.mediaAsset.find((row) => row.id === cover.id).moderationStatus = 'APPROVED'
+
+    expect(await read()).toMatchObject({ id: cover.id, url: `/v1/media/${cover.id}` })
 
     await app.close()
   })

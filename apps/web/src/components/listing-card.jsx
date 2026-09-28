@@ -41,7 +41,7 @@ import { formatEventStart, toDateTimeAttribute } from '../lib/format.js'
 import { formatPrice } from '../lib/pricing.js'
 import { PersonIcon, PinIcon } from './icons.jsx'
 import { HoverLift, HoverZoom, Reveal } from './motion.jsx'
-import { EventPoster } from './poster.jsx'
+import { EventArt } from './event-art.jsx'
 
 /**
  * The chip's look, per availability tone. Always with words; the dot is
@@ -124,7 +124,7 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3', clas
         <article className="relative flex w-full flex-col overflow-hidden rounded-card bg-surface-raised shadow-card transition-shadow duration-(--duration-base) ease-standard group-data-lifted:shadow-card-hover hover:shadow-card-hover has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus">
           <div className="relative bg-surface-subtle">
             <HoverZoom className="aspect-[3/2]">
-              <EventPoster event={event} className="h-full" />
+              <EventArt event={event} className="h-full" />
             </HoverZoom>
             <p className="absolute top-3 left-3 flex flex-wrap gap-2">
               <span className="inline-flex min-h-7 items-center rounded-full bg-surface/95 px-3 text-xs font-bold text-ink shadow-control">

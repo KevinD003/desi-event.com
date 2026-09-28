@@ -18,9 +18,12 @@ import { registerEventRoutes } from './events.js'
 import { registerFinanceRoutes } from './finance.js'
 import { registerHealthRoutes } from './health.js'
 import { registerHoldRoutes } from './holds.js'
+import { installImageBodyParser, registerMediaRoutes } from './media.js'
 import { registerEventAuthoringRoutes } from './event-authoring.js'
 import { registerModerationRoutes } from './moderation.js'
 import { registerOrganizerRoutes } from './organizers.js'
+import { registerOrganizationRoutes } from './organizations.js'
+import { registerPlatformRoutes } from './platform.js'
 import { registerPublicVenueRoutes, registerVenueMapRoutes, registerVenueRoutes } from './venues.js'
 import { registerOrderRoutes } from './orders.js'
 import { registerOperationsRoutes } from './operations.js'
@@ -48,6 +51,10 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door (preview and check-in) rate limit.
  * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
+ * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How single-use codes reach people, resolved once by `buildApp`.
+ * @param {object} [deps.mediaStorage] Where picture bytes live; see `lib/media-storage.js`.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.mediaUploadLimit] Overrides for the picture-upload rate limit.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.mediaReadLimit] Overrides for the picture-read rate limit.
  * @returns {void} Nothing.
  */
 export function registerRoutes(app, deps) {
@@ -55,6 +62,8 @@ export function registerRoutes(app, deps) {
   registerAuthRoutes(app, deps)
   registerTeamRoutes(app, deps)
   registerOrganizerRoutes(app, deps)
+  registerOrganizationRoutes(app, deps)
+  registerPlatformRoutes(app, deps)
   registerVenueRoutes(app, deps)
   registerVenueMapRoutes(app, deps)
   registerPublicVenueRoutes(app, deps)
@@ -81,6 +90,13 @@ export function registerRoutes(app, deps) {
   app.register(async (scope) => {
     installRawBodyParser(scope)
     registerWebhookRoutes(scope, deps)
+  })
+
+  // Scoped for the same reason: the picture upload's body is bytes with a
+  // 10 MiB limit, and every other route keeps its 1 MiB JSON body.
+  app.register(async (scope) => {
+    installImageBodyParser(scope)
+    registerMediaRoutes(scope, deps)
   })
 
   registerTicketRoutes(app, deps)

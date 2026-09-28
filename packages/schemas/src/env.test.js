@@ -206,6 +206,18 @@ describe('apiEnvSchema', () => {
       'NODE_ENV',
     ])
   })
+
+  it('leaves DELIVERY_MODE unset unless it is named, and accepts only MANUAL or EMAIL', () => {
+    // Unset is meaningful: the API resolves it against whether a provider is
+    // wired in, so the schema must not invent a default of its own.
+    expect(apiEnvSchema.parse(apiEnv()).DELIVERY_MODE).toBeUndefined()
+    expect(apiEnvSchema.parse(apiEnv({ DELIVERY_MODE: '' })).DELIVERY_MODE).toBeUndefined()
+    expect(apiEnvSchema.parse(apiEnv({ DELIVERY_MODE: 'MANUAL' })).DELIVERY_MODE).toBe('MANUAL')
+    expect(apiEnvSchema.parse(apiEnv({ DELIVERY_MODE: 'EMAIL' })).DELIVERY_MODE).toBe('EMAIL')
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ DELIVERY_MODE: 'SMS' })))).toEqual([
+      'DELIVERY_MODE',
+    ])
+  })
 })
 
 describe('isInsecureJwtSecret', () => {

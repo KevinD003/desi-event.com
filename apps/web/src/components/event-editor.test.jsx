@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
@@ -416,6 +416,133 @@ describe('the steps', () => {
 
     expect(screen.getByRole('heading', { name: 'Sessions', level: 2 })).toBeInTheDocument()
     expect(screen.getByText('Revision 9')).toBeInTheDocument()
+  })
+
+  /** The event's cover, as `GET /v1/events/:id/media` lists it. */
+  const cover = {
+    id: 'cmedia0000000000000000001',
+    url: '/v1/media/cmedia0000000000000000001',
+    altText: 'Dancers circling a lit garbo',
+    width: 1200,
+    height: 630,
+    contentType: 'image/png',
+    kind: 'EVENT_COVER',
+    position: null,
+    byteSize: 204_800,
+    checksum: 'a'.repeat(64),
+    moderationStatus: 'PENDING',
+    rejectionReason: null,
+    publiclyVisible: false,
+    createdAt: '2026-09-01T10:00:00.000Z',
+  }
+
+  it('make step 6 the pictures, with the upload forms and the pictures already there', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={event} venues={venues} media={[cover]} />)
+
+    await user.click(screen.getByRole('button', { name: /step 6/i }))
+
+    expect(screen.getByRole('heading', { name: 'Media', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: 'The cover' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Replace the cover' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Add a gallery picture' })).toBeInTheDocument()
+    // The pictures write on their own; the form's save button is not for them.
+    expect(screen.queryByRole('button', { name: /save now|saved/i })).toBeNull()
+  })
+
+  it('carry a picture write’s new revision into the next autosave', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, { data: [], meta: { revision: 7 } }))
+      .mockResolvedValueOnce(answer(200, { data: { ...event, revision: 8 } }))
+
+    render(<EventEditor event={event} venues={venues} media={[cover]} />)
+
+    await user.click(screen.getByRole('button', { name: /step 6/i }))
+    await user.click(screen.getByRole('button', { name: 'Remove: the cover' }))
+    await user.click(screen.getByRole('button', { name: 'Remove picture' }))
+
+    await waitFor(() => expect(screen.getByText('Revision 7')).toBeInTheDocument())
+    expect(apiFetch.mock.calls[0][0]).toBe(
+      '/v1/events/evtqawwalibanyan/media/cmedia0000000000000000001?revision=3',
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(apiFetch.mock.calls[1][1].body).revision).toBe(7)
+  })
+
+  it('keep the pictures as they are now after leaving the Media step and coming back', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const gallery = {
+      ...cover,
+      id: 'cmedia0000000000000000002',
+      url: '/v1/media/cmedia0000000000000000002',
+      kind: 'EVENT_GALLERY',
+      position: 0,
+      altText: 'The band at soundcheck',
+      width: 800,
+      height: 800,
+    }
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, { data: [], meta: { revision: 4 } }))
+      .mockResolvedValueOnce(answer(201, { data: gallery, meta: { revision: 5, removed: [] } }))
+
+    render(<EventEditor event={event} venues={venues} media={[cover]} />)
+
+    await user.click(screen.getByRole('button', { name: /step 6/i }))
+    await user.click(screen.getByRole('button', { name: 'Remove: the cover' }))
+    await user.click(screen.getByRole('button', { name: 'Remove picture' }))
+    await waitFor(() => expect(screen.getByText(/There is no cover/)).toBeInTheDocument())
+
+    const form = screen.getByRole('form', { name: /add a gallery picture/i })
+    const file = new File(
+      [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])],
+      'band.png',
+      { type: 'image/png' },
+    )
+
+    await user.upload(within(form).getByLabelText(/^Picture file/), file)
+    await user.type(within(form).getByLabelText(/^Describe the picture/), 'The band at soundcheck')
+    await user.click(within(form).getByRole('button', { name: 'Upload' }))
+    await waitFor(() => expect(screen.getByText('Revision 5')).toBeInTheDocument())
+
+    // Away to the details and back: the step is drawn afresh, from the list
+    // the shell holds, not the one the page first loaded.
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+    await user.click(screen.getByRole('button', { name: /step 6/i }))
+
+    expect(screen.queryByRole('listitem', { name: 'The cover' })).toBeNull()
+    expect(screen.getByText(/There is no cover/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Upload a cover' })).toBeInTheDocument()
+    expect(screen.getByRole('listitem', { name: 'Picture 1 of 1' })).toBeInTheDocument()
+    expect(screen.getByText(/1 of 8 pictures/)).toBeInTheDocument()
+  })
+
+  it('say the pictures could not be read, rather than that there are none', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(
+      <EventEditor
+        event={event}
+        venues={venues}
+        media={[]}
+        mediaFailure={{ status: 0, code: 'API_UNREACHABLE', retryAfterSeconds: null }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 6/i }))
+
+    expect(screen.getByText(/Until this event’s pictures load/)).toBeInTheDocument()
+    expect(screen.getByText(/This event’s pictures could not be loaded/)).toBeInTheDocument()
+    expect(screen.queryByText(/There is no cover/)).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Upload a cover' })).toBeNull()
   })
 })
 

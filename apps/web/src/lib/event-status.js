@@ -20,6 +20,8 @@
  * @file lib/event-status
  */
 
+import { LIVE_STATUSES } from '@desi-event/schemas/lifecycle'
+
 /**
  * @typedef {object} StatusReading
  * @property {string} label The state's name, in words a person uses.
@@ -142,6 +144,17 @@ export function statusReading(status) {
  * @type {ReadonlySet<string>}
  */
 export const EDITABLE = new Set(['DRAFT', 'CHANGES_REQUIRED'])
+
+/**
+ * Statuses in which an edit can reach somebody who has already committed.
+ *
+ * Imported from `@desi-event/schemas/lifecycle`, the narrow subpath the API
+ * reads the same list from, so the web and the server cannot disagree about
+ * which events are live.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const LIVE = LIVE_STATUSES
 
 /**
  * The lifecycle commands, and how each one asks.

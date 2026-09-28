@@ -43,6 +43,7 @@ import {
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
+import { EVENT_COVER_INCLUDE } from '../lib/event-media.js'
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { generateOrderReference, generateTicketCode } from '../lib/identifiers.js'
 import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
@@ -89,7 +90,11 @@ const SETTLEMENT_TRANSACTION_OPTIONS = Object.freeze({ timeout: 10_000, maxWait:
 
 const ORDER_INCLUDE = Object.freeze({
   items: { include: { tickets: true } },
-  event: { include: { venue: true, organization: true, ticketTypes: true } },
+  // The approved cover rides along so an order shows the event's picture; the
+  // summary presenter filters it again.
+  event: {
+    include: { venue: true, organization: true, ticketTypes: true, ...EVENT_COVER_INCLUDE },
+  },
 })
 
 /**

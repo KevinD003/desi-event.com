@@ -204,6 +204,27 @@ export function describeApiRefusal(error) {
     }
   }
 
+  // A file refused for its size or its kind: the person chose the wrong file,
+  // and choosing another is the fix. Fastify's own wording for the two is a
+  // status line rather than a sentence, so it is replaced; the API's is kept.
+  if (status === 413 || status === 415) {
+    const generic = /^(Unsupported Media Type|Request body is too large)\.?$/iu
+    const own = specificMessage(error)
+
+    return {
+      state: 'validation',
+      title: 'That file was not accepted',
+      detail:
+        own && !generic.test(own)
+          ? own
+          : status === 413
+            ? 'The file is larger than this accepts. Choose a smaller one and try again.'
+            : 'That kind of file is not accepted here. Choose a JPEG, PNG or WebP picture.',
+      recoverable: true,
+      retryAfterSeconds: null,
+    }
+  }
+
   if (status === 400 || status === 422) {
     return {
       state: 'validation',
@@ -280,6 +301,9 @@ export function refusalSentence(status, body, fallback, retryAfterSeconds = null
   const refusal = describeApiRefusal({ status, code, message, retryAfterSeconds })
 
   if (REPLACED_STATES.has(refusal.state)) return refusal.detail
+  // A refused file's sentence is already the best one: the API's own when it
+  // said something, the vocabulary's when all it had was a status line.
+  if (status === 413 || status === 415) return refusal.detail
 
   return message || fallback
 }

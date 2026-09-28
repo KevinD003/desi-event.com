@@ -148,6 +148,7 @@ function TicketCard({ ticket }) {
           slug: ticket.event.slug,
           title: ticket.event.title,
           category: ticket.event.category,
+          coverImage: ticket.event.coverImage ?? null,
         }}
         className="h-28 sm:h-auto sm:w-44"
       />

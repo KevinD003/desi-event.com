@@ -20,16 +20,19 @@
 import { z } from 'zod'
 
 import { addressFree } from './addresses.js'
-import { orgRoleSchema } from './enums.js'
+import { invitationDeliveryModeSchema, orgRoleSchema } from './enums.js'
 import { cuidSchema, emailSchema, nonEmptyStringSchema, timestampSchema } from './primitives.js'
 
 /**
  * Roles that may be invited or assigned.
  *
- * `OWNER` is deliberately absent. Ownership transfers through a route of its
- * own, because "make this person an owner" and "stop being the owner" are one
- * action and doing half of it leaves an organisation with two owners who each
- * think the other is responsible.
+ * `OWNER` is deliberately absent. Ownership moves through
+ * `teams.transferOwnership`, because "make this person an owner" and "stop
+ * being the owner" are one action and doing half of it leaves an organisation
+ * with two owners who each think the other is responsible. The only other ways
+ * to an `OWNER` membership are creating an organisation, and an audited grant
+ * by a platform super administrator (`platform.grantMembership`), which names
+ * its reason.
  *
  * @type {object}
  */
@@ -109,6 +112,15 @@ export const invitationSummarySchema = z.object({
   invitedByName: nonEmptyStringSchema.nullish(),
   expiresAt: timestampSchema,
   createdAt: timestampSchema,
+  /**
+   * How the invitation's code went out.
+   *
+   * `MANUAL`: shown once to whoever issued it, to hand over themselves.
+   * `EMAIL`: sent by the delivery provider; nobody on the team saw it.
+   * `null`: issued before delivery modes existed, which in this build means
+   * nobody ever received a code. A screen says so and offers a new one.
+   */
+  deliveryMode: invitationDeliveryModeSchema.nullable(),
 })
 
 /**
@@ -182,8 +194,79 @@ export const memberListResponseSchema = z.object({
   ]),
 })
 
-/** `POST /v1/organizations/:id/invitations`. */
-export const invitationResponseSchema = z.object({ data: invitationSummarySchema })
+/**
+ * A single-use code, exactly as `issueToken` mints it.
+ *
+ * Thirty-two random bytes in base64url: forty-three characters from the
+ * url-safe alphabet. Pinned to that shape so a response can never carry
+ * anything longer, shorter or differently encoded under this name — a digest,
+ * say — by mistake.
+ *
+ * @type {object}
+ */
+export const invitationCodeSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{43}$/, 'Expected a 43-character url-safe code')
+
+/**
+ * How an invitation's code reached the person, as the one response that
+ * carries it says.
+ *
+ * `MANUAL` carries the code, once: this build has no delivery provider, so
+ * the only way the invitee can get it is from whoever issued it. `EMAIL`
+ * carries `null` and cannot carry anything else — the provider delivered it,
+ * and handing it to the inviter as well would make them a second holder for no
+ * reason. A presenter that put a code on the EMAIL branch makes the response
+ * fail its contract rather than leak.
+ *
+ * The same shape is returned by any route that issues a show-once code, so a
+ * screen can handle all of them the same way.
+ */
+export const invitationDeliverySchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('EMAIL'), invitationCode: z.null() }),
+  z.object({ mode: z.literal('MANUAL'), invitationCode: invitationCodeSchema }),
+])
+
+/**
+ * `POST /v1/organizations/:id/invitations` and its reissue.
+ *
+ * The only responses that ever carry an invitation code. It is sent with
+ * `cache-control: no-store, private`, is never logged or audited, and only its
+ * digest is stored, so it cannot be shown again.
+ */
+export const invitationResponseSchema = z.object({
+  data: invitationSummarySchema.extend({ delivery: invitationDeliverySchema }),
+})
+
+/**
+ * `POST /v1/organizations/:id/invitations/:memberId/reissue`.
+ *
+ * The same delivery block as an invitation, and the address only when the
+ * caller may see addresses on the team list (`FULL`). A caller who reissues by
+ * id without that visibility is told the new code and not who it is for —
+ * otherwise reissuing would be a way to read the addresses the list withholds.
+ * The inviter's name is address-free for the same reason.
+ */
+export const reissuedInvitationResponseSchema = z.object({
+  data: invitationSummarySchema.omit({ email: true }).extend({
+    email: emailSchema.optional(),
+    invitedByName: addressFree(nonEmptyStringSchema).nullish(),
+    delivery: invitationDeliverySchema,
+  }),
+})
+
+/**
+ * What the caller's session now requires, after they gained authority.
+ *
+ * Accepting an invitation or creating an organisation can make an account
+ * privileged, and a privileged account must hold a second factor before any
+ * guarded route will answer it. Saying so here lets a screen send the person to
+ * set one up, rather than letting the next page refuse them without context.
+ */
+export const privilegeSessionSchema = z.object({
+  mfaRequired: z.boolean(),
+  mfaEnrolled: z.boolean(),
+})
 
 /** `POST /v1/invitations/accept`. */
 export const acceptedInvitationResponseSchema = z.object({
@@ -191,5 +274,35 @@ export const acceptedInvitationResponseSchema = z.object({
     organizationId: cuidSchema,
     organizationName: nonEmptyStringSchema,
     role: orgRoleSchema,
+    /**
+     * False when the account already belonged to the organisation. The code
+     * is spent either way; when this is false the existing role is unchanged,
+     * nothing was gained, and no other session ended.
+     */
+    joined: z.boolean(),
+    session: privilegeSessionSchema,
+  }),
+})
+
+/** `POST /v1/organizations/:id/ownership`. */
+export const transferOwnershipRequestSchema = z.object({
+  /** The membership, in this organisation, that becomes its owner. */
+  toMemberId: cuidSchema,
+})
+
+/**
+ * The outcome of an ownership transfer: one owner in, one owner out.
+ *
+ * The previous owner is always an administrator afterwards. Keeping them on as
+ * a second owner would be a different action — and this route exists because
+ * doing half of "hand it over" leaves two owners who each think the other is
+ * responsible.
+ */
+export const ownershipTransferredResponseSchema = z.object({
+  data: z.object({
+    organizationId: cuidSchema,
+    ownerMembershipId: cuidSchema,
+    previousOwnerMembershipId: cuidSchema,
+    previousOwnerRole: z.literal('ADMIN'),
   }),
 })

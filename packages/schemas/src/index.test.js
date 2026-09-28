@@ -59,6 +59,21 @@ const CONTRACT_EXPORTS = [
   'orderResponseSchema',
   'errorResponseSchema',
   'healthResponseSchema',
+  // Event pictures
+  'mediaKindSchema',
+  'altTextSchema',
+  'revisionQueryParamSchema',
+  'uploadEventMediaQuerySchema',
+  'updateEventMediaRequestSchema',
+  'reorderEventMediaRequestSchema',
+  'removeEventMediaQuerySchema',
+  'eventMediaParamSchema',
+  'moderateMediaRequestSchema',
+  'publicMediaSchema',
+  'eventMediaSchema',
+  'eventMediaListResponseSchema',
+  'eventMediaResponseSchema',
+  'mediaBytesSchema',
 ]
 
 /**

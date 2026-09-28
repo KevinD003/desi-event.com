@@ -282,6 +282,9 @@ describe('revokesSiblings', () => {
     'PASSWORD_RESET',
     'MFA_CHANGED',
     'ACCOUNT_SUSPENDED',
+    // Finding NF-10: a role gained or lost. A session from before the change
+    // carries the old lifetime and second-factor state.
+    'ROLE_CHANGED',
   ])('ends every other session after %s', (reason) => {
     // The three that are easy to forget are the ones that matter: a session
     // established with the old password must stop working when the password

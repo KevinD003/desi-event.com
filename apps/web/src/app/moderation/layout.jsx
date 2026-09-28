@@ -18,6 +18,7 @@
 
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
+import { moderationTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +41,7 @@ export default async function ModerationLayout({ children }) {
   if (!admitted) return <AreaRefusal area="moderation" />
 
   return (
-    <WorkspaceShell session={session} area="moderation">
+    <WorkspaceShell session={session} area="moderation" tabs={moderationTabs(session)}>
       {children}
     </WorkspaceShell>
   )

@@ -64,3 +64,20 @@ export function operationsTabs(session) {
     ...(platform ? [{ href: '/operations/notifications', label: 'Notifications' }] : []),
   ]
 }
+
+/**
+ * The moderation area's sections: events waiting for review, and
+ * organisations waiting to be verified. Both are held by `moderation:review`,
+ * which admits the area, so both are offered to everybody it admits.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Tab[]} The tabs, events first.
+ */
+export function moderationTabs(session) {
+  if (!sessionCan(session, 'moderation:review')) return []
+
+  return [
+    { href: '/moderation/events', label: 'Events' },
+    { href: '/moderation/organizations', label: 'Organisations' },
+  ]
+}

@@ -18,7 +18,8 @@ import {
   canTransition,
   isEligible,
 } from '../src/lib/verification.js'
-import { createTestApp } from './helpers/app.js'
+import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { cuid } from './helpers/prisma-stub.js'
 
 const S = VERIFICATION_STATES
 
@@ -283,6 +284,216 @@ describe('applying a transition', () => {
 
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
     expect(prisma._store.organizationVerificationEvent).toHaveLength(1)
+
+    await app.close()
+  })
+})
+
+describe('the moderators\u2019 verification queue and review', () => {
+  /**
+   * The shared world plus three organisations waiting in different states.
+   *
+   * @returns {Promise<object>} The harness and the new organisations.
+   */
+  async function withQueue() {
+    const harness = await createTestApp()
+    const { prisma } = harness
+    const template = prisma._store.organization[0]
+
+    /**
+     * Add an organisation in a state.
+     *
+     * @param {string} name Its name.
+     * @param {string} status Its verification state.
+     * @param {string} since When it entered that state.
+     * @returns {object} The row.
+     */
+    const add = (name, status, since) => {
+      const row = {
+        ...template,
+        id: cuid(),
+        name,
+        slug: name.toLowerCase().replace(/\s+/gu, '-'),
+        contactEmail: `${name.split(' ')[0].toLowerCase()}@owner.example`,
+        verificationStatus: status,
+        verified: false,
+        verificationUpdatedAt: new Date(since),
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      }
+
+      prisma._store.organization.push(row)
+
+      return row
+    }
+
+    const newer = add('Newer Garba', 'PENDING', '2026-09-20T00:00:00.000Z')
+    const older = add('Older Dandiya', 'PENDING', '2026-09-01T00:00:00.000Z')
+    const asked = add('Asked Bhangra', 'REQUIRES_INFORMATION', '2026-09-10T00:00:00.000Z')
+
+    prisma._store.organizationVerificationEvent.push(
+      {
+        id: cuid(),
+        organizationId: older.id,
+        fromStatus: 'UNVERIFIED',
+        toStatus: 'PENDING',
+        actorId: null,
+        reason: 'First try.',
+        createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+      {
+        id: cuid(),
+        organizationId: older.id,
+        fromStatus: 'REJECTED',
+        toStatus: 'PENDING',
+        actorId: null,
+        reason: 'We registered the company since.',
+        createdAt: new Date('2026-09-01T00:00:00.000Z'),
+      },
+    )
+
+    return { ...harness, newer, older, asked }
+  }
+
+  it('refuses an organisation owner, and answers a moderator and a super administrator', async () => {
+    const { app } = await withQueue()
+
+    for (const [email, status] of [
+      ['owner@rangoli.example', 403],
+      ['maya@desi-event.example', 200],
+      ['ops@desi-event.example', 200],
+    ]) {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/v1/moderation/organizations',
+        headers: bearer(await signIn(app, email)),
+      })
+
+      expect(response.statusCode, email).toBe(status)
+    }
+
+    await app.close()
+  })
+
+  it('opens on the organisations waiting, oldest first, with what they last wrote', async () => {
+    const { app, older, newer } = await withQueue()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/organizations',
+      headers: bearer(await signIn(app, 'maya@desi-event.example')),
+    })
+
+    const { data, pagination } = response.json()
+
+    expect(data.map((row) => row.organizationId)).toEqual([older.id, newer.id])
+    expect(data[0].organiserNote).toBe('We registered the company since.')
+    expect(data[1].organiserNote).toBeNull()
+    expect(data[0]).toMatchObject({ status: 'PENDING', memberCount: 0, eventCount: 0 })
+    expect(pagination.total).toBe(2)
+
+    await app.close()
+  })
+
+  it('filters by state, and refuses UNVERIFIED, which is not a queue', async () => {
+    const { app, asked } = await withQueue()
+    const headers = bearer(await signIn(app, 'maya@desi-event.example'))
+
+    const needsInfo = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/organizations?status=REQUIRES_INFORMATION',
+      headers,
+    })
+
+    expect(needsInfo.json().data.map((row) => row.organizationId)).toEqual([asked.id])
+
+    const verified = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/organizations?status=VERIFIED',
+      headers,
+    })
+
+    // The two fixture organisations, with their member and event counts.
+    expect(verified.json().data).toHaveLength(2)
+    expect(verified.json().data.some((row) => row.memberCount > 0)).toBe(true)
+    expect(verified.json().data.some((row) => row.eventCount > 0)).toBe(true)
+
+    const unverified = await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/organizations?status=UNVERIFIED',
+      headers,
+    })
+
+    expect(unverified.statusCode).toBe(400)
+
+    await app.close()
+  })
+
+  it('carries no contact address, in the queue or the review', async () => {
+    const { app, older } = await withQueue()
+    const headers = bearer(await signIn(app, 'maya@desi-event.example'))
+
+    const queue = await app.inject({ method: 'GET', url: '/v1/moderation/organizations', headers })
+    const review = await app.inject({
+      method: 'GET',
+      url: `/v1/moderation/organizations/${older.id}`,
+      headers,
+    })
+
+    for (const response of [queue, review]) {
+      expect(response.statusCode).toBe(200)
+      expect(response.body).not.toContain('contactEmail')
+      expect(response.body).not.toContain('@owner.example')
+      expect(response.body).not.toContain('payoutCurrency')
+    }
+
+    await app.close()
+  })
+
+  it('reviews one organisation with its whole history', async () => {
+    const { app, older } = await withQueue()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/moderation/organizations/${older.id}`,
+      headers: bearer(await signIn(app, 'maya@desi-event.example')),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const { data } = response.json()
+
+    expect(data.organization).toMatchObject({
+      id: older.id,
+      name: 'Older Dandiya',
+      eligible: false,
+    })
+    expect(data.verification.status).toBe('PENDING')
+    expect(data.verification.history.map((row) => row.reason)).toEqual([
+      'First try.',
+      'We registered the company since.',
+    ])
+
+    await app.close()
+  })
+
+  it('answers 404 for an organisation that does not exist, and 403 to an organiser', async () => {
+    const { app, older } = await withQueue()
+
+    const unknown = await app.inject({
+      method: 'GET',
+      url: `/v1/moderation/organizations/${cuid()}`,
+      headers: bearer(await signIn(app, 'maya@desi-event.example')),
+    })
+
+    expect(unknown.statusCode).toBe(404)
+
+    const organiser = await app.inject({
+      method: 'GET',
+      url: `/v1/moderation/organizations/${older.id}`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+    })
+
+    expect(organiser.statusCode).toBe(403)
 
     await app.close()
   })

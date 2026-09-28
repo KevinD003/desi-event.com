@@ -36,7 +36,7 @@ const RENDERABLE = new Set(POSTER_ELEMENTS)
  * A `card` keeps the drawing's own 3:2. A `hero` is taller on a phone, where a
  * 16:7 strip would be a sliver, and opens out to 16:7 on a wide screen.
  */
-const VARIANT_CLASSES = Object.freeze({
+export const VARIANT_CLASSES = Object.freeze({
   card: 'aspect-[3/2]',
   hero: 'aspect-[4/3] sm:aspect-[2/1] lg:aspect-[16/7]',
 })

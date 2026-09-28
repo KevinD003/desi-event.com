@@ -36,6 +36,7 @@ export const COURTYARD_AREAS = Object.freeze([
   '/moderation',
   '/privacy',
   '/retention',
+  '/admin',
 ])
 
 /**

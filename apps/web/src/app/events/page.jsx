@@ -23,7 +23,7 @@ import { EventGrid } from '../../components/listing-card.jsx'
 import { FadeIn } from '../../components/motion.jsx'
 import { Breadcrumbs } from '../../components/page-state.jsx'
 import { PageHero } from '../../components/page-hero.jsx'
-import { EventPoster } from '../../components/poster.jsx'
+import { EventArt } from '../../components/event-art.jsx'
 import { SampleDataNotice } from '../../components/sample-data-notice.jsx'
 
 export const dynamic = 'force-dynamic'
@@ -238,7 +238,7 @@ function PosterFan({ events }) {
           delay={0.16 + index * 0.06}
           className={`absolute overflow-hidden rounded-2xl border-4 border-page shadow-dialog ${placements[index]}`}
         >
-          <EventPoster event={event} />
+          <EventArt event={event} sizes="18rem" />
         </FadeIn>
       ))}
     </div>

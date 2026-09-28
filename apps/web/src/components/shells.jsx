@@ -149,6 +149,12 @@ export function AccountShell({ session, children }) {
  * — and the browser suites — read them. The refusal names who can help and
  * never offers a way round: nothing on the page can grant access.
  *
+ * An area may list alternatives that are the person's own to take — the
+ * organiser workspace offers creating an organisation and joining one with a
+ * code. Neither is a way round somebody else's decision: creating your own
+ * organisation grants nothing in theirs, and a code works only for the address
+ * it was issued to.
+ *
  * @param {object} props Component props.
  * @param {string} props.area The area's key in `lib/areas.js`.
  * @returns {JSX.Element} The refusal.
@@ -162,6 +168,17 @@ export function AreaRefusal({ area }) {
         </p>
         <h1 className="mt-2 text-h2 font-semibold text-ink">Not for you</h1>
         <p className="mt-3 text-ink-muted">{AREAS[area].refusal}</p>
+        {AREAS[area].alternatives?.length ? (
+          <ul className="mt-6 flex flex-wrap gap-3">
+            {AREAS[area].alternatives.map((alternative) => (
+              <li key={alternative.href}>
+                <Link href={alternative.href} className={SECONDARY_LINK}>
+                  {alternative.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <p className="mt-6">
           <Link href="/" className={SECONDARY_LINK}>
             Back to the site

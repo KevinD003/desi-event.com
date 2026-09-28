@@ -45,6 +45,7 @@ import {
   resolveDisposableTarget,
   withDatabase,
 } from './disposable-database.mjs'
+import { runMediaProbes } from './media-probes.mjs'
 import { runPhase2Probes } from './phase2-probes.mjs'
 import { runSeatConcurrencyProbes } from './seat-concurrency.mjs'
 
@@ -1192,6 +1193,10 @@ async function main() {
     // comparison above — nothing downstream counts rows.
     ok = (await runPhase2Probes(prisma, { probe, record })) && ok
 
+    // Event pictures: the gallery cap, the shape and review CHECKs, and the
+    // bytes going with their picture. Each runs in a rolled-back transaction.
+    ok = (await runMediaProbes(prisma, { probe, record })) && ok
+
     // Concurrency, against real transactions rather than a stub that agrees with
     // whoever wrote it. These commit, so they run last among the probes and
     // before the row comparison is done with.
@@ -1228,6 +1233,15 @@ async function main() {
         // Who sees a colleague's address: real sessions, memberships and
         // second factors, read from their rows.
         'tests/team-email-integration.test.js',
+        // Invitation codes, organisations created from the site and platform
+        // roles: the one-live-invitation index, the owner and user-row locks,
+        // and the races they close, against real rows.
+        'tests/team-invitation-integration.test.js',
+        'tests/organization-create-integration.test.js',
+        'tests/platform-roles-integration.test.js',
+        // Event pictures: the gallery trigger under parallel uploads, the
+        // cover index, cascades and a 10 MiB bytea, against real rows.
+        'tests/event-media-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

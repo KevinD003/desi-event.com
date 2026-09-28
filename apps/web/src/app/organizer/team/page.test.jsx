@@ -12,7 +12,10 @@
  *     `team:role_manage` in another organisation offers nothing here.
  *   - **Nobody changes their own role here**, and nobody is offered power over
  *     a role above their own.
- *   - **No invite form**, because nothing could deliver the invitation.
+ *   - **The invite form is offered to a holder of `team:invite` here**, with a
+ *     role it may grant, and nowhere else; every open invitation says how its
+ *     code went out, and a new code is offered only for a grantable role.
+ *   - **Ownership is offered only to an owner of this organisation.**
  *   - **Door scopes say what the API enforces**: a door role with no scope
  *     admits nobody.
  *
@@ -120,8 +123,28 @@ function invitation(overrides = {}) {
     invitedByName: 'Admin',
     expiresAt: '2099-01-01T00:00:00.000Z',
     createdAt: '2026-09-01T00:00:00.000Z',
+    deliveryMode: 'MANUAL',
     ...overrides,
   }
+}
+
+/** Everything an owner holds for the team screen. */
+const OWNER_CAPABILITIES = [...ADMIN_CAPABILITIES, 'organization:manage']
+
+/**
+ * An owner of {@link ORG}.
+ *
+ * @returns {object} The session.
+ */
+function owner() {
+  return session([
+    {
+      organizationId: ORG,
+      organizationName: 'Rangoli',
+      role: 'OWNER',
+      capabilities: OWNER_CAPABILITIES,
+    },
+  ])
 }
 
 /**
@@ -333,16 +356,142 @@ describe('what is offered', () => {
     ).toBeInTheDocument()
   })
 
-  it('has no invite form, and says why', async () => {
-    const { container } = await renderPage({ answer: team('FULL') })
+  it('offers the invite form to a holder of team:invite here, and says the code is handed over by hand', async () => {
+    await renderPage({ answer: team('FULL') })
 
-    expect(container.querySelector('input[type="email"]')).toBeNull()
-    expect(screen.queryByRole('button', { name: /invite/iu })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Invite somebody' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/Their email address/u)).toHaveAttribute('type', 'email')
+    expect(screen.getByRole('button', { name: 'Invite them' })).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Inviting someone new needs email delivery, which this build does not have. Existing invitations are listed so they can be withdrawn.',
+        'This site sends no email. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
       ),
     ).toBeInTheDocument()
+    // Owner is never on offer, even though an owner can reach this page.
+    expect(screen.queryByRole('option', { name: 'Owner' })).not.toBeInTheDocument()
+  })
+
+  it('offers no invite form when team:invite is held only in another organisation', async () => {
+    const { container } = await renderPage({
+      as: session([
+        {
+          organizationId: ORG,
+          organizationName: 'Rangoli',
+          role: 'VIEWER',
+          capabilities: ['organization:view_members'],
+        },
+        {
+          organizationId: OTHER,
+          organizationName: 'Elsewhere',
+          role: 'ADMIN',
+          capabilities: ADMIN_CAPABILITIES,
+        },
+      ]),
+      answer: team('HIDDEN'),
+      query: { organizationId: ORG },
+    })
+
+    expect(container.querySelector('input[type="email"]')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Invite somebody' })).not.toBeInTheDocument()
+  })
+
+  it('offers no invite form when the caller may grant no role', async () => {
+    const { container } = await renderPage({ answer: team('FULL', { assignableRoles: [] }) })
+
+    expect(container.querySelector('input[type="email"]')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Invite them' })).not.toBeInTheDocument()
+  })
+
+  it('says how each open invitation’s code went out, including one nobody ever received', async () => {
+    await renderPage({
+      answer: team('HIDDEN', {
+        invitations: [
+          invitation({ id: 'manual', role: 'STAFF', deliveryMode: 'MANUAL' }),
+          invitation({ id: 'email', role: 'VIEWER', deliveryMode: 'EMAIL' }),
+          invitation({ id: 'never', role: 'SCANNER', deliveryMode: null }),
+        ],
+      }),
+    })
+
+    expect(screen.getByRole('columnheader', { name: 'How the code went out' })).toBeInTheDocument()
+    expect(screen.getByText('Shown once to whoever invited them')).toBeInTheDocument()
+    expect(screen.getByText('Sent by email')).toBeInTheDocument()
+    expect(
+      screen.getByText('No code was ever handed out. Issue a new one to invite them.'),
+    ).toBeInTheDocument()
+  })
+
+  it('offers a new code only for an invitation to a role the caller may grant', async () => {
+    await renderPage({
+      as: session([
+        {
+          organizationId: ORG,
+          organizationName: 'Rangoli',
+          role: 'MANAGER',
+          capabilities: ['organization:view_members', 'team:invite'],
+        },
+      ]),
+      answer: team('HIDDEN', {
+        invitations: [
+          invitation({ id: 'staff', role: 'STAFF' }),
+          invitation({ id: 'admin', role: 'ADMIN' }),
+        ],
+        assignableRoles: ['STAFF', 'SCANNER', 'VIEWER'],
+      }),
+    })
+
+    expect(
+      screen.getByRole('button', { name: 'Issue a new code for the invitation to join as staff' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', {
+        name: 'Issue a new code for the invitation to join as administrator',
+      }),
+    ).not.toBeInTheDocument()
+    // Withdrawing is still offered for both.
+    expect(
+      screen.getByRole('button', { name: 'Withdraw the invitation to join as administrator' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers handing ownership on to an owner of this organisation, for every other member', async () => {
+    await renderPage({ as: owner(), answer: team('HIDDEN') })
+
+    expect(screen.getByRole('heading', { name: 'Ownership' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Hand ownership to Admin' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers no ownership section to an administrator, or to an owner of another organisation', async () => {
+    const { container } = await renderPage({ answer: team('HIDDEN') })
+
+    expect(screen.queryByRole('heading', { name: 'Ownership' })).not.toBeInTheDocument()
+
+    container.remove()
+
+    await renderPage({
+      as: session([
+        {
+          organizationId: ORG,
+          organizationName: 'Rangoli',
+          role: 'ADMIN',
+          capabilities: ADMIN_CAPABILITIES,
+        },
+        {
+          organizationId: OTHER,
+          organizationName: 'Elsewhere',
+          role: 'OWNER',
+          capabilities: OWNER_CAPABILITIES,
+        },
+      ]),
+      answer: team('HIDDEN'),
+      query: { organizationId: ORG },
+    })
+
+    expect(screen.queryByRole('heading', { name: 'Ownership' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Hand ownership/u })).not.toBeInTheDocument()
   })
 })
 

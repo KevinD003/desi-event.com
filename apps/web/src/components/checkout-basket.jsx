@@ -46,7 +46,7 @@ import { describeApiRefusal, refusalFromResponse } from '../lib/refusal.js'
 import { MirrorDivider } from './festive-decor.jsx'
 import { CheckIcon } from './icons.jsx'
 import { OUTLINE_LINK, PRIMARY_LINK } from './link-classes.js'
-import { EventPoster } from './poster.jsx'
+import { EventArt } from './event-art.jsx'
 import { QuantityStepper, clampQuantity } from './quantity-stepper.jsx'
 import { tierAllIn } from './ticket-tiers.jsx'
 import { Alert, Badge, Button } from './ui.jsx'
@@ -447,7 +447,7 @@ export function CheckoutBasket({
             aria-hidden="true"
             className="h-16 w-24 shrink-0 overflow-hidden rounded-control bg-surface-inverse"
           >
-            <EventPoster event={event} className="h-full" />
+            <EventArt event={event} className="h-full" decorative sizes="96px" />
           </div>
           <div className="min-w-0">
             <p className="leading-5 font-bold text-ink">{event.title}</p>
@@ -660,7 +660,7 @@ function Booked({ order, event = null }) {
             aria-hidden="true"
             className="hidden h-20 w-30 shrink-0 overflow-hidden rounded-control sm:block"
           >
-            <EventPoster event={event} className="h-full" />
+            <EventArt event={event} className="h-full" decorative sizes="120px" />
           </div>
         ) : null}
       </div>

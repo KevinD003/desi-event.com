@@ -81,6 +81,67 @@ export async function getTeam(organizationId) {
 }
 
 /**
+ * An organisation's profile, as its members read it.
+ *
+ * `GET /v1/organizations/:id`: name, slug for the public page, time zone, legal
+ * name, verification state and whether it may publish and be paid.
+ *
+ * @param {string} organizationId Which organisation.
+ * @returns {Promise<object>} The profile.
+ */
+export async function getOrganizationProfile(organizationId) {
+  const body = await callApi(`/v1/organizations/${encodeURIComponent(organizationId)}`)
+
+  return body.data
+}
+
+/**
+ * An organisation's verification state and its whole history.
+ *
+ * `GET /v1/organizations/:id/verification`.
+ *
+ * @param {string} organizationId Which organisation.
+ * @returns {Promise<object>} The state.
+ */
+export async function getVerification(organizationId) {
+  const body = await callApi(`/v1/organizations/${encodeURIComponent(organizationId)}/verification`)
+
+  return body.data
+}
+
+/**
+ * The moderators' verification queue.
+ *
+ * `GET /v1/moderation/organizations`. Platform staff only.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] One verification state; the API opens on PENDING.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size.
+ * @returns {Promise<{organizations: object[], pagination: object|null}>} The queue.
+ */
+export async function getVerificationQueue(options = {}) {
+  const suffix = queryFrom(options, ['status', 'page', 'perPage'])
+  const body = await callApi(`/v1/moderation/organizations${suffix}`)
+
+  return { organizations: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * One organisation as a moderator reads it before deciding.
+ *
+ * `GET /v1/moderation/organizations/:id`.
+ *
+ * @param {string} organizationId Which organisation.
+ * @returns {Promise<{organization: object, verification: object, memberCount: number, eventCount: number}>} The review.
+ */
+export async function getVerificationReview(organizationId) {
+  const body = await callApi(`/v1/moderation/organizations/${encodeURIComponent(organizationId)}`)
+
+  return body.data
+}
+
+/**
  * One organisation's events for the door-scope picker: the hundred that start
  * latest, in date order.
  *

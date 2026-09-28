@@ -246,6 +246,23 @@ NF-12 requires one.
 | Published pages render meaningful content without JS                                                                                                                                 | Phase 1 server components                                           | —                                                                                                   | —                           | `/events`, `/events/[slug]` | `apps/web/src/lib/catalog.test.js`                                  | `efdd640` | CARRIED                                                                        |
 | Draft / private / rejected / suspended / deleted excluded from search, metadata, JSON-LD, sitemaps                                                                                   | Phase 1 visibility filter                                           | —                                                                                                   | `events.list`, `events.get` | `/sitemap.xml`              | `apps/web/src/app/sitemap.test.js`, `apps/api/tests/events.test.js` | `efdd640` | CARRIED (the Phase 2 states are in the enum but not in the filter — **a gap**) |
 
+> **HISTORICAL STATUS — SUPERSEDED for the two media rows.** "SCHEMA ONLY"
+> was true until the event-media work (migration `20260928130000_event_media`).
+> What is built now, and what is not, without rounding up:
+>
+> | Part of the criterion | Now                                                                                                                                                                                           |
+> | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Allow-lists           | IMPLEMENTED — JPEG, PNG and WebP only, sniffed from the bytes; each file rebuilt from an allow-list of structures (`apps/api/src/lib/media/`)                                                 |
+> | Size limits           | IMPLEMENTED — 10 MiB, 8,000 px a side, 40 MP, cover and gallery minimums, 8 gallery pictures, 1 GiB per organisation                                                                          |
+> | EXIF stripping        | IMPLEMENTED — EXIF, XMP, IPTC and comments removed; a JPEG's orientation kept as a rebuilt one-tag segment; proven by a stored round trip in `apps/api/tests/event-media-integration.test.js` |
+> | Moderation            | IMPLEMENTED — pictures approved with their event; a moderator can take one down with a reason, or restore it, under step-up (`moderation.decideMedia`)                                        |
+> | Signed URLs           | NOT IMPLEMENTED — access is decided per request by authorisation instead; a picture that is not public is `private, no-store`, and 404 to anybody who may not see it                          |
+> | Transcoding           | NOT IMPLEMENTED at upload — `next/image` sizes and re-encodes on delivery                                                                                                                     |
+> | Malware hook          | NOT IMPLEMENTED — no antivirus engine runs; the stored `scanNote` says the check is structural                                                                                                |
+>
+> The pipeline is in `docs/MEDIA.md`, the threat model in `docs/SECURITY.md`,
+> the constraints in `docs/DATA_MODEL.md`. The rows above are left as written.
+
 > **Open gap recorded here rather than left implicit:** the visibility filter was
 > written against the Phase 1 status set. `REVIEW_PENDING`, `CHANGES_REQUIRED`,
 > `APPROVED`, `REJECTED` and `ARCHIVED` are new enum values that no code sets and

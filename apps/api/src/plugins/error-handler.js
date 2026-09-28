@@ -49,6 +49,15 @@ export async function registerErrorHandler(app, { nodeEnv }) {
       )
     }
 
+    // What `tooManyRequests` was told to say: when the caller may try again.
+    // Only for a 429, and only a whole number of seconds, which is the form
+    // the header takes.
+    const retryAfter = /** @type {{retryAfterSeconds?: unknown}} */ (error)?.retryAfterSeconds
+
+    if (normalised.statusCode === 429 && Number.isInteger(retryAfter) && retryAfter > 0) {
+      reply.header('retry-after', String(retryAfter))
+    }
+
     reply
       .code(normalised.statusCode)
       .type('application/json; charset=utf-8')

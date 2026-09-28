@@ -23,7 +23,11 @@ vi.mock('next/headers', () => ({
 const {
   formatInstant,
   getNotification,
+  getOrganizationProfile,
   getTeam,
+  getVerification,
+  getVerificationQueue,
+  getVerificationReview,
   isPastTheEnd,
   listHref,
   listNotifications,
@@ -267,5 +271,45 @@ describe('the pure helpers', () => {
     expect(formatInstant('2026-09-24T00:00:00.000Z')).toMatch(/^Sep 24, 2026, 12:00\sAM UTC$/u)
     expect(formatInstant(null)).toBeNull()
     expect(formatInstant('not a date')).toBeNull()
+  })
+})
+
+describe('the organisation and verification reads', () => {
+  it('reads a profile, a verification state and a review by encoded id', async () => {
+    fetch
+      .mockResolvedValueOnce(ok({ data: { id: 'o1', slug: 'bay' } }))
+      .mockResolvedValueOnce(ok({ data: { status: 'PENDING' } }))
+      .mockResolvedValueOnce(ok({ data: { organization: { id: 'o1' } } }))
+
+    expect(await getOrganizationProfile('o1/../x')).toEqual({ id: 'o1', slug: 'bay' })
+    expect(await getVerification('o1?y')).toEqual({ status: 'PENDING' })
+    expect(await getVerificationReview('o1#z')).toEqual({ organization: { id: 'o1' } })
+
+    expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual([
+      '/v1/organizations/o1%2F..%2Fx',
+      '/v1/organizations/o1%3Fy/verification',
+      '/v1/moderation/organizations/o1%23z',
+    ])
+  })
+
+  it('asks the queue for only the filters it takes, and none that are empty', async () => {
+    fetch.mockResolvedValueOnce(
+      ok({ data: [{ organizationId: 'o1' }], pagination: { page: 2, total: 21 } }),
+    )
+
+    const queue = await getVerificationQueue({
+      status: 'REJECTED',
+      page: 2,
+      extra: 'x',
+      perPage: '',
+    })
+    const url = requested()
+
+    expect(url.pathname).toBe('/v1/moderation/organizations')
+    expect(Object.fromEntries(url.searchParams)).toEqual({ status: 'REJECTED', page: '2' })
+    expect(queue).toEqual({
+      organizations: [{ organizationId: 'o1' }],
+      pagination: { page: 2, total: 21 },
+    })
   })
 })

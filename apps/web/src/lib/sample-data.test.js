@@ -234,6 +234,18 @@ describe('the fallback catalogue', () => {
     }
   })
 
+  it('carries no pictures, so every surface draws the generated poster as the API does', () => {
+    for (const event of SAMPLE_EVENTS) {
+      expect(event.coverImage, event.slug).toBeNull()
+      expect(event.gallery, event.slug).toEqual([])
+      expect(event, event.slug).not.toHaveProperty('coverImageUrl')
+    }
+
+    for (const summary of sampleEventSummaries()) {
+      expect(summary.coverImage, summary.slug).toBeNull()
+    }
+  })
+
   it('gives every event a multi-paragraph description worth reading', () => {
     for (const event of SAMPLE_EVENTS) {
       const paragraphs = toParagraphs(event.description)

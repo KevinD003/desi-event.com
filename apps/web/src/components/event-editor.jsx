@@ -48,6 +48,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Alert, Badge, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { EventLifecyclePanel } from './event-lifecycle-panel.jsx'
+import { EventMediaEditor } from './event-media-editor.jsx'
 import { EventSessionsEditor } from './event-sessions-editor.jsx'
 import { EventTiersEditor } from './event-tiers-editor.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -259,6 +260,8 @@ export function formGaps(values) {
  * @property {object} readiness The server's readiness result.
  * @property {object} transitions The server's available transitions.
  * @property {object[]} history The moderation history, newest first.
+ * @property {object[]} [media] The event's pictures with their review state, from `GET /v1/events/:id/media`.
+ * @property {{status: number, code: string|null, retryAfterSeconds: number|null}|null} [mediaFailure] Why the pictures could not be read, from `mediaReadFailure`; the Media step then shows that instead of an empty list.
  */
 
 /**
@@ -276,10 +279,16 @@ export function EventEditor({
   readiness = null,
   transitions = null,
   history = [],
+  media = [],
+  mediaFailure = null,
 }) {
   const [values, setValues] = useState(() => toFormValues(event))
   const [baseline, setBaseline] = useState(() => toFormValues(event))
   const [revision, setRevision] = useState(event.revision ?? 0)
+  // Held here for the same reason as the revision: the Media step unmounts
+  // whenever another step is chosen, and a list kept inside it would come
+  // back as the one the page first loaded.
+  const [pictures, setPictures] = useState(media)
   const [status, setStatus] = useState(event.status)
   const [step, setStep] = useState('details')
   const [save, setSave] = useState({ kind: 'idle', message: 'No changes yet.' })
@@ -620,7 +629,20 @@ export function EventEditor({
           {step === 'policies' ? (
             <PoliciesStep values={values} setField={setField} editable={editable} />
           ) : null}
-          {step === 'media' ? <MediaStep /> : null}
+          {/* Shown in every status: the panel says which changes the event's
+              state allows, and every one of them writes with the shell's
+              revision, like the sessions and tickets steps. */}
+          {step === 'media' ? (
+            <EventMediaEditor
+              event={event}
+              status={status}
+              media={pictures}
+              onMediaChange={setPictures}
+              failure={mediaFailure}
+              revision={revision}
+              onRevision={setRevision}
+            />
+          ) : null}
           {step === 'review' && readiness ? (
             <EventLifecyclePanel
               event={{ ...event, status }}
@@ -631,7 +653,11 @@ export function EventEditor({
             />
           ) : null}
 
-          {editable && step !== 'sessions' && step !== 'tickets' && step !== 'review' ? (
+          {editable &&
+          step !== 'sessions' &&
+          step !== 'tickets' &&
+          step !== 'media' &&
+          step !== 'review' ? (
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Button type="button" onClick={() => commit()} disabled={save.kind === 'saving'}>
                 {dirty ? 'Save now' : 'Saved'}
@@ -1029,30 +1055,6 @@ function PoliciesStep({ values, setField, editable }) {
           </FormField>
         </div>
       </fieldset>
-    </section>
-  )
-}
-
-/**
- * Pictures.
- *
- * There is no address box here any more. The old one previewed whatever an
- * organiser typed, which made their browser fetch an arbitrary third-party
- * address; every picture this site shows is now one it serves itself.
- *
- * @returns {JSX.Element} The step.
- */
-function MediaStep() {
-  return (
-    <section aria-labelledby="media-heading" className="space-y-5">
-      <h2 id="media-heading" className="text-xl font-semibold text-ink">
-        Media
-      </h2>
-
-      <p className="max-w-prose text-ink-muted">
-        The listing and the event page show a poster generated for this event. An external image
-        address is not accepted.
-      </p>
     </section>
   )
 }

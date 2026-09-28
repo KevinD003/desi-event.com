@@ -538,6 +538,71 @@ describe('the event detail page in the new design', () => {
     )
   })
 
+  /**
+   * A public picture payload, as the event payload carries one.
+   *
+   * @param {string} id The asset id.
+   * @param {string} altText The organiser's description.
+   * @returns {object} The payload.
+   */
+  const picture = (id, altText) => ({
+    id,
+    url: `/v1/media/${id}`,
+    altText,
+    width: 1200,
+    height: 800,
+    contentType: 'image/jpeg',
+  })
+
+  it('opens on the approved cover, described in the organiser’s words, instead of the poster', async () => {
+    const { container } = await renderEvent({
+      ...edison,
+      coverImage: picture('cmedia0000000000000000001', 'Dancers circling a lit garbo'),
+    })
+
+    const hero = screen.getByRole('region', { name: 'Navratri Night One: Garba Under the Lights' })
+    const cover = within(hero).getByRole('img', { name: 'Dancers circling a lit garbo' })
+
+    expect(cover.getAttribute('src')).toContain(
+      'url=%2Fapi%2Fv1%2Fmedia%2Fcmedia0000000000000000001',
+    )
+    expect(hero.querySelector('svg[data-slot="poster"]')).toBeNull()
+    expect(structuredData(container).image).toEqual([
+      expect.stringMatching(/^https?:\/\/[^/]+\/api\/v1\/media\/cmedia0000000000000000001$/u),
+    ])
+  })
+
+  it('shows the approved gallery in order, each picture opening full size', async () => {
+    await renderEvent({
+      ...edison,
+      gallery: [
+        picture('cmedia0000000000000000002', 'The band at soundcheck'),
+        picture('cmedia0000000000000000003', 'Lanterns over the dance floor'),
+      ],
+    })
+
+    const gallery = screen.getByRole('region', { name: 'Pictures' })
+    const links = within(gallery).getAllByRole('link')
+
+    expect(links).toHaveLength(2)
+    expect(links[0]).toHaveAttribute('href', '/api/v1/media/cmedia0000000000000000002')
+    expect(links[0]).toHaveAccessibleName(
+      /^The band at soundcheck\s*\(opens the full-size picture\)$/u,
+    )
+    expect(links[1]).toHaveAccessibleName(/^Lanterns over the dance floor/u)
+  })
+
+  it('has no gallery section, and points search engines at the poster card, with no pictures', async () => {
+    const { container } = await renderEvent({ ...edison, coverImage: null, gallery: [] })
+
+    expect(screen.queryByRole('region', { name: 'Pictures' })).toBeNull()
+    expect(structuredData(container).image).toEqual([
+      expect.stringMatching(
+        /^https?:\/\/[^/]+\/events\/navratri-night-one-edison\/opengraph-image\/poster-garba-dandiya$/u,
+      ),
+    ])
+  })
+
   it('states the when and where up front, in the venue’s zone and its state', async () => {
     await renderEvent(edison)
 

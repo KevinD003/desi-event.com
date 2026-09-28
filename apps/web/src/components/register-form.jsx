@@ -7,10 +7,11 @@
  * the site had no way to make one: the API's `POST /v1/auth/register` was
  * there, and nothing called it, so only seeded accounts could ever buy.
  *
- * Attendee accounts only. The API also accepts `ORGANIZER`, but an organiser
- * account with no organisation can do nothing, and this build has no way for
- * somebody to create an organisation for themselves; offering the choice would
- * be offering a door to an empty room.
+ * Attendee accounts only. The API also accepts `ORGANIZER`, but the platform
+ * role adds nothing: what an organiser may do comes from an organisation
+ * membership. Somebody who wants to run events creates an organisation, or
+ * joins one with an invitation code, from their account page once they have
+ * signed up — so there is no choice to offer here.
  *
  * The API signs the new account in as it creates it, so success is a full
  * navigation to where the person was going, carrying the new session cookie.

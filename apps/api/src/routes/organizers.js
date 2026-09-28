@@ -8,7 +8,7 @@
  * a badge, and a moderator's decision cannot be made by a PATCH that nobody
  * reviewed.
  *
- * Four routes, and the asymmetry between them is the authorisation model:
+ * Six routes, and the asymmetry between them is the authorisation model:
  *
  *   - **Read** the state and its history, for anybody who can already see the
  *     organisation's members.
@@ -16,6 +16,10 @@
  *     the only place they can go.
  *   - **Decide**, for platform staff holding `moderation:review`, with a recent
  *     second factor and a recorded reason.
+ *   - **Queue and review**, for the same staff: which organisations are waiting,
+ *     and everything one decision is made from. Neither carries the contact
+ *     address — a queue is read on a shared screen, and a decision does not
+ *     need it.
  *   - **Read the public profile**, for anybody at all — with the badge derived
  *     from the verification state rather than read off the denormalised column,
  *     so a stale `verified` cannot become an unearned claim on a public page.
@@ -27,7 +31,7 @@
  * @module @desi-event/api/routes/organizers
  */
 
-import { PUBLIC_EVENT_STATUSES } from '@desi-event/schemas'
+import { PUBLIC_EVENT_STATUSES, buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { notFound } from '../lib/errors.js'
@@ -39,6 +43,7 @@ import {
   applyTransition,
   isEligible,
 } from '../lib/verification.js'
+import { toOrganizationProfile } from './organizations.js'
 
 /**
  * How many events either list on the public page carries.
@@ -102,6 +107,16 @@ function toVerificationState(organization, history) {
 }
 
 /**
+ * States a moderator's queue lists oldest first: the ones waiting on somebody.
+ *
+ * An organisation that has waited longest should be looked at first. Every
+ * other state is a record of a decision, read newest first.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const WAITING_STATES = new Set(['PENDING', 'REQUIRES_INFORMATION'])
+
+/**
  * One event as the public organiser page lists it.
  *
  * Deliberately thin: a title, when it is, and where. Anything more belongs on
@@ -157,6 +172,102 @@ export function registerOrganizerRoutes(app, { prisma }) {
       orderBy: { createdAt: 'asc' },
     })
   }
+
+  /**
+   * How many members and events each of these organisations has.
+   *
+   * Two grouped queries for a whole page rather than two per organisation.
+   *
+   * @param {string[]} organizationIds The organisations.
+   * @returns {Promise<{members: Map<string, number>, events: Map<string, number>}>} The counts.
+   */
+  async function countsFor(organizationIds) {
+    if (organizationIds.length === 0) return { members: new Map(), events: new Map() }
+
+    const where = { organizationId: { in: organizationIds } }
+    const [members, events] = await Promise.all([
+      prisma.membership.groupBy({ by: ['organizationId'], where, _count: { _all: true } }),
+      prisma.event.groupBy({ by: ['organizationId'], where, _count: { _all: true } }),
+    ])
+
+    const toMap = (rows) => new Map(rows.map((row) => [row.organizationId, row._count._all]))
+
+    return { members: toMap(members), events: toMap(events) }
+  }
+
+  defineRoute(app, 'organizers.verificationQueue', {
+    handler: async (request) => {
+      const { status, page, perPage } = request.query
+      const where = { verificationStatus: status }
+      const direction = WAITING_STATES.has(status) ? 'asc' : 'desc'
+
+      const [total, organizations] = await Promise.all([
+        prisma.organization.count({ where }),
+        prisma.organization.findMany({
+          where,
+          orderBy: [{ verificationUpdatedAt: direction }, { createdAt: direction }, { id: 'asc' }],
+          ...toSkipTake({ page, perPage }),
+        }),
+      ])
+
+      const ids = organizations.map((organization) => organization.id)
+
+      const [counts, submissions] = await Promise.all([
+        countsFor(ids),
+        ids.length === 0
+          ? []
+          : prisma.organizationVerificationEvent.findMany({
+              where: { organizationId: { in: ids }, toStatus: VERIFICATION_STATES.PENDING },
+              orderBy: { createdAt: 'desc' },
+            }),
+      ])
+
+      // What the organiser wrote the last time they asked. Newest first, so
+      // the first one met for each organisation is the latest.
+      const latestNote = new Map()
+
+      for (const submission of submissions) {
+        if (!latestNote.has(submission.organizationId)) {
+          latestNote.set(submission.organizationId, submission.reason ?? null)
+        }
+      }
+
+      return {
+        data: organizations.map((organization) => ({
+          organizationId: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          legalName: organization.legalName ?? null,
+          status: organization.verificationStatus,
+          submittedAt: organization.verificationUpdatedAt ?? null,
+          createdAt: organization.createdAt,
+          organiserNote: latestNote.get(organization.id) ?? null,
+          memberCount: counts.members.get(organization.id) ?? 0,
+          eventCount: counts.events.get(organization.id) ?? 0,
+        })),
+        pagination: buildPaginationMeta({ page, perPage, total }),
+      }
+    },
+  })
+
+  defineRoute(app, 'organizers.verificationReview', {
+    handler: async (request) => {
+      const organization = await organizationById(request.params.id)
+      const [history, counts] = await Promise.all([
+        historyFor(prisma, organization.id),
+        countsFor([organization.id]),
+      ])
+
+      return {
+        data: {
+          organization: toOrganizationProfile(organization),
+          verification: toVerificationState(organization, history),
+          memberCount: counts.members.get(organization.id) ?? 0,
+          eventCount: counts.events.get(organization.id) ?? 0,
+        },
+      }
+    },
+  })
 
   defineRoute(app, 'organizers.verification', {
     handler: async (request) => {

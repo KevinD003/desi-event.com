@@ -29,6 +29,7 @@ import { isSuppressible } from '@desi-event/notifications'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { HIDDEN_EMAIL, buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
+import { EVENT_COVER_INCLUDE, publicCover } from '../lib/event-media.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
 import { admissionRateLimit, passRateLimit } from '../plugins/rate-limit.js'
@@ -54,7 +55,9 @@ import { defineRoute } from '../lib/register.js'
 
 /** Everything a scan needs in order to authorise itself. */
 const TICKET_INCLUDE = Object.freeze({
-  orderItem: { include: { order: { include: { event: true } } } },
+  // The event's approved cover comes with it, so a ticket shows the picture
+  // its event page shows.
+  orderItem: { include: { order: { include: { event: { include: EVENT_COVER_INCLUDE } } } } },
 })
 
 /**
@@ -231,6 +234,7 @@ export function registerTicketRoutes(app, { prisma, env, deliver, passLimit, adm
             startsAt: event.startsAt,
             timezone: event.timezone,
             status: event.status,
+            coverImage: publicCover(event),
           },
           organizationId: event.organizationId,
           holder,

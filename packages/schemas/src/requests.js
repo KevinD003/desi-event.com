@@ -104,6 +104,18 @@ const eventWritableFields = {
    */
   accessibility: venueAccessibilitySchema.optional(),
   policies: eventPoliciesSchema.optional(),
+  /**
+   * Refused, with a sentence naming the replacement. The cover used to be an
+   * external address the editor's preview fetched from wherever it pointed;
+   * pictures are uploaded now, and an old client that still sends the key is
+   * told so rather than having it dropped without a word.
+   */
+  coverImageUrl: z
+    .never({
+      error:
+        'Cover pictures are uploaded with POST /v1/events/:id/media; an external image address is not accepted.',
+    })
+    .optional(),
 }
 
 const eventWritableObject = z.object(eventWritableFields)
@@ -665,6 +677,14 @@ export const moderationDecisionRequestSchema = z
     reason: z.string().trim().max(2000).optional(),
     /** Field-level notes, for the organiser's editor to link to. */
     requestedChanges: z.record(z.string(), z.string().max(1000)).optional(),
+    /**
+     * The event revision the moderator's page showed. When given, the decision
+     * applies only to that version: if the organiser withdrew the event,
+     * changed it or added a picture, and resubmitted it, the answer is 409
+     * `STALE_REVISION` rather than a decision on something nobody reviewed.
+     * The review page always sends it.
+     */
+    revision: z.int().min(0).max(2147483647).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.decision === 'approve') return

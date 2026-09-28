@@ -26,7 +26,7 @@ import { PRIMARY_LINK_SMALL } from '../../../../components/link-classes.js'
 import { FadeIn } from '../../../../components/motion.jsx'
 import { Breadcrumbs } from '../../../../components/page-state.jsx'
 import { PaymentModeNotice } from '../../../../components/payment-mode-notice.jsx'
-import { EventPoster } from '../../../../components/poster.jsx'
+import { EventArt } from '../../../../components/event-art.jsx'
 import { NotFoundView } from '../../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../../components/sample-data-notice.jsx'
 import { signInHref } from '../../../../lib/next-path.js'
@@ -96,7 +96,7 @@ export default async function CheckoutPage({ params }) {
             distance={0}
             className="hidden h-36 w-54 shrink-0 overflow-hidden rounded-2xl ring-1 ring-ink-inverse/15 shadow-dialog md:block"
           >
-            <EventPoster event={event} className="h-full" />
+            <EventArt event={event} className="h-full" decorative sizes="216px" />
           </FadeIn>
           <div className="min-w-0">
             <Breadcrumbs

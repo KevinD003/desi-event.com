@@ -130,6 +130,13 @@ export default async function AccountPage() {
           <Destination href="/account/privacy" title="Privacy">
             What is kept about you, who sees it, and what you can change.
           </Destination>
+          <Destination href="/account/invitations" title="Join an organisation">
+            Type the invitation code somebody on a team handed you, and join it in the role they
+            chose.
+          </Destination>
+          <Destination href="/account/organizations/new" title="Create an organisation">
+            Start your own, as its owner, and put on events once a moderator has checked it.
+          </Destination>
           {workspace ? (
             <Destination href={workspace} title="Workspace">
               The events, venues, doors and money you look after for an organisation.

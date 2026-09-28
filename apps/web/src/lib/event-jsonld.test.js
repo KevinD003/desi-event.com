@@ -153,6 +153,76 @@ describe('the structured data an event publishes', () => {
   })
 })
 
+describe('the pictures the structured data points at', () => {
+  /**
+   * A public picture payload.
+   *
+   * @param {string} id The asset id.
+   * @returns {object} The payload.
+   */
+  const picture = (id) => ({
+    id,
+    url: `/v1/media/${id}`,
+    altText: `Picture ${id}`,
+    width: 1200,
+    height: 630,
+    contentType: 'image/jpeg',
+  })
+
+  it('names the cover and the first two gallery pictures, each as an absolute URL on this site', () => {
+    const data = eventJsonLd(
+      {
+        ...event,
+        coverImage: picture('cmedia0000000000000000001'),
+        gallery: [
+          picture('cmedia0000000000000000002'),
+          picture('cmedia0000000000000000003'),
+          picture('cmedia0000000000000000004'),
+        ],
+      },
+      { siteUrl: 'https://example.test/' },
+    )
+
+    expect(data.image).toEqual([
+      'https://example.test/api/v1/media/cmedia0000000000000000001',
+      'https://example.test/api/v1/media/cmedia0000000000000000002',
+      'https://example.test/api/v1/media/cmedia0000000000000000003',
+    ])
+  })
+
+  it('points at the generated poster card when the event has no picture', () => {
+    expect(eventJsonLd(event, { siteUrl: 'https://example.test' }).image).toEqual([
+      'https://example.test/events/qawwali-under-the-banyan/opengraph-image/poster-event',
+    ])
+    const concert = { ...event, category: 'MUSIC_CONCERT', coverImage: null, gallery: [] }
+
+    expect(eventJsonLd(concert, { siteUrl: 'https://example.test' }).image).toEqual([
+      'https://example.test/events/qawwali-under-the-banyan/opengraph-image/poster-music-concert',
+    ])
+  })
+
+  it('never publishes an address that is not one of this site’s pictures', () => {
+    // A payload carrying a third-party address — which the API never sends —
+    // is treated as no picture at all rather than echoed into a search result.
+    const data = eventJsonLd(
+      {
+        ...event,
+        coverImage: {
+          ...picture('cmedia0000000000000000001'),
+          url: 'https://tracker.test/pixel.png',
+        },
+        gallery: [{ ...picture('cmedia0000000000000000002'), url: '/v1/media/x?y=1' }],
+      },
+      { siteUrl: 'https://example.test' },
+    )
+
+    expect(JSON.stringify(data)).not.toMatch(/tracker\.test|\?y=1/)
+    expect(data.image).toEqual([
+      'https://example.test/events/qawwali-under-the-banyan/opengraph-image/poster-event',
+    ])
+  })
+})
+
 describe('what a lifecycle state says to a person', () => {
   it('agrees with the structured data about every state that has a notice', () => {
     // A banner saying "cancelled" over structured data saying `EventScheduled`

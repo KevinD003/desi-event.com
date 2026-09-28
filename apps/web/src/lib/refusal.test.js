@@ -21,6 +21,8 @@ describe('describeApiRefusal', () => {
     [{ status: 410, code: 'TRANSFER_EXPIRED' }, 'expired', false],
     [{ status: 400, code: 'VALIDATION_ERROR' }, 'validation', true],
     [{ status: 422, code: 'UNPROCESSABLE' }, 'validation', true],
+    [{ status: 413, code: 'PAYLOAD_TOO_LARGE' }, 'validation', true],
+    [{ status: 415, code: 'UNSUPPORTED_MEDIA_TYPE' }, 'validation', true],
     [{ status: 429, code: 'RATE_LIMITED' }, 'rate-limited', true],
     [{ status: 503, code: 'API_UNREACHABLE' }, 'network', true],
     [{}, 'network', true],
@@ -164,6 +166,36 @@ describe('refusalSentence', () => {
     expect(sentence).not.toContain(message)
     expect(sentence).not.toMatch(/\/v1\//)
     expect(sentence.length).toBeGreaterThan(0)
+  })
+
+  it('keeps the API’s sentence about a refused file, and replaces a bare status line', () => {
+    expect(
+      refusalSentence(
+        415,
+        {
+          error: {
+            code: 'UNSUPPORTED_MEDIA_TYPE',
+            message: 'This file is an SVG drawing, not a JPEG, PNG or WebP picture.',
+          },
+        },
+        'x',
+      ),
+    ).toBe('This file is an SVG drawing, not a JPEG, PNG or WebP picture.')
+    expect(
+      refusalSentence(
+        415,
+        { error: { code: 'UNSUPPORTED_MEDIA_TYPE', message: 'Unsupported Media Type' } },
+        'x',
+      ),
+    ).toMatch(/JPEG, PNG or WebP/)
+    expect(
+      refusalSentence(
+        413,
+        { error: { code: 'PAYLOAD_TOO_LARGE', message: 'Request body is too large' } },
+        'x',
+      ),
+    ).toMatch(/larger than this accepts/)
+    expect(refusalSentence(413, null, 'x')).toMatch(/Choose a smaller one/)
   })
 
   it('falls back when the API said nothing', () => {

@@ -597,6 +597,10 @@ function toEvent(definition) {
     // What the API writes when an event is postponed: the date it was going to
     // be on, until a new one is set. Null for everything else.
     previousStartsAt: definition.previousStartsAt ?? null,
+    // No uploaded pictures: the sample catalogue draws its generated posters,
+    // exactly as the API's payload does for an event with no approved cover.
+    coverImage: null,
+    gallery: [],
     organization: toPublicOrganizer(organization),
     venue: place,
     ticketTypes: tiers.map((tier, index) => toTicketType(event.id, currency, tier, index)),
@@ -1380,6 +1384,7 @@ export function toEventSummary(event) {
     organizationName: event.organization?.name ?? null,
     organizationSlug: event.organization?.slug ?? null,
     venueSlug: event.venue?.slug ?? null,
+    coverImage: event.coverImage ?? null,
     minPriceCents,
     // Only with published fee terms, as on the server: a summary built without
     // the deployment's terms carries the face value alone and says so.

@@ -22,10 +22,13 @@ import Link from 'next/link'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { Alert, Badge, Card, CardBody } from '../../../../components/ui.jsx'
 import { ModerationDecision } from '../../../../components/moderation-decision.jsx'
+import { ModerationMediaReview } from '../../../../components/moderation-media-review.jsx'
 import { accessibilityLabel, mergedAccessibility } from '../../../../lib/accessibility.js'
 import { formatEventDate, formatEventTime, formatVenueAddress } from '../../../../lib/format.js'
+import { mediaReadFailure } from '../../../../lib/media.js'
 import { statusReading } from '../../../../lib/event-status.js'
 import {
+  getEventMedia,
   getEventReadiness,
   getEventSessions,
   getModerationHistory,
@@ -105,7 +108,7 @@ export default async function ReviewEventPage({ params }) {
     )
   }
 
-  const [sessions, readiness, history] = await Promise.all([
+  const [sessions, readiness, history, media] = await Promise.all([
     getEventSessions(id).catch(() => ({ data: [] })),
     getEventReadiness(id).catch(() => ({
       ready: false,
@@ -116,7 +119,13 @@ export default async function ReviewEventPage({ params }) {
       organizerVerified: false,
     })),
     getModerationHistory(id).catch(() => []),
+    // A failed read stays a failure. Drawn as an empty list it would tell the
+    // moderator "This event has no pictures" right above an approval that
+    // approves every picture waiting.
+    getEventMedia(id).catch((error) => ({ data: null, failure: mediaReadFailure(error) })),
   ])
+
+  const picturesUnknown = !Array.isArray(media.data)
 
   const reading = statusReading(event.status)
   const address = formatVenueAddress(event.venue)
@@ -266,6 +275,36 @@ export default async function ReviewEventPage({ params }) {
             </Card>
           </section>
 
+          <section aria-labelledby="pictures-heading">
+            <h2 id="pictures-heading" className="text-xl font-semibold text-ink">
+              Pictures
+            </h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Approving this event also approves every picture still waiting for review. Take down
+              any picture that should not be public first; a picture taken down stays down.
+            </p>
+            {picturesUnknown ? (
+              <div className="mt-3">
+                <Alert variant="error" title="Approval is held until the pictures can be shown">
+                  <p>
+                    This page cannot show this event&rsquo;s pictures, so it cannot say whether any
+                    are waiting. Approving would also approve pictures you have not seen. Reload the
+                    page to try again.
+                  </p>
+                </Alert>
+                <ReadRefusal
+                  error={media.failure}
+                  what="This event’s pictures"
+                  action="see this event’s pictures"
+                />
+              </div>
+            ) : (
+              <div className="mt-3">
+                <ModerationMediaReview media={media.data} />
+              </div>
+            )}
+          </section>
+
           {history.length > 0 ? (
             <section aria-labelledby="history-heading">
               <h2 id="history-heading" className="text-xl font-semibold text-ink">
@@ -343,7 +382,17 @@ export default async function ReviewEventPage({ params }) {
 
             {event.status === 'REVIEW_PENDING' ? (
               <div className="mt-3">
-                <ModerationDecision event={event} />
+                <p className="mb-3 text-sm text-ink-muted">
+                  Approving also approves every picture still waiting for review.
+                </p>
+                <ModerationDecision
+                  event={event}
+                  approveBlockedReason={
+                    picturesUnknown
+                      ? 'Approving is not offered while the pictures cannot be shown: it would also approve pictures you have not seen. Asking for changes and rejecting are still available.'
+                      : null
+                  }
+                />
               </div>
             ) : (
               <Alert variant="info" title="Nothing to decide" className="mt-3">

@@ -157,6 +157,55 @@ the arithmetic that a form could get wrong and a database should not accept.
 
 ---
 
+## Event pictures
+
+Migration `20260928130000_event_media`. The pipeline around these tables is in
+[MEDIA.md](MEDIA.md).
+
+`MediaKind` is `EVENT_COVER` or `EVENT_GALLERY`; `MediaAsset.kind` was free
+text and was converted in place, behind a guard that stops the migration on
+any other value. `MediaAsset` gained `altText` (the organiser's description,
+public), `position` (a gallery picture's place, 0–7), and the review stamp
+`moderatedAt`, `moderatedById` and `moderationNote` (the reason a picture was
+taken down: shown to its organiser as `rejectionReason`, never public).
+`Event.coverImageUrl` is gone: an external address the organiser's browser
+fetched is exactly what uploads replace, and the migration reports how many it
+dropped rather than fetching them.
+
+`MediaBlob` holds the bytes — `bytea`, stored `EXTERNAL` because the formats are
+already compressed — one row per picture, keyed by `MediaAsset.storageKey`
+with `ON DELETE CASCADE`. Deleting a picture or its event deletes the bytes.
+The bytes are in their own table so that loading a picture's row never loads a
+megabyte with it.
+
+| Rule                                 | What it holds                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `media_asset_event_media_shape`      | An event picture belongs to its event, has a 1–300 character description, is a JPEG, PNG or WebP of at most 8000 pixels a side and 10 MiB, with a SHA-256 checksum |
+| `media_asset_position_by_kind`       | A cover has no position; a gallery picture has one from 0 to 7                                                                                                     |
+| `media_asset_approved_is_servable`   | An approved picture was sanitised and passed the structural check                                                                                                  |
+| `media_asset_rejection_has_note`     | A picture taken down says why                                                                                                                                      |
+| `media_asset_decision_is_stamped`    | A decided picture says when                                                                                                                                        |
+| `MediaAsset_one_cover_per_event_key` | One cover per event (a partial unique index, so it lives in the migration)                                                                                         |
+| trigger `desi_media_gallery_cap`     | At most eight gallery pictures per event                                                                                                                           |
+| `media_blob_size_matches`            | A blob's recorded size is its real size, between 1 byte and 10 MiB                                                                                                 |
+| `media_blob_checksum_shape`          | A blob's checksum is SHA-256-shaped                                                                                                                                |
+
+The gallery cap cannot be an index — a count is not a key — so the trigger
+counts, after locking the event row `FOR NO KEY UPDATE` so that two parallel
+uploads take turns and the second sees the first. That lock conflicts with
+itself and with an authoring write's revision bump, and not with the
+`FOR KEY SHARE` a checkout's foreign-key insert takes, so an upload never makes
+a buyer wait. There is deliberately no unique index on `position`: a reorder
+passes through a moment where two pictures share one.
+
+`pnpm db:verify:fresh` pushes against every rule above on a fresh database —
+the cover index beside the other partial indexes, the rest in
+`packages/db/scripts/media-probes.mjs` — and
+`apps/api/tests/event-media-integration.test.js` races ten parallel uploads
+against the cap.
+
+---
+
 ## Identity
 
 `Session`, `Device`, `MfaFactor`, `AuthToken`, `LoginAttempt`. Sessions carry

@@ -24,6 +24,8 @@ import { registerSecurity } from './plugins/security.js'
 import { registerValidation } from './plugins/validation.js'
 import { registerRoutes } from './routes/index.js'
 import { generateOrderReference } from './lib/identifiers.js'
+import { resolveDeliveryMode } from './lib/delivery.js'
+import { createPostgresMediaStorage } from './lib/media-storage.js'
 
 /** Largest request body accepted: comfortably above any legitimate payload. */
 export const BODY_LIMIT_BYTES = 1_048_576
@@ -37,8 +39,10 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {object} [redis] An ioredis-compatible client, probed by `GET /health`.
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
- * @property {{global?: object, auth?: object, pass?: object, admission?: object}} [rateLimit] Rate-limit overrides.
+ * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizationCreate?: object}} [rateLimit] Rate-limit overrides.
+ * @property {object} [mediaStorage] Where picture bytes live. Defaults to the PostgreSQL adapter; see `lib/media-storage.js`.
  * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
+ * @property {function(object): Promise<void>} [deliver] A delivery provider for single-use codes. Absent in this build, which therefore runs `DELIVERY_MODE` MANUAL — see `lib/delivery.js`.
  */
 
 /**
@@ -62,12 +66,18 @@ export async function buildApp(options) {
     deliver,
     payments: paymentsOverride,
     processInline = false,
+    mediaStorage: mediaStorageOverride,
   } = options
 
   if (!prisma) throw new TypeError('buildApp requires a prisma client')
   if (!providers) throw new TypeError('buildApp requires a provider registry')
 
   const env = parseOrThrow(apiEnvSchema, rawEnv ?? {}, 'Invalid API environment')
+
+  // How single-use codes reach people, decided once. EMAIL named with no
+  // provider throws here, before anything listens: an invitation nobody can
+  // receive is worse than a deployment that will not start.
+  const deliveryMode = resolveDeliveryMode({ env, deliver })
 
   // Before anything is built: decide the payment mode, or refuse to start.
   // Two modes are permitted and neither moves real money; a live credential, a
@@ -106,6 +116,15 @@ export async function buildApp(options) {
   app.decorate('providers', providers)
   app.decorate('env', env)
   app.decorate('payments', payments)
+  app.decorate('deliveryMode', deliveryMode)
+
+  // Picture bytes: in PostgreSQL unless a caller supplies another adapter.
+  const mediaStorage = mediaStorageOverride ?? createPostgresMediaStorage(prisma)
+
+  app.decorate('mediaStorage', mediaStorage)
+
+  // The mode and nothing else: no code exists yet, and none is ever logged.
+  app.log.info({ deliveryMode }, 'single-use codes are delivered in this mode')
 
   await registerValidation(app)
   await registerErrorHandler(app, { nodeEnv: env.NODE_ENV })
@@ -123,9 +142,14 @@ export async function buildApp(options) {
     version,
     payments,
     authLimit: rateLimit.auth,
+    organizationCreateLimit: rateLimit.organizationCreate,
     passLimit: rateLimit.pass,
     admissionLimit: rateLimit.admission,
     deliver,
+    deliveryMode,
+    mediaStorage,
+    mediaUploadLimit: rateLimit.mediaUpload,
+    mediaReadLimit: rateLimit.mediaRead,
     processInline,
   })
 

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ORG_ROLE_CAPABILITIES, PLATFORM_ROLE_CAPABILITIES } from '@desi-event/permissions'
 
-import { financeTabs, operationsTabs } from './area-tabs.js'
+import { financeTabs, moderationTabs, operationsTabs } from './area-tabs.js'
 
 /**
  * A session holding one organisation role.
@@ -83,5 +83,20 @@ describe('operationsTabs', () => {
       expect(offered.includes('/operations/notifications'), role).toBe(holds)
       expect(offered.includes('/operations/reconciliation'), role).toBe(holds)
     }
+  })
+})
+
+describe('moderationTabs', () => {
+  it('offers a moderator and a super administrator events and organisations', () => {
+    for (const role of ['MODERATOR', 'SUPER_ADMIN']) {
+      expect(moderationTabs(platform(role)), role).toEqual([
+        { href: '/moderation/events', label: 'Events' },
+        { href: '/moderation/organizations', label: 'Organisations' },
+      ])
+    }
+  })
+
+  it('offers an organisation owner neither, since moderation is platform-held', () => {
+    expect(moderationTabs(member('OWNER'))).toEqual([])
   })
 })

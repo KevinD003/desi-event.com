@@ -42,18 +42,22 @@ import { routeSchema } from './validation.js'
  * @param {Function} options.handler The request handler; it receives `(request, reply)`.
  * @param {object} [options.config] Fastify route `config`, e.g. a per-route rate limit.
  * @param {Array<Function>} [options.preHandler] Extra preHandlers appended after the auth guard.
+ * @param {Array<Function>} [options.onRequest] Extra `onRequest` hooks appended after the auth guard. They run before the body is read, so a route that takes a large body can refuse a caller without reading it; anything that needs the validated body belongs in `preHandler` instead.
  * @returns {object} The contract descriptor the route was registered from.
  * @throws {Error} When no route has that id.
  */
 export function defineRoute(app, id, options) {
   const route = routeById(id)
-  const { handler, config, preHandler = [] } = options
+  const { handler, config, preHandler = [], onRequest = [] } = options
 
   /** @type {Array<Function>} */
   const guards = []
   if (route.auth === 'session') guards.push(app.requireSession)
   if (route.auth === 'bearer') guards.push(app.authenticate)
   if (route.auth === 'optional') guards.push(app.optionalAuth)
+  // After the guard, never before it: an early hook reads `request.actor`, and
+  // an anonymous caller must meet the 401 first.
+  guards.push(...onRequest)
 
   /** @type {Array<Function>} */
   const declared = []

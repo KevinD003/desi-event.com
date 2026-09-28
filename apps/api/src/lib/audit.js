@@ -120,6 +120,32 @@ export const AUDIT_ACTIONS = Object.freeze({
   CONNECT_MOCK_STATE_ADVANCED: CONNECT_AUDIT_ACTIONS.MOCK_STATE_ADVANCED,
   CONNECT_MOCK_ACTION_REFUSED: CONNECT_AUDIT_ACTIONS.MOCK_ACTION_REFUSED,
   CONNECT_MOCK_START_REPLAYED: CONNECT_AUDIT_ACTIONS.MOCK_START_REPLAYED,
+
+  // --- Teams, organisations and platform roles -------------------------------
+  //
+  // An invitation's metadata records how its code went out (`deliveryMode`)
+  // and never the code or its digest. A platform change records the reason the
+  // administrator wrote. The first and third literals predate this map and are
+  // unchanged, so a query over past rows still matches.
+  TEAM_INVITED: 'team.invited',
+  TEAM_INVITATION_REISSUED: 'team.invitation_reissued',
+  TEAM_INVITATION_ACCEPTED: 'team.invitation_accepted',
+  TEAM_OWNERSHIP_TRANSFERRED: 'team.ownership_transferred',
+  ORGANIZATION_CREATED: 'organization.created',
+  PLATFORM_ROLE_CHANGED: 'platform.role_changed',
+  PLATFORM_MEMBERSHIP_GRANTED: 'platform.membership_granted',
+
+  // --- Event pictures ----------------------------------------------------------
+  //
+  // Metadata carries the asset id, kind, type, size, dimensions, checksum and
+  // how long the description is. Never the description, never the bytes, and
+  // never where the bytes are kept.
+  EVENT_MEDIA_ADDED: 'event.media_added',
+  EVENT_MEDIA_DESCRIBED: 'event.media_described',
+  EVENT_MEDIA_REORDERED: 'event.media_reordered',
+  EVENT_MEDIA_REMOVED: 'event.media_removed',
+  MEDIA_APPROVED: 'moderation.media_approved',
+  MEDIA_REJECTED: 'moderation.media_rejected',
 })
 
 /**

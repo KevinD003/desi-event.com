@@ -64,6 +64,13 @@ describe('apiRoutes', () => {
       'orders.listMine': 'GET /v1/orders',
       'tickets.checkIn': 'POST /v1/tickets/check-in',
       'waitlist.join': 'POST /v1/events/:eventId/waitlist',
+      'events.media': 'GET /v1/events/:id/media',
+      'events.addMedia': 'POST /v1/events/:id/media',
+      'events.updateMedia': 'PATCH /v1/events/:id/media/:mediaId',
+      'events.reorderMedia': 'PUT /v1/events/:id/media/order',
+      'events.removeMedia': 'DELETE /v1/events/:id/media/:mediaId',
+      'media.get': 'GET /v1/media/:id',
+      'moderation.decideMedia': 'POST /v1/moderation/media/:id/decision',
     }
 
     for (const [id, key] of Object.entries(expected)) {
@@ -144,6 +151,10 @@ describe('apiRoutes', () => {
       'holds.create',
       'orders.create',
       'waitlist.join',
+      'events.addMedia',
+      'teams.invite',
+      'teams.reissueInvitation',
+      'organizations.create',
     ]
 
     for (const id of created) {
@@ -173,6 +184,60 @@ describe('apiRoutes', () => {
     for (const route of apiRoutes) {
       for (const error of route.errors) expect(known, route.id).toContain(error)
     }
+  })
+})
+
+describe('event picture routes', () => {
+  it('take the upload as raw bytes of the three picture types, never as JSON', () => {
+    const upload = routeById('events.addMedia')
+
+    expect(upload.body).toBeNull()
+    expect(upload.consumes).toEqual([
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/octet-stream',
+    ])
+    expect(Object.isFrozen(upload.consumes)).toBe(true)
+    expect(upload.errors).toContain(API_ERRORS.payloadTooLarge)
+    expect(upload.errors).toContain(API_ERRORS.unsupportedMediaType)
+    expect(upload.errors).toContain(API_ERRORS.rateLimited)
+  })
+
+  it('declare 413 and 415 in the shared catalogue', () => {
+    expect(API_ERRORS.payloadTooLarge).toMatchObject({ status: 413, code: 'PAYLOAD_TOO_LARGE' })
+    expect(API_ERRORS.unsupportedMediaType).toMatchObject({
+      status: 415,
+      code: 'UNSUPPORTED_MEDIA_TYPE',
+    })
+  })
+
+  it('serve bytes under their own tag, with optional auth', () => {
+    const read = routeById('media.get')
+
+    expect(read.auth).toBe('optional')
+    expect(read.produces).toBe('image/*')
+    expect(read.tags).toEqual(['media'])
+    expect(API_TAGS.map((tag) => tag.name)).toContain('media')
+  })
+
+  it('leave organisation authority to the handler and take a moderator decision on step-up', () => {
+    for (const id of [
+      'events.media',
+      'events.addMedia',
+      'events.updateMedia',
+      'events.reorderMedia',
+      'events.removeMedia',
+      'media.get',
+    ]) {
+      expect(routeById(id).capability ?? null, id).toBeNull()
+    }
+
+    const decide = routeById('moderation.decideMedia')
+
+    expect(decide.capability).toBe('moderation:review')
+    expect(decide.capabilityScope).toBeUndefined()
+    expect(decide.stepUp).toBe('MODERATION')
   })
 })
 

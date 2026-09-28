@@ -77,6 +77,37 @@ export const ORGANIZATION_WIDE_ROLES = Object.freeze(['OWNER', 'ADMIN'])
  */
 export const EVENT_SCOPED_ROLES = Object.freeze(['MANAGER', 'STAFF', 'SCANNER'])
 
+/**
+ * How an invitation's code went out, in words, keyed by the API's
+ * `deliveryMode`. A missing key is the `null` case: an invitation issued
+ * before codes were shown to the inviter, which nobody ever received.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const DELIVERY_LABELS = Object.freeze({
+  MANUAL: 'Shown once to whoever invited them',
+  EMAIL: 'Sent by email',
+})
+
+/** What an invitation with no delivery mode says. */
+export const NEVER_DELIVERED = 'No code was ever handed out. Issue a new one to invite them.'
+
+/**
+ * How an invitation's code went out.
+ *
+ * @param {string|null|undefined} mode The API's `deliveryMode`.
+ * @returns {string} The words.
+ */
+export function deliveryLabel(mode) {
+  return DELIVERY_LABELS[mode] ?? NEVER_DELIVERED
+}
+
+/** Where an invitee types their code, and how to reach it in words. */
+export const ACCEPT_PATH = '/account/invitations'
+
+/** How to reach {@link ACCEPT_PATH}, in words. */
+export const ACCEPT_PLACE = 'Your account → Join an organisation'
+
 /** The shortest removal reason the screen accepts. */
 export const REASON_MIN = 4
 

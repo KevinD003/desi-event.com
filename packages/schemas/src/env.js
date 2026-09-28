@@ -242,6 +242,20 @@ export const apiEnvSchema = z.preprocess(
       ALLOW_DEMO_TAX_IN_PRODUCTION: envBoolean(false).describe(
         'Charge illustrative tax rates in production. Requires a deliberate decision.',
       ),
+      /**
+       * How single-use codes reach the person they are for.
+       *
+       * Optional, and resolved by the API at boot rather than defaulted here,
+       * because the right answer depends on whether a delivery provider is wired
+       * in: unset with no provider is MANUAL, unset with one is EMAIL. EMAIL named
+       * explicitly with no provider refuses to boot — an invitation silently
+       * dropped is worse than a deployment that will not start.
+       */
+      DELIVERY_MODE: z
+        .preprocess(blankAsAbsent, z.enum(['MANUAL', 'EMAIL']).optional())
+        .describe(
+          'How single-use codes reach people. MANUAL shows an invitation code once to the inviter. EMAIL needs a configured provider, which this build does not have.',
+        ),
     })
     .superRefine((env, ctx) => {
       // Only when it was supplied on purpose. When it was filled from JWT_SECRET

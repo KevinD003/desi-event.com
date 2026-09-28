@@ -38,6 +38,34 @@ describe('EventCard', () => {
     )
   })
 
+  it('shows the approved cover in the organiser’s words, and keeps the link named by the title', () => {
+    const { container } = render(
+      <EventCard
+        event={{
+          ...garba,
+          coverImage: {
+            id: 'cmedia0000000000000000001',
+            url: '/v1/media/cmedia0000000000000000001',
+            altText: 'Dancers circling a lit garbo',
+            width: 1200,
+            height: 800,
+            contentType: 'image/jpeg',
+          },
+        }}
+      />,
+    )
+
+    const cover = screen.getByRole('img', { name: 'Dancers circling a lit garbo' })
+
+    expect(cover.getAttribute('src')).toContain(
+      'url=%2Fapi%2Fv1%2Fmedia%2Fcmedia0000000000000000001',
+    )
+    expect(container.querySelector('svg[data-slot="poster"]')).toBeNull()
+    expect(screen.getByRole('link')).toHaveAccessibleName(
+      'Navratri Night One: Garba Under the Lights',
+    )
+  })
+
   it('shows the human category label, not the enum member, and says what it is', () => {
     render(<EventCard event={garba} />)
 

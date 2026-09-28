@@ -30,6 +30,9 @@
  * @file lib/event-jsonld
  */
 
+import { absoluteMediaUrl } from './media.js'
+import { socialImageFor } from './social-image.js'
+
 /**
  * `schema.org` event-status URLs, by our own lifecycle status.
  *
@@ -138,6 +141,19 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   if (event.ageRestriction) {
     data.typicalAgeRange = `${event.ageRestriction}-`
   }
+
+  // What a search result shows beside the listing: the organiser's approved
+  // cover and up to two gallery pictures, each an absolute URL on this site.
+  // With none, the generated poster at its social-card address, so the result
+  // shows the same picture a shared link does.
+  const pictures = [event.coverImage, ...(event.gallery ?? []).slice(0, 2)]
+    .map((image) => absoluteMediaUrl(image, siteUrl))
+    .filter(Boolean)
+
+  data.image =
+    pictures.length > 0
+      ? pictures
+      : [`${siteUrl}/events/${event.slug}/opengraph-image/${socialImageFor(event).id}`]
 
   return data
 }

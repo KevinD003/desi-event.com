@@ -269,6 +269,20 @@ const FORBIDDEN = [
       ['load thresholds', 'HEALTH_LIMITS'],
     ],
   },
+  {
+    /*
+     * Event pictures. The browser sees a picture by its asset id and nothing
+     * else: where the bytes are kept is the API's business, and so is the
+     * allow-list that decides what survives an upload. A key in a bundle is a
+     * key somebody will try to fetch by; a sanitiser in a bundle is a
+     * sanitiser somebody will probe offline for what it lets through.
+     */
+    group: 'event picture storage and sanitising (server-only)',
+    markers: [
+      ['media storage key column', 'storageKey'],
+      ['server-side image sanitiser', 'sanitiseImage'],
+    ],
+  },
 ]
 
 /**

@@ -92,6 +92,12 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   'toEmail',
   'buyerEmail',
   'recipient',
+  // The show-once invitation code. It is returned in one response body and
+  // nowhere else; no handler logs it, and this is the net for the one that
+  // logs a whole response by accident. Named `invitationCode` rather than
+  // `code` precisely so it can be redacted by name without blanking every
+  // error code in every log line.
+  'invitationCode',
 ])
 
 /**
@@ -120,6 +126,8 @@ export const WILDCARD_KEYS = Object.freeze([
   // down, the shape a handler logging a whole row produces.
   'email',
   'buyerEmail',
+  // `{ delivery: { invitationCode } }`, the shape of the response that carries it.
+  'invitationCode',
 ])
 
 /**

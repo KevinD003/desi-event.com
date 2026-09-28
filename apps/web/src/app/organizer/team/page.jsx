@@ -20,13 +20,21 @@
  * through the same address scrubber the API uses before it is drawn. Nothing
  * is derived from a name.
  *
- * ## No invite form
+ * ## Inviting, when nothing sends email
  *
- * The API issues invitations but has nothing to deliver them with: there is no
- * email provider in this build, and `apps/api/src/routes/teams.js` logs "no
- * delivery provider is configured" and moves on. A form here would create an
- * invitation nobody receives. So the page says so, and lists the invitations
- * that exist so they can be withdrawn.
+ * This build has no email provider, so the API runs `DELIVERY_MODE` MANUAL: an
+ * invitation's code is returned once, to whoever issued it, and they hand it
+ * over themselves. The invite form (`./invite-form.jsx`) shows it once in the
+ * one-time code panel. Each open invitation says how its code went out, and an
+ * invitation issued before codes were shown to anybody says that nobody ever
+ * received one — with "Issue a new code" beside it for a role the caller may
+ * grant.
+ *
+ * ## Ownership
+ *
+ * An owner of this organisation, through their own membership, is offered
+ * handing ownership to another member. Nobody else is offered it, and the API
+ * refuses a platform role on this path.
  *
  * ## Door scopes, in the API's terms
  *
@@ -48,9 +56,10 @@ import { StepUpForRead } from '../../../components/step-up-for-read.jsx'
 import { formatEventDate } from '../../../lib/format.js'
 import { membershipsWith, readSession, sessionCan } from '../../../lib/session.js'
 import { formatInstant, getTeam, listOrganizationEvents } from '../../../lib/workspace-api.js'
-import { InvitationActions, MemberActions } from './member-actions.jsx'
+import { InviteForm } from './invite-form.jsx'
+import { InvitationActions, MemberActions, TransferOwnership } from './member-actions.jsx'
 import { TeamAnnouncer } from './team-announcer.jsx'
-import { isEventScoped, isOrganizationWide, roleLabel } from './team-vocabulary.js'
+import { deliveryLabel, isEventScoped, isOrganizationWide, roleLabel } from './team-vocabulary.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -211,6 +220,11 @@ export default async function TeamPage({ searchParams }) {
   const mayRemove = sessionCan(session, 'team:remove', organizationId)
   const mayWithdraw = sessionCan(session, 'team:invite', organizationId)
   const callerRole = selected.role
+  // Held through this session's own membership, never a platform role: the
+  // API hands ownership on only for an owner of this organisation.
+  const ownsHere = membershipsWith(session, 'organization:manage').some(
+    (membership) => membership.organizationId === organizationId,
+  )
 
   const data = team.value
   const full = data?.emailVisibility === 'FULL'
@@ -293,7 +307,9 @@ export default async function TeamPage({ searchParams }) {
       ) : null}
 
       {data ? (
-        <TeamAnnouncer>
+        // Keyed by organisation: a code held for one team's invitation is never
+        // shown on another team's page after switching organisation.
+        <TeamAnnouncer key={organizationId}>
           <AddressNotice visibility={data.emailVisibility} />
           <AsOf asOf={new Date(now).toISOString()} />
 
@@ -412,14 +428,27 @@ export default async function TeamPage({ searchParams }) {
             )}
           </section>
 
+          {mayWithdraw && assignable.length > 0 ? (
+            <section aria-labelledby="invite-heading" className="mt-10">
+              <h2 id="invite-heading" className="text-xl font-semibold text-ink">
+                Invite somebody
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm text-ink-muted">
+                This site sends no email. When you invite somebody, their invitation code is shown
+                to you once, and you hand it to them yourself.
+              </p>
+              <InviteForm organizationId={organizationId} assignableRoles={assignable} />
+            </section>
+          ) : null}
+
           <section aria-labelledby="invitations-heading" className="mt-10">
             <h2 id="invitations-heading" className="text-xl font-semibold text-ink">
               Invitations still open{' '}
               <span className="font-normal text-ink-muted">({data.invitations.length})</span>
             </h2>
             <p className="mt-1 max-w-3xl text-sm text-ink-muted">
-              Inviting someone new needs email delivery, which this build does not have. Existing
-              invitations are listed so they can be withdrawn.
+              Each one works for the address it was issued to, once. A lost code is replaced by
+              issuing a new one, which stops the old one working.
             </p>
 
             {data.invitations.length === 0 ? (
@@ -446,6 +475,9 @@ export default async function TeamPage({ searchParams }) {
                       </th>
                       <th scope="col" className={TH}>
                         Expires
+                      </th>
+                      <th scope="col" className={TH}>
+                        How the code went out
                       </th>
                       {mayWithdraw ? (
                         <th scope="col" className={TH}>
@@ -484,11 +516,19 @@ export default async function TeamPage({ searchParams }) {
                               </span>
                             ) : null}
                           </td>
+                          <td
+                            className={`${TD} ${invitation.deliveryMode ? '' : 'text-status-warning'}`}
+                          >
+                            {deliveryLabel(invitation.deliveryMode)}
+                          </td>
                           {mayWithdraw ? (
                             <td className={TD}>
                               <InvitationActions
                                 organizationId={organizationId}
                                 invitation={{ id: invitation.id, role: invitation.role }}
+                                reissuable={assignable.includes(invitation.role)}
+                                recipient={full ? (invitation.email ?? null) : null}
+                                neverDelivered={!invitation.deliveryMode}
                               />
                             </td>
                           ) : null}
@@ -500,6 +540,49 @@ export default async function TeamPage({ searchParams }) {
               </ScrollableTable>
             )}
           </section>
+
+          {ownsHere ? (
+            <section aria-labelledby="ownership-heading" className="mt-10">
+              <h2 id="ownership-heading" className="text-xl font-semibold text-ink">
+                Ownership
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm text-ink-muted">
+                You own this organisation. You can hand ownership to another member: they become the
+                owner and you become an administrator, in one step, after you confirm your second
+                factor.
+              </p>
+              {data.members.filter((member) => !member.self).length === 0 ? (
+                <p className="mt-3 text-sm text-ink-muted">
+                  Nobody else is on this team yet, so there is nobody to hand it to.
+                </p>
+              ) : (
+                <ul className="mt-4 space-y-3">
+                  {data.members
+                    .filter((member) => !member.self)
+                    .map((member) => {
+                      const name = safeName(member.displayName, full)
+
+                      return (
+                        <li
+                          key={member.id}
+                          className="flex flex-wrap items-start justify-between gap-3 rounded-card border border-line bg-surface-raised p-4"
+                        >
+                          <p className="text-ink">
+                            <span className="font-medium">{name}</span>
+                            <span className="text-ink-muted"> · {roleLabel(member.role)}</span>
+                          </p>
+                          <TransferOwnership
+                            organizationId={organizationId}
+                            organizationName={selected.organizationName ?? 'this organisation'}
+                            member={{ id: member.id, name }}
+                          />
+                        </li>
+                      )
+                    })}
+                </ul>
+              )}
+            </section>
+          ) : null}
         </TeamAnnouncer>
       ) : null}
     </div>

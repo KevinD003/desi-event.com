@@ -564,6 +564,18 @@ data whenever the organiser is a sole trader. Redacting an organisation is a
 different problem with different financial constraints — `Transfer` and `Payout`
 both reference it with `onDelete: Restrict` — and Phase 3 does not attempt it.
 
+### Event pictures are outside redaction
+
+An organiser's cover and gallery pictures can show identifiable people, and
+the redaction engine does not reach them: a picture is not linked to a data
+subject, so there is nothing for a subject-scoped redaction to find. What
+exists instead is removal. The organiser can delete a picture in almost every
+event state, which deletes its bytes rather than hiding them, and a moderator
+can take one down at once. EXIF location and camera details are stripped at
+upload, so a stored picture carries no coordinates. A picture that was public
+can survive in caches that fetched it for up to a day
+([MEDIA.md](MEDIA.md#how-long-a-taken-down-picture-can-linger)).
+
 ---
 
 ## Phase 2: what is now implemented

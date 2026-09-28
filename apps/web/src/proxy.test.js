@@ -53,4 +53,18 @@ describe('proxy', () => {
     expect(matches('/sitemap.xml')).toBe(false)
     expect(matches('/manifest.webmanifest')).toBe(false)
   })
+
+  it('never runs on a picture upload or read, whose bodies it would cap below the upload limit', () => {
+    // The proxy's own request-body limit is below 10 MiB, so a picture upload
+    // passing through it would be cut short. Pictures travel through the API
+    // route and the image optimiser, and this pins that neither is matched.
+    const [pattern] = config.matcher
+    const matches = (pathname) => new RegExp(`^${pattern}$`).test(pathname)
+
+    expect(matches('/api/v1/events/cevent000000000000000001/media')).toBe(false)
+    expect(matches('/api/v1/events/cevent000000000000000001/media/order')).toBe(false)
+    expect(matches('/api/v1/media/cmedia000000000000000001')).toBe(false)
+    expect(matches('/_next/image')).toBe(false)
+    expect(matches('/events/garba-night/opengraph-image/cover-cmedia000000000000000001')).toBe(true)
+  })
 })

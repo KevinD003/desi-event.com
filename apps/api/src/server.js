@@ -66,6 +66,12 @@ export async function start() {
 
   // The in-memory providers are the default wiring. A deployment swaps them
   // for real adapters here — the one place that knows they are not real.
+  //
+  // No delivery provider is wired in either, so single-use codes run in
+  // DELIVERY_MODE MANUAL: an invitation code is shown once to whoever issues
+  // it, to hand over themselves. A provider passed to buildApp as `deliver`
+  // here is what would make EMAIL possible; naming EMAIL without one refuses
+  // to boot.
   const providers = createProcessProviders()
 
   const app = await buildApp({

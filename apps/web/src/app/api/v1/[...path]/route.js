@@ -34,6 +34,8 @@
  * @module app/api/v1/path/route
  */
 
+import { MEDIA_LIMITS } from '@desi-event/schemas/media'
+
 import { getApiBaseUrl } from '../../../../lib/api-client.js'
 
 /** Never cached: every request here is somebody's session. */
@@ -58,6 +60,9 @@ const FORWARD_REQUEST_HEADERS = [
   'user-agent',
   'x-desi-csrf',
   'idempotency-key',
+  // A picture revalidates by its entity tag; the API decides, after checking
+  // who is asking, whether a 304 is the answer.
+  'if-none-match',
 ]
 
 /**
@@ -67,9 +72,105 @@ const FORWARD_REQUEST_HEADERS = [
  * response can carry several and `Headers.get` flattens them into one string
  * that browsers then misparse.
  *
+ * `pragma` travels with `cache-control`: a response that carries a code shown
+ * once — an invitation code — says `no-store, private` and `pragma: no-cache`
+ * both, for the HTTP/1.0 caches that read only the second.
+ *
  * @type {string[]}
  */
-const FORWARD_RESPONSE_HEADERS = ['content-type', 'cache-control', 'retry-after']
+const FORWARD_RESPONSE_HEADERS = ['content-type', 'cache-control', 'pragma', 'retry-after']
+
+/**
+ * Response headers a picture carries back as well.
+ *
+ * Its entity tag and length so a browser and the image optimiser can
+ * revalidate; `nosniff`, the sandboxing policy and the inline disposition so
+ * the bytes are only ever treated as the image they are.
+ *
+ * @type {string[]}
+ */
+const FORWARD_MEDIA_RESPONSE_HEADERS = [
+  'etag',
+  'content-length',
+  'x-content-type-options',
+  'content-disposition',
+  'content-security-policy',
+  'last-modified',
+]
+
+/**
+ * The largest request body the proxy will buffer: one picture at the upload
+ * limit, and room for nothing else. Everything else the API takes is far
+ * smaller.
+ *
+ * @type {number}
+ */
+export const PROXY_BODY_LIMIT_BYTES = MEDIA_LIMITS.maxBytes + 64 * 1024
+
+/**
+ * The answer for a body over the limit, before the API is contacted.
+ *
+ * @returns {Response} A 413 in the API's error shape.
+ */
+function tooLarge() {
+  return Response.json(
+    {
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: 'The upload is larger than 10 MB. Save a smaller copy and try again.',
+        statusCode: 413,
+      },
+    },
+    { status: 413 },
+  )
+}
+
+/**
+ * Read a request body, refusing to buffer more than `limit` bytes.
+ *
+ * A declared `Content-Length` over the limit is refused without reading
+ * anything. A body that lies about its length, or declares none, is read until
+ * it passes the limit and then abandoned.
+ *
+ * @param {Request} request The incoming request.
+ * @param {number} limit The most bytes to accept.
+ * @returns {Promise<Uint8Array|undefined|null>} The bytes, `undefined` for no body, or null when over the limit.
+ */
+export async function readBoundedBody(request, limit) {
+  const declared = Number(request.headers.get('content-length'))
+
+  if (Number.isFinite(declared) && declared > limit) return null
+  if (!request.body) return undefined
+
+  const reader = request.body.getReader()
+  const chunks = []
+  let total = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+
+    if (done) break
+
+    total += value.byteLength
+
+    if (total > limit) {
+      await reader.cancel().catch(() => {})
+      return null
+    }
+
+    chunks.push(value)
+  }
+
+  const body = new Uint8Array(total)
+  let offset = 0
+
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+
+  return body
+}
 
 /**
  * A sign-in's answer, without the session's bearer secret.
@@ -129,13 +230,23 @@ async function forward(request, context) {
   // every proxied request look like it came from the server itself.
   if (!headers.has('origin') && incoming.origin) headers.set('origin', incoming.origin)
 
+  let body
+
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    body = await readBoundedBody(request, PROXY_BODY_LIMIT_BYTES)
+
+    // Refused here, before the API is asked: nothing past the limit is worth
+    // buffering, and the API would refuse it anyway.
+    if (body === null) return tooLarge()
+  }
+
   let upstream
 
   try {
     upstream = await fetch(target, {
       method: request.method,
       headers,
-      body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer(),
+      body,
       redirect: 'manual',
       cache: 'no-store',
     })
@@ -163,6 +274,17 @@ async function forward(request, context) {
   for (const name of FORWARD_RESPONSE_HEADERS) {
     const value = upstream.headers.get(name)
     if (value) responseHeaders.set(name, value)
+  }
+
+  if (path[0] === 'media') {
+    for (const name of FORWARD_MEDIA_RESPONSE_HEADERS) {
+      const value = upstream.headers.get(name)
+      if (value) responseHeaders.set(name, value)
+    }
+
+    // Always, whatever the API said: picture bytes are never sniffed into
+    // something else.
+    responseHeaders.set('x-content-type-options', 'nosniff')
   }
 
   // Several Set-Cookie headers are normal here — a session and its CSRF token

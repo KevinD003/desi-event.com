@@ -75,7 +75,8 @@ import {
 } from '../../../components/icons.jsx'
 import { INVERSE_TEXT_LINK, PRIMARY_LINK, TEXT_LINK } from '../../../components/link-classes.js'
 import { AvailabilityChip } from '../../../components/listing-card.jsx'
-import { EventPoster } from '../../../components/poster.jsx'
+import { EventArt } from '../../../components/event-art.jsx'
+import { EventGallery } from '../../../components/event-gallery.jsx'
 import { NotFoundView } from '../../../components/not-found-view.jsx'
 import { FadeIn, Reveal, Stagger, StaggerItem } from '../../../components/motion.jsx'
 import { Breadcrumbs } from '../../../components/page-state.jsx'
@@ -321,7 +322,7 @@ export default async function EventDetailPage({ params }) {
       >
         <div className="relative lg:absolute lg:inset-0">
           <FadeIn className="h-full" distance={0}>
-            <EventPoster event={event} variant="hero" className="lg:h-full" />
+            <EventArt event={event} variant="hero" className="lg:h-full" priority />
           </FadeIn>
           <div
             aria-hidden="true"
@@ -540,6 +541,10 @@ export default async function EventDetailPage({ params }) {
                 </div>
               ) : null}
             </Reveal>
+
+            {/* The organiser's approved pictures, in their order. Renders
+                nothing for an event with none. */}
+            <EventGallery images={event.gallery} />
 
             <MirrorDivider />
 

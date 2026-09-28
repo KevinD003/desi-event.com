@@ -86,6 +86,65 @@ export function passRateLimit(overrides = {}) {
 }
 
 /**
+ * Picture-upload budget, per account.
+ *
+ * An organiser filling a gallery uploads nine pictures and retries a few; twenty
+ * in ten minutes is well above that and far below what would make the database
+ * a file store for somebody's bulk upload. Run at `onRequest` — after the
+ * session guard, before the body is read — so a refused upload costs the server
+ * nothing but the refusal.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_MEDIA_UPLOAD_LIMIT = Object.freeze({ max: 20, timeWindow: '10 minutes' })
+
+/**
+ * Picture-read budget.
+ *
+ * Its own budget rather than the global one, because every browser request
+ * reaches the API through the web app's proxy and the image optimiser, so they
+ * all share the web server's address; a page with a cover and eight gallery
+ * pictures would otherwise spend the global budget of everybody browsing.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_MEDIA_READ_LIMIT = Object.freeze({ max: 1200, timeWindow: '1 minute' })
+
+/**
+ * Build the per-route `config.rateLimit` object for picture uploads.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
+ * @returns {object} The effective upload limit.
+ */
+export function mediaUploadRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_MEDIA_UPLOAD_LIMIT,
+    ...overrides,
+    hook: 'onRequest',
+    keyGenerator: (request) =>
+      request.actor?.id
+        ? `media-upload:actor:${request.actor.id}`
+        : `media-upload:ip:${request.ip}`,
+  }
+}
+
+/**
+ * Build the per-route `config.rateLimit` object for picture reads.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
+ * @returns {object} The effective read limit.
+ */
+export function mediaReadRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_MEDIA_READ_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    keyGenerator: (request) =>
+      request.actor?.id ? `media-read:actor:${request.actor.id}` : `media-read:ip:${request.ip}`,
+  }
+}
+
+/**
  * Build the per-route `config.rateLimit` object for the auth endpoints.
  *
  * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.

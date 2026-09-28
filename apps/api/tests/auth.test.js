@@ -1859,6 +1859,105 @@ describe('rotation on a privilege change, finding NF-10', () => {
 
     await app.close()
   })
+
+  it('replaces the secret when the caller creates an organisation', async () => {
+    // Creating one makes the caller its OWNER, a privileged role their session
+    // was not opened under.
+    const { app, prisma } = await createTestApp()
+    const signedIn = await signInAsBrowser(app, 'priya@example.com')
+    const other = await signInAsBrowser(app, 'priya@example.com')
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/v1/organizations',
+      headers: signedIn.headers,
+      payload: { name: 'Priya Presents' },
+    })
+
+    expect(created.statusCode).toBe(201)
+
+    const rotated = (created.cookies ?? []).find((c) => c.name === '__Host-desi_session')
+
+    expect(rotated?.value).toBeTruthy()
+    expect(rotated.value).not.toBe(signedIn.body.token)
+
+    // The secret from before the change no longer works, nor does the other
+    // session, which ended with the reason recorded.
+    for (const token of [signedIn.body.token, other.body.token]) {
+      const after = await app.inject({ method: 'GET', url: '/v1/auth/me', headers: bearer(token) })
+
+      expect(after.statusCode).toBe(401)
+    }
+
+    const ended = prisma._store.session.find((row) => row.tokenHash !== undefined && row.revokedAt)
+
+    expect(ended.revokedReason).toBe('role_changed')
+
+    // And the rotated one still does, and is now as short-lived as an owner's.
+    const followed = followCookies(signedIn.headers, created)
+    const me = await app.inject({ method: 'GET', url: '/v1/auth/me', headers: followed })
+
+    expect(me.statusCode).toBe(200)
+
+    const live = prisma._store.session.filter((row) => row.revokedAt === null)
+
+    expect(live).toHaveLength(1)
+    expect(live[0].expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 12 * 60 * 60 * 1000)
+
+    await app.close()
+  })
+
+  it("ends the caller's other sessions when they accept an invitation", async () => {
+    const { app, prisma } = await createTestApp()
+    const inviter = await signIn(app, 'owner@rangoli.example')
+    const organizationId = prisma._store.membership.find(
+      (row) => row.role === 'OWNER',
+    ).organizationId
+
+    const invited = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${organizationId}/invitations`,
+      headers: bearer(inviter),
+      payload: { email: 'priya@example.com', role: 'STAFF' },
+    })
+
+    expect(invited.statusCode).toBe(201)
+
+    const keeping = await signInAsBrowser(app, 'priya@example.com')
+    const losing = await signInAsBrowser(app, 'priya@example.com')
+
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/invitations/accept',
+      headers: keeping.headers,
+      payload: { token: invited.json().data.delivery.invitationCode },
+    })
+
+    expect(accepted.statusCode).toBe(200)
+
+    const other = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(losing.body.token),
+    })
+
+    expect(other.statusCode).toBe(401)
+
+    const revoked = prisma._store.session.find(
+      (row) =>
+        row.userId === prisma._store.user.find((u) => u.email === 'priya@example.com').id &&
+        row.revokedAt !== null,
+    )
+
+    expect(revoked.revokedReason).toBe('role_changed')
+
+    const rotated = (accepted.cookies ?? []).find((c) => c.name === '__Host-desi_session')
+
+    expect(rotated?.value).toBeTruthy()
+    expect(rotated.value).not.toBe(keeping.body.token)
+
+    await app.close()
+  })
 })
 
 describe('recovery codes are stored as digests, finding NF-12', () => {

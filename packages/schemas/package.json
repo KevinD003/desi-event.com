@@ -12,6 +12,7 @@
     "./lifecycle": "./src/lifecycle.js",
     "./payments": "./src/payments.js",
     "./connect": "./src/connect.js",
+    "./media": "./src/media.js",
     "./package.json": "./package.json"
   },
   "files": [

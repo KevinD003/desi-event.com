@@ -163,4 +163,33 @@ describe('AreaRefusal', () => {
 
     expect(screen.getByText(/ask whoever runs the organisation to add you/i)).toBeTruthy()
   })
+
+  it('offers somebody refused the organiser workspace the two ways in that are their own', () => {
+    render(<AreaRefusal area="organizer" />)
+
+    expect(screen.getByRole('link', { name: 'Create an organisation' }).getAttribute('href')).toBe(
+      '/account/organizations/new',
+    )
+    expect(
+      screen.getByRole('link', { name: 'Join with an invitation code' }).getAttribute('href'),
+    ).toBe('/account/invitations')
+  })
+
+  it.each(['privacy', 'finance', 'moderation', 'admin'])(
+    'offers the %s refusal no alternative, only the way back',
+    (area) => {
+      render(<AreaRefusal area={area} />)
+
+      expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual([
+        'Back to the site',
+      ])
+    },
+  )
+
+  it('tells somebody refused platform administration that nothing here can grant it', () => {
+    render(<AreaRefusal area="admin" />)
+
+    expect(screen.getByText('Platform administration').tagName).toBe('P')
+    expect(screen.getByText(/held by platform super administrators alone/u)).toBeTruthy()
+  })
 })

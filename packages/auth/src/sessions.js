@@ -344,6 +344,16 @@ export const REVOCATION_REASONS = Object.freeze({
    * `revokesSiblings` promises for every other caller.
    */
   PRIVACY_REDACTION: 'privacy_redaction',
+  /**
+   * The account gained or lost a role: a platform role changed, a membership
+   * was granted directly, ownership was handed to it, or it joined or created
+   * an organisation — finding NF-10.
+   *
+   * In {@link REVOKE_ALL_REASONS}: a session opened before the change carries
+   * the lifetime and the second-factor state of the account as it was, and a
+   * secret captured then must not inherit what the account holds now.
+   */
+  ROLE_CHANGED: 'role_changed',
 })
 
 /**
@@ -363,6 +373,7 @@ export const REVOKE_ALL_REASONS = Object.freeze([
   REVOCATION_REASONS.PASSWORD_RESET,
   REVOCATION_REASONS.MFA_CHANGED,
   REVOCATION_REASONS.ACCOUNT_SUSPENDED,
+  REVOCATION_REASONS.ROLE_CHANGED,
 ])
 
 /**

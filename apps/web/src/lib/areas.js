@@ -84,6 +84,8 @@ export const ORGANIZER_CAPABILITIES = Object.freeze([
  * @property {function(object|null): boolean} admits Whether the shell draws for this session.
  * @property {string} refusal What a session it does not admit is told — the words each layout
  *   already used, kept verbatim because people and tests both read them.
+ * @property {ReadonlyArray<{href: string, label: string}>} [alternatives] Honest ways forward
+ *   that are the person's own to take — never a way round somebody else's decision.
  */
 
 /** @type {Readonly<Record<string, Area>>} */
@@ -110,6 +112,13 @@ export const AREAS = Object.freeze({
       ORGANIZER_CAPABILITIES.some((capability) => canInAnyOrganization(session, capability)),
     refusal:
       'This workspace is for people who run events: organisers, their staff and the people on their doors. Your account is not a member of any organisation that puts events on here. If you should be, ask whoever runs the organisation to add you — nothing on this page can grant it.',
+    // Starting an organisation of your own, or joining one with a code
+    // somebody gave you, is not a way round anybody's decision: each is the
+    // person's own to take, and each is checked by the API.
+    alternatives: Object.freeze([
+      { href: '/account/organizations/new', label: 'Create an organisation' },
+      { href: '/account/invitations', label: 'Join with an invitation code' },
+    ]),
   },
   analytics: {
     key: 'analytics',
@@ -157,6 +166,15 @@ export const AREAS = Object.freeze({
       inSomeMembership(session, 'privacy:redact') || sessionCan(session, 'privacy:redact'),
     refusal:
       'This area erases people from an organisation’s records, which is not something that can be undone. It is held by organisation owners alone. If you think you should have access, ask whoever runs the organisation — nothing on this page can grant it to you.',
+  },
+  admin: {
+    key: 'admin',
+    label: 'Platform administration',
+    href: '/admin/users',
+    // Platform-held and unscoped: no organisation role carries it.
+    admits: (session) => sessionCan(session, 'platform:admin'),
+    refusal:
+      'This area changes who can do what across the whole platform. It is held by platform super administrators alone, and nothing on this page can grant it.',
   },
   retention: {
     key: 'retention',
