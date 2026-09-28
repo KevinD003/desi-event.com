@@ -103,7 +103,6 @@ function toFormValues(event) {
     isOnline: Boolean(event.isOnline),
     onlineUrl: event.onlineUrl ?? '',
     ageRestriction: event.ageRestriction == null ? '' : String(event.ageRestriction),
-    coverImageUrl: event.coverImageUrl ?? '',
     policyEntry: event.policies?.entry ?? '',
     policyRefund: event.policies?.refund ?? '',
     policyConduct: event.policies?.conduct ?? '',
@@ -147,7 +146,6 @@ function toPatch(values) {
     isOnline: values.isOnline,
     onlineUrl: values.isOnline ? values.onlineUrl.trim() || null : null,
     ageRestriction: values.ageRestriction === '' ? null : Number(values.ageRestriction),
-    coverImageUrl: values.coverImageUrl.trim() || null,
   }
 
   // Omitted rather than sent empty. A `policies` object whose every field is
@@ -622,9 +620,7 @@ export function EventEditor({
           {step === 'policies' ? (
             <PoliciesStep values={values} setField={setField} editable={editable} />
           ) : null}
-          {step === 'media' ? (
-            <MediaStep values={values} setField={setField} editable={editable} />
-          ) : null}
+          {step === 'media' ? <MediaStep /> : null}
           {step === 'review' && readiness ? (
             <EventLifecyclePanel
               event={{ ...event, status }}
@@ -1038,47 +1034,25 @@ function PoliciesStep({ values, setField, editable }) {
 }
 
 /**
- * The poster.
+ * Pictures.
  *
- * @param {StepProps} props Component props.
+ * There is no address box here any more. The old one previewed whatever an
+ * organiser typed, which made their browser fetch an arbitrary third-party
+ * address; every picture this site shows is now one it serves itself.
+ *
  * @returns {JSX.Element} The step.
  */
-function MediaStep({ values, setField, editable }) {
+function MediaStep() {
   return (
     <section aria-labelledby="media-heading" className="space-y-5">
       <h2 id="media-heading" className="text-xl font-semibold text-ink">
         Media
       </h2>
 
-      <FormField
-        label="Cover image address"
-        id="event-coverImageUrl"
-        description="A link to an image you have the right to use. Left empty, the listing draws a generated poster rather than a broken image."
-      >
-        <Input
-          type="url"
-          value={values.coverImageUrl}
-          disabled={!editable}
-          onChange={(change) => setField('coverImageUrl', change.target.value)}
-        />
-      </FormField>
-
-      {values.coverImageUrl ? (
-        <figure className="max-w-md">
-          {/* A plain `img`, not `next/image`: an arbitrary external address
-              cannot go through the optimiser, and the point of this preview is
-              to show exactly what the organiser typed — including when it is
-              wrong. */}
-          <img
-            src={values.coverImageUrl}
-            alt=""
-            className="w-full rounded-card border border-line"
-          />
-          <figcaption className="mt-2 text-sm text-ink-muted">
-            If this is blank or broken, the address is wrong.
-          </figcaption>
-        </figure>
-      ) : null}
+      <p className="max-w-prose text-ink-muted">
+        The listing and the event page show a poster generated for this event. An external image
+        address is not accepted.
+      </p>
     </section>
   )
 }

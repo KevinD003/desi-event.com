@@ -89,7 +89,6 @@ const eventWritableFields = {
   startsAt: timestampSchema,
   endsAt: timestampSchema,
   timezone: timezoneSchema,
-  coverImageUrl: urlSchema.nullish(),
   isOnline: z.boolean(),
   onlineUrl: urlSchema.nullish(),
   languages: z.array(nonEmptyStringSchema).max(12),

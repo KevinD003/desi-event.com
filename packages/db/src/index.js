@@ -26,6 +26,9 @@ export {
   TicketStatus,
   PaymentStatus,
   PromoType,
+  TicketTypeVisibility,
+  InvitationDelivery,
+  MediaKind,
 } from '@prisma/client'
 
 /**

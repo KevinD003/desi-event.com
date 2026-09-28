@@ -60,7 +60,6 @@ const prismaEvent = {
   startsAt: new Date('2026-10-01T13:00:00Z'),
   endsAt: new Date('2026-10-01T18:30:00Z'),
   timezone: 'Asia/Kolkata',
-  coverImageUrl: null,
   isOnline: false,
   onlineUrl: null,
   languages: ['Gujarati', 'Hindi'],

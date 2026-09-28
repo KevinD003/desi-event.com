@@ -207,6 +207,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
       if (patch.venueMapVersionId !== undefined) {
         await assertMapStillMovable(prisma, existing)
         await assertMapPublishable(prisma, patch.venueMapVersionId, event)
+        assertNoTierPricesTheMap(event, existing, patch.venueMapVersionId)
       }
 
       /** @type {object} */
@@ -308,6 +309,9 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
               priceZoneId: proposed.priceZoneId ?? null,
               reserved: proposed.reserved ?? false,
               complimentary: proposed.complimentary ?? false,
+              // A complimentary tier is free and HIDDEN, and the database
+              // refuses anything else (ticket_type_complimentary_free_and_hidden).
+              visibility: proposed.visibility ?? (proposed.complimentary ? 'HIDDEN' : 'PUBLIC'),
               sortOrder: proposed.sortOrder ?? 0,
               // Drafts by default: a tier appears on the public page when the
               // organiser says so, not the moment it is typed.
@@ -532,6 +536,42 @@ async function assertMapStillMovable(prisma, session) {
 }
 
 /**
+ * Refuse to move a session's map while a ticket type on it prices one of its zones.
+ *
+ * A zone belongs to one map version. Moving the session to another version, or
+ * to general admission, would leave such a tier pricing seats that nobody at
+ * this session can reach. The database refuses it as well, through the trigger
+ * `desi_event_session_map_keeps_tier_zones`; this is the sentence that says
+ * what to do about it.
+ *
+ * @param {object} event The event, with its ticket types.
+ * @param {object} session The existing session.
+ * @param {string|null} versionId The proposed version; null for general admission.
+ * @returns {void}
+ * @throws {Error} A 409 when a tier on the session prices a zone.
+ */
+function assertNoTierPricesTheMap(event, session, versionId) {
+  if ((versionId ?? null) === (session.venueMapVersionId ?? null)) return
+
+  const priced = event.ticketTypes.filter(
+    (tier) => tier.eventSessionId === session.id && tier.priceZoneId,
+  )
+
+  if (priced.length > 0) {
+    throw conflict(
+      priced.length === 1
+        ? `"${priced[0].name}" prices seats on this session's current seating map. Remove it before changing the map, then price the new map's zones.`
+        : `${priced.length} ticket types price seats on this session's current seating map. Remove them before changing the map, then price the new map's zones.`,
+      {
+        sessionId: session.id,
+        ticketTypeIds: priced.map((tier) => tier.id),
+        code: 'MAP_PRICED',
+      },
+    )
+  }
+}
+
+/**
  * The Prisma patch for a session, with dates parsed and absent keys omitted.
  *
  * Absent is not null: a field the caller did not mention must keep its value,
@@ -600,6 +640,9 @@ function toTierPatch(patch) {
   if (patch.salesEndAt !== undefined) {
     data.salesEndAt = patch.salesEndAt ? new Date(patch.salesEndAt) : null
   }
+
+  // Making a tier complimentary also hides it, as creating one does.
+  if (data.complimentary === true && data.visibility === undefined) data.visibility = 'HIDDEN'
 
   return data
 }

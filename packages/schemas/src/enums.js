@@ -102,6 +102,13 @@ export const TICKET_TYPE_STATUSES = Object.freeze([
   'CLOSED',
 ])
 
+/**
+ * Who can see a ticket type on the public event page. HIDDEN is not listed
+ * publicly and is bookable only by members holding `ticketType:manage`; every
+ * complimentary tier is HIDDEN.
+ */
+export const TICKET_TYPE_VISIBILITIES = Object.freeze(['PUBLIC', 'HIDDEN'])
+
 export const HOLD_STATUSES = Object.freeze(['ACTIVE', 'CONVERTED', 'RELEASED', 'EXPIRED'])
 
 export const ORDER_STATUSES = Object.freeze(['PENDING', 'PAID', 'CANCELLED', 'REFUNDED', 'EXPIRED'])
@@ -163,6 +170,13 @@ export const VERIFICATION_STATUSES = Object.freeze([
 
 export const INVITATION_STATUSES = Object.freeze(['PENDING', 'ACCEPTED', 'REVOKED', 'EXPIRED'])
 
+/**
+ * How an invitation's code reached the invitee: EMAIL through the provider, or
+ * MANUAL, shown once to the inviter. An invitation issued before delivery
+ * modes existed has none.
+ */
+export const INVITATION_DELIVERY_MODES = Object.freeze(['EMAIL', 'MANUAL'])
+
 export const SECTION_KINDS = Object.freeze(['SEATED', 'STANDING', 'TABLE'])
 
 export const EVENT_SESSION_STATUSES = Object.freeze([
@@ -184,6 +198,9 @@ export const EVENT_SEAT_STATUSES = Object.freeze([
 ])
 
 export const MEDIA_MODERATION_STATUSES = Object.freeze(['PENDING', 'APPROVED', 'REJECTED'])
+
+/** What an event picture is for: the one cover, or one of up to eight gallery pictures. */
+export const MEDIA_KINDS = Object.freeze(['EVENT_COVER', 'EVENT_GALLERY'])
 
 export const MEDIA_SCAN_STATUSES = Object.freeze(['PENDING', 'CLEAN', 'INFECTED', 'ERROR'])
 
@@ -396,6 +413,9 @@ export const eventStatusSchema = z.enum([...EVENT_STATUSES])
 /** `TICKET_TYPE_STATUSES` as a Zod enum. */
 export const ticketTypeStatusSchema = z.enum([...TICKET_TYPE_STATUSES])
 
+/** `TICKET_TYPE_VISIBILITIES` as a Zod enum. */
+export const ticketTypeVisibilitySchema = z.enum([...TICKET_TYPE_VISIBILITIES])
+
 /** `HOLD_STATUSES` as a Zod enum. */
 export const holdStatusSchema = z.enum([...HOLD_STATUSES])
 
@@ -426,6 +446,9 @@ export const verificationStatusSchema = z.enum([...VERIFICATION_STATUSES])
 /** `INVITATION_STATUSES` as a Zod enum. */
 export const invitationStatusSchema = z.enum([...INVITATION_STATUSES])
 
+/** `INVITATION_DELIVERY_MODES` as a Zod enum. */
+export const invitationDeliveryModeSchema = z.enum([...INVITATION_DELIVERY_MODES])
+
 /** `SECTION_KINDS` as a Zod enum. */
 export const sectionKindSchema = z.enum([...SECTION_KINDS])
 
@@ -437,6 +460,9 @@ export const eventSeatStatusSchema = z.enum([...EVENT_SEAT_STATUSES])
 
 /** `MEDIA_MODERATION_STATUSES` as a Zod enum. */
 export const mediaModerationStatusSchema = z.enum([...MEDIA_MODERATION_STATUSES])
+
+/** `MEDIA_KINDS` as a Zod enum. */
+export const mediaKindSchema = z.enum([...MEDIA_KINDS])
 
 /** `MEDIA_SCAN_STATUSES` as a Zod enum. */
 export const mediaScanStatusSchema = z.enum([...MEDIA_SCAN_STATUSES])

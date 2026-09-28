@@ -7,6 +7,7 @@ import {
   GATES,
   BOOKABLE_STATUSES,
   INDEXABLE_STATUSES,
+  LIVE_STATUSES,
   MATERIAL_FIELDS,
   PUBLICLY_VISIBLE_STATUSES,
   SELLING_STATUSES,
@@ -234,9 +235,7 @@ describe('material changes', () => {
 
   it('treats housekeeping as housekeeping', () => {
     expect(materialChanges({ description: 'A better description.' })).toEqual([])
-    expect(
-      materialChanges({ summary: 'Tidier.', coverImageUrl: 'https://example.test/a.jpg' }),
-    ).toEqual([])
+    expect(materialChanges({ summary: 'Tidier.', artists: ['A new headliner'] })).toEqual([])
   })
 
   it('returns the fields in declaration order, not request order', () => {
@@ -276,6 +275,24 @@ describe('editing', () => {
   it('does not consider a review-pending event freely editable', () => {
     // Editing under a moderator's nose changes what they are reviewing.
     expect(EDITABLE_STATUSES.has('REVIEW_PENDING')).toBe(false)
+  })
+
+  it('calls an event live once somebody outside the organisation may have committed to it', () => {
+    // Moved here from the API unchanged, so the web and the API read one list.
+    expect([...LIVE_STATUSES].sort()).toEqual([
+      'ON_SALE',
+      'POSTPONED',
+      'PUBLISHED',
+      'SALES_PAUSED',
+      'SOLD_OUT',
+    ])
+  })
+
+  it('never calls an event both freely editable and live', () => {
+    for (const status of EDITABLE_STATUSES) expect(LIVE_STATUSES.has(status)).toBe(false)
+    // A moderator's version is refused outright, not amended as a live deal.
+    expect(LIVE_STATUSES.has('APPROVED')).toBe(false)
+    expect(LIVE_STATUSES.has('REVIEW_PENDING')).toBe(false)
   })
 })
 

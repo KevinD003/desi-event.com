@@ -12453,18 +12453,6 @@
                             "minLength": 1,
                             "maxLength": 64
                           },
-                          "coverImageUrl": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "maxLength": 2048,
-                                "format": "uri"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
                           "isOnline": {
                             "default": false,
                             "type": "boolean"
@@ -12918,18 +12906,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -13712,18 +13688,6 @@
                     "minLength": 1,
                     "maxLength": 64
                   },
-                  "coverImageUrl": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 2048,
-                        "format": "uri"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "isOnline": {
                     "default": false,
                     "type": "boolean"
@@ -14162,18 +14126,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -14978,18 +14930,6 @@
                           "minLength": 1,
                           "maxLength": 64
                         },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
                         "isOnline": {
                           "default": false,
                           "type": "boolean"
@@ -15769,18 +15709,6 @@
                     "minLength": 1,
                     "maxLength": 64
                   },
-                  "coverImageUrl": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 2048,
-                        "format": "uri"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
                   "isOnline": {
                     "type": "boolean"
                   },
@@ -16319,18 +16247,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -17189,18 +17105,6 @@
                           "minLength": 1,
                           "maxLength": 64
                         },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
                         "isOnline": {
                           "default": false,
                           "type": "boolean"
@@ -18021,18 +17925,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -18886,18 +18778,6 @@
                           "minLength": 1,
                           "maxLength": 64
                         },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
                         "isOnline": {
                           "default": false,
                           "type": "boolean"
@@ -19750,18 +19630,6 @@
                           "minLength": 1,
                           "maxLength": 64
                         },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
                         "isOnline": {
                           "default": false,
                           "type": "boolean"
@@ -20609,18 +20477,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -21503,18 +21359,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -35337,18 +35181,6 @@
                             "minLength": 1,
                             "maxLength": 64
                           },
-                          "coverImageUrl": {
-                            "anyOf": [
-                              {
-                                "type": "string",
-                                "maxLength": 2048,
-                                "format": "uri"
-                              },
-                              {
-                                "type": "null"
-                              }
-                            ]
-                          },
                           "isOnline": {
                             "default": false,
                             "type": "boolean"
@@ -35717,18 +35549,6 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 64
-                        },
-                        "coverImageUrl": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "maxLength": 2048,
-                              "format": "uri"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
                         },
                         "isOnline": {
                           "default": false,
@@ -40677,18 +40497,6 @@
                                   "minLength": 1,
                                   "maxLength": 64
                                 },
-                                "coverImageUrl": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "maxLength": 2048,
-                                      "format": "uri"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "isOnline": {
                                   "default": false,
                                   "type": "boolean"
@@ -41374,18 +41182,6 @@
                                     "minLength": 1,
                                     "maxLength": 64
                                   },
-                                  "coverImageUrl": {
-                                    "anyOf": [
-                                      {
-                                        "type": "string",
-                                        "maxLength": 2048,
-                                        "format": "uri"
-                                      },
-                                      {
-                                        "type": "null"
-                                      }
-                                    ]
-                                  },
                                   "isOnline": {
                                     "default": false,
                                     "type": "boolean"
@@ -42020,18 +41816,6 @@
                                   "type": "string",
                                   "minLength": 1,
                                   "maxLength": 64
-                                },
-                                "coverImageUrl": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "maxLength": 2048,
-                                      "format": "uri"
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
                                 },
                                 "isOnline": {
                                   "default": false,

@@ -79,7 +79,6 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'ageRestriction',
       'artists',
       'category',
-      'coverImageUrl',
       'createdAt',
       'description',
       'endsAt',

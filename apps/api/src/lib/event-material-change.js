@@ -52,19 +52,10 @@ import { unprocessable } from './errors.js'
 /**
  * Statuses in which an edit can reach somebody who has already committed.
  *
- * `PUBLISHED` is on the list although nothing may have sold yet: the page is
- * public, somebody has it in their calendar, and a date that moves without a
- * word is the same betrayal whether or not money changed hands.
- *
- * `APPROVED` is not, and neither is `REVIEW_PENDING`: those are refused
- * outright elsewhere, because editing a version a moderator is holding — or has
- * just said yes to — invalidates the decision rather than amending a deal.
- *
- * @type {ReadonlySet<string>}
+ * Defined once in `@desi-event/schemas/lifecycle`, which the web reads too, and
+ * re-exported here so existing importers keep working.
  */
-export const LIVE_STATUSES = Object.freeze(
-  new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'POSTPONED']),
-)
+export { LIVE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 /** How each material field reads in a refusal or a notice. */
 const FIELD_LABELS = Object.freeze({

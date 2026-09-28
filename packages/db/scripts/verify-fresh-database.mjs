@@ -791,6 +791,261 @@ async function probeConstraints(prisma) {
     ),
   )
 
+  // ---------------------------------------------------------------------------
+  // Partial unique indexes written by hand, because Prisma's schema language
+  // cannot express them. `prisma migrate diff` does not see these, so a probe
+  // is the only thing that notices one going missing.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A published seat map with one zone and one seat, and a session selling it,
+   * written inside the probe's transaction so nothing survives it.
+   *
+   * @param {object} tx The probe's transaction client.
+   * @returns {Promise<{zone: object, session: object, eventSeat: object}>} The rows.
+   */
+  const seatedSession = async (tx) => {
+    const venue = await tx.venue.findFirst()
+    const map = await tx.venueMap.create({
+      data: { venueId: venue.id, name: `probe-seated-${Date.now()}` },
+    })
+    const version = await tx.venueMapVersion.create({ data: { venueMapId: map.id, version: 1 } })
+    const zone = await tx.priceZone.create({
+      data: { venueMapVersionId: version.id, name: 'Front' },
+    })
+    const section = await tx.section.create({
+      data: { venueMapVersionId: version.id, name: 'Stalls' },
+    })
+    const seat = await tx.seat.create({
+      data: {
+        venueMapVersionId: version.id,
+        sectionId: section.id,
+        label: 'Stalls A1',
+        priceZoneId: zone.id,
+      },
+    })
+
+    await tx.venueMapVersion.update({
+      where: { id: version.id },
+      data: { publishedAt: new Date(), seatCount: 1 },
+    })
+
+    const session = await tx.eventSession.create({
+      data: {
+        eventId: ticketType.eventId,
+        startsAt: new Date(Date.now() + 86_400_000),
+        endsAt: new Date(Date.now() + 90_000_000),
+        venueMapVersionId: version.id,
+      },
+    })
+    const eventSeat = await tx.eventSeat.create({
+      data: { eventSessionId: session.id, seatId: seat.id },
+    })
+
+    return { zone, session, eventSeat }
+  }
+
+  // Two reserved tiers on one zone at one session would each claim the same
+  // seats, and which one a buyer paid for would depend on which was read first.
+  results.push(
+    await probe(
+      prisma,
+      'one reserved tier prices a zone at a session',
+      /TicketType_reserved_session_zone_key/,
+      async (tx) => {
+        const { zone, session } = await seatedSession(tx)
+        const tier = {
+          eventId: ticketType.eventId,
+          eventSessionId: session.id,
+          priceZoneId: zone.id,
+          reserved: true,
+          priceCents: 1000,
+          currency: ticketType.currency,
+          quantityTotal: 1,
+        }
+
+        await tx.ticketType.create({ data: { ...tier, name: `Probe front ${Date.now()}` } })
+        await tx.ticketType.create({ data: { ...tier, name: `Probe front again ${Date.now()}` } })
+      },
+    ),
+  )
+
+  // ---------------------------------------------------------------------------
+  // A reserved tier's zone is on the map version its session sells. Two
+  // triggers hold the rule, one for each side, and each side gets a probe.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A reserved tier pricing the zone of a seated session.
+   *
+   * @param {object} tx The probe's transaction client.
+   * @param {{zone: object, session: object}} rows From `seatedSession`.
+   * @returns {Promise<object>} The tier.
+   */
+  const reservedTier = (tx, { zone, session }) =>
+    tx.ticketType.create({
+      data: {
+        eventId: ticketType.eventId,
+        eventSessionId: session.id,
+        priceZoneId: zone.id,
+        reserved: true,
+        priceCents: 1000,
+        currency: ticketType.currency,
+        quantityTotal: 1,
+        name: `Probe zone ${Date.now()}`,
+      },
+    })
+
+  results.push(
+    await probe(
+      prisma,
+      "a reserved tier prices a zone of its session's own map version",
+      /prices zone .* from map version/,
+      async (tx) => {
+        const { zone, session } = await seatedSession(tx)
+        const { venueMapId } = await tx.venueMapVersion.findUnique({
+          where: { id: zone.venueMapVersionId },
+        })
+        const nextVersion = await tx.venueMapVersion.create({ data: { venueMapId, version: 2 } })
+        const foreignZone = await tx.priceZone.create({
+          data: { venueMapVersionId: nextVersion.id, name: 'Front' },
+        })
+
+        await reservedTier(tx, { zone: foreignZone, session })
+      },
+    ),
+  )
+
+  results.push(
+    await probe(
+      prisma,
+      'a session cannot leave the map version its reserved tier prices',
+      /cannot move to map version .*: ticket type .* prices a zone/,
+      async (tx) => {
+        const rows = await seatedSession(tx)
+
+        await reservedTier(tx, rows)
+        await tx.eventSession.update({
+          where: { id: rows.session.id },
+          data: { venueMapVersionId: null, capacity: 10 },
+        })
+      },
+    ),
+  )
+
+  // The other half, so the trigger is not simply refusing every move.
+  results.push(
+    await probe(
+      prisma,
+      'a session no tier prices may still change its map version',
+      null,
+      async (tx) => {
+        const { session } = await seatedSession(tx)
+
+        await tx.eventSession.update({
+          where: { id: session.id },
+          data: { venueMapVersionId: null, capacity: 10 },
+        })
+      },
+    ),
+  )
+
+  // ADR 0006: one live ticket per seat, whatever the application believes.
+  results.push(
+    await probe(
+      prisma,
+      'a second live ticket cannot take the same seat',
+      /Ticket_eventSeatId_live_key/,
+      async (tx) => {
+        const { eventSeat } = await seatedSession(tx)
+        const seated = { orderItemId: ticket.orderItemId, eventSeatId: eventSeat.id }
+
+        await tx.ticket.create({ data: { ...seated, code: `PROBE-SEAT-A-${Date.now()}` } })
+        await tx.ticket.create({ data: { ...seated, code: `PROBE-SEAT-B-${Date.now()}` } })
+      },
+    ),
+  )
+
+  // The other half of the same index, and the reason it is partial: a ticket
+  // that was handed on keeps its seat as history while its successor holds it.
+  results.push(
+    await probe(
+      prisma,
+      'a handed-on ticket keeps its seat while its successor holds it',
+      null,
+      async (tx) => {
+        const { eventSeat } = await seatedSession(tx)
+        const seated = { orderItemId: ticket.orderItemId, eventSeatId: eventSeat.id }
+        const handedOn = await tx.ticket.create({
+          data: { ...seated, code: `PROBE-SEAT-OLD-${Date.now()}`, status: 'TRANSFERRED' },
+        })
+
+        await tx.ticket.create({
+          data: {
+            ...seated,
+            code: `PROBE-SEAT-NEW-${Date.now()}`,
+            supersedesTicketId: handedOn.id,
+          },
+        })
+      },
+    ),
+  )
+
+  // Two live codes for one address would leave the invitee holding one that
+  // the team page no longer lists. Case-insensitive, like the address itself.
+  results.push(
+    await probe(
+      prisma,
+      'one pending invitation per address per organisation',
+      /Invitation_one_pending_per_address/,
+      async (tx) => {
+        const invitation = {
+          organizationId: organization.id,
+          role: 'VIEWER',
+          invitedById: user.id,
+          expiresAt: new Date(Date.now() + 86_400_000),
+        }
+
+        await tx.invitation.create({
+          data: { ...invitation, email: 'probe.invitee@example.test', tokenHash: 'e'.repeat(64) },
+        })
+        await tx.invitation.create({
+          data: { ...invitation, email: 'Probe.Invitee@example.test', tokenHash: 'f'.repeat(64) },
+        })
+      },
+    ),
+  )
+
+  // An event page shows one cover. A second would be a coin toss between two.
+  results.push(
+    await probe(
+      prisma,
+      'an event has at most one cover picture',
+      /MediaAsset_one_cover_per_event_key/,
+      async (tx) => {
+        const cover = {
+          ownerType: 'EVENT',
+          ownerId: ticketType.eventId,
+          eventId: ticketType.eventId,
+          kind: 'EVENT_COVER',
+          contentType: 'image/png',
+          byteSize: 1024,
+          width: 1200,
+          height: 630,
+          checksum: 'a'.repeat(64),
+          altText: 'A probe cover picture',
+        }
+
+        await tx.mediaAsset.create({
+          data: { ...cover, storageKey: `probe-cover-a-${Date.now()}` },
+        })
+        await tx.mediaAsset.create({
+          data: { ...cover, storageKey: `probe-cover-b-${Date.now()}` },
+        })
+      },
+    ),
+  )
+
   return results.every(Boolean)
 }
 

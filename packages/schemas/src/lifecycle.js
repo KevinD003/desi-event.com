@@ -250,6 +250,26 @@ export const BOOKABLE_STATUSES = Object.freeze(new Set(['PUBLISHED', ...SELLING_
 export const EDITABLE_STATUSES = Object.freeze(new Set(['DRAFT', 'CHANGES_REQUIRED']))
 
 /**
+ * Statuses in which an edit can reach somebody who has already committed.
+ *
+ * `PUBLISHED` is on the list although nothing may have sold yet: the page is
+ * public, somebody has it in their calendar, and a date that moves without a
+ * word is the same betrayal whether or not money changed hands.
+ *
+ * `APPROVED` is not, and neither is `REVIEW_PENDING`: those are refused
+ * outright elsewhere, because editing a version a moderator is holding — or has
+ * just said yes to — invalidates the decision rather than amending a deal.
+ *
+ * Defined here rather than in the API so the web and the API read one list.
+ * `apps/api/src/lib/event-material-change.js` re-exports it.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const LIVE_STATUSES = Object.freeze(
+  new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'POSTPONED']),
+)
+
+/**
  * Fields whose change after publication is material enough to need confirming.
  *
  * Somebody has bought a ticket on the strength of these. Changing the

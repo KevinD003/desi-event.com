@@ -129,6 +129,18 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // The same kind of index on the event's own title, summary and description,
   // so the whole search is served from indexes.
   '20260923220000_event_search_trigram_indexes',
+  // Tier visibility, per-order bounds clamped then checked, the reserved-tier partial index, event content fields.
+  '20260928090000_event_authoring_content_and_tier_rules',
+  // Replaces the full unique Ticket.eventSeatId index with "one live ticket per seat" (ADR 0006).
+  '20260928100000_live_seat_ticket_index',
+  // The lazily created GroupPass table and CheckIn.groupPassId, with its admission trigger.
+  '20260928110000_group_pass',
+  // Invitation.deliveryMode, Organization.createdById, and one pending invitation per address.
+  '20260928120000_team_delivery_and_organisation_provenance',
+  // MediaAsset.kind to an enum, MediaBlob, the media CHECKs and cover index, and Event.coverImageUrl dropped.
+  '20260928130000_event_media',
+  // EventSession.label, staged attendee names, and promo code CHECKs after normalising backfills.
+  '20260929090000_checkout_promos_attendees_nights',
 ])
 
 /**

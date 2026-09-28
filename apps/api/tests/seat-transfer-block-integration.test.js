@@ -321,8 +321,10 @@ when()('a reserved-seat ticket', () => {
 
   it('still carries its seat, uniquely: the defect the block stands in front of is still there', async () => {
     // Recorded so that whoever fixes S-1 has to change this case on purpose.
-    // A second ticket row for the same seat — which a successor would be — is
-    // refused by the full unique index.
+    // A second *live* ticket row for the same seat — which a successor still
+    // VALID beside its VALID predecessor would be — is refused. Since ADR 0006
+    // the index is partial, `Ticket_eventSeatId_live_key`: one live ticket per
+    // seat, with a handed-on row keeping its seat as history.
     const w = await world()
 
     await expect(
@@ -335,7 +337,7 @@ when()('a reserved-seat ticket', () => {
           supersedesTicketId: w.ticket.id,
         },
       }),
-    ).rejects.toThrow(/Ticket_eventSeatId_key/u)
+    ).rejects.toThrow(/Ticket_eventSeatId_live_key/u)
   })
 })
 

@@ -77,7 +77,7 @@ const FIELDS = Object.freeze([
   ['summary', 'Summary'],
   ['description', 'Description'],
   ['category', 'Category'],
-  ['coverImageUrl', 'Cover image'],
+  ['images', 'Pictures'],
   ['policies', 'Policies'],
   ['venue', 'Venue'],
   ['ticketTypes', 'Ticket types'],

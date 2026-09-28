@@ -26,6 +26,9 @@ const RELATIONS = {
       from: 'id',
       to: 'eventId',
     },
+    // The cover and the gallery. Nested `where`/`orderBy`/`take` on an include
+    // are not honoured here (see `hydrate`), so a presenter filters in JS too.
+    media: { kind: 'many', model: 'mediaAsset', from: 'id', to: 'eventId' },
   },
   eventModerationAction: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -52,6 +55,8 @@ const RELATIONS = {
     // sales by session and has to tell "no session" from "session missing".
     eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
     payments: { kind: 'many', model: 'payment', from: 'id', to: 'orderId' },
+    // Created lazily on the holder's first retrieval, so usually absent.
+    groupPass: { kind: 'one', model: 'groupPass', from: 'id', to: 'orderId' },
   },
   orderItem: {
     tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'orderItemId' },
@@ -98,6 +103,23 @@ const RELATIONS = {
   },
   checkIn: {
     ticket: { kind: 'one', model: 'ticket', from: 'ticketId', to: 'id' },
+    groupPass: { kind: 'one', model: 'groupPass', from: 'groupPassId', to: 'id' },
+  },
+  groupPass: {
+    order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
+    checkIns: { kind: 'many', model: 'checkIn', from: 'id', to: 'groupPassId' },
+  },
+  mediaAsset: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    // Keyed by storage key, not id: the blob's primary key is the asset's
+    // storage key, which is what lets a storage adapter find the bytes by the
+    // one name it was given.
+    blob: { kind: 'one', model: 'mediaBlob', from: 'storageKey', to: 'storageKey' },
+    uploadedBy: { kind: 'one', model: 'user', from: 'uploadedById', to: 'id' },
+    moderatedBy: { kind: 'one', model: 'user', from: 'moderatedById', to: 'id' },
+  },
+  mediaBlob: {
+    asset: { kind: 'one', model: 'mediaAsset', from: 'storageKey', to: 'storageKey' },
   },
   refund: {
     order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
@@ -122,10 +144,18 @@ const RELATIONS = {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     invitedBy: { kind: 'one', model: 'user', from: 'invitedById', to: 'id' },
   },
+  organization: {
+    // Provenance for a self-service organisation, and the per-account
+    // creation cap. Never returned by a route.
+    createdBy: { kind: 'one', model: 'user', from: 'createdById', to: 'id' },
+  },
   eventSeat: {
     seat: { kind: 'one', model: 'seat', from: 'seatId', to: 'id' },
     eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
     hold: { kind: 'one', model: 'ticketHold', from: 'holdId', to: 'id' },
+    // A list since ADR 0006: one live ticket per seat, and the rows it
+    // superseded kept as the seat's history.
+    tickets: { kind: 'many', model: 'ticket', from: 'id', to: 'eventSeatId' },
   },
   eventSession: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -189,6 +219,7 @@ const DEFAULTS = {
     refundPolicy: null,
     suspendedAt: null,
     suspendedReason: null,
+    createdById: null,
   },
   venue: {
     country: 'IN',
@@ -212,13 +243,22 @@ const DEFAULTS = {
     isOnline: false,
     languages: [],
     venueId: null,
-    coverImageUrl: null,
     onlineUrl: null,
     publishedAt: null,
     // The authoring editor's optimistic-concurrency precondition. Absent here,
     // the sessions route serialised `meta.revision: undefined` and the response
     // contract refused it — which is the contract doing its job.
     revision: 0,
+    // The event page's public content. Every one is nullable in the schema.
+    faq: null,
+    performers: null,
+    runningOrder: null,
+    sponsors: null,
+    socialLinks: null,
+    dressCode: null,
+    directions: null,
+    publicContactEmail: null,
+    publicContactPhone: null,
   },
   ticketType: {
     currency: 'INR',
@@ -230,6 +270,7 @@ const DEFAULTS = {
     description: null,
     salesStartAt: null,
     salesEndAt: null,
+    visibility: 'PUBLIC',
   },
   ticketHold: {
     status: 'ACTIVE',
@@ -252,7 +293,8 @@ const DEFAULTS = {
     paidAt: null,
     cancelledAt: null,
   },
-  orderItem: {},
+  // Staged names for a general-admission line, cleared at settlement.
+  orderItem: { attendeeNames: [] },
   ticket: {
     status: 'VALID',
     checkedInAt: null,
@@ -281,6 +323,14 @@ const DEFAULTS = {
     deviceId: null,
     method: 'QR_SCAN',
     gate: null,
+    groupPassId: null,
+  },
+  groupPass: {
+    credentialHash: null,
+    codeHash: null,
+    credentialVersion: 1,
+    credentialIssuedAt: null,
+    rotatedAt: null,
   },
   payment: {
     status: 'INITIATED',
@@ -381,6 +431,7 @@ const DEFAULTS = {
     acceptedAt: null,
     acceptedByUserId: null,
     revokedAt: null,
+    deliveryMode: null,
   },
   scannerScope: {},
   venueMap: { notes: null, archivedAt: null },
@@ -407,6 +458,7 @@ const DEFAULTS = {
     venueMapVersionId: null,
     capacity: null,
     sortOrder: 0,
+    label: null,
   },
   eventSeat: {
     ticketTypeId: null,
@@ -416,7 +468,13 @@ const DEFAULTS = {
     priceCentsOverride: null,
     blockedReason: null,
   },
-  holdItem: { quantity: 1, eventSeatId: null, orderItemId: null, unitPriceCents: null },
+  holdItem: {
+    quantity: 1,
+    eventSeatId: null,
+    orderItemId: null,
+    unitPriceCents: null,
+    attendeeName: null,
+  },
   webhookEvent: {
     accountContext: '',
     apiVersion: null,
@@ -463,6 +521,24 @@ const DEFAULTS = {
     reason: null,
     requestedChanges: null,
   },
+  mediaAsset: {
+    eventId: null,
+    width: null,
+    height: null,
+    checksum: null,
+    sanitisedAt: null,
+    moderationStatus: 'PENDING',
+    scanStatus: 'PENDING',
+    scanNote: null,
+    uploadedById: null,
+    altText: null,
+    position: null,
+    moderatedAt: null,
+    moderatedById: null,
+    moderationNote: null,
+  },
+  // The Postgres storage adapter's table. Keyed by `storageKey`, not `id`.
+  mediaBlob: {},
   notificationOutbox: {
     channel: 'EMAIL',
     userId: null,
@@ -575,7 +651,9 @@ const UNIQUE_FIELDS = {
   notificationOutbox: ['dedupeKey'],
   refund: ['idempotencyKey'],
   order: ['reference'],
-  ticket: ['code', 'credentialHash', 'eventSeatId', 'supersedesTicketId'],
+  // Not `eventSeatId`: since ADR 0006 that is unique only among live tickets,
+  // which is a partial index — see PARTIAL_UNIQUE.
+  ticket: ['code', 'credentialHash', 'supersedesTicketId'],
   session: ['tokenHash'],
   authToken: ['tokenHash'],
   // One ticket, one attendance. The database enforces it with a unique index on
@@ -590,6 +668,10 @@ const UNIQUE_FIELDS = {
   // before it was added a test asserting "two concurrent first-starts collapse
   // to one row" passed against a stub that cheerfully stored two.
   connectedAccount: ['organizationId'],
+  // One group pass per order, and a digest names one pass.
+  groupPass: ['orderId', 'credentialHash', 'codeHash'],
+  mediaAsset: ['storageKey'],
+  mediaBlob: ['storageKey'],
 }
 
 /**
@@ -618,7 +700,74 @@ const COMPOUND_UNIQUE = {
   membership: [['userId', 'organizationId']],
   scannerScope: [['membershipId', 'eventId']],
   exportArtifactSubject: [['exportArtifactId', 'subjectUserId']],
+  // A code is unique within its organisation; two organisations may both
+  // offer SAVE10.
+  promoCode: [['organizationId', 'code']],
 }
+
+/** Ticket states that still admit, or may again: the rows the seat index counts. */
+const LIVE_TICKET_STATES = Object.freeze(['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'])
+
+/**
+ * Partial unique indexes, which Prisma's schema language cannot express and
+ * the migrations create by hand.
+ *
+ * Separate from {@link UNIQUE_FIELDS} and {@link COMPOUND_UNIQUE} because a row
+ * only counts while `when` holds: a handed-on ticket keeps its seat as history
+ * without blocking the successor that now holds it. `key` gives the indexed
+ * values, normalised the way the index normalises them (`lower("email")`); a
+ * null or missing part means the row is not indexed, because PostgreSQL treats
+ * nulls as distinct.
+ *
+ * Checked on create and on every update path, because the usual way into one
+ * of these is an update — a ticket moved back to VALID, a second tier switched
+ * to reserved — rather than an insert.
+ *
+ * @type {Record<string, Array<{name: string, key: function(object): unknown[], when: function(object): boolean}>>}
+ */
+const PARTIAL_UNIQUE = {
+  ticket: [
+    {
+      name: 'Ticket_eventSeatId_live_key',
+      key: (row) => [row.eventSeatId],
+      when: (row) => LIVE_TICKET_STATES.includes(row.status),
+    },
+  ],
+  ticketType: [
+    {
+      name: 'TicketType_reserved_session_zone_key',
+      key: (row) => [row.eventSessionId, row.priceZoneId],
+      when: (row) => row.reserved === true,
+    },
+  ],
+  invitation: [
+    {
+      name: 'Invitation_one_pending_per_address',
+      key: (row) => [
+        row.organizationId,
+        typeof row.email === 'string' ? row.email.toLowerCase() : row.email,
+      ],
+      when: (row) => row.status === 'PENDING',
+    },
+  ],
+  mediaAsset: [
+    {
+      name: 'MediaAsset_one_cover_per_event_key',
+      key: (row) => [row.eventId],
+      when: (row) => row.kind === 'EVENT_COVER',
+    },
+  ],
+}
+
+/**
+ * Models whose primary key is a named column rather than a generated `id`.
+ *
+ * The stub gives every other row an `id`; giving one to these would put a
+ * column on the row that the real table does not have.
+ *
+ * @type {Record<string, string>}
+ */
+const NATURAL_KEYS = { mediaBlob: 'storageKey' }
 
 /** Models that carry `createdAt`/`updatedAt`. */
 const TIMESTAMPED = new Set([
@@ -644,6 +793,8 @@ const TIMESTAMPED = new Set([
   'privacyHold',
   'exportArtifact',
   'retentionSweep',
+  'groupPass',
+  'mediaAsset',
 ])
 
 /**
@@ -683,6 +834,7 @@ const CREATED_ONLY = new Set([
   // that could be updated would not be evidence.
   'privacyAuditEvent',
   'exportArtifactSubject',
+  'mediaBlob',
 ])
 
 let idCounter = 0
@@ -1058,6 +1210,87 @@ export function createPrismaStub(seed = {}) {
   }
 
   /**
+   * Raise the error Prisma's driver adapter raises when a named index — here a
+   * partial one — refuses a row.
+   *
+   * The adapter names the index rather than the fields, both in the message
+   * and under `meta.driverAdapterError.cause.constraint`, which is where
+   * `violatedFields` in the ledger looks for it.
+   *
+   * @param {string} model The model.
+   * @param {string} index The index's name.
+   * @returns {Error} A `P2002` error.
+   */
+  function partialUniqueViolation(model, index) {
+    const error = new Error(`Unique constraint failed on the constraint: \`${index}\``)
+    error.code = 'P2002'
+    error.meta = {
+      modelName: model,
+      target: [index],
+      driverAdapterError: { cause: { constraint: { index } } },
+    }
+    return error
+  }
+
+  /**
+   * Refuse a row that a partial unique index would refuse.
+   *
+   * @param {string} model The model.
+   * @param {object} row The row as it would be stored.
+   * @returns {void}
+   * @throws {Error} A `P2002` naming the index, when another indexed row has the same key.
+   */
+  function assertPartialUnique(model, row) {
+    for (const index of PARTIAL_UNIQUE[model] ?? []) {
+      if (!index.when(row)) continue
+
+      const key = index.key(row)
+      if (key.some((value) => value === null || value === undefined)) continue
+
+      const clash = tables[model].some(
+        (existing) =>
+          existing !== row &&
+          index.when(existing) &&
+          index.key(existing).every((value, position) => value === key[position]),
+      )
+
+      if (clash) throw partialUniqueViolation(model, index.name)
+    }
+  }
+
+  /**
+   * Apply an update to rows in place, and put every one back if a partial
+   * unique index refuses the result.
+   *
+   * PostgreSQL refuses the whole statement; a stub that left the rows it had
+   * already changed would let a failed write outside a transaction look like a
+   * half-successful one.
+   *
+   * @param {string} model The model.
+   * @param {object[]} rows The rows being updated.
+   * @param {object} data The Prisma data payload.
+   * @returns {void}
+   */
+  function updateRows(model, rows, data) {
+    const before = rows.map((row) => ({ ...row }))
+
+    for (const row of rows) {
+      applyData(row, data)
+      if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
+    }
+
+    try {
+      for (const row of rows) assertPartialUnique(model, row)
+    } catch (error) {
+      rows.forEach((row, index) => {
+        for (const field of Object.keys(row)) delete row[field]
+        Object.assign(row, before[index])
+      })
+      throw error
+    }
+  }
+
+  /**
    * Build the delegate object for one model.
    *
    * @param {string} model The model name.
@@ -1186,7 +1419,7 @@ export function createPrismaStub(seed = {}) {
         }
 
         const row = {
-          id: cuid(),
+          ...(NATURAL_KEYS[model] ? {} : { id: cuid() }),
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
           ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
@@ -1227,6 +1460,8 @@ export function createPrismaStub(seed = {}) {
 
           if (clash) throw uniqueViolation(model, fields.join('_'))
         }
+
+        assertPartialUnique(model, row)
 
         tables[model].push(row)
 
@@ -1286,35 +1521,32 @@ export function createPrismaStub(seed = {}) {
           throw error
         }
 
-        applyData(row, args.data)
-        if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
+        updateRows(model, [row], args.data)
         return hydrate(model, row, args.include, args.select)
       },
       updateMany: async (args) => {
         const rows = tables[model].filter((candidate) => matches(model, candidate, args.where))
-        for (const row of rows) {
-          applyData(row, args.data)
-          if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
-        }
+        updateRows(model, rows, args.data)
         return { count: rows.length }
       },
       upsert: async (args) => {
         const row = tables[model].find((candidate) => matches(model, candidate, args.where))
 
         if (row) {
-          applyData(row, args.update)
-          if (TIMESTAMPED.has(model)) row.updatedAt = new Date()
+          updateRows(model, [row], args.update)
           return hydrate(model, row, args.include, args.select)
         }
 
         const now = new Date()
         const created = {
-          id: cuid(),
+          ...(NATURAL_KEYS[model] ? {} : { id: cuid() }),
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
           ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
           ...args.create,
         }
+
+        assertPartialUnique(model, created)
 
         tables[model].push(created)
         return hydrate(model, created, args.include)

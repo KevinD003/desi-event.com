@@ -370,8 +370,12 @@ describe('seeded events', () => {
     expect(weekday).toBe('Saturday')
   })
 
-  it('points no page at a cover image on a host nothing serves', () => {
-    for (const event of data.events) expect(event.coverImageUrl).toBeNull()
+  it('seeds no pictures and no external image address', () => {
+    // A cover is an uploaded, moderated MediaAsset now, and an external image
+    // address is not a column any more. The seed writes neither, so every
+    // listing keeps the poster drawn from the event's slug.
+    for (const event of data.events) expect(Object.hasOwn(event, 'coverImageUrl')).toBe(false)
+    expect(Object.keys(data).filter((key) => /media|picture|image/iu.test(key))).toEqual([])
   })
 
   it('mixes past and future start times around the anchor', () => {

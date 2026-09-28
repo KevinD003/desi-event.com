@@ -30,7 +30,6 @@ const event = {
   languages: ['Urdu'],
   artists: ['Nizami Bandhu'],
   ageRestriction: null,
-  coverImageUrl: null,
   policies: { entry: 'Doors at seven.', refund: 'Refundable up to 48 hours.' },
   accessibility: { features: ['CAPTIONING'], note: null },
   ticketTypes: [],

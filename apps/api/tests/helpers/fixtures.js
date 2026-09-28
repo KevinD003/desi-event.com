@@ -395,7 +395,6 @@ export async function makeWorld(overrides = {}) {
     startsAt: minutesFromNow(60 * 24 * 30),
     endsAt: minutesFromNow(60 * 24 * 30 + 300),
     timezone: 'Asia/Kolkata',
-    coverImageUrl: null,
     isOnline: false,
     onlineUrl: null,
     languages: ['Gujarati', 'Hindi'],
@@ -500,6 +499,9 @@ export async function makeWorld(overrides = {}) {
     salesEndAt: null,
     status: 'ON_SALE',
     sortOrder: 0,
+    // NOT NULL with a default in the schema; seeded rows bypass the stub's
+    // defaults, so it is spelled here and inherited by the tiers below.
+    visibility: 'PUBLIC',
     createdAt: new Date('2025-02-01T00:00:00.000Z'),
     updatedAt: new Date('2025-02-01T00:00:00.000Z'),
   }

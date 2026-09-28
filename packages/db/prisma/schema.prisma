@@ -93,7 +93,8 @@ model User {
   ledgerBatches            LedgerBatch[]
   moderationActions        EventModerationAction[]
   notificationPreferences  NotificationPreference[]
-  mediaUploaded            MediaAsset[]
+  mediaUploaded            MediaAsset[]             @relation("MediaUploadedBy")
+  mediaModerated           MediaAsset[]             @relation("MediaModeratedBy")
   reconciliationTasks      ReconciliationTask[]
   privacyRequestsAsSubject PrivacyRequest[]         @relation("PrivacyRequestSubject")
   privacyRequestsRaised    PrivacyRequest[]         @relation("PrivacyRequestRequestedBy")
@@ -102,6 +103,7 @@ model User {
   privacyHoldsReleased     PrivacyHold[]            @relation("PrivacyHoldReleasedBy")
   exportArtifactsRequested ExportArtifact[]
   exportArtifactSubjects   ExportArtifactSubject[]
+  organizationsCreated     Organization[]           @relation("OrganizationCreatedBy")
 
   @@index([role])
   @@index([suspendedAt])
@@ -135,7 +137,12 @@ model Organization {
   /// Set when the organisation is suspended: no publishing, no payouts.
   suspendedAt           DateTime?
   suspendedReason       String?
+  /// Who created it from the site, for the per-account creation cap and
+  /// provenance. Null for an organisation created any other way. Never
+  /// returned by any route.
+  createdById           String?
 
+  createdBy           User?                           @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   memberships         Membership[]
   events              Event[]
   promoCodes          PromoCode[]
@@ -152,6 +159,7 @@ model Organization {
   @@index([verified])
   @@index([verificationStatus])
   @@index([suspendedAt])
+  @@index([createdById, createdAt])
   /// Substring search on the organiser's name ("garba" in "Bay Lights Garba
   /// Co."), which a B-tree cannot serve. Needs the pg_trgm extension.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Organization_name_trgm_idx")
@@ -289,7 +297,6 @@ model Event {
   startsAt       DateTime
   endsAt         DateTime
   timezone       String        @default("Asia/Kolkata")
-  coverImageUrl  String?
   isOnline       Boolean       @default(false)
   onlineUrl      String?
   languages      String[]      @default([])
@@ -327,6 +334,34 @@ model Event {
   /// backing its sessions is frozen.
   salesOpenedAt      DateTime?
 
+  // Public content. Everything below is PUBLIC by the organiser's choice and is
+  // shown on the event page; it is distinct from the private `contactEmail`
+  // above, which is never shown. Shapes and lengths are bounded by the CHECKs
+  // `event_faq_shape`, `event_performers_shape`, `event_running_order_shape`,
+  // `event_sponsors_shape`, `event_social_links_shape` and
+  // `event_content_text_lengths` (migration
+  // `20260928090000_event_authoring_content_and_tier_rules`).
+
+  /// Frequently asked questions, in order: `[{question, answer}]`, at most 30.
+  faq                Json?
+  /// The line-up, in billing order: `[{name, bio?}]`, at most 64. The source
+  /// of truth for performers; `artists` is kept in step with it.
+  performers         Json?
+  /// The running order: `[{time: 'HH:mm' local, title, note?}]`, at most 40.
+  runningOrder       Json?
+  /// Sponsors: `[{name, url?, level?}]`, at most 30.
+  sponsors           Json?
+  /// Social links: `{website?, instagram?, facebook?, youtube?, x?, whatsapp?}`,
+  /// https only.
+  socialLinks        Json?
+  dressCode          String?
+  /// This event's parking and arrival notes, layered over `Venue.directions`.
+  directions         String?
+  /// A contact address the organiser chose to publish. Public.
+  publicContactEmail String?
+  /// A contact number the organiser chose to publish. Public.
+  publicContactPhone String?
+
   organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   venue             Venue?                  @relation(fields: [venueId], references: [id], onDelete: SetNull)
   ticketTypes       TicketType[]
@@ -362,6 +397,31 @@ enum TicketTypeStatus {
   CLOSED
 }
 
+/// Who can see a ticket type on the public event page.
+enum TicketTypeVisibility {
+  /// Listed publicly and bookable by anybody while it is on sale.
+  PUBLIC
+  /// Not listed publicly, and bookable only by members holding
+  /// `ticketType:manage` on the organisation. Every complimentary tier is
+  /// HIDDEN (CHECK `ticket_type_complimentary_free_and_hidden`).
+  HIDDEN
+}
+
+// Hand-written in `20260928090000_event_authoring_content_and_tier_rules`,
+// because Prisma's schema language cannot express them:
+//
+//  * the partial unique index `TicketType_reserved_session_zone_key` on
+//    ("eventSessionId", "priceZoneId") WHERE "reserved": one reserved tier
+//    prices a zone at a session;
+//  * the trigger `desi_ticket_type_zone_matches_session`: a reserved tier's
+//    zone belongs to the map version its session sells (the session's side of
+//    the same rule is `desi_event_session_map_keeps_tier_zones`, above model
+//    EventSession);
+//  * the CHECK `ticket_type_per_order_bounds` (1 <= minPerOrder <= maxPerOrder
+//    <= 50, the checkout's quantity ceiling) and
+//    `ticket_type_complimentary_free_and_hidden`;
+//  * the trigger `desi_ticket_type_description_length`: 500 characters, checked
+//    on INSERT and when the text changes, so a legacy longer row stays readable.
 model TicketType {
   id            String           @id @default(cuid())
   eventId       String
@@ -387,12 +447,18 @@ model TicketType {
   /// migrate without inventing a session.
   eventSessionId String?
   /// For reserved seating: the price zone this tier prices. Null for general
-  /// admission, where the tier owns a quantity rather than a set of seats.
+  /// admission, where the tier owns a quantity rather than a set of seats. At
+  /// most one reserved tier prices a zone at a session: the hand-written
+  /// partial unique index `TicketType_reserved_session_zone_key`
+  /// ("eventSessionId", "priceZoneId") WHERE "reserved", which Prisma cannot
+  /// express.
   priceZoneId    String?
   /// True when this tier is sold by seat rather than by quantity.
-  reserved       Boolean @default(false)
+  reserved       Boolean              @default(false)
   /// Complimentary tiers never charge and never reach a payment provider.
-  complimentary  Boolean @default(false)
+  complimentary  Boolean              @default(false)
+  /// Whether the public event page lists this tier. See `TicketTypeVisibility`.
+  visibility     TicketTypeVisibility @default(PUBLIC)
 
   event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   holds        TicketHold[]
@@ -520,6 +586,8 @@ model Order {
   items         OrderItem[]
   holds         TicketHold[]
   payments      Payment[]
+  /// The order's group pass, created lazily on the holder's first retrieval.
+  groupPass     GroupPass?
 
   @@index([status, createdAt])
   @@index([eventId, status])
@@ -536,8 +604,12 @@ model OrderItem {
 
   /// Quantity already refunded from this line. The refund allocator reads this
   /// to enforce "you cannot refund more of a line than was bought".
-  refundedQuantity Int @default(0)
-  refundedCents    Int @default(0)
+  refundedQuantity Int      @default(0)
+  refundedCents    Int      @default(0)
+  /// Names typed at checkout for a general-admission line, staged until
+  /// settlement issues the tickets, then cleared. Positional; never longer
+  /// than quantity (CHECK order_item_attendee_names_within_quantity).
+  attendeeNames    String[] @default([])
 
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   ticketType  TicketType   @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
@@ -573,6 +645,11 @@ enum TicketStatus {
   CANCELLED
 }
 
+// Hand-written in `20260928100000_live_seat_ticket_index`, because Prisma's
+// schema language cannot express it: the partial unique index
+// `Ticket_eventSeatId_live_key` on ("eventSeatId") WHERE the status is VALID,
+// TRANSFER_PENDING or CHECKED_IN. One live ticket per seat; the plain
+// `@@index([eventSeatId])` below serves the foreign key and history lookups.
 /// One admission.
 ///
 /// Two identifiers, deliberately. `code` is the human-readable reference a
@@ -600,8 +677,11 @@ model Ticket {
   attendeeName       String?
   /// Who holds it now. Null for a guest purchase that was never claimed.
   ownerUserId        String?
-  /// The seat, for reserved seating. Null for general admission.
-  eventSeatId        String?      @unique
+  /// The seat, for reserved seating. Null for general admission. Unique among
+  /// live tickets (VALID, TRANSFER_PENDING, CHECKED_IN) by a partial index
+  /// Prisma cannot express; a handed-on or refunded row keeps its seat as
+  /// history. See ADR 0006.
+  eventSeatId        String?
   status             TicketStatus @default(VALID)
   checkedInAt        DateTime?
   revokedAt          DateTime?
@@ -624,6 +704,7 @@ model Ticket {
   @@index([orderItemId])
   @@index([status])
   @@index([ownerUserId])
+  @@index([eventSeatId])
 }
 
 enum PaymentStatus {
@@ -772,6 +853,14 @@ enum PromoType {
   FIXED_AMOUNT
 }
 
+/// A discount code an organisation offers, org-wide or for one event.
+///
+/// Besides `promo_code_fixed_amount_currency`, the database enforces
+/// (migration `20260929090000_checkout_promos_attendees_nights`):
+/// `promo_code_value_in_range` (never negative; at most 10000 basis points for
+/// a percentage), `promo_code_percentage_has_no_currency`,
+/// `promo_code_redemptions_within_cap` (redemptions never exceed a cap of at
+/// least 1) and `promo_code_window_ordered` (a window ends after it starts).
 model PromoCode {
   id              String    @id @default(cuid())
   organizationId  String
@@ -798,6 +887,7 @@ model PromoCode {
 
   @@unique([organizationId, code])
   @@index([eventId, active])
+  @@index([organizationId, createdAt])
 }
 
 model WaitlistEntry {
@@ -1066,6 +1156,19 @@ enum InvitationStatus {
   EXPIRED
 }
 
+/// How an invitation's code reached the invitee.
+enum InvitationDelivery {
+  /// Sent by the email provider. The inviter never saw the code.
+  EMAIL
+  /// Shown once to the inviter, in the response that issued it, for them to
+  /// pass on themselves. Never stored, logged or audited.
+  MANUAL
+}
+
+// Hand-written in `20260928120000_team_delivery_and_organisation_provenance`,
+// because Prisma's schema language cannot express it: the partial unique index
+// `Invitation_one_pending_per_address` on ("organizationId", lower("email"))
+// WHERE "status" = 'PENDING'. One live code per address per organisation.
 /// An invitation to join an organisation with a named role.
 ///
 /// The token is hashed and single-use, and the role is fixed at issue. An
@@ -1074,20 +1177,23 @@ enum InvitationStatus {
 /// no update path and acceptance is guarded by `Membership.invitationId` being
 /// unique.
 model Invitation {
-  id               String           @id @default(cuid())
+  id               String              @id @default(cuid())
   organizationId   String
   /// Lower-cased address the invitation was sent to. The acceptor's own address
   /// must match it, so a forwarded link does not admit the wrong person.
   email            String
   role             OrgRole
-  tokenHash        String           @unique
+  tokenHash        String              @unique
   invitedById      String
-  status           InvitationStatus @default(PENDING)
+  status           InvitationStatus    @default(PENDING)
   expiresAt        DateTime
   acceptedAt       DateTime?
   acceptedByUserId String?
   revokedAt        DateTime?
-  createdAt        DateTime         @default(now())
+  createdAt        DateTime            @default(now())
+  /// How the code went out. Null for an invitation issued before delivery
+  /// modes existed: no code was delivered to anybody.
+  deliveryMode     InvitationDelivery?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   invitedBy    User         @relation("InvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
@@ -1261,6 +1367,10 @@ enum EventSessionStatus {
   COMPLETED
 }
 
+// Hand-written in `20260928090000_event_authoring_content_and_tier_rules`: the
+// trigger `desi_event_session_map_keeps_tier_zones` refuses moving a session to
+// another map version, or to general admission, while a ticket type on it
+// prices a zone of the version it has.
 /// One performance of an event: a date, a time, a door time, a sales window.
 ///
 /// Phase 1 events carried a single start and end on the event itself. Those
@@ -1280,11 +1390,16 @@ model EventSession {
   /// The frozen layout this session sells. Null for a general-admission
   /// session. Once anything is sold it may not change.
   venueMapVersionId String?
-  /// General-admission capacity, for a session with no seat map.
+  /// General-admission capacity, for a session with no seat map. Positive when
+  /// set (CHECK `event_session_capacity_positive`).
   capacity          Int?
   sortOrder         Int                @default(0)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  /// Short organiser-facing name for this performance, e.g. "Night 1". Null
+  /// means the date alone labels it. 1-60 characters once trimmed (CHECK
+  /// `event_session_label_length`).
+  label             String?
 
   event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
   venueMapVersion VenueMapVersion? @relation(fields: [venueMapVersionId], references: [id], onDelete: Restrict)
@@ -1339,7 +1454,9 @@ model EventSeat {
   ticketType   TicketType?  @relation(fields: [ticketTypeId], references: [id], onDelete: SetNull)
   hold         TicketHold?  @relation(fields: [holdId], references: [id], onDelete: SetNull)
   orderItem    OrderItem?   @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
-  ticket       Ticket?
+  /// Every ticket that has held this seat. At most one is live at a time
+  /// (`Ticket_eventSeatId_live_key`); the rest are its history.
+  tickets      Ticket[]
 
   @@unique([eventSessionId, seatId])
   @@index([eventSessionId, status])
@@ -1365,6 +1482,9 @@ model HoldItem {
   /// What this seat cost on that line, frozen when the order was priced, so a
   /// later change to the zone override cannot alter what was charged.
   unitPriceCents Int?
+  /// The name typed for this seat at checkout, staged until settlement, then
+  /// cleared. Only a seated item carries one (CHECK hold_item_attendee_name_seated).
+  attendeeName   String?
 
   hold       TicketHold @relation(fields: [holdId], references: [id], onDelete: Cascade)
   ticketType TicketType @relation(fields: [ticketTypeId], references: [id], onDelete: Restrict)
@@ -1417,19 +1537,38 @@ enum MediaScanStatus {
   ERROR
 }
 
-/// An uploaded image or document.
+/// What an event picture is for.
+enum MediaKind {
+  /// The event's one cover picture. It replaces the drawn poster wherever the
+  /// event is shown; at most one per event.
+  EVENT_COVER
+  /// One of at most eight gallery pictures on the event page, ordered by
+  /// `position`.
+  EVENT_GALLERY
+}
+
+// Hand-written in `20260928130000_event_media`, because Prisma's schema
+// language cannot express them: the partial unique index
+// `MediaAsset_one_cover_per_event_key` on ("eventId") WHERE "kind" =
+// 'EVENT_COVER'; the trigger `desi_media_gallery_cap` (at most eight gallery
+// pictures per event); and the CHECKs `media_asset_event_media_shape`,
+// `media_asset_position_by_kind`, `media_asset_approved_is_servable`,
+// `media_asset_rejection_has_note` and `media_asset_decision_is_stamped`.
+/// An uploaded image.
 ///
-/// The bytes live in object storage; this row is the metadata and the gate. A
-/// public surface may only render an asset that is both APPROVED and CLEAN, so
-/// an unscanned upload cannot appear on a listing.
+/// The bytes live in `MediaBlob`, behind the `MediaStorage` adapter; this row
+/// is the metadata and the gate. `CLEAN` means the structural check passed. A
+/// public surface renders only an asset that is APPROVED, CLEAN and sanitised,
+/// on a publicly visible event, so an unchecked upload cannot appear on a
+/// listing.
 model MediaAsset {
   id               String                @id @default(cuid())
   /// What owns it: EVENT, VENUE, ORGANIZATION.
   ownerType        String
   ownerId          String
   eventId          String?
-  kind             String
-  /// Key in object storage. Unique so two rows cannot claim the same object.
+  kind             MediaKind
+  /// Storage key. Unique so two rows cannot claim the same bytes.
   storageKey       String                @unique
   contentType      String
   byteSize         Int
@@ -1446,12 +1585,40 @@ model MediaAsset {
   uploadedById     String?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
+  /// Describes the picture for people who cannot see it. Required for event
+  /// media (CHECK `media_asset_event_media_shape`). Public.
+  altText          String?
+  /// 0-7 for a gallery picture; null for a cover.
+  position         Int?
+  /// When a moderator last decided on it, and who.
+  moderatedAt      DateTime?
+  moderatedById    String?
+  /// Why it was rejected. Shown to the organiser, never public.
+  moderationNote   String?
 
-  event      Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  uploadedBy User?  @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  event       Event?     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy  User?      @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  moderatedBy User?      @relation("MediaModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+  blob        MediaBlob?
 
   @@index([ownerType, ownerId])
   @@index([moderationStatus, scanStatus])
+  @@index([eventId, kind, position])
+  @@index([moderatedById])
+}
+
+/// The bytes of one `MediaAsset`: the Postgres storage adapter's table, and the
+/// only place picture bytes live. Deleted with its asset.
+model MediaBlob {
+  storageKey String   @id
+  bytes      Bytes
+  /// Equals the length of `bytes`, 1 byte to 10 MiB (CHECK `media_blob_size_matches`).
+  byteSize   Int
+  /// SHA-256 of `bytes`, lower-case hex.
+  checksum   String
+  createdAt  DateTime @default(now())
+
+  asset MediaAsset @relation(fields: [storageKey], references: [storageKey], onDelete: Cascade)
 }
 
 // ---------------------------------------------------------------------------
@@ -1979,14 +2146,46 @@ model CheckIn {
   scannedAt       DateTime      @default(now())
   /// The gate or door, when the venue distinguishes them.
   gate            String?
+  /// Set when admitted through the order's group pass. The trigger
+  /// `desi_check_in_group_pass_matches` refuses a ticket outside the pass's
+  /// order, or one no longer held by that order's buyer.
+  groupPassId     String?
 
   ticket       Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
   eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
   scannedBy    User?         @relation(fields: [scannedByUserId], references: [id], onDelete: SetNull)
   device       Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  groupPass    GroupPass?    @relation(fields: [groupPassId], references: [id], onDelete: SetNull)
 
   @@index([eventSessionId, scannedAt])
   @@index([scannedByUserId])
+  @@index([groupPassId])
+}
+
+/// One QR pass that admits every ticket of an order still held by its buyer.
+///
+/// One row per order, created lazily on the holder's first retrieval, so
+/// checkout and existing orders are untouched. There is no holder column: the
+/// holder is `order.userId`, a single source of truth. Like `Ticket`, only
+/// digests are stored — the credential and the typed code are shown to the
+/// holder and never kept (CHECK `group_pass_digests_are_sha256`), and both are
+/// issued together or not at all (`group_pass_digests_together`).
+model GroupPass {
+  id                 String    @id @default(cuid())
+  orderId            String    @unique
+  /// SHA-256 of 'G1.' + HMAC, never the credential.
+  credentialHash     String?   @unique
+  /// SHA-256 of the DEG- code, never the code.
+  codeHash           String?   @unique
+  /// Bumped on every rotation, so an old pass is provably stale.
+  credentialVersion  Int       @default(1)
+  credentialIssuedAt DateTime?
+  rotatedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  checkIns CheckIn[]
 }
 
 // ---------------------------------------------------------------------------

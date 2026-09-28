@@ -603,9 +603,12 @@ when()('what the database guarantees on its own', () => {
 
     const seated = await ticket(orderItem.id, { eventSeatId: seat.id, live: false })
 
+    // Since ADR 0006 the seat index is partial, `Ticket_eventSeatId_live_key`:
+    // unique among VALID, TRANSFER_PENDING and CHECKED_IN rows. Both rows here
+    // are VALID, so the successor is still refused.
     await expect(
       ticket(orderItem.id, { supersedes: seated.id, eventSeatId: seat.id }),
-    ).rejects.toThrow(/Unique constraint failed on the constraint: `Ticket_eventSeatId_key`/u)
+    ).rejects.toThrow(/Unique constraint failed on the constraint: `Ticket_eventSeatId_live_key`/u)
 
     // And the line is left exactly as a blocked transfer leaves it: the one
     // ticket that was issued, still current, still the only way in.

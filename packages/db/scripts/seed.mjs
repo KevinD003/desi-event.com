@@ -2388,9 +2388,8 @@ export function buildSeedData(now = new Date()) {
       startsAt,
       endsAt: new Date(startsAt.getTime() + event.durationHours * HOUR_MS),
       timezone: event.timezone,
-      // No cover image: the web app draws each event's poster from its slug,
-      // and a URL here would point pages at a host nothing serves.
-      coverImageUrl: null,
+      // No pictures: the web app draws each event's poster from its slug. A
+      // cover is an uploaded MediaAsset, and the seed writes none.
       isOnline: event.isOnline,
       onlineUrl: event.onlineUrl ?? null,
       languages: event.languages,
@@ -2867,7 +2866,6 @@ export async function writeSeedData(prisma, data) {
       startsAt: event.startsAt,
       endsAt: event.endsAt,
       timezone: event.timezone,
-      coverImageUrl: event.coverImageUrl,
       isOnline: event.isOnline,
       onlineUrl: event.onlineUrl,
       languages: event.languages,

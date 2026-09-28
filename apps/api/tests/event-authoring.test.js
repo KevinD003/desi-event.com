@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { bearer, createTestApp, holdHeaders, signIn } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
+import { cuid } from './helpers/prisma-stub.js'
 
 /**
  * Authoring an event: sessions, ticket types, inventory, readiness, pricing.
@@ -365,6 +366,165 @@ describe('ticket types', () => {
 
     expect(response.statusCode).toBe(201)
     expect(response.json().data.name).toBe('Early bird')
+
+    await app.close()
+  })
+
+  // The database refuses a complimentary tier that is not HIDDEN
+  // (ticket_type_complimentary_free_and_hidden), and the stub models no CHECKs,
+  // so the stored row is the assertion.
+  it('stores a free complimentary tier HIDDEN when no visibility is given', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { name: 'Guest list', complimentary: true, priceCents: 0 }),
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const stored = prisma._store.ticketType.find((row) => row.id === response.json().data.id)
+
+    expect(stored.complimentary).toBe(true)
+    expect(stored.visibility).toBe('HIDDEN')
+
+    await app.close()
+  })
+
+  it('stores an ordinary tier PUBLIC', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { priceCents: 0 }),
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const stored = prisma._store.ticketType.find((row) => row.id === response.json().data.id)
+
+    expect(stored.visibility).toBe('PUBLIC')
+
+    await app.close()
+  })
+
+  it('hides a free tier when it is made complimentary later', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { priceCents: 0 }),
+    })
+
+    expect(created.statusCode).toBe(201)
+
+    const tierId = created.json().data.id
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/tiers/${tierId}`,
+      headers,
+      payload: { revision: created.json().meta.revision, complimentary: true },
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const stored = prisma._store.ticketType.find((row) => row.id === tierId)
+
+    expect(stored.complimentary).toBe(true)
+    expect(stored.visibility).toBe('HIDDEN')
+
+    await app.close()
+  })
+})
+
+describe('a session keeps the map its reserved tiers price', () => {
+  /**
+   * The draft event's session made a seated one, optionally with a reserved
+   * tier pricing a zone of its map. The version and zone exist only as ids: the
+   * refusal is decided before either is read.
+   *
+   * @param {object} prisma The stub.
+   * @param {object} ids The world's ids.
+   * @param {{priced: boolean}} options Whether a tier prices the map.
+   * @returns {object} The session row.
+   */
+  function seatedDraftSession(prisma, ids, { priced }) {
+    const session = prisma._store.eventSession.find((row) => row.eventId === ids.draftEvent.id)
+
+    Object.assign(session, { venueMapVersionId: cuid(), capacity: null })
+
+    if (priced) {
+      prisma._store.ticketType.push({
+        ...ids.generalAdmission,
+        id: cuid(),
+        eventId: ids.draftEvent.id,
+        name: 'Front stalls',
+        eventSessionId: session.id,
+        priceZoneId: cuid(),
+        reserved: true,
+        quantityTotal: 0,
+        quantitySold: 0,
+        status: 'DRAFT',
+      })
+    }
+
+    return session
+  }
+
+  it('refuses to move a session to general admission while a tier prices its map', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const session = seatedDraftSession(prisma, ids, { priced: true })
+    const versionBefore = session.venueMapVersionId
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${session.id}`,
+      headers,
+      payload: { revision, venueMapVersionId: null, capacity: 200 },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.message).toMatch(/"Front stalls" prices seats/)
+    expect(session.venueMapVersionId).toBe(versionBefore)
+    expect(session.capacity).toBeNull()
+
+    await app.close()
+  })
+
+  it('lets a session with no priced tier move to general admission', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const headers = bearer(token)
+    const session = seatedDraftSession(prisma, ids, { priced: false })
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${session.id}`,
+      headers,
+      payload: { revision, venueMapVersionId: null, capacity: 200 },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.venueMapVersionId).toBeNull()
 
     await app.close()
   })
