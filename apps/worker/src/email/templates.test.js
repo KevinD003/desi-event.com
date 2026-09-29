@@ -89,6 +89,19 @@ describe('renderEmail', () => {
     expect(rendered.html).not.toContain('undefined')
   })
 
+  it.each([...new Set([...EMAIL_TEMPLATES, ...OUTBOX_TEMPLATES])])(
+    'promises nothing in %s: no "soon", "yet" or "planned"',
+    (template) => {
+      // The site's honest-copy rule reaches the emails too: a template that
+      // says "see you soon" or "as planned" is copy a person would read.
+      const rendered = renderEmail({ template, data: {} })
+
+      for (const part of [rendered.subject, rendered.text]) {
+        expect(part).not.toMatch(/\b(soon|yet|planned)\b/i)
+      }
+    },
+  )
+
   it.each([...EMAIL_TEMPLATES])('renders %s with a subject and both bodies', (template) => {
     const rendered = renderEmail({ template, data: {} })
 

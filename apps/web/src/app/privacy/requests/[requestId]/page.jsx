@@ -161,7 +161,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
               <div>
                 <dt className="text-sm font-medium text-ink-muted">Outcome</dt>
                 <dd className="text-sm text-ink">
-                  {outcomeLabel(request.outcomeCode) ?? 'Not yet settled'}
+                  {outcomeLabel(request.outcomeCode) ?? 'Not settled'}
                 </dd>
               </div>
               <div>
@@ -242,7 +242,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
             ) : (
               <Empty
                 title="No scope recorded"
-                description="The preview has not been computed for this request yet. That is expected before it is raised against the engine."
+                description="The preview has not been computed for this request. That is expected before it is raised against the engine."
               />
             )}
           </section>
@@ -272,7 +272,7 @@ export default async function PrivacyRequestPage({ params, searchParams }) {
 
             {events.length === 0 ? (
               <Empty
-                title="Nothing recorded yet"
+                title="Nothing recorded"
                 description="Either nothing has happened, or the evidence could not be read just now. The state above is still accurate."
               />
             ) : (

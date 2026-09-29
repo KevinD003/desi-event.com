@@ -120,7 +120,7 @@ export default async function PrivacyRequestsPage({ searchParams }) {
       {requests && requests.length === 0 ? (
         <Empty
           title="No requests"
-          description="Nothing has been raised in this organisation yet. That is the expected resting state — an empty queue is not a broken one."
+          description="Nothing has been raised in this organisation. That is the expected resting state — an empty queue is not a broken one."
         />
       ) : null}
 

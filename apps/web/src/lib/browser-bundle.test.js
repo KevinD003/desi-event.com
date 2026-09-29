@@ -132,6 +132,13 @@ describe('what reaches the browser', () => {
     expect([...reached.keys()]).not.toContain('packages/auth/src/index.js')
   })
 
+  it('refuses the role and capability tables, which the platform-role screens are likeliest to reach for', () => {
+    // The artefact scan forbids PLATFORM_ROLE_CAPABILITIES and platform:admin
+    // in built chunks, but only after a build. This refuses the import itself.
+    expect(forbiddenReason('packages/permissions/src/capabilities.js')).toMatch(/capability/)
+    expect(forbiddenReason('packages/permissions/src/index.js')).toMatch(/barrel/)
+  })
+
   it('names a reason for every rule, so a refusal can be acted on', () => {
     for (const [prefix, reason] of Object.entries(FORBIDDEN)) {
       expect(reason.length, prefix).toBeGreaterThan(20)

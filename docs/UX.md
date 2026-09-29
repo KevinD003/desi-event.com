@@ -28,6 +28,24 @@ separately here, on purpose.
 | Organiser profile      | `/organizers/[slug]`                                |
 | Venue page             | `/venues/[slug]`                                    |
 
+_Added 2026-09-29, by the feature-completion work:_
+
+| Surface                                | Route                                                         |
+| -------------------------------------- | ------------------------------------------------------------- |
+| Seat picker and seated checkout        | `/events/[slug]/seats/[sessionId]`                            |
+| Create an organisation                 | `/account/organizations/new`                                  |
+| Join an organisation (invitation code) | `/account/invitations`                                        |
+| The organisation's profile             | `/organizer/organization`                                     |
+| Team, with invite form and codes       | `/organizer/team`                                             |
+| Promo codes                            | `/organizer/promo-codes`                                      |
+| Door check-in, group passes included   | `/organizer/check-in`                                         |
+| Verification queue and one review      | `/moderation/organizations`, `/moderation/organizations/[id]` |
+| Platform accounts and roles            | `/admin/users`                                                |
+| An order, with its group pass          | `/account/orders/[reference]`                                 |
+
+The editor's Media step (cover and gallery upload, descriptions, order) and
+its two content steps are inside `/organizer/events/[id]`.
+
 The last revision of this document said refunds, reconciliation detail and
 ticket transfer were API-only and that no page for them existed. **All three
 exist now**, along with organiser analytics and an invitation screen, and each
@@ -38,8 +56,9 @@ true, which is the property that matters more than which way it reads.
 
 ## The principles the markup actually follows
 
-**A refusal explains itself.** "You cannot publish this event yet" names the
-reason — unverified organiser, draft map, missing session — and where to go.
+**A refusal explains itself.** "Still to do before this can be published" names
+each reason — unverified organiser, draft map, missing session — and links to
+the field that fixes it.
 A refusal that says only _forbidden_ trains people to retry, and retrying is
 never the fix.
 
@@ -54,7 +73,7 @@ reads `OVERDUE` as a word as well as in red. A status is a word. A ticket says
 anything; an oversold tier says `Oversold — investigate` rather than turning
 amber.
 
-**An absence explains which kind of absence it is.** "No refunds yet" and "the
+**An absence explains which kind of absence it is.** "No refunds" and "the
 refund service is down" look identical if both render as a blank area, and only
 one of them is a reason to telephone somebody. The five states every
 authenticated screen can be in — loading, empty, failed, forbidden, stale — are
@@ -338,9 +357,56 @@ flagged.
 
 Checked by unit and component tests (`event-editor.test.jsx`,
 `event-lifecycle-panel.test.jsx`, `material-change-panel.test.jsx`,
-`event-reschedule-form.test.jsx`, the moderation page's test). The browser
-journeys for these flows are not written yet, and nothing in this section has
-been through the accessibility sweep.
+`event-reschedule-form.test.jsx`, the moderation page's test). When this
+section was written (2026-09-29), no browser journey drove these flows and none
+of these screens had been through the accessibility sweep.
+
+---
+
+## A code shown once — 2026-09-29
+
+A team invitation and a ticket offer each end in a single-use code that the
+person who made it must hand over themselves, because this build sends no email
+(ADR 0008). One component, `one-time-code-panel.jsx`, draws it on both screens:
+
+- **It says what it is and that it will not come back.** A heading, the code in
+  a read-only field with its own label, who it is for when the caller may see
+  the address, when it stops working, and where the recipient types it in
+  ("Your account → Join an organisation", or the ticket accept page).
+- **Copying is offered, not assumed.** The clipboard is used when the browser
+  allows it; when it does not, the field's text is selected and the person is
+  told to copy it themselves.
+- **It lives in memory only** — never in `localStorage`, `sessionStorage`, the
+  address or a link — and "I have handed it over" drops it. On the team screen
+  it is held above the table, so the refresh that removes the invitation row it
+  replaced does not take the code with it.
+- **Focus moves to its heading** when it appears, and the outcome is announced
+  politely: only the door workspace interrupts.
+- The recipient's side is a **password field** in a form that sends the code in
+  a request body; the page reads no query parameter that could carry one.
+
+## The door, with a group pass and a platform administrator — 2026-09-29
+
+A group pass is recognised by its shape — the QR's `G1.` prefix, or a typed
+code in the `DEG-` shape — and looked up like a ticket. The answer lists every
+ticket in the group with its outcome in words, each with a tick box; everybody
+admissible starts ticked, and the steward unticks whoever is not at the door.
+**Admit** sends the ticked tickets; if one changed since the lookup, nobody is
+admitted and the screen says to look the group up again. The session list names
+a group as "First name and N more", or "Group pass" when nobody on it is named.
+Urgent outcomes stay assertive, as for a single ticket; the group cards are in
+`door-workspace.jsx` because that is the one file the live-region policy lets
+interrupt.
+
+A platform super administrator sees **Check-in** in the navigation and, on the
+door page, a persistent notice that every lookup and admission is recorded
+against their account on the event's own record, a filter by organisation and
+by search text, and a notice when the list of events was cut at 100.
+
+The buyer's side is on the order page: **Show group pass** fetches it on the
+press, draws the QR and shows the printed code only while it is shown, hides it
+when the page is hidden or left, and asks for confirmation before replacing it.
+An order with more than fifty tickets gets a sentence instead of a pass.
 
 ---
 

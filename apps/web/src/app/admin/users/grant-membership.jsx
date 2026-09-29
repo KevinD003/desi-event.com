@@ -333,7 +333,7 @@ export function GrantMembership({ account, onChanged }) {
                   description={
                     current
                       ? `${name} is ${roleLabel(current.role).toLowerCase()} there now.`
-                      : `${name} is not a member there yet.`
+                      : `${name} is not a member there.`
                   }
                 >
                   <Select value={role} onChange={(changed) => setRole(changed.target.value)}>

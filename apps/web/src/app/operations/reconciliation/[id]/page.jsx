@@ -78,7 +78,7 @@ const KINDS = Object.freeze({
  * @type {Readonly<Record<string, string>>}
  */
 const STATES = Object.freeze({
-  OPEN: 'Nobody has taken this yet.',
+  OPEN: 'Nobody has taken this.',
   IN_PROGRESS: 'Somebody has claimed it.',
   ESCALATED: 'Somebody asked for help. It is still open.',
   RESOLVED: 'Closed. The history stays readable and nothing can reopen it.',
@@ -326,7 +326,7 @@ export default async function ReconciliationDetailPage({ params }) {
         </h2>
         {(task.notes?.length ?? 0) === 0 ? (
           <Empty
-            title="No notes yet"
+            title="No notes"
             description="Nobody has recorded what they found. The first person to look should."
           />
         ) : (

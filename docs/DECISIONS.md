@@ -6,21 +6,27 @@ decisions that never warranted an ADR are written down instead.
 
 **An ADR is amended only by a superseding ADR.** None here has been rewritten,
 and none will be: a decision record that can be edited is a decision record that
-cannot be trusted about what was known at the time.
+cannot be trusted about what was known at the time. The one line that changes
+when a record is superseded is its **Status**, which names the record that
+replaced it; everything under that line stays as written.
 
 ---
 
 ## The architecture decision records
 
-| #                                               | Decision                                       | Status                                          |
-| ----------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- |
-| [0001](adr/0001-javascript-only-stack.md)       | JavaScript everywhere, TypeScript nowhere      | Accepted, 2026-09-14                            |
-| [0002](adr/0002-polyglot-exception-process.md)  | When another language may enter the repository | Accepted, 2026-09-14                            |
-| [0003](adr/0003-stripe-connect-charge-model.md) | Stripe Connect charge model                    | Accepted for Phase 2 (sandbox only), 2026-09-15 |
-| [0004](adr/0004-plpgsql-in-migrations.md)       | Procedural SQL inside migrations               | Accepted, 2026-09-15                            |
-| [0005](adr/0005-reserved-seat-transfer.md)      | Reserved-seat transfer stays blocked           | Accepted for Phase 4, 2026-09-22                |
+| #                                                          | Decision                                                            | Status                                          |
+| ---------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------- |
+| [0001](adr/0001-javascript-only-stack.md)                  | JavaScript everywhere, TypeScript nowhere                           | Accepted, 2026-09-14                            |
+| [0002](adr/0002-polyglot-exception-process.md)             | When another language may enter the repository                      | Accepted, 2026-09-14                            |
+| [0003](adr/0003-stripe-connect-charge-model.md)            | Stripe Connect charge model                                         | Accepted for Phase 2 (sandbox only), 2026-09-15 |
+| [0004](adr/0004-plpgsql-in-migrations.md)                  | Procedural SQL inside migrations                                    | Accepted, 2026-09-15                            |
+| [0005](adr/0005-reserved-seat-transfer.md)                 | Reserved-seat transfer stays blocked                                | Superseded by 0006, 2026-09-29                  |
+| [0006](adr/0006-reserved-seat-transfer-live-seat-index.md) | One live ticket per seat: reserved-seat tickets can be handed on    | Accepted, 2026-09-29                            |
+| [0007](adr/0007-platform-door-authority.md)                | A platform super administrator may admit at any event               | Accepted, 2026-09-29                            |
+| [0008](adr/0008-show-once-codes.md)                        | Invitation and transfer codes are shown once to whoever issues them | Accepted, 2026-09-29                            |
+| [0009](adr/0009-media-in-postgres-allow-list-sanitiser.md) | Event pictures: bytes in PostgreSQL, rebuilt from an allow-list     | Accepted, 2026-09-29                            |
 
-Nothing is superseded. Nothing is deprecated.
+One record is superseded: 0005, by 0006. Nothing is deprecated.
 
 ### 0001 — JavaScript everywhere, TypeScript nowhere
 
@@ -55,8 +61,53 @@ Follow-through in code: `docs/STRIPE_CONNECT.md`.
 ### 0004 — Procedural SQL inside migrations
 
 plpgsql exists in this repository, in migrations only, for invariants that must
-hold against code not yet written. 20 triggers today. The ADR bounds where it
-may live and why a JavaScript-only stack still needs it.
+hold against code not yet written. The migrations create 29 triggers as of
+2026-09-29, five of them added by the feature-completion work; this line said
+20 when it was written. The ADR bounds where
+it may live and why a JavaScript-only stack still needs it.
+
+### 0005 — Reserved-seat transfer stays blocked (superseded)
+
+A full unique index on `Ticket.eventSeatId` made accepting a seated transfer
+a 500. The record chose to refuse a seated transfer at both ends and to say so on
+the ticket screen, and recorded "one live ticket per seat" as the right end
+state, safe only together with a refund-path lock and an analytics change it was
+not authorised to make. Kept as the record of that reasoning; 0006 carries it
+out.
+
+### 0006 — One live ticket per seat
+
+`Ticket_eventSeatId_live_key`, a partial unique index over `VALID`,
+`TRANSFER_PENDING` and `CHECKED_IN`, replaces the full index. A handed-on or
+refunded row keeps its seat as history. Acceptance and refund both lock the
+order line `FOR UPDATE`, so a refund can never return the money and leave a live
+successor admitting, and analytics counts a handed-on ticket once. A reserved
+seat now goes with its ticket.
+
+### 0007 — A platform super administrator may admit at any event
+
+`SUPER_ADMIN` admits on a third authority, `PLATFORM_ROLE`, after any membership
+it holds. Every platform lookup and admission writes an audit row on the event,
+the role is re-read inside the admitting transaction, and a module-load
+assertion keeps every other platform role away from the door. Reverses the
+earlier "platform roles admit nobody".
+
+### 0008 — Show-once codes
+
+With no delivery provider (`DELIVERY_MODE=MANUAL`, this build), a team
+invitation's or a ticket offer's single-use code is returned once, `no-store`,
+to whoever issued it, who hands it over themselves. Only its digest is stored;
+it is never logged, audited or put in a URL. Naming `EMAIL` with no provider
+refuses to boot. Reverses "the token is delivered out of band and never appears
+in a response".
+
+### 0009 — Event pictures in PostgreSQL, rebuilt from an allow-list
+
+Picture bytes live in `MediaBlob`, committed in the same transaction as the row
+that names them, behind a `MediaStorage` interface. Each upload is sniffed from
+its bytes, rebuilt from an allow-list of its format's structures without
+decoding pixels, and reviewed by a moderator before it is public. No antivirus
+engine runs, and the record and the limitations page both say so.
 
 ---
 
@@ -127,6 +178,20 @@ override an admission refusal. Removed: a door device is the least trustworthy
 caller in the system, and "let this one in anyway" is an authorization decision
 that cannot be delegated to whoever is holding the phone. The test asserting the
 old shape was rewritten to assert the new contract, with the reason in it.
+
+**Reserved-seat transfer stays blocked** (ADR 0005). Reversed by ADR 0006 once
+the refund-path lock and the analytics change it depended on were in scope. The
+block was the right call while the index alone would have traded a loud 500 for
+a quiet double admission.
+
+**Platform roles admit nobody.** Reversed for `SUPER_ADMIN` alone by ADR 0007:
+it already held every organisation capability everywhere, so refusing it at the
+door was ceremony. Every other platform role is still refused, and the refusal
+is still audited.
+
+**Invitation and transfer codes never appear in a response.** Reversed by
+ADR 0008. The rule assumed a delivery provider this build never had, so every team
+invitation and every ticket offer minted a code nobody could receive.
 
 **Storing full Stripe requirement lists.** Reduced to counts. The application
 needs to know whether an organiser can be paid; what Stripe is waiting for is

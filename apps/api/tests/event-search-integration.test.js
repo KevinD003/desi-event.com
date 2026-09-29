@@ -15,6 +15,7 @@ import { listEventsQuerySchema } from '@desi-event/schemas'
 
 import { requireDatabaseOrWarn } from './helpers/database.js'
 
+import { databaseErrorCode, normaliseError } from '../src/lib/errors.js'
 import { buildEventQuery, resolveSearchTerms } from '../src/routes/events.js'
 
 const CONNECTION =
@@ -133,6 +134,32 @@ afterAll(async () => {
 })
 
 describe('the listing search on PostgreSQL', () => {
+  it('refuses a NUL in the search before the database, and answers 400 if one ever reaches it', async () => {
+    if (!reachable) return
+
+    // The schema is the first line: the listing never sends this to PostgreSQL.
+    expect(listEventsQuerySchema.safeParse({ q: 'gar\u0000ba' }).success).toBe(false)
+
+    // The second: had it got past, PostgreSQL refuses the byte (22021), and the
+    // error handler answers that as a bad request rather than a fault.
+    const query = {
+      ...listEventsQuerySchema.parse({ q: 'garba', perPage: '100' }),
+      q: 'gar\u0000ba',
+    }
+    const { where } = buildEventQuery(query, null, { search: [] })
+    const refused = await prisma.event.findMany({ where, select: { slug: true } }).then(
+      () => null,
+      (error) => error,
+    )
+
+    expect(refused).not.toBeNull()
+    expect(databaseErrorCode(refused)).toBe('22021')
+    expect(normaliseError(refused, { exposeInternals: false })).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+    })
+  })
+
   it("matches the event's own text", async () => {
     if (!reachable) return
 

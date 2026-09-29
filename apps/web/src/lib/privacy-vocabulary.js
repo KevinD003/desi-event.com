@@ -77,7 +77,7 @@ const REQUEST_STATE_LABELS = Object.freeze({
 const REQUEST_STATE_DESCRIPTIONS = Object.freeze({
   REQUESTED:
     'Raised, with a confirmation phrase issued. Nothing has been changed and nothing will be until the phrase is typed back.',
-  QUEUED: 'Confirmed and waiting to run. No data has been changed yet.',
+  QUEUED: 'Confirmed and waiting to run. No data has been changed so far.',
   PROCESSING: 'Running now. Do not raise another request for this subject until it settles.',
   COMPLETED: 'Finished. See the outcome code for what was actually done.',
   HELD: 'Refused because a hold was active. Nothing was changed.',
@@ -113,7 +113,7 @@ const OUTCOME_LABELS = Object.freeze({
 
 /** What each `PrivacyHoldDecision` means. */
 const HOLD_DECISION_LABELS = Object.freeze({
-  NOT_EVALUATED: 'Not yet evaluated',
+  NOT_EVALUATED: 'Not evaluated',
   NONE_ACTIVE: 'No hold active',
   LEGAL_HOLD_ACTIVE: 'A legal hold is active',
   FRAUD_HOLD_ACTIVE: 'A fraud investigation hold is active',
@@ -189,14 +189,14 @@ const SCOPE_STATUS_LABELS = Object.freeze({
   NOTHING_TO_DO: 'Nothing of this kind',
   ALREADY_REDACTED: 'Already redacted',
   OUT_OF_SCOPE: 'Out of scope for this organisation',
-  DEFERRED: 'Not implemented yet',
+  DEFERRED: 'Not implemented',
 })
 
 /** The longer form, for the categories whose status is easy to misread. */
 const SCOPE_STATUS_DESCRIPTIONS = Object.freeze({
   OUT_OF_SCOPE:
     'This organisation may not change these rows. Most often the person is also known to another organisation, and erasing the shared account here would reach beyond this organisation.',
-  DEFERRED: 'The engine does not implement this category yet, so it will be left untouched.',
+  DEFERRED: 'The engine does not implement this category, so it will be left untouched.',
   ALREADY_REDACTED: 'These rows already carry placeholders, so a second run would change nothing.',
 })
 
@@ -374,7 +374,7 @@ export function requestStateLabel(state) {
 
 /** @param {string} state A `PrivacyRequestState`. @returns {string} What it means. */
 export function requestStateDescription(state) {
-  return REQUEST_STATE_DESCRIPTIONS[state] ?? 'This state has no description yet.'
+  return REQUEST_STATE_DESCRIPTIONS[state] ?? 'This state has no description.'
 }
 
 /** @param {string} reason A `PrivacyRequestReason`. @returns {string} Its label. */

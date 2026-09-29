@@ -141,7 +141,7 @@ export default async function CheckoutPage({ params }) {
           {ticketTypes.length === 0 ? (
             <EmptyState
               icon={<TicketIcon className="h-8 w-8" />}
-              title="Tickets are not on sale yet"
+              title="No tickets are on sale for this event"
               description="This event has no ticket tiers open, so there is nothing to choose here. The event page shows the tiers once there are some."
               className="bg-surface-raised"
               action={

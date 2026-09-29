@@ -8,9 +8,9 @@
  * as recorded so the page and the report cannot disagree about a word.
  *
  * Nothing here is "coming". A capability is listed because it is missing now,
- * and the page says what happens instead — a seated ticket stays with its
- * buyer, a door check-in needs a connection — rather than when it might
- * change, which nobody here can promise.
+ * and the page says what happens instead — an invitation code is handed over
+ * by whoever was shown it, a door check-in needs a connection — rather than
+ * when it might change, which nobody here can promise.
  *
  * The list itself is `lib/limitations.js`, so a test can hold it to the
  * recorded wording without rendering the page.
@@ -43,12 +43,21 @@ const LINK = TEXT_LINK
  */
 const ALSO = Object.freeze([
   {
-    key: 'seated',
-    text: 'Seated tiers are shown on an event’s page but are not sold here: there is no seat picker for buyers.',
+    key: 'verification',
+    text: (
+      <>
+        An organisation you{' '}
+        <Link href="/account/organizations/new" className={LINK}>
+          create for yourself
+        </Link>{' '}
+        starts unverified. Once you have set up two-step sign-in it can draft events, and it can
+        publish them only after the platform has verified it.
+      </>
+    ),
   },
   {
-    key: 'organisations',
-    text: 'Organiser accounts are set up by the platform. There is no way to create an organisation for yourself.',
+    key: 'promo',
+    text: 'A promo code takes its discount off the ticket prices, and the booking fee is then worked out on what is left.',
   },
   {
     key: 'tax',

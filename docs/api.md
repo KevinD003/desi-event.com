@@ -104,6 +104,14 @@ unprotected by forgetting to add one.
 `optional` is what lets an organiser see their own draft events from the same
 endpoint the public uses, and what lets a guest check out without an account.
 
+_Corrected 2026-09-29._ The contract's modes are `none`, `optional` and
+`session`, not `bearer`: a session is a server-side row, which a browser
+presents as an `HttpOnly` cookie and an API client as a bearer secret (the
+OpenAPI document declares both, `sessionCookie` and `bearerAuth`). The tables
+below that still say `bearer` mean `session`. The JWT examples above describe
+the Phase 1 API; `docs/SECURITY.md` ("Authentication") describes sessions as
+they are.
+
 ### Authorization
 
 Authentication establishes who; authorization is separate. Once the actor is
@@ -215,35 +223,59 @@ accident.
 
 ## Rate limits
 
-| Scope                                           | Budget                             |
-| ----------------------------------------------- | ---------------------------------- |
-| Global                                          | 300 requests per minute per client |
-| `POST /v1/auth/register`, `POST /v1/auth/login` | 10 per minute                      |
-| `/docs`                                         | Exempt                             |
+| Scope                                                                                                                                                                              | Budget                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Global                                                                                                                                                                             | 300 requests per minute per client                                            |
+| The credential routes: `auth.register`, `auth.login`, `auth.stepUp`, `auth.enrollTotp`, `auth.confirmTotp`, `auth.disableFactor`, `auth.changePassword` and the email-token routes | 10 per minute                                                                 |
+| `teams.invite`, `teams.reissueInvitation`, `teams.accept`                                                                                                                          | 10 per minute per account                                                     |
+| `organizations.create`                                                                                                                                                             | 5 attempts an hour per account, and at most 3 organisations a day per account |
+| Door lookups and admissions, single and group                                                                                                                                      | 120 per minute per account                                                    |
+| `tickets.pass`, `orders.groupPass`, `orders.rotateGroupPass`                                                                                                                       | 30 per minute per account                                                     |
+| `orders.quote`                                                                                                                                                                     | 30 per minute per account                                                     |
+| `events.addMedia`                                                                                                                                                                  | 20 per ten minutes per account, counted before the body is read               |
+| `media.get`                                                                                                                                                                        | 1,200 per minute per account or address, its own budget                       |
+| `/docs`                                                                                                                                                                            | Exempt                                                                        |
 
-The limiter currently uses an in-process store, so budgets are per API instance
-rather than per cluster.
+A 429 carries `Retry-After`. The limiter uses an in-process store, so budgets
+are per API instance rather than per cluster. Budgets keyed "per account" fall
+back to the client address for a request that has no session; every browser
+request reaches the API through the web app's same-origin proxy, which is why
+the per-account keys exist — keyed by address, the whole site would share one
+budget.
 
 ## Endpoints
 
-**134 operations across 19 tags.** This page describes the ones whose behaviour
+**164 operations across 22 tags.** This page describes the ones whose behaviour
 needs prose; the **generated OpenAPI document is authoritative** for the full
 list, its schemas and its error catalogue, and it cannot drift because
 `pnpm openapi:emit` regenerates it from the same descriptors the server
 validates with, and CI fails on a difference.
 
-| Tag          | Ops | Tag            | Ops |
-| ------------ | --- | -------------- | --- |
-| `events`     | 23  | `finance`      | 12  |
-| `auth`       | 18  | `privacy`      | 10  |
-| `venues`     | 12  | `tickets`      | 11  |
-| `operations` | 12  | `refunds`      | 7   |
-| `teams`      | 6   | `ticket-types` | 5   |
-| `organizers` | 4   | `holds`        | 3   |
-| `orders`     | 3   | `sessions`     | 2   |
-| `webhooks`   | 2   | `analytics`    | 2   |
-| `payments`   | 1   | `health`       | 1   |
-| `waitlist`   | 1   |                |     |
+| Tag           | Ops | Tag            | Ops |
+| ------------- | --- | -------------- | --- |
+| `events`      | 31  | `auth`         | 18  |
+| `tickets`     | 15  | `finance`      | 12  |
+| `operations`  | 12  | `venues`       | 12  |
+| `privacy`     | 10  | `organizers`   | 8   |
+| `teams`       | 8   | `refunds`      | 7   |
+| `orders`      | 6   | `ticket-types` | 6   |
+| `promo-codes` | 5   | `platform`     | 4   |
+| `holds`       | 3   | `analytics`    | 2   |
+| `sessions`    | 2   | `webhooks`     | 2   |
+| `health`      | 1   | `media`        | 1   |
+| `payments`    | 1   | `waitlist`     | 1   |
+
+> **Correction — 2026-09-29.** The total read "134 operations across 19
+> tags". The feature-completion work added thirty operations and three tags —
+> `platform` (four super-administrator routes), `promo-codes` (five organiser
+> routes) and `media` (`GET /v1/media/:id`, which serves a picture's bytes) — so
+> the total is **164** across **146** paths. The rows sum to 167, three more
+> than the total, because three routes carry two tags: `sessions.hold` as
+> before, and the group pass's `orders.groupPass` and `orders.rotateGroupPass`,
+> tagged `tickets` and `orders`. Counted from `apps/api/openapi.json` and
+> cross-checked against `apiRoutes.length`; `apps/api/tests/api-doc-counts.test.js`
+> holds this table, the headline and the list of multi-tagged routes to the
+> contract.
 
 > **Correction — 2026-09-21.** This table said "118 operations across 18 tags",
 > and three of its rows were wrong. `privacy` was a nineteenth tag with no row
@@ -427,11 +459,14 @@ error. Only a hold already converted into a paid order answers 409.
 
 ### Orders
 
-| Method | Path                    | Auth     | Purpose                                                                                                                                  |
-| ------ | ----------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/v1/orders`            | optional | Convert holds into a paid order. 201                                                                                                     |
-| GET    | `/v1/orders/:reference` | bearer   | Look an order up by its customer-facing reference, e.g. `DE-8F3K2Q`. Visible to the buyer, and to organisation members with `order:view` |
-| GET    | `/v1/orders`            | bearer   | The authenticated user's own orders, newest first                                                                                        |
+| Method | Path                                      | Auth     | Purpose                                                                                                                                  |
+| ------ | ----------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/orders`                              | optional | Convert holds into a paid order. 201                                                                                                     |
+| POST   | `/v1/orders/quote`                        | session  | Price a basket, holds and promo code without buying anything. Writes nothing                                                             |
+| GET    | `/v1/orders/:reference`                   | bearer   | Look an order up by its customer-facing reference, e.g. `DE-8F3K2Q`. Visible to the buyer, and to organisation members with `order:view` |
+| GET    | `/v1/orders`                              | bearer   | The authenticated user's own orders, newest first                                                                                        |
+| GET    | `/v1/orders/:reference/group-pass`        | session  | The buyer's one QR and printed code for every ticket on the order they still hold                                                        |
+| POST   | `/v1/orders/:reference/group-pass/rotate` | session  | Stop the current group pass working and derive a new one                                                                                 |
 
 ```bash
 curl -s http://127.0.0.1:4000/v1/orders \
@@ -456,21 +491,55 @@ Guest checkout is supported (`auth: optional`). The order becomes readable
 through `GET /v1/orders/:reference` once someone signs in with the email it was
 placed under.
 
+**The quote and the charge are one function.** `POST /v1/orders/quote` runs
+`priceCheckout` inside a read-only transaction and returns the subtotal, the
+discount and each line's share of it, fees, tax and the total. `POST /v1/orders`
+recomputes the same figures under lock; send the quote's `totalCents` as
+`expectedTotalCents`, and a different recomputed total is refused with 409
+`PRICE_CHANGED` before anything is written or charged. An unknown promo code is
+not an error on the quote — it answers `promo.applied: false` with a reason —
+so a buyer can fix a typo; the quote is signed-in only and rate-limited per
+account so it cannot be used to try codes at speed. A promo code is locked for
+the rest of the checkout and re-checked under the lock, so a code with one use
+left gives one discount however many buyers race for it.
+
+**Guest names.** `attendees` names the guests, one per ticket, all optional; a
+ticket nobody named carries the buyer's name. A name that is an email address
+is refused.
+
+**Hidden tiers and nights.** A hidden tier answers 404 like an unknown one
+unless the caller holds `ticketType:manage` in its organisation. A tier for one
+night is held to that night's sales window and capacity.
+
+**The group pass is the buyer's alone.** `GET …/group-pass` returns the QR
+content and the printed code to the account that bought the order and to
+nobody else: an organiser with `order:view`, a platform administrator, another
+account using the buyer's address and a guest order all get the same 404 as a
+reference nobody has used. It is created on first request and derived, never
+stored — the database holds SHA-256 digests only. It needs 2 to 50 tickets that
+still admit, a paid order and an event that is not cancelled (409 with a reason
+otherwise). A ticket handed on leaves the group when its transfer is accepted.
+Rotating it bumps the version, so the old QR and code match nothing; the
+response carries the new version and no secret. Both are rate-limited and never
+cached.
+
 ### Tickets
 
-| Method | Path                               | Auth   | Purpose                                                                                   |
-| ------ | ---------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
-| GET    | `/v1/tickets/admission/events`     | bearer | The events this account may admit to, and on what authority                               |
-| POST   | `/v1/tickets/admission/preview`    | bearer | Look a pass or printed code up at the door. Writes nothing to the ticket                  |
-| POST   | `/v1/tickets/check-in`             | bearer | Admit a previewed ticket, exactly once. Needs the preview's `previewReference`            |
-| GET    | `/v1/tickets`                      | bearer | The caller's own tickets                                                                  |
-| GET    | `/v1/tickets/:id`                  | bearer | One ticket, its event, and every transfer it has been through                             |
-| GET    | `/v1/tickets/:id/pass`             | bearer | The holder's own admission credential. Holder only, never cached, rate-limited            |
-| POST   | `/v1/tickets/:id/transfers`        | bearer | Offer a ticket to an email address                                                        |
-| POST   | `/v1/ticket-transfers/accept`      | bearer | Accept an offer, by its one-time token                                                    |
-| POST   | `/v1/ticket-transfers/decline`     | bearer | Decline an offer                                                                          |
-| POST   | `/v1/tickets/:id/transfers/cancel` | bearer | Withdraw an offer you made                                                                |
-| POST   | `/v1/tickets/:id/revoke`           | bearer | Withdraw a ticket, with a reason. Requires `ticket:revoke`, under an `OPERATIONS` step-up |
+| Method | Path                                   | Auth   | Purpose                                                                                   |
+| ------ | -------------------------------------- | ------ | ----------------------------------------------------------------------------------------- |
+| GET    | `/v1/tickets/admission/events`         | bearer | The events this account may admit to, and on what authority                               |
+| POST   | `/v1/tickets/admission/preview`        | bearer | Look a pass or printed code up at the door. Writes nothing to the ticket                  |
+| POST   | `/v1/tickets/check-in`                 | bearer | Admit a previewed ticket, exactly once. Needs the preview's `previewReference`            |
+| POST   | `/v1/tickets/admission/group/preview`  | bearer | Look a group pass or its printed `DEG-` code up. Writes nothing                           |
+| POST   | `/v1/tickets/admission/group/check-in` | bearer | Admit the named people from a previewed group, each exactly once                          |
+| GET    | `/v1/tickets`                          | bearer | The caller's own tickets                                                                  |
+| GET    | `/v1/tickets/:id`                      | bearer | One ticket, its event, and every transfer it has been through                             |
+| GET    | `/v1/tickets/:id/pass`                 | bearer | The holder's own admission credential. Holder only, never cached, rate-limited            |
+| POST   | `/v1/tickets/:id/transfers`            | bearer | Offer a ticket to an email address. In `MANUAL` delivery, returns the one-time code once  |
+| POST   | `/v1/ticket-transfers/accept`          | bearer | Accept an offer, by its one-time code (sent as `token`)                                   |
+| POST   | `/v1/ticket-transfers/decline`         | bearer | Decline an offer                                                                          |
+| POST   | `/v1/tickets/:id/transfers/cancel`     | bearer | Withdraw an offer you made                                                                |
+| POST   | `/v1/tickets/:id/revoke`               | bearer | Withdraw a ticket, with a reason. Requires `ticket:revoke`, under an `OPERATIONS` step-up |
 
 **Admission is preview, then confirm.** Both take exactly one of `credential`
 (the holder's secure pass, which the server hashes and looks up by digest) or
@@ -486,11 +555,31 @@ not an authorisation token.
 
 **Who may admit.** OWNER and ADMIN, to any event of their organisation.
 MANAGER, STAFF and SCANNER, only to events a door scope names (set with
-`PATCH /v1/organizations/:id/members/:memberId`). Platform roles, including
-`SUPER_ADMIN`, to none: door authority comes from a membership, and a
-platform attempt is refused and audited. A caller not authorised for the
-ticket's event receives the same 404 as a caller who presented nothing real.
-See [`CHECK_IN.md`](./CHECK_IN.md).
+`PATCH /v1/organizations/:id/members/:memberId`). A platform `SUPER_ADMIN`, to
+any event, on `PLATFORM_ROLE` authority, when no membership gives it one: every
+platform lookup and admission writes `ticket.admission_platform_authority` on
+the event, and the role is re-read inside the admitting transaction (ADR 0007).
+`SUPPORT`, `MODERATOR` and `FINANCE_ADMIN` admit nobody; an attempt is a 403
+and is audited. A caller not authorised for the ticket's event receives the
+same 404 as a caller who presented nothing real. For a super administrator,
+`GET /v1/tickets/admission/events` takes `organizationId` and `q`, is cut at
+the 100 events that start soonest, and says so in `meta.truncated`. See
+[`CHECK_IN.md`](./CHECK_IN.md).
+
+_Corrected 2026-09-29._ This paragraph said platform roles, `SUPER_ADMIN`
+included, admit to no event. ADR 0007 reverses that for `SUPER_ADMIN` alone.
+
+**A group pass admits the people at the door, not the order.** The group
+preview resolves the QR (`G1.` and 43 characters) or the printed code (`DEG-`
+and 12 characters) and lists every ticket on the order that its buyer still
+holds, each with the outcome a single lookup would give. The confirmation names
+the tickets being admitted now in `ticketIds`; each must have been admissible
+in the preview (else 409 `PREVIEW_MISMATCH`). A ticket already admitted is
+reported, not refused, so a retry is safe. If any named ticket stopped admitting
+for another reason, nobody is admitted and the answer is 409 `GROUP_CHANGED`.
+Each admission is the same exactly-once `CheckIn` a single ticket gets, with
+`CheckIn.groupPassId` set, and a database trigger refuses a group admission of
+a ticket on another order or one its buyer no longer holds.
 
 **The method is recorded, not chosen.** `QR_SCAN` when the secure pass was
 presented, `MANUAL_CODE` when the printed code was. The request schemas are
@@ -504,12 +593,24 @@ may not be admitted answers **409** with `error.reason` from
 `PREVIEW_EXPIRED`, …); a client branches on that, never on the message.
 
 **A transfer is an invitation, not a handover.** Offering does not move the
-ticket; the current holder can still walk in. Offers lapse after 72 hours. The
-one-time token is delivered out of band and **never appears in a response** —
-the database holds only its digest, and the screen that accepts it takes it as a
-pasted value in a request body rather than as a query parameter, because a
-secret in a URL survives in a history, a `Referer` and a proxy log long after it
-is spent.
+ticket; the current holder can still walk in. Offers lapse after 72 hours. How
+the one-time code reaches the recipient is `data.delivery.mode` (ADR 0008).
+With no delivery provider — `MANUAL`, this build — `data.delivery.invitationCode`
+carries it **once, in the 201 only**, sent `cache-control: no-store, private`;
+the sender passes it on themselves. With a provider (`EMAIL`) the field is
+`null`. The database holds only its digest, so nobody can be shown it again,
+and it is never logged, audited or put in the notification outbox. The screen
+that accepts it takes it as a pasted value in a request body rather than as a
+query parameter, because a secret in a URL survives in a history, a `Referer`
+and a proxy log long after it is spent. The recipient must be signed in at the
+offered address.
+
+A reserved seat is offered like any other ticket and goes with it: the old row
+keeps the seat as history and the new one holds it, and the database allows one
+live ticket per seat (ADR 0006).
+
+_Corrected 2026-09-29._ This paragraph said the token "never appears in a
+response". That assumed a delivery provider this build never had.
 
 **`GET /v1/tickets/:id` has two readers and branches in the handler.** The
 person holding the ticket asks whether it still gets them in; the organiser asks
@@ -689,6 +790,165 @@ Full reasoning: `docs/RETENTION_RUNBOOK.md`.
 
 The `eventId` in the path wins over any value in the body. Joining twice with
 the same email returns the existing entry rather than creating a duplicate.
+
+### Seats and nights
+
+| Method | Path                     | Auth     | Purpose                                                                                     |
+| ------ | ------------------------ | -------- | ------------------------------------------------------------------------------------------- |
+| GET    | `/v1/sessions/:id/seats` | optional | Every seat on sale at one night, by section and row, with its tiers, prices and seat limits |
+| POST   | `/v1/sessions/:id/holds` | optional | Hold a set of seats for a checkout. All or nothing. 201                                     |
+
+`GET /v1/events/:slug` lists the event's nights as `sessions`, each with its
+label, times, sales window, whether it has a seat map and how many seats a
+buyer could take now. The seat map says whether each seat is available and
+never why it is not; accessibility attributes are published to everybody,
+because somebody who needs an accessible seat has to be able to find one.
+
+A hold names seats and nothing else: price, tier, duration and whether the
+buyer may have them are decided server-side. An accessible seat takes its
+companion and a companion takes its accessible seat. Each seat is sold under
+the reserved tier that prices its zone, which must be of this night and on
+sale; the most seats one hold may take is the smallest of those tiers' limits,
+never above ten, and each tier's own minimum applies (422 `BELOW_MINIMUM`
+naming the tier). If somebody takes one of the seats first, none is reserved
+and the response says which seat went. Seats held by a lapsed hold are taken
+back first, unless an order is still waiting on that hold's payment.
+
+### Teams and organisations
+
+| Method | Path                                                  | Auth    | Purpose                                                                                      |
+| ------ | ----------------------------------------------------- | ------- | -------------------------------------------------------------------------------------------- |
+| POST   | `/v1/organizations`                                   | session | Create an organisation; the caller becomes its OWNER. 201                                    |
+| GET    | `/v1/organizations/:id`                               | session | The organisation's profile as its members see it. `organization:view_members`                |
+| POST   | `/v1/organizations/:id/invitations`                   | session | Invite an address to a role. `team:invite`. In `MANUAL` delivery, returns the code once. 201 |
+| POST   | `/v1/organizations/:id/invitations/:memberId/reissue` | session | Withdraw an invitation and issue a new code for it, in one transaction. 201                  |
+| POST   | `/v1/invitations/accept`                              | session | Join with a code, signed in as the invited address                                           |
+| POST   | `/v1/organizations/:id/ownership`                     | session | Hand ownership to another member. `organization:manage`, `SECURITY_ROLE` step-up             |
+| GET    | `/v1/moderation/organizations`                        | session | The verification queue. `moderation:review`                                                  |
+| GET    | `/v1/moderation/organizations/:id`                    | session | One organisation, with its verification history. `moderation:review`                         |
+
+**Anybody signed in may create an organisation, because of what a new one
+cannot do.** It starts `UNVERIFIED`: it may draft events but cannot publish or
+be paid until a moderator verifies it. The body has no field for verification
+state, badge, suspension, payout currency, contact address or owner — the
+server sets them, and the contact address is the creator's own account email,
+never shown publicly. OWNER is privileged, so creating one is a privilege
+change (NF-10): the caller's other sessions end, a cookie session gets a new
+secret, and `data.session` says whether a second factor must be set up before
+the workspace will answer.
+
+**Invitation codes are shown once** (ADR 0008). `teams.invite` and
+`teams.reissueInvitation` answer 201 with `data.delivery = { mode,
+invitationCode }`; in `MANUAL` the code is there once, `no-store`, and only its
+digest is kept. A member cannot invite somebody to a role carrying powers they
+lack, OWNER cannot be invited at all, and the database holds at most one live
+invitation per address, so two invitations issued at once give one invitation
+and one 409. Invitations lapse after 14 days. Accepting needs the caller to be
+signed in as the invited address, ends their other sessions and, for a
+privileged role, shortens the current one; `data.joined` is false when the
+account already belonged to the organisation.
+
+**Ownership moves as one swap.** The named member becomes OWNER and the caller
+ADMIN, with the owners locked, so there is never a moment with no owner or a
+second one nobody meant. The new owner's sessions all end.
+
+**The verification queue carries no contact address.** It opens on `PENDING`,
+oldest first. The decision itself is the existing
+`POST /v1/organizations/:id/verification/decision`, under a `SECURITY_ROLE`
+step-up.
+
+### Platform
+
+Four routes, all `platform:admin` (super administrators only). `platform:admin`
+is in `PLATFORM_ONLY_CAPABILITIES`, so none names an organisation scope.
+
+| Method | Path                                     | Step-up         | Purpose                                                                    |
+| ------ | ---------------------------------------- | --------------- | -------------------------------------------------------------------------- |
+| POST   | `/v1/platform/users/search`              | —               | Find accounts by email, name or exact id. A POST so the query is not a URL |
+| POST   | `/v1/platform/users/:id/role`            | `SECURITY_ROLE` | Change an account's platform role, with a written reason                   |
+| GET    | `/v1/platform/organizations`             | —               | Find organisations by name or slug, with member and owner counts           |
+| POST   | `/v1/platform/organizations/:id/members` | `SECURITY_ROLE` | Put an existing account into an organisation, OWNER included               |
+
+**Never the caller's own account** (403). A role change is made with every
+super administrator locked and the caller's own role re-read, so two
+administrators demoting each other at once cannot both succeed, and a change
+that would leave no super administrator is 422 `LAST_SUPER_ADMIN`. A grant
+refuses a suspended account and a change that would leave the organisation with
+no owner (422, decided with the owners locked); it creates no invitation. Both
+end every session the account holds in the same transaction, and both are
+audited with their reason. The search answers `no-store` and carries no
+credential, hash or factor.
+
+### Event authoring after publication
+
+| Method | Path                        | Auth    | Purpose                                                                     |
+| ------ | --------------------------- | ------- | --------------------------------------------------------------------------- |
+| GET    | `/v1/events/:id/tiers`      | session | Every tier, drafts and hidden ones included, with its night, zone and holds |
+| POST   | `/v1/events/:id/rework`     | session | Move a rejected event back to draft. `event:update`                         |
+| POST   | `/v1/events/:id/reschedule` | session | Bring a postponed event back with new dates. `EVENT_PUBLISH` step-up        |
+
+**A published event can still be edited.** `PATCH /v1/events/:id` on a live
+event (published, on sale, paused, sold out or postponed) treats a change to the
+date, time zone, venue, age limit, online status or policies as material: it
+needs `confirmMaterialChange: true` and a `changeReason`, and it queues a notice
+for every current order. The notice is recorded, not sent — this build sends no
+email. Everything else, the event page content included, is housekeeping. A
+live online event with no joining link is 422.
+
+**Tiers change under row locks.** A tier that has sold keeps its price (409
+`TIER_SOLD`), one with live holds keeps it too (409 `TIER_IN_USE`), and a
+quantity may be lowered only to what is sold and held (409
+`TIER_QUANTITY_BELOW_SOLD`). Two tiers on one event may not share a name, a
+complimentary tier is free and hidden, and a hidden tier is left off every
+public view. Removing the last night of a live event is 409 `LAST_SESSION`.
+
+**Reschedule is one transaction.** The event and the named nights move to their
+new dates, and the event returns to `PUBLISHED` or `ON_SALE`, so there is never
+a live event carrying the date it was postponed from. It takes the revision as
+a precondition (409 `STALE_REVISION`), a confirmation and a reason, and records
+one notice per current order.
+
+### Pictures
+
+| Method | Path                                | Auth     | Purpose                                                                     |
+| ------ | ----------------------------------- | -------- | --------------------------------------------------------------------------- |
+| GET    | `/v1/events/:id/media`              | session  | The cover and gallery as the organisation and a moderator see them          |
+| POST   | `/v1/events/:id/media`              | session  | Upload a cover or gallery picture. The body is the raw file. 201            |
+| PATCH  | `/v1/events/:id/media/:mediaId`     | session  | Describe a picture again                                                    |
+| PUT    | `/v1/events/:id/media/order`        | session  | Put the gallery in a new order                                              |
+| DELETE | `/v1/events/:id/media/:mediaId`     | session  | Remove a picture and its bytes                                              |
+| GET    | `/v1/media/:id`                     | optional | A picture's bytes: public once approved, otherwise only to its organisation |
+| POST   | `/v1/moderation/media/:id/decision` | session  | Take one picture down, or put it back. `MODERATION` step-up                 |
+
+The body of an upload is the file itself; `kind`, `altText` and `revision`
+travel in the query. The bytes decide the format — JPEG, PNG or WebP only, 415
+for anything else whatever it claims to be — and the picture is rebuilt from an
+allow-list of its format's structures, so camera and location details,
+comments, embedded thumbnails and trailing data do not survive. A new picture
+can be added only while the event is a draft or has changes requested, and is
+public only after a moderator approves the event. No storage path, uploader or
+scan detail is ever in a response. Full reasoning: [`MEDIA.md`](MEDIA.md) and
+ADR 0009.
+
+### Promo codes
+
+Five operations under `/v1/organizations/:id/promo-codes`, all `promo:manage`
+in the organisation (EVENT_MANAGER and up; FINANCE, VIEWER, STAFF and SCANNER
+are refused, because a code is a bearer discount, not report data).
+
+| Method | Path                                | Step-up        | Purpose                                                                |
+| ------ | ----------------------------------- | -------------- | ---------------------------------------------------------------------- |
+| GET    | `…/promo-codes`                     | —              | The organisation's codes with their computed status and use counts     |
+| POST   | `…/promo-codes`                     | `PROMO_ACTION` | Make a code: a percentage or a fixed amount off, optionally capped     |
+| POST   | `…/promo-codes/:promoCodeId/pause`  | —              | Stop it giving a discount. Orders already placed keep theirs           |
+| POST   | `…/promo-codes/:promoCodeId/resume` | `PROMO_ACTION` | Make a paused code live again. An ended code is 409 `PROMO_ENDED`      |
+| DELETE | `…/promo-codes/:promoCodeId`        | —              | Delete a code nobody has used and no order names (else `PROMO_IN_USE`) |
+
+Making a discount live changes what buyers pay, so making or resuming a code
+needs a second factor confirmed within `PROMO_ACTION` (ten minutes); pausing and
+deleting only reduce what is on offer. There is no general edit: pause a code
+and make a new one. A code applies to every event of the organisation or to one
+of its events. Audit rows never record the code's text.
 
 ## Calling the API from JavaScript
 

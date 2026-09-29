@@ -35,8 +35,7 @@ export const VERIFICATION_STATUSES = Object.freeze({
   UNVERIFIED: {
     label: 'Unverified',
     tone: 'neutral',
-    meaning:
-      'Nobody has asked for a check yet. Events can be drafted, but not published or paid for.',
+    meaning: 'Nobody has asked for a check. Events can be drafted, but not published or paid for.',
   },
   PENDING: {
     label: 'Waiting for a moderator',

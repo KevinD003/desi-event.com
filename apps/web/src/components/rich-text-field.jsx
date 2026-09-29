@@ -178,7 +178,7 @@ export function RichTextField({
           {value.trim() ? (
             <RichText text={value} />
           ) : (
-            <p className="text-ink-muted">Nothing written yet.</p>
+            <p className="text-ink-muted">Nothing written.</p>
           )}
         </div>
       ) : null}

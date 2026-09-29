@@ -199,7 +199,7 @@ export const TEMPLATES = Object.freeze({
       `We have received ${orderPhrase(data)}.`,
       eventLine(data),
       totalLine(data),
-      'Your tickets follow in a separate email as soon as they are issued.',
+      'Your tickets follow in a separate email once they are issued.',
     ],
   }),
 
@@ -231,7 +231,7 @@ export const TEMPLATES = Object.freeze({
 
   EVENT_REMINDER: (data) => ({
     subject: `Coming up: ${field(data, 'eventTitle', 'your event')}`,
-    heading: 'See you soon',
+    heading: 'See you there',
     lines: [
       `Hi ${field(data, 'buyerName', 'there')},`,
       eventLine(data),
@@ -300,7 +300,7 @@ export const TEMPLATES = Object.freeze({
     heading: 'The event has been postponed',
     lines: [
       'Hello,',
-      `${field(data, 'eventTitle', 'The event')} will no longer take place as planned.`,
+      `${field(data, 'eventTitle', 'The event')} will not take place on the date first announced.`,
       field(data, 'reason', ''),
       previousDateLine(data),
       `Your tickets from ${orderPhrase(data)} remain valid for the new date.`,

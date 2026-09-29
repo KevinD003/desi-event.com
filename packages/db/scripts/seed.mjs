@@ -316,7 +316,17 @@ export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
 // Static dataset
 // ---------------------------------------------------------------------------
 
-/** Users: one platform admin, the owners and staff of ten organisations, and attendees. */
+/**
+ * Users: one platform admin and one moderator, the owners and staff of eleven
+ * organisations, and attendees.
+ *
+ * No account is seeded with a second factor. The two platform accounts and
+ * every organiser with a privileged membership (owner, administrator, manager)
+ * must have one, so the API makes each of them set up two-step sign-in the
+ * first time they sign in, before any privileged page answers — a second
+ * factor sealed into a seed would be a shared secret printed in the
+ * repository.
+ */
 const USERS = [
   {
     key: 'admin',
@@ -325,6 +335,16 @@ const USERS = [
     role: 'SUPER_ADMIN',
     locale: 'en-US',
     phone: '+1 201 555 0100',
+    emailVerified: true,
+  },
+  // The verification queue and event reviews: moderation, and nothing else.
+  {
+    key: 'moderator',
+    email: 'moderator@desi-event.example',
+    displayName: 'Desi-Event Moderator',
+    role: 'MODERATOR',
+    locale: 'en-US',
+    phone: null,
     emailVerified: true,
   },
   // Mirrorwork Events, staffed on every role but VIEWER.
@@ -475,6 +495,17 @@ const USERS = [
     phone: '+1 972 555 0138',
     emailVerified: true,
   },
+  // Created Garden State Dandiya Club from the site and asked for it to be
+  // verified; it is waiting in the moderators' queue.
+  {
+    key: 'hemant',
+    email: 'hemant.parikh@gardenstatedandiya.example',
+    displayName: 'Hemant Parikh',
+    role: 'ORGANIZER',
+    locale: 'en-US',
+    phone: '+1 732 555 0139',
+    emailVerified: true,
+  },
   // Attendees.
   {
     key: 'aarav',
@@ -537,11 +568,18 @@ const STANDARD_REFUNDS =
   'Full refund up to seven days before the event. After that, tickets cannot be refunded but may be transferred to someone else.'
 
 /**
- * The ten organisations of the USA catalogue. All invented, all on `.example`
- * domains, all paid out in US dollars. Mirrorwork Events and Chaniya
- * Collective carry full teams so that every OrgRole is exercised; the rest
- * have an owner each. Liberty Bell Navratri is deliberately unverified, so the
- * public pages have an organiser without a badge to show honestly.
+ * The ten organisations of the USA catalogue, and one more waiting to be
+ * verified. All invented, all on `.example` domains, all paid out in US
+ * dollars. Mirrorwork Events and Chaniya Collective carry full teams so that
+ * every OrgRole is exercised; the rest have an owner each. Liberty Bell
+ * Navratri is deliberately unverified, so the public pages have an organiser
+ * without a badge to show honestly.
+ *
+ * Garden State Dandiya Club is the eleventh: created from the site by its
+ * owner, who then asked for it to be verified, so the moderators' queue has
+ * something in it. It has no events — until it is verified it could not
+ * publish one — and the web catalogue, which shows published events, has no
+ * copy of it.
  */
 const ORGANIZATIONS = [
   {
@@ -690,6 +728,27 @@ const ORGANIZATIONS = [
     refundPolicy:
       'Full refund up to five days before the event. If an event is cancelled, every ticket is refunded in full.',
     members: [{ userKey: 'riya', role: 'OWNER' }],
+  },
+  {
+    key: 'garden-state',
+    id: seedId('seed-org-garden-state-dandiya-club'),
+    slug: 'garden-state-dandiya-club',
+    name: 'Garden State Dandiya Club',
+    description: 'A volunteer-run dandiya club planning Navratri nights in New Brunswick.',
+    contactEmail: 'hello@gardenstatedandiya.example',
+    websiteUrl: 'https://gardenstatedandiya.example',
+    verificationStatus: 'PENDING',
+    timezone: EASTERN,
+    refundPolicy: STANDARD_REFUNDS,
+    members: [{ userKey: 'hemant', role: 'OWNER' }],
+    // Made from the site, so it records who made it, and what they wrote when
+    // they asked for the check.
+    createdByKey: 'hemant',
+    legalName: 'Garden State Dandiya Club Inc.',
+    verificationRequest: {
+      submittedDays: -2,
+      note: 'We are a volunteer club in New Brunswick, New Jersey, and run two dandiya nights each Navratri. Our website lists the committee.',
+    },
   },
 ]
 
@@ -880,9 +939,19 @@ const VENUES = [
  * page's "Only N left" shows against a live database, with the same N the web
  * catalogue's fallback shows (150 less 138 sold, and 300 less 281).
  *
- * The web catalogue's seated balcony tier is not seeded. A reserved tier sells
- * named seats from a seating map and a price zone, which this seed does not
- * build; the end-to-end seeds cover reserved seating properly.
+ * Two events carry more than one row of their own. The Nine Nights Season
+ * Pass lists its nine nights (`nights`), labelled as the web catalogue labels
+ * them; its passes name no night, so they are good for every one. The live-band
+ * night sells its balcony seat by seat: `seatMap` names the published plan in
+ * {@link SEAT_MAPS} its one session sells, and the tier marked `reserved`
+ * prices that plan's zone, with every seat in it bound to the tier and
+ * available. Nothing is sold from it here, so no order has to agree with a
+ * seat.
+ *
+ * The live-band night also carries the event page's own content — line-up,
+ * running order, questions, dress code and a public contact — the same as the
+ * web catalogue's copy of it, so the page shows every section against a live
+ * database too.
  */
 const EVENTS = [
   {
@@ -1095,6 +1164,8 @@ const EVENTS = [
     isOnline: false,
     publishedDays: -42,
     currency: 'USD',
+    // One session a night, from the first evening: see the note above EVENTS.
+    nights: 9,
     ticketTypes: [
       {
         key: 'nine-nights-season',
@@ -1374,6 +1445,39 @@ const EVENTS = [
     isOnline: false,
     publishedDays: -36,
     currency: 'USD',
+    // The balcony: see the note above EVENTS and SEAT_MAPS.
+    seatMap: 'lamplight-balcony',
+    // The page's own content, as the web catalogue's copy of this event has it.
+    content: {
+      artists: ['The Mirrorwork Ensemble'],
+      performers: [
+        {
+          name: 'The Mirrorwork Ensemble',
+          role: 'Dhol, tabla, harmonium, shehnai and three singers',
+          bio: 'The band behind Mirrorwork Events’ Navratri nights, playing the garba and folk songs of the season arranged for listening as well as dancing.',
+        },
+      ],
+      runningOrder: [
+        { time: '19:00', title: 'Doors open', note: 'Food and drink in the lobby.' },
+        { time: '19:30', title: 'First half', note: null },
+        { time: '20:30', title: 'Interval', note: null },
+        { time: '20:50', title: 'Second half', note: 'The standing floor is open for garba.' },
+      ],
+      faq: [
+        {
+          question: 'Can I dance in the balcony?',
+          answer:
+            'The balcony is seated, for listening. The standing floor is open to anyone who wants to dance.',
+        },
+        {
+          question: 'Can I bring food onto the dance floor?',
+          answer: 'Food and drink are served in the lobby and stay off the dance floor.',
+        },
+      ],
+      socialLinks: { website: 'https://mirrorwork.example' },
+      dressCode: 'Whatever you can dance in. Traditional dress is welcome and never required.',
+      publicContactEmail: 'tickets@mirrorwork.example',
+    },
     ticketTypes: [
       {
         key: 'live-band-floor',
@@ -1387,6 +1491,22 @@ const EVENTS = [
         salesEndDays: 22,
         status: 'ON_SALE',
         sortOrder: 0,
+      },
+      {
+        key: 'live-band-balcony',
+        name: 'Balcony — Reserved Seating',
+        description: 'A numbered seat in the balcony.',
+        priceCents: 6500,
+        // Sold seat by seat: its allocation is the seats in its zone, counted
+        // from the plan rather than written here.
+        reserved: true,
+        quantityTotal: null,
+        minPerOrder: 1,
+        maxPerOrder: 8,
+        salesStartDays: -36,
+        salesEndDays: 22,
+        status: 'ON_SALE',
+        sortOrder: 1,
       },
     ],
   },
@@ -1990,7 +2110,37 @@ const EVENTS = [
   },
 ]
 
-/** Promo codes of both types, one organisation-wide and one event-scoped each. */
+/**
+ * Published seat plans, each drawn once and then frozen.
+ *
+ * A published map version cannot be changed or deleted — the database refuses
+ * it by trigger — so the writer draws a plan only when its version is absent,
+ * and afterwards checks the kept one is the plan described here rather than
+ * rewriting it. Every seat is in the plan's one price zone.
+ *
+ * The Lamplight Expo Hall balcony: three rows of eight, A1 to C8.
+ */
+const SEAT_MAPS = [
+  {
+    key: 'lamplight-balcony',
+    venueKey: 'lamplight',
+    name: 'Balcony',
+    section: 'Balcony',
+    zone: 'Balcony',
+    rows: [
+      ['A', 8],
+      ['B', 8],
+      ['C', 8],
+    ],
+    publishedDays: -40,
+  },
+]
+
+/**
+ * Promo codes of both types, one organisation-wide and one event-scoped each,
+ * and one for the live-band night, whose balcony is sold through the seat
+ * picker.
+ */
 const PROMO_CODES = [
   {
     key: 'navratri10',
@@ -2033,6 +2183,20 @@ const PROMO_CODES = [
     maxRedemptions: 100,
     startsDays: -25,
     endsDays: 19,
+    active: true,
+  },
+  {
+    key: 'bandnight5',
+    id: seedId('seed-promo-bandnight5'),
+    orgKey: 'mirrorwork',
+    eventKey: 'live-band',
+    code: 'BANDNIGHT5',
+    type: 'FIXED_AMOUNT',
+    currency: 'USD',
+    value: 500,
+    maxRedemptions: 50,
+    startsDays: -10,
+    endsDays: 22,
     active: true,
   },
   {
@@ -2339,19 +2503,50 @@ export function buildSeedData(now = new Date()) {
   }))
   const userByKey = new Map(users.map((user) => [user.key, user]))
 
-  const organizations = ORGANIZATIONS.map((org) => ({
-    ...org,
-    // Derived from the verification state rather than written beside it, so the
-    // denormalised column and the state the public badge reads cannot disagree.
-    verified: org.verificationStatus === 'VERIFIED',
-    payoutCurrency: 'USD',
-    members: org.members.map((member) => {
-      const user = userByKey.get(member.userKey)
-      if (!user) throw new Error(`Unknown user key "${member.userKey}" in org "${org.key}"`)
-      return { email: user.email, role: member.role }
-    }),
-  }))
+  const organizations = ORGANIZATIONS.map((org) => {
+    const { createdByKey, verificationRequest, ...rest } = org
+    const creator = createdByKey ? userByKey.get(createdByKey) : null
+    if (createdByKey && !creator) {
+      throw new Error(`Unknown user key "${createdByKey}" as creator of org "${org.key}"`)
+    }
+
+    return {
+      ...rest,
+      // Derived from the verification state rather than written beside it, so the
+      // denormalised column and the state the public badge reads cannot disagree.
+      verified: org.verificationStatus === 'VERIFIED',
+      payoutCurrency: 'USD',
+      legalName: org.legalName ?? null,
+      createdByEmail: creator ? creator.email : null,
+      // When the state last moved: the queue is ordered by it, oldest first.
+      verificationUpdatedAt: verificationRequest
+        ? offset(anchor, verificationRequest.submittedDays, 14)
+        : null,
+      members: org.members.map((member) => {
+        const user = userByKey.get(member.userKey)
+        if (!user) throw new Error(`Unknown user key "${member.userKey}" in org "${org.key}"`)
+        return { email: user.email, role: member.role }
+      }),
+    }
+  })
   const orgById = new Map(organizations.map((org) => [org.key, org]))
+
+  // The step that put each waiting organisation in the queue, written as the
+  // submit route writes it: from UNVERIFIED to PENDING, by its owner, with the
+  // note they left for the moderator.
+  const verificationEvents = ORGANIZATIONS.filter((org) => org.verificationRequest).map((org) => {
+    const owner = org.members.find((member) => member.role === 'OWNER')
+
+    return {
+      id: seedId(`seed-verification-${org.key}-submitted`),
+      organizationId: org.id,
+      fromStatus: 'UNVERIFIED',
+      toStatus: 'PENDING',
+      actorEmail: userByKey.get(owner.userKey).email,
+      reason: org.verificationRequest.note,
+      createdAt: offset(anchor, org.verificationRequest.submittedDays, 14),
+    }
+  })
 
   const venues = VENUES.map((venue) => ({
     ...venue,
@@ -2405,9 +2600,115 @@ export function buildSeedData(now = new Date()) {
       cancellationReason: event.status === 'CANCELLED' ? event.cancellationReason : null,
       currency: event.currency,
       venueCountry: event.venueKey ? venueById.get(event.venueKey).country : null,
+      // The page's own content, where an event has it: only the columns it
+      // names, which the writer sets; every other column is left as it is. A
+      // JSON column is never written as null here, because Prisma would store
+      // JSON's `null` rather than no value, and the shape CHECKs refuse that.
+      content: event.content ? { ...event.content } : null,
     }
   })
   const eventByKey = new Map(events.map((event) => [event.key, event]))
+
+  // Seat plans: one section, lettered rows, every seat in the one zone.
+  const seatMaps = SEAT_MAPS.map((plan) => {
+    const venue = venueById.get(plan.venueKey)
+    if (!venue) throw new Error(`Unknown venue key "${plan.venueKey}" on seat map "${plan.key}"`)
+
+    const zoneId = seedId(`seed-zone-${plan.key}`)
+    const rows = plan.rows.map(([label, count], rowIndex) => ({
+      id: seedId(`seed-seat-row-${plan.key}-${label}`),
+      label,
+      sortOrder: rowIndex,
+      seats: Array.from({ length: count }, (_, index) => ({
+        id: seedId(`seed-seat-${plan.key}-${label}${index + 1}`),
+        label: `${label}${index + 1}`,
+        sortOrder: rowIndex * 100 + index + 1,
+        priceZoneId: zoneId,
+      })),
+    }))
+    const seats = rows.flatMap((row) => row.seats)
+
+    return {
+      key: plan.key,
+      id: seedId(`seed-map-${plan.key}`),
+      venueId: venue.id,
+      name: plan.name,
+      version: {
+        id: seedId(`seed-map-version-${plan.key}-1`),
+        number: 1,
+        publishedAt: offset(anchor, plan.publishedDays, 9),
+        seatCount: seats.length,
+      },
+      section: { id: seedId(`seed-section-${plan.key}`), name: plan.section, kind: 'SEATED' },
+      zone: { id: zoneId, name: plan.zone },
+      rows,
+      seats,
+    }
+  })
+  const seatMapByKey = new Map(seatMaps.map((plan) => [plan.key, plan]))
+
+  // Sessions: one a night for a run of nights, or the one evening a seated
+  // event sells its plan on. Other events have none, as before.
+  /** @type {object[]} */
+  const eventSessions = []
+  for (const source of EVENTS) {
+    const event = eventByKey.get(source.key)
+    const days =
+      source.weekday === undefined
+        ? source.days
+        : onOrAfterWeekday(anchor, source.days, source.weekday)
+
+    if (source.nights) {
+      for (let night = 0; night < source.nights; night += 1) {
+        // Doors at 19:00, the start at 19:30 and the end five hours later,
+        // local time — the web catalogue's nights, to the minute.
+        const startsAt = localTime(anchor, days + night, source.timezone, 19, 30)
+
+        eventSessions.push({
+          key: `${source.key}-night-${night + 1}`,
+          id: seedId(`seed-session-${source.key}-night-${night + 1}`),
+          eventId: event.id,
+          eventKey: source.key,
+          label: `Night ${night + 1}`,
+          doorsOpenAt: localTime(anchor, days + night, source.timezone, 19, 0),
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 5 * HOUR_MS),
+          timezone: source.timezone,
+          status: 'SCHEDULED',
+          venueMapVersionId: null,
+          seatMapKey: null,
+          sortOrder: night,
+        })
+      }
+    }
+
+    if (source.seatMap) {
+      const plan = seatMapByKey.get(source.seatMap)
+      if (!plan) throw new Error(`Unknown seat map "${source.seatMap}" on event "${source.key}"`)
+
+      eventSessions.push({
+        key: `${source.key}-evening`,
+        id: seedId(`seed-session-${source.key}-evening`),
+        eventId: event.id,
+        eventKey: source.key,
+        // One evening: the page needs no name to tell it from another.
+        label: null,
+        doorsOpenAt: new Date(event.startsAt.getTime() - 30 * MINUTE_MS),
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        timezone: source.timezone,
+        status: 'SCHEDULED',
+        venueMapVersionId: plan.version.id,
+        seatMapKey: plan.key,
+        sortOrder: 0,
+      })
+    }
+  }
+  const seatedSessionByEventKey = new Map(
+    eventSessions
+      .filter((session) => session.seatMapKey)
+      .map((session) => [session.eventKey, session]),
+  )
 
   /** @type {Map<string, object>} */
   const ticketTypeByKey = new Map()
@@ -2417,6 +2718,14 @@ export function buildSeedData(now = new Date()) {
       if (ticketTypeByKey.has(ticketType.key)) {
         throw new Error(`Duplicate ticket type key "${ticketType.key}"`)
       }
+      // A reserved tier sells the seats of its event's seated session, in the
+      // plan's one zone, and is allocated exactly those.
+      const session = ticketType.reserved ? seatedSessionByEventKey.get(source.key) : null
+      if (ticketType.reserved && !session) {
+        throw new Error(`Reserved ticket type "${ticketType.key}" has no seated session`)
+      }
+      const plan = session ? seatMapByKey.get(session.seatMapKey) : null
+
       ticketTypeByKey.set(ticketType.key, {
         key: ticketType.key,
         id: seedId(`seed-tt-${ticketType.key}`),
@@ -2426,7 +2735,10 @@ export function buildSeedData(now = new Date()) {
         description: ticketType.description ?? null,
         priceCents: ticketType.priceCents,
         currency: event.currency,
-        quantityTotal: ticketType.quantityTotal,
+        reserved: Boolean(ticketType.reserved),
+        eventSessionId: session ? session.id : null,
+        priceZoneId: plan ? plan.zone.id : null,
+        quantityTotal: plan ? plan.seats.length : ticketType.quantityTotal,
         quantitySold: 0,
         minPerOrder: ticketType.minPerOrder,
         maxPerOrder: ticketType.maxPerOrder,
@@ -2659,6 +2971,25 @@ export function buildSeedData(now = new Date()) {
     return promo
   })
 
+  // Every seat of each seated session, bound to the reserved tier that prices
+  // its zone and on sale — what `bindReservedSeats` does when sales open.
+  const eventSeats = ticketTypes
+    .filter((type) => type.reserved)
+    .flatMap((type) => {
+      const session = eventSessions.find((candidate) => candidate.id === type.eventSessionId)
+      const plan = seatMapByKey.get(session.seatMapKey)
+
+      return plan.seats
+        .filter((seat) => seat.priceZoneId === type.priceZoneId)
+        .map((seat) => ({
+          id: seedId(`seed-event-seat-${session.key}-${seat.label}`),
+          eventSessionId: session.id,
+          seatId: seat.id,
+          ticketTypeId: type.id,
+          status: 'AVAILABLE',
+        }))
+    })
+
   const waitlist = WAITLIST.map((entry, index) => {
     const event = eventByKey.get(entry.eventKey)
     if (!event) throw new Error(`Unknown event key "${entry.eventKey}" on waitlist entry ${index}`)
@@ -2716,9 +3047,13 @@ export function buildSeedData(now = new Date()) {
     anchor,
     users,
     organizations,
+    verificationEvents,
     venues,
+    seatMaps,
     events,
+    eventSessions,
     ticketTypes,
+    eventSeats,
     promoCodes,
     orders,
     waitlist,
@@ -2734,6 +3069,102 @@ export function buildSeedData(now = new Date()) {
 // written as a bare name rather than `import('@prisma/client').PrismaClient`
 // because the repository's shared ESLint config runs eslint-plugin-jsdoc in
 // standard `jsdoc` mode, which rejects TypeScript-style import types.
+
+/**
+ * Write one seat plan, once.
+ *
+ * A published version is frozen by trigger: its sections, rows, seats and
+ * zones cannot change and it cannot be deleted. So a plan whose version is
+ * already published is checked against this one and left alone, and one that
+ * was never published — a run that stopped part-way — is removed and drawn
+ * again, which a draft allows. Everything is keyed on seed ids, so no plan an
+ * organiser drew is ever touched.
+ *
+ * @param {PrismaClient} prisma Client to write through.
+ * @param {object} plan One entry of `seatMaps` from {@link buildSeedData}.
+ * @returns {Promise<void>}
+ * @throws {Error} When a kept, published version is not the plan described here.
+ */
+async function writeSeatMap(prisma, plan) {
+  const map = await prisma.venueMap.findUnique({ where: { id: plan.id }, select: { id: true } })
+
+  if (!map) {
+    await prisma.venueMap.create({ data: { id: plan.id, venueId: plan.venueId, name: plan.name } })
+  }
+
+  const kept = await prisma.venueMapVersion.findUnique({
+    where: { id: plan.version.id },
+    select: { id: true, publishedAt: true, _count: { select: { seats: true } } },
+  })
+
+  if (kept?.publishedAt) {
+    if (kept._count.seats !== plan.seats.length) {
+      throw new Error(
+        `Seat plan "${plan.key}" is published with ${kept._count.seats} seats, not ${plan.seats.length}; reset the database to redraw it.`,
+      )
+    }
+
+    return
+  }
+
+  // A draft left by a run that stopped part-way: a draft may still be deleted.
+  if (kept) await prisma.venueMapVersion.delete({ where: { id: kept.id } })
+
+  const versionId = plan.version.id
+
+  await prisma.venueMapVersion.create({
+    data: {
+      id: versionId,
+      venueMapId: plan.id,
+      version: plan.version.number,
+      seatCount: plan.seats.length,
+    },
+  })
+  await prisma.section.create({
+    data: {
+      id: plan.section.id,
+      venueMapVersionId: versionId,
+      name: plan.section.name,
+      kind: plan.section.kind,
+    },
+  })
+  await prisma.priceZone.create({
+    data: { id: plan.zone.id, venueMapVersionId: versionId, name: plan.zone.name },
+  })
+
+  for (const row of plan.rows) {
+    await prisma.seatRow.create({
+      data: {
+        id: row.id,
+        venueMapVersionId: versionId,
+        sectionId: plan.section.id,
+        label: row.label,
+        sortOrder: row.sortOrder,
+      },
+    })
+
+    for (const seat of row.seats) {
+      await prisma.seat.create({
+        data: {
+          id: seat.id,
+          venueMapVersionId: versionId,
+          sectionId: plan.section.id,
+          rowId: row.id,
+          label: seat.label,
+          sortOrder: seat.sortOrder,
+          priceZoneId: seat.priceZoneId,
+        },
+      })
+    }
+  }
+
+  // The freeze, last: from here the layout cannot change, and a session may
+  // sell it.
+  await prisma.venueMapVersion.update({
+    where: { id: versionId },
+    data: { publishedAt: plan.version.publishedAt },
+  })
+}
 
 /**
  * Write the dataset produced by {@link buildSeedData} to PostgreSQL.
@@ -2798,6 +3229,11 @@ export async function writeSeedData(prisma, data) {
       // Both default to India in the schema, from before the catalogue moved.
       timezone: org.timezone,
       refundPolicy: org.refundPolicy,
+      // Only an organisation made from the site, and waiting on a check, says
+      // who made it and when it asked; the others leave these as they are.
+      ...(org.createdByEmail ? { createdById: userIdByEmail.get(org.createdByEmail) } : {}),
+      ...(org.legalName ? { legalName: org.legalName } : {}),
+      ...(org.verificationUpdatedAt ? { verificationUpdatedAt: org.verificationUpdatedAt } : {}),
     }
     const row = await prisma.organization.upsert({
       where: { slug: org.slug },
@@ -2828,6 +3264,22 @@ export async function writeSeedData(prisma, data) {
     }
   }
 
+  for (const step of data.verificationEvents) {
+    const fields = {
+      organizationId: real(step.organizationId),
+      fromStatus: step.fromStatus,
+      toStatus: step.toStatus,
+      actorId: userIdByEmail.get(step.actorEmail) ?? null,
+      reason: step.reason,
+      createdAt: step.createdAt,
+    }
+    await prisma.organizationVerificationEvent.upsert({
+      where: { id: step.id },
+      update: fields,
+      create: { id: step.id, ...fields },
+    })
+  }
+
   for (const venue of data.venues) {
     const fields = {
       // A venue with no slug has no public page and is left out of the venue
@@ -2854,6 +3306,10 @@ export async function writeSeedData(prisma, data) {
     })
   }
 
+  for (const plan of data.seatMaps) {
+    await writeSeatMap(prisma, plan)
+  }
+
   for (const event of data.events) {
     const fields = {
       organizationId: real(event.organizationId),
@@ -2875,6 +3331,7 @@ export async function writeSeedData(prisma, data) {
       previousStartsAt: event.previousStartsAt,
       cancelledAt: event.cancelledAt,
       cancellationReason: event.cancellationReason,
+      ...(event.content ?? {}),
     }
     const eventRow = await prisma.event.upsert({
       where: { slug: event.slug },
@@ -2886,6 +3343,26 @@ export async function writeSeedData(prisma, data) {
     // Same reasoning as organizations: the slug matched an existing row, whose
     // id is authoritative regardless of what this run computed.
     realId.set(event.id, eventRow.id)
+  }
+
+  // Sessions after their events and seat plans, before the tiers that name them.
+  for (const session of data.eventSessions) {
+    const fields = {
+      eventId: real(session.eventId),
+      label: session.label,
+      doorsOpenAt: session.doorsOpenAt,
+      startsAt: session.startsAt,
+      endsAt: session.endsAt,
+      timezone: session.timezone,
+      status: session.status,
+      venueMapVersionId: session.venueMapVersionId,
+      sortOrder: session.sortOrder,
+    }
+    await prisma.eventSession.upsert({
+      where: { id: session.id },
+      update: fields,
+      create: { id: session.id, ...fields },
+    })
   }
 
   // Promo codes are written before orders because orders reference them.
@@ -2933,11 +3410,38 @@ export async function writeSeedData(prisma, data) {
       salesEndAt: ticketType.salesEndAt,
       status: ticketType.status,
       sortOrder: ticketType.sortOrder,
+      // A reserved tier names its session and zone; the others leave both unset.
+      ...(ticketType.reserved
+        ? {
+            reserved: true,
+            eventSessionId: ticketType.eventSessionId,
+            priceZoneId: ticketType.priceZoneId,
+          }
+        : {}),
     }
     await prisma.ticketType.upsert({
       where: { id: ticketType.id },
       update: fields,
       create: { id: ticketType.id, ...fields },
+    })
+  }
+
+  // Seats on sale for each seated session. A seat that is already there is left
+  // exactly as it is: a re-run must not put a seat somebody has bought back on
+  // sale.
+  for (const seat of data.eventSeats) {
+    await prisma.eventSeat.upsert({
+      where: {
+        eventSessionId_seatId: { eventSessionId: seat.eventSessionId, seatId: seat.seatId },
+      },
+      update: {},
+      create: {
+        id: seat.id,
+        eventSessionId: seat.eventSessionId,
+        seatId: seat.seatId,
+        ticketTypeId: seat.ticketTypeId,
+        status: seat.status,
+      },
     })
   }
 
@@ -3090,7 +3594,10 @@ export async function writeSeedData(prisma, data) {
     organizations: data.organizations.length,
     memberships: membershipCount,
     venues: data.venues.length,
+    seatMaps: data.seatMaps.length,
     events: data.events.length,
+    eventSessions: data.eventSessions.length,
+    eventSeats: data.eventSeats.length,
     ticketTypes: data.ticketTypes.length,
     promoCodes: data.promoCodes.length,
     orders: data.orders.length,
@@ -3116,7 +3623,10 @@ export async function countRows(prisma) {
     organizations,
     memberships,
     venues,
+    seats,
     events,
+    eventSessions,
+    eventSeats,
     ticketTypes,
     ticketHolds,
     promoCodes,
@@ -3131,7 +3641,10 @@ export async function countRows(prisma) {
     prisma.organization.count(),
     prisma.membership.count(),
     prisma.venue.count(),
+    prisma.seat.count(),
     prisma.event.count(),
+    prisma.eventSession.count(),
+    prisma.eventSeat.count(),
     prisma.ticketType.count(),
     prisma.ticketHold.count(),
     prisma.promoCode.count(),
@@ -3148,7 +3661,10 @@ export async function countRows(prisma) {
     organizations,
     memberships,
     venues,
+    seats,
     events,
+    eventSessions,
+    eventSeats,
     ticketTypes,
     ticketHolds,
     promoCodes,

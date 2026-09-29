@@ -115,7 +115,7 @@ export function RepeatableList({
       {description ? <p className="text-sm text-ink-muted">{description}</p> : null}
 
       {rows.length === 0 ? (
-        <p className="text-sm text-ink-muted">None yet.</p>
+        <p className="text-sm text-ink-muted">None added.</p>
       ) : (
         <ol ref={list} className="space-y-3">
           {rows.map((row, index) => (

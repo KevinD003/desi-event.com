@@ -31,6 +31,16 @@ would send the cookie anyway.
 **Rate limiting** is global, with a tighter per-route limit on the auth
 endpoints and on team invitations — the two surfaces where guessing pays.
 
+_Updated 2026-09-29._ More surfaces now have their own budget: team invitations,
+reissued codes and acceptances (10 a minute per account), organisation creation
+(5 attempts an hour and 3 organisations a day per account), door lookups and
+admissions, single and group (120 a minute), pass and group-pass retrieval (30 a
+minute), checkout quotes (30 a minute per account), picture uploads (20 per ten
+minutes, counted before the body is read) and picture reads (their own budget).
+The keys are per account where a session exists, because every browser request
+reaches the API through one same-origin proxy address. The table is in
+`docs/api.md` ("Rate limits").
+
 ---
 
 ## Multi-factor authentication
@@ -182,6 +192,69 @@ Finding NF-10. Granting or removing a role, changing a password, enrolling or
 removing a factor — each rotates or revokes the affected sessions, so a
 privilege that was taken away is taken away from the tab that already has it.
 
+_Extended 2026-09-29._ Every route that can grant or move a role now does the
+same, through `apps/api/src/lib/privilege-change.js` and a new revocation
+reason, `ROLE_CHANGED`, which ends every session:
+
+- **Authority gained by the caller** — creating an organisation (the creator
+  becomes OWNER) or accepting a team invitation: every _other_ session of
+  theirs ends, the current one is shortened to the new role's lifetime, and a
+  cookie session gets a new secret. A privileged role then needs a verified
+  second factor before any guarded route answers (NF-12).
+- **Authority changed for somebody else** — a platform role change, a direct
+  membership grant, being handed ownership: every session of theirs ends,
+  inside the transaction that made the change.
+
+### An organisation always has an owner
+
+Four routes can take OWNER away from somebody: a role change, a removal, an
+ownership transfer and the platform's direct grant. Each locks every owner
+membership of the organisation `FOR UPDATE`, ordered by id, and then the target
+row, and only then counts owners and re-reads the target
+(`apps/api/src/lib/memberships.js`). Under READ COMMITTED, two demotions of two
+different owners would otherwise each count two and both proceed, leaving none.
+`apps/api/tests/platform-roles-integration.test.js` races them against real
+PostgreSQL: two owners demoting each other, a removal or demotion waiting on a
+transfer, a transfer whose heir is removed while it waits, and two grants to one
+newcomer.
+
+### Platform roles
+
+Six platform roles — `ATTENDEE`, `ORGANIZER`, `SUPPORT`, `MODERATOR`,
+`FINANCE_ADMIN`, `SUPER_ADMIN` — changed only by a super administrator
+(`platform:admin`) through `POST /v1/platform/users/:id/role`:
+
+- a second factor confirmed within `SECURITY_ROLE` (two minutes) and a written
+  reason, recorded on the audit row;
+- never the caller's own account (403), because promoting yourself is the
+  attack and demoting yourself is how a platform ends up with nobody at the top;
+- every super administrator is locked and the caller's role re-read before the
+  change, so two administrators demoting each other at once cannot both
+  succeed, and a change that would leave none is 422 `LAST_SUPER_ADMIN`;
+- every session of the target ends in the same transaction.
+
+The account search is a POST, so an email address never reaches an access log
+or a browser history; it answers `no-store` and carries no credential, hash or
+factor. The direct membership grant follows the same rules and refuses a
+suspended account. The role tables stay on the server: the bundle scan forbids
+`PLATFORM_ROLE_CAPABILITIES`, `ORG_ROLE_GRANTS` and `platform:admin` in any
+browser artefact.
+
+A platform `SUPER_ADMIN` may also admit at any event's door, recorded as its
+own authority on the event's audit trail; every other platform role is refused
+at the door and audited (ADR 0007, `docs/CHECK_IN.md`).
+
+### An organisation anybody can create
+
+`POST /v1/organizations` is open to any signed-in account, because a new
+organisation starts `UNVERIFIED` and cannot publish or be paid until a
+moderator verifies it. The request body has no field for verification state,
+badge, suspension, payout currency, contact address, owner or creator — the
+schema names five fields and strips every other key before the handler sees
+it, the server sets the rest, and a contract test refuses the verification and
+suspension keys in any request schema. It is limited per account (5 attempts an hour, 3 organisations a day,
+the second counted with the creator's user row locked).
+
 ### Colleagues' addresses on the team list
 
 `GET /v1/organizations/:id/members` needs `organization:view_members`, which
@@ -311,6 +384,9 @@ protection when `status` can hold a whole charge.
 
 **Log redaction** is path-based (`packages/logger/src/redaction.js`) and covers
 secrets, tokens, credentials, authorization headers and provider payloads.
+_Updated 2026-09-29:_ it also covers `invitationCode`, `groupCode`, `codeHash`,
+`promoCode`, and the guest names `attendees`, `attendeeName` and
+`attendeeNames`.
 
 ---
 
@@ -369,6 +445,17 @@ the holder presses **Show my entry pass**. The drawing comes from
   the pass request itself. `apps/web/src/lib/e2e-pass-hygiene.test.js`
   enforces this.
 
+**A group pass is built the same way, and kept apart.** One QR (`G1.` and an
+HMAC under the purpose `group-pass-v1`) and one printed code (`DEG-` and twelve
+characters under `group-pass-code-v1`) admit every ticket on an order that its
+buyer still holds. Only their SHA-256 digests are stored, a CHECK refuses
+anything else, and a version bump replaces both. The route that draws it
+answers the order's buyer alone — every other caller, an organiser and a
+platform administrator included, gets the same 404 — and is `no-store` and
+rate-limited. **The stated limit:** a screenshot of a group pass admits every
+live ticket the buyer still holds on that order, once each, until it is
+replaced; a ticket handed on leaves the group.
+
 **A transfer invitation is a bearer secret and is treated as one.** It is
 delivered out of band, never in a response, and the screen that accepts it takes
 it as a pasted value in a password field. The accept route reads no query
@@ -378,6 +465,66 @@ way, and in any screenshot of the address bar — long after it is spent. Every
 refusal of an invitation reads identically, whether it expired, was withdrawn,
 was already used or never existed; telling them apart tells whoever is feeding
 in guesses which of their guesses was real.
+
+_Corrected 2026-09-29._ "Never in a response" was written for a delivery
+provider this build never had. The next section is the rule now.
+
+---
+
+## Show-once codes
+
+A team invitation and a ticket offer each mint a single-use code. With no
+delivery provider (`DELIVERY_MODE=MANUAL`, this build), the code is returned to
+whoever issued it, **once** (ADR 0008):
+
+- in the 201 that minted it only, as `data.delivery.invitationCode`, with
+  `cache-control: no-store, private` and `pragma: no-cache`, which the web
+  proxy forwards;
+- stored only as a SHA-256 digest, so it cannot be shown again to anybody —
+  a lost team code is replaced by reissuing (which withdraws the old one in the
+  same transaction), a lost transfer code by withdrawing the offer;
+- never logged (`invitationCode` is on both logger redaction lists), never in
+  an audit row (`deliveryMode` is recorded instead), never in the notification
+  outbox, never in a URL;
+- 43 url-safe characters, pinned by `invitationCodeSchema`, so no other value
+  can travel under that name;
+- drawn by one component, `one-time-code-panel.jsx`, from React state only —
+  never `localStorage`, `sessionStorage` or a link — and dropped when the
+  issuer says they have handed it over. An end-to-end spec that reaches one
+  must turn screenshots, traces and video off (`e2e-code-hygiene.test.js`).
+
+Naming `DELIVERY_MODE=EMAIL` with no provider **refuses to boot**, rather than
+minting codes nobody can receive.
+
+The recipient must be signed in at the invited address, and every code is
+single-use, expires (14 days for a team invitation, 72 hours for a ticket
+offer) and can be withdrawn.
+
+**The stated limit.** This build sends no email, so registering an address is
+not proof of owning it. Somebody who obtains a code and registers the invited
+address before its owner does can use it. The issuer is told to pass the code
+on privately; every acceptance is audited; an owner can remove a member who
+should not be there. A deployment with a delivery provider (`EMAIL`) removes
+the issuer as a holder of the secret but, without address confirmation, not
+this.
+
+---
+
+## Promo codes
+
+A promo code is a bearer discount. Making one, or resuming a paused one,
+needs `promo:manage` in the organisation and a second factor within
+`PROMO_ACTION` (ten minutes); pausing and deleting only reduce what is on offer
+and need neither step-up. Audit rows never record a code's text, and the logger
+redacts `promoCode`.
+
+Trying codes is bounded, not prevented: the checkout quote is signed-in only and
+allows 30 quotes a minute per account. A code that does not exist and a code for
+another event both answer `UNKNOWN`; a code that exists for the event but has
+ended, not started, been paused or been used up says so, so that a buyer can act
+on it — which also tells somebody guessing that the code exists. Redemption is
+counted server-side under a row lock, so a code with one use left gives one
+discount however many buyers race for it.
 
 ---
 
@@ -481,13 +628,14 @@ controls, not a monitored service.
 
 ## Key rotation
 
-| Secret                | Rotating it                                                                                                                  |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_SECRET`         | Invalidates every session and **every outstanding ticket pass**, because passes are derived from it. Not a routine operation |
-| Ticket credential     | Per ticket, by bumping `credentialVersion`. This is the routine one, and a transfer does it automatically                    |
-| Stripe API keys       | Replace the environment variables and restart; the boot gate re-validates the whole set and refuses a mixed one              |
-| Stripe webhook secret | Same. A secret key with no webhook secret refuses to boot                                                                    |
-| Session cookie secret | Derived from `AUTH_SECRET` by HKDF with its own purpose label, so it cannot be produced by code deriving another purpose     |
+| Secret                | Rotating it                                                                                                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_SECRET`         | Invalidates every session and **every outstanding ticket pass**, because passes are derived from it. Not a routine operation                                            |
+| Ticket credential     | Per ticket, by bumping `credentialVersion`. This is the routine one, and a transfer does it automatically                                                               |
+| Group pass            | Per order, by the buyer replacing it (`POST /v1/orders/:reference/group-pass/rotate`), which bumps its version. `AUTH_SECRET` rotation invalidates every group pass too |
+| Stripe API keys       | Replace the environment variables and restart; the boot gate re-validates the whole set and refuses a mixed one                                                         |
+| Stripe webhook secret | Same. A secret key with no webhook secret refuses to boot                                                                                                               |
+| Session cookie secret | Derived from `AUTH_SECRET` by HKDF with its own purpose label, so it cannot be produced by code deriving another purpose                                                |
 
 Purpose separation is the load-bearing part: every derived key names its
 purpose, and changing a purpose label invalidates exactly that use and nothing

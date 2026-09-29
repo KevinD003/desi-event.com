@@ -34,7 +34,7 @@ import {
 
 /** Sales window states and the message each one gets. */
 const WINDOW_MESSAGE = Object.freeze({
-  NOT_STARTED: 'Sales for this ticket type have not opened yet.',
+  NOT_STARTED: 'Sales for this ticket type have not opened.',
   ENDED: 'Sales for this ticket type have closed.',
   PAUSED: 'Sales for this ticket type are paused.',
   CLOSED: 'This ticket type is no longer on sale.',

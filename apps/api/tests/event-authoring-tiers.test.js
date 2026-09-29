@@ -641,7 +641,7 @@ describe('opening sales needs seats behind every reserved tier on sale', () => {
 
     expect(response.statusCode).toBe(422)
     expect(response.json().error.problems.join(' ')).toMatch(
-      /Reserved ticket type "Front stalls" has no seats yet/,
+      /Reserved ticket type "Front stalls" has no seats\. /,
     )
 
     await app.close()

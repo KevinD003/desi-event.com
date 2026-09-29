@@ -151,11 +151,12 @@ const CATEGORY_LABELS = Object.freeze([
  */
 const RECORDED_LIMITATIONS = Object.freeze([
   ['Real payments, Stripe and Connect payouts', 'EXTERNAL VERIFICATION PENDING'],
-  ['Handing on a reserved-seat ticket', 'BLOCKED — UNIQUE-SEAT TRANSFER DEFECT'],
-  ['Group booking', 'NOT IMPLEMENTED'],
+  ['Splitting payment for a group', 'NOT IMPLEMENTED'],
   ['Check-in without a connection', 'NOT IMPLEMENTED'],
   ['Ticket passes on real phones', 'EXTERNAL DEVICE VERIFICATION PENDING'],
   ['Door scanning in Safari and Firefox', 'EXTERNAL DEVICE VERIFICATION PENDING'],
+  ['Virus scanning of uploaded pictures', 'NOT IMPLEMENTED'],
+  ['Adding pictures to a published event', 'NOT IMPLEMENTED'],
   ['Email', 'NOT IMPLEMENTED'],
   ['Text messages', 'NOT IMPLEMENTED'],
   ['Automatic deletion after a set time', 'DISABLED'],

@@ -523,7 +523,7 @@ export function CheckoutBasket({
           </h2>
           <p className="mt-1 text-sm text-ink-muted">
             {ticketCount === 0
-              ? 'No tickets selected yet'
+              ? 'No tickets selected'
               : `${ticketCount} ${ticketCount === 1 ? 'ticket' : 'tickets'} for ${event.title}`}
           </p>
 

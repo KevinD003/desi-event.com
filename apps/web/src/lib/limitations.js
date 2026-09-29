@@ -3,9 +3,14 @@
  * states them.
  *
  * `status` is the status the project records for each, word for word — the
- * Phase 4 brief's vocabulary, repeated in its report — so the page and the
+ * Phase 4 brief's vocabulary, recorded for this build in the §Limitations
+ * table of `docs/PHASE4_FEATURE_COMPLETION_REPORT.md` — so the page and the
  * report cannot disagree about a word. `meaning` is for somebody using the
  * site: what they will find, and what happens instead.
+ *
+ * An entry leaves this list only in the change that builds what it names,
+ * with that change's tests. Handing on a reserved-seat ticket left it that way
+ * (ADR 0006): the seat now goes with the ticket.
  *
  * @module lib/limitations
  */
@@ -27,18 +32,11 @@ export const LIMITATIONS = Object.freeze([
       'Payments on this site are simulated. No card is asked for, nothing is charged, no refund returns money and no organiser is paid out. The connection to a real payment provider has not been verified against that provider, so this build runs on the simulation alone.',
   },
   {
-    id: 'seat-transfer',
-    name: 'Handing on a reserved-seat ticket',
-    status: 'BLOCKED — UNIQUE-SEAT TRANSFER DEFECT',
-    meaning:
-      'A ticket for a numbered seat cannot be handed to somebody else. Each seat can hold one ticket, and handing one on would briefly need two; until that is solved safely, the offer is refused. The ticket stays with its buyer and still admits them. General-admission tickets can be offered.',
-  },
-  {
     id: 'group-booking',
-    name: 'Group booking',
+    name: 'Splitting payment for a group',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'Every order is paid for by one person. There is no way to split an order, have each guest pay their share, or collect each guest’s details.',
+      'Every order is paid for by one person. There is no way to split an order, or for each guest to pay their own share, and a group gets no discount of its own: a lower price comes only from a promo code the organiser has made. The buyer can put each guest’s name on their ticket, and while they hold between two and fifty tickets on an order that still admit, they can show one group pass at the door for all of them.',
   },
   {
     id: 'offline-admission',
@@ -52,7 +50,7 @@ export const LIMITATIONS = Object.freeze([
     name: 'Ticket passes on real phones',
     status: 'EXTERNAL DEVICE VERIFICATION PENDING',
     meaning:
-      'The pass and the door scanner have been tested in a simulated browser, not with real phones held up to real cameras. At the door, a steward can type the code printed on the ticket instead.',
+      'Neither a ticket’s pass nor the group pass has been tried with a real phone held up to a real camera. The pass and the door scanner have been tested in a simulated browser only. At the door, a steward can type the code printed on the ticket or on the group pass instead.',
   },
   {
     id: 'camera',
@@ -62,11 +60,25 @@ export const LIMITATIONS = Object.freeze([
       'Scanning with the camera has been checked in Chromium-based browsers only. Where the camera does not work, the door page takes the code typed in.',
   },
   {
+    id: 'image-scanning',
+    name: 'Virus scanning of uploaded pictures',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Pictures an organiser uploads are checked to be a real JPEG, PNG or WebP, rebuilt from their image data alone and stripped of camera, location and other hidden details before anyone sees them. They are not run through an antivirus engine; a moderator reviews each one before it appears on a public page.',
+  },
+  {
+    id: 'pictures-after-publication',
+    name: 'Adding pictures to a published event',
+    status: 'NOT IMPLEMENTED',
+    meaning:
+      'Once an event is published its pictures can be described again, reordered or removed, but a new picture cannot be added or swapped in, because every new picture is reviewed with the event.',
+  },
+  {
     id: 'email',
     name: 'Email',
     status: 'NOT IMPLEMENTED',
     meaning:
-      'This site sends no email: no receipts, no address confirmation, no password resets, no team invitations, and no invitation codes for a ticket that has been offered. A forgotten password cannot be reset from here. Orders and tickets are on your account pages instead.',
+      'This site sends no email: no receipts, no address confirmation and no password resets. A forgotten password cannot be reset from here. When you invite somebody to your team or offer somebody a ticket, you are shown its invitation code once, and passing it on is up to you. When an event’s date, place or terms change, or it is postponed or cancelled, a notice is recorded against each order and not sent. Orders and tickets are on your account pages instead.',
   },
   {
     id: 'sms',

@@ -128,7 +128,7 @@ describe('the home page', () => {
 
     await draw({ events })
 
-    const list = screen.getByRole('list', { name: 'Events happening soon' })
+    const list = screen.getByRole('list', { name: 'Upcoming events' })
     const titles = within(list)
       .getAllByRole('heading', { level: 3 })
       .map((heading) => heading.textContent)
@@ -210,7 +210,7 @@ describe('the home page', () => {
     expect(container.textContent).toMatch(/US sales tax is not calculated in this demo/)
   })
 
-  it('points organisers at the workspace, and says there is no sign-up', async () => {
+  it('points organisers at the workspace and at creating an organisation', async () => {
     const container = await draw()
 
     expect(screen.getByRole('link', { name: /Open the organiser workspace/ })).toHaveAttribute(
@@ -221,7 +221,12 @@ describe('the home page', () => {
       'href',
       '/limitations',
     )
-    expect(container.textContent).toMatch(/there is no sign-up for an organisation/)
+    expect(screen.getByRole('link', { name: 'Create an organisation' })).toHaveAttribute(
+      'href',
+      '/account/organizations/new',
+    )
+    expect(container.textContent).toMatch(/publish them once the platform has verified it\./)
+    expect(container.textContent).not.toMatch(/no sign-up for an organisation/i)
   })
 
   it('invents no urgency and no popularity', async () => {
@@ -255,6 +260,6 @@ describe('the home page', () => {
     await draw({ events: [] })
 
     expect(screen.getByText(/Nothing is listed right now/)).toBeInTheDocument()
-    expect(screen.queryByRole('list', { name: 'Events happening soon' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Upcoming events' })).toBeNull()
   })
 })

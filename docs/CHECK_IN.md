@@ -89,6 +89,8 @@ against somebody who has both.
 POST /v1/tickets/admission/preview   { credential } | { code }            → what the door needs, and a previewReference
 POST /v1/tickets/check-in            { credential } | { code } + previewReference → one CheckIn, or the truth about why not
 GET  /v1/tickets/admission/events                                           → where this account may admit
+POST /v1/tickets/admission/group/preview  { credential } | { code }         → the group, each ticket's outcome, a previewReference
+POST /v1/tickets/admission/group/check-in … + previewReference + ticketIds  → each named ticket admitted once, or nobody
 ```
 
 A steward sees who is in front of them before anything is written. The preview
@@ -117,6 +119,27 @@ read from the database on every preview and inside every confirmation:
 | Platform roles, including `SUPER_ADMIN` | Nothing. Door authority comes from a membership. An attempt is refused and audited.         |
 | A member of another organisation        | Nothing, and they are told nothing: the same 404 as a pass that does not exist.             |
 
+_Corrected 2026-09-29._ The platform row above is the rule until ADR 0007. The
+rule now:
+
+| Caller                                  | Admits to                                                                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform `SUPER_ADMIN`                  | Any event, on `PLATFORM_ROLE` authority — but only when no membership or scope gives it one, so a super administrator who is also OWNER is recorded as OWNER. |
+| `SUPPORT`, `MODERATOR`, `FINANCE_ADMIN` | Nothing. A 403 before any lookup, and the attempt is audited against the account with `PLATFORM_ROLE_IS_NOT_DOOR_AUTHORITY`.                                  |
+
+A platform admission is recorded apart from an organiser's: every platform
+lookup and admission writes `ticket.admission_platform_authority` on the
+**Event**, and the `ticket.checked_in` row carries `authority: 'PLATFORM_ROLE'`,
+the role and the event's `organizationId`. The platform role and `suspendedAt`
+are re-read from the `User` row inside the confirming transaction, so a super
+administrator demoted since the preview is refused. A second module-load
+assertion, `assertPlatformAdmissionPolicy`, throws if any platform role other
+than `SUPER_ADMIN` gains `ticket:check_in`, or if `SUPER_ADMIN` stops holding
+`platform:admin`. For a super administrator, `GET /v1/tickets/admission/events`
+lists every organisation's current door events, filterable by organisation and
+by a search of the event title or organisation name, cut at the 100 that start
+soonest with `meta.truncated` saying so.
+
 STAFF and MANAGER hold `ticket:check_in` only because they inherit SCANNER.
 Before this work that inheritance was the whole check, so a STAFF member could
 admit to every event the organisation ran. A module-load assertion now refuses
@@ -144,6 +167,19 @@ it commits, and the confirmation then sees it gone; a refund or revocation in
 flight does the same through the ticket row. The real-PostgreSQL suite proves
 each interleaving by holding one lock and waiting until PostgreSQL reports the
 other transaction blocked on it.
+
+A group confirmation takes the same locks after its own: the order
+`FOR SHARE`, the group pass `FOR SHARE`, the named tickets `FOR UPDATE` sorted
+by id, then the membership and scope `FOR SHARE`. A refund settling an order
+updates the order before it touches tickets, and a pass replacement updates the
+group pass, so each takes turns with a group admission rather than slipping
+underneath it. A platform role is read, not locked: nothing changes a platform
+role inside a transaction that also touches tickets.
+
+Accepting a transfer and refunding an order line both lock the **order line**
+(`OrderItem`) `FOR UPDATE` before they read its tickets (ADR 0006), so every
+writer that changes whether a line's tickets admit follows one order: Refund,
+Order, OrderItem, Tickets.
 
 ### The method is recorded, not chosen
 
@@ -183,6 +219,50 @@ an audit row, not in a log line. `@desi-event/logger` redacts `credential` and
 
 ---
 
+## The group pass: one QR for a party arriving together
+
+A buyer holding two to fifty tickets on a paid order can show one pass for all
+of them. It is the buyer's alone — `Order.userId` decides, and an organiser, a
+platform administrator, another account signed in with the buyer's address and
+a guest order all get the same 404 as a reference nobody has used.
+
+**What it carries.** The QR is `G1.` and 43 base64url characters, an HMAC of
+the pass id and version under a key derived for the purpose `group-pass-v1`.
+The printed code, for when the QR will not scan, is `DEG-` and twelve
+characters from the ticket-code alphabet, under its own purpose
+`group-pass-code-v1`. Neither is stored: the database keeps their SHA-256
+digests and a CHECK refuses anything else. The `.` never occurs in a ticket
+credential, so the door routes a scan to the right lookup by shape alone.
+
+**What it admits is computed at every read**: the tickets on the order its
+buyer still holds, minus rows a later row superseded. A ticket handed on leaves
+the group when its transfer is accepted, and the recipient has their own pass,
+so a screenshot of the group pass can only ever admit the buyer's own live
+tickets. Replacing the pass bumps its version, which changes both the QR and the
+code; each ticket's own pass is untouched.
+
+**At the door** the preview lists every ticket in the group with the outcome a
+single lookup would give, and the steward ticks who is actually there —
+everybody admissible is ticked to start with. The confirmation names those
+tickets (`ticketIds`):
+
+- a ticket already admitted is reported, not refused, so a retry after a lost
+  answer is safe;
+- a ticket that stopped admitting for any other reason — refunded, withdrawn,
+  handed on — admits **nobody**, and the answer is 409 `GROUP_CHANGED`: look
+  the group up again;
+- otherwise each is admitted through the same `admit()` a single ticket uses,
+  exactly once by the unique `CheckIn.ticketId`, with `CheckIn.groupPassId`
+  set. The trigger `desi_check_in_group_pass_matches` refuses a group admission
+  of a ticket on another order, or one its buyer no longer holds.
+
+The rest of the group can be admitted later — by the QR again or the typed
+group code — as each person arrives. The pass is drawn only on request, on the
+order page, from a holder-only `no-store` route; the component keeps the
+drawing, not the QR text, and the printed code only while the pass is shown.
+
+---
+
 ## Transfers: an invitation, not a handover
 
 ```
@@ -205,6 +285,20 @@ push a ticket at somebody who never asked for one. The invitation token is
 delivered out of band; the database holds only its digest, and no response ever
 echoes it — a bearer secret in a response is a bearer secret in a browser cache,
 a proxy log and a screenshot.
+
+_Corrected 2026-09-29._ The paragraph above assumed a delivery provider this
+build never had, so no offer could ever be accepted. Under ADR 0008, with no
+provider (`DELIVERY_MODE=MANUAL`, this build) the one-time code is returned to
+the sender **once**, as `data.delivery.invitationCode` in the 201 that created
+the offer, `cache-control: no-store, private`, and the sender passes it on. It
+is still stored only as a digest, never logged, audited or put in the
+notification outbox, and never shown again; a lost code means withdrawing the
+offer and making a new one. The recipient must be signed in at the offered
+address to use it.
+
+**A reserved seat goes with its ticket** (ADR 0006). The old row keeps the seat
+as history, the new one holds it, and the partial unique index
+`Ticket_eventSeatId_live_key` allows one live ticket per seat.
 
 **It is not in a link either.** `/tickets/accept` takes the code as a pasted
 value in a password field and sends it in a request body; the route reads no
@@ -263,6 +357,16 @@ refuses. It lists what `GET /v1/tickets/admission/events` returns: the events
 this account may admit to and the authority each rests on ("Assigned to this
 event (scanner)", "Every event of Rangoli (owner)"). An account with none is
 told so and given nothing to press.
+
+_Corrected 2026-09-29._ The navigation now offers **Check-in** to a platform
+`SUPER_ADMIN` too (ADR 0007), and to no other platform role. For a super
+administrator the page adds a filter by organisation and by search text, a
+persistent notice above the event picker that every lookup and admission is
+recorded against their account on the event's own record, and a notice when the
+list was cut at 100 events. The screen recognises a group pass — by the QR's
+shape, or a typed code in the `DEG-` shape — and shows the group with a tick box
+for each person; the session list names a group as "First name and N more", or
+"Group pass" when nobody on it is named.
 
 A ticket is presented by typing its printed code or by scanning its QR pass:
 
@@ -328,16 +432,31 @@ admitted twice.
 Both were what found the nested-error bug and the ordering bug above. Neither is
 reachable by a single-threaded test.
 
+`apps/api/tests/group-admission-integration.test.js` adds twelve group cases
+against real PostgreSQL: two confirmations racing on one group, a group racing
+a single-ticket confirmation on an overlapping ticket, a refund and a handover
+landing between preview and confirmation (`GROUP_CHANGED`), admitting two of
+three and the third later by the typed code, a pass replaced mid-way, an
+out-of-scope scanner and a super administrator, the trigger refusing another
+order's ticket, a refund settling while a group confirmation runs, and mixed
+group, single and refund traffic that never deadlocks.
+`apps/api/tests/seat-transfer-integration.test.js` covers a reserved seat
+through offer, acceptance, refund and check-in races. Both run in
+`pnpm db:verify:fresh`.
+
 ---
 
 ## Where to look
 
-| Question                        | File                                           |
-| ------------------------------- | ---------------------------------------------- |
-| What may a ticket become?       | `apps/api/src/lib/tickets.js`                  |
-| Who may admit, and to what?     | `packages/permissions/src/admission.js`        |
-| Preview and confirmation        | `apps/api/src/lib/admission.js`                |
-| How is a pass derived?          | `apps/api/src/lib/ticket-credentials.js`       |
-| How is a pass drawn and read?   | `apps/web/src/lib/qr.js`, `lib/qr-decode.js`   |
-| The door screen                 | `apps/web/src/components/door-workspace.jsx`   |
-| What does the database enforce? | `packages/db/prisma/migrations/` (the trigger) |
+| Question                            | File                                                         |
+| ----------------------------------- | ------------------------------------------------------------ |
+| What may a ticket become?           | `apps/api/src/lib/tickets.js`                                |
+| Who may admit, and to what?         | `packages/permissions/src/admission.js`                      |
+| Preview and confirmation            | `apps/api/src/lib/admission.js`                              |
+| The group pass, and its door        | `apps/api/src/lib/group-passes.js`, `lib/group-admission.js` |
+| How is a group pass derived?        | `apps/api/src/lib/group-pass-credentials.js`                 |
+| How is a transfer code handed over? | `apps/api/src/lib/delivery.js`                               |
+| How is a pass derived?              | `apps/api/src/lib/ticket-credentials.js`                     |
+| How is a pass drawn and read?       | `apps/web/src/lib/qr.js`, `lib/qr-decode.js`                 |
+| The door screen                     | `apps/web/src/components/door-workspace.jsx`                 |
+| What does the database enforce?     | `packages/db/prisma/migrations/` (the trigger)               |

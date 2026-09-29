@@ -559,7 +559,7 @@ function PreviewView({ layout }) {
   return (
     <div className="mt-6">
       <Alert variant="info" title="Preview">
-        This is what somebody choosing a seat sees, including anything you have changed and not yet
+        This is what somebody choosing a seat sees, including anything you have changed and not
         saved. Nothing here is for sale; no seat can be picked.
       </Alert>
 

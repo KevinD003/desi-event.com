@@ -191,7 +191,7 @@ export function EventRescheduleForm({
       if (body?.error?.code === 'MFA_ENROLMENT_REQUIRED') {
         setNeedsEnrolment(true)
         setError(
-          'A role this account holds needs two-step sign-in before it can do this, and it is not set up yet. Nothing has changed.',
+          'A role this account holds needs two-step sign-in before it can do this, and it has not been set up. Nothing has changed.',
         )
         return
       }

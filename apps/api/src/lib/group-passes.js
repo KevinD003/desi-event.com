@@ -399,7 +399,7 @@ export async function rotateGroupPass({
   const order = await orderForBuyer(prisma, actor, reference)
 
   if (!order.groupPass) {
-    throw conflict('This order has no group pass to replace yet. Open it first.', {
+    throw conflict('This order has no group pass to replace. Open it first.', {
       reason: 'NO_GROUP_PASS',
     })
   }

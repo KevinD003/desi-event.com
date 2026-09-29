@@ -61,7 +61,7 @@ const PURPOSE = Object.freeze({
   '/analytics': 'What sold, what is held and who came in.',
   '/finance': 'Figures from the ledger, refunds and payout setup.',
   '/operations': 'What the system could not finish on its own.',
-  '/operations/notifications': 'Messages that have not gone yet.',
+  '/operations/notifications': 'Messages waiting in the outbox, and what became of them.',
   '/moderation/events': 'Events waiting for a moderator’s decision.',
   '/privacy': 'Access and erasure requests, exports and holds.',
   '/retention': 'What the retention rules would remove, rehearsed.',

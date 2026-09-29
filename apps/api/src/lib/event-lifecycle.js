@@ -235,7 +235,7 @@ export function sellabilityProblems(event, { boundSeats = null } = {}) {
       problems.push(`Reserved ticket type "${tier.name}" needs a price zone.`)
     } else if (tier.reserved && boundSeats && (boundSeats.get(tier.id) ?? 0) === 0) {
       problems.push(
-        `Reserved ticket type "${tier.name}" has no seats yet. Prepare its session's inventory, and check its price zone has seats on the map.`,
+        `Reserved ticket type "${tier.name}" has no seats. Prepare its session's inventory, and check its price zone has seats on the map.`,
       )
     }
   }

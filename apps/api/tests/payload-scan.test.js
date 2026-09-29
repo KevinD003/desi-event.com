@@ -20,9 +20,11 @@
  * the false positive by weakening the assertion would be worse than the flake.
  */
 
+import { createHash, randomBytes } from 'node:crypto'
+
 import { describe, expect, it } from 'vitest'
 
-import { expectNoNeedles, withoutIdentifiers } from './helpers/payloads.js'
+import { expectNoNeedles, expectNoSecret, withoutIdentifiers } from './helpers/payloads.js'
 
 /** The needles the reconciliation detail route is scanned for. */
 const NEEDLES = Object.freeze(['priya', '4242', 'receipt_email', 'payment_method', 'cvc'])
@@ -124,5 +126,95 @@ describe('expectNoNeedles', () => {
   it('is case-insensitive in both directions', () => {
     expect(caught(body({ note: 'PRIYA' }))).toBe(true)
     expect(caught(body({ note: 'Receipt_Email' }))).toBe(true)
+  })
+})
+
+/**
+ * A fresh code of `length` lower-case letters and digits, made at run time.
+ *
+ * The shape `withoutIdentifiers` masks, which is the point: a show-once code
+ * could come out looking exactly like this.
+ *
+ * @param {number} length How many characters.
+ * @returns {string} The code.
+ */
+function lowerCaseCode(length) {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789'
+
+  return [...randomBytes(length)].map((byte) => alphabet[byte % alphabet.length]).join('')
+}
+
+/**
+ * Whether `expectNoSecret` would fail on this body, and with what message.
+ *
+ * @param {string|object} payload The payload.
+ * @param {string} secret The secret.
+ * @returns {{caught: boolean, message: string}} The outcome.
+ */
+function secretOutcome(payload, secret) {
+  try {
+    expectNoSecret(expect, payload, secret)
+
+    return { caught: false, message: '' }
+  } catch (error) {
+    return { caught: true, message: String(error?.message ?? error) }
+  }
+}
+
+describe('expectNoSecret', () => {
+  it('is needed: a 24-character lower-case code is masked, so the needle scan misses it', () => {
+    const code = lowerCaseCode(24)
+    const leaked = body({ invitationCode: code })
+
+    expect(withoutIdentifiers(leaked)).not.toContain(code)
+    expect(() => expectNoNeedles(expect, leaked, [code])).not.toThrow()
+  })
+
+  it('catches that same code, which the needle scan let through', () => {
+    const code = lowerCaseCode(24)
+
+    expect(secretOutcome(body({ invitationCode: code }), code).caught).toBe(true)
+  })
+
+  it('catches a url-safe base64 code like the one a transfer offer returns', () => {
+    const code = randomBytes(32).toString('base64url')
+
+    expect(secretOutcome(body({ delivery: { invitationCode: code } }), code).caught).toBe(true)
+    // Wherever it sits: in a field that is not called anything like a code.
+    expect(secretOutcome(`request rejected ${code} for /v1/x`, code).caught).toBe(true)
+  })
+
+  it('never puts the secret in its failure message', () => {
+    const code = randomBytes(32).toString('base64url')
+    const { caught, message } = secretOutcome(body({ invitationCode: code }), code)
+
+    expect(caught).toBe(true)
+    expect(message).toContain('the payload carries the one-time secret')
+    expect(message).not.toContain(code)
+  })
+
+  it('passes a body that carries only the code’s digest', () => {
+    const code = randomBytes(32).toString('base64url')
+    const digest = createHash('sha256').update(code).digest('hex')
+
+    expect(secretOutcome(body({ tokenHash: digest }), code).caught).toBe(false)
+  })
+
+  it('is case-sensitive, because a code is', () => {
+    const code = `${lowerCaseCode(12)}ABC${lowerCaseCode(12)}`
+
+    expect(secretOutcome(body({ note: code.toLowerCase() }), code).caught).toBe(false)
+    expect(secretOutcome(body({ note: code }), code).caught).toBe(true)
+  })
+
+  it('serialises an object body rather than reading "[object Object]"', () => {
+    const code = lowerCaseCode(24)
+
+    expect(secretOutcome({ data: { invitationCode: code } }, code).caught).toBe(true)
+  })
+
+  it('refuses an empty or missing secret, which every payload would pass', () => {
+    expect(() => expectNoSecret(expect, body(), '')).toThrow(TypeError)
+    expect(() => expectNoSecret(expect, body(), undefined)).toThrow(TypeError)
   })
 })

@@ -147,7 +147,7 @@ describe('putting an account into an organisation', () => {
     const roles = screen.getByLabelText(/Role in Garba Nights/u)
 
     expect(screen.getByRole('option', { name: 'Owner' })).toBeEnabled()
-    expect(screen.getByText('Ben is not a member there yet.')).toBeVisible()
+    expect(screen.getByText('Ben is not a member there.')).toBeVisible()
 
     const save = screen.getByRole('button', { name: 'Give them the role' })
 

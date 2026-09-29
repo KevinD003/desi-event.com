@@ -448,7 +448,7 @@ export function MaterialChangePanel({
           className="rounded-card border border-line bg-surface-subtle p-3 text-sm text-ink"
         >
           {fields.length === 0
-            ? 'You have not changed anything yet.'
+            ? 'You have not changed anything.'
             : `You are changing: ${fields.map((field) => MATERIAL_FIELD_LABELS[field] ?? field).join(', ')}.`}
         </div>
 

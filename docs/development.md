@@ -238,12 +238,18 @@ models without one get stable `seed-` prefixed primary keys, so running it
 twice leaves the database exactly as running it once did. There are no blind
 `create` calls.
 
-It produces the USA garba catalogue the site's sample data shows: 23 users, 10
-organisations, 11 venues, 23 events (21 across every public lifecycle state,
-2 drafts, 1 online), 37 ticket types and 13 orders in USD at the demo's 0% US
-tax, plus holds, promo codes, waitlist entries and audit logs. Every name,
+It produces the USA garba catalogue the site's sample data shows: 25 users
+(a platform admin and a moderator among them), 11 organisations (one waiting
+in the verification queue), 11 venues, 23 events (21 across every public
+lifecycle state, 2 drafts, 1 online), 38 ticket types and 13 orders in USD at
+the demo's 0% US tax, plus 10 sessions (the nine nights of the season pass and
+the live-band evening), a published 24-seat balcony plan sold through a
+reserved tier, holds, promo codes, waitlist entries and audit logs. Every name,
 address and email is invented, on `.example` domains. Every seeded account
-shares the password `DesiEvent!2026`; override it with `SEED_PASSWORD`.
+shares the password `DesiEvent!2026`; override it with `SEED_PASSWORD`. No
+account is seeded with a second factor: every account whose role needs one —
+the admin, the moderator, and the organisations' owners, administrators and
+managers — is asked to set up two-step sign-in the first time it signs in.
 
 The seed only adds and updates rows. A database seeded by an older version
 keeps that version's rows beside the new ones until `pnpm db:reset`.

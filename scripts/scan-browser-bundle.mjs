@@ -283,6 +283,60 @@ const FORBIDDEN = [
       ['server-side image sanitiser', 'sanitiseImage'],
     ],
   },
+  {
+    /*
+     * Feature completion: team invitations, platform roles, the group pass,
+     * pictures, nights, seats and promo codes.
+     *
+     * Not the sniffing of an image's first bytes: `sniffImageType` lives in
+     * `@desi-event/schemas/media`, which the picture editor imports on purpose
+     * to refuse a wrong file before uploading it, and knowing a PNG starts with
+     * its signature helps nobody. What stays on the server is what rebuilds the
+     * bytes and where they are kept. There is no storage variable to name:
+     * pictures are kept in PostgreSQL, behind DATABASE_URL, forbidden above.
+     */
+    group: 'feature completion (server-only)',
+    markers: [
+      // Show-once codes. How a code goes out, and the step that hands it to a
+      // provider or back once, are the server's; a browser is given the code
+      // in one response and nothing about how it was made.
+      ['delivery mode resolver', 'resolveDeliveryMode'],
+      ['show-once code hand-off', 'deliverCode'],
+      ['session revocation after a privilege change', 'revokeAllSessionsOf'],
+      ['session hardening after a privilege gain', 'secureSessionAfterGain'],
+      // The group pass. The purpose strings are half of what a forger would
+      // need, exactly as `ticket-pass-v1` is for a single pass; the door's
+      // preview references are signed with purposes of their own.
+      ['group pass credential purpose', 'group-pass-v1'],
+      ['group pass printed-code purpose', 'group-pass-code-v1'],
+      ['group pass credential deriver', 'mintGroupPassCredential'],
+      ['group pass printed-code deriver', 'mintGroupCode'],
+      ['group pass printed-code digest', 'groupCodeDigest'],
+      ['door preview reference purpose', 'admission-preview-v1'],
+      ['group door preview reference purpose', 'admission-group-preview-v1'],
+      // Platform roles at the door. Which platform role may admit, and the
+      // assertion that holds the policy together, are the server's rule.
+      ['platform door roles', 'PLATFORM_ADMISSION_ROLES'],
+      ['platform roles refused at the door', 'REFUSED_PLATFORM_ADMISSION_ROLES'],
+      ['platform door policy assertion', 'assertPlatformAdmissionPolicy'],
+      ['platform door authority', 'platformAdmissionAuthorityFor'],
+      // Pictures: the per-format rebuilders, where bytes are kept, and the note
+      // the structural check stamps on each one.
+      ['JPEG rebuilder', 'sanitiseJpeg'],
+      ['PNG rebuilder', 'sanitisePng'],
+      ['WebP rebuilder', 'sanitiseWebp'],
+      ['picture byte storage', 'createPostgresMediaStorage'],
+      ['structural check note', 'structural-v1: parsed'],
+      // Checkout. The one pricing function a charge and a quote share, the
+      // session locks, the seat binder, and the budget a promo code is tried
+      // against: a browser that knows the budget knows how fast to guess.
+      ['checkout pricing', 'priceCheckout'],
+      ['session locks', 'lockEventSessions'],
+      ['reserved seat binding', 'bindReservedSeats'],
+      ['promo quote budget', 'DEFAULT_QUOTE_LIMIT'],
+      ['promo quote limiter', 'quoteRateLimit'],
+    ],
+  },
 ]
 
 /**
@@ -344,6 +398,19 @@ const REQUIRED = [
   // would be a screen that shows who is at the door and can never let them in.
   ['door lookup path', '/v1/tickets/admission/preview'],
   ['door admission path', '/v1/tickets/check-in'],
+  // Feature completion, by the same argument: each is a command a client
+  // component issues, so each path has to reach the browser.
+  ['seat picker path (seats and seated holds)', '/v1/sessions/'],
+  ['promo code quote path', '/v1/orders/quote'],
+  ['promo code management path', '/promo-codes'],
+  ['organisation creation path', '/v1/organizations'],
+  ['team invitation path', '/invitations'],
+  ['team invitation acceptance path', '/v1/invitations/accept'],
+  ['picture upload path', '/media?'],
+  ['group pass path', '/group-pass'],
+  ['group door lookup path', '/v1/tickets/admission/group/preview'],
+  ['group door admission path', '/v1/tickets/admission/group/check-in'],
+  ['platform account search path', '/v1/platform/users/search'],
 ]
 
 /**

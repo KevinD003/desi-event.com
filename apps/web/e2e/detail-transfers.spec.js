@@ -69,12 +69,12 @@ test.describe.serial('the ticket and transfer screens', () => {
     // The page streams: "Loading your tickets…" stands in until the ticket's
     // read arrives. Read nothing until it has, or the checks below would be
     // about the loading state and the privacy ones would pass on an empty page.
-    await expect(owner.locator('main')).toContainText(/offered, not yet answered/i)
+    await expect(owner.locator('main')).toContainText(/offered, awaiting an answer/i)
 
     const rendered = await owner.locator('main').innerText()
     const html = await owner.content()
 
-    expect(rendered).toMatch(/offered, not yet answered/i)
+    expect(rendered).toMatch(/offered, awaiting an answer/i)
     // The domain, so the sender can tell their offers apart, and nothing of the
     // local part: not its length, not its ends, not its suffix. Searched in the
     // page's whole source, serialised props included, so no stylesheet or

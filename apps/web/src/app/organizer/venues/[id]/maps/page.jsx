@@ -51,7 +51,7 @@ export function versionState(version) {
     }
   }
 
-  return { variant: 'neutral', label: 'Draft', note: 'Editable. Not yet sellable.' }
+  return { variant: 'neutral', label: 'Draft', note: 'Editable. Not sellable until published.' }
 }
 
 /**

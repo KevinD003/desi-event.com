@@ -101,7 +101,9 @@ product working, and only a 5xx or a transport failure counts as an error.
 After every scenario the suite asks the **database** — not the application —
 whether the run was correct:
 
-- No tier sold more than it has.
+- No tier sold more than it has: a general-admission tier its quantity, a
+  reserved tier its seats (the seats it prices, and any already sold on its
+  lines), because a seated tier's quantity column is not its stock.
 - No seat carries two live tickets.
 - No order line holds more tickets than it bought.
 - No source event posted two ledger batches.

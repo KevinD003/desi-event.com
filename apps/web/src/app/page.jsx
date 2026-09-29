@@ -417,7 +417,7 @@ export default async function HomePage() {
 
         <div className="mt-9">
           {featured.length > 0 ? (
-            <EventGrid events={featured} label="Events happening soon" layout="rail" />
+            <EventGrid events={featured} label="Upcoming events" layout="rail" />
           ) : (
             <p className="rounded-card bg-surface-subtle p-6 text-ink-muted">
               Nothing is listed right now. The listing fills up the moment an organiser publishes a
@@ -590,13 +590,20 @@ export default async function HomePage() {
             </h2>
             <p className="mt-4 max-w-xl text-body text-ink-inverse-muted">
               List your event with its venue, dates and ticket tiers in US dollars, then run it —
-              sales, orders and door check-in — from the organiser workspace. Organiser accounts are
-              set up by the platform in this build; there is no sign-up for an organisation.
+              sales, orders and door check-in — from the organiser workspace. Create an organisation
+              from your account: it can draft events once you have set up two-step sign-in, and
+              publish them once the platform has verified it.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link href="/organizer" className={PRIMARY_LINK}>
                 Open the organiser workspace
                 <ArrowRightIcon className="h-4.5 w-4.5" />
+              </Link>
+              <Link
+                href="/account/organizations/new"
+                className={`${INVERSE_TEXT_LINK} inline-flex min-h-11 items-center`}
+              >
+                Create an organisation
               </Link>
               <Link
                 href="/limitations"

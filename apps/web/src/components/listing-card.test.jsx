@@ -244,9 +244,9 @@ describe('EventGrid', () => {
   })
 
   it('as a rail, scrolls inside itself on a phone rather than widening the page', () => {
-    render(<EventGrid label="Events happening soon" events={[garba]} layout="rail" />)
+    render(<EventGrid label="Upcoming events" events={[garba]} layout="rail" />)
 
-    const list = screen.getByRole('list', { name: 'Events happening soon' })
+    const list = screen.getByRole('list', { name: 'Upcoming events' })
 
     // Asserted on the classes because jsdom applies no stylesheet: the list is
     // the scroll container, and each card snaps and keeps a fixed share.

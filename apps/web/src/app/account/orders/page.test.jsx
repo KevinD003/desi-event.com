@@ -13,7 +13,7 @@
  *     and appear only when there is somewhere to go; the page asked for is the
  *     page requested of the API.
  *   - **A failure is a failure.** A refused or unreachable read draws the
- *     refusal and no list — not "You have no orders yet".
+ *     refusal and no list — not "You have no orders".
  *
  * @module app/account/orders/page.test
  */
@@ -273,7 +273,7 @@ describe('paging', () => {
 
     await renderPage({ page: '9' })
 
-    expect(screen.queryByText('You have no orders yet')).toBeNull()
+    expect(screen.queryByText('You have no orders')).toBeNull()
     expect(screen.getByText('There are no orders on page 9')).toBeInTheDocument()
   })
 })
@@ -284,7 +284,7 @@ describe('an empty history', () => {
 
     await renderPage()
 
-    expect(screen.getByText('You have no orders yet')).toBeInTheDocument()
+    expect(screen.getByText('You have no orders')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Find an event' }).getAttribute('href')).toBe('/events')
   })
 })
@@ -296,7 +296,7 @@ describe('a failed read', () => {
     const { container } = await renderPage()
 
     expect(container.textContent).toMatch(/Your orders could not be loaded\./)
-    expect(screen.queryByText('You have no orders yet')).toBeNull()
+    expect(screen.queryByText('You have no orders')).toBeNull()
     expect(screen.queryByRole('list')).toBeNull()
   })
 
@@ -318,7 +318,7 @@ describe('a failed read', () => {
     expect(screen.getByRole('link', { name: 'Sign in again' }).getAttribute('href')).toBe(
       '/sign-in?next=%2Faccount%2Forders',
     )
-    expect(screen.queryByText('You have no orders yet')).toBeNull()
+    expect(screen.queryByText('You have no orders')).toBeNull()
   })
 
   it('sends an account without a second factor to set one up', async () => {

@@ -553,7 +553,7 @@ export default async function TeamPage({ searchParams }) {
               </p>
               {data.members.filter((member) => !member.self).length === 0 ? (
                 <p className="mt-3 text-sm text-ink-muted">
-                  Nobody else is on this team yet, so there is nobody to hand it to.
+                  Nobody else is on this team, so there is nobody to hand it to.
                 </p>
               ) : (
                 <ul className="mt-4 space-y-3">

@@ -59,12 +59,7 @@ const DISCOVER = Object.freeze([
  * A few of the things the limitations page lists, in the footer's words. Each
  * is true of this build; the page itself is the full, recorded list.
  */
-const CANNOT = Object.freeze([
-  'Take real payments',
-  'Calculate US sales tax',
-  'Sell seated tickets',
-  'Send email',
-])
+const CANNOT = Object.freeze(['Take real payments', 'Calculate US sales tax', 'Send email'])
 
 /** A footer link: lavender on the night, ivory and underlined on hover, 44px tall. */
 const FOOTER_LINK =
@@ -134,10 +129,13 @@ export function SiteFooter() {
           <div>
             <h2 className={COLUMN_HEADING}>For organisers</h2>
             <p className="mt-2 text-sm leading-6 text-ink-inverse-muted">
-              Listings, ticket tiers, holds and door check-in, from the organiser workspace.
-              Organiser accounts are set up by the platform in this build; there is no sign-up for
-              an organisation.
+              Listings, ticket tiers, seat maps and door check-in, from the organiser workspace. An
+              organisation you create from your account can publish once the platform has verified
+              it.
             </p>
+            <Link href="/account/organizations/new" className={FOOTER_LINK}>
+              Create an organisation
+            </Link>
           </div>
 
           <div>

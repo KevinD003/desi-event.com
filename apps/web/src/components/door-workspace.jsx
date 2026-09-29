@@ -675,7 +675,7 @@ export function DoorWorkspace({ events, platform = false }) {
         </h2>
         {recent.length === 0 ? (
           <p className="mt-2 text-sm text-ink-muted">
-            Nothing yet. Tickets you look up appear here until you leave this page; nothing is
+            Nothing so far. Tickets you look up appear here until you leave this page; nothing is
             saved.
           </p>
         ) : (
@@ -983,7 +983,7 @@ function GroupPreviewCard({
         <fieldset className="mt-4" aria-describedby={legendId}>
           <legend className="font-semibold text-ink">Who is at the door now</legend>
           <p id={legendId} className="mt-1 text-sm text-ink-muted">
-            Untick anybody who is not here yet; they can be admitted later with the same pass.
+            Untick anybody who has not arrived; they can be admitted later with the same pass.
           </p>
           <ul className="mt-2 space-y-2">
             {admissible.map((ticket) => {

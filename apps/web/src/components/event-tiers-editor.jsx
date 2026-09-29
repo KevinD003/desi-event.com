@@ -346,7 +346,7 @@ export function EventTiersEditor({
 
       {tiers.length === 0 ? (
         <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
-          No ticket types yet. An event cannot go on sale without at least one.
+          No ticket types. An event cannot go on sale without at least one.
         </p>
       ) : (
         <ul className="space-y-3">

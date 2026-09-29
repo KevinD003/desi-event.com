@@ -67,6 +67,10 @@ export const FORBIDDEN = Object.freeze({
     'the shape of every request the API accepts, including fields a screen never sends and a caller is not meant to discover by reading the bundle.',
   'packages/schemas/src/responses.js':
     'the shape of every response the API can produce, including branches withheld from the caller who loaded this bundle.',
+  'packages/permissions/src/capabilities.js':
+    'the role-to-capability tables, platform and organisation: which role may refund, pay out, moderate or change a platform role. A screen that needs a role\u2019s name gets it from a narrow schemas subpath, and what a role may do from the API\u2019s answer.',
+  'packages/permissions/src/index.js':
+    'the permissions barrel, which re-exports the capability tables above and the door-authority policy. Client code never decides what somebody may do; the API does, and says so.',
   'packages/db/': 'Prisma, the schema, and anything that can open a connection.',
   'packages/providers/': 'payment provider adapters, which hold secret-key handling.',
   'packages/ledger/': 'double-entry posting rules. Server-side money, never client-side.',

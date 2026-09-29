@@ -1246,3 +1246,60 @@ when()('a refund settling while the line’s ticket is being accepted', () => {
     ).toBe(0)
   })
 })
+
+when()('a refund settling while an offer is being started on the line’s ticket', () => {
+  it('refunds the ticket the offer was started on, and leaves nothing admitting', async () => {
+    // The window "a refund racing a ticket transfer" reaches only by chance,
+    // held open so it is reached every time. Starting an offer takes no
+    // order-line lock: it moves the ticket from VALID to TRANSFER_PENDING with
+    // its own conditional update. The settlement reads the line's tickets
+    // while that update is uncommitted, so it sees VALID; its own update then
+    // waits on the row and is re-checked against TRANSFER_PENDING once the
+    // offer commits. Conditioned on the status it read, that update matched
+    // nothing, the ticket was skipped, and the money went back with the ticket
+    // still admitting. Conditioned on the ticket still being refundable, it is
+    // revoked.
+    const world = await buildPaidGeneralAdmission()
+    const line = world.order.items[0]
+    const { tokenHash } = mintTransferToken()
+    const { refund } = await ask(world, {
+      lines: [{ orderItemId: line.id, quantity: 1 }],
+      key: `${RUN}-ga-offer-${(sequence += 1).toString(36)}`,
+    })
+
+    const offer = await holdingOpen((tx) =>
+      startTransfer(tx, {
+        ticket: world.ticket,
+        toEmail: world.recipient.email,
+        fromUserId: world.holder.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 3_600_000),
+        now: new Date(),
+      }),
+    )
+    const settlement = pushThrough(world, refund)
+
+    await untilBlockedBy(offer)
+    offer.release()
+
+    const started = await offer.done
+    const settled = await settlement
+
+    // Both happened, in that order: the offer committed first, and the
+    // settlement that was waiting on it still revoked the ticket.
+    expect(started.started).toBe(true)
+    expect(settled).toMatchObject({ outcome: REFUND_OUTCOMES.SUCCEEDED, ticketsRevoked: 1 })
+    expect(await prisma.ticket.findUnique({ where: { id: world.ticket.id } })).toMatchObject({
+      status: 'REFUNDED',
+      credentialHash: null,
+    })
+    expect(
+      await prisma.ticket.count({
+        where: {
+          orderItemId: line.id,
+          status: { in: ['VALID', 'TRANSFER_PENDING', 'CHECKED_IN'] },
+        },
+      }),
+    ).toBe(0)
+  })
+})

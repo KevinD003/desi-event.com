@@ -818,7 +818,7 @@ export default async function EventDetailPage({ params }) {
 
                 {ticketTypes.length === 0 ? (
                   <p className="mt-5 text-ink-muted">
-                    Tickets for this event are not on sale yet. Check back shortly.
+                    The organiser has not put any tickets for this event on sale.
                   </p>
                 ) : (
                   <>

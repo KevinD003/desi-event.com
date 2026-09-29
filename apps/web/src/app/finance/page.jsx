@@ -45,7 +45,7 @@ const ACTIVITY = Object.freeze([
   {
     key: 'refundsRequested',
     label: 'Refunds in flight',
-    hint: 'Asked for and not yet settled. Held back from what may be paid out.',
+    hint: 'Asked for and still unsettled. Held back from what may be paid out.',
   },
   { key: 'refundsSettled', label: 'Refunds settled', hint: 'Money that has gone back.' },
   {

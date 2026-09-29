@@ -6,7 +6,12 @@ import { PricingError } from '@desi-event/pricing'
 import { ProviderError } from '@desi-event/providers'
 import { ValidationError } from '@desi-event/schemas'
 
-import { httpError, normaliseError, toErrorBody } from '../src/lib/errors.js'
+import {
+  UNSTORABLE_CHARACTER_MESSAGE,
+  httpError,
+  normaliseError,
+  toErrorBody,
+} from '../src/lib/errors.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
 
 describe('normaliseError', () => {
@@ -81,6 +86,46 @@ describe('normaliseError', () => {
         Object.assign(new Error('nope'), { statusCode: 400, code: 'FST_ERR_VALIDATION' }),
       ).code,
     ).toBe('VALIDATION_ERROR')
+  })
+
+  it('answers 400, not 500, for a character PostgreSQL cannot store', () => {
+    // The shape the Prisma driver adapter throws for a NUL in a text value,
+    // copied from a real query against PostgreSQL.
+    const nul = Object.assign(new Error('Database error. Code: `22021`.'), {
+      name: 'PrismaClientKnownRequestError',
+      code: 'P2039',
+      meta: {
+        modelName: 'Event',
+        driverAdapterError: {
+          cause: {
+            originalCode: '22021',
+            originalMessage: 'invalid byte sequence for encoding "UTF8": 0x00',
+            kind: 'postgres',
+          },
+        },
+      },
+    })
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(nul, { exposeInternals })).toEqual({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: UNSTORABLE_CHARACTER_MESSAGE,
+        expected: true,
+      })
+    }
+
+    // Only that SQLSTATE: any other database failure under the same Prisma
+    // code is still a fault, and still hidden in production.
+    const check = {
+      ...nul,
+      meta: { driverAdapterError: { cause: { originalCode: '23514', kind: 'postgres' } } },
+    }
+
+    expect(normaliseError(check, { exposeInternals: false })).toMatchObject({
+      statusCode: 500,
+      code: 'INTERNAL_SERVER_ERROR',
+    })
   })
 
   it('treats a nonsensical status as a server error', () => {

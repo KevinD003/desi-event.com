@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CONTROL_CHARACTER_PATTERN,
   DEFAULT_PAGE,
   DEFAULT_PER_PAGE,
   MAX_CENTS,
@@ -32,6 +33,7 @@ import {
   timezoneSchema,
   toSkipTake,
   urlSchema,
+  withoutControlCharacters,
 } from './primitives.js'
 
 const CUID = 'ckl1a2b3c4d5e6f7g8h9i0jk'
@@ -285,5 +287,69 @@ describe('toSkipTake', () => {
   it('falls back to the defaults', () => {
     expect(toSkipTake()).toEqual({ skip: 0, take: DEFAULT_PER_PAGE })
     expect(toSkipTake({ page: 2 })).toEqual({ skip: DEFAULT_PER_PAGE, take: DEFAULT_PER_PAGE })
+  })
+})
+
+describe('free text that reaches PostgreSQL refuses control characters', () => {
+  /**
+   * Every free-text field a list or search request carries into a query, with
+   * a value that passes on its own. NUL above all: PostgreSQL refuses it in
+   * every text column, so one that got past here came back as a 500.
+   */
+  const FIELDS = [
+    ['events.list q', 'listEventsQuerySchema', 'q', 'garba'],
+    ['events.list city', 'listEventsQuerySchema', 'city', 'Edison'],
+    ['venues.list q', 'listVenuesQuerySchema', 'q', 'hall'],
+    ['venues.list city', 'listVenuesQuerySchema', 'city', 'Edison'],
+    ['venues.list region', 'listVenuesQuerySchema', 'region', 'New Jersey'],
+    ['venues.list country', 'listVenuesQuerySchema', 'country', 'US'],
+    ['platform.searchOrganizations q', 'platformOrganizationSearchQuerySchema', 'q', 'mirror'],
+    ['platform.searchUsers q', 'platformUserSearchRequestSchema', 'q', 'priya'],
+    ['notifications.queue template', 'notificationQueueQuerySchema', 'template', 'event.changed'],
+    ['reconciliation.queue reference', 'reconciliationQueueQuerySchema', 'reference', 'DE-1234'],
+    [
+      'retention.listSweeps retentionClass',
+      'retentionSweepListQuerySchema',
+      'retentionClass',
+      'orders',
+    ],
+    ['tickets.admissionEvents q', 'admissionEventsQuerySchema', 'q', 'garba'],
+  ]
+
+  /** A C0 control in the middle, a C1 control, DEL and the NUL itself. */
+  const CONTROLS = [
+    ['NUL', '\u0000'],
+    ['a tab', '\t'],
+    ['DEL', '\u007f'],
+    ['a C1 control', '\u0085'],
+  ]
+
+  it.each(FIELDS)('%s accepts an ordinary value', async (_label, name, field, value) => {
+    const schemas = await import('./index.js')
+
+    expect(schemas[name].safeParse({ [field]: value }).success).toBe(true)
+  })
+
+  for (const [label, name, field, value] of FIELDS) {
+    it.each(CONTROLS)(`${label} refuses %s`, async (_control, character) => {
+      const schemas = await import('./index.js')
+      // Two-character codes keep their length, so the refusal is the character's.
+      const poisoned =
+        value.length === 2
+          ? `${value[0]}${character}`
+          : `${value.slice(0, 2)}${character}${value.slice(2)}`
+
+      expect(schemas[name].safeParse({ [field]: poisoned }).success).toBe(false)
+    })
+  }
+
+  it('refuses the character wherever the helper is applied, and names what to do', () => {
+    const schema = withoutControlCharacters(nonEmptyStringSchema)
+    const result = schema.safeParse('gar\u0000ba')
+
+    expect(result.success).toBe(false)
+    expect(result.error.issues[0].message).toBe('Remove the control character.')
+    expect(schema.parse('  garba night  ')).toBe('garba night')
+    expect(CONTROL_CHARACTER_PATTERN.test('Navratri — Night 1')).toBe(false)
   })
 })

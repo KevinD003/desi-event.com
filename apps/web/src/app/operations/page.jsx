@@ -314,7 +314,7 @@ export default async function OperationsPage() {
         <QueueSection
           id="refunds-heading"
           title="Refunds waiting"
-          description="Asked for and not yet settled. Each one holds money back from what may be paid out, so a refund nobody moves on is a payout nobody can make."
+          description="Asked for and still unsettled. Each one holds money back from what may be paid out, so a refund nobody moves on is a payout nobody can make."
           failure={refunds.error ? <QueueFailure queue={refunds} /> : null}
           count={unresolved.length}
           more={{

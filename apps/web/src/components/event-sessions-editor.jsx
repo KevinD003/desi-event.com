@@ -308,7 +308,7 @@ export function EventSessionsEditor({
 
       {sessions.length === 0 ? (
         <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted">
-          No sessions yet. An event cannot be published without at least one.
+          No sessions. An event cannot be published without at least one.
         </p>
       ) : (
         <ol className="space-y-3">

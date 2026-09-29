@@ -73,8 +73,8 @@ export default async function OrganizerVenuesPage() {
 
       {!failure && organizations.length > 0 && venues.length === 0 ? (
         <p className="mt-6 text-ink-muted">
-          You have no venues of your own yet. You can still list an event at a shared venue — adding
-          one here is for a hall you run.
+          You have no venues of your own. You can still list an event at a shared venue — adding one
+          here is for a hall you run.
         </p>
       ) : null}
 

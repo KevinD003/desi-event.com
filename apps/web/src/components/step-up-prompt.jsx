@@ -80,7 +80,7 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
         // a person. There is a page for it now.
         setNeedsEnrolment(true)
         setError(
-          'A role this account holds needs two-step sign-in before it can confirm anything, and it is not set up yet.',
+          'A role this account holds needs two-step sign-in before it can confirm anything, and it has not been set up.',
         )
       } else {
         setError(refusal.message ?? 'That did not confirm your identity.')

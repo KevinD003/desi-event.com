@@ -846,3 +846,214 @@ describe('the door, group-pass and manual-transfer surfaces', () => {
     expect(data.shape.tokenHash).toBeUndefined()
   })
 })
+
+describe('the surfaces added for feature completion', () => {
+  /**
+   * Every route the feature-completion work added: team invitations and
+   * organisations, platform roles and the verification queue, event pictures,
+   * authoring after publication, promo codes and the checkout quote, and the
+   * group pass at the door.
+   */
+  const ADDED = [
+    'events.addMedia',
+    'events.media',
+    'events.removeMedia',
+    'events.reorderMedia',
+    'events.reschedule',
+    'events.rework',
+    'events.ticketTypes',
+    'events.updateMedia',
+    'media.get',
+    'moderation.decideMedia',
+    'orders.groupPass',
+    'orders.quote',
+    'orders.rotateGroupPass',
+    'organizations.create',
+    'organizations.get',
+    'organizers.verificationQueue',
+    'organizers.verificationReview',
+    'platform.grantMembership',
+    'platform.searchOrganizations',
+    'platform.searchUsers',
+    'platform.setUserRole',
+    'promoCodes.create',
+    'promoCodes.list',
+    'promoCodes.pause',
+    'promoCodes.remove',
+    'promoCodes.resume',
+    'teams.reissueInvitation',
+    'teams.transferOwnership',
+    'tickets.checkInGroup',
+    'tickets.previewGroupAdmission',
+  ]
+
+  /**
+   * Response keys that carry a bearer secret: something that, held, lets its
+   * holder sign in, act as a guest, pass a door, or join a team or take a
+   * ticket. Each is returned once, to the one party it is for.
+   */
+  const SECRET_KEY =
+    /^(token|csrfToken|secret|recoveryCodes|guestToken|credential|invitationCode|groupCode)$/u
+
+  /**
+   * Where each may appear, and nowhere else. A route that starts returning one
+   * of these fails here until somebody decides it should and adds it, which
+   * turns "a new route leaked a secret" from a review catch into a failure.
+   */
+  const SHOW_ONCE = {
+    credential: ['orders.groupPass', 'tickets.acceptTransfer', 'tickets.pass'],
+    csrfToken: ['auth.login', 'auth.register'],
+    groupCode: ['orders.groupPass'],
+    guestToken: ['holds.create', 'sessions.hold'],
+    invitationCode: ['teams.invite', 'teams.reissueInvitation', 'tickets.startTransfer'],
+    recoveryCodes: ['auth.confirmTotp'],
+    secret: ['auth.enrollTotp'],
+    token: ['auth.login', 'auth.register'],
+  }
+
+  /**
+   * Every secret-shaped property a response of each operation can carry, with
+   * the dotted path it sits at. `$ref`s into the components are followed, once
+   * per chain, so a shared schema is read wherever it is used.
+   *
+   * @returns {Map<string, Array<{key: string, path: string}>>} By operation id.
+   */
+  function secretsByRoute() {
+    const document = buildOpenApiDocument()
+    const components = document.components?.schemas ?? {}
+    /** @type {Map<string, Array<{key: string, path: string}>>} */
+    const found = new Map()
+
+    /**
+     * @param {unknown} node A JSON Schema fragment.
+     * @param {string} path Where it sits in the body.
+     * @param {Array<{key: string, path: string}>} into Where to record hits.
+     * @param {Set<string>} expanding The `$ref`s on this chain.
+     * @returns {void}
+     */
+    function walk(node, path, into, expanding) {
+      if (Array.isArray(node)) {
+        for (const item of node) walk(item, path, into, expanding)
+
+        return
+      }
+
+      if (!node || typeof node !== 'object') return
+
+      if (typeof node.$ref === 'string') {
+        const name = node.$ref.split('/').at(-1)
+
+        if (!expanding.has(name)) {
+          walk(components[name], path, into, new Set([...expanding, name]))
+        }
+      }
+
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'properties' && value && typeof value === 'object') {
+          for (const [name, child] of Object.entries(value)) {
+            const at = path ? `${path}.${name}` : name
+
+            if (SECRET_KEY.test(name)) into.push({ key: name, path: at })
+            walk(child, at, into, expanding)
+          }
+        } else if (key === 'items') {
+          walk(value, `${path}[]`, into, expanding)
+        } else if (key !== '$ref') {
+          walk(value, path, into, expanding)
+        }
+      }
+    }
+
+    for (const operations of Object.values(document.paths)) {
+      for (const operation of Object.values(operations)) {
+        const hits = []
+
+        walk(operation.responses ?? {}, '', hits, new Set())
+        if (hits.length > 0) found.set(operation.operationId, hits)
+      }
+    }
+
+    return found
+  }
+
+  it('puts every added route in the contract and the manifest, and exempts none from a second factor', () => {
+    const manifest = new Set(apiRouteManifest.map((route) => route.id))
+
+    for (const id of ADDED) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      expect(route, `${id} is not in the contract`).toBeTruthy()
+      expect(manifest.has(id), `${id} is not in the manifest`).toBe(true)
+      expect(route.mfaExempt ?? false, `${id} is MFA-exempt`).toBe(false)
+    }
+  })
+
+  it('returns a bearer secret only from the routes allowed to, and every allowance is still used', () => {
+    const found = secretsByRoute()
+    /** @type {Record<string, string[]>} */
+    const observed = {}
+
+    for (const [routeId, hits] of found) {
+      for (const { key } of hits) {
+        observed[key] = [...new Set([...(observed[key] ?? []), routeId])].sort()
+      }
+    }
+
+    // Both directions: a new carrier fails, and so does an allowance nothing
+    // uses any more, so the list cannot drift into permitting more than it says.
+    expect(observed).toEqual(SHOW_ONCE)
+  })
+
+  it('carries an invitation code only as data.delivery.invitationCode, and never as a token', () => {
+    const found = secretsByRoute()
+
+    for (const id of SHOW_ONCE.invitationCode) {
+      const hits = found.get(id) ?? []
+
+      // Once per branch of the delivery union, and always at the same place.
+      const paths = new Set(
+        hits.filter((hit) => hit.key === 'invitationCode').map((hit) => hit.path),
+      )
+
+      expect([...paths], id).toEqual(['data.delivery.invitationCode'])
+      expect(
+        hits.some((hit) => hit.key === 'token'),
+        `${id} returns a token`,
+      ).toBe(false)
+    }
+  })
+
+  it('never lets the creator of an organisation name its state, its owner or its contact', () => {
+    const route = apiRoutes.find((candidate) => candidate.id === 'organizations.create')
+    const keys = Object.keys(route.body.shape)
+
+    for (const sealed of [
+      'verificationStatus',
+      'verified',
+      'suspendedAt',
+      'suspendedReason',
+      'ownerUserId',
+      'createdById',
+      'createdByUserId',
+      'organizationId',
+      'role',
+      'contactEmail',
+      'payoutCurrency',
+    ]) {
+      expect(keys, `organizations.create accepts ${sealed}`).not.toContain(sealed)
+    }
+  })
+
+  it('rate-limits the quote, which is the one place a promo code can be tried without buying', () => {
+    const orders = readFileSync(new URL('../src/routes/orders.js', import.meta.url), 'utf8')
+    const at = orders.indexOf("'orders.quote'")
+
+    expect(at).toBeGreaterThan(-1)
+    expect(orders.slice(at, at + 200)).toMatch(/rateLimit: quoteRateLimit\(/u)
+    expect(
+      apiRoutes
+        .find((candidate) => candidate.id === 'orders.quote')
+        .errors.map((error) => error.code),
+    ).toContain('RATE_LIMITED')
+  })
+})

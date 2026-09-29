@@ -60,11 +60,21 @@ describe('SiteFooter', () => {
     )
   })
 
-  it('promises nothing and invents no sign-up', () => {
+  it('promises nothing, and says a new organisation publishes once it is verified', () => {
     const { container } = render(<SiteFooter />)
 
     expect(container.textContent).not.toMatch(/coming soon|\bsoon\b|\byet\b/i)
-    expect(container.textContent).toMatch(/there is no sign-up for an organisation/)
+    expect(container.textContent).toMatch(
+      /An organisation you create from your account can publish once the platform has verified it\./,
+    )
+    expect(screen.getByRole('link', { name: 'Create an organisation' })).toHaveAttribute(
+      'href',
+      '/account/organizations/new',
+    )
+    // Both overtaken by the build: seats are sold through the seat picker, and
+    // anybody signed in can create an organisation.
+    expect(container.textContent).not.toMatch(/no sign-up for an organisation/i)
+    expect(container.textContent).not.toMatch(/sell seated tickets/i)
   })
 
   it('makes every link a 44px target', () => {

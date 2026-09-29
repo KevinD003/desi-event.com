@@ -15,11 +15,12 @@
  *
  * ## The arithmetic that looks wrong and is not
  *
- * The per-tag rows sum to one more than the total, because `sessions.hold`
- * carries two tags and is counted under each. A row is a count of tag
- * membership; the headline is a count of operations. Asserting the rows sum to
- * the total would be asserting something false, so this file asserts each
- * separately and says why.
+ * The per-tag rows sum to more than the total, because three routes carry two
+ * tags and are counted under each: `sessions.hold` (`sessions` and `holds`),
+ * and the group pass's `orders.groupPass` and `orders.rotateGroupPass`
+ * (`tickets` and `orders`). A row is a count of tag membership; the headline is
+ * a count of operations. Asserting the rows sum to the total would be asserting
+ * something false, so this file asserts each separately and says why.
  *
  * @module @desi-event/api/tests/api-doc-counts
  */
@@ -125,9 +126,11 @@ describe('docs/api.md states the counts the artefacts do', () => {
   })
 
   it('counts tag membership, not operations, in its rows', () => {
-    // The rows sum to one more than the total because `sessions.hold` carries
-    // two tags. Asserted rather than left as a discrepancy somebody will
-    // eventually "fix" by making one of the two numbers wrong.
+    // The rows sum to three more than the total because `sessions.hold` and the
+    // two group-pass routes each carry two tags. Asserted rather than left as a
+    // discrepancy somebody will eventually "fix" by making one of the two
+    // numbers wrong — and the list is exact, so a fourth route gaining a second
+    // tag fails here until docs/api.md says so.
     const counts = tagMembership()
     const summed = [...counts.values()].reduce((total, count) => total + count, 0)
     const multiTagged = apiRoutes.filter((route) => (route.tags ?? []).length > 1)
@@ -135,6 +138,10 @@ describe('docs/api.md states the counts the artefacts do', () => {
     expect(summed - publishedOperations()).toBe(
       multiTagged.reduce((extra, route) => extra + route.tags.length - 1, 0),
     )
-    expect(multiTagged.map((route) => route.id)).toEqual(['sessions.hold'])
+    expect(multiTagged.map((route) => route.id)).toEqual([
+      'sessions.hold',
+      'orders.groupPass',
+      'orders.rotateGroupPass',
+    ])
   })
 })

@@ -9,7 +9,7 @@
  * published, not the first. That matters: an organiser who fixes one thing,
  * resubmits, and is told about the next one has a worse afternoon than an
  * organiser who is handed the list. So this renders the list, with ticks and
- * crosses that carry words — "Ready" and "Not yet" beside every line, because a
+ * crosses that carry words — "Ready" and "Not ready" beside every line, because a
  * green dot is invisible to a screen reader and to a colourblind person.
  *
  * Nothing is computed here. A button that looks available is a convenience;
@@ -95,7 +95,7 @@ function ChecklistItem({ ready, title, blockers }) {
         {/* The word, not the colour. A tick alone is a shape a screen reader
             does not read and a colourblind person cannot tell from a cross. */}
         <Badge variant={ready ? 'success' : 'warning'} srLabel="Status:">
-          {ready ? 'Ready' : 'Not yet'}
+          {ready ? 'Ready' : 'Not ready'}
         </Badge>
         <span className="font-medium text-ink">{title}</span>
       </div>
@@ -325,7 +325,7 @@ export function EventLifecyclePanel({
         if (code === 'MFA_ENROLMENT_REQUIRED') {
           setNeedsEnrolment(true)
           setError(
-            'A role this account holds needs two-step sign-in before it can do this, and it is not set up yet. Nothing has changed.',
+            'A role this account holds needs two-step sign-in before it can do this, and it has not been set up. Nothing has changed.',
           )
           queueMicrotask(() => dialogRef.current?.focus())
           return
@@ -451,7 +451,7 @@ export function EventLifecyclePanel({
             blockers={
               readiness.organizerVerified
                 ? []
-                : ['The platform has not verified this organisation yet.']
+                : ['The platform has not verified this organisation.']
             }
           />
           <ChecklistItem

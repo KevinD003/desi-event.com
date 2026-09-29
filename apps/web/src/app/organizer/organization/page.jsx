@@ -206,7 +206,7 @@ export default async function OrganizationPage({ searchParams }) {
               <span className="text-sm text-ink-muted">
                 {state.eligible
                   ? 'It may publish events and be paid.'
-                  : 'It may not publish events or be paid yet.'}
+                  : 'It may not publish events or be paid.'}
               </span>
             </p>
             <p className="mt-2 text-sm text-ink-muted">{reading.meaning}</p>
@@ -225,9 +225,7 @@ export default async function OrganizationPage({ searchParams }) {
 
           <h3 className="mt-6 font-semibold text-ink">What has happened so far</h3>
           {history.length === 0 ? (
-            <p className="mt-2 text-sm text-ink-muted">
-              Nothing yet: nobody has asked for a check.
-            </p>
+            <p className="mt-2 text-sm text-ink-muted">Nothing: nobody has asked for a check.</p>
           ) : (
             <ol className="mt-3 space-y-2">
               {history.map((event) => (

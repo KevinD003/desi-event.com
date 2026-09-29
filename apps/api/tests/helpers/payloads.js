@@ -68,3 +68,31 @@ export function expectNoNeedles(expect, body, needles) {
     expect(scanned, `the payload carries "${needle}"`).not.toContain(needle.toLowerCase())
   }
 }
+
+/**
+ * Assert that a payload does not carry one particular secret.
+ *
+ * {@link expectNoNeedles} is the wrong instrument for a bearer secret: it
+ * masks every run of twenty to thirty-two lower-case alphanumerics before it
+ * looks, so a code in exactly that shape would be blanked and never found. This
+ * looks for the secret itself — raw text, case-sensitive, nothing masked.
+ *
+ * The failure message never contains the secret, and neither does Vitest's
+ * report of it: the assertion is on a boolean, so the only values it can print
+ * are `true` and `false`. A test log is a log.
+ *
+ * @param {object} expect Vitest's `expect`, passed in so this file imports nothing.
+ * @param {string|object} body The payload: text, or a value to serialise as JSON.
+ * @param {string} secret The one-time secret that must not be there.
+ * @returns {void} Nothing.
+ * @throws {TypeError} When the secret is not a non-empty string, which would pass vacuously.
+ */
+export function expectNoSecret(expect, body, secret) {
+  if (typeof secret !== 'string' || secret.length === 0) {
+    throw new TypeError('expectNoSecret needs the secret itself, as a non-empty string.')
+  }
+
+  const text = typeof body === 'string' ? body : JSON.stringify(body)
+
+  expect(String(text).includes(secret), 'the payload carries the one-time secret').toBe(false)
+}

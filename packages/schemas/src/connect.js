@@ -178,7 +178,7 @@ export function connectCapabilityFlags(state) {
  */
 export const CONNECT_STATE_DISCLAIMERS = Object.freeze({
   NOT_STARTED:
-    'Nothing has been simulated yet. No payment provider has been contacted and no provider account exists.',
+    'Nothing has been simulated. No payment provider has been contacted and no provider account exists.',
   IN_PROGRESS:
     'A simulated setup is under way in this deployment only. No payment provider has been contacted, no provider account exists, and nothing has been submitted anywhere.',
   REQUIREMENTS_DUE:

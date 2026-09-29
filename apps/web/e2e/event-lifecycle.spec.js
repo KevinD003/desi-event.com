@@ -313,7 +313,7 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
 
     await organiser.getByRole('button', { name: /^step 3\s*sessions$/i }).click()
 
-    await expect(organiser.getByText(/no sessions yet/i)).toBeVisible()
+    await expect(organiser.getByText(/no sessions\. an event cannot be published/i)).toBeVisible()
 
     await organiser.getByLabel(/^Starts/).fill(wallClock(45, 19))
     await organiser.getByLabel(/^Ends/).fill(wallClock(45, 22))
@@ -329,7 +329,7 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
   test('journey 8: a ticket type shows what a buyer is actually charged', async () => {
     await openStep(organiser, /^step 4/i)
 
-    await expect(organiser.getByText(/no ticket types yet/i)).toBeVisible()
+    await expect(organiser.getByText(/no ticket types\. an event cannot go on sale/i)).toBeVisible()
 
     await organiser.getByLabel(/^Name/).fill('General admission')
     // Face values are typed in dollars, as a person reads a price, and a new
@@ -376,7 +376,7 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
 
     // Policies are still empty, so the listing is not complete. The organisation
     // is verified, so that line is ready. Both are said in words.
-    await expect(organiser.getByText('Not yet').first()).toBeVisible()
+    await expect(organiser.getByText('Not ready').first()).toBeVisible()
     await expect(organiser.getByText('Ready').first()).toBeVisible()
     await expect(organiser.getByText(/needs entry, refund and conduct policies/i)).toHaveCount(2)
   })
@@ -462,7 +462,7 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(moderator.getByText(/this event is now APPROVED/i)).toBeVisible()
 
     await openStep(organiser, /review/i)
-    await expect(organiser.getByText(/approved, not yet public/i).first()).toBeVisible()
+    await expect(organiser.getByText(/approved, not public/i).first()).toBeVisible()
   })
 
   test('journey 15: an approved event is still not public', async ({ page }) => {

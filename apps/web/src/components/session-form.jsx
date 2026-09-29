@@ -373,7 +373,7 @@ export function SessionForm({
         </FormField>
 
         {instant('salesStartAt', 'Sales open', {
-          description: 'Leave empty to sell as soon as the event does.',
+          description: 'Leave empty to sell whenever the event does.',
         })}
         {instant('salesEndAt', 'Sales close', {
           description: 'Leave empty to sell until the session ends.',

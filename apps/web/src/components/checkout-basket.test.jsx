@@ -156,7 +156,7 @@ describe('CheckoutBasket', () => {
   it('starts empty, with nothing to pay and no way to continue', () => {
     renderBasket()
 
-    expect(screen.getByText('No tickets selected yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets selected')).toBeInTheDocument()
     expect(screen.getByTestId('summary-total')).toHaveTextContent('₹0.00')
     expect(screen.getByRole('button', { name: 'Select tickets to continue' })).toBeDisabled()
   })
@@ -243,7 +243,7 @@ describe('CheckoutBasket', () => {
     await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
     await user.click(screen.getByRole('button', { name: 'Remove one Garden Seating' }))
 
-    expect(screen.getByText('No tickets selected yet')).toBeInTheDocument()
+    expect(screen.getByText('No tickets selected')).toBeInTheDocument()
     expect(screen.getByTestId('summary-total')).toHaveTextContent('₹0.00')
   })
 

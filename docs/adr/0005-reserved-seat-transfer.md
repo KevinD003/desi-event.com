@@ -1,6 +1,9 @@
 # ADR 0005 — Reserved-seat transfer stays blocked, and the block is made real
 
-- **Status:** Accepted for Phase 4 (Phase 3 of the Phase 4 programme)
+- **Status:** Superseded by [ADR 0006](0006-reserved-seat-transfer-live-seat-index.md)
+  on 2026-09-29, which implements option B in full. Accepted for Phase 4
+  (Phase 3 of the Phase 4 programme); everything below this line is kept as
+  written, as the record of what was known and decided on 2026-09-22.
 - **Date:** 2026-09-22
 - **Supersedes:** nothing
 - **Related:** ADR 0004; finding S-1 in `docs/PHASE4_IMPLEMENTATION_REPORT.md`

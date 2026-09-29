@@ -122,7 +122,7 @@ describe('the readiness checklist', () => {
     expect(
       screen.getByText('The event needs at least one ticket type on sale.'),
     ).toBeInTheDocument()
-    expect(screen.getAllByText('Not yet')).toHaveLength(2)
+    expect(screen.getAllByText('Not ready')).toHaveLength(2)
   })
 
   it('says when the organisation is what is holding it up', () => {

@@ -85,7 +85,7 @@ test.describe('what the screen says before anything has been simulated', () => {
   test('it names the state without printing the enum', async ({ owner }) => {
     await owner.goto('/finance/connect')
 
-    await expect(owner.getByText('Not simulated yet')).toBeVisible()
+    await expect(owner.getByText('Simulated setup not started')).toBeVisible()
     // The raw enum reaching a screen is the failure the vocabulary exists to
     // prevent, so its absence is asserted rather than assumed.
     await expect(owner.getByText('NOT_STARTED')).toBeHidden()

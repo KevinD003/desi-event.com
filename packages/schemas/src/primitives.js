@@ -174,6 +174,33 @@ export const urlSchema = z.preprocess(
 /** Any non-empty trimmed string, capped so a body cannot carry a novel. */
 export const nonEmptyStringSchema = z.preprocess(trimmed, z.string().min(1).max(500))
 
+/**
+ * Control characters: C0 (NUL included), DEL and C1.
+ *
+ * Nothing a person types into a search box, a filter or a door screen is one.
+ * NUL in particular is refused by PostgreSQL in every text and JSON column, so
+ * one that gets past validation reaches the database and comes back as a 500
+ * rather than as the 400 it is.
+ *
+ * @type {RegExp}
+ */
+export const CONTROL_CHARACTER_PATTERN = /\p{Cc}/u
+
+/**
+ * The same string schema, refusing any control character.
+ *
+ * A refinement, which JSON Schema cannot express, so the published document is
+ * unchanged; the refusal is a 400 like any other validation failure.
+ *
+ * @param {z.ZodType} schema A schema whose output is a string.
+ * @returns {z.ZodType} The schema, refined.
+ */
+export function withoutControlCharacters(schema) {
+  return schema.refine((value) => !CONTROL_CHARACTER_PATTERN.test(value), {
+    message: 'Remove the control character.',
+  })
+}
+
 /** Free-form long text such as an event description. */
 export const richTextSchema = z.preprocess(trimmed, z.string().min(1).max(20_000))
 

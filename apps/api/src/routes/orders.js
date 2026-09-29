@@ -379,7 +379,7 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
         throw httpError(
           502,
           'PAYMENT_TIMEOUT',
-          'The payment provider did not respond in time. Your order is being confirmed; do not retry yet.',
+          'The payment provider did not respond in time. Your order is being confirmed; wait a moment before trying again.',
         )
       }
 

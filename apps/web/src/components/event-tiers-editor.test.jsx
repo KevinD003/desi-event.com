@@ -176,7 +176,9 @@ describe('removing a ticket type', () => {
     expect(path).toBe('/v1/events/evttiers/tiers/tgeneral')
     expect(init).toEqual({ method: 'DELETE', query: { revision: 4 } })
     expect(init.body).toBeUndefined()
-    expect(await screen.findByText(/No ticket types yet/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/No ticket types\. An event cannot go on sale/),
+    ).toBeInTheDocument()
   })
 
   it('says why a tier that has sold cannot go, instead of offering a button', () => {

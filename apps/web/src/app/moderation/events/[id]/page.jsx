@@ -57,7 +57,7 @@ function Readiness({ ready, title, blockers }) {
     <li className="rounded-card border border-line bg-surface-raised shadow-card p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={ready ? 'success' : 'warning'} srLabel="Status:">
-          {ready ? 'Ready' : 'Not yet'}
+          {ready ? 'Ready' : 'Not ready'}
         </Badge>
         <span className="font-medium text-ink">{title}</span>
       </div>

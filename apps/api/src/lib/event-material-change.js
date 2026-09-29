@@ -29,9 +29,10 @@
  * ## What it does not do
  *
  * **It does not send anything.** The rows are `QUEUED` in
- * `NotificationOutbox`. No outbox worker exists in this repository yet, so
- * nothing is delivered and nothing here claims otherwise — the count returned
- * is of work *created*, not of people told.
+ * `NotificationOutbox`. The worker's outbox drain hands them to the email
+ * provider this build has, which is the in-memory one, so nothing reaches a
+ * ticket holder and nothing here claims otherwise — the count returned is of
+ * work *created*, not of people told.
  *
  * **It does not touch a snapshot.** An order carries the policies as they stood
  * when it was placed, precisely so a later edit cannot change what a buyer

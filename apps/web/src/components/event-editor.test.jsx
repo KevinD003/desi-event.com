@@ -62,7 +62,7 @@ describe('what the editor says about saving', () => {
   it('starts by saying there is nothing to save', () => {
     render(<EventEditor event={event} venues={venues} />)
 
-    expect(screen.getByTestId('save-status')).toHaveTextContent('No changes yet.')
+    expect(screen.getByTestId('save-status')).toHaveTextContent('No changes made.')
   })
 
   it('says so in words rather than with a colour', () => {

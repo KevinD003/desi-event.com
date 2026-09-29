@@ -34,6 +34,7 @@ import {
   timezoneSchema,
   urlSchema,
   paginationQuerySchema,
+  withoutControlCharacters,
 } from './primitives.js'
 import {
   eventCategorySchema,
@@ -283,11 +284,13 @@ export const listEventsQuerySchema = paginationQuerySchema
   .extend({
     category: eventCategorySchema.optional(),
     status: eventStatusSchema.optional(),
-    city: nonEmptyStringSchema.optional(),
+    // Both reach PostgreSQL as search terms, so neither may carry a NUL or any
+    // other control character: refused here as a 400, not by the database as a 500.
+    city: withoutControlCharacters(nonEmptyStringSchema).optional(),
     q: z
       .preprocess(
         (value) => (typeof value === 'string' ? value.trim() : value),
-        z.string().min(1).max(120),
+        withoutControlCharacters(z.string().min(1).max(120)),
       )
       .optional(),
     startsAfter: queryDateTimeSchema.optional(),
@@ -589,27 +592,9 @@ function exactlyOnePresentation(value, ctx) {
   }
 }
 
-/**
- * Control characters: C0, DEL and C1.
- *
- * A gate, a scanner's name and a door search are typed by a person, and none of
- * these is. NUL in particular is refused by PostgreSQL in every text and JSON
- * column, so one let through here reaches the database and comes back as a 500
- * rather than as the 400 it is.
- */
-const CONTROL_CHARACTER = /\p{Cc}/u
-
-/**
- * The same string schema, refusing any control character.
- *
- * @param {z.ZodType} schema A schema whose output is a string.
- * @returns {z.ZodType} The schema, refined.
- */
-function withoutControlCharacters(schema) {
-  return schema.refine((value) => !CONTROL_CHARACTER.test(value), {
-    message: 'Remove the control character.',
-  })
-}
+// A gate, a scanner's name and a door search are typed by a person, and no
+// control character is: `withoutControlCharacters` (primitives.js) refuses them,
+// NUL above all, which PostgreSQL would otherwise refuse with a 500.
 
 /** Which door, when the venue distinguishes them. Recorded as-is. */
 const doorGateSchema = withoutControlCharacters(z.string().trim().min(1).max(60))
@@ -1034,7 +1019,7 @@ export const moderationDecisionRequestSchema = z
  */
 export const notificationQueueQuerySchema = paginationQuerySchema.extend({
   status: notificationStatusSchema.optional(),
-  template: z.string().trim().min(1).max(64).optional(),
+  template: withoutControlCharacters(z.string().trim().min(1).max(64)).optional(),
   failureCategory: z.enum(['PERMANENT', 'TRANSIENT']).optional(),
 })
 
@@ -1143,7 +1128,7 @@ export const reconciliationQueueQuerySchema = paginationQuerySchema.extend({
     ])
     .optional(),
   /** Matches a payment, order or refund id, or a provider reference. */
-  reference: z.string().trim().min(3).max(200).optional(),
+  reference: withoutControlCharacters(z.string().trim().min(3).max(200)).optional(),
   /** `AGING` and `OVERDUE` narrow the queue to what is late. */
   aging: z.enum(['AGING', 'OVERDUE']).optional(),
 })

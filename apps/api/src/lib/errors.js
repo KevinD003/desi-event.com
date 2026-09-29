@@ -101,6 +101,16 @@ export function isAuthError(error) {
 }
 
 /**
+ * PostgreSQL's SQLSTATE for a character the database encoding cannot hold:
+ * `character_not_in_repertoire`, raised for a NUL (0x00) in any text value.
+ */
+const UNSTORABLE_CHARACTER = '22021'
+
+/** What a caller is told when they sent one. Names the fix, not the database. */
+export const UNSTORABLE_CHARACTER_MESSAGE =
+  'The request contains a character that cannot be stored, such as a NUL. Remove it and try again.'
+
+/**
  * Pick a sensible status for a thrown value.
  *
  * @param {unknown} error The thrown value.
@@ -130,6 +140,20 @@ function statusOf(error) {
  */
 export function normaliseError(error, options = {}) {
   const { exposeInternals = false } = options
+
+  // A character PostgreSQL cannot store — a NUL above all, which every text
+  // and JSON column refuses — is a bad request, not a fault. The request
+  // schemas refuse control characters in the fields they know reach a query
+  // (`withoutControlCharacters`), so this is the backstop for one they miss:
+  // the caller hears 400 and what to change, and the log is not given a 500.
+  if (databaseErrorCode(error) === UNSTORABLE_CHARACTER) {
+    return {
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: UNSTORABLE_CHARACTER_MESSAGE,
+      expected: true,
+    }
+  }
 
   if (isAuthError(error)) {
     return {

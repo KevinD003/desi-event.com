@@ -241,7 +241,7 @@ export default async function OrdersPage({ searchParams }) {
       {!failure && orders.length === 0 && counters.total === 0 ? (
         <>
           <Empty
-            title="You have no orders yet"
+            title="You have no orders"
             description="Tickets you buy while signed in to this account appear here."
           />
           <p className="mt-4">

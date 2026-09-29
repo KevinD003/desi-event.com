@@ -140,6 +140,42 @@ under two scanners racing rather than merely under one steward retrying. See
 own free-text identifier goes into the audit metadata instead; putting it in the
 column was a guaranteed 500 at a door, found by the load suite.
 
+### One live ticket per seat — 2026-09-29
+
+Migration `20260928100000_live_seat_ticket_index` (ADR 0006).
+`Ticket.eventSeatId` is no longer fully unique. The partial unique index
+`Ticket_eventSeatId_live_key` covers `"eventSeatId"` only while
+`"eventSeatId" IS NOT NULL AND "status" IN ('VALID', 'TRANSFER_PENDING',
+'CHECKED_IN')`, and a plain `Ticket_eventSeatId_idx` serves the foreign key and
+history lookups. A handed-on (`TRANSFERRED`) or `REFUNDED` row keeps its seat as
+the record of who held it; `EventSeat.tickets` is therefore a list, of which at
+most one is live. Prisma cannot express a partial index, so `schema.prisma`
+carries a comment above `Ticket` pointing at the migration, and
+`apps/api/tests/helpers/prisma-stub.js` enforces the same predicate for the
+stub-based tests. The fresh-database verifier probes the index by name.
+
+### The group pass — 2026-09-29
+
+Migration `20260928110000_group_pass`.
+
+| Column                        | Holds                                               | Constraint                                 |
+| ----------------------------- | --------------------------------------------------- | ------------------------------------------ |
+| `GroupPass.orderId`           | The order it covers; one pass per order             | unique; `ON DELETE CASCADE` from `Order`   |
+| `GroupPass.credentialHash`    | SHA-256 of the QR content, never the content        | unique; `group_pass_digests_are_sha256`    |
+| `GroupPass.codeHash`          | SHA-256 of the printed `DEG-` code, never the code  | unique; `group_pass_digests_are_sha256`    |
+| `GroupPass.credentialVersion` | Bumped when the buyer replaces the pass             | `group_pass_version_positive`              |
+| (both digests)                | Issued together or not at all                       | `group_pass_digests_together`              |
+| `CheckIn.groupPassId`         | Which group pass admitted this ticket, when one did | foreign key, `ON DELETE SET NULL`; indexed |
+
+The row has no holder column: the order's `userId` is the one source of truth
+for whose pass it is. The row is created on the buyer's first request for it,
+so checkout, the webhook and existing orders needed no backfill.
+
+`desi_check_in_group_pass_matches` refuses a `CheckIn` that names a group pass
+for a ticket on another order, or for a ticket whose owner is no longer the
+order's buyer. The unique `CheckIn.ticketId` still makes each admission happen
+once, whether it came through a group or alone.
+
 ---
 
 ## Lifecycle and moderation
@@ -274,6 +310,30 @@ every privilege change. `AuthToken` rows are single-purpose
 (`AuthTokenPurpose`), so a token minted for one thing cannot be spent on
 another. `ScannerScope` narrows a membership to particular events — a steward at
 one door is not an organisation-wide capability.
+
+### Invitations and who created an organisation — 2026-09-29
+
+Migration `20260928120000_team_delivery_and_organisation_provenance`.
+
+- **`Invitation.deliveryMode`** (`InvitationDelivery`: `EMAIL`, `MANUAL`,
+  nullable) records how each invitation's code went out (ADR 0008). Rows
+  written before the column existed are null. The code itself is never stored;
+  `Invitation.tokenHash` holds its SHA-256, as before.
+- **`Invitation_one_pending_per_address`** is a partial unique index on
+  `("organizationId", lower("email")) WHERE "status" = 'PENDING'`: at most one
+  live invitation per address per organisation, whatever its case, so two
+  issued at the same moment produce one invitation and one conflict. The
+  migration first revoked older duplicate pending invitations, keeping the
+  newest (ties broken by id).
+- **`Organization.createdById`** names the account that created an
+  organisation through `POST /v1/organizations`, with an index on
+  `("createdById", "createdAt")` that serves the three-a-day limit.
+  Nullable with `ON DELETE SET NULL`: seeded and platform-made organisations
+  have none. It is never on the wire.
+
+A role change of any kind ends sessions with the revocation reason
+`role_changed` (NF-10), written to `Session.revokedReason` like every other
+reason.
 
 ---
 

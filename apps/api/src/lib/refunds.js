@@ -61,6 +61,16 @@ import { postBatch } from './ledger.js'
 import { openReconciliation } from './webhook-handlers.js'
 
 /**
+ * The ticket states a settling refund revokes: a ticket that still admits and
+ * has not been used. `TRANSFER_PENDING` is one — an outstanding offer leaves
+ * the holder admissible — and `CHECKED_IN` is not, because an admitted ticket
+ * is terminal.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const REFUNDABLE_TICKET_STATES = Object.freeze(['VALID', 'TRANSFER_PENDING'])
+
+/**
  * Every state a refund can be in.
  *
  * @type {Readonly<Record<string, string>>}
@@ -741,17 +751,26 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
     await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${item.orderItemId} FOR UPDATE`
 
     const tickets = await tx.ticket.findMany({
-      where: { orderItemId: item.orderItemId, status: { in: ['VALID', 'TRANSFER_PENDING'] } },
+      where: { orderItemId: item.orderItemId, status: { in: [...REFUNDABLE_TICKET_STATES] } },
       orderBy: { createdAt: 'asc' },
       take: item.quantity,
     })
 
     for (const ticket of tickets) {
-      // Conditional on the status it was read in: a ticket checked in between
-      // the read and the write has been used, and a used ticket must not be
-      // quietly turned into a refunded one behind the person at the door.
+      // Conditional on the ticket still being refundable, not on the exact
+      // status it was read in. A ticket checked in between the read and the
+      // write has been used, and a used ticket must not be quietly turned into
+      // a refunded one behind the person at the door: CHECKED_IN is not in the
+      // set, so that update matches nothing. But starting an offer takes no
+      // order-line lock, and moves a ticket from VALID to TRANSFER_PENDING
+      // with its own conditional update; conditioning on the status read here
+      // made that ticket match nothing too, so the money went back and the
+      // ticket kept admitting. PostgreSQL re-checks this condition against the
+      // row as the concurrent writer left it, so either order of arrival now
+      // ends with the ticket refunded, and an offer started afterwards finds
+      // it REFUNDED and moves nothing.
       const { count } = await tx.ticket.updateMany({
-        where: { id: ticket.id, status: ticket.status },
+        where: { id: ticket.id, status: { in: [...REFUNDABLE_TICKET_STATES] } },
         data: {
           status: 'REFUNDED',
           revokedAt: now,

@@ -78,7 +78,7 @@ const STATUS = Object.freeze({
  * @type {Readonly<Record<string, string>>}
  */
 const TRANSFER_STATUS = Object.freeze({
-  PENDING: 'Offered, not yet answered',
+  PENDING: 'Offered, awaiting an answer',
   ACCEPTED: 'Accepted',
   DECLINED: 'Declined',
   CANCELLED: 'Withdrawn by the sender',

@@ -93,7 +93,9 @@ describe('removing a session', () => {
 
     expect(path).toBe('/v1/events/evtnights/sessions/snight1')
     expect(init).toEqual({ method: 'DELETE', query: { revision: 6 } })
-    expect(await screen.findByText(/No sessions yet/)).toBeInTheDocument()
+    expect(
+      await screen.findByText(/No sessions\. An event cannot be published/),
+    ).toBeInTheDocument()
   })
 
   it('says why a night with orders cannot go, instead of offering a button', () => {

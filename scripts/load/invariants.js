@@ -41,6 +41,33 @@ export async function checkInvariants(prisma, scope = {}) {
 }
 
 /**
+ * How many tickets a tier has to sell, in the build's own inventory model.
+ *
+ * A general-admission tier's stock is its `quantityTotal`. A reserved tier's
+ * stock is its seats: the event seats it prices, and any seat already sold on
+ * one of its lines. Its quantity column says nothing about them — authoring
+ * creates a reserved tier with a quantity of 0, and the listing, the sold-out
+ * summary and analytics all count a seated tier by its seats, never by that
+ * column (`presenters.js`, `analytics.js` `reservedSeatInventory`). Judging a
+ * seated tier by the column reported a sale of one real seat as "1 sold
+ * against 0 available", and let a tier whose column was set high sell past its
+ * seats unremarked.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {object} type The ticket type.
+ * @returns {Promise<{available: number, unit: string}>} Its stock, and what the stock is counted in.
+ */
+async function stockOf(prisma, type) {
+  if (!type.reserved) return { available: type.quantityTotal, unit: 'available' }
+
+  const seats = await prisma.eventSeat.count({
+    where: { OR: [{ ticketTypeId: type.id }, { orderItem: { ticketTypeId: type.id } }] },
+  })
+
+  return { available: seats, unit: 'seat(s) priced or sold by it' }
+}
+
+/**
  * More tickets sold than exist.
  *
  * @param {object} prisma A Prisma client.
@@ -59,9 +86,10 @@ async function noOverselling(prisma, scope) {
     })
 
     const total = sold._sum.quantity ?? 0
+    const stock = await stockOf(prisma, type)
 
-    if (total > type.quantityTotal) {
-      offenders.push(`${type.id}: ${total} sold against ${type.quantityTotal} available`)
+    if (total > stock.available) {
+      offenders.push(`${type.id}: ${total} sold against ${stock.available} ${stock.unit}`)
     }
   }
 

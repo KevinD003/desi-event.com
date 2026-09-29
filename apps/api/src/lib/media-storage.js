@@ -14,7 +14,7 @@
  *
  * Moving to an object store later means an adapter whose `put` runs before the
  * transaction, a compensating `remove` when the transaction fails, and a sweep
- * for orphans. See ADR 0006.
+ * for orphans. See ADR 0009.
  *
  * The storage key is `pg/` plus a random UUID. It is never sent to a client and
  * never logged; the only name a client ever sees is the asset id.

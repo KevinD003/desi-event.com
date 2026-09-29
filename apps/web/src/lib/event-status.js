@@ -56,7 +56,7 @@ const READINGS = Object.freeze({
     next: 'A moderator has asked for something specific. Make the changes and send it back.',
   },
   APPROVED: {
-    label: 'Approved, not yet public',
+    label: 'Approved, not public',
     tone: 'success',
     whose: 'you',
     next: 'A moderator said yes. Nothing is public until you publish it, which is your decision and your timing.',

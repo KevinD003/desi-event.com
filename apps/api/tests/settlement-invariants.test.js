@@ -629,6 +629,33 @@ when()('what the database guarantees on its own', () => {
     expect(checks.get('no surplus admission authority').ok).toBe(true)
   })
 
+  it('15 — a reserved tier is judged by its seats, not by its quantity column', async () => {
+    // Authoring creates a reserved tier with a quantity of 0: its stock is its
+    // seats. Judged by the column, one real seat sold read as "1 sold against
+    // 0 available", and the reliability step failed on a seated sale the
+    // commerce suite had made correctly. Judged by its seats, a sale within
+    // them passes and a sale past them is still an oversell.
+    const { orderItem, eventId, ticketTypeId } = await paidLine(2)
+
+    await prisma.ticketType.update({
+      where: { id: ticketTypeId },
+      data: { reserved: true, quantityTotal: 0 },
+    })
+    await reservedSeat(eventId, ticketTypeId, orderItem.id)
+
+    const short = await checkAll(eventId)
+
+    // Two sold, one seat: the second ticket has no seat to sit in.
+    expect(short.get('no overselling').ok).toBe(false)
+    expect(short.get('no overselling').detail).toMatch(/2 sold against 1 seat\(s\)/u)
+
+    await reservedSeat(eventId, ticketTypeId, orderItem.id)
+
+    const seated = await checkAll(eventId)
+
+    expect(seated.get('no overselling').ok, seated.get('no overselling').detail).toBe(true)
+  })
+
   it('10b — deleting a predecessor nulls the reference rather than orphaning it', async () => {
     // The same foreign key, `ON DELETE SET NULL`. The successor survives as its
     // own chain root; it does not become a row pointing at nothing.

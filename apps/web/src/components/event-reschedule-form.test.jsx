@@ -140,13 +140,13 @@ describe('bringing a postponed event back', () => {
           to: 'ON_SALE',
           actor: 'organizer',
           entitled: true,
-          blockers: ['Ticket type "Stalls" has no seats yet.'],
+          blockers: ['Ticket type "Stalls" has no seats.'],
         }}
       />,
     )
 
     expect(screen.getByRole('radio', { name: /On sale straight away/ })).toBeDisabled()
-    expect(screen.getByText('Ticket type "Stalls" has no seats yet.')).toBeInTheDocument()
+    expect(screen.getByText('Ticket type "Stalls" has no seats.')).toBeInTheDocument()
   })
 
   it('lets sales reopen straight away when nothing stands in the way', async () => {

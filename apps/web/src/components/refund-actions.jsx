@@ -55,7 +55,7 @@ const ACTIONS = Object.freeze([
     key: 'approve',
     label: 'Approve',
     description:
-      'Says this refund should go. Nothing is sent yet and no money moves. Somebody other than whoever asked has to do this, unless they hold the capability that says one person may do both.',
+      'Says this refund should go. Nothing is sent at this step and no money moves. Somebody other than whoever asked has to do this, unless they hold the capability that says one person may do both.',
     states: ['REQUESTED', 'DECLINED', 'FAILED'],
     tone: 'primary',
     seatPolicy: false,

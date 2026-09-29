@@ -419,7 +419,7 @@ export function EventEditor({
   const [materialOpen, setMaterialOpen] = useState(false)
   const [status, setStatus] = useState(event.status)
   const [step, setStep] = useState('details')
-  const [save, setSave] = useState({ kind: 'idle', message: 'No changes yet.' })
+  const [save, setSave] = useState({ kind: 'idle', message: 'No changes made.' })
   const [serverProblems, setServerProblems] = useState([])
   const [conflict, setConflict] = useState(null)
   // Everything here is client-side: until hydration the step buttons, the
@@ -549,7 +549,7 @@ export function EventEditor({
     }
 
     if (problems.length > 0) {
-      setSave({ kind: 'unsaved', message: 'Not saved yet — some fields need attention.' })
+      setSave({ kind: 'unsaved', message: 'Not saved — some fields need attention.' })
       return undefined
     }
 

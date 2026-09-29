@@ -121,7 +121,7 @@ cp .env.example .env
 set -a; . ./.env; set +a   # export the variables into this shell — see below
 
 pnpm db:migrate            # create the schema
-pnpm db:seed               # 23 users, 10 organisations, 23 events, 13 orders (USD)
+pnpm db:seed               # 25 users, 11 organisations, 23 events, 13 orders (USD)
 pnpm dev                   # api, web and worker together
 ```
 
@@ -270,9 +270,10 @@ runs exactly this command, and `pnpm ci:check` refuses a workflow that produces
 or judges reports any other way. `pnpm verify` runs it too, in place of a plain
 `pnpm test`, so the local gate needs the test database just as CI does.
 
-**The current figures**: **4,642** unit
-and integration cases across 173 files, and **242** browser cases across seven
-Playwright configurations. They are never added together.
+**The current figures**, as `pnpm verify:tests:fresh` counted them on
+2026-09-29: **9,184** unit and integration cases across 406 files, none failed
+or skipped. Browser cases, across seven Playwright configurations, are counted
+by their own runs and never added to these.
 
 ## Documentation
 
@@ -280,11 +281,12 @@ Start with the one that matches what you are doing.
 
 ### Where the project stands
 
-| Document                                                                   | Contents                                                         |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                       | **Authoritative current status**: the twenty gates, in one table |
-| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)         | The closeout cycle, its verification, and the one thing left     |
-| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md) | Requirement → implementation → evidence, row by row              |
+| Document                                                                             | Contents                                                                                     |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| [PHASE2_STATUS.md](PHASE2_STATUS.md)                                                 | **Authoritative current status**: the twenty gates, in one table                             |
+| [PHASE2_FINAL_CLOSEOUT_REPORT.md](PHASE2_FINAL_CLOSEOUT_REPORT.md)                   | The closeout cycle, its verification, and the one thing left                                 |
+| [PHASE2_REQUIREMENTS_TRACEABILITY.md](PHASE2_REQUIREMENTS_TRACEABILITY.md)           | Requirement → implementation → evidence, row by row                                          |
+| [docs/PHASE4_FEATURE_COMPLETION_REPORT.md](docs/PHASE4_FEATURE_COMPLETION_REPORT.md) | The feature-completion work: what each area built, its safeguards, and what is still limited |
 
 ### The system
 
@@ -295,7 +297,8 @@ Start with the one that matches what you are doing.
 | [docs/api.md](docs/api.md)                   | REST reference: auth, errors, pagination, every endpoint                       |
 | [docs/PROVIDERS.md](docs/PROVIDERS.md)       | The four adapters, mock mode, webhook intake and dispatch                      |
 | [docs/DECISIONS.md](docs/DECISIONS.md)       | The authoritative decision index, including decisions that live in code        |
-| [docs/adr/](docs/adr/)                       | Architecture decision records                                                  |
+| [docs/adr/](docs/adr/)                       | Architecture decision records, 0001 to 0009                                    |
+| [docs/MEDIA.md](docs/MEDIA.md)               | Event pictures: upload, sanitising, storage, moderation and serving            |
 
 ### Money
 
@@ -312,8 +315,8 @@ Start with the one that matches what you are doing.
 | Document                                                   | Contents                                                              |
 | ---------------------------------------------------------- | --------------------------------------------------------------------- |
 | [docs/SECURITY.md](docs/SECURITY.md)                       | Auth, MFA, step-up, authorization, audit, rotation, incident response |
-| [docs/PHASE2_THREAT_MODEL.md](docs/PHASE2_THREAT_MODEL.md) | Assets, actors, thirteen attacks, and what is out of scope            |
-| [docs/CHECK_IN.md](docs/CHECK_IN.md)                       | The door: credentials, idempotence, transfers                         |
+| [docs/PHASE2_THREAT_MODEL.md](docs/PHASE2_THREAT_MODEL.md) | Assets, actors, fourteen attacks, and what is out of scope            |
+| [docs/CHECK_IN.md](docs/CHECK_IN.md)                       | The door: credentials, idempotence, group passes, transfers           |
 | [docs/UX.md](docs/UX.md)                                   | Screens, accessibility sweep, browser journeys counted honestly       |
 | [docs/LOAD_AND_CAPACITY.md](docs/LOAD_AND_CAPACITY.md)     | What the load suite measures, and why it is not capacity              |
 

@@ -124,7 +124,7 @@ describe('the organisation screen', () => {
       '/organizers/bay-lights',
     )
     expect(screen.getByText('Unverified')).toBeInTheDocument()
-    expect(screen.getByText('It may not publish events or be paid yet.')).toBeInTheDocument()
+    expect(screen.getByText('It may not publish events or be paid.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ask for verification' })).toBeInTheDocument()
     expect(
       screen.getByText(/No documents, bank details or tax\s+numbers are collected here/u),

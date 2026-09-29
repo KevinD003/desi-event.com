@@ -280,7 +280,7 @@ export default async function RefundDetailPage({ params }) {
           <div className="flex flex-wrap gap-2">
             <dt className="text-ink-muted">Provider reference</dt>
             <dd className="font-mono text-ink">
-              {refund.providerRefundId ?? 'None yet — nothing has been sent'}
+              {refund.providerRefundId ?? 'None — nothing has been sent'}
             </dd>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -289,11 +289,11 @@ export default async function RefundDetailPage({ params }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <dt className="text-ink-muted">Tickets revoked</dt>
-            <dd className="text-ink">{refund.ticketsRevoked ? 'Yes' : 'Not yet'}</dd>
+            <dd className="text-ink">{refund.ticketsRevoked ? 'Yes' : 'No'}</dd>
           </div>
           <div className="flex flex-wrap gap-2">
             <dt className="text-ink-muted">Inventory returned</dt>
-            <dd className="text-ink">{refund.inventoryReturned ? 'Yes' : 'Not yet'}</dd>
+            <dd className="text-ink">{refund.inventoryReturned ? 'Yes' : 'No'}</dd>
           </div>
           {refund.submittedAt ? (
             <div className="flex flex-wrap gap-2">

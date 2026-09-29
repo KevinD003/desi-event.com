@@ -62,7 +62,7 @@ const NUM = `${TD} text-right tabular-nums`
  */
 function Breakdown({ caption, unit, rows, money }) {
   if (rows.length === 0) {
-    return <Empty title={caption} description="Nothing has been sold in this grouping yet." />
+    return <Empty title={caption} description="Nothing has been sold in this grouping." />
   }
 
   return (
@@ -350,7 +350,7 @@ export default async function AnalyticsPage({ searchParams }) {
                     </th>
                     <td className={NUM}>
                       {view.checkIns.percent === null
-                        ? 'No live tickets yet'
+                        ? 'No live tickets'
                         : `${view.checkIns.percent}%`}
                     </td>
                   </tr>
@@ -424,7 +424,7 @@ export default async function AnalyticsPage({ searchParams }) {
             ) : (
               <Empty
                 title="No general-admission tiers"
-                description="This organisation sells no unreserved tickets, or none have been created yet."
+                description="This organisation sells no unreserved tickets, or none have been created."
               />
             )}
 

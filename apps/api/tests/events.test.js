@@ -414,6 +414,19 @@ describe('GET /v1/events', () => {
     expect((await list(app, 'sort=title:asc')).data[0].title).toBe('Classical Dance Masterclass')
   })
 
+  it.each([
+    ['a NUL in the search', 'q=gar%00ba'],
+    ['a NUL in the city', 'city=Edi%00son'],
+    ['a tab in the search', 'q=gar%09ba'],
+    ['a C1 control in the search', 'q=gar%C2%85ba'],
+  ])('answers 400 for %s, which PostgreSQL would refuse as a 500', async (_label, query) => {
+    const { app } = await createTestApp()
+    const response = await app.inject({ method: 'GET', url: `/v1/events?${query}` })
+
+    expect(response.statusCode, response.body).toBe(400)
+    expect(response.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
   it('rejects an unknown sort key and an oversized page', async () => {
     const { app } = await createTestApp()
 

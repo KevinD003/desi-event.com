@@ -25,6 +25,7 @@ import {
   pageSchema,
   paginationQuerySchema,
   timestampSchema,
+  withoutControlCharacters,
 } from './primitives.js'
 import { paginationMetaSchema } from './responses.js'
 
@@ -48,7 +49,8 @@ export const PLATFORM_USER_SEARCH_MAX_PER_PAGE = 50
  * user table, a page at a time.
  */
 export const platformUserSearchRequestSchema = z.object({
-  q: z.preprocess(trimmed, z.string().min(3).max(254)),
+  // A search term PostgreSQL reads: no NUL, no other control character.
+  q: z.preprocess(trimmed, withoutControlCharacters(z.string().min(3).max(254))),
   role: userRoleSchema.optional(),
   page: pageSchema,
   perPage: z.coerce.number().int().min(1).max(PLATFORM_USER_SEARCH_MAX_PER_PAGE).default(20),
@@ -119,7 +121,7 @@ export const platformRoleChangedResponseSchema = z.object({
  * already: it is on its organiser page.
  */
 export const platformOrganizationSearchQuerySchema = paginationQuerySchema.extend({
-  q: z.preprocess(trimmed, z.string().min(2).max(120)),
+  q: z.preprocess(trimmed, withoutControlCharacters(z.string().min(2).max(120))),
 })
 
 /** One organisation in the super administrator's search. */
