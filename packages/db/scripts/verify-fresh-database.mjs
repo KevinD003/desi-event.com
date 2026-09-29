@@ -1249,6 +1249,11 @@ async function main() {
         // refused first by the API as a 4xx, a quantity cut racing live holds,
         // and a reschedule whose revision moved leaving the event untouched.
         'tests/event-authoring-live-integration.test.js',
+        // Checkout: a promo code's cap under twelve racing buyers, its CHECKs,
+        // a delete racing a checkout; and reserved seats bound by zone, a
+        // wheelchair pair raced for, released and swept seats back on sale.
+        'tests/promo-redemption-integration.test.js',
+        'tests/seat-purchase-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

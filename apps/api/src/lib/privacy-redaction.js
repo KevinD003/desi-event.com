@@ -274,8 +274,38 @@ export async function redactBuyerIdentity(tx, { organizationId, subjectUserId, s
     count += 1
   }
 
+  // Guests' names the buyer typed at checkout wait on the order's lines and
+  // seats until settlement puts them on the tickets. Any still waiting — an
+  // order never paid, or not yet settled — are the buyer's data too, and go
+  // with the buyer's identity. Issued tickets are redacted with their holder.
+  const orderIds = orders.map((order) => order.id)
+  const lines = await tx.orderItem.findMany({
+    where: { orderId: { in: orderIds } },
+    select: { id: true },
+  })
+
+  const stagedLines = await tx.orderItem.updateMany({
+    where: { orderId: { in: orderIds }, attendeeNames: { isEmpty: false } },
+    data: { attendeeNames: [] },
+  })
+  const stagedSeats =
+    lines.length > 0
+      ? await tx.holdItem.updateMany({
+          where: {
+            orderItemId: { in: lines.map((line) => line.id) },
+            attendeeName: { not: null },
+          },
+          data: { attendeeName: null },
+        })
+      : { count: 0 }
+
+  // Names cleared from the staging count as a redaction even when the order's
+  // own columns had been redacted already: something of the buyer's went.
+  const staged = stagedLines.count + stagedSeats.count
+
   return {
-    status: count === 0 ? CATEGORY_STATUSES.ALREADY_REDACTED : CATEGORY_STATUSES.REDACTED,
+    status:
+      count === 0 && staged === 0 ? CATEGORY_STATUSES.ALREADY_REDACTED : CATEGORY_STATUSES.REDACTED,
     count,
   }
 }

@@ -84,3 +84,25 @@ describe('what an edit sends', () => {
     expect(diffSessionBody(night, { ...night })).toEqual({})
   })
 })
+
+describe('a night’s label', () => {
+  it('starts blank for a new night and keeps a saved one', () => {
+    expect(night.label).toBe('')
+    expect(toSessionForm({ ...night, label: 'Night 2' }).label).toBe('Night 2')
+  })
+
+  it('is sent trimmed, and blank is sent as none so the date labels the night', () => {
+    expect(toSessionBody({ ...night, label: '  Night 2 ' }).label).toBe('Night 2')
+    expect(toSessionBody({ ...night, label: '   ' }).label).toBeNull()
+  })
+
+  it('is a change an edit sends, and does not move the night', () => {
+    const patch = diffSessionBody(night, { ...night, label: 'Opening night' })
+
+    expect(patch).toEqual({ label: 'Opening night' })
+    expect(materialSessionFields(patch)).toEqual([])
+    expect(diffSessionBody({ ...night, label: 'Night 1' }, { ...night, label: '' })).toEqual({
+      label: null,
+    })
+  })
+})

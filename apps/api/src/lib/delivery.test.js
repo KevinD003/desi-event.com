@@ -3,6 +3,8 @@
  * out of every cache.
  */
 
+import { randomBytes } from 'node:crypto'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import { DELIVERY_MODES, deliverCode, noStore, resolveDeliveryMode } from './delivery.js'
@@ -81,7 +83,8 @@ describe('noStore', () => {
 })
 
 describe('deliverCode', () => {
-  const SECRET = 'Ab3_dE6-gH9iJ2kL5mN8oP1qR4sT7uV0wX3yZ6aB9cD'
+  // Made at run time, the way the API makes one, so no code-shaped literal sits in the tree.
+  const SECRET = randomBytes(32).toString('base64url')
 
   it('returns the code once in MANUAL and hands it to nobody else', async () => {
     const deliver = vi.fn()

@@ -189,3 +189,59 @@ changes real payout behaviour.
 
 Production payments remain disabled. Real Stripe and real Stripe Connect remain
 `EXTERNAL VERIFICATION PENDING`.
+
+## One price for the quote and the charge — 2026-09-29
+
+`POST /v1/orders/quote` and `POST /v1/orders` price a basket with the same
+function, `priceCheckout` in `apps/api/src/lib/checkout-pricing.js`. The quote
+calls it read-only (`lock: false`) inside a transaction that writes nothing; the
+order calls it with `lock: true` inside the transaction that writes the order.
+There is no second pricing path, so the figure a buyer is shown and the figure
+they are charged cannot come from different rules.
+
+**The quoted total is a precondition.** The order carries `expectedTotalCents`,
+the total the buyer saw. When the locked recomputation disagrees — a code was
+paused, used up or ended, a tier's price changed — the order is refused with
+`409 PRICE_CHANGED` before anything is written, and nothing is charged. The
+refusal's body carries its code and message only, so the checkout asks for a
+fresh quote, shows the new total and asks the buyer to pay again with a new
+attempt key.
+
+**A promo code is locked before it is counted.** Rows are locked in one order —
+ticket types, then event sessions, then the promo code (`SELECT … FOR UPDATE`) —
+and the code is read again under its lock, so two checkouts racing for the last
+use of a capped code cannot both take it. The database is the backstop: the
+`promo_code_redemptions_within_cap` CHECK refuses a `redemptionCount` above
+`maxRedemptions` whatever the application does.
+
+**A use is given back when the payment fails.** `compensateCheckout`, which
+cancels an order whose (mock) payment was declined, decrements the code's
+`redemptionCount` in the same transaction, conditionally so it never goes below
+zero: a declined card does not use up a capped code. It also clears the guests'
+names staged on the order's lines.
+
+A code is a bearer discount. It travels in request bodies only, never in a URL,
+a log line (the logger redacts `promoCode`), an audit record's metadata or an
+outbox row. Payments remain `PAYMENT_MODE=MOCK`.
+
+**Pay is offered only against a quote.** The checkouts never send an order
+without the server's own figure: until a quote answers — after a network
+failure, a 429 from the quote limit or a refusal — the Pay button names no
+amount and cannot be pressed, the reason is shown with a way to ask again, and
+the code sent with an order is the one the quote priced, never a code chosen
+since.
+
+**A hold an order is waiting on stays with that order.** `orders.create`
+attaches the buyer's holds to the PENDING order before it calls the payment
+provider, and a capture that times out leaves the order PENDING for
+reconciliation, possibly past the holds' own time. The expiry sweep, the
+reclaim of lapsed holds when another buyer chooses the same seats, and
+`DELETE /v1/holds/:id` (409) all leave such a hold, and its seats, alone until
+the order is paid or cancelled; a declined card cancels the order, after which
+the hold lapses as usual. Settlement is the backstop: `settleCheckout` refuses,
+and rolls back, when an order reserved seats that are no longer held for it,
+rather than issue tickets with no seat behind them while those seats are back on
+sale. Lock order for a seat hold: the paths that give seats back lock the
+`TicketHold` and then its `EventSeat` rows, settlement the other way round; they
+never meet on one hold because settlement touches only its own PENDING order's
+holds, which the other paths skip.

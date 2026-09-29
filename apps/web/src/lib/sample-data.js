@@ -153,6 +153,36 @@ function evening(days, timeZone, hour, minute, hours) {
   return { startsAt, endsAt: hoursAfter(startsAt, hours), timezone: timeZone }
 }
 
+/**
+ * Consecutive nights of one event, as the public page lists them: doors at
+ * 19:00, the start at 19:30 and the end five hours later, local time.
+ *
+ * @param {string} prefix Id prefix; each night's id is the prefix and its number.
+ * @param {number} firstDay Offset in days of the first night.
+ * @param {number} count How many nights.
+ * @param {string} timeZone IANA zone of the venue.
+ * @returns {object[]} Nights matching `publicEventSessionSchema`, labelled `Night 1` onwards.
+ */
+function nights(prefix, firstDay, count, timeZone) {
+  return Array.from({ length: count }, (_, index) => {
+    const startsAt = localTime(firstDay + index, timeZone, 19, 30)
+
+    return {
+      id: `${prefix}${index + 1}`,
+      label: `Night ${index + 1}`,
+      doorsOpenAt: localTime(firstDay + index, timeZone, 19, 0),
+      startsAt,
+      endsAt: hoursAfter(startsAt, 5),
+      timezone: timeZone,
+      status: 'SCHEDULED',
+      salesStartAt: null,
+      salesEndAt: null,
+      hasSeatMap: false,
+      seatsAvailable: null,
+    }
+  })
+}
+
 /** Refund wording an organiser might really publish, shared by several. */
 const STANDARD_REFUNDS =
   'Full refund up to seven days before the event. After that, tickets cannot be refunded but may be transferred to someone else.'
@@ -764,6 +794,8 @@ const EVENT_DEFINITIONS = [
     startsAt: localTime(18, EASTERN, 19, 30),
     endsAt: hoursAfter(localTime(26, EASTERN, 19, 30), 5),
     timezone: EASTERN,
+    // Nine nights, one pass: the tiers name no night, so they read "Every night".
+    sessions: nights('snninenights', 18, 9, EASTERN),
     languages: ['Gujarati', 'English'],
     organization: ORGANIZATIONS.mirrorwork,
     venue: VENUES.lamplight,

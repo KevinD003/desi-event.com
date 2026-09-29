@@ -175,7 +175,9 @@ export function registerModerationRoutes(app, { prisma, env }) {
 
       // A moderator sees everything, including the tiers not on sale yet:
       // deciding whether a listing is fit to be public means seeing all of it.
-      return { data: toEventDetail(full, { includeDraftTiers: true, ...pricing }) }
+      return {
+        data: toEventDetail(full, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+      }
     },
   })
 

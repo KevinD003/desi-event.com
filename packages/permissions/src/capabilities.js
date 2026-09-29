@@ -148,6 +148,11 @@ export const CAPABILITIES = deepFreeze({
   ORGANIZATION_VIEW_MEMBERS: 'organization:view_members',
 
   // --- Promotions and reporting --------------------------------------------
+  /**
+   * List, make, pause, resume and delete the organisation's promo codes
+   * (`/v1/organizations/:id/promo-codes`). A code is a bearer discount, not
+   * report data, so it starts at EVENT_MANAGER and FINANCE does not hold it.
+   */
   PROMO_MANAGE: 'promo:manage',
   REPORT_VIEW: 'report:view',
 

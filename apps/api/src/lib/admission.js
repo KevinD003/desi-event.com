@@ -128,6 +128,14 @@ export const PREVIEW_TTL_MS = 120_000
  */
 export const UNIFORM_NOT_FOUND = 'No ticket with that pass.'
 
+/** The night a ticket is for, as a door shows it: a label and its times. */
+const ADMISSION_SESSION_SELECT = Object.freeze({
+  label: true,
+  startsAt: true,
+  endsAt: true,
+  timezone: true,
+})
+
 /**
  * Everything a door needs from a ticket, and nothing it does not.
  *
@@ -137,7 +145,7 @@ export const UNIFORM_NOT_FOUND = 'No ticket with that pass.'
 export const ADMISSION_INCLUDE = Object.freeze({
   orderItem: {
     select: {
-      ticketType: { select: { name: true } },
+      ticketType: { select: { name: true, eventSession: { select: ADMISSION_SESSION_SELECT } } },
       order: {
         select: {
           id: true,
@@ -168,6 +176,7 @@ export const ADMISSION_INCLUDE = Object.freeze({
           row: { select: { label: true } },
         },
       },
+      eventSession: { select: ADMISSION_SESSION_SELECT },
     },
   },
   checkIn: { select: { scannedAt: true, method: true, scannedByUserId: true } },
@@ -364,6 +373,31 @@ export function toAdmissionSeat(ticket) {
 }
 
 /**
+ * The night a ticket is for, so a steward sees a ticket for another night.
+ *
+ * The seat's session, else the tier's; null for a ticket good for every night.
+ * A label only — the door refuses nothing on it.
+ *
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @returns {{label: string|null, startsAt: Date, endsAt: Date, timezone: string}|null} The night.
+ */
+export function toAdmissionSession(ticket) {
+  const session =
+    ticket.eventSeat?.eventSession ?? ticket.orderItem?.ticketType?.eventSession ?? null
+
+  if (!session) return null
+
+  const label = typeof session.label === 'string' ? session.label.trim() : ''
+
+  return {
+    label: label.length > 0 ? label : null,
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    timezone: session.timezone,
+  }
+}
+
+/**
  * What a door is told about a ticket, named and explicit.
  *
  * Every field is listed rather than spread, so a column added to `Ticket`
@@ -393,6 +427,7 @@ export function toAdmissionPreview({
     event: toAdmissionEvent(ticket.orderItem.order.event),
     tier: ticket.orderItem.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
     seat: toAdmissionSeat(ticket),
+    session: toAdmissionSession(ticket),
     attendeeName: doorName(ticket.attendeeName),
     checkedInAt: ticket.checkedInAt ?? null,
     previewReference,
@@ -422,6 +457,7 @@ export function toAdmissionResult({ ticket, outcome, actorId }) {
     event: toAdmissionEvent(ticket.orderItem.order.event),
     tier: ticket.orderItem.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
     seat: toAdmissionSeat(ticket),
+    session: toAdmissionSession(ticket),
     attendeeName: doorName(ticket.attendeeName),
   }
 }

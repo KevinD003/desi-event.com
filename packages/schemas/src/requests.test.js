@@ -10,9 +10,15 @@ import {
   createEventRequestSchema,
   createHoldRequestSchema,
   createOrderRequestSchema,
+  attendeeNameSchema,
   createPromoCodeRequestSchema,
+  createSessionRequestSchema,
   createTicketTypeRequestSchema,
   idParamSchema,
+  listPromoCodesQuerySchema,
+  organizationPromoCodeParamSchema,
+  quoteOrderRequestSchema,
+  updateSessionRequestSchema,
   joinWaitlistRequestSchema,
   listEventsQuerySchema,
   loginRequestSchema,
@@ -568,6 +574,175 @@ describe('createOrderRequestSchema', () => {
       }).success,
     ).toBe(false)
   })
+
+  it('accepts a name per ticket, trimmed, for a tier in the order', () => {
+    const parsed = createOrderRequestSchema.parse({
+      ...validOrder,
+      attendees: [
+        { ticketTypeId: TT_ID, name: '  Asha Patel ' },
+        { ticketTypeId: TT_ID, name: 'Ravi Patel' },
+      ],
+    })
+
+    expect(parsed.attendees.map((attendee) => attendee.name)).toEqual(['Asha Patel', 'Ravi Patel'])
+  })
+
+  it('refuses more general-admission names than tickets', () => {
+    expect(
+      issuePaths(
+        createOrderRequestSchema.safeParse({
+          ...validOrder,
+          attendees: [
+            { ticketTypeId: TT_ID, name: 'One' },
+            { ticketTypeId: TT_ID, name: 'Two' },
+            { ticketTypeId: TT_ID, name: 'Three' },
+          ],
+        }),
+      ),
+    ).toEqual(['attendees.2'])
+  })
+
+  it('refuses a name for a tier that is not in the order', () => {
+    expect(
+      issuePaths(
+        createOrderRequestSchema.safeParse({
+          ...validOrder,
+          attendees: [{ ticketTypeId: TT_ID_2, name: 'Stray' }],
+        }),
+      ),
+    ).toEqual(['attendees.0.ticketTypeId'])
+  })
+
+  it('refuses two names for one seat, and leaves seated counts to the server', () => {
+    const seat = 'ckl1a2b3c4d5e6f7g8h9i0zz'
+
+    expect(
+      issuePaths(
+        createOrderRequestSchema.safeParse({
+          ...validOrder,
+          attendees: [
+            { ticketTypeId: TT_ID, eventSeatId: seat, name: 'One' },
+            { ticketTypeId: TT_ID, eventSeatId: seat, name: 'Two' },
+          ],
+        }),
+      ),
+    ).toEqual(['attendees.1.eventSeatId'])
+  })
+
+  it('refuses an address as a name', () => {
+    expect(
+      createOrderRequestSchema.safeParse({
+        ...validOrder,
+        attendees: [{ ticketTypeId: TT_ID, name: 'asha@example.com' }],
+      }).success,
+    ).toBe(false)
+  })
+
+  it('takes an expected total as a whole number of cents, never negative', () => {
+    expect(
+      createOrderRequestSchema.parse({ ...validOrder, expectedTotalCents: 4210 }),
+    ).toMatchObject({
+      expectedTotalCents: 4210,
+    })
+    expect(
+      issuePaths(createOrderRequestSchema.safeParse({ ...validOrder, expectedTotalCents: -1 })),
+    ).toEqual(['expectedTotalCents'])
+    expect(
+      issuePaths(createOrderRequestSchema.safeParse({ ...validOrder, expectedTotalCents: 12.5 })),
+    ).toEqual(['expectedTotalCents'])
+  })
+})
+
+describe('attendeeNameSchema', () => {
+  it('trims and keeps an ordinary name', () => {
+    expect(attendeeNameSchema.parse('  Meera Iyer  ')).toBe('Meera Iyer')
+  })
+
+  it('caps a name at 100 characters and refuses a blank one', () => {
+    expect(attendeeNameSchema.safeParse('a'.repeat(100)).success).toBe(true)
+    expect(attendeeNameSchema.safeParse('a'.repeat(101)).success).toBe(false)
+    expect(attendeeNameSchema.safeParse('   ').success).toBe(false)
+  })
+
+  it('refuses an email address anywhere in the name', () => {
+    expect(attendeeNameSchema.safeParse('Meera meera@example.com').success).toBe(false)
+  })
+
+  it('refuses control characters', () => {
+    for (const text of ['Meera\u0000', 'Me\tera', 'Meera\u007f', 'Mee\u0085ra']) {
+      expect(attendeeNameSchema.safeParse(text).success, JSON.stringify(text)).toBe(false)
+    }
+  })
+})
+
+describe('quoteOrderRequestSchema', () => {
+  const quote = { eventId: EVENT_ID, items: [{ ticketTypeId: TT_ID, quantity: 2 }] }
+
+  it('accepts lines, holds and a code, and normalises the code', () => {
+    const parsed = quoteOrderRequestSchema.parse({
+      ...quote,
+      promoCode: ' save10 ',
+      holdIds: [TT_ID_2],
+    })
+
+    expect(parsed.promoCode).toBe('SAVE10')
+    expect(parsed.holdIds).toEqual([TT_ID_2])
+  })
+
+  it('carries nothing about the buyer', () => {
+    const parsed = quoteOrderRequestSchema.parse({ ...quote, buyerEmail: 'a@example.com' })
+
+    expect(parsed).not.toHaveProperty('buyerEmail')
+  })
+
+  it('refuses an empty basket and a repeated tier', () => {
+    expect(issuePaths(quoteOrderRequestSchema.safeParse({ ...quote, items: [] }))).toEqual([
+      'items',
+    ])
+    expect(
+      issuePaths(
+        quoteOrderRequestSchema.safeParse({
+          ...quote,
+          items: [
+            { ticketTypeId: TT_ID, quantity: 1 },
+            { ticketTypeId: TT_ID, quantity: 1 },
+          ],
+        }),
+      ),
+    ).toEqual(['items.1.ticketTypeId'])
+  })
+})
+
+describe('session labels', () => {
+  const session = {
+    revision: 3,
+    startsAt: '2026-10-03T23:30:00Z',
+    endsAt: '2026-10-04T04:30:00Z',
+    timezone: 'America/Chicago',
+  }
+
+  it('accepts a short label, trimmed', () => {
+    expect(createSessionRequestSchema.parse({ ...session, label: ' Night 1 ' }).label).toBe(
+      'Night 1',
+    )
+  })
+
+  it('reads a blank label as none, and lets an update clear it', () => {
+    expect(createSessionRequestSchema.parse({ ...session, label: '  ' }).label).toBeNull()
+    expect(updateSessionRequestSchema.parse({ revision: 3, label: null })).toEqual({
+      revision: 3,
+      label: null,
+    })
+  })
+
+  it('refuses a label over 60 characters or with control characters', () => {
+    expect(
+      createSessionRequestSchema.safeParse({ ...session, label: 'n'.repeat(61) }).success,
+    ).toBe(false)
+    expect(
+      createSessionRequestSchema.safeParse({ ...session, label: 'Night\u00001' }).success,
+    ).toBe(false)
+  })
 })
 
 describe('admissionPreviewRequestSchema', () => {
@@ -856,10 +1031,18 @@ describe('joinWaitlistRequestSchema', () => {
 })
 
 describe('createPromoCodeRequestSchema', () => {
-  const base = { organizationId: ORG_ID, code: 'GARBA10', type: 'PERCENTAGE', value: 1000 }
+  // The organisation is the path's (`/v1/organizations/:id/promo-codes`), so
+  // the body no longer names one.
+  const base = { code: 'GARBA10', type: 'PERCENTAGE', value: 1000 }
 
   it('accepts a percentage code in basis points', () => {
     expect(createPromoCodeRequestSchema.parse(base)).toMatchObject({ value: 1000, active: true })
+  })
+
+  it('never takes the organisation from the body', () => {
+    expect(
+      createPromoCodeRequestSchema.parse({ ...base, organizationId: ORG_ID }),
+    ).not.toHaveProperty('organizationId')
   })
 
   it('rejects a percentage above 100%', () => {
@@ -868,11 +1051,46 @@ describe('createPromoCodeRequestSchema', () => {
     ])
   })
 
-  it('allows a fixed amount larger than 10000 cents', () => {
+  it('allows a fixed amount larger than 10000 cents, in a named currency', () => {
     expect(
-      createPromoCodeRequestSchema.safeParse({ ...base, type: 'FIXED_AMOUNT', value: 50_000 })
-        .success,
+      createPromoCodeRequestSchema.safeParse({
+        ...base,
+        type: 'FIXED_AMOUNT',
+        value: 50_000,
+        currency: 'usd',
+      }).success,
     ).toBe(true)
+  })
+
+  it('requires a currency for a fixed amount and refuses one for a percentage', () => {
+    expect(
+      issuePaths(
+        createPromoCodeRequestSchema.safeParse({ ...base, type: 'FIXED_AMOUNT', value: 500 }),
+      ),
+    ).toEqual(['currency'])
+    expect(
+      issuePaths(createPromoCodeRequestSchema.safeParse({ ...base, currency: 'USD' })),
+    ).toEqual(['currency'])
+  })
+
+  it('caps a fixed amount at 100,000.00', () => {
+    const fixed = { ...base, type: 'FIXED_AMOUNT', currency: 'USD' }
+
+    expect(createPromoCodeRequestSchema.safeParse({ ...fixed, value: 10_000_000 }).success).toBe(
+      true,
+    )
+    expect(
+      issuePaths(createPromoCodeRequestSchema.safeParse({ ...fixed, value: 10_000_001 })),
+    ).toEqual(['value'])
+  })
+
+  it('needs at least one redemption when a cap is set', () => {
+    expect(
+      issuePaths(createPromoCodeRequestSchema.safeParse({ ...base, maxRedemptions: 0 })),
+    ).toEqual(['maxRedemptions'])
+    expect(createPromoCodeRequestSchema.parse({ ...base, maxRedemptions: null })).toMatchObject({
+      maxRedemptions: null,
+    })
   })
 
   it('rejects a zero value', () => {
@@ -889,6 +1107,23 @@ describe('createPromoCodeRequestSchema', () => {
         }),
       ),
     ).toEqual(['endsAt'])
+  })
+})
+
+describe('promo code listing and path parameters', () => {
+  it('filters by event and status, and pages', () => {
+    expect(
+      listPromoCodesQuerySchema.parse({ eventId: EVENT_ID, status: 'PAUSED', page: '2' }),
+    ).toMatchObject({ eventId: EVENT_ID, status: 'PAUSED', page: 2 })
+    expect(listPromoCodesQuerySchema.safeParse({ status: 'EXPIRED' }).success).toBe(false)
+  })
+
+  it('names the organisation and the code', () => {
+    expect(organizationPromoCodeParamSchema.parse({ id: ORG_ID, promoCodeId: TT_ID })).toEqual({
+      id: ORG_ID,
+      promoCodeId: TT_ID,
+    })
+    expect(organizationPromoCodeParamSchema.safeParse({ id: ORG_ID }).success).toBe(false)
   })
 })
 

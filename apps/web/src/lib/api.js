@@ -222,6 +222,31 @@ export async function loadEventBySlug(slug, options = {}) {
 }
 
 /**
+ * Load one night's seat map, as anybody may read it.
+ *
+ * No fallback: a map is inventory, and a made-up one would offer seats that do
+ * not exist. A night the API does not answer for, or will not show a stranger,
+ * comes back null and the page says there is nothing to choose from.
+ *
+ * @param {string} sessionId The night.
+ * @param {object} [options] Overrides.
+ * @param {object} [options.client] API client to use; defaults to the shared one.
+ * @returns {Promise<object|null>} The map's `data`, or null.
+ */
+export async function loadSeatMap(sessionId, options = {}) {
+  try {
+    const client = options.client ?? getApiClient()
+    const response = await client.sessions.seats({ id: sessionId }, callOptions())
+
+    return response?.data?.sessionId ? response.data : null
+  } catch (error) {
+    warnOnce('sessions.seats', error)
+
+    return null
+  }
+}
+
+/**
  * @typedef {object} OrganizerResult
  * @property {object|null} organizer The public organiser profile, or `null` when there is none.
  * @property {boolean} usedFallback Whether the curated catalogue answered instead of the API.
@@ -370,10 +395,28 @@ export async function loadCatalogueFacets(options = {}) {
  * did supply wins.
  *
  * @param {object} event An event with a `ticketTypes` array.
- * @returns {object} The same event with `availableQuantity` and `isSoldOut` present on every tier.
+ * @returns {object} The same event with `availableQuantity` and `isSoldOut` present on every tier; a seated tier whose free seats were not counted gets `availableQuantity: null` rather than a guess.
  */
 export function withTicketTypeAvailability(event) {
+  const sessions = new Map((event?.sessions ?? []).map((session) => [session.id, session]))
+
   const ticketTypes = (event?.ticketTypes ?? []).map((tier) => {
+    // A seated tier's stock is its own free seats, which the API counts per
+    // tier; its quantity columns say nothing about it. Never the night's
+    // count: that is every zone's seats together, and read as one zone's it
+    // called a sold-out zone "Only 6 seats left".
+    const night = tier.reserved ? sessions.get(tier.eventSessionId) : null
+
+    if (night?.hasSeatMap) {
+      if (!Number.isInteger(tier.availableQuantity)) {
+        return { ...tier, availableQuantity: null, isSoldOut: tier.status === 'SOLD_OUT' }
+      }
+
+      const isSoldOut = tier.status !== 'ON_SALE' || tier.availableQuantity === 0
+
+      return { ...tier, availableQuantity: isSoldOut ? 0 : tier.availableQuantity, isSoldOut }
+    }
+
     const remaining = Math.max(0, (tier.quantityTotal ?? 0) - (tier.quantitySold ?? 0))
     const availableQuantity = tier.availableQuantity ?? remaining
     const isSoldOut = tier.isSoldOut ?? (tier.status !== 'ON_SALE' || availableQuantity === 0)

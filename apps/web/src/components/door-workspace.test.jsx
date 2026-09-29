@@ -1296,3 +1296,46 @@ describe('DoorWorkspace: a group pass by camera', () => {
     expect(document.body.innerHTML).not.toContain(credential)
   })
 })
+
+describe('DoorWorkspace: the night a ticket is for', () => {
+  const NIGHT = {
+    id: 'snnighttwoxxx',
+    label: 'Night 2',
+    startsAt: '2026-10-02T13:30:00.000Z',
+    endsAt: '2026-10-02T18:30:00.000Z',
+    doorsOpenAt: null,
+    timezone: 'Asia/Kolkata',
+  }
+
+  it('names the night in words in the preview and in the result, and refuses nothing on it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { data: { ...ADMISSIBLE.data, session: NIGHT } }))
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    await screen.findByRole('heading', { name: /check the ticket, then admit/iu })
+
+    expect(screen.getByText('Night')).toBeTruthy()
+    expect(screen.getByText('Night 2 · Fri, Oct 2 · 7:00 PM')).toBeTruthy()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { data: { ...ADMITTED.data, session: NIGHT } }))
+    await user.click(screen.getByRole('button', { name: /^admit$/iu }))
+
+    expect(
+      await screen.findByText('General Admission · Night 2 · Fri, Oct 2 · 7:00 PM'),
+    ).toBeTruthy()
+  })
+
+  it('says nothing about a night for a ticket good for every night', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { data: { ...ADMISSIBLE.data, session: null } }))
+    render(<DoorWorkspace events={[ENTRY]} />)
+    await lookUp(user)
+
+    await screen.findByRole('heading', { name: /check the ticket, then admit/iu })
+
+    expect(screen.queryByText('Night')).toBeNull()
+  })
+})

@@ -20,14 +20,35 @@
  * printing the summary file the command writes, with nothing but failure-only
  * steps after it.
  *
+ * The fifth is which browser suite runs which spec. Every spec under
+ * `apps/web/e2e` must be collected by exactly one Playwright config that a CI
+ * browser job runs, with nothing narrowing that config, no skipped, fixme'd,
+ * expected-to-fail or focused case, and every browser job a check the `main`
+ * ruleset in `docs/BRANCH_PROTECTION.md` requires. Four detail specs were once
+ * collected by the public job too and failed there on their first day; a spec
+ * collected by none would never have failed at all. The rules, and why each
+ * fails closed, are in `./lib/spec-collection.mjs`.
+ *
  * Run: `pnpm run ci:check`
  *
  * @module scripts/check-ci-invariants
  */
 
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
+import {
+  NARROWING_VARIABLE,
+  judgeRequiredContexts,
+  judgeSpecCollection,
+  matrixSuites,
+  narrowingInWorkflow,
+  requiredContextsFrom,
+  resolveSuites,
+  suiteJobNameTemplate,
+  testFileExtension,
+} from './lib/spec-collection.mjs'
 import { SUMMARY_PATH } from './verify-tests-fresh.mjs'
 
 /**
@@ -481,6 +502,207 @@ function checkFreshReportSummary(ci) {
   }
 }
 
+/** The web package, whose Playwright configs are the browser suites. */
+const WEB_DIRECTORY = 'apps/web'
+
+/** Where the browser specs live. */
+const E2E_DIRECTORY = `${WEB_DIRECTORY}/e2e`
+
+/** The document holding the approved `main` ruleset. */
+const BRANCH_PROTECTION = 'docs/BRANCH_PROTECTION.md'
+
+/** A Playwright config file, by name: `playwright.config.js`, `playwright.detail.config.js`. */
+const PLAYWRIGHT_CONFIG = /^playwright(?:\.[\w-]+)?\.config\.(?:js|mjs|cjs)$/u
+
+/** How many specs and browser jobs the fifth invariant judged, for the summary line. */
+const browserCounts = { specs: 0, suites: 0 }
+
+/**
+ * Read a JSON file, reporting rather than throwing when it cannot be read.
+ *
+ * @param {string} file The path.
+ * @returns {object|null} The parsed file, or null after reporting why not.
+ */
+function readJson(file) {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))
+  } catch (error) {
+    fail(file, `could not be read (${error.message}), so the browser suites cannot be checked`)
+
+    return null
+  }
+}
+
+/**
+ * Every file under a directory that Playwright could load as a test, in a
+ * stable order.
+ *
+ * Playwright walks every directory but `node_modules` and considers every file
+ * with a script extension, so this does too: a spec named `*.spec.mjs`, or one
+ * a new config's pattern would reach, is listed and judged rather than never
+ * seen. Support modules come back as well; the judge passes over the ones no
+ * config collects and that are not named as tests.
+ *
+ * @param {string} directory Where to look, relative to the repository root.
+ * @returns {string[]} Paths relative to the repository root.
+ */
+function specFilesUnder(directory) {
+  const found = []
+
+  for (const name of readdirSync(directory).sort()) {
+    if (name === 'node_modules') continue
+
+    const file = `${directory}/${name}`
+
+    if (statSync(file).isDirectory()) found.push(...specFilesUnder(file))
+    else if (testFileExtension(name)) found.push(file)
+  }
+
+  return found
+}
+
+/**
+ * Check that every browser spec is collected by exactly one CI browser job.
+ *
+ * Each matrix script is followed to the Playwright config it runs, and that
+ * config is loaded — with every `*_E2E_SPEC` variable removed first, because
+ * CI sets none and a developer's shell might — so its `testMatch` and
+ * `testIgnore` are the values Playwright would use, not a reading of its text.
+ *
+ * @param {{file: string, source: string}} ci The CI workflow.
+ * @returns {Promise<void>} Resolves once every problem has been reported.
+ */
+async function checkEverySpecCollected(ci) {
+  for (const name of narrowingInWorkflow(ci.source)) {
+    fail(
+      ci.file,
+      `mentions ${name}, which narrows a Playwright config to fewer specs than it collects — ` +
+        'a browser job must run its whole config',
+    )
+  }
+
+  const root = readJson('package.json')
+  const web = readJson(`${WEB_DIRECTORY}/package.json`)
+
+  if (root === null || web === null) return
+
+  const suites = resolveSuites(
+    matrixSuites(ci.source),
+    root.scripts ?? {},
+    web.scripts ?? {},
+    web.name,
+  )
+
+  let configFiles
+
+  try {
+    configFiles = readdirSync(WEB_DIRECTORY)
+      .filter((name) => PLAYWRIGHT_CONFIG.test(name))
+      .sort()
+  } catch (error) {
+    fail(WEB_DIRECTORY, `could not be listed (${error.message}), so no config can be checked`)
+
+    return
+  }
+
+  for (const name of Object.keys(process.env)) {
+    if (NARROWING_VARIABLE.test(name)) delete process.env[name]
+  }
+
+  const directory = resolve(WEB_DIRECTORY)
+  const runByCi = new Set(
+    suites
+      .filter((suite) => suite.problem === null && configFiles.includes(suite.configFile))
+      .map((suite) => suite.configFile),
+  )
+  const configs = []
+
+  for (const file of runByCi) {
+    try {
+      const loaded = await import(pathToFileURL(join(directory, file)).href)
+
+      if (loaded.default === null || typeof loaded.default !== 'object') {
+        fail(`${WEB_DIRECTORY}/${file}`, 'has no default export, so Playwright could not run it')
+        continue
+      }
+
+      configs.push({ file, dir: directory, config: loaded.default })
+    } catch (error) {
+      fail(
+        `${WEB_DIRECTORY}/${file}`,
+        `could not be loaded (${error.message}), so which specs it collects cannot be checked`,
+      )
+    }
+  }
+
+  let specs
+
+  try {
+    specs = specFilesUnder(E2E_DIRECTORY).map((file) => ({
+      path: resolve(file),
+      relative: file,
+      source: readFileSync(file, 'utf8'),
+    }))
+  } catch (error) {
+    fail(E2E_DIRECTORY, `could not be read (${error.message}), so no spec can be checked`)
+
+    return
+  }
+
+  const { problems, collectedBy } = judgeSpecCollection({
+    suites,
+    configFiles,
+    configs,
+    specs,
+    workflow: ci.file,
+    webDirectory: WEB_DIRECTORY,
+    specRoot: resolve(E2E_DIRECTORY),
+  })
+
+  for (const { where, what } of problems) fail(where, what)
+
+  if (collectedBy.size === 0) {
+    fail(E2E_DIRECTORY, 'holds no browser spec, so there is nothing for this check to prove')
+  }
+
+  browserCounts.specs = collectedBy.size
+  browserCounts.suites = suites.length
+}
+
+/**
+ * Check that every browser job is a check the approved `main` ruleset requires.
+ *
+ * @param {{file: string, source: string}} ci The CI workflow.
+ * @returns {void}
+ */
+function checkRequiredContexts(ci) {
+  let requiredContexts
+
+  try {
+    requiredContexts = requiredContextsFrom(
+      readFileSync(BRANCH_PROTECTION, 'utf8'),
+      BRANCH_PROTECTION,
+    )
+  } catch (error) {
+    fail(
+      BRANCH_PROTECTION,
+      `${error.message}, so no browser job can be proved to be a required check`,
+    )
+
+    return
+  }
+
+  const problems = judgeRequiredContexts({
+    suites: matrixSuites(ci.source),
+    template: suiteJobNameTemplate(ci.source),
+    requiredContexts,
+    workflow: ci.file,
+    document: BRANCH_PROTECTION,
+  })
+
+  for (const { where, what } of problems) fail(where, what)
+}
+
 const workflowDirectory = '.github/workflows'
 const workflows = readdirSync(workflowDirectory).filter(
   (file) => file.endsWith('.yml') || file.endsWith('.yaml'),
@@ -501,6 +723,14 @@ checkTaskOrdering()
 checkTestEnvironment()
 checkFreshReports(sources)
 
+// ci.yml's absence is already reported by checkFreshReports.
+const ciWorkflow = sources.find(({ file }) => file.endsWith('ci.yml'))
+
+if (ciWorkflow) {
+  await checkEverySpecCollected(ciWorkflow)
+  checkRequiredContexts(ciWorkflow)
+}
+
 if (problems.length > 0) {
   console.error('CI invariants failed:\n')
   for (const problem of problems) console.error(`  - ${problem}`)
@@ -512,5 +742,7 @@ console.log(
   `CI invariants hold: ${workflows.length} workflow file(s) produce only uploadable artefact names, ` +
     `${TEST_TASKS.length} test tasks order their own build, ${TEST_ENVIRONMENT.length} test ` +
     `variables reach the suites, reports come only from ${FRESH_REPORT_COMMAND}, and the verify ` +
-    `job ends by printing ${SUMMARY_PATH}.`,
+    `job ends by printing ${SUMMARY_PATH}. ${browserCounts.specs} browser specs are each ` +
+    `collected by exactly one of ${browserCounts.suites} CI browser jobs, every one of them a ` +
+    `required check.`,
 )

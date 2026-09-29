@@ -92,6 +92,29 @@ Do not push with a failing verify and a note saying you will fix it. If
 something is genuinely broken upstream of your change, say so in the pull
 request.
 
+## Browser specs
+
+Every Playwright spec must be collected by exactly one CI browser job, and
+`pnpm ci:check` refuses one that is not. So:
+
+- **A new browser spec** is named `apps/web/e2e/detail-<feature>.spec.js`.
+  `playwright.detail.config.js` collects it, the public config ignores it, and
+  the required check "Browser — commerce and operations detail" runs it. A
+  spec that needs servers of its own instead gets its own Playwright config, a
+  matrix leg in `.github/workflows/ci.yml` and a required context in
+  `docs/BRANCH_PROTECTION.md`.
+- **An accessibility case** goes in `accessibility-sweep.spec.js`, the only
+  file the sweep job collects.
+- **No `test.skip`, `test.fixme`, `test.fail` or `.only`**, in a spec or in a
+  support module, and no skip through the test-info argument, `test.step.skip`
+  or a `skip` annotation. A case that cannot pass is fixed or deleted, never
+  hidden.
+
+`ci:check` also refuses a config no CI job runs, and a job or config narrowed
+to fewer specs or cases than it collects (`DETAIL_E2E_SPEC=`, a file filter,
+`grep` or `shard`). The rules, and why each fails closed, are in
+`scripts/lib/spec-collection.mjs`.
+
 ## The language policy, briefly
 
 **This is a JavaScript repository. TypeScript is prohibited.** No `.ts`,

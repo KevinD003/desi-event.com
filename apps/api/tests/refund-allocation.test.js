@@ -249,6 +249,62 @@ describe('allocateNamedLines', () => {
   })
 })
 
+describe('allocateNamedLines on a discounted order', () => {
+  // 3 × 200.00 and 1 × 450.00, bought with a 50% code: 525.00 off 1,050.00,
+  // spread over the lines in proportion to their subtotals, as checkout does.
+  const items = [
+    line({ id: 'a', quantity: 3, unitPriceCents: 20_000, subtotalCents: 60_000 }),
+    line({ id: 'b', quantity: 1, unitPriceCents: 45_000, subtotalCents: 45_000 }),
+  ]
+  const discountCents = 52_500
+
+  it('gives back what was paid for the tickets, not their face value', () => {
+    const { allocation, amountCents } = allocateNamedLines({
+      items,
+      lines: [{ orderItemId: 'a', quantity: 2 }],
+      discountCents,
+    })
+
+    // Line a carries 300.00 of the discount; two of its three tickets, 200.00.
+    expect(amountCents).toBe(20_000)
+    expect(allocation).toEqual([{ orderItemId: 'a', amountCents: 20_000, quantity: 2 }])
+
+    expect(
+      allocateNamedLines({ items, lines: [{ orderItemId: 'b', quantity: 1 }], discountCents })
+        .amountCents,
+    ).toBe(22_500)
+  })
+
+  it('adds partial refunds of a line up to exactly what the line was paid', () => {
+    const odd = [line({ id: 'c', quantity: 3, unitPriceCents: 10_000, subtotalCents: 30_000 })]
+    // An awkward discount whose share does not divide by three.
+    const discount = 10_001
+    let refunded = 0
+    let total = 0
+
+    for (const quantity of [1, 1, 1]) {
+      const { amountCents } = allocateNamedLines({
+        items: odd,
+        lines: [{ orderItemId: 'c', quantity }],
+        pendingByLine: new Map([['c', refunded]]),
+        discountCents: discount,
+      })
+
+      refunded += quantity
+      total += amountCents
+    }
+
+    expect(total).toBe(30_000 - discount)
+  })
+
+  it('leaves an order with no discount priced at face value', () => {
+    expect(
+      allocateNamedLines({ items, lines: [{ orderItemId: 'a', quantity: 2 }], discountCents: 0 })
+        .amountCents,
+    ).toBe(40_000)
+  })
+})
+
 describe('splitRefund', () => {
   const order = {
     totalCents: 120_000,

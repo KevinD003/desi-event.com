@@ -235,3 +235,16 @@ against the ceiling · a line refund against one already spoken for · a duplica
 provider answer · a timeout then a webhook saying it worked · a refund then a
 chargeback · a refund against a transfer · a refund against a check-in, in both
 orders · a refusal that rolls back completely.
+
+## A line refund on a discounted order — 2026-09-29
+
+A promo code takes money off the order as a whole. Checkout spreads that
+discount over the order's lines in proportion to their subtotals
+(`allocateProportionally`), and a refund by line now nets each line's share off
+what it gives back: a ticket is refunded what was paid for it, not its face
+value. The share is counted ticket by ticket — the first `n` tickets of a line
+carry `floor(share × n / quantity)` of it — from the tickets already refunded or
+asked for, so several partial refunds of one line add up to exactly its share
+and never a cent more. `allocateNamedLines` in `apps/api/src/lib/refunds.js`;
+the cases are in `apps/api/tests/refund-allocation.test.js`. The order's money
+ceiling is unchanged: the total paid, which is already net of the discount.

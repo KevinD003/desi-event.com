@@ -377,6 +377,35 @@ describe('the states the catalogue exercises', () => {
     expect(nights).toBeLessThan(9)
   })
 
+  it('lists the nine nights of that event, labelled and in order, as the API would send them', async () => {
+    const { publicEventSessionSchema } = await import('@desi-event/schemas')
+    const pass = event('mirrorwork-nine-nights-pass')
+
+    expect(pass.sessions).toHaveLength(9)
+    expect(pass.sessions.map((night) => night.label)).toEqual(
+      Array.from({ length: 9 }, (_, index) => `Night ${index + 1}`),
+    )
+    expect(pass.sessions[0].startsAt).toBe(pass.startsAt)
+    expect(pass.sessions.at(-1).endsAt).toBe(pass.endsAt)
+
+    for (const [index, night] of pass.sessions.entries()) {
+      expect(publicEventSessionSchema.safeParse(night).success).toBe(true)
+      expect(night.id).toMatch(CUID_PATTERN)
+      expect(Date.parse(night.doorsOpenAt)).toBeLessThan(Date.parse(night.startsAt))
+
+      if (index > 0) {
+        expect(Date.parse(night.startsAt)).toBeGreaterThan(
+          Date.parse(pass.sessions[index - 1].endsAt),
+        )
+      }
+    }
+
+    // Season passes: good for every night, so no tier names one of them.
+    expect(pass.ticketTypes.every((tier) => !tier.eventSessionId)).toBe(true)
+    // An in-person event: nothing to join online, in the sample data or anywhere else.
+    expect(SAMPLE_EVENTS.every((sample) => sample.onlineUrl === null)).toBe(true)
+  })
+
   it('puts the Saturday night on a Saturday', () => {
     const saturday = event('peachtree-garba-saturday')
     const weekday = new Intl.DateTimeFormat('en-US', {

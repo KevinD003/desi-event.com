@@ -328,6 +328,24 @@ export async function settleCheckout(
   // afterwards, and an update is a second chance to get it wrong.
   const soldSeats = await sellHeldSeats(tx, { orderId: order.id })
 
+  // Every seat checkout reserved for this order is sold to it now, or nothing
+  // is. A seat hold that stopped being ACTIVE before settlement sells nothing,
+  // and issuing the tickets anyway would mint seatless tickets for a paid
+  // seated order while its seats went back on sale. The expiry sweep, the
+  // reclaim and `holds.release` all leave a PENDING order's holds alone, so
+  // this is the backstop: refusing rolls the settlement back, as the
+  // unclaimed-seat check in `sellHeldSeats` does, and the order stays PENDING
+  // for reconciliation to resolve.
+  const reservedSeats = await tx.holdItem.count({
+    where: { orderItemId: { in: items.map((item) => item.id) }, eventSeatId: { not: null } },
+  })
+
+  if (soldSeats < reservedSeats) {
+    throw new Error(
+      `Order ${order.id} reserved ${reservedSeats} seat(s), but only ${soldSeats} were still held for it; refusing to issue tickets without their seats`,
+    )
+  }
+
   for (const item of items) {
     const seats = soldSeats
       ? await tx.eventSeat.findMany({
@@ -337,11 +355,32 @@ export async function settleCheckout(
         })
       : []
 
+    // The names typed at checkout: a seat's travels on its hold item, a
+    // general-admission line's on the line, in the order they were given. A
+    // ticket nobody named carries the buyer's name, as every ticket did before
+    // names could be given.
+    const seatNames = seats.length
+      ? new Map(
+          (
+            await tx.holdItem.findMany({
+              where: { orderItemId: item.id, eventSeatId: { not: null } },
+              select: { eventSeatId: true, attendeeName: true },
+            })
+          )
+            .filter((held) => held.attendeeName)
+            .map((held) => [held.eventSeatId, held.attendeeName]),
+        )
+      : new Map()
+    const lineNames = Array.isArray(item.attendeeNames) ? item.attendeeNames : []
+
     for (let index = 0; index < item.quantity; index += 1) {
+      const eventSeatId = seats[index]?.id ?? null
+
       await issueTicket(tx, {
         orderItemId: item.id,
-        eventSeatId: seats[index]?.id ?? null,
-        attendeeName: order.buyerName,
+        eventSeatId,
+        attendeeName:
+          (eventSeatId ? seatNames.get(eventSeatId) : null) ?? lineNames[index] ?? order.buyerName,
         ownerUserId: order.userId ?? null,
         generateTicketCode,
         credentialSecret,
@@ -354,6 +393,10 @@ export async function settleCheckout(
       data: { quantitySold: { increment: item.quantity } },
     })
   }
+
+  // The names are on the tickets now, which is where they are kept (and where
+  // a redaction finds them). The staging copies go in the same commit.
+  await clearAttendeeStaging(tx, { orderId: order.id, itemIds: items.map((item) => item.id) })
 
   await tx.ticketHold.updateMany({
     where: { orderId: order.id, status: 'ACTIVE' },
@@ -405,11 +448,49 @@ export async function settleCheckout(
 }
 
 /**
+ * Clear the names staged for an order's tickets.
+ *
+ * Names typed at checkout wait on the order line (general admission) and on
+ * the hold item (a seat) until the tickets are issued, and not a moment
+ * longer: after settlement they are on the tickets, and after a cancellation
+ * there are no tickets to put them on.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} options Options.
+ * @param {string} options.orderId The order.
+ * @param {string[]} [options.itemIds] Its line ids, when already loaded.
+ * @returns {Promise<void>} Nothing.
+ */
+export async function clearAttendeeStaging(tx, { orderId, itemIds }) {
+  const ids =
+    itemIds ??
+    (await tx.orderItem.findMany({ where: { orderId }, select: { id: true } })).map(
+      (item) => item.id,
+    )
+
+  await tx.orderItem.updateMany({
+    where: { orderId, attendeeNames: { isEmpty: false } },
+    data: { attendeeNames: [] },
+  })
+
+  if (ids.length > 0) {
+    await tx.holdItem.updateMany({
+      where: { orderItemId: { in: ids }, attendeeName: { not: null } },
+      data: { attendeeName: null },
+    })
+  }
+}
+
+/**
  * Undo a checkout whose payment did not succeed.
  *
  * The order is cancelled and the attempt recorded as failed. Holds are left
  * ACTIVE on purpose: the buyer's reservation survives so they can retry with
  * another card instead of losing their seats to the person behind them.
+ *
+ * A promo code the order used is given its use back, conditionally so a count
+ * can never go below zero: a declined card must not burn a limited code. The
+ * names staged for the tickets are cleared, since there will be no tickets.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Compensation inputs.
@@ -437,6 +518,16 @@ export async function compensateCheckout(
     data: { status: 'FAILED', failureCode, rawProviderStatus: 'FAILED', settledAt: now },
   })
 
+  const promoCodeId = order.promoCodeId ?? null
+  const returned = promoCodeId
+    ? await tx.promoCode.updateMany({
+        where: { id: promoCodeId, redemptionCount: { gt: 0 } },
+        data: { redemptionCount: { decrement: 1 } },
+      })
+    : { count: 0 }
+
+  await clearAttendeeStaging(tx, { orderId: order.id })
+
   await recordAudit(tx, {
     action: AUDIT_ACTIONS.ORDER_CANCELLED,
     entityType: 'Order',
@@ -450,6 +541,7 @@ export async function compensateCheckout(
       paymentId: payment.id,
       failureCode,
       reason: 'PAYMENT_DECLINED',
+      promoRedemptionReturned: returned.count > 0,
     },
   })
 

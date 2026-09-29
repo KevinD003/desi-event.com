@@ -44,6 +44,13 @@ const RELATIONS = {
   ticketType: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
     holds: { kind: 'many', model: 'ticketHold', from: 'id', to: 'ticketTypeId' },
+    // The night a tier sells, which a ticket, an order line and the door name.
+    eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
+  },
+  // A code is deleted only while no order names it, which is a to-many filter.
+  promoCode: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    orders: { kind: 'many', model: 'order', from: 'id', to: 'promoCodeId' },
   },
   ticketHold: {
     ticketType: { kind: 'one', model: 'ticketType', from: 'ticketTypeId', to: 'id' },
@@ -404,6 +411,7 @@ const DEFAULTS = {
     active: true,
     redemptionCount: 0,
     eventId: null,
+    currency: null,
     maxRedemptions: null,
     startsAt: null,
     endsAt: null,
@@ -919,6 +927,10 @@ function matchesCondition(value, condition) {
         break
       case 'lte':
         if (!(toComparable(value) <= toComparable(operand))) return false
+        break
+      // A scalar list's emptiness, as PostgreSQL's `cardinality(...) = 0`.
+      case 'isEmpty':
+        if ((Array.isArray(value) && value.length === 0) !== operand) return false
         break
       default:
         throw new Error(`prisma-stub: unsupported operator "${operator}"`)

@@ -15,6 +15,7 @@
 import Fastify from 'fastify'
 import { describe, expect, it } from 'vitest'
 
+import { apiRoutes } from '@desi-event/api-contract'
 import { parseOrThrow } from '@desi-event/schemas'
 import { apiEnvSchema } from '@desi-event/schemas/env'
 
@@ -387,6 +388,66 @@ describe('step-up without an enrolled factor, finding NF-12', () => {
     })
 
     expect(response.statusCode).toBe(200)
+
+    await app.close()
+  })
+})
+
+describe('the promo code routes and the checkout quote, as the contract declares them', () => {
+  const byId = new Map(apiRoutes.map((route) => [route.id, route]))
+
+  it('guards every promo route with promo:manage in the organisation named in the path', () => {
+    for (const id of [
+      'promoCodes.list',
+      'promoCodes.create',
+      'promoCodes.pause',
+      'promoCodes.resume',
+      'promoCodes.remove',
+    ]) {
+      const route = byId.get(id)
+
+      expect(route, id).toBeDefined()
+      expect(route, id).toMatchObject({
+        auth: 'session',
+        capability: 'promo:manage',
+        capabilityScope: 'params.id',
+      })
+    }
+  })
+
+  it('asks for a recent second factor exactly where a discount goes live', () => {
+    const stepped = [...byId.values()]
+      .filter((route) => route.id.startsWith('promoCodes.') && route.stepUp)
+      .map((route) => [route.id, route.stepUp])
+
+    expect(Object.fromEntries(stepped)).toEqual({
+      'promoCodes.create': 'PROMO_ACTION',
+      'promoCodes.resume': 'PROMO_ACTION',
+    })
+  })
+
+  it('keeps the quote to signed-in callers, with no capability and no organisation', () => {
+    expect(byId.get('orders.quote')).toMatchObject({
+      method: 'POST',
+      path: '/v1/orders/quote',
+      auth: 'session',
+      capability: null,
+    })
+    expect(byId.get('orders.quote').stepUp ?? null).toBeNull()
+  })
+
+  it('refuses a viewer through the declared guard, before the handler runs', async () => {
+    const { app, ids } = await createTestApp()
+    // The fixture's VIEWER; FINANCE and SCANNER are refused in promo-codes.test.js.
+    const token = await signIn(app, 'finance@rangoli.example')
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/organizations/${ids.organization.id}/promo-codes`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(403)
 
     await app.close()
   })

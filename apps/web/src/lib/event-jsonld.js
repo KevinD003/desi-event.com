@@ -31,6 +31,7 @@
  */
 
 import { absoluteMediaUrl } from './media.js'
+import { sessionDisplayLabel } from './sessions.js'
 import { socialImageFor } from './social-image.js'
 
 /**
@@ -98,8 +99,10 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   // only that something changed, not what.
   if (event.previousStartsAt) data.previousStartDate = event.previousStartsAt
 
+  // Always the page, never the joining link: the link is for ticket holders,
+  // and structured data is read by every search engine and scraper there is.
   if (event.isOnline) {
-    data.location = { '@type': 'VirtualLocation', url: event.onlineUrl ?? url }
+    data.location = { '@type': 'VirtualLocation', url }
   } else if (event.venue) {
     data.location = {
       '@type': 'Place',
@@ -152,6 +155,25 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
 
   if (event.ageRestriction) {
     data.typicalAgeRange = `${event.ageRestriction}-`
+  }
+
+  // Each night of a run of several, as an event of its own, named with its
+  // label or its date, and cancelled when that night is.
+  const sessions = event.sessions ?? []
+
+  if (sessions.length > 1) {
+    data.subEvent = sessions.map((session) => ({
+      '@type': 'Event',
+      name: `${event.title} — ${sessionDisplayLabel(session)}`,
+      startDate: session.startsAt,
+      endDate: session.endsAt,
+      ...(session.doorsOpenAt ? { doorTime: session.doorsOpenAt } : {}),
+      eventStatus:
+        session.status === 'CANCELLED'
+          ? 'https://schema.org/EventCancelled'
+          : (EVENT_STATUS[event.status] ?? 'https://schema.org/EventScheduled'),
+      url,
+    }))
   }
 
   // What a search result shows beside the listing: the organiser's approved

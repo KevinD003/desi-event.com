@@ -52,6 +52,7 @@
  */
 
 import { refundBatch, refundSettledBatch } from '@desi-event/ledger'
+import { allocateProportionally } from '@desi-event/pricing'
 import { PROVIDER_ERROR_CODES } from '@desi-event/providers'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
@@ -258,16 +259,35 @@ export function allocateAcrossLines({ items, amountCents }) {
  * last ticket on a line; the order's money ceiling would still hold, but the
  * two refunds would between them revoke one ticket and pay for two.
  *
+ * ## A discounted order
+ *
+ * A promo code took money off the order as a whole, spread over its lines in
+ * proportion to their subtotals — the same `allocateProportionally` checkout
+ * uses. A ticket refunded by line gives back what was paid for it, so each
+ * line's share of the discount is netted off, ticket by ticket: the first `n`
+ * tickets of a line carry `floor(share × n / quantity)` of it. Counting from
+ * the tickets already refunded or asked for means the parts of several partial
+ * refunds add up to exactly the line's share, never a cent more.
+ *
  * @param {object} options Options.
  * @param {Array<object>} options.items The order's lines.
  * @param {Array<{orderItemId: string, quantity: number}>} options.lines What to give back.
  * @param {Map<string, number>} [options.pendingByLine] Quantities already spoken for by unresolved refunds.
+ * @param {number} [options.discountCents] The order's discount, netted off line by line.
  * @returns {{allocation: Array<{orderItemId: string, amountCents: number, quantity: number}>, amountCents: number}} The allocation and its total.
  * @throws {Error} 422 for a line that is not on the order, or a quantity it cannot cover.
  */
-export function allocateNamedLines({ items, lines, pendingByLine = new Map() }) {
+export function allocateNamedLines({ items, lines, pendingByLine = new Map(), discountCents = 0 }) {
   const byId = new Map(items.map((item) => [item.id, item]))
   const wanted = new Map()
+  const shares =
+    discountCents > 0 && items.length > 0
+      ? allocateProportionally(
+          discountCents,
+          items.map((item) => item.subtotalCents),
+        )
+      : items.map(() => 0)
+  const shareByLine = new Map(items.map((item, index) => [item.id, shares[index] ?? 0]))
 
   for (const line of lines) {
     wanted.set(line.orderItemId, (wanted.get(line.orderItemId) ?? 0) + line.quantity)
@@ -294,7 +314,16 @@ export function allocateNamedLines({ items, lines, pendingByLine = new Map() }) 
       )
     }
 
-    const lineCents = item.unitPriceCents * quantity
+    // The line's discount carried by these tickets: counted from those already
+    // refunded or asked for, so successive partial refunds sum to the share.
+    const share = shareByLine.get(orderItemId) ?? 0
+    const before = item.quantity - available
+    const discountOnThese =
+      share > 0
+        ? Math.floor((share * (before + quantity)) / item.quantity) -
+          Math.floor((share * before) / item.quantity)
+        : 0
+    const lineCents = item.unitPriceCents * quantity - discountOnThese
 
     amountCents += lineCents
     allocation.push({ orderItemId, amountCents: lineCents, quantity })
@@ -417,7 +446,12 @@ export async function requestRefund(tx, params) {
   if (existing) return { refund: existing, created: false }
 
   const named = lines
-    ? allocateNamedLines({ items: order.items ?? [], lines, pendingByLine })
+    ? allocateNamedLines({
+        items: order.items ?? [],
+        lines,
+        pendingByLine,
+        discountCents: order.discountCents ?? 0,
+      })
     : null
   const amountCents = named ? named.amountCents : params.amountCents
 

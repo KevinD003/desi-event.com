@@ -651,3 +651,81 @@ describe('the group pass', () => {
     expect(screen.queryByRole('region', { name: /Group pass/ })).toBeNull()
   })
 })
+
+describe('what a line bought, a discount, and an online event’s link', () => {
+  it('names each line’s ticket type and the night it is for', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        items: [
+          {
+            id: 'itm00000000000000000001',
+            orderId: 'ord00000000000000000001',
+            ticketTypeId: 'tt000000000000000000001',
+            ticketTypeName: 'Garden Seating',
+            session: {
+              id: 'snnighttwoxxx',
+              label: 'Night 2',
+              startsAt: '2030-10-11T13:30:00.000Z',
+              endsAt: '2030-10-11T18:00:00.000Z',
+              doorsOpenAt: null,
+              timezone: 'Asia/Kolkata',
+            },
+            quantity: 2,
+            unitPriceCents: 50000,
+            subtotalCents: 100000,
+          },
+        ],
+      }),
+    )
+
+    await renderPage()
+
+    expect(screen.getByText('Garden Seating')).toBeInTheDocument()
+    expect(screen.getByText('Night 2 · Fri, Oct 11 · 7:00 PM')).toBeInTheDocument()
+  })
+
+  it('shows the discount the order was given, and none when it was given none', async () => {
+    getMyOrder.mockResolvedValue(order({ discountCents: 10000, totalCents: 95000 }))
+
+    await renderPage()
+
+    expect(screen.getByText('Discount')).toBeInTheDocument()
+    expect(screen.getByText('−₹100.00')).toBeInTheDocument()
+
+    cleanup()
+    getMyOrder.mockResolvedValue(order())
+
+    await renderPage()
+
+    expect(screen.queryByText('Discount')).toBeNull()
+  })
+
+  it('offers the joining link the server gave, named by its host, with no referrer', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        event: { ...LATER, isOnline: true, venueName: null, city: null },
+        onlineJoinUrl: 'https://stream.example.com/r/9',
+      }),
+    )
+
+    await renderPage()
+
+    expect(screen.getByRole('heading', { name: 'Join online' })).toBeInTheDocument()
+
+    const link = screen.getByRole('link', { name: 'Join online at stream.example.com' })
+
+    expect(link).toHaveAttribute('href', 'https://stream.example.com/r/9')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(link).toHaveAttribute('referrerPolicy', 'no-referrer')
+  })
+
+  it('offers no joining link when the server gave none', async () => {
+    getMyOrder.mockResolvedValue(
+      order({ event: { ...LATER, isOnline: true }, onlineJoinUrl: null }),
+    )
+
+    await renderPage()
+
+    expect(screen.queryByRole('heading', { name: 'Join online' })).toBeNull()
+  })
+})

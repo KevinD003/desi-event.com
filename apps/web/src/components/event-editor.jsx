@@ -54,9 +54,11 @@
  * @file components/event-editor
  */
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Alert, Badge, Button, FormField, Input, Select, Textarea } from './ui.jsx'
+import { TEXT_LINK } from './link-classes.js'
 import { GuestInfoStep, ProgrammeStep } from './event-content-steps.jsx'
 import { EventLifecyclePanel } from './event-lifecycle-panel.jsx'
 import { EventMediaEditor } from './event-media-editor.jsx'
@@ -938,6 +940,16 @@ export function EventEditor({
               revision={revision}
               onRevision={setRevision}
             />
+          ) : null}
+          {step === 'tickets' ? (
+            <p className="mt-6 text-sm">
+              <Link
+                href={`/organizer/promo-codes?organizationId=${encodeURIComponent(event.organizationId)}&eventId=${encodeURIComponent(event.id)}`}
+                className={TEXT_LINK}
+              >
+                Promo codes for this event
+              </Link>
+            </p>
           ) : null}
           {step === 'policies' ? (
             <PoliciesStep

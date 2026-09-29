@@ -19,11 +19,18 @@ import {
 import { CAPABILITIES, can } from '@desi-event/permissions'
 import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
-import { conflict, notFound, unprocessable } from '../lib/errors.js'
+import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
 import { toHold } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
+import { releaseSeats } from '../lib/seating.js'
+import {
+  assertSessionCapacity,
+  assertSessionOnSale,
+  lockEventSessions,
+  mayBookHiddenTier,
+} from '../lib/session-inventory.js'
 
 /** Sales window states and the message each one gets. */
 const WINDOW_MESSAGE = Object.freeze({
@@ -62,9 +69,38 @@ export function registerHoldRoutes(app, { prisma, env }) {
         const event = await tx.event.findUnique({ where: { id: tier.eventId } })
         if (!event) throw notFound('No such ticket type.')
 
+        // A hidden tier is a guest list or a team allocation. To anybody but
+        // the team it does not exist — the same 404 as an id nobody has used,
+        // so this route is not an oracle for which tiers there are.
+        if (tier.visibility === 'HIDDEN' && !mayBookHiddenTier(request.actor, event)) {
+          throw notFound('No such ticket type.')
+        }
+
         if (!BOOKABLE_STATUSES.has(event.status)) {
           throw unprocessable('This event is not on sale.')
         }
+
+        // A reserved tier is sold seat by seat, through the session's seat map.
+        // A quantity hold on one would reserve stock with no seat behind it.
+        if (tier.reserved) {
+          throw httpError(
+            422,
+            'SEATED_TIER',
+            'This ticket type is reserved seating: choose your seats on the seat map.',
+            { ticketTypeId: tier.id, eventSessionId: tier.eventSessionId ?? null },
+          )
+        }
+
+        // The night's own lock, after the tier's and before any read of the
+        // night: see ../lib/session-inventory.js for the order.
+        let session = null
+
+        if (tier.eventSessionId) {
+          await lockEventSessions(tx, [tier.eventSessionId])
+          session = await tx.eventSession.findUnique({ where: { id: tier.eventSessionId } })
+        }
+
+        if (session) assertSessionOnSale(session, now)
 
         const windowState = salesWindowState({
           status: tier.status,
@@ -89,6 +125,10 @@ export function registerHoldRoutes(app, { prisma, env }) {
           maxPerOrder: tier.maxPerOrder,
           availableQuantity,
         })
+
+        // The night's capacity, shared by every general-admission tier sold
+        // for it, read under the night's lock.
+        if (session) await assertSessionCapacity(tx, { session, requested: quantity, now })
 
         // Identity comes from the verified actor, or from a freshly minted
         // guest token. Nothing in the request body reaches these columns, so a
@@ -200,6 +240,18 @@ export function registerHoldRoutes(app, { prisma, env }) {
           return { result: 'ALREADY_RELEASED', mode }
         }
 
+        // A hold an order is waiting on belongs to that order until its payment
+        // is confirmed or refused: a capture that timed out is settled later,
+        // and giving the seats back now would let somebody else buy them first.
+        if (hold.orderId) {
+          const order = await tx.order.findUnique({
+            where: { id: hold.orderId },
+            select: { status: true },
+          })
+
+          if (order?.status === 'PENDING') return { result: 'AWAITING_PAYMENT' }
+        }
+
         const lapsed = isHoldExpired(hold, now)
         const nextStatus = lapsed ? 'EXPIRED' : 'RELEASED'
 
@@ -226,6 +278,12 @@ export function registerHoldRoutes(app, { prisma, env }) {
             : { result: 'ALREADY_RELEASED', mode }
         }
 
+        // A seat hold's seats go back on sale in the same commit as the hold's
+        // new status. Before this, a released or lapsed seat hold left its
+        // seats HELD with nobody holding them, off sale for good. Conditional
+        // on HELD and this hold, so a seat already sold is never touched.
+        const seatsReleased = await releaseSeats(tx, hold.id)
+
         await recordAudit(tx, {
           action: AUDIT_ACTIONS.HOLD_RELEASED,
           entityType: 'TicketHold',
@@ -239,6 +297,7 @@ export function registerHoldRoutes(app, { prisma, env }) {
             newStatus: nextStatus,
             ticketTypeId: hold.ticketTypeId,
             quantity: hold.quantity,
+            seatsReleased,
             reason: lapsed ? 'EXPIRED_ON_RELEASE' : 'RELEASED_BY_' + mode,
           },
         })
@@ -249,6 +308,11 @@ export function registerHoldRoutes(app, { prisma, env }) {
       if (outcome.result === 'NOT_FOUND') throw notFound('No such hold.')
       if (outcome.result === 'CONVERTED') {
         throw conflict('This hold has already been converted into a paid order.')
+      }
+      if (outcome.result === 'AWAITING_PAYMENT') {
+        throw conflict(
+          'This hold belongs to an order whose payment is still being confirmed. It stays with that order until the payment is settled or refused.',
+        )
       }
 
       if (outcome.result === 'RELEASED') {

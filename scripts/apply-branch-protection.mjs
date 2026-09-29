@@ -40,6 +40,8 @@
 
 import { readFileSync } from 'node:fs'
 
+import { approvedRulesetFrom, contextsOf } from './lib/spec-collection.mjs'
+
 const API = 'https://api.github.com'
 const DOC = 'docs/BRANCH_PROTECTION.md'
 const VERIFY_ONLY = process.argv.includes('--verify-only')
@@ -122,33 +124,14 @@ function reportFailure(what, response) {
 /**
  * The approved ruleset, read out of the document rather than retyped.
  *
+ * The parser lives in `./lib/spec-collection.mjs`, because `ci:check` reads
+ * the same payload to prove every browser job is one of the checks it
+ * requires. One parser, so the two can never disagree about what it says.
+ *
  * @returns {object} The payload, exactly as the document specifies it.
  */
 function approvedRuleset() {
-  const text = readFileSync(DOC, 'utf8')
-  const blocks = [...text.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => match[1])
-
-  for (const block of blocks) {
-    try {
-      const parsed = JSON.parse(block)
-      if (parsed && parsed.target === 'branch' && Array.isArray(parsed.rules)) return parsed
-    } catch {
-      continue
-    }
-  }
-
-  throw new Error(`No branch ruleset payload found in ${DOC}`)
-}
-
-/**
- * The contexts a ruleset payload requires.
- *
- * @param {object} ruleset A ruleset payload or a rules listing entry.
- * @returns {string[]} Context names.
- */
-function contextsOf(ruleset) {
-  const rule = (ruleset.rules ?? []).find((entry) => entry.type === 'required_status_checks')
-  return (rule?.parameters?.required_status_checks ?? []).map((check) => check.context)
+  return approvedRulesetFrom(readFileSync(DOC, 'utf8'), DOC)
 }
 
 /**

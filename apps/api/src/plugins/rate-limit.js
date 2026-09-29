@@ -145,6 +145,35 @@ export function mediaReadRateLimit(overrides = {}) {
 }
 
 /**
+ * Checkout-quote budget, per account.
+ *
+ * A quote answers whether a promo code exists for an event, so it is a way to
+ * try codes. A buyer applies a code or two and changes a quantity a few times;
+ * thirty a minute is far above that and far below what guessing codes needs.
+ * Keyed on the signed-in account for the same reason as the pass budget: every
+ * browser request arrives from the web server's address.
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_QUOTE_LIMIT = Object.freeze({ max: 30, timeWindow: '1 minute' })
+
+/**
+ * Build the per-route `config.rateLimit` object for checkout quotes.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
+ * @returns {object} The effective quote limit.
+ */
+export function quoteRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_QUOTE_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    keyGenerator: (request) =>
+      request.actor?.id ? `quote:actor:${request.actor.id}` : `quote:ip:${request.ip}`,
+  }
+}
+
+/**
  * Build the per-route `config.rateLimit` object for the auth endpoints.
  *
  * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.

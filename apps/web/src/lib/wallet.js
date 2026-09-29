@@ -171,17 +171,23 @@ export function groupTickets(tickets, now = new Date()) {
   for (const ticket of tickets) buckets[sectionFor(ticket, now)].push(ticket)
 
   /**
-   * Sort by the event's start.
+   * When a ticket's night starts: its own night's start, else the event's.
+   * A ticket for night 3 of a run sorts with night 3, not with night 1.
+   *
+   * @param {WalletTicket} row A ticket.
+   * @returns {number} Milliseconds since the epoch, or NaN.
+   */
+  const startOf = (row) => Date.parse(row.session?.startsAt ?? row.event?.startsAt ?? '')
+
+  /**
+   * Sort by the night's start.
    *
    * @param {WalletTicket[]} rows The rows.
    * @param {number} direction 1 for soonest first, -1 for latest first.
    * @returns {WalletTicket[]} The same rows, ordered.
    */
   const byStart = (rows, direction) =>
-    [...rows].sort(
-      (a, b) =>
-        direction * (Date.parse(a.event?.startsAt ?? '') - Date.parse(b.event?.startsAt ?? '')),
-    )
+    [...rows].sort((a, b) => direction * (startOf(a) - startOf(b)))
 
   return [
     {

@@ -734,3 +734,93 @@ describe('the event detail page and the organiser’s own content', () => {
     }
   })
 })
+
+describe('an event over several nights', () => {
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  /**
+   * A public night of the event.
+   *
+   * @param {number} index Which night, from 1.
+   * @param {object} [overrides] Fields to change.
+   * @returns {object} The night.
+   */
+  function nightOf(index, overrides = {}) {
+    const startsAt = new Date(Date.UTC(2026, 10, index, 14, 30)).toISOString()
+
+    return {
+      id: `snnight${index}xxxxx`,
+      label: `Night ${index}`,
+      startsAt,
+      endsAt: new Date(Date.parse(startsAt) + 3 * 3_600_000).toISOString(),
+      doorsOpenAt: null,
+      timezone: 'Asia/Kolkata',
+      status: 'SCHEDULED',
+      salesStartAt: null,
+      salesEndAt: null,
+      hasSeatMap: false,
+      seatsAvailable: null,
+      ...overrides,
+    }
+  }
+
+  it('lists every night in the schedule, each with its label and its own date', async () => {
+    await renderEvent({ ...selling, sessions: [nightOf(1), nightOf(2)] })
+
+    const schedule = screen.getByRole('region', { name: 'Schedule' })
+    const nights = within(schedule).getByRole('list', { name: 'Nights' })
+
+    expect(within(nights).getAllByRole('listitem')).toHaveLength(2)
+    expect(
+      within(nights).getByRole('heading', { name: 'Night 1 · Sun, Nov 1 · 8:00 PM' }),
+    ).toBeInTheDocument()
+    expect(
+      within(nights).getByRole('heading', { name: 'Night 2 · Mon, Nov 2 · 8:00 PM' }),
+    ).toBeInTheDocument()
+  })
+
+  it('links a seated night that is selling to its seats', async () => {
+    await renderEvent({
+      ...selling,
+      sessions: [nightOf(1, { hasSeatMap: true, seatsAvailable: 20 })],
+    })
+
+    expect(screen.getAllByRole('link', { name: /^Choose seats for Night 1/u })[0]).toHaveAttribute(
+      'href',
+      '/events/qawwali-under-the-banyan/seats/snnight1xxxxx',
+    )
+  })
+
+  it('keeps the old schedule for an event with no nights listed', async () => {
+    await renderEvent(selling)
+
+    expect(screen.queryByRole('list', { name: 'Nights' })).toBeNull()
+    expect(screen.getByText('Doors / start')).toBeInTheDocument()
+  })
+})
+
+describe('an online event', () => {
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  it('says the joining link is on the ticket, and never prints one', async () => {
+    const { container } = await renderEvent({
+      ...selling,
+      isOnline: true,
+      venue: null,
+      // Whatever a stale or careless payload carries, the page does not print it.
+      onlineUrl: 'https://stream.example.com/secret-room',
+    })
+
+    expect(screen.getByText('This event is online.')).toBeInTheDocument()
+    expect(
+      screen.getByText(/The joining link\s+is on your ticket once you have booked\./u),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('The venue for this event has not been announced.')).toBeNull()
+    expect(container.innerHTML).not.toContain('stream.example.com')
+    expect(JSON.stringify(structuredData(container))).not.toContain('stream.example.com')
+  })
+})

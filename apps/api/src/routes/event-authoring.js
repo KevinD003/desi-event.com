@@ -106,6 +106,7 @@ function toSession(session, zonesByVersion, usage = UNUSED_SESSION) {
     salesStartAt: session.salesStartAt?.toISOString() ?? null,
     salesEndAt: session.salesEndAt?.toISOString() ?? null,
     status: session.status,
+    label: session.label ?? null,
     venueMapVersionId: session.venueMapVersionId,
     capacity: session.capacity,
     sortOrder: session.sortOrder,
@@ -299,6 +300,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
               endsAt: new Date(proposed.endsAt),
               doorsOpenAt: proposed.doorsOpenAt ? new Date(proposed.doorsOpenAt) : null,
               timezone: proposed.timezone,
+              label: proposed.label ?? null,
               salesStartAt: proposed.salesStartAt ? new Date(proposed.salesStartAt) : null,
               salesEndAt: proposed.salesEndAt ? new Date(proposed.salesEndAt) : null,
               venueMapVersionId: proposed.venueMapVersionId ?? null,
@@ -932,6 +934,8 @@ function toSessionPatch(patch) {
     data.doorsOpenAt = patch.doorsOpenAt ? new Date(patch.doorsOpenAt) : null
   }
   if (patch.timezone !== undefined) data.timezone = patch.timezone
+  // A night's name: null clears it, and the date labels the night again.
+  if (patch.label !== undefined) data.label = patch.label
   if (patch.salesStartAt !== undefined) {
     data.salesStartAt = patch.salesStartAt ? new Date(patch.salesStartAt) : null
   }

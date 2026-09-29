@@ -13,10 +13,14 @@
  * @module components/ticket-tiers
  */
 
+import Link from 'next/link'
+
 import { Badge } from './ui.jsx'
 
 import { tierSalesWindow } from '../lib/event-availability.js'
 import { formatPrice, priceSelection } from '../lib/pricing.js'
+import { groupTiersBySession, sessionForTier, sessionSellsSeats } from '../lib/sessions.js'
+import { TEXT_LINK } from './link-classes.js'
 
 /** At or below this many remaining, the exact count is worth showing. */
 const LOW_STOCK_THRESHOLD = 25
@@ -33,6 +37,39 @@ const STOPPED = Object.freeze({
 })
 
 /**
+ * Describe a seated tier's availability, from its own seats.
+ *
+ * A seated tier's stock is the free seats it sells, which the API counts per
+ * tier (`availableQuantity`). Never the night's count: that is every zone's
+ * seats together, and read as one tier's it called a sold-out zone "Only 6
+ * seats left" and offered seats of a draft or a guest-list tier. Without a
+ * seat map to choose from — the fallback catalogue has none — it is not sold
+ * here, and says so. A tier whose seats were not counted gets no number.
+ *
+ * @param {object} tier A reserved ticket type.
+ * @param {object|null} session Its night, from `event.sessions`.
+ * @param {Date} now The moment in question.
+ * @returns {{text: string, variant: string}} Badge text and its colour token.
+ */
+function seatedAvailability(tier, session, now) {
+  if (!session?.hasSeatMap) return { text: 'Seated — not sold on this site', variant: 'neutral' }
+  if (tier.status === 'SOLD_OUT') return { text: 'Sold out', variant: 'danger' }
+  if (STOPPED[tier.status]) return STOPPED[tier.status]
+
+  const free = Number.isInteger(tier.availableQuantity) ? tier.availableQuantity : null
+
+  if (free === 0) return { text: 'Sold out', variant: 'danger' }
+  if (tierSalesWindow(tier, now) !== 'open' || !sessionSellsSeats(session, now)) {
+    return { text: 'Not on sale now', variant: 'neutral' }
+  }
+  if (free !== null && free <= LOW_STOCK_THRESHOLD) {
+    return { text: `Only ${free} ${free === 1 ? 'seat' : 'seats'} left`, variant: 'warning' }
+  }
+
+  return { text: 'Choose seats', variant: 'success' }
+}
+
+/**
  * Describe a tier's availability in words a buyer can act on.
  *
  * The words are the listing cards' own, and the sales window is read the way
@@ -41,13 +78,14 @@ const STOPPED = Object.freeze({
  *
  * @param {object} tier A ticket type with `availableQuantity` and `isSoldOut`, and optionally `status` and a sales window.
  * @param {Date} [now] The moment in question. Defaults to now.
+ * @param {object|null} [session] The tier's night, for a seated tier's seats.
  * @returns {{text: string, variant: string}} Badge text and its colour token.
  */
-export function availabilityLabel(tier, now = new Date()) {
+export function availabilityLabel(tier, now = new Date(), session = null) {
   // Before the quantity check: a seated tier's quantity is zero by design, and
-  // reading it called every seated tier sold out. There is no seat picker on
-  // this site, so the honest sentence is that it is not sold here.
-  if (tier.reserved) return { text: 'Seated — not sold on this site', variant: 'neutral' }
+  // reading it called every seated tier sold out. Its stock is its night's
+  // seats, read from the night.
+  if (tier.reserved) return seatedAvailability(tier, session, now)
   if (tier.status === 'SOLD_OUT') return { text: 'Sold out', variant: 'danger' }
   if (STOPPED[tier.status]) return STOPPED[tier.status]
   if (tier.isSoldOut || tier.availableQuantity <= 0) return { text: 'Sold out', variant: 'danger' }
@@ -135,21 +173,90 @@ export function tierAllIn(tier, place, feeTerms) {
  * @property {{country?: string, region?: string}|null} [place] Where the event is held, for the fee-inclusive price. Without it only face values are shown.
  * @property {Array<object>|null} [feeTerms] The fee terms the API published for the event.
  * @property {string} [timezone] The event's zone, for the sales-window sentence.
+ * @property {object[]} [sessions] The event's nights; with more than one, tiers are grouped under them.
+ * @property {string|null} [eventSlug] The event's slug, to link a seated tier to its seat map.
  */
 
 /**
- * A read-only list of an event's ticket tiers.
+ * A read-only list of an event's ticket tiers, grouped by night when the event
+ * has more than one.
  *
  * @param {TicketTiersProps} props Component props.
  * @returns {JSX.Element} The rendered tier list.
  */
-export function TicketTiers({ ticketTypes, place = null, feeTerms = null, timezone = 'UTC' }) {
+export function TicketTiers({
+  ticketTypes,
+  place = null,
+  feeTerms = null,
+  timezone = 'UTC',
+  sessions = [],
+  eventSlug = null,
+}) {
+  const groups = groupTiersBySession(ticketTypes, sessions)
+
+  if (groups.length === 1 && !groups[0].heading) {
+    return (
+      <TierList
+        tiers={ticketTypes}
+        label="Ticket types"
+        place={place}
+        feeTerms={feeTerms}
+        timezone={timezone}
+        sessions={sessions}
+        eventSlug={eventSlug}
+      />
+    )
+  }
+
   return (
-    <ul aria-label="Ticket types" className="divide-y divide-line">
-      {ticketTypes.map((tier) => {
-        const availability = availabilityLabel(tier)
+    <div className="space-y-6">
+      {groups.map((group) => (
+        <div key={group.key}>
+          <h3 className="text-base font-bold text-ink">{group.heading}</h3>
+          <div className="mt-3">
+            <TierList
+              tiers={group.tiers}
+              label={`Ticket types, ${group.heading}`}
+              place={place}
+              feeTerms={feeTerms}
+              timezone={timezone}
+              sessions={sessions}
+              eventSlug={eventSlug}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * One list of tiers.
+ *
+ * @param {object} props Component props.
+ * @param {object[]} props.tiers The tiers.
+ * @param {string} props.label The list's accessible name.
+ * @param {object|null} props.place Where the event is held.
+ * @param {Array<object>|null} props.feeTerms The event's fee terms.
+ * @param {string} props.timezone The event's zone.
+ * @param {object[]} props.sessions The event's nights.
+ * @param {string|null} props.eventSlug The event's slug.
+ * @returns {JSX.Element} The list.
+ */
+function TierList({ tiers, label, place, feeTerms, timezone, sessions, eventSlug }) {
+  return (
+    <ul aria-label={label} className="divide-y divide-line">
+      {tiers.map((tier) => {
+        const session = sessionForTier(tier, sessions)
+        const availability = availabilityLabel(tier, new Date(), session)
         const allIn = availability.text === 'Sold out' ? null : tierAllIn(tier, place, feeTerms)
         const salesWindow = salesWindowText(tier, timezone)
+        const seatLink =
+          tier.reserved && session && eventSlug && availability.variant !== 'danger'
+            ? availability.text === 'Choose seats' || availability.variant === 'warning'
+              ? `/events/${encodeURIComponent(eventSlug)}/seats/${encodeURIComponent(session.id)}`
+              : null
+            : null
 
         return (
           <li
@@ -167,6 +274,13 @@ export function TicketTiers({ ticketTypes, place = null, feeTerms = null, timezo
                 </Badge>
               </p>
               {salesWindow ? <p className="mt-1 text-sm text-ink-muted">{salesWindow}</p> : null}
+              {seatLink ? (
+                <p className="mt-2 text-sm">
+                  <Link href={seatLink} className={TEXT_LINK}>
+                    Choose seats for {tier.name}
+                  </Link>
+                </p>
+              ) : null}
             </div>
             <p className="shrink-0 sm:text-right">
               <span className="block text-lg font-bold text-ink tabular-nums">

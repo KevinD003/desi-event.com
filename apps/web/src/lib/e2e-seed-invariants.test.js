@@ -97,6 +97,26 @@ const SEEDS = Object.freeze([
     file: 'seed-door.mjs',
     cleanup: Object.freeze([/ticket\s*\.deleteMany/u, /order\s*\.delete\b/u]),
   },
+  {
+    // The feature world: gamma, pending, and the accounts whose privileges
+    // the feature specs change. Its teardown also has to undo what those specs
+    // add — holds, pictures, promo codes — so each of those is pinned too.
+    file: 'seed-feature-world.mjs',
+    cleanup: Object.freeze([
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /eventSeat\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+      /ticket\s*\.deleteMany/u,
+      /order\s*\.delete\b/u,
+      /ticketHold\s*\.deleteMany/u,
+      /mediaAsset\s*\.deleteMany/u,
+      /promoCode\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
 ])
 
 /**

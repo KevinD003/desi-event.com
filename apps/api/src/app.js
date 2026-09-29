@@ -39,7 +39,7 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {object} [redis] An ioredis-compatible client, probed by `GET /health`.
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
- * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizationCreate?: object}} [rateLimit] Rate-limit overrides.
+ * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizationCreate?: object, quote?: object}} [rateLimit] Rate-limit overrides.
  * @property {object} [mediaStorage] Where picture bytes live. Defaults to the PostgreSQL adapter; see `lib/media-storage.js`.
  * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
  * @property {function(object): Promise<void>} [deliver] A delivery provider for single-use codes. Absent in this build, which therefore runs `DELIVERY_MODE` MANUAL — see `lib/delivery.js`.
@@ -150,6 +150,7 @@ export async function buildApp(options) {
     mediaStorage,
     mediaUploadLimit: rateLimit.mediaUpload,
     mediaReadLimit: rateLimit.mediaRead,
+    quoteLimit: rateLimit.quote,
     processInline,
   })
 

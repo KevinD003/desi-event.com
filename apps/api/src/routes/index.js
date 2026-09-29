@@ -29,6 +29,7 @@ import { registerOrderRoutes } from './orders.js'
 import { registerOperationsRoutes } from './operations.js'
 import { registerPaymentRoutes } from './payments.js'
 import { registerPrivacyRoutes } from './privacy.js'
+import { registerPromoCodeRoutes } from './promo-codes.js'
 import { registerReconciliationRoutes } from './reconciliation.js'
 import { registerRetentionRoutes } from './retention.js'
 import { registerRefundRoutes } from './refunds.js'
@@ -55,6 +56,7 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {object} [deps.mediaStorage] Where picture bytes live; see `lib/media-storage.js`.
  * @param {{max?: number, timeWindow?: string|number}} [deps.mediaUploadLimit] Overrides for the picture-upload rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.mediaReadLimit] Overrides for the picture-read rate limit.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.quoteLimit] Overrides for the checkout-quote rate limit.
  * @returns {void} Nothing.
  */
 export function registerRoutes(app, deps) {
@@ -74,6 +76,7 @@ export function registerRoutes(app, deps) {
   registerSessionRoutes(app, deps)
   registerHoldRoutes(app, deps)
   registerOrderRoutes(app, deps)
+  registerPromoCodeRoutes(app, deps)
   registerOperationsRoutes(app, deps)
   registerPaymentRoutes(app, deps)
   registerRefundRoutes(app, deps)

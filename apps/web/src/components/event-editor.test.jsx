@@ -367,6 +367,19 @@ describe('the steps', () => {
     expect(screen.getByRole('button', { name: /details/i })).toHaveAttribute('aria-current', 'step')
   })
 
+  it('link the tickets step to this event’s promo codes, by ids only', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={{ ...event, organizationId: 'orgswarsadhana' }} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 4/i }))
+
+    expect(screen.getByRole('link', { name: 'Promo codes for this event' })).toHaveAttribute(
+      'href',
+      '/organizer/promo-codes?organizationId=orgswarsadhana&eventId=evtqawwalibanyan',
+    )
+  })
+
   it('render the sessions, tickets and review panels', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 

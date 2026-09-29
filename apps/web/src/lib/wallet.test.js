@@ -182,6 +182,29 @@ describe('groupTickets', () => {
     expect(byId.given.tickets.map((row) => row.id)).toEqual(['given'])
   })
 
+  it('orders tickets of a run by the night each is for, not by the run’s first night', () => {
+    // One event over three nights: every ticket shares the event's start, so
+    // only the night tells them apart.
+    const nightOf = (day) => ({
+      id: `sn_${day}`,
+      label: `Night ${day}`,
+      startsAt: `2026-10-0${day + 1}T14:00:00.000Z`,
+      endsAt: `2026-10-0${day + 1}T19:00:00.000Z`,
+      doorsOpenAt: null,
+      timezone: 'Asia/Kolkata',
+    })
+    const groups = groupTickets(
+      [
+        ticket({ id: 'third', session: nightOf(3) }),
+        ticket({ id: 'every-night', session: null }),
+        ticket({ id: 'second', session: nightOf(2) }),
+      ],
+      NOW,
+    )
+
+    expect(groups[0].tickets.map((row) => row.id)).toEqual(['every-night', 'second', 'third'])
+  })
+
   it('files a given ticket that is already used under past, not under given', () => {
     // "Given to you" is for tickets somebody can still use. A used one belongs
     // with the other used ones, whoever it came from.

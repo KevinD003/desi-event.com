@@ -1342,3 +1342,218 @@ describe('transfer states and who holds what', () => {
     await app.close()
   })
 })
+
+describe('an online event’s joining link, and the night a ticket is for', () => {
+  const JOIN = 'https://stream.example.com/masterclass'
+
+  /**
+   * A paid order of two tickets for the online event, bought by the signed-in
+   * buyer, whose tier is for one labelled night.
+   *
+   * @returns {Promise<object>} The harness, the buyer's headers and the order.
+   */
+  async function onlineWallet() {
+    const harness = await createTestApp()
+    const { app, prisma, ids } = harness
+    const night = prisma._store.eventSession.find((row) => row.eventId === ids.onlineEvent.id)
+    night.label = 'Masterclass'
+
+    const tier = await prisma.ticketType.create({
+      data: {
+        ...ids.generalAdmission,
+        id: 'ckonlinetier0000000000000',
+        eventId: ids.onlineEvent.id,
+        name: 'Stream access',
+        eventSessionId: night.id,
+      },
+    })
+
+    const headers = bearer(await signIn(app, BUYER))
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers,
+      payload: {
+        eventId: ids.onlineEvent.id,
+        buyerEmail: BUYER,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: tier.id, quantity: 2 }],
+      },
+    })
+
+    expect(response.statusCode, response.body).toBe(201)
+
+    return { ...harness, headers, night, order: response.json().data }
+  }
+
+  it('gives the buyer the link on the order they just placed, and on their wallet', async () => {
+    const { app, headers, night, order } = await onlineWallet()
+
+    expect(order.onlineJoinUrl).toBe(JOIN)
+
+    const wallet = await app.inject({ method: 'GET', url: '/v1/tickets', headers })
+    expect(wallet.statusCode).toBe(200)
+
+    for (const ticket of wallet.json().data) {
+      expect(ticket.onlineJoinUrl).toBe(JOIN)
+      expect(ticket.session).toMatchObject({ id: night.id, label: 'Masterclass' })
+    }
+
+    await app.close()
+  })
+
+  it('keeps it while a ticket admits, and a scanned ticket still admits its holder back in', async () => {
+    const { app, prisma, headers } = await onlineWallet()
+    const [refunded, scanned] = prisma._store.ticket
+
+    refunded.status = 'REFUNDED'
+    scanned.status = 'CHECKED_IN'
+    scanned.checkedInAt = new Date()
+
+    const wallet = (await app.inject({ method: 'GET', url: '/v1/tickets', headers })).json().data
+    const byId = Object.fromEntries(wallet.map((ticket) => [ticket.id, ticket]))
+
+    expect(byId[refunded.id].onlineJoinUrl).toBeNull()
+    expect(byId[scanned.id].onlineJoinUrl).toBe(JOIN)
+
+    await app.close()
+  })
+
+  it('gives it on the ticket page to the holder only, never to the organiser reading it', async () => {
+    const { app, prisma, headers } = await onlineWallet()
+    const [ticket] = prisma._store.ticket
+
+    const holder = await app.inject({ method: 'GET', url: `/v1/tickets/${ticket.id}`, headers })
+    expect(holder.statusCode).toBe(200)
+    expect(holder.json().data).toMatchObject({ holder: true, onlineJoinUrl: JOIN })
+    expect(holder.json().data.session.label).toBe('Masterclass')
+
+    // The online event is the other organisation's; its owner may revoke.
+    const organiser = await app.inject({
+      method: 'GET',
+      url: `/v1/tickets/${ticket.id}`,
+      headers: bearer(await signIn(app, 'rival@dhol.example')),
+    })
+    expect(organiser.statusCode).toBe(200)
+    expect(organiser.json().data.holder).toBe(false)
+    expect(organiser.json().data.onlineJoinUrl).toBeNull()
+
+    ticket.status = 'REVOKED'
+    const revoked = await app.inject({ method: 'GET', url: `/v1/tickets/${ticket.id}`, headers })
+    expect(revoked.json().data.onlineJoinUrl).toBeNull()
+
+    await app.close()
+  })
+
+  it('gives it on the order to the buyer only, and never in the list of orders', async () => {
+    const { app, headers, order } = await onlineWallet()
+
+    const mine = await app.inject({
+      method: 'GET',
+      url: `/v1/orders/${order.reference}`,
+      headers,
+    })
+    expect(mine.json().data.onlineJoinUrl).toBe(JOIN)
+    expect(mine.json().data.items[0]).toMatchObject({
+      ticketTypeName: 'Stream access',
+      session: { label: 'Masterclass' },
+    })
+
+    const organiser = await app.inject({
+      method: 'GET',
+      url: `/v1/orders/${order.reference}`,
+      headers: bearer(await signIn(app, 'rival@dhol.example')),
+    })
+    expect(organiser.statusCode).toBe(200)
+    expect(organiser.body).not.toContain(JOIN)
+
+    const list = await app.inject({ method: 'GET', url: '/v1/orders', headers })
+    expect(list.statusCode).toBe(200)
+    expect(list.body).not.toContain(JOIN)
+
+    await app.close()
+  })
+
+  it('gives nobody a link for an event at a venue', async () => {
+    const world = await withWallet()
+    const token = await signIn(world.app, BUYER)
+
+    const wallet = await world.app.inject({
+      method: 'GET',
+      url: '/v1/tickets',
+      headers: bearer(token),
+    })
+
+    expect(wallet.json().data.every((ticket) => ticket.onlineJoinUrl === null)).toBe(true)
+    expect(world.order.onlineJoinUrl).toBeNull()
+
+    await world.app.close()
+  })
+
+  it('names the seat’s night over the tier’s, and none for a tier good for every night', () => {
+    const night = (id, label) => ({
+      id,
+      label,
+      startsAt: new Date('2026-10-01T14:00:00.000Z'),
+      endsAt: new Date('2026-10-01T19:00:00.000Z'),
+      doorsOpenAt: null,
+      timezone: 'Asia/Kolkata',
+    })
+    const ticket = {
+      id: 'tkt_1',
+      orderItemId: 'oi_1',
+      code: 'DE-ABCD-1234',
+      attendeeName: 'Priya Sharma',
+      status: 'VALID',
+      checkedInAt: null,
+      revokedAt: null,
+      revokedReason: null,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      ownerUserId: 'usr_buyer',
+      supersedesTicketId: null,
+      orderItem: {
+        ticketType: { id: 'tt_1', name: 'Stalls', eventSession: night('s_tier', 'Night 1') },
+        order: {
+          userId: 'usr_buyer',
+          reference: 'DE-BUYER1',
+          status: 'PAID',
+          event: {
+            id: 'evt_1',
+            slug: 'garba-night',
+            title: 'Garba Night',
+            category: 'GARBA_DANDIYA',
+            startsAt: new Date('2026-10-01T14:00:00.000Z'),
+            endsAt: new Date('2026-10-05T19:00:00.000Z'),
+            timezone: 'Asia/Kolkata',
+            status: 'ON_SALE',
+            cancelledAt: null,
+            isOnline: false,
+            onlineUrl: null,
+            venue: { name: 'Hall', city: 'Pune', region: 'MH', country: 'IN' },
+          },
+        },
+      },
+      eventSeat: {
+        seat: { label: '12', accessible: false, section: { name: 'Stalls' }, row: { label: 'G' } },
+        eventSession: night('s_seat', 'Night 3'),
+      },
+      transfers: [],
+    }
+
+    expect(toWalletTicket(ticket, { viewerUserId: 'usr_buyer' }).session).toMatchObject({
+      id: 's_seat',
+      label: 'Night 3',
+    })
+    expect(
+      toWalletTicket({ ...ticket, eventSeat: null }, { viewerUserId: 'usr_buyer' }).session,
+    ).toMatchObject({ id: 's_tier', label: 'Night 1' })
+
+    const everyNight = {
+      ...ticket,
+      eventSeat: null,
+      orderItem: { ...ticket.orderItem, ticketType: { id: 'tt_1', name: 'Pass' } },
+    }
+    expect(toWalletTicket(everyNight, { viewerUserId: 'usr_buyer' }).session).toBeNull()
+  })
+})

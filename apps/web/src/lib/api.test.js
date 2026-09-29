@@ -7,6 +7,7 @@ import {
   loadCatalogueOverview,
   loadEventBySlug,
   loadEventList,
+  loadSeatMap,
   resetApiClient,
   withTicketTypeAvailability,
 } from './api.js'
@@ -286,5 +287,94 @@ describe('withTicketTypeAvailability', () => {
 
   it('copes with an event that has no ticket types at all', () => {
     expect(withTicketTypeAvailability({ title: 'Bare' }).ticketTypes).toEqual([])
+  })
+})
+
+describe('loadSeatMap', () => {
+  it('reads a night’s seat map, and never invents one', async () => {
+    const seats = vi.fn().mockResolvedValue({ data: { sessionId: 'snnightonexxx', sections: [] } })
+
+    expect(await loadSeatMap('snnightonexxx', { client: { sessions: { seats } } })).toEqual({
+      sessionId: 'snnightonexxx',
+      sections: [],
+    })
+    expect(seats.mock.calls[0][0]).toEqual({ id: 'snnightonexxx' })
+  })
+
+  it('answers null when the API refuses or is down: no fallback map exists', async () => {
+    const refused = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error('Not found'), { status: 404 }))
+    const empty = vi.fn().mockResolvedValue({ data: null })
+
+    expect(
+      await loadSeatMap('snnightonexxx', { client: { sessions: { seats: refused } } }),
+    ).toBeNull()
+    expect(
+      await loadSeatMap('snnightonexxx', { client: { sessions: { seats: empty } } }),
+    ).toBeNull()
+  })
+})
+
+describe('withTicketTypeAvailability for a seated tier', () => {
+  const night = { id: 'snnightonexxx', hasSeatMap: true, seatsAvailable: 7 }
+  const seated = {
+    id: 'ttseatedxxxxx',
+    reserved: true,
+    eventSessionId: 'snnightonexxx',
+    status: 'ON_SALE',
+    quantityTotal: 0,
+    quantitySold: 0,
+  }
+
+  it('counts its own free seats, as the API sent them, not its quantity columns', () => {
+    const [tier] = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, availableQuantity: 4, isSoldOut: false }],
+    }).ticketTypes
+
+    expect(tier).toMatchObject({ availableQuantity: 4, isSoldOut: false })
+  })
+
+  it('never reads the night’s count as its own', () => {
+    // The night has 7 free seats, all in another zone; this tier has none.
+    const [tier] = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, availableQuantity: 0, isSoldOut: true }],
+    }).ticketTypes
+
+    expect(tier).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+
+    // And a tier the API did not count gets no number at all, not the night's.
+    const [uncounted] = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [seated],
+    }).ticketTypes
+
+    expect(uncounted.availableQuantity).toBeNull()
+    expect(uncounted.isSoldOut).toBe(false)
+  })
+
+  it('is sold out when it has no seat left, or it is not on sale', () => {
+    const full = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, availableQuantity: 0 }],
+    }).ticketTypes[0]
+    const paused = withTicketTypeAvailability({
+      sessions: [night],
+      ticketTypes: [{ ...seated, status: 'PAUSED', availableQuantity: 5 }],
+    }).ticketTypes[0]
+
+    expect(full).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+    expect(paused).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+  })
+
+  it('falls back to its own columns when its night has no seat map', () => {
+    const [tier] = withTicketTypeAvailability({
+      sessions: [{ ...night, hasSeatMap: false, seatsAvailable: null }],
+      ticketTypes: [seated],
+    }).ticketTypes
+
+    expect(tier).toMatchObject({ availableQuantity: 0, isSoldOut: true })
   })
 })

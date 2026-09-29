@@ -3,8 +3,8 @@
  *
  * The sessions were established once in global setup, for the reason set out
  * there — the budget protecting `/auth/login` is ten requests a minute and is
- * deliberately not configurable, so a run that signs in eight times deserves to
- * be refused. Adopting a saved session costs no request at all.
+ * deliberately not configurable, so a run that signs in over and over deserves
+ * to be refused. Adopting a saved session costs no request at all.
  *
  * @module e2e/support/detail-fixtures
  */
@@ -66,7 +66,9 @@ export function arriving(page) {
  * `owner` runs the organisation and holds the seeded tickets. `beta` runs a
  * different one and is the outsider every refusal is checked against. `viewer`
  * holds `report:view` and nothing financial, and deliberately has no second
- * factor.
+ * factor. `gamma`, `giver` and `taker` are the feature world's
+ * (`seed-feature-world.mjs`): where the feature specs publish, sell, and hand
+ * tickets on, away from alpha's and beta's pinned counts.
  */
 export const test = base.extend({
   /**
@@ -169,6 +171,51 @@ export const test = base.extend({
    */
   platform: async ({ browser }, use) => {
     const context = await browser.newContext({ storageState: statePath('platform') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The gamma organisation's owner, who holds a second factor.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  gamma: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('gamma') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The attendee holding gamma tickets to offer, a reserved seat and a group order.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  giver: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('giver') })
+
+    await use(arriving(await context.newPage()))
+    await context.close()
+  },
+
+  /**
+   * The attendee with nothing, who accepts what is offered and buys seats.
+   *
+   * @param {object} fixtures Playwright fixtures.
+   * @param {object} fixtures.browser The browser under test.
+   * @param {Function} use Hands the page to the test.
+   * @returns {Promise<void>} Resolves when the test is done.
+   */
+  taker: async ({ browser }, use) => {
+    const context = await browser.newContext({ storageState: statePath('taker') })
 
     await use(arriving(await context.newPage()))
     await context.close()

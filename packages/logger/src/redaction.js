@@ -103,6 +103,14 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   // only its holder should know, like `credentialHash` above.
   'groupCode',
   'codeHash',
+  // A promo code is a bearer discount: whoever reads it can use it. Checkout
+  // takes it in the body, and no handler logs it; this is the net.
+  'promoCode',
+  // Guests' names typed at checkout, and the columns that stage and print
+  // them. Personal data about people who never signed up to anything here.
+  'attendees',
+  'attendeeName',
+  'attendeeNames',
 ])
 
 /**
@@ -137,6 +145,12 @@ export const WILDCARD_KEYS = Object.freeze([
   // `{ groupPass: { codeHash } }`, the shape of a group pass row logged whole.
   'groupCode',
   'codeHash',
+  // `req.body.promoCode` and `req.body.attendees`, from checkout and the
+  // quote; `{ ticket: { attendeeName } }`, a ticket row logged whole.
+  'promoCode',
+  'attendees',
+  'attendeeName',
+  'attendeeNames',
 ])
 
 /**

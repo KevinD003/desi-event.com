@@ -45,7 +45,14 @@ import { admissionRateLimit, passRateLimit } from '../plugins/rate-limit.js'
 import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
 import { DELIVERY_MODES, deliverCode } from '../lib/delivery.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
-import { WALLET_INCLUDE, toWalletTicket, transferRecipient } from '../lib/presenters.js'
+import {
+  SESSION_SUMMARY_SELECT,
+  WALLET_INCLUDE,
+  joinUrlFor,
+  ticketSession,
+  toWalletTicket,
+  transferRecipient,
+} from '../lib/presenters.js'
 import {
   TICKET_STATES,
   TRANSFER_TTL_HOURS,
@@ -68,6 +75,17 @@ const TICKET_INCLUDE = Object.freeze({
   // The event's approved cover comes with it, so a ticket shows the picture
   // its event page shows.
   orderItem: { include: { order: { include: { event: { include: EVENT_COVER_INCLUDE } } } } },
+})
+
+/** The ticket page's read: the same, plus the night it is for. */
+const TICKET_DETAIL_INCLUDE = Object.freeze({
+  orderItem: {
+    include: {
+      order: { include: { event: { include: EVENT_COVER_INCLUDE } } },
+      ticketType: { select: { eventSession: { select: SESSION_SUMMARY_SELECT } } },
+    },
+  },
+  eventSeat: { select: { eventSession: { select: SESSION_SUMMARY_SELECT } } },
 })
 
 /**
@@ -258,7 +276,7 @@ export function registerTicketRoutes(
     handler: async (request) => {
       const ticket = await prisma.ticket.findUnique({
         where: { id: request.params.id },
-        include: TICKET_INCLUDE,
+        include: TICKET_DETAIL_INCLUDE,
       })
 
       if (!ticket) throw notFound('No such ticket.')
@@ -300,6 +318,10 @@ export function registerTicketRoutes(
           organizationId: event.organizationId,
           holder,
           transfers: transfers.map((row) => toTicketTransfer(row, { party: holder })),
+          session: ticketSession(ticket),
+          // The holder's, while the ticket admits. An organiser reading the
+          // ticket has the link in their own editor and gets null here.
+          onlineJoinUrl: holder ? joinUrlFor(ticket, ticket.orderItem?.order ?? null, event) : null,
         },
       }
     },
@@ -672,7 +694,7 @@ export function registerTicketRoutes(
  * @returns {object} The ticket's own columns only.
  */
 function stripRelations(ticket) {
-  const { orderItem: _orderItem, ...rest } = ticket
+  const { orderItem: _orderItem, eventSeat: _eventSeat, ...rest } = ticket
 
   return rest
 }

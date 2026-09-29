@@ -231,3 +231,69 @@ describe('group passes', () => {
     expect(within(card).getByText(/how many it admits is on the order’s page/)).toBeTruthy()
   })
 })
+
+describe('a ticket for one night, and an online event’s link', () => {
+  it('names the night a ticket is for, label and date together', async () => {
+    await renderWallet([
+      walletTicket({
+        session: {
+          id: 'snnighttwoxxx',
+          label: 'Night 2',
+          startsAt: '2030-10-11T23:30:00.000Z',
+          endsAt: '2030-10-12T04:00:00.000Z',
+          doorsOpenAt: null,
+          timezone: 'America/New_York',
+        },
+      }),
+    ])
+
+    expect(screen.getByText('Night')).toBeInTheDocument()
+    expect(screen.getByText('Night 2 · Fri, Oct 11 · 7:30 PM')).toBeInTheDocument()
+  })
+
+  it('says nothing about a night for a ticket good for every night', async () => {
+    await renderWallet([walletTicket({ session: null })])
+
+    expect(screen.queryByText('Night')).toBeNull()
+  })
+
+  it('offers the joining link only when the server gave one, named by its host, with no referrer', async () => {
+    await renderWallet([
+      walletTicket({
+        isOnline: true,
+        venue: null,
+        onlineJoinUrl: 'https://stream.example.com/r/1',
+      }),
+    ])
+
+    const link = screen.getByRole('link', { name: /^Join online at stream\.example\.com/u })
+
+    expect(link.textContent).toBe(
+      'Join online at stream.example.com for Navratri Night One: Garba Under the Lights',
+    )
+    expect(link).toHaveAttribute('href', 'https://stream.example.com/r/1')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(link).toHaveAttribute('referrerPolicy', 'no-referrer')
+  })
+
+  it('offers no joining link for a ticket that does not admit, whose link the server withheld', async () => {
+    await renderWallet([
+      walletTicket({
+        isOnline: true,
+        venue: null,
+        admits: false,
+        status: 'REVOKED',
+        admissionRefusal: 'This ticket has been revoked.',
+        onlineJoinUrl: null,
+      }),
+    ])
+
+    expect(screen.queryByRole('link', { name: /^Join online/u })).toBeNull()
+  })
+
+  it('does not draw a link that is not a web address', async () => {
+    await renderWallet([walletTicket({ isOnline: true, onlineJoinUrl: 'javascript:alert(1)' })])
+
+    expect(screen.queryByRole('link', { name: /^Join online/u })).toBeNull()
+  })
+})

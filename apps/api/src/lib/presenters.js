@@ -337,6 +337,78 @@ export function toPublicOrganizer(organization) {
 }
 
 /**
+ * One night, as a ticket, an order line or a door names it.
+ *
+ * @param {object|null|undefined} session An `EventSession` row, or a selection of it.
+ * @returns {object|null} A payload satisfying `sessionSummarySchema`, or null.
+ */
+export function sessionSummary(session) {
+  if (!session?.id) return null
+
+  const label = typeof session.label === 'string' ? session.label.trim().slice(0, 60) : ''
+
+  return {
+    id: session.id,
+    label: label.length > 0 ? label : null,
+    startsAt: session.startsAt,
+    endsAt: session.endsAt,
+    doorsOpenAt: session.doorsOpenAt ?? null,
+    timezone: session.timezone,
+  }
+}
+
+/**
+ * One night, as the public event page lists it.
+ *
+ * @param {object} session An `EventSession` row.
+ * @param {number|null} [seatsAvailable] Seats a buyer could take now, for a night with a seat map; null when not counted.
+ * @returns {object} A payload satisfying `publicEventSessionSchema`.
+ */
+export function toPublicSession(session, seatsAvailable = null) {
+  return {
+    ...sessionSummary(session),
+    status: session.status,
+    salesStartAt: session.salesStartAt ?? null,
+    salesEndAt: session.salesEndAt ?? null,
+    hasSeatMap: Boolean(session.venueMapVersionId),
+    seatsAvailable:
+      session.venueMapVersionId && Number.isInteger(seatsAvailable) ? seatsAvailable : null,
+  }
+}
+
+/**
+ * The night a ticket is for: its seat's, else its tier's, else none.
+ *
+ * @param {object} ticket A ticket row with `eventSeat.eventSession` and `orderItem.ticketType.eventSession` selected.
+ * @returns {object|null} A `sessionSummarySchema` payload, or null for a ticket good for every night.
+ */
+export function ticketSession(ticket) {
+  return (
+    sessionSummary(ticket?.eventSeat?.eventSession) ??
+    sessionSummary(ticket?.orderItem?.ticketType?.eventSession) ??
+    null
+  )
+}
+
+/**
+ * An online event's joining link, for somebody holding a ticket that admits.
+ *
+ * Only while the ticket would open a door: a ticket scanned in still does, so
+ * its holder can rejoin; a refunded, revoked or handed-on one does not, and
+ * neither does an unpaid order's or a cancelled event's.
+ *
+ * @param {object} ticket The ticket row.
+ * @param {object|null} order Its order (for the paid check).
+ * @param {object|null} event Its event, with `isOnline` and `onlineUrl`.
+ * @returns {string|null} The link, or null.
+ */
+export function joinUrlFor(ticket, order, event) {
+  if (!event?.isOnline || !event.onlineUrl) return null
+
+  return admissionRefusal(ticket, order, event) === null ? event.onlineUrl : null
+}
+
+/**
  * The full event payload returned by the detail endpoint.
  *
  * Every field is named. This used to spread the row — `...rest` — and rely on
@@ -368,21 +440,49 @@ export function toPublicOrganizer(organization) {
  * that decided authorisation for itself would be a second place authorisation
  * lives, and the two would disagree eventually.
  *
- * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * ## The online joining link
+ *
+ * `onlineUrl` is the link into an online event, and a stranger reading the
+ * public page is exactly who must not have it. It is carried only when the
+ * caller says so (`includeOnlineUrl`): the organiser's own reads, so the editor
+ * can show it. A ticket holder reads it as `onlineJoinUrl` on their ticket.
+ *
+ * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`, and optionally `sessions`.
  * @param {object} [options] Options.
  * @param {boolean} [options.includeDraftTiers] Whether the caller may see tiers not on sale.
+ * @param {boolean} [options.includeOnlineUrl] Whether the caller may see the online joining link: the organisation and staff only.
+ * @param {Map<string, number>} [options.sessionsAvailability] Seats available now, per seated session id.
+ * @param {Map<string, number>} [options.tierSeatsAvailable] Free seats per reserved tier id, for the tiers shown; each carries its own as `availableQuantity`.
  * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them; when given, the detail carries `feeTerms`.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
-export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor = null } = {}) {
-  const { venue = null, organization = null, ticketTypes = [] } = event
+export function toEventDetail(
+  event,
+  {
+    includeDraftTiers = false,
+    includeOnlineUrl = false,
+    sessionsAvailability = new Map(),
+    tierSeatsAvailable = new Map(),
+    feeConfigFor = null,
+  } = {},
+) {
+  const { venue = null, organization = null, ticketTypes = [], sessions = [] } = event
   // Drafts and hidden tiers are the organiser's business; the same insiders
   // who may see one may see the other.
   const visibleTiers = (
     includeDraftTiers
       ? ticketTypes
       : ticketTypes.filter((tier) => tier.status !== 'DRAFT' && isPublicTier(tier))
-  ).map(toPublicTier)
+  ).map((tier) => {
+    const shown = toPublicTier(tier)
+    const free = tierSeatsAvailable.get(tier.id)
+
+    // A seated tier's stock is its own free seats, counted by the route; its
+    // quantity columns say nothing about it.
+    return Number.isInteger(free)
+      ? { ...shown, availableQuantity: free, isSoldOut: free === 0 }
+      : shown
+  })
 
   const detail = {
     id: event.id,
@@ -398,7 +498,9 @@ export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor =
     endsAt: event.endsAt,
     timezone: event.timezone,
     isOnline: event.isOnline,
-    onlineUrl: event.onlineUrl ?? null,
+    // Absent, not null, for everybody else: the key itself stays out of a
+    // payload a stranger reads.
+    ...(includeOnlineUrl ? { onlineUrl: event.onlineUrl ?? null } : {}),
     languages: event.languages ?? [],
     publishedAt: event.publishedAt ?? null,
     createdAt: event.createdAt,
@@ -423,6 +525,14 @@ export function toEventDetail(event, { includeDraftTiers = false, feeConfigFor =
     ticketTypes: [...visibleTiers].sort(
       (left, right) => left.sortOrder - right.sortOrder || left.priceCents - right.priceCents,
     ),
+    // Soonest first; the sort order settles two nights that start together.
+    sessions: [...sessions]
+      .sort(
+        (left, right) =>
+          new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime() ||
+          (left.sortOrder ?? 0) - (right.sortOrder ?? 0),
+      )
+      .map((session) => toPublicSession(session, sessionsAvailability.get(session.id) ?? null)),
   }
 
   if (typeof feeConfigFor === 'function') {
@@ -460,15 +570,26 @@ export function toTicketType(ticketType, availability) {
 /**
  * An order with its line items, its tickets and a summary of its event.
  *
+ * Each line says what it bought (`ticketTypeName`) and for which night, from
+ * its tier. The names typed at checkout are staged on the line until the
+ * tickets carry them, and never leave from here.
+ *
  * @param {object} order An `Order` row including `items` (each with `tickets`) and optionally `event`.
  * @param {object} [options] Options.
  * @param {boolean} [options.buyerAddress] Whether the reader may see the buyer's address: true for the buyer.
+ * @param {boolean} [options.joinUrl] Whether the reader may have an online event's joining link: the buyer only.
  * @returns {object} A payload satisfying `orderWithItemsSchema`.
  */
-export function toOrder(order, { buyerAddress = true } = {}) {
+export function toOrder(order, { buyerAddress = true, joinUrl = false } = {}) {
   const { items = [], event = null, buyerEmail, ...rest } = order
 
-  const lineItems = items.map(({ tickets: _tickets, ticketType: _ticketType, ...item }) => item)
+  const lineItems = items.map(
+    ({ tickets: _tickets, ticketType, attendeeNames: _staged, ...item }) => ({
+      ...item,
+      ...(ticketType?.name ? { ticketTypeName: ticketType.name } : {}),
+      session: sessionSummary(ticketType?.eventSession),
+    }),
+  )
 
   // Only the buyer's own. Accepting a transfer mints the recipient's ticket
   // onto this same order item — `acceptTransfer` reuses `ticket.orderItemId` —
@@ -488,12 +609,19 @@ export function toOrder(order, { buyerAddress = true } = {}) {
   // Read from the rows already loaded rather than queried for.
   const superseded = new Set(onThisOrder.map((ticket) => ticket.supersedesTicketId).filter(Boolean))
 
-  const tickets = onThisOrder
-    .filter((ticket) => heldByTheBuyer(ticket, order))
-    .map((ticket) => toOrderTicket(ticket, superseded))
+  const held = onThisOrder.filter((ticket) => heldByTheBuyer(ticket, order))
+  const tickets = held.map((ticket) => toOrderTicket(ticket, superseded))
+
+  // For the buyer, of a paid order, while one of the tickets they hold still
+  // admits. Nobody else, and never in a list.
+  const onlineJoinUrl =
+    joinUrl && order.status === 'PAID' && event?.isOnline && event.onlineUrl
+      ? (held.map((ticket) => joinUrlFor(ticket, order, event)).find(Boolean) ?? null)
+      : null
 
   return {
     ...rest,
+    onlineJoinUrl,
     // The buyer's own reads carry their address. An organisation reading the
     // order does not get it: seeing what was bought, refunding it and admitting
     // it need no address, and the platform, not the organiser, writes to buyers.
@@ -503,6 +631,20 @@ export function toOrder(order, { buyerAddress = true } = {}) {
     event: event ? toEventSummary(event) : null,
   }
 }
+
+/**
+ * What a ticket, an order line or the door says about a night.
+ *
+ * @type {object}
+ */
+export const SESSION_SUMMARY_SELECT = Object.freeze({
+  id: true,
+  label: true,
+  startsAt: true,
+  endsAt: true,
+  doorsOpenAt: true,
+  timezone: true,
+})
 
 /**
  * Everything {@link toWalletTicket} needs in order to be worth showing.
@@ -527,7 +669,9 @@ export function toOrder(order, { buyerAddress = true } = {}) {
 export const WALLET_INCLUDE = Object.freeze({
   orderItem: {
     include: {
-      ticketType: { select: { id: true, name: true } },
+      ticketType: {
+        select: { id: true, name: true, eventSession: { select: SESSION_SUMMARY_SELECT } },
+      },
       order: {
         select: {
           userId: true,
@@ -545,6 +689,9 @@ export const WALLET_INCLUDE = Object.freeze({
               status: true,
               cancelledAt: true,
               isOnline: true,
+              // Read so a holder whose ticket admits can be given it; the
+              // presenter decides, and it is never in a list payload otherwise.
+              onlineUrl: true,
               venue: {
                 select: { name: true, city: true, region: true, country: true },
               },
@@ -571,6 +718,7 @@ export const WALLET_INCLUDE = Object.freeze({
           row: { select: { label: true } },
         },
       },
+      eventSession: { select: SESSION_SUMMARY_SELECT },
     },
   },
   transfers: {
@@ -696,6 +844,8 @@ export function toWalletTicket(ticket, { viewerUserId }) {
       : null,
     revokedAt: ticket.revokedAt ?? null,
     revokedReason: ticket.revokedReason ?? null,
+    session: ticketSession(ticket),
+    onlineJoinUrl: joinUrlFor(ticket, order, event),
   }
 }
 

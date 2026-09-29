@@ -74,6 +74,7 @@ import { formatEventLocation } from '../../../../lib/format.js'
 import { formatAmount } from '../../../../lib/pricing.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession } from '../../../../lib/session.js'
+import { joinLinkHost, sessionDisplayLabel } from '../../../../lib/sessions.js'
 import { eventIsOver } from '../../../../lib/wallet.js'
 import {
   currentTickets,
@@ -499,11 +500,18 @@ export default async function OrderPage({ params }) {
               className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3 text-sm"
             >
               <span className="text-ink">
-                <span className="font-medium">{item.quantity === 1 ? 'Ticket' : 'Tickets'}</span>
+                <span className="font-medium">
+                  {item.ticketTypeName ?? (item.quantity === 1 ? 'Ticket' : 'Tickets')}
+                </span>
                 <span className="text-ink-muted">
                   {', '}
                   {item.quantity} × {formatAmount(item.unitPriceCents, order.currency)}
                 </span>
+                {item.session ? (
+                  <span className="block text-xs text-ink-muted">
+                    {sessionDisplayLabel(item.session)}
+                  </span>
+                ) : null}
               </span>
               <span className="text-ink tabular-nums">
                 {formatAmount(item.subtotalCents, order.currency)}
@@ -535,6 +543,30 @@ export default async function OrderPage({ params }) {
           </p>
         ) : null}
       </section>
+
+      {/* The joining link of a paid online event, for the buyer, while one of
+          the tickets they hold admits: the server decides, the page shows. */}
+      {order.onlineJoinUrl && joinLinkHost(order.onlineJoinUrl) ? (
+        <section aria-labelledby="order-join" className="mt-8">
+          <h2 id="order-join" className="text-xl font-semibold text-ink">
+            Join online
+          </h2>
+          <p className="mt-2 text-sm text-ink-muted">
+            The organiser’s joining link. Anybody with it can use it, so keep it to the people
+            holding these tickets.
+          </p>
+          <p className="mt-2">
+            <a
+              href={order.onlineJoinUrl}
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+              className="rounded-sm font-bold text-accent-strong underline underline-offset-2 hover:decoration-2 focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            >
+              Join online at {joinLinkHost(order.onlineJoinUrl)}
+            </a>
+          </p>
+        </section>
+      ) : null}
 
       <section aria-labelledby="order-tickets" className="mt-8">
         <h2 id="order-tickets" className="text-xl font-semibold text-ink">

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { formatAmount, priceSelection } from '../lib/pricing.js'
@@ -62,12 +62,62 @@ function renderBasket(props = {}) {
       buyer={BUYER}
       reserve={vi.fn().mockResolvedValue([])}
       release={vi.fn().mockResolvedValue(undefined)}
+      quote={fakeQuote()}
       placeOrder={vi.fn()}
       {...props}
     />,
   )
 
   return userEvent.setup()
+}
+
+/**
+ * A stand-in for `POST /v1/orders/quote`: the browser's own pricing, and a 10%
+ * code called SAVE10. Every other code is one the organiser does not have.
+ *
+ * @param {object} [options] Options.
+ * @param {number} [options.extraCents] Added to the total, to play a server whose figure moved.
+ * @returns {Function} The quote function.
+ */
+function fakeQuote({ extraCents = 0 } = {}) {
+  return vi.fn(async ({ lines, promoCode }) => {
+    const priced = priceSelection({
+      lines,
+      currency: 'INR',
+      place: { country: event.venue.country, region: event.venue.region },
+    })
+    const applied = promoCode === 'SAVE10'
+    const discountCents = applied ? Math.round(priced.subtotalCents / 10) : 0
+
+    return {
+      currency: 'INR',
+      subtotalCents: priced.subtotalCents,
+      discountCents,
+      feesCents: priced.feesCents,
+      taxCents: priced.taxCents,
+      totalCents: priced.totalCents - discountCents + extraCents,
+      lines: priced.lineItems.map((line) => ({
+        ticketTypeId: line.ticketTypeId,
+        name: line.name,
+        sessionId: null,
+        quantity: line.quantity,
+        unitPriceCents: line.unitPriceCents,
+        subtotalCents: line.subtotalCents,
+        discountCents: 0,
+      })),
+      promo: promoCode
+        ? {
+            code: promoCode,
+            applied,
+            reason: applied ? null : 'UNKNOWN',
+            type: applied ? 'PERCENTAGE' : null,
+            percentBps: applied ? 1000 : null,
+            amountCents: null,
+          }
+        : null,
+      pricedAt: '2026-10-01T10:00:00.000Z',
+    }
+  })
 }
 
 /** A signed-in buyer: their own name and address, as the checkout page passes them. */
@@ -390,7 +440,7 @@ describe('buying', () => {
     expect(screen.getByText('This event is not on sale.')).toBeInTheDocument()
   })
 
-  it('shows a seated tier and does not sell it, because this site has no seat picker', () => {
+  it('shows a seated tier with no seat map to choose from, and does not sell it here', () => {
     renderBasket({
       ticketTypes: [
         ...ticketTypes,
@@ -408,7 +458,87 @@ describe('buying', () => {
 
     expect(screen.queryByLabelText('Quantity of Balcony')).not.toBeInTheDocument()
     expect(screen.getByText('Not sold here')).toBeInTheDocument()
-    expect(screen.getByText(/which this site does not have/)).toBeInTheDocument()
+    expect(screen.getByText(/there is no seat map to choose from here/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Choose seats' })).toBeNull()
+  })
+
+  it('sends a seated tier whose night has a seat map to that map', () => {
+    renderBasket({
+      event: {
+        ...event,
+        sessions: [
+          {
+            id: 'cksessionbalcony00000001',
+            label: 'Night 1',
+            startsAt: '2026-10-11T13:30:00.000Z',
+            endsAt: '2026-10-11T18:30:00.000Z',
+            timezone: 'Asia/Kolkata',
+            status: 'SCHEDULED',
+            hasSeatMap: true,
+            seatsAvailable: 12,
+          },
+        ],
+      },
+      ticketTypes: [
+        ...ticketTypes,
+        {
+          id: 'ttqawwalibalcony',
+          name: 'Balcony',
+          priceCents: 199_900,
+          currency: 'INR',
+          reserved: true,
+          eventSessionId: 'cksessionbalcony00000001',
+          availableQuantity: 12,
+          isSoldOut: false,
+        },
+      ],
+    })
+
+    expect(screen.queryByLabelText('Quantity of Balcony')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Choose seats' })).toHaveAttribute(
+      'href',
+      '/events/qawwali-under-the-banyan/seats/cksessionbalcony00000001',
+    )
+    expect(screen.queryByText('Not sold here')).toBeNull()
+  })
+
+  it('says a seated tier whose own seats are gone is sold out, whatever the night has left', () => {
+    renderBasket({
+      event: {
+        ...event,
+        sessions: [
+          {
+            id: 'cksessionbalcony00000001',
+            label: 'Night 1',
+            startsAt: '2026-10-11T13:30:00.000Z',
+            endsAt: '2026-10-11T18:30:00.000Z',
+            timezone: 'Asia/Kolkata',
+            status: 'SCHEDULED',
+            hasSeatMap: true,
+            // Another zone's seats.
+            seatsAvailable: 12,
+          },
+        ],
+      },
+      ticketTypes: [
+        ...ticketTypes,
+        {
+          id: 'ttqawwalibalcony',
+          name: 'Balcony',
+          priceCents: 199_900,
+          currency: 'INR',
+          reserved: true,
+          eventSessionId: 'cksessionbalcony00000001',
+          availableQuantity: 0,
+          isSoldOut: true,
+        },
+      ],
+    })
+
+    expect(screen.queryByRole('link', { name: 'Choose seats' })).toBeNull()
+
+    const row = screen.getByText('Balcony').closest('li')
+    expect(within(row).getByText('Sold out')).toBeInTheDocument()
   })
 })
 
@@ -501,6 +631,33 @@ describe('the basket for an event in the United States', () => {
     expect(screen.queryByRole('img')).toBeNull()
   })
 
+  /**
+   * The server's quote for an Edison basket, in dollars with the event's fees.
+   *
+   * @returns {Function} The quote function.
+   */
+  const dollarQuote = () =>
+    vi.fn(async ({ lines }) => {
+      const priced = priceSelection({
+        lines,
+        currency: 'USD',
+        place: { country: 'US', region: 'NJ' },
+        feeTerms: edison.feeTerms,
+      })
+
+      return {
+        currency: 'USD',
+        subtotalCents: priced.subtotalCents,
+        discountCents: 0,
+        feesCents: priced.feesCents,
+        taxCents: priced.taxCents,
+        totalCents: priced.totalCents,
+        lines: [],
+        promo: null,
+        pricedAt: '2026-10-01T10:00:00.000Z',
+      }
+    })
+
   it('names the event on the booking once it is placed', async () => {
     const user = userEvent.setup()
 
@@ -510,6 +667,7 @@ describe('the basket for an event in the United States', () => {
         ticketTypes={tiers}
         buyer={BUYER}
         reserve={vi.fn().mockResolvedValue(HOLDS)}
+        quote={dollarQuote()}
         placeOrder={vi.fn().mockResolvedValue({ ...ORDER, currency: 'USD', totalCents: 3806 })}
       />,
     )
@@ -522,5 +680,291 @@ describe('the basket for an event in the United States', () => {
 
     expect(booked).toHaveTextContent('Navratri Night One: Garba Under the Lights')
     expect(booked).toHaveTextContent('$38.06')
+  })
+
+  it('offers no Pay without the server’s total, says why, and asks again', async () => {
+    const user = userEvent.setup()
+    const quote = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockImplementation(dollarQuote())
+    const placeOrder = vi.fn().mockResolvedValue({ ...ORDER, currency: 'USD', totalCents: 3806 })
+
+    render(
+      <CheckoutBasket
+        event={edison}
+        ticketTypes={tiers}
+        buyer={BUYER}
+        reserve={vi.fn().mockResolvedValue(HOLDS)}
+        quote={quote}
+        placeOrder={placeOrder}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Add one General Admission' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+
+    // The estimate is not a figure to pay: no amount on the button, and no button to press.
+    const waiting = await screen.findByRole('button', { name: 'Pay (simulated)' })
+    expect(waiting).toBeDisabled()
+    expect(screen.getByText('We could not get the total')).toBeInTheDocument()
+    expect(placeOrder).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Ask for the total again' }))
+
+    const pay = await screen.findByRole('button', { name: /^Pay \$38\.06 \(simulated\)$/ })
+    expect(pay).toBeEnabled()
+    expect(screen.queryByText('We could not get the total')).toBeNull()
+
+    await user.click(pay)
+
+    expect(placeOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedTotalCents: 3806, promoCode: undefined }),
+    )
+  })
+})
+
+describe('the server’s quote, promo codes and guests’ names', () => {
+  /**
+   * Choose one Garden Seating and reserve it.
+   *
+   * @param {object} user A userEvent session.
+   * @param {number} [count] How many.
+   * @returns {Promise<void>} Resolves once held.
+   */
+  async function holdGarden(user, count = 1) {
+    for (let index = 0; index < count; index += 1) {
+      await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    }
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await screen.findByText('Tickets held')
+  }
+
+  it('prices the held tickets with the server’s quote, and pays exactly that figure', async () => {
+    const quote = fakeQuote()
+    const placeOrder = vi.fn().mockResolvedValue(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), quote, placeOrder })
+
+    await holdGarden(user)
+
+    expect(quote).toHaveBeenCalledWith(
+      expect.objectContaining({ eventId: event.id, holdIds: HOLDS.map((hold) => hold.id) }),
+    )
+
+    const quoted = await quote.mock.results[0].value
+    const pay = await screen.findByRole('button', {
+      name: `Pay ${formatAmount(quoted.totalCents, 'INR')} (simulated)`,
+    })
+
+    await user.click(pay)
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0].expectedTotalCents).toBe(quoted.totalCents)
+  })
+
+  it('applies a code: the discount is a line of its own, and the pay button names the new total', async () => {
+    const quote = fakeQuote()
+    const placeOrder = vi.fn().mockResolvedValue(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), quote, placeOrder })
+
+    await holdGarden(user, 2)
+
+    await user.type(screen.getByLabelText('Promo code'), 'save10')
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
+
+    expect(await screen.findByText('SAVE10 applied: 10% off.')).toBeInTheDocument()
+
+    const discounted = await quote.mock.results.at(-1).value
+    expect(screen.getByText('Discount (SAVE10)')).toBeInTheDocument()
+    expect(screen.getByTestId('summary-discount')).toHaveTextContent(
+      formatAmount(discounted.discountCents, 'INR'),
+    )
+    expect(screen.getByTestId('summary-total')).toHaveTextContent(
+      formatAmount(discounted.totalCents, 'INR'),
+    )
+
+    await user.click(
+      screen.getByRole('button', {
+        name: `Pay ${formatAmount(discounted.totalCents, 'INR')} (simulated)`,
+      }),
+    )
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0]).toMatchObject({
+      promoCode: 'SAVE10',
+      expectedTotalCents: discounted.totalCents,
+    })
+  })
+
+  it('says why a code gave nothing, and does not send it with the order', async () => {
+    const placeOrder = vi.fn().mockResolvedValue(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    await holdGarden(user)
+
+    await user.type(screen.getByLabelText('Promo code'), 'NOTACODE')
+    await user.click(screen.getByRole('button', { name: 'Apply' }))
+
+    expect(await screen.findByText('That code is not valid for this event.')).toBeInTheDocument()
+    expect(screen.queryByTestId('summary-discount')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /^Pay / }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0].promoCode).toBeUndefined()
+  })
+
+  it('asks a signed-out visitor to sign in before using a code', async () => {
+    const user = renderBasket({ buyer: null })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+
+    expect(screen.getByText('You can use a promo code after signing in.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Promo code')).toBeNull()
+  })
+
+  it('offers a name for each held ticket, and sends only the ones typed', async () => {
+    const placeOrder = vi.fn().mockResolvedValue(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    expect(screen.queryByRole('group', { name: 'Who is going?' })).toBeNull()
+
+    await holdGarden(user, 3)
+
+    const names = screen.getByRole('group', { name: 'Who is going?' })
+    expect(names).toHaveTextContent('Leave a box blank to put your own name, Meera Iyer')
+
+    await user.type(screen.getByLabelText('Ticket 1 of 3 — Garden Seating'), 'Asha Patel')
+    await user.type(screen.getByLabelText('Ticket 3 of 3 — Garden Seating'), '  Ravi Patel ')
+
+    await user.click(screen.getByRole('button', { name: /^Pay / }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0].attendees).toEqual([
+      { ticketTypeId: 'ttqawwaligarden', name: 'Asha Patel' },
+      { ticketTypeId: 'ttqawwaligarden', name: 'Ravi Patel' },
+    ])
+    expect(screen.getByText(/Each ticket carries the name you gave it/)).toBeInTheDocument()
+  })
+
+  it('refuses an address typed as a name before anything is sent', async () => {
+    const placeOrder = vi.fn()
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    await holdGarden(user)
+
+    const box = screen.getByLabelText('Ticket 1 of 1 — Garden Seating')
+    await user.type(box, 'asha@example.com')
+
+    expect(box).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText('Type the guest’s name, not an email address.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Pay / })).toBeDisabled()
+    expect(placeOrder).not.toHaveBeenCalled()
+  })
+
+  it('lets a name typed for a ticket that was then taken off stop holding up Pay', async () => {
+    const placeOrder = vi.fn().mockResolvedValue(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    await holdGarden(user, 2)
+    await user.type(screen.getByLabelText('Ticket 2 of 2 — Garden Seating'), 'asha@example.com')
+    expect(screen.getByRole('button', { name: /^Pay / })).toBeDisabled()
+
+    // One fewer: the second box, and what was typed in it, is gone from the page.
+    await user.click(screen.getByRole('button', { name: 'Remove one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await screen.findByText('Tickets held')
+
+    expect(screen.queryByLabelText('Ticket 2 of 2 — Garden Seating')).toBeNull()
+    expect(screen.queryByText('One of the names needs changing before you can pay.')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /^Pay / }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[0][0].attendees).toEqual([])
+  })
+
+  it('shows the new total and books nothing when the server’s figure moved', async () => {
+    const changed = Object.assign(new Error('The total changed since it was shown.'), {
+      status: 409,
+      code: 'PRICE_CHANGED',
+    })
+    const quote = fakeQuote()
+    const placeOrder = vi.fn().mockRejectedValueOnce(changed).mockResolvedValueOnce(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), quote, placeOrder })
+
+    await holdGarden(user)
+
+    // The next quote comes back higher: say the code the buyer had was used up.
+    quote.mockImplementationOnce(async (request) => {
+      const base = await fakeQuote()(request)
+      return { ...base, totalCents: base.totalCents + 5000 }
+    })
+
+    await user.click(screen.getByRole('button', { name: /^Pay / }))
+
+    const warning = await screen.findByText('The total changed')
+    const next = await quote.mock.results.at(-1).value
+
+    expect(warning.closest('[role]')).toHaveTextContent(
+      `The total is now ${formatAmount(next.totalCents, 'INR')}. Nothing was charged.`,
+    )
+    expect(screen.queryByRole('heading', { name: 'Booked' })).toBeNull()
+
+    // Paying again sends the new figure, under a new attempt key.
+    await user.click(
+      screen.getByRole('button', {
+        name: `Pay ${formatAmount(next.totalCents, 'INR')} (simulated)`,
+      }),
+    )
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[1][0].expectedTotalCents).toBe(next.totalCents)
+    expect(placeOrder.mock.calls[1][0].idempotencyKey).not.toBe(
+      placeOrder.mock.calls[0][0].idempotencyKey,
+    )
+  })
+
+  it('groups the tiers under their nights, and a pass for every night last', () => {
+    renderBasket({
+      event: {
+        ...event,
+        sessions: [
+          {
+            id: 'cksessionnighttwo0000001',
+            label: 'Night 2',
+            startsAt: '2026-10-12T13:30:00.000Z',
+            endsAt: '2026-10-12T18:30:00.000Z',
+            timezone: 'Asia/Kolkata',
+            status: 'SCHEDULED',
+            hasSeatMap: false,
+            seatsAvailable: null,
+          },
+          {
+            id: 'cksessionnightone0000001',
+            label: 'Night 1',
+            startsAt: '2026-10-11T13:30:00.000Z',
+            endsAt: '2026-10-11T18:30:00.000Z',
+            timezone: 'Asia/Kolkata',
+            status: 'SCHEDULED',
+            hasSeatMap: false,
+            seatsAvailable: null,
+          },
+        ],
+      },
+      ticketTypes: [
+        { ...ticketTypes[0], eventSessionId: 'cksessionnighttwo0000001' },
+        { ...ticketTypes[1], eventSessionId: 'cksessionnightone0000001' },
+        { ...ticketTypes[2], eventSessionId: null },
+      ],
+    })
+
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent)
+
+    expect(headings).toEqual([
+      expect.stringMatching(/^Night 1 · Sun, Oct 11 · 7:00 PM$/),
+      expect.stringMatching(/^Night 2 · Mon, Oct 12 · 7:00 PM$/),
+      'Every night',
+    ])
   })
 })

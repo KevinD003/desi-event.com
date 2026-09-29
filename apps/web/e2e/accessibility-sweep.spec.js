@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test'
 
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
+import { cleanupFeatureWorld, seedFeatureWorld } from './support/seed-feature-world.mjs'
 import {
   CONNECTION,
   PASSWORD,
@@ -100,12 +101,20 @@ import {
  * `playwright.sweep.config.js` pins `testMatch: '**‍/accessibility-sweep.spec.js'`.
  * A new spec file would not be collected by the sweep job, and would instead be
  * picked up by the default config — whose job does not start the API. So the
- * only place an accessibility test can go is here.
+ * only place an accessibility test can go is here. `pnpm ci:check` now refuses
+ * a spec that no CI job collects, or that two do
+ * (`scripts/lib/spec-collection.mjs`), so that mistake fails before a browser
+ * starts rather than in the wrong job.
  *
  * @module e2e/accessibility-sweep
  */
 
-/** The run suffix, so cleanup can find exactly this run's rows. */
+/**
+ * The run suffix, so cleanup can find exactly this run's rows.
+ *
+ * 3 to 24 lower-case letters and digits, as the feature world requires of a
+ * `SWEEP_E2E_TAG` too, and good for one run: see `seed-feature-world.mjs`.
+ */
 const TAG = process.env.SWEEP_E2E_TAG ?? `swp${Date.now().toString(36)}`
 
 /**
@@ -985,6 +994,10 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       organizationId: seeded.alphaOrganizationId,
       eventId: seeded.alphaEventId,
     })
+    // Gamma, its nights and seats, the giver and taker and the waiting
+    // organisation, under this file's own tag and never inside alpha: where
+    // the sweep's cases for the feature-completion screens find their rows.
+    await seedFeatureWorld({ tag: TAG })
 
     organiserContext = await browser.newContext()
     organiser = await organiserContext.newPage()
@@ -1003,7 +1016,9 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     await moderatorContext?.close()
     await platformContext?.close()
     // Before the refusals cleanup, which deletes the events these rows hang
-    // from.
+    // from — and the feature world first, since the refusals cleanup finds
+    // organisations by tag too.
+    await cleanupFeatureWorld(TAG)
     await cleanupDoor(TAG)
     await cleanupDetailScreens(TAG)
     await cleanupRefusals(TAG)

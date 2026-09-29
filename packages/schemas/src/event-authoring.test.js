@@ -417,6 +417,7 @@ describe('the session and inventory shapes', () => {
       salesStartAt: null,
       salesEndAt: null,
       status: 'SCHEDULED',
+      label: null,
       venueMapVersionId: null,
       capacity: 200,
       sortOrder: 0,
@@ -427,6 +428,30 @@ describe('the session and inventory shapes', () => {
 
     expect(eventSessionSchema.safeParse(session).success).toBe(true)
     expect(eventSessionSchema.safeParse({ ...session, usage: undefined }).success).toBe(false)
+  })
+
+  it("carries the night's label, or null when its date labels it", () => {
+    const session = {
+      id: ID,
+      eventId: OTHER_ID,
+      startsAt: '2027-10-01T13:00:00.000Z',
+      endsAt: '2027-10-01T18:00:00.000Z',
+      doorsOpenAt: null,
+      timezone: 'America/Chicago',
+      salesStartAt: null,
+      salesEndAt: null,
+      status: 'SCHEDULED',
+      label: 'Night 1',
+      venueMapVersionId: null,
+      capacity: 200,
+      sortOrder: 0,
+      priceZones: [],
+      usage: { sold: 0, held: 0 },
+      removable: true,
+    }
+
+    expect(eventSessionSchema.parse(session).label).toBe('Night 1')
+    expect(eventSessionSchema.safeParse({ ...session, label: undefined }).success).toBe(false)
   })
 
   it('reports how many seats were assigned to tiers', () => {

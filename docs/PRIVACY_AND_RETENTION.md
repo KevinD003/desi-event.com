@@ -657,3 +657,39 @@ without their name on it, and that the replacement cannot be reversed.
 `AuditLog` addresses described above remain. That is not a wording problem to be
 solved by better phrasing; it is a fact about the data, and it stays true until
 the owner takes one of the options in the section above.
+
+## Guests' names, and the online joining link — 2026-09-29
+
+**A guest's name is personal data the buyer typed.** Checkout asks, optionally,
+who is going: one name per ticket, or per seat. The person named may have no
+account here and has agreed to nothing, so the name is kept to where it is
+needed:
+
+- **On the ticket**, as `Ticket.attendeeName`, which is where the door reads it.
+  It is redacted with the ticket's holder, like any other ticket field.
+- **Staged on the order's lines until settlement** (`OrderItem.attendeeNames`,
+  `HoldItem.attendeeName`), and cleared the moment the tickets are issued, when a
+  declined payment cancels the order, and when a buyer-identity redaction reaches
+  an order still waiting to be paid. The staging is never sent back to a client.
+- **Never in a log, an audit record or an outbox row.** The logger redacts
+  `attendees`, `attendeeName` and `attendeeNames`.
+
+The door shows the name with anything address-shaped removed, the same scrubber
+the API applies elsewhere; the checkout refuses a name that is an email address
+before it is sent.
+
+A named guest without an account cannot make an erasure request of their own:
+there is no identity here to match it to. Their name goes when the ticket's
+holder's identity is redacted — the buyer's, for a ticket the buyer still holds —
+so a guest who wants it gone has to ask the buyer or the organiser to act. This
+is a limit of the current model, recorded rather than worked around.
+
+**The online joining link is for ticket holders.** `events.get` used to put an
+online event's `onlineUrl` in every response, anonymous ones included, and the
+page's structured data used it as the event's location. It is now in the
+payload only for a member of the owning organisation (who edits it), and the
+public page and its JSON-LD name the event's own page instead. A buyer receives
+it as `onlineJoinUrl` on their wallet, their ticket and their order, and only
+while a ticket they hold admits — the same decision the door makes. Links that
+were published before this change were public for as long as they were; an
+organiser who used one should rotate it.

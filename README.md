@@ -184,7 +184,9 @@ Run from the repository root.
 The end-to-end suites need their own Playwright configurations, because they
 need different fixtures and different servers: `pnpm test:e2e`,
 `test:e2e:events`, `test:e2e:organizer`, `test:e2e:refusals`,
-`test:e2e:sweep` and `test:e2e:prod`.
+`test:e2e:sweep`, `test:e2e:detail` and `test:e2e:prod`. Every spec must be
+collected by exactly one CI job, and `pnpm ci:check` refuses one that is not
+(see [CONTRIBUTING.md](CONTRIBUTING.md#browser-specs)).
 
 After changing the API contract, run `pnpm openapi:emit` **and**
 `pnpm manifest:emit`; both artefacts are committed and both are drift-checked.

@@ -251,13 +251,20 @@ export function lineKey(ticketTypeId, unitPriceCents) {
  * `unitPriceCents` is stored alongside for the same reason — it is what the
  * buyer was actually charged, and a refund has to agree with it.
  *
+ * The name the buyer typed for a seat is written in the same update, staged on
+ * the hold item until settlement prints it on that seat's ticket and clears it.
+ *
  * @param {object} tx A Prisma transaction client.
  * @param {object} options Options.
  * @param {Map<string, object[]>} options.seatsByLineKey From {@link priceLines}.
  * @param {Array<object>} options.orderItems The created `OrderItem` rows.
+ * @param {Map<string, string>} [options.namesByEventSeatId] The guest's name per seat, when one was given.
  * @returns {Promise<number>} How many hold items were stamped.
  */
-export async function stampHoldItems(tx, { seatsByLineKey, orderItems }) {
+export async function stampHoldItems(
+  tx,
+  { seatsByLineKey, orderItems, namesByEventSeatId = new Map() },
+) {
   let stamped = 0
 
   for (const orderItem of orderItems) {
@@ -266,9 +273,15 @@ export async function stampHoldItems(tx, { seatsByLineKey, orderItems }) {
     if (!seats) continue
 
     for (const seat of seats) {
+      const name = namesByEventSeatId.get(seat.eventSeatId)
+
       await tx.holdItem.update({
         where: { id: seat.id },
-        data: { orderItemId: orderItem.id, unitPriceCents: orderItem.unitPriceCents },
+        data: {
+          orderItemId: orderItem.id,
+          unitPriceCents: orderItem.unitPriceCents,
+          ...(name ? { attendeeName: name } : {}),
+        },
       })
       stamped += 1
     }

@@ -159,4 +159,18 @@
     mask-size: var(--mirror-tile) 100%;
     mask-composite: intersect;
   }
+
+  /*
+   * A seat nobody can take: diagonal hatching in the unavailable seat's own
+   * ink over its fill, so the state is a texture as well as a cross glyph and
+   * a word — never a colour alone. Built from the tokens, like the band above.
+   */
+  .seat-hatch {
+    background-color: var(--color-seat-unavailable);
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent 0 5px,
+      color-mix(in oklch, var(--color-seat-unavailable-ink) 35%, transparent) 5px 6px
+    );
+  }
 }

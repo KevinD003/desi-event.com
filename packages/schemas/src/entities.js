@@ -50,6 +50,7 @@ import {
 } from './event-content.js'
 import {
   eventCategorySchema,
+  eventSessionStatusSchema,
   eventStatusSchema,
   holdStatusSchema,
   orderStatusSchema,
@@ -176,6 +177,11 @@ export const eventSchema = z.object({
   endsAt: timestampSchema,
   timezone: timezoneSchema.default('Asia/Kolkata'),
   isOnline: z.boolean().default(false),
+  /**
+   * The joining link of an online event. Only its organisation, moderators and
+   * the platform read it here, for the editor; the public payload never carries
+   * it, and a ticket holder gets it as `onlineJoinUrl` on their ticket.
+   */
   onlineUrl: urlSchema.nullish(),
   languages: z.array(nonEmptyStringSchema).max(12).default([]),
   publishedAt: timestampSchema.nullish(),
@@ -268,7 +274,46 @@ export const ticketTypeSchema = z.object({
    * organisation's own reads carry both.
    */
   visibility: ticketTypeVisibilitySchema.optional(),
+  /**
+   * The night this tier sells, or null for a tier good for every night. A
+   * reserved tier always names one, with the price zone whose seats it sells.
+   */
+  eventSessionId: cuidSchema.nullish(),
+  priceZoneId: cuidSchema.nullish(),
   ...auditColumns,
+})
+
+/**
+ * One night of an event, as a ticket or an order line names it.
+ *
+ * `label` is the organiser's short name ("Night 1"), null when the date alone
+ * labels it. The times are the night's own, in its own zone.
+ */
+export const sessionSummarySchema = z.object({
+  id: cuidSchema,
+  label: z.string().min(1).max(60).nullable(),
+  startsAt: timestampSchema,
+  endsAt: timestampSchema,
+  doorsOpenAt: timestampSchema.nullable(),
+  timezone: z.string(),
+})
+
+/**
+ * One night of an event, as its public page lists it.
+ *
+ * `seatsAvailable` counts the seats a buyer could take now, for a night with a
+ * seat map: free seats sold under a tier of the event that is neither a draft
+ * nor hidden and is inside its own sales window — the seat map's own rule for a
+ * stranger. Null for a general-admission night, whose stock is its tiers'.
+ * Zero on a night whose tiers are not on sale now is not "sold out": each
+ * reserved tier's own `availableQuantity` says which it is.
+ */
+export const publicEventSessionSchema = sessionSummarySchema.extend({
+  status: eventSessionStatusSchema,
+  salesStartAt: timestampSchema.nullable(),
+  salesEndAt: timestampSchema.nullable(),
+  hasSeatMap: z.boolean(),
+  seatsAvailable: z.int().min(0).nullable(),
 })
 
 /** A `TicketHold` row: a short-lived reservation taken during checkout. */
@@ -282,7 +327,13 @@ export const ticketHoldSchema = z.object({
   ...auditColumns,
 })
 
-/** An `OrderItem` row. `subtotalCents` is `quantity * unitPriceCents`. */
+/**
+ * An `OrderItem` row. `subtotalCents` is `quantity * unitPriceCents`.
+ *
+ * `ticketTypeName` and `session` say what the line bought and for which
+ * night. The names typed at checkout are staged on the row until the tickets
+ * are issued and are never sent back from here: they are on the tickets.
+ */
 export const orderItemSchema = z.object({
   id: cuidSchema,
   orderId: cuidSchema,
@@ -290,6 +341,8 @@ export const orderItemSchema = z.object({
   quantity: quantitySchema,
   unitPriceCents: centsSchema,
   subtotalCents: centsSchema,
+  ticketTypeName: nonEmptyStringSchema.optional(),
+  session: sessionSummarySchema.nullish(),
 })
 
 /** An `Order` row. Every money column is integer cents of `currency`. */
@@ -357,6 +410,8 @@ export const promoCodeSchema = z
     code: promoCodeStringSchema,
     type: promoTypeSchema,
     value: z.int().min(0).max(1_000_000_000),
+    /** Required for `FIXED_AMOUNT` and absent for `PERCENTAGE`; the database checks both. */
+    currency: currencySchema.nullish(),
     maxRedemptions: countSchema.nullish(),
     redemptionCount: countSchema.default(0),
     startsAt: timestampSchema.nullish(),
@@ -429,7 +484,25 @@ export const eventWithRelationsSchema = eventSchema.extend({
   /** Approved gallery pictures, in the organiser's order. */
   gallery: z.array(publicMediaSchema).max(8).default([]),
   organization: publicOrganizerSummarySchema.nullish(),
-  ticketTypes: z.array(ticketTypeSchema).default([]),
+  /**
+   * The tiers this reader is shown. A reserved tier on a night with a seat map
+   * carries its own free seats as `availableQuantity` (and `isSoldOut` when
+   * there are none), the figure `GET /events/:id/ticket-types` gives: each
+   * zone sells out on its own. A general-admission tier carries neither here.
+   */
+  ticketTypes: z
+    .array(
+      ticketTypeSchema.extend({
+        availableQuantity: z.int().min(0).optional(),
+        isSoldOut: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  /**
+   * The event's nights, soonest first. Empty for an event with none recorded,
+   * whose own start and end are its schedule.
+   */
+  sessions: z.array(publicEventSessionSchema).default([]),
   /** Minimum age at the door. Null means there is no restriction. */
   ageRestriction: z.int().min(0).max(120).nullish(),
   /** Event-level accessibility claims, layered over the venue's. */
@@ -577,6 +650,12 @@ export const orderWithItemsSchema = orderSchema.extend({
   items: z.array(orderItemSchema).default([]),
   tickets: z.array(orderTicketSchema).optional(),
   event: eventSummarySchema.nullish(),
+  /**
+   * The online event's joining link, for the buyer only, once the order is
+   * paid and while one of the tickets they hold still admits. Null otherwise,
+   * and absent for every other reader.
+   */
+  onlineJoinUrl: urlSchema.nullish(),
   /**
    * Whether this order has a group pass for its reader, and why not.
    *

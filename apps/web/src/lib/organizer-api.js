@@ -136,6 +136,31 @@ export async function listOrganizerEvents(options = {}) {
 }
 
 /**
+ * An organisation's promo codes, newest first.
+ *
+ * `GET /v1/organizations/:id/promo-codes`. The query carries ids and a page
+ * number only — never a code, which is a bearer discount.
+ *
+ * @param {string} organizationId The organisation.
+ * @param {object} [options] Filters.
+ * @param {string} [options.eventId] One event's codes, with the organisation-wide ones.
+ * @param {number} [options.page] Which page.
+ * @returns {Promise<{codes: object[], pagination: object|null}>} The codes.
+ */
+export async function listPromoCodes(organizationId, options = {}) {
+  const query = new URLSearchParams({ perPage: '50' })
+
+  if (options.eventId) query.set('eventId', options.eventId)
+  if (Number.isInteger(options.page) && options.page > 1) query.set('page', String(options.page))
+
+  const body = await callApi(
+    `/v1/organizations/${encodeURIComponent(organizationId)}/promo-codes?${query.toString()}`,
+  )
+
+  return { codes: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
  * One event, by id.
  *
  * @param {string} id The event id.

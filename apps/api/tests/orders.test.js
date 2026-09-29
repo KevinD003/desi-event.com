@@ -642,3 +642,246 @@ describe('GET /v1/orders', () => {
     await app.close()
   })
 })
+
+describe('POST /v1/orders: the total a buyer was shown, names on tickets, and the night', () => {
+  /**
+   * The published event's one night, from the fixture.
+   *
+   * @param {object} prisma The stub.
+   * @param {object} ids Fixture ids.
+   * @returns {object} The `EventSession` row.
+   */
+  function nightOf(prisma, ids) {
+    return prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+  }
+
+  it('refuses with PRICE_CHANGED, before anything is written, when the total moved', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const hold = await takeHold(app, ids.generalAdmission.id, 1)
+    const auditsBefore = prisma._store.auditLog.length
+
+    const response = await order(
+      app,
+      checkout(ids, {
+        holdIds: [hold.id],
+        promoCode: 'GARBA10',
+        // The full price: what the buyer saw before the code applied.
+        expectedTotalCents: ONE_TICKET_TOTAL,
+      }),
+      holdHeaders(hold),
+    )
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('PRICE_CHANGED')
+    expect(response.json().error.message).toMatch(/nothing has been charged/i)
+
+    // Nothing: no order, no redemption, the hold still the buyer's and free.
+    expect(prisma._store.order).toHaveLength(0)
+    expect(prisma._store.payment).toHaveLength(0)
+    expect(prisma._store.promoCode[0].redemptionCount).toBe(0)
+    expect(prisma._store.ticketHold.find((row) => row.id === hold.id)).toMatchObject({
+      status: 'ACTIVE',
+      orderId: null,
+    })
+    expect(prisma._store.auditLog).toHaveLength(auditsBefore)
+
+    await app.close()
+  })
+
+  it('charges when the expected total is the total', async () => {
+    const { app, ids } = await createTestApp()
+
+    const response = await order(app, checkout(ids, { expectedTotalCents: ONE_TICKET_TOTAL }))
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data.totalCents).toBe(ONE_TICKET_TOTAL)
+
+    await app.close()
+  })
+
+  it('puts each name on a ticket, and the buyer’s on a ticket nobody named', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    const response = await order(
+      app,
+      checkout(ids, {
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 3 }],
+        attendees: [
+          { ticketTypeId: ids.generalAdmission.id, name: 'Asha Patel' },
+          { ticketTypeId: ids.generalAdmission.id, name: 'Ravi Patel' },
+        ],
+      }),
+    )
+
+    expect(response.statusCode).toBe(201)
+
+    const names = prisma._store.ticket.map((ticket) => ticket.attendeeName).sort()
+    expect(names).toEqual(['Asha Patel', 'Priya Sharma', 'Ravi Patel'])
+
+    // The staging copy is gone once the tickets carry the names.
+    expect(prisma._store.orderItem.every((item) => item.attendeeNames.length === 0)).toBe(true)
+
+    await app.close()
+  })
+
+  it('refuses more names than tickets, and a seat for a general-admission line', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    const tooMany = await order(
+      app,
+      checkout(ids, {
+        attendees: [
+          { ticketTypeId: ids.generalAdmission.id, name: 'One' },
+          { ticketTypeId: ids.generalAdmission.id, name: 'Two' },
+        ],
+      }),
+    )
+
+    // Refused by the request schema before the route runs.
+    expect(tooMany.statusCode).toBe(400)
+
+    const seatOnGeneral = await order(
+      app,
+      checkout(ids, {
+        attendees: [{ ticketTypeId: ids.generalAdmission.id, eventSeatId: cuid(), name: 'Zara' }],
+      }),
+    )
+
+    expect(seatOnGeneral.statusCode).toBe(422)
+    expect(seatOnGeneral.json().error.problems).toEqual([
+      'Name 1: that seat is not one this order holds.',
+    ])
+    // The refusal names positions, never the names themselves.
+    expect(seatOnGeneral.body).not.toContain('Zara')
+    expect(prisma._store.order).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('refuses an address typed as a name', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    const response = await order(
+      app,
+      checkout(ids, {
+        attendees: [{ ticketTypeId: ids.generalAdmission.id, name: 'guest@example.com' }],
+      }),
+    )
+
+    expect(response.statusCode).toBe(400)
+    expect(prisma._store.order).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('gives a limited code its use back when the card is declined', async () => {
+    const world = await makeWorld()
+    const promo = world.ids.promoCode
+    promo.maxRedemptions = 1
+
+    const discounted = expectedTotals(1, promo).totalCents
+    const providers = createInMemoryProviderRegistry({
+      payments: { declineAmountCents: discounted },
+    })
+    const { app, prisma, ids } = await createTestApp({
+      seed: world.seed,
+      ids: world.ids,
+      providers,
+    })
+
+    const declined = await order(app, checkout(ids, { promoCode: 'GARBA10' }))
+
+    expect(declined.statusCode).toBe(402)
+    expect(prisma._store.promoCode[0].redemptionCount).toBe(0)
+
+    const cancelled = prisma._store.auditLog.find((row) => row.action === 'order.cancelled')
+    expect(cancelled.metadata.promoRedemptionReturned).toBe(true)
+    // Never the code's text in an audit row.
+    expect(JSON.stringify(cancelled.metadata)).not.toContain('GARBA10')
+
+    // The use came back, so the next buyer still gets the discount.
+    const second = await order(
+      app,
+      checkout(ids, { promoCode: 'GARBA10', buyerEmail: 'ravi@example.com' }),
+    )
+    expect(second.statusCode).toBe(402)
+
+    await app.close()
+  })
+
+  it('names the night when every line is for one, and none when a line is for every night', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const night = nightOf(prisma, ids)
+
+    await prisma.ticketType.update({
+      where: { id: ids.vip.id },
+      data: { eventSessionId: night.id },
+    })
+
+    const single = await order(
+      app,
+      checkout(ids, { items: [{ ticketTypeId: ids.vip.id, quantity: 1 }] }),
+    )
+
+    expect(single.statusCode).toBe(201)
+    expect(prisma._store.order.at(-1).eventSessionId).toBe(night.id)
+
+    const mixed = await order(
+      app,
+      checkout(ids, {
+        items: [
+          { ticketTypeId: ids.vip.id, quantity: 1 },
+          { ticketTypeId: ids.generalAdmission.id, quantity: 1 },
+        ],
+      }),
+    )
+
+    expect(mixed.statusCode).toBe(201)
+    expect(prisma._store.order.at(-1).eventSessionId).toBeNull()
+
+    await app.close()
+  })
+
+  it('locks the promo code after the tier rows, so the two can never deadlock', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    const response = await order(app, checkout(ids, { promoCode: 'GARBA10' }))
+
+    expect(response.statusCode).toBe(201)
+
+    const locks = prisma._rawQueries.map((query) => query.sql)
+    const tier = locks.findIndex((sql) => sql.includes('"TicketType"'))
+    const promo = locks.findIndex((sql) => sql.includes('"PromoCode"'))
+
+    expect(tier).toBeGreaterThanOrEqual(0)
+    expect(promo).toBeGreaterThan(tier)
+    expect(prisma._rawQueries[promo].values).toEqual([ids.promoCode.id])
+
+    await app.close()
+  })
+
+  it('lists each line’s tier and night, and gives the joining link to nobody for a venue event', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const night = nightOf(prisma, ids)
+
+    await prisma.eventSession.update({ where: { id: night.id }, data: { label: 'Night 1' } })
+    await prisma.ticketType.update({
+      where: { id: ids.generalAdmission.id },
+      data: { eventSessionId: night.id },
+    })
+
+    const response = await order(app, checkout(ids))
+
+    expect(response.statusCode).toBe(201)
+
+    const [item] = response.json().data.items
+    expect(item).toMatchObject({
+      ticketTypeName: 'General Admission',
+      session: { id: night.id, label: 'Night 1', timezone: night.timezone },
+    })
+    expect(item).not.toHaveProperty('attendeeNames')
+    expect(response.json().data.onlineJoinUrl).toBeNull()
+
+    await app.close()
+  })
+})

@@ -91,6 +91,7 @@ import { NotFoundView } from '../../../components/not-found-view.jsx'
 import { FadeIn, Reveal, Stagger, StaggerItem } from '../../../components/motion.jsx'
 import { Breadcrumbs } from '../../../components/page-state.jsx'
 import { SampleDataNotice } from '../../../components/sample-data-notice.jsx'
+import { SessionList } from '../../../components/session-list.jsx'
 import { TicketTiers } from '../../../components/ticket-tiers.jsx'
 
 export const dynamic = 'force-dynamic'
@@ -250,6 +251,7 @@ export default async function EventDetailPage({ params }) {
   if (!event) return <NotFoundView />
 
   const ticketTypes = event.ticketTypes ?? []
+  const sessions = event.sessions ?? []
   const cheapest = cheapestAvailable(ticketTypes, new Date())
   const soldOut = allTiersSoldOut(ticketTypes)
   const address = formatVenueAddress(event.venue)
@@ -543,24 +545,35 @@ export default async function EventDetailPage({ params }) {
               <h2 id="schedule-heading" className="text-h2 font-semibold text-ink">
                 Schedule
               </h2>
-              <dl className="mt-5 grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
-                <ScheduleFact Icon={ClockIcon} term="Doors / start">
-                  <time dateTime={toDateTimeAttribute(event.startsAt)}>
-                    {formatEventDate(event.startsAt, event.timezone)} ·{' '}
-                    {formatEventTime(event.startsAt, event.timezone)}
-                  </time>
-                </ScheduleFact>
-                <ScheduleFact Icon={ClockIcon} term="Ends">
-                  <time dateTime={toDateTimeAttribute(event.endsAt)}>
-                    {formatEventDate(event.endsAt, event.timezone)} ·{' '}
-                    {formatEventTime(event.endsAt, event.timezone)}
-                  </time>
-                </ScheduleFact>
-                <ScheduleFact Icon={PinIcon} term="Local time" wide>
-                  All times are {zoneLabel ? `${zoneLabel} — ` : ''}the local time at the venue (
-                  {event.timezone}), not your own.
-                </ScheduleFact>
-              </dl>
+              {sessions.length > 0 ? (
+                <div className="mt-5">
+                  <SessionList
+                    sessions={sessions}
+                    eventSlug={event.slug}
+                    buyable={BUYABLE_STATUSES.has(event.status)}
+                    ticketTypes={ticketTypes}
+                  />
+                </div>
+              ) : (
+                <dl className="mt-5 grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2">
+                  <ScheduleFact Icon={ClockIcon} term="Doors / start">
+                    <time dateTime={toDateTimeAttribute(event.startsAt)}>
+                      {formatEventDate(event.startsAt, event.timezone)} ·{' '}
+                      {formatEventTime(event.startsAt, event.timezone)}
+                    </time>
+                  </ScheduleFact>
+                  <ScheduleFact Icon={ClockIcon} term="Ends">
+                    <time dateTime={toDateTimeAttribute(event.endsAt)}>
+                      {formatEventDate(event.endsAt, event.timezone)} ·{' '}
+                      {formatEventTime(event.endsAt, event.timezone)}
+                    </time>
+                  </ScheduleFact>
+                  <ScheduleFact Icon={PinIcon} term="Local time" wide>
+                    All times are {zoneLabel ? `${zoneLabel} — ` : ''}the local time at the venue (
+                    {event.timezone}), not your own.
+                  </ScheduleFact>
+                </dl>
+              )}
             </Reveal>
 
             <EventRunningOrder
@@ -610,11 +623,19 @@ export default async function EventDetailPage({ params }) {
                     ) : null}
                   </div>
                 </div>
-              ) : (
+              ) : event.isOnline ? null : (
                 <p className="mt-4 text-ink-muted">
                   The venue for this event has not been announced.
                 </p>
               )}
+              {/* The joining link is for ticket holders. It is never on this
+                  page, in its markup or in its structured data. */}
+              {event.isOnline ? (
+                <p className="mt-4 rounded-control bg-surface-subtle px-4 py-3 text-ink-muted">
+                  <span className="font-bold text-ink">This event is online.</span> The joining link
+                  is on your ticket once you have booked.
+                </p>
+              ) : null}
             </Reveal>
 
             {/* This event's own arrival notes, after the venue's address. */}
@@ -807,6 +828,8 @@ export default async function EventDetailPage({ params }) {
                         place={place}
                         feeTerms={event.feeTerms ?? null}
                         timezone={event.timezone}
+                        sessions={sessions}
+                        eventSlug={BUYABLE_STATUSES.has(event.status) ? event.slug : null}
                       />
                     </div>
 

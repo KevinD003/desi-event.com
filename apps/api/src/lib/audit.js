@@ -187,6 +187,15 @@ export const AUDIT_ACTIONS = Object.freeze({
    * their zone. Counts and the session, never a seat list.
    */
   SEATS_BOUND: 'event.seats_bound',
+
+  // Commerce. Promo code writes carry ids, the discount's terms and its
+  // window, never the code's text; a hold reclaimed on the way to a new seat
+  // hold carries the seats' count, never who held them.
+  PROMO_CREATED: 'promo.created',
+  PROMO_PAUSED: 'promo.paused',
+  PROMO_RESUMED: 'promo.resumed',
+  PROMO_DELETED: 'promo.deleted',
+  HOLD_RECLAIMED: 'hold.reclaimed',
 })
 
 /**

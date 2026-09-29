@@ -4,6 +4,7 @@
  * @module @desi-event/api/routes/events
  */
 
+import { salesWindowState } from '@desi-event/inventory'
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
@@ -32,7 +33,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
-import { toEventDetail, toEventSummary } from '../lib/presenters.js'
+import { isPublicTier, toEventDetail, toEventSummary } from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
 import { loadEventFacets } from '../lib/facets.js'
 import { defineRoute } from '../lib/register.js'
@@ -45,8 +46,107 @@ const EVENT_INCLUDE = Object.freeze({
   venue: true,
   organization: true,
   ticketTypes: true,
+  // The nights. The presenter sorts them; the list include stays lean.
+  sessions: { orderBy: [{ startsAt: 'asc' }, { sortOrder: 'asc' }] },
   ...EVENT_MEDIA_INCLUDE,
 })
+
+/**
+ * Whether a tier is inside its own sales window now.
+ *
+ * @param {object} tier A `TicketType` row.
+ * @param {Date} now The moment.
+ * @returns {boolean} True when a hold would pass the tier's window check.
+ */
+function tierSellingNow(tier, now) {
+  try {
+    return (
+      salesWindowState({
+        status: tier.status,
+        salesStartAt: tier.salesStartAt ?? null,
+        salesEndAt: tier.salesEndAt ?? null,
+        now,
+      }) === 'ON_SALE'
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * How many seats a buyer could take now: per night with a seat map, and per
+ * reserved tier.
+ *
+ * A night's count follows the seat map's own rule for a stranger: a free seat
+ * sold under a tier of this event that a stranger may buy — not a draft, not
+ * hidden — and that is inside its sales window now. Counting every free seat
+ * bound to any tier offered "Choose seats" on a night whose only tiers were
+ * drafts or a guest list, and told strangers how many seats the guest list
+ * held.
+ *
+ * A reserved tier's count is its own free seats, the figure
+ * `ticketTypes.listForEvent` gives, and only for the tiers this reader is
+ * shown. Each zone sells out on its own, so a sold-out zone is never read off
+ * another zone's seats.
+ *
+ * Counts, never lists, and a read: a seat taken a moment later is the seat
+ * picker's to report.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} event The event, with `ticketTypes` and `sessions`.
+ * @param {object} options Options.
+ * @param {boolean} options.insider Whether the reader is shown draft and hidden tiers.
+ * @param {Date} options.now The moment.
+ * @returns {Promise<{bySession: Map<string, number>, byTier: Map<string, number>}>} The counts.
+ */
+async function reservedSeatAvailability(prisma, event, { insider, now }) {
+  const tiers = event.ticketTypes ?? []
+  const seated = (event.sessions ?? []).filter((session) => session.venueMapVersionId)
+  const seatedIds = new Set(seated.map((session) => session.id))
+  const sellable = tiers
+    .filter((tier) => tier.status !== 'DRAFT' && isPublicTier(tier) && tierSellingNow(tier, now))
+    .map((tier) => tier.id)
+
+  const bySession = new Map(
+    await Promise.all(
+      seated.map(async (session) => [
+        session.id,
+        sellable.length === 0
+          ? 0
+          : await prisma.eventSeat.count({
+              where: {
+                eventSessionId: session.id,
+                status: 'AVAILABLE',
+                ticketTypeId: { in: sellable },
+              },
+            }),
+      ]),
+    ),
+  )
+
+  const shown = tiers.filter(
+    (tier) =>
+      tier.reserved &&
+      seatedIds.has(tier.eventSessionId) &&
+      (insider || (tier.status !== 'DRAFT' && isPublicTier(tier))),
+  )
+  const byTier = new Map(
+    await Promise.all(
+      shown.map(async (tier) => [
+        tier.id,
+        await prisma.eventSeat.count({
+          where: {
+            eventSessionId: tier.eventSessionId,
+            ticketTypeId: tier.id,
+            status: 'AVAILABLE',
+          },
+        }),
+      ]),
+    ),
+  )
+
+  return { bySession, byTier }
+}
 
 /** Relations a listing card carries: the approved cover only, never the gallery. */
 const EVENT_LIST_INCLUDE = Object.freeze({
@@ -493,9 +593,17 @@ export function registerEventRoutes(app, { prisma, env }) {
 
       assertVisibleTo(event, request.actor)
 
+      const insider = maySeeDrafts(event, request.actor)
+      const seats = await reservedSeatAvailability(prisma, event, { insider, now: new Date() })
+
       return {
         data: toEventDetail(event, {
-          includeDraftTiers: maySeeDrafts(event, request.actor),
+          includeDraftTiers: insider,
+          // The joining link is the organiser's and their ticket holders'. The
+          // public page says it is on the ticket; the holder reads it there.
+          includeOnlineUrl: insider,
+          sessionsAvailability: seats.bySession,
+          tierSeatsAvailable: seats.byTier,
           ...pricing,
         }),
       }
@@ -537,7 +645,9 @@ export function registerEventRoutes(app, { prisma, env }) {
       // tiers they are still holding back. Said explicitly rather than left to
       // the default: an organiser's own editor going blank after a save is not
       // a bug anybody would guess at.
-      return { data: toEventDetail(event, { includeDraftTiers: true, ...pricing }) }
+      return {
+        data: toEventDetail(event, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+      }
     },
   })
 
@@ -664,7 +774,9 @@ export function registerEventRoutes(app, { prisma, env }) {
         include: EVENT_INCLUDE,
       })
 
-      return { data: toEventDetail(event, { includeDraftTiers: true, ...pricing }) }
+      return {
+        data: toEventDetail(event, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+      }
     },
   })
 
@@ -719,7 +831,9 @@ export function registerEventRoutes(app, { prisma, env }) {
       include: EVENT_INCLUDE,
     })
 
-    return { data: toEventDetail(full, { includeDraftTiers: true, ...pricing }) }
+    return {
+      data: toEventDetail(full, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+    }
   }
 
   defineRoute(app, 'events.transitions', {
@@ -969,7 +1083,9 @@ export function registerEventRoutes(app, { prisma, env }) {
         include: EVENT_INCLUDE,
       })
 
-      return { data: toEventDetail(full, { includeDraftTiers: true, ...pricing }) }
+      return {
+        data: toEventDetail(full, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+      }
     },
   })
 

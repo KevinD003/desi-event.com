@@ -225,3 +225,49 @@ describe('the group pass code and its digests', () => {
     expect(output).toContain('"credentialVersion":2')
   })
 })
+
+describe('promo codes and guests’ names', () => {
+  /**
+   * What a logger writes for one object.
+   *
+   * @param {object} fields The log object.
+   * @returns {Promise<string>} The serialised line.
+   */
+  async function line(fields) {
+    const chunks = []
+    const logger = createLogger({
+      name: 'commerce-redaction',
+      level: 'info',
+      pretty: false,
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    logger.info(fields, 'checkout')
+    logger.flush?.()
+    return chunks.join('')
+  }
+
+  it('is on the lists by name, at the root, one level down and in a request body', () => {
+    for (const key of ['promoCode', 'attendees', 'attendeeName', 'attendeeNames']) {
+      expect(SENSITIVE_FIELD_KEYS, key).toContain(key)
+      expect(WILDCARD_KEYS, key).toContain(key)
+      expect(REDACT_PATHS, key).toContain(key)
+      expect(REDACT_PATHS, key).toContain(`*.${key}`)
+      expect(REDACT_PATHS, key).toContain(`req.body.${key}`)
+    }
+  })
+
+  it('never writes the code or a guest’s name, wherever a handler puts them', async () => {
+    const output = await line({
+      promoCode: 'FRIENDS50',
+      req: { body: { promoCode: 'FRIENDS50', attendees: [{ name: 'Meera Iyer' }] } },
+      ticket: { attendeeName: 'Ravi Patel', status: 'VALID' },
+      orderItem: { attendeeNames: ['Asha Rao'], quantity: 2 },
+    })
+
+    for (const secret of ['FRIENDS50', 'Meera Iyer', 'Ravi Patel', 'Asha Rao']) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain('"status":"VALID"')
+    expect(output).toContain('"quantity":2')
+  })
+})

@@ -705,3 +705,76 @@ describe('the all-in price preview', () => {
     await app.close()
   })
 })
+
+describe('a night’s label', () => {
+  it('is saved trimmed, changed, and cleared back to the date alone', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'arun@rangoli.example'))
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/sessions`,
+      headers,
+      payload: session(revision, { label: '  Night 1  ' }),
+    })
+
+    expect(created.statusCode).toBe(201)
+    expect(created.json().data.label).toBe('Night 1')
+
+    const id = created.json().data.id
+    const stored = () => prisma._store.eventSession.find((row) => row.id === id)
+    expect(stored().label).toBe('Night 1')
+
+    const renamed = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${id}`,
+      headers,
+      payload: { revision: created.json().meta.revision, label: 'Ashtami' },
+    })
+
+    expect(renamed.statusCode).toBe(200)
+    expect(renamed.json().data.label).toBe('Ashtami')
+
+    // A blank box clears it, the same as null.
+    const cleared = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/sessions/${id}`,
+      headers,
+      payload: { revision: renamed.json().meta.revision, label: '   ' },
+    })
+
+    expect(cleared.statusCode).toBe(200)
+    expect(cleared.json().data.label).toBeNull()
+    expect(stored().label).toBeNull()
+
+    // Listed back the same way the editor reads it.
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.draftEvent.id}/sessions`,
+      headers,
+    })
+    expect(listed.json().data.find((row) => row.id === id).label).toBeNull()
+
+    await app.close()
+  })
+
+  it('refuses a label over sixty characters, and writes nothing', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'arun@rangoli.example'))
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+    const before = prisma._store.eventSession.length
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/sessions`,
+      headers,
+      payload: session(revision, { label: 'N'.repeat(61) }),
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(prisma._store.eventSession).toHaveLength(before)
+
+    await app.close()
+  })
+})

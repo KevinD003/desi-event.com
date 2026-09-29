@@ -747,3 +747,39 @@ export const logLevelSchema = z.enum([...LOG_LEVELS])
 
 /** `NODE_ENV`, defaulting to development so local tooling needs no setup. */
 export const nodeEnvSchema = z.enum([...NODE_ENVS]).default('development')
+
+// ---------------------------------------------------------------------------
+// Promo codes, as an organiser and a buyer see them
+//
+// Not Prisma enums: a code's status is derived from its row and the clock, and
+// a quote's reason is why a known code gave no discount.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a promo code is doing now, computed from `active`, its window and its
+ * redemptions. `PAUSED` wins over the rest because it is the organiser's own
+ * choice; `ENDED` and `USED_UP` are final unless the organiser makes a new code.
+ */
+export const PROMO_STATUSES = Object.freeze(['ACTIVE', 'PAUSED', 'SCHEDULED', 'ENDED', 'USED_UP'])
+
+/**
+ * Why a quote applied no discount for a code.
+ *
+ * `UNKNOWN` is a code this organiser does not have for this event; the rest
+ * mirror `PROMO_REJECTION_REASONS` in `@desi-event/pricing`.
+ */
+export const PROMO_QUOTE_REASONS = Object.freeze([
+  'UNKNOWN',
+  'INACTIVE',
+  'NOT_STARTED',
+  'EXPIRED',
+  'EXHAUSTED',
+  'CURRENCY_MISMATCH',
+  'CURRENCY_MISSING',
+])
+
+/** `PROMO_STATUSES` as a Zod enum. */
+export const promoStatusSchema = z.enum([...PROMO_STATUSES])
+
+/** `PROMO_QUOTE_REASONS` as a Zod enum. */
+export const promoQuoteReasonSchema = z.enum([...PROMO_QUOTE_REASONS])

@@ -11,6 +11,7 @@ import { ADMISSION_AUTHORITIES, ADMISSION_REFUSAL_REASONS } from '@desi-event/sc
 import { describe, expect, it } from 'vitest'
 
 import {
+  ADMISSION_INCLUDE,
   PREVIEW_TTL_MS,
   admissionConflict,
   holdsDoorAuthority,
@@ -19,6 +20,9 @@ import {
   readPreviewReference,
   signGroupPreviewReference,
   signPreviewReference,
+  toAdmissionPreview,
+  toAdmissionResult,
+  toAdmissionSession,
 } from '../src/lib/admission.js'
 import { ADMISSION_REFUSAL_SENTENCES } from '../src/lib/tickets.js'
 
@@ -299,5 +303,76 @@ describe('the authority vocabulary', () => {
   it('is the same in the permissions package and the schemas', () => {
     expect(Object.values(PERMISSION_AUTHORITIES).sort()).toEqual([...ADMISSION_AUTHORITIES].sort())
     expect(ADMISSION_AUTHORITIES).toContain('PLATFORM_ROLE')
+  })
+})
+
+describe('the night a door is told about', () => {
+  const night = (label) => ({
+    label,
+    startsAt: new Date('2026-10-08T13:30:00.000Z'),
+    endsAt: new Date('2026-10-08T18:30:00.000Z'),
+    timezone: 'Asia/Kolkata',
+  })
+
+  /** A ticket row the way `ADMISSION_INCLUDE` reads one. */
+  const ticket = Object.freeze({
+    id: 'ticketaaaaaaaaaa',
+    attendeeName: 'Asha Patel',
+    checkedInAt: null,
+    orderItem: {
+      ticketType: { name: 'Stalls', eventSession: night('Night 2') },
+      order: {
+        event: {
+          id: 'eventaaaaaaaaaaa',
+          title: 'Garba Night',
+          startsAt: new Date('2026-10-06T13:30:00.000Z'),
+          endsAt: new Date('2026-10-14T18:30:00.000Z'),
+          timezone: 'Asia/Kolkata',
+        },
+      },
+    },
+    eventSeat: {
+      seat: { label: '12', section: { name: 'Stalls' }, row: { label: 'G' } },
+      eventSession: night('  Night 3  '),
+    },
+  })
+
+  it('names the seat’s night over the tier’s, trimmed, and none for an every-night ticket', () => {
+    expect(toAdmissionSession(ticket)).toEqual({ ...night('Night 3') })
+    expect(toAdmissionSession({ ...ticket, eventSeat: null })).toEqual(night('Night 2'))
+    expect(
+      toAdmissionSession({
+        ...ticket,
+        eventSeat: null,
+        orderItem: { ...ticket.orderItem, ticketType: { name: 'Pass' } },
+      }),
+    ).toBeNull()
+    // A blank label is no label: the date names the night.
+    expect(toAdmissionSession({ ...ticket, eventSeat: { eventSession: night('   ') } })).toEqual(
+      night(null),
+    )
+  })
+
+  it('carries it on the preview and the result, and nothing about an online link', () => {
+    const preview = toAdmissionPreview({
+      ticket,
+      outcome: 'ADMISSIBLE',
+      refusal: null,
+      method: 'MANUAL_CODE',
+      previewReference: null,
+      previewExpiresAt: null,
+    })
+    const result = toAdmissionResult({ ticket, outcome: 'ADMITTED', actorId: 'actor' })
+
+    expect(preview.session.label).toBe('Night 3')
+    expect(result.session.label).toBe('Night 3')
+    expect(JSON.stringify([preview, result])).not.toMatch(/online/i)
+  })
+
+  it('never reads the joining link or the staged names from the database', () => {
+    const read = JSON.stringify(ADMISSION_INCLUDE)
+
+    expect(read).not.toContain('onlineUrl')
+    expect(read).not.toContain('attendeeNames')
   })
 })

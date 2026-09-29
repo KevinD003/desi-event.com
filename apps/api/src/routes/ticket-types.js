@@ -10,6 +10,7 @@ import { notFound } from '../lib/errors.js'
 import { readAvailabilityMap } from '../lib/inventory.js'
 import { isPublicTier, toTicketType } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
+import { readSessionUsage } from '../lib/session-inventory.js'
 import { loadVisibleEvent, maySeeDrafts } from './events.js'
 
 /**
@@ -40,7 +41,46 @@ export function registerTicketTypeRoutes(app, { prisma }) {
       // Availability is read live rather than taken from `quantitySold`, so a
       // tier with every remaining seat in somebody's cart reads as sold out
       // instead of selling the same seat twice.
-      const availability = await readAvailabilityMap(prisma, ticketTypes, { now: new Date() })
+      const now = new Date()
+      const general = ticketTypes.filter((ticketType) => !ticketType.reserved)
+      const availability = await readAvailabilityMap(prisma, general, { now })
+
+      // A night's capacity is shared by its general-admission tiers, so no
+      // tier can offer more than the night has left. A read, not a lock: the
+      // hold route re-checks under the lock.
+      const sessions = new Map((event.sessions ?? []).map((session) => [session.id, session]))
+      /** @type {Map<string, number|null>} */
+      const sessionLeft = new Map()
+
+      for (const ticketType of general) {
+        const session = sessions.get(ticketType.eventSessionId)
+
+        if (!session || sessionLeft.has(session.id)) continue
+
+        sessionLeft.set(session.id, (await readSessionUsage(prisma, session, { now })).available)
+      }
+
+      for (const ticketType of general) {
+        const left = sessionLeft.get(ticketType.eventSessionId)
+        const own = availability.get(ticketType.id)
+
+        if (own && Number.isInteger(left) && left < own.availableQuantity) {
+          availability.set(ticketType.id, {
+            ...own,
+            availableQuantity: left,
+            isSoldOut: left === 0,
+          })
+        }
+      }
+
+      // A reserved tier's stock is its seats: the free ones it sells.
+      for (const ticketType of ticketTypes.filter((tier) => tier.reserved)) {
+        const free = await prisma.eventSeat.count({
+          where: { ticketTypeId: ticketType.id, status: 'AVAILABLE' },
+        })
+
+        availability.set(ticketType.id, { availableQuantity: free, isSoldOut: free === 0 })
+      }
 
       return {
         data: ticketTypes.map((ticketType) =>

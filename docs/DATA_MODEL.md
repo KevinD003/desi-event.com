@@ -587,3 +587,49 @@ comparison the trigger exists to make had never run once.
 `20260921090000_payout_currency_trigger_repair` corrects the column name and
 changes nothing else. No backfill is needed, because no row naming a connected
 account could ever have been written while the broken body was installed.
+
+## Nights, guests' names and promo codes at checkout — 2026-09-29
+
+Migration `20260929090000_checkout_promos_attendees_nights`.
+
+**`EventSession.label`** is the organiser's short name for a night ("Night 2"),
+optional, 1 to 60 characters after trimming (`event_session_label_length`). It
+is a label and nothing more: every surface shows it beside the night's own date,
+and the door refuses nothing on it.
+
+**Guests' names are staged, not stored twice.** A name typed at checkout is
+personal data about somebody who may have no account. Until settlement issues
+the tickets it waits on the line that will become them:
+
+| Column                    | Holds                                                      | Constraint                                                                   |
+| ------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `OrderItem.attendeeNames` | Names for a general-admission line, at most one per ticket | `order_item_attendee_names_within_quantity`: `cardinality <= quantity`       |
+| `HoldItem.attendeeName`   | The name for one held seat                                 | `hold_item_attendee_name_seated`: only on a seated item, 1 to 100 characters |
+
+Settlement copies each name onto its `Ticket.attendeeName` and clears the
+staging in the same transaction. Compensation (a declined payment) clears it
+too, and so does a buyer-identity redaction of an order still waiting to be
+paid. Nothing reads the staging back to a client: the names are on the tickets.
+
+**`PromoCode` is now constrained by the database**, with backfills that keep
+each existing row's meaning:
+
+| Constraint                              | Rule                                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------------- |
+| `promo_code_value_in_range`             | `value >= 0`; a percentage (basis points) at most 10000                      |
+| `promo_code_percentage_has_no_currency` | A percentage code has no currency                                            |
+| `promo_code_redemptions_within_cap`     | `redemptionCount >= 0`, and when capped, `1 <= maxRedemptions` and within it |
+| `promo_code_window_ordered`             | `endsAt` after `startsAt` when both are set                                  |
+
+The cap CHECK is the backstop behind the row lock checkout takes on the code
+(see `docs/PAYMENTS.md`). The code's text has no shape CHECK: the request
+schemas upper-case and validate every write and every lookup instead, because an
+upper-casing backfill could have collided with `@@unique([organizationId, code])`.
+`PromoCode_organizationId_createdAt_idx` serves the organiser's list.
+
+**One reserved tier per zone per night** is the partial unique index
+`TicketType_reserved_session_zone_key` on `("eventSessionId", "priceZoneId")
+WHERE "reserved"`, created by `20260928090000_event_authoring_content_and_tier_rules`
+and relied on, not recreated, here. It is what makes "which tier sells this
+seat" a question with one answer: a seat is sold under the reserved tier that
+prices its zone at that night.

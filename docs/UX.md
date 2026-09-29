@@ -419,3 +419,98 @@ The target-size case (WCAG 2.2, 2.5.8) moved to this screen, because it is the
 one introducing new buttons and axe runs the 2.1 tag set, which does not contain
 that criterion. The focus-ring case now runs over this screen as well as the
 event list, for the same reason.
+
+## The seat picker — 2026-09-29
+
+`/events/[slug]/seats/[sessionId]` (`components/seat-picker.jsx`,
+`components/seat-checkout.jsx`, `lib/seat-map.js`).
+
+**A grid, not a floor plan.** The seat map has no coordinates, so the picker
+draws each section as a grid — rows in order, seats in order along each row,
+loose seats (tables, boxes) as a row of their own — and says so: "Seats are
+shown by section and row, not to scale." Nothing pretends to be a drawing of the
+room.
+
+**Keyboard.** Each section is one Tab stop (roving `tabindex`). Arrows move one
+seat; up and down go to the same place in the next row, or its end when it is
+shorter; Home and End go to the ends of the row; PageUp and PageDown to the first
+and last row; Space or Enter chooses. A skip link jumps past the map to the
+selection.
+
+**Names and states.** Every seat is a `<button aria-pressed>` whose name reads
+what a sighted buyer reads off the grid, state last: "Seat A12, row A, Stalls,
+Front zone, $45.00, wheelchair space, available". A seat nobody can take stays
+focusable with `aria-disabled`, so a screen reader user hears why it is not on
+offer. A restricted seat's note is tied to it with `aria-describedby` and also
+printed under its section.
+
+**Never colour alone.** A chosen seat has a tick, a taken one a cross and a
+hatch, a wheelchair space a wheelchair, a companion seat a C, an obstructed one a
+struck-through eye, a restricted one a !. The legend names each. Zones are words
+and a filter ("Price zone"), not colours; a second filter shows wheelchair
+spaces and companion seats only. Colours are the semantic seat tokens
+(`seat-available`, `seat-selected`, `seat-unavailable`); the hatch is the
+`.seat-hatch` utility built from `--color-seat-unavailable-ink`.
+
+**The companion rule is the server's.** Choosing a wheelchair space chooses its
+companion seat and the other way round, removing either removes both, and a pair
+whose other half is taken cannot be chosen — the same `withCompanions` the API
+applies, imported from `@desi-event/inventory/seating`, the package's
+browser-safe subpath.
+
+**Each tier's own limits.** The page states them before anybody tries: the
+most seats one order may hold, any zone that allows fewer ("A selection with
+seats sold as “Front stalls” can have at most 2.") and any zone sold more than
+one at a time. A selection is held to the smallest limit among the tiers it
+includes, as `sessions.hold` is, and a selection with fewer seats of a tier than
+it sells at a time — a wheelchair space's companion counts — cannot be reserved,
+with the shortfall said beside the button.
+
+**Pay names only the server's figure.** Until the quote for the held seats
+answers, the button reads "Pay (simulated)" with no amount and cannot be
+pressed; a failed quote is said, with "Ask for the total again". A code chosen
+before the seats are held is "checked when you reserve your seats", never
+"applied".
+
+**Announcements are polite.** One status region says what each choice did
+("Seat A1 added, with companion seat A2. 2 seats selected."), when the order's
+limit refuses a seat, and when seats are held. When a seat goes to somebody else
+between choosing and reserving, the map is read again and the seat is named:
+"Seat B1 was taken by somebody else while you were choosing. Nothing was
+reserved or charged."
+
+**Targets and width.** Seats are at least 36px square, above the 24px of WCAG
+2.2 (2.5.8). A wide section scrolls inside its own region; the page itself never
+scrolls sideways.
+
+## The promo code box — 2026-09-29
+
+One box at checkout, labelled "Promo code", with Apply (and Remove once a code
+took). The code is trimmed and upper-cased; a code of the wrong shape is refused
+before anything is sent. The outcome is a polite status in words the buyer can
+act on, taken from the server's quote:
+
+| Quote says          | The box says                                                      |
+| ------------------- | ----------------------------------------------------------------- |
+| applied, percentage | "SAVE10 applied: 10% off."                                        |
+| applied, amount     | "FIVE applied: $5.00 off."                                        |
+| `UNKNOWN`           | "That code is not valid for this event."                          |
+| `INACTIVE`          | "The organiser has paused that code."                             |
+| `NOT_STARTED`       | "That code has not started."                                      |
+| `EXPIRED`           | "That code has ended."                                            |
+| `EXHAUSTED`         | "That code has been used as many times as the organiser allowed." |
+| `CURRENCY_*`        | "That code cannot be used with this currency."                    |
+| before reserving    | "SAVE10 is checked again when you reserve your tickets."          |
+| signed out          | "You can use a promo code after signing in."                      |
+
+An unknown code is an answer, not an error, so a typo is corrected in place. The
+summary shows the discount as its own row, "Discount (SAVE10)". When the total
+moved between the quote and the payment (`409 PRICE_CHANGED`), nothing is
+charged; the summary is re-quoted and the page says "The total is now $X.
+Nothing was charged. Check the summary and pay again."
+
+The organiser's side is `/organizer/promo-codes`: a table with each code's
+discount, what it applies to, its window in a stated zone, its uses against its
+cap and its status as a word beside a shape. Making a code and resuming one ask
+for a recent second factor when the API does; deleting is confirmed in place and
+offered only for a code nobody has used.

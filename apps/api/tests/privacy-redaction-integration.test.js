@@ -589,6 +589,57 @@ when()('redacting a subject who belongs to one organisation', () => {
   })
 })
 
+when()('guests’ names still waiting on an unpaid order', () => {
+  it('go with the buyer’s identity, and the redaction says it redacted something', async () => {
+    const graph = await organisation({ past: true })
+    const subject = await person('stager')
+
+    // Settled and redacted once already, so only the staging is left to find.
+    await paidOrder({ graph, buyer: subject })
+
+    const pending = await prisma.order.create({
+      data: {
+        reference: unique('DE').toUpperCase(),
+        eventId: graph.event.id,
+        userId: subject.id,
+        buyerEmail: subject.email,
+        buyerName: subject.displayName,
+        status: 'PENDING',
+        currency: 'INR',
+        subtotalCents: graph.ticketType.priceCents * 2,
+        totalCents: graph.ticketType.priceCents * 2,
+      },
+    })
+    const line = await prisma.orderItem.create({
+      data: {
+        orderId: pending.id,
+        ticketTypeId: graph.ticketType.id,
+        quantity: 2,
+        unitPriceCents: graph.ticketType.priceCents,
+        subtotalCents: graph.ticketType.priceCents * 2,
+        attendeeNames: ['Asha Patel', 'Ravi Patel'],
+      },
+    })
+
+    const outcome = await prisma.$transaction((tx) =>
+      redactSubject(tx, {
+        organizationId: graph.org.id,
+        subjectUserId: subject.id,
+        now: new Date(),
+      }),
+    )
+
+    const stored = await prisma.orderItem.findUnique({ where: { id: line.id } })
+    expect(stored.attendeeNames).toEqual([])
+    expect(JSON.stringify(outcome)).not.toContain('Asha')
+
+    // The money on the unpaid order is untouched; only names went.
+    const order = await prisma.order.findUnique({ where: { id: pending.id } })
+    expect(order.totalCents).toBe(graph.ticketType.priceCents * 2)
+    expect(order.status).toBe('PENDING')
+  })
+})
+
 when()('a subject who also deals with another organisation', () => {
   it('keeps their account identity, and says so rather than skipping silently', async () => {
     const mine = await organisation({ past: true })

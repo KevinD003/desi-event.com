@@ -153,6 +153,16 @@ export const STEP_UP_POLICIES = Object.freeze({
    * showing them. Without it the list is still served, with no addresses.
    */
   MEMBER_EMAIL_VIEW: 10 * 60 * 1000,
+  /**
+   * Making a discount live — creating or resuming a promo code — changes what
+   * buyers pay.
+   *
+   * Ten minutes, like publishing: an organiser setting up a campaign works
+   * through several codes in a sitting, and a code is not a money movement by
+   * itself. Pausing or deleting one only reduces what is on offer, so those
+   * need no fresh factor.
+   */
+  PROMO_ACTION: 10 * 60 * 1000,
 })
 
 /** Every policy name, for contract validation. */

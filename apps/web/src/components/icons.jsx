@@ -350,3 +350,50 @@ export function CategoryIcon({ category, className }) {
 
   return <Drawn className={className} />
 }
+
+/**
+ * A wheelchair, beside a wheelchair space on the seat map.
+ *
+ * @param {{className?: string}} props Component props.
+ * @returns {JSX.Element} The icon.
+ */
+export function WheelchairIcon({ className }) {
+  return (
+    <Icon className={className}>
+      <circle cx="11" cy="4.5" r="1.8" />
+      <path d="M11 7.5v6h5l2.5 5" />
+      <path d="M11 10.5h5" />
+      <path d="M8.2 11.2a5 5 0 1 0 6.9 6.6" />
+    </Icon>
+  )
+}
+
+/**
+ * An eye struck through, beside a seat with an obstructed view.
+ *
+ * @param {{className?: string}} props Component props.
+ * @returns {JSX.Element} The icon.
+ */
+export function EyeOffIcon({ className }) {
+  return (
+    <Icon className={className}>
+      <path d="M3 12s3.5-6 9-6c1.7 0 3.2.6 4.5 1.4M21 12s-3.5 6-9 6c-1.7 0-3.2-.6-4.5-1.4" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+      <path d="m4 4 16 16" />
+    </Icon>
+  )
+}
+
+/**
+ * A cross, on a seat nobody can take.
+ *
+ * @param {{className?: string}} props Component props.
+ * @returns {JSX.Element} The icon.
+ */
+export function CrossIcon({ className }) {
+  return (
+    <Icon className={className} strokeWidth={2.4}>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </Icon>
+  )
+}

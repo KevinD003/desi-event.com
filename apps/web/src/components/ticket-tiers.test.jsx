@@ -238,3 +238,143 @@ describe('a tier’s own sales window', () => {
     expect(salesWindowText({ salesStartAt: null, salesEndAt: null }, 'UTC', now)).toBeNull()
   })
 })
+
+describe('seated tiers and nights', () => {
+  const NOW = new Date('2026-10-01T12:00:00.000Z')
+  const night = {
+    id: 'cksessionseated000000001',
+    label: 'Night 1',
+    startsAt: '2026-10-11T13:30:00.000Z',
+    endsAt: '2026-10-11T18:30:00.000Z',
+    timezone: 'Asia/Kolkata',
+    status: 'SCHEDULED',
+    salesStartAt: null,
+    salesEndAt: null,
+    hasSeatMap: true,
+    seatsAvailable: 140,
+  }
+  const stalls = {
+    id: 'ttstalls',
+    name: 'Stalls',
+    priceCents: 4500,
+    currency: 'USD',
+    status: 'ON_SALE',
+    reserved: true,
+    eventSessionId: night.id,
+    // Its own free seats, as the API counts them per tier.
+    availableQuantity: 140,
+    isSoldOut: false,
+  }
+
+  it('says Choose seats for a seated tier whose night has an on-sale seat map', () => {
+    expect(availabilityLabel(stalls, NOW, night)).toEqual({
+      text: 'Choose seats',
+      variant: 'success',
+    })
+  })
+
+  it('gives the exact number of its own seats left at or below the threshold, and sold out at none', () => {
+    expect(availabilityLabel({ ...stalls, availableQuantity: 25 }, NOW, night)).toEqual({
+      text: 'Only 25 seats left',
+      variant: 'warning',
+    })
+    expect(availabilityLabel({ ...stalls, availableQuantity: 1 }, NOW, night).text).toBe(
+      'Only 1 seat left',
+    )
+    expect(
+      availabilityLabel({ ...stalls, availableQuantity: 0, isSoldOut: true }, NOW, night),
+    ).toEqual({ text: 'Sold out', variant: 'danger' })
+  })
+
+  it('reads a zone’s own seats, never the night’s: one zone sells out while another sells', () => {
+    // The night still has seats in another zone; this tier has none.
+    expect(
+      availabilityLabel({ ...stalls, availableQuantity: 0, isSoldOut: true }, NOW, {
+        ...night,
+        seatsAvailable: 6,
+      }),
+    ).toEqual({ text: 'Sold out', variant: 'danger' })
+
+    // A plentiful night does not hide a zone that is nearly gone.
+    expect(
+      availabilityLabel({ ...stalls, availableQuantity: 2 }, NOW, { ...night, seatsAvailable: 400 })
+        .text,
+    ).toBe('Only 2 seats left')
+  })
+
+  it('invents no number for a seated tier whose seats were not counted', () => {
+    expect(availabilityLabel({ ...stalls, availableQuantity: null }, NOW, night)).toEqual({
+      text: 'Choose seats',
+      variant: 'success',
+    })
+  })
+
+  it('says a seated tier is not on sale now when its night is not selling', () => {
+    expect(availabilityLabel(stalls, NOW, { ...night, status: 'SALES_PAUSED' }).text).toBe(
+      'Not on sale now',
+    )
+    expect(
+      availabilityLabel(stalls, NOW, { ...night, salesStartAt: '2026-10-05T00:00:00.000Z' }).text,
+    ).toBe('Not on sale now')
+  })
+
+  it('links a seated tier to its night’s seat map', () => {
+    render(<TicketTiers ticketTypes={[stalls]} sessions={[night]} eventSlug="garba-night" />)
+
+    expect(screen.getByRole('link', { name: 'Choose seats for Stalls' })).toHaveAttribute(
+      'href',
+      '/events/garba-night/seats/cksessionseated000000001',
+    )
+  })
+
+  it('groups tiers under their nights, with a pass for every night last', () => {
+    const second = {
+      ...night,
+      id: 'cksessionseated000000002',
+      label: 'Night 2',
+      startsAt: '2026-10-12T13:30:00.000Z',
+      hasSeatMap: false,
+      seatsAvailable: null,
+    }
+
+    render(
+      <TicketTiers
+        ticketTypes={[
+          {
+            id: 'tt1',
+            name: 'Night two entry',
+            priceCents: 2000,
+            currency: 'USD',
+            eventSessionId: second.id,
+            availableQuantity: 100,
+            isSoldOut: false,
+            status: 'ON_SALE',
+          },
+          {
+            id: 'tt2',
+            name: 'Season pass',
+            priceCents: 9000,
+            currency: 'USD',
+            eventSessionId: null,
+            availableQuantity: 100,
+            isSoldOut: false,
+            status: 'ON_SALE',
+          },
+          { ...stalls },
+        ]}
+        sessions={[second, night]}
+        eventSlug="garba-night"
+      />,
+    )
+
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((node) => node.textContent)
+    expect(headings).toEqual([
+      expect.stringMatching(/^Night 1 · /),
+      expect.stringMatching(/^Night 2 · /),
+      'Every night',
+    ])
+    expect(
+      within(screen.getByRole('list', { name: /Every night/ })).getByText('Season pass'),
+    ).toBeInTheDocument()
+  })
+})

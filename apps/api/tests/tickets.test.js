@@ -43,6 +43,8 @@ const PREVIEW_KEYS = [
   'previewReference',
   'refusal',
   'seat',
+  // Which night the ticket is for, so a steward notices one for another night.
+  'session',
   'tier',
 ]
 
@@ -54,6 +56,7 @@ const RESULT_KEYS = [
   'method',
   'outcome',
   'seat',
+  'session',
   'tier',
 ]
 
@@ -1419,3 +1422,54 @@ describe('the group door, over the routes', () => {
 function harnessOutsider() {
   return 'cnotinthepreview000000000'.slice(0, 25)
 }
+
+describe('the door names the night a ticket is for', () => {
+  it('in the preview and the confirmation, and never carries an online link or a staged name', async () => {
+    const harness = await createTestApp()
+    const { app, prisma, ids } = harness
+    const night = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+    night.label = 'Night 3'
+
+    await prisma.ticketType.update({
+      where: { id: ids.generalAdmission.id },
+      data: { eventSessionId: night.id },
+    })
+
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: ATTENDEE,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+        attendees: [{ ticketTypeId: ids.generalAdmission.id, name: 'Asha Patel' }],
+      },
+    })
+    expect(bought.statusCode).toBe(201)
+
+    const [ticket] = bought.json().data.tickets
+    const token = await signIn(app, DOOR)
+    const { preview: looked, confirmation } = await previewThenConfirm(app, token, {
+      code: ticket.code,
+    })
+
+    const expected = {
+      label: 'Night 3',
+      startsAt: night.startsAt.toISOString(),
+      endsAt: night.endsAt.toISOString(),
+      timezone: night.timezone,
+    }
+
+    expect(looked.json().data.session).toEqual(expected)
+    expect(looked.json().data.attendeeName).toBe('Asha Patel')
+    expect(confirmation.statusCode).toBe(200)
+    expect(confirmation.json().data.session).toEqual(expected)
+
+    for (const body of [looked.body, confirmation.body]) {
+      expect(body).not.toMatch(/onlineUrl|onlineJoinUrl|attendeeNames/)
+    }
+
+    await app.close()
+  })
+})

@@ -82,6 +82,7 @@ const AREA_OF = Object.freeze({
   '/organizer/check-in': 'organizer',
   '/organizer/organization': 'organizer',
   '/organizer/team': 'organizer',
+  '/organizer/promo-codes': 'organizer',
   '/analytics': 'analytics',
   '/finance': 'finance',
   '/operations': 'operations',
@@ -157,6 +158,7 @@ describe('workspace offers, by role', () => {
       '/organizer/check-in',
       '/organizer/organization',
       '/organizer/team',
+      '/organizer/promo-codes',
       '/analytics',
       '/finance',
       '/operations',
@@ -166,6 +168,18 @@ describe('workspace offers, by role', () => {
 
   it('offers a scanner the door and the workspace front page, and nothing else', () => {
     expect(offered(member('SCANNER'))).toEqual(['/organizer', '/organizer/check-in'])
+  })
+
+  it('offers promo codes only to a member holding promo:manage there', () => {
+    expect(offered(member('EVENT_MANAGER'))).toContain('/organizer/promo-codes')
+    expect(offered(member('MANAGER'))).toContain('/organizer/promo-codes')
+
+    for (const role of ['VIEWER', 'FINANCE', 'SCANNER', 'STAFF']) {
+      expect(offered(member(role)), role).not.toContain('/organizer/promo-codes')
+    }
+
+    // The codes are an organisation's: a platform role is not offered them.
+    expect(offered(platform('SUPER_ADMIN'))).not.toContain('/organizer/promo-codes')
   })
 
   it('offers the team to a member who may see it, and never to a platform role', () => {

@@ -86,14 +86,64 @@ describe('the structured data an event publishes', () => {
     )
   })
 
-  it('gives an online event a virtual location rather than a postal address', () => {
+  it('gives an online event a virtual location at its own page, never its joining link', () => {
+    // The joining link belongs to the people holding tickets. Structured data
+    // is read by every crawler there is, so even a payload that somehow still
+    // carried the link must not put it here.
     const data = eventJsonLd(
       { ...event, isOnline: true, onlineUrl: 'https://stream.test/show', venue: null },
       { siteUrl: 'https://example.test' },
     )
 
     expect(data.eventAttendanceMode).toBe('https://schema.org/OnlineEventAttendanceMode')
-    expect(data.location).toEqual({ '@type': 'VirtualLocation', url: 'https://stream.test/show' })
+    expect(data.location).toEqual({
+      '@type': 'VirtualLocation',
+      url: `https://example.test/events/${event.slug}`,
+    })
+    expect(JSON.stringify(data)).not.toContain('stream.test')
+  })
+
+  it('lists each night of a run as a sub-event, cancelled when that night is', () => {
+    const data = eventJsonLd(
+      {
+        ...event,
+        sessions: [
+          {
+            id: 'cksessionone',
+            label: 'Night 1',
+            startsAt: '2026-10-11T13:30:00.000Z',
+            endsAt: '2026-10-11T18:30:00.000Z',
+            doorsOpenAt: '2026-10-11T13:00:00.000Z',
+            timezone: 'Asia/Kolkata',
+            status: 'SCHEDULED',
+          },
+          {
+            id: 'cksessiontwo',
+            label: null,
+            startsAt: '2026-10-12T13:30:00.000Z',
+            endsAt: '2026-10-12T18:30:00.000Z',
+            doorsOpenAt: null,
+            timezone: 'Asia/Kolkata',
+            status: 'CANCELLED',
+          },
+        ],
+      },
+      { siteUrl: 'https://example.test' },
+    )
+
+    expect(data.subEvent).toHaveLength(2)
+    expect(data.subEvent[0]).toMatchObject({
+      '@type': 'Event',
+      name: `${event.title} — Night 1 · Sun, Oct 11 · 7:00 PM`,
+      startDate: '2026-10-11T13:30:00.000Z',
+      doorTime: '2026-10-11T13:00:00.000Z',
+    })
+    expect(data.subEvent[1].name).toBe(`${event.title} — Mon, Oct 12 · 7:00 PM`)
+    expect(data.subEvent[1].eventStatus).toBe('https://schema.org/EventCancelled')
+    expect(data.subEvent[1]).not.toHaveProperty('doorTime')
+
+    // One night is the event itself; it needs no sub-event.
+    expect(eventJsonLd({ ...event, sessions: [data.subEvent[0]] }).subEvent).toBeUndefined()
   })
 
   it('names the performers in billing order', () => {

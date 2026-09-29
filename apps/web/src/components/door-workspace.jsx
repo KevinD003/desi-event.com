@@ -74,6 +74,7 @@ import {
   seatWords,
 } from '../lib/door.js'
 import { looksLikeGroupCode } from '../lib/pass-shape.js'
+import { sessionDisplayLabel } from '../lib/sessions.js'
 
 /** How many recent tickets the session list shows. */
 const RECENT_LIMIT = 8
@@ -770,6 +771,14 @@ function PreviewCard({
             <dd className="text-ink">{preview.tier.name}</dd>
           </div>
         ) : null}
+        {/* The night the ticket is for, in words, so a steward notices a ticket
+            for another night. A label only: the door refuses nothing on it. */}
+        {preview.session ? (
+          <div className="flex flex-wrap gap-2">
+            <dt className="text-ink-muted">Night</dt>
+            <dd className="text-ink">{sessionDisplayLabel(preview.session)}</dd>
+          </div>
+        ) : null}
         {seat ? (
           <div className="flex flex-wrap gap-2">
             <dt className="text-ink-muted">Seat</dt>
@@ -864,6 +873,13 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
       <p className="mt-3 font-display text-h2 font-semibold break-words text-ink">
         {result.attendeeName ?? 'Ticket holder'}
       </p>
+      {result.session || result.tier ? (
+        <p className="mt-1 text-sm text-ink">
+          {[result.tier?.name, result.session ? sessionDisplayLabel(result.session) : null]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      ) : null}
       <p className="mt-2 text-sm text-ink-muted">
         {result.outcome === 'ADMITTED'
           ? `Admitted at ${when}.`

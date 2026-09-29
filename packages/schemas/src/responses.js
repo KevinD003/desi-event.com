@@ -18,6 +18,7 @@ import {
   nonEmptyStringSchema,
   orderReferenceSchema,
   timestampSchema,
+  urlSchema,
 } from './primitives.js'
 import {
   ADMISSION_EVENT_SCOPES,
@@ -32,6 +33,9 @@ import {
   eventCategorySchema,
   eventStatusSchema,
   logLevelSchema,
+  promoQuoteReasonSchema,
+  promoStatusSchema,
+  promoTypeSchema,
   recordedCheckInMethodSchema,
   ticketStatusSchema,
 } from './enums.js'
@@ -51,6 +55,7 @@ import {
   reconciliationTaskSchema,
   transferSchema,
   refundSchema,
+  sessionSummarySchema,
   ticketSchema,
   ticketTypeSchema,
 } from './entities.js'
@@ -197,6 +202,20 @@ export const admissionEventSchema = z.object({
   timezone: z.string(),
 })
 
+/**
+ * Which night a ticket is for, so a steward sees "Night 3 · Wed Oct 8" rather
+ * than admitting Friday's ticket on Thursday. Null for a ticket good for every
+ * night. A label only: the door refuses nothing on it.
+ */
+export const admissionSessionSchema = z
+  .object({
+    label: z.string().nullable(),
+    startsAt: timestampSchema,
+    endsAt: timestampSchema,
+    timezone: z.string(),
+  })
+  .nullable()
+
 /** Where the ticket sits, for reserved seating. Null for general admission. */
 export const admissionSeatSchema = z
   .object({
@@ -237,6 +256,7 @@ export const admissionPreviewResponseSchema = z.object({
     event: admissionEventSchema,
     tier: z.object({ name: z.string() }).nullable(),
     seat: admissionSeatSchema,
+    session: admissionSessionSchema.optional(),
     // Never an address: the presenter replaces one, and this refuses one it missed.
     attendeeName: addressFree(z.string()).nullable(),
     checkedInAt: timestampSchema.nullable(),
@@ -270,6 +290,7 @@ export const checkInResponseSchema = z.object({
     event: admissionEventSchema,
     tier: z.object({ name: z.string() }).nullable(),
     seat: admissionSeatSchema,
+    session: admissionSessionSchema.optional(),
     // Never an address: the presenter replaces one, and this refuses one it missed.
     attendeeName: addressFree(z.string()).nullable(),
   }),
@@ -521,6 +542,14 @@ export const ticketDetailResponseSchema = z.object({
     holder: z.boolean(),
     /** Every transfer this ticket has been through, oldest first. */
     transfers: z.array(ticketTransferSchema),
+    /** The night it is for: its seat's session, else its tier's; null for every night. */
+    session: sessionSummarySchema.nullish(),
+    /**
+     * The online event's joining link, for the holder only and only while the
+     * ticket admits (an admitted ticket still does, so people can rejoin).
+     * Null for the organiser reading it and for a ticket that no longer admits.
+     */
+    onlineJoinUrl: urlSchema.nullish(),
   }),
 })
 
@@ -660,6 +689,13 @@ export const walletTicketSchema = ticketSchema.extend({
   /** When the organiser withdrew it, and why they said they did. */
   revokedAt: timestampSchema.nullable(),
   revokedReason: z.string().nullable(),
+  /** The night it is for: its seat's session, else its tier's; null for every night. */
+  session: sessionSummarySchema.nullish(),
+  /**
+   * The online event's joining link, while this ticket admits. Null for an
+   * event at a venue, and for a ticket refunded, revoked or handed on.
+   */
+  onlineJoinUrl: urlSchema.nullish(),
 })
 
 /** `GET /tickets`. */
@@ -824,6 +860,8 @@ export const eventSessionSchema = z.object({
   salesStartAt: z.string().nullable(),
   salesEndAt: z.string().nullable(),
   status: z.string(),
+  /** The organiser's short name for the night, or null when its date labels it. */
+  label: z.string().nullable(),
   venueMapVersionId: z.string().nullable(),
   capacity: z.number().nullable(),
   sortOrder: z.number(),
@@ -1342,4 +1380,83 @@ export const connectStatusSchema = z.object({
 /** `GET /organizations/:id/connect`, and the action that returns one status. */
 export const connectStatusResponseSchema = z.object({
   data: connectStatusSchema,
+})
+
+/**
+ * A promo code as its organisation manages it.
+ *
+ * `status` is computed from the row and the clock (see `PROMO_STATUSES`);
+ * `ordersCount` is how many orders reference it, paid or not, which is what
+ * decides whether it can still be deleted. Tolerant of legacy rows: a code
+ * written before the current rules must still list, so the people who can
+ * pause it can see it.
+ */
+export const organiserPromoCodeSchema = z.object({
+  id: cuidSchema,
+  organizationId: cuidSchema,
+  eventId: cuidSchema.nullable(),
+  code: z.string().min(1).max(64),
+  type: promoTypeSchema,
+  value: z.int().min(0),
+  currency: z.string().length(3).nullable(),
+  maxRedemptions: z.int().min(0).nullable(),
+  redemptionCount: z.int().min(0),
+  startsAt: timestampSchema.nullable(),
+  endsAt: timestampSchema.nullable(),
+  active: z.boolean(),
+  createdAt: timestampSchema,
+  status: promoStatusSchema,
+  /** The one event the code is for, or null for every event of the organisation. */
+  event: z.object({ id: cuidSchema, slug: z.string(), title: z.string() }).nullable(),
+  ordersCount: z.int().min(0),
+})
+
+/** One promo code, after a write. */
+export const promoCodeResponseSchema = z.object({ data: organiserPromoCodeSchema })
+
+/** `GET /v1/organizations/:id/promo-codes`. */
+export const promoCodeListResponseSchema = z.object({
+  data: z.array(organiserPromoCodeSchema),
+  pagination: paginationMetaSchema,
+})
+
+/**
+ * `POST /v1/orders/quote`: what the server would charge for this basket now.
+ *
+ * Computed by the same function as the charge, so the two cannot disagree.
+ * `promo` is null when no code was sent; otherwise `applied` says whether it
+ * took, and `reason` why not. An unknown code is a reason here (`UNKNOWN`),
+ * not an error, so a buyer can correct a typo.
+ */
+export const orderQuoteResponseSchema = z.object({
+  data: z.object({
+    currency: z.string().length(3),
+    subtotalCents: centsSchema,
+    discountCents: centsSchema,
+    feesCents: centsSchema,
+    taxCents: centsSchema,
+    totalCents: centsSchema,
+    lines: z.array(
+      z.object({
+        ticketTypeId: cuidSchema,
+        name: z.string(),
+        sessionId: cuidSchema.nullable(),
+        quantity: z.int().min(1),
+        unitPriceCents: centsSchema,
+        subtotalCents: centsSchema,
+        discountCents: centsSchema,
+      }),
+    ),
+    promo: z
+      .object({
+        code: z.string(),
+        applied: z.boolean(),
+        reason: promoQuoteReasonSchema.nullable(),
+        type: promoTypeSchema.nullable(),
+        percentBps: z.int().min(0).max(10_000).nullable(),
+        amountCents: centsSchema.nullable(),
+      })
+      .nullable(),
+    pricedAt: timestampSchema,
+  }),
 })

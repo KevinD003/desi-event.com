@@ -42,6 +42,7 @@ import { formatEventWhen, formatTimeZoneLabel } from '../../../lib/format.js'
 import { getTicket } from '../../../lib/organizer-api.js'
 import { describeApiRefusal } from '../../../lib/refusal.js'
 import { readSession, sessionCan } from '../../../lib/session.js'
+import { joinLinkHost, sessionDisplayLabel } from '../../../lib/sessions.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -131,6 +132,10 @@ export default async function TicketDetailPage({ params }) {
   }
 
   const { ticket, event, transfers, holder, organizationId } = detail
+  // The server gives the joining link to the holder only, and only while the
+  // ticket admits; the page shows it only then too.
+  const joinUrl = holder && detail.onlineJoinUrl ? detail.onlineJoinUrl : null
+  const joinHost = joinUrl ? joinLinkHost(joinUrl) : null
   const status = STATUS[ticket.status] ?? { label: ticket.status, admits: false }
   // Scoped, with the organisation the payload named. Asked without one this
   // would be a platform question, which is how NF-05 gets in.
@@ -187,6 +192,12 @@ export default async function TicketDetailPage({ params }) {
             <dt className="text-xs font-medium text-ink-subtle">Name on it</dt>
             <dd className="mt-0.5 break-words text-ink">{ticket.attendeeName ?? 'Not given'}</dd>
           </div>
+          {detail.session ? (
+            <div className="min-w-0">
+              <dt className="text-xs font-medium text-ink-subtle">Night</dt>
+              <dd className="mt-0.5 text-ink">{sessionDisplayLabel(detail.session)}</dd>
+            </div>
+          ) : null}
           {ticket.checkedInAt ? (
             <div className="min-w-0">
               <dt className="text-xs font-medium text-ink-subtle">Admitted</dt>
@@ -197,6 +208,25 @@ export default async function TicketDetailPage({ params }) {
           ) : null}
         </dl>
       </Section>
+
+      {joinUrl && joinHost ? (
+        <Section id="join-heading" title="Join the online event">
+          <p className="mt-2 max-w-prose text-sm text-ink-muted">
+            The organiser’s joining link, for you as the holder of this ticket. Keep it to yourself:
+            anybody with the link can use it.
+          </p>
+          <p className="mt-3">
+            <a
+              href={joinUrl}
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+              className={TEXT_LINK}
+            >
+              Join online at {joinHost}
+            </a>
+          </p>
+        </Section>
+      ) : null}
 
       {holder && status.admits ? (
         // `entry-pass` is where the wallet's "Show my entry pass" link lands.

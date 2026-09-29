@@ -330,6 +330,12 @@ describe('step-up policies', () => {
     expect(STEP_UP_POLICIES.SECURITY_ROLE).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.PRIVACY_ERASURE).toBe(2 * 60 * 1000)
     expect(STEP_UP_POLICIES.MEMBER_EMAIL_VIEW).toBe(10 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PROMO_ACTION).toBe(10 * 60 * 1000)
+  })
+
+  it('names the promo policy so a discount going live asks for a recent factor', () => {
+    expect(stepUpWindowFor('PROMO_ACTION')).toBe(10 * 60 * 1000)
+    expect(STEP_UP_POLICIES.PROMO_ACTION).toBeLessThan(STEP_UP_POLICIES.FINANCE_VIEW)
   })
 
   it('shows colleagues’ addresses for less time than the finance view, and names it separately', () => {

@@ -51,6 +51,7 @@ import {
   TEXT_LINK,
 } from '../../components/workspace-kit.jsx'
 import { getMyTickets } from '../../lib/organizer-api.js'
+import { joinLinkHost, sessionDisplayLabel } from '../../lib/sessions.js'
 import { StatusChip } from '../account/orders/status-chip.jsx'
 import {
   REACHABLE_STATUSES,
@@ -173,6 +174,7 @@ function TicketCard({ ticket }) {
 
         <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
           <Detail term="When">{when}</Detail>
+          <Detail term="Night">{ticket.session ? sessionDisplayLabel(ticket.session) : ''}</Detail>
           <Detail term="Where">{where}</Detail>
           <Detail term="Ticket">{ticket.tier?.name ?? ''}</Detail>
           <Detail term="Seat">{seat}</Detail>
@@ -197,6 +199,22 @@ function TicketCard({ ticket }) {
 
         {ticket.revokedReason ? (
           <p className="mt-1 text-sm text-ink-muted">Reason given: {ticket.revokedReason}</p>
+        ) : null}
+
+        {/* The joining link of an online event, given by the server only while
+            this ticket admits. Named by its host; no referrer goes with it. */}
+        {ticket.onlineJoinUrl && joinLinkHost(ticket.onlineJoinUrl) ? (
+          <p className="mt-4">
+            <a
+              href={ticket.onlineJoinUrl}
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+              className={SECONDARY_LINK}
+            >
+              Join online at {joinLinkHost(ticket.onlineJoinUrl)}
+              <span className="sr-only"> for {ticket.event.title}</span>
+            </a>
+          </p>
         ) : null}
 
         {/* Whether it admits is the server's word, from the same function the

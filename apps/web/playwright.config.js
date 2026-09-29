@@ -40,6 +40,10 @@ export default defineConfig({
   // in CI against the API this config deliberately does not start — loudly, on
   // their first day, which is the trade this list makes. `detail-*` is a glob
   // rather than four names so the fifth one does not repeat it.
+  //
+  // `pnpm ci:check` now makes the trade unnecessary: it loads every config a CI
+  // browser job runs and refuses a spec collected by none of them or by more
+  // than one (`scripts/lib/spec-collection.mjs`), before any browser starts.
   testIgnore: [
     '**/not-found.spec.js',
     '**/organizer-venue-maps.spec.js',

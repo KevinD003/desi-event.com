@@ -23,6 +23,7 @@ import { bearer, createTestApp, feeConfig, signIn, taxRateBps } from './helpers/
 import { TEST_AUTH_SECRET, makeWorld, minutesFromNow } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 import { credentialDigest, mintTicketCredential } from '../src/lib/ticket-credentials.js'
+import { BACK_CENTS as ZONE_BACK_CENTS, reservedWorld } from './helpers/reserved-world.js'
 
 /** The front zone costs more than the tier; the back zone costs less. */
 const FRONT_CENTS = 250_000
@@ -571,5 +572,310 @@ describe('what an organiser can see afterwards', () => {
     expect(await prisma.ticket.findMany({})).toHaveLength(1)
 
     await app.close()
+  })
+})
+
+describe('a reserved tier, as an organiser authors it', () => {
+  /**
+   * Sign the fixture buyer in, and hold seats as that account.
+   *
+   * @param {object} world From `reservedWorld`.
+   * @param {string[]} labels Seat labels.
+   * @returns {Promise<{headers: object, held: object}>} The buyer's headers and the hold.
+   */
+  async function holdAsBuyer(world, labels) {
+    const headers = bearer(await signIn(world.app, 'priya@example.com'))
+    const response = await world.app.inject({
+      method: 'POST',
+      url: `/v1/sessions/${world.sessionId}/holds`,
+      headers,
+      payload: { seatIds: labels.map((label) => world.seatIdByLabel[label]) },
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    return { headers, held: response.json().data }
+  }
+
+  /**
+   * Place an order as the signed-in buyer.
+   *
+   * @param {object} world From `reservedWorld`.
+   * @param {object} headers The buyer's headers.
+   * @param {object} body Order fields beyond the buyer's.
+   * @returns {Promise<object>} The inject result.
+   */
+  function placeOrder(world, headers, body) {
+    return world.app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      headers,
+      payload: {
+        eventId: world.ids.publishedEvent.id,
+        buyerEmail: 'priya@example.com',
+        buyerName: 'Priya Sharma',
+        ...body,
+      },
+    })
+  }
+
+  it('sells a reserved tier with no quantity of its own by seat', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2'])
+
+    const response = await placeOrder(world, headers, {
+      items: [{ ticketTypeId: world.frontTier.id, quantity: 1 }],
+      holdIds: [held.id],
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data.subtotalCents).toBe(FRONT_CENTS)
+
+    const seat = world.prisma._store.eventSeat.find((row) => row.id === world.eventSeatIdByLabel.A2)
+    expect(seat.status).toBe('SOLD')
+
+    const [ticket] = world.prisma._store.ticket
+    expect(ticket.eventSeatId).toBe(world.eventSeatIdByLabel.A2)
+
+    // The night is the order's, since its one line is for that night.
+    expect(world.prisma._store.order[0].eventSessionId).toBe(world.sessionId)
+
+    await world.app.close()
+  })
+
+  it('issues no seatless tickets when the seats stopped being held before settlement', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2'])
+    const seat = world.prisma._store.eventSeat.find((row) => row.id === world.eventSeatIdByLabel.A2)
+
+    // While the card is being charged, the hold stops owning its seat: the
+    // way a sweep that ignored the order used to leave it.
+    const { payments } = world.providers
+    const capture = payments.capture.bind(payments)
+    payments.capture = async (...args) => {
+      world.prisma._store.ticketHold.find((row) => row.id === held.id).status = 'EXPIRED'
+      seat.status = 'AVAILABLE'
+      seat.holdId = null
+
+      return capture(...args)
+    }
+
+    const response = await placeOrder(world, headers, {
+      items: [{ ticketTypeId: world.frontTier.id, quantity: 1 }],
+      holdIds: [held.id],
+    })
+
+    // Settlement refuses and rolls back: no ticket without its seat, and the
+    // order stays PENDING for reconciliation rather than being called paid.
+    expect(response.statusCode).toBe(500)
+    expect(world.prisma._store.ticket).toHaveLength(0)
+    expect(world.prisma._store.order).toHaveLength(1)
+    expect(world.prisma._store.order[0].status).toBe('PENDING')
+    expect(seat).toMatchObject({ status: 'AVAILABLE', holdId: null })
+
+    await world.app.close()
+  })
+
+  it('sells a selection across two zones and two tiers as one hold and one order', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2', 'B2'])
+
+    const response = await placeOrder(world, headers, {
+      items: [
+        { ticketTypeId: world.frontTier.id, quantity: 1 },
+        { ticketTypeId: world.backTier.id, quantity: 1 },
+      ],
+      holdIds: [held.id],
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const items = world.prisma._store.orderItem
+    expect(
+      Object.fromEntries(items.map((item) => [item.ticketTypeId, item.unitPriceCents])),
+    ).toEqual({ [world.frontTier.id]: FRONT_CENTS, [world.backTier.id]: ZONE_BACK_CENTS })
+
+    const sold = world.prisma._store.eventSeat.filter((row) => row.status === 'SOLD')
+    expect(sold.map((row) => row.id).sort()).toEqual(
+      [world.eventSeatIdByLabel.A2, world.eventSeatIdByLabel.B2].sort(),
+    )
+
+    await world.app.close()
+  })
+
+  it('quotes a two-zone selection at exactly what the order then charges', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2', 'B2'])
+    const basket = {
+      eventId: world.ids.publishedEvent.id,
+      items: [
+        { ticketTypeId: world.frontTier.id, quantity: 1 },
+        { ticketTypeId: world.backTier.id, quantity: 1 },
+      ],
+      holdIds: [held.id],
+    }
+
+    const quoted = await world.app.inject({
+      method: 'POST',
+      url: '/v1/orders/quote',
+      headers,
+      payload: basket,
+    })
+
+    expect(quoted.statusCode).toBe(200)
+    expect(quoted.json().data.lines.map((line) => line.sessionId)).toEqual([
+      world.sessionId,
+      world.sessionId,
+    ])
+
+    const placed = await placeOrder(world, headers, {
+      ...basket,
+      expectedTotalCents: quoted.json().data.totalCents,
+    })
+
+    expect(placed.statusCode).toBe(201)
+    expect(placed.json().data.totalCents).toBe(quoted.json().data.totalCents)
+
+    await world.app.close()
+  })
+
+  it('sells a companion seat pulled in from the other zone under its own tier', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A1'])
+
+    expect(held.seats.map((seat) => seat.label).sort()).toEqual(['A1', 'B1'])
+
+    const response = await placeOrder(world, headers, {
+      items: [
+        { ticketTypeId: world.frontTier.id, quantity: 1 },
+        { ticketTypeId: world.backTier.id, quantity: 1 },
+      ],
+      holdIds: [held.id],
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const backLine = world.prisma._store.orderItem.find(
+      (item) => item.ticketTypeId === world.backTier.id,
+    )
+    const companionTicket = world.prisma._store.ticket.find(
+      (ticket) => ticket.eventSeatId === world.eventSeatIdByLabel.B1,
+    )
+    expect(companionTicket.orderItemId).toBe(backLine.id)
+
+    await world.app.close()
+  })
+
+  it('refuses an order that leaves one of the held seats unpaid for', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2', 'B2'])
+
+    const response = await placeOrder(world, headers, {
+      items: [{ ticketTypeId: world.frontTier.id, quantity: 1 }],
+      holdIds: [held.id],
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(world.prisma._store.order).toHaveLength(0)
+
+    await world.app.close()
+  })
+
+  it('prints the name given for each seat on that seat’s ticket, and clears the staging', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2', 'B2'])
+
+    const response = await placeOrder(world, headers, {
+      items: [
+        { ticketTypeId: world.frontTier.id, quantity: 1 },
+        { ticketTypeId: world.backTier.id, quantity: 1 },
+      ],
+      holdIds: [held.id],
+      attendees: [
+        {
+          ticketTypeId: world.backTier.id,
+          eventSeatId: world.eventSeatIdByLabel.B2,
+          name: 'Kavya Iyer',
+        },
+      ],
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const nameOn = (label) =>
+      world.prisma._store.ticket.find(
+        (ticket) => ticket.eventSeatId === world.eventSeatIdByLabel[label],
+      ).attendeeName
+
+    expect(nameOn('B2')).toBe('Kavya Iyer')
+    // Nobody named A2, so it carries the buyer's name.
+    expect(nameOn('A2')).toBe('Priya Sharma')
+
+    // Staged on the hold item until settlement, and not a moment longer.
+    expect(world.prisma._store.holdItem.every((item) => item.attendeeName == null)).toBe(true)
+
+    await world.app.close()
+  })
+
+  it('refuses a name for a seat under the wrong tier, naming positions only', async () => {
+    const world = await reservedWorld()
+    const { headers, held } = await holdAsBuyer(world, ['A2', 'B2'])
+
+    const response = await placeOrder(world, headers, {
+      items: [
+        { ticketTypeId: world.frontTier.id, quantity: 1 },
+        { ticketTypeId: world.backTier.id, quantity: 1 },
+      ],
+      holdIds: [held.id],
+      attendees: [
+        {
+          ticketTypeId: world.frontTier.id,
+          eventSeatId: world.eventSeatIdByLabel.B2,
+          name: 'Kavya Iyer',
+        },
+      ],
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.problems).toEqual([
+      'Name 1: that seat is sold under another ticket type.',
+    ])
+    expect(response.body).not.toContain('Kavya')
+    expect(world.prisma._store.order).toHaveLength(0)
+
+    await world.app.close()
+  })
+
+  it('refuses a reserved line with no seats behind it', async () => {
+    const world = await reservedWorld()
+    const headers = bearer(await signIn(world.app, 'priya@example.com'))
+
+    const response = await placeOrder(world, headers, {
+      items: [{ ticketTypeId: world.frontTier.id, quantity: 1 }],
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.message).toBe('Choose seats for "Front stalls" on the seat map.')
+    expect(world.prisma._store.order).toHaveLength(0)
+
+    await world.app.close()
+  })
+
+  it('refuses a quantity hold on a reserved tier: it is bought by seat', async () => {
+    const world = await reservedWorld()
+    const headers = bearer(await signIn(world.app, 'priya@example.com'))
+
+    const response = await world.app.inject({
+      method: 'POST',
+      url: '/v1/holds',
+      headers,
+      payload: { ticketTypeId: world.frontTier.id, quantity: 1 },
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.code).toBe('SEATED_TIER')
+    expect(world.prisma._store.ticketHold).toHaveLength(0)
+
+    await world.app.close()
   })
 })

@@ -39,12 +39,14 @@ import {
   eventCategorySchema,
   eventStatusSchema,
   notificationStatusSchema,
+  promoStatusSchema,
   promoTypeSchema,
   refundReasonSchema,
   refundStatusSchema,
   ticketTypeStatusSchema,
   ticketTypeVisibilitySchema,
 } from './enums.js'
+import { addressFree } from './addresses.js'
 import { connectActionSchema } from './connect.js'
 import { eventPoliciesSchema } from './entities.js'
 import {
@@ -396,9 +398,119 @@ export const orderItemRequestSchema = z.object({
 })
 
 /**
+ * The name a buyer types for one ticket at checkout.
+ *
+ * Printed on the ticket and read out at the door, so it is held to what a door
+ * shows: 1 to 100 characters, no control characters, and never an email
+ * address — the door masks addresses, and a name that is one would put back
+ * exactly what the door withholds.
+ */
+export const attendeeNameSchema = addressFree(
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .regex(/^[^\p{Cc}]+$/u, 'A name cannot contain control characters'),
+)
+
+/**
+ * One guest's name on an order.
+ *
+ * `eventSeatId` is the seat's id on the map (`publicSeat.id`) for a reserved
+ * seat; a general-admission ticket names only its tier, and the names for one
+ * tier are put on its tickets in the order they are sent.
+ */
+export const orderAttendeeRequestSchema = z.object({
+  ticketTypeId: cuidSchema,
+  eventSeatId: cuidSchema.optional(),
+  name: attendeeNameSchema,
+})
+
+/**
+ * Refuse the same ticket type on two lines.
+ *
+ * @param {{items: Array<{ticketTypeId: string}>}} value The parsed body.
+ * @param {z.RefinementCtx} ctx Zod refinement context used to report issues.
+ * @returns {void}
+ */
+function eachTicketTypeOnce(value, ctx) {
+  const seen = new Set()
+  value.items.forEach((item, index) => {
+    if (seen.has(item.ticketTypeId)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['items', index, 'ticketTypeId'],
+        message: 'Each ticket type may appear only once; combine the quantities instead',
+      })
+    }
+    seen.add(item.ticketTypeId)
+  })
+}
+
+/**
+ * Check the guests' names against the lines they are for.
+ *
+ * A seat may be named once; a name must be for a tier in the order; and a
+ * general-admission tier cannot carry more names than tickets. Seated names are
+ * checked against the held seats by the server, which is the only place that
+ * knows which seats a hold covers.
+ *
+ * @param {{items: Array<{ticketTypeId: string, quantity: number}>, attendees?: Array<object>}} value The parsed body.
+ * @param {z.RefinementCtx} ctx Zod refinement context used to report issues.
+ * @returns {void}
+ */
+function attendeesFitTheOrder(value, ctx) {
+  if (!value.attendees) return
+
+  const quantities = new Map(value.items.map((item) => [item.ticketTypeId, item.quantity]))
+  const seats = new Set()
+  const unseated = new Map()
+
+  value.attendees.forEach((attendee, index) => {
+    if (!quantities.has(attendee.ticketTypeId)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['attendees', index, 'ticketTypeId'],
+        message: 'A name must be for a ticket type in this order',
+      })
+      return
+    }
+
+    if (attendee.eventSeatId) {
+      if (seats.has(attendee.eventSeatId)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['attendees', index, 'eventSeatId'],
+          message: 'Each seat may carry one name',
+        })
+      }
+      seats.add(attendee.eventSeatId)
+      return
+    }
+
+    const count = (unseated.get(attendee.ticketTypeId) ?? 0) + 1
+    unseated.set(attendee.ticketTypeId, count)
+
+    if (count > quantities.get(attendee.ticketTypeId)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['attendees', index],
+        message: 'More names than tickets for this ticket type',
+      })
+    }
+  })
+}
+
+/**
  * Place an order. Requires at least one line, and rejects the same ticket type
  * appearing twice — two lines for one ticket type would silently break the
  * per-order quantity limits.
+ *
+ * `attendees` names the guests, one per ticket, all optional: a ticket nobody
+ * named carries the buyer's name. `expectedTotalCents` is a precondition, never
+ * a price — it can only refuse an order whose total moved since it was shown
+ * (409 `PRICE_CHANGED`), never lower what is charged.
  */
 export const createOrderRequestSchema = z
   .object({
@@ -409,20 +521,29 @@ export const createOrderRequestSchema = z
     items: z.array(orderItemRequestSchema).min(1, 'An order needs at least one item').max(20),
     promoCode: promoCodeStringSchema.optional(),
     holdIds: z.array(cuidSchema).max(20).optional(),
+    attendees: z.array(orderAttendeeRequestSchema).max(100).optional(),
+    expectedTotalCents: centsSchema.optional(),
   })
   .superRefine((value, ctx) => {
-    const seen = new Set()
-    value.items.forEach((item, index) => {
-      if (seen.has(item.ticketTypeId)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['items', index, 'ticketTypeId'],
-          message: 'Each ticket type may appear only once; combine the quantities instead',
-        })
-      }
-      seen.add(item.ticketTypeId)
-    })
+    eachTicketTypeOnce(value, ctx)
+    attendeesFitTheOrder(value, ctx)
   })
+
+/**
+ * Price a basket without buying it.
+ *
+ * The same lines, holds and promo code an order would carry, and nothing about
+ * the buyer: a quote is computed by the same function as the charge, and
+ * writes nothing.
+ */
+export const quoteOrderRequestSchema = z
+  .object({
+    eventId: cuidSchema,
+    items: z.array(orderItemRequestSchema).min(1, 'A quote needs at least one item').max(20),
+    promoCode: promoCodeStringSchema.optional(),
+    holdIds: z.array(cuidSchema).max(20).optional(),
+  })
+  .superRefine(eachTicketTypeOnce)
 
 /**
  * The pass from a QR code: base64url, and bounded.
@@ -686,15 +807,25 @@ export const joinWaitlistRequestSchema = z.object({
   userId: cuidSchema.nullish(),
 })
 
-/** Create a promo code. `value` is basis points or cents, depending on `type`. */
+/** The largest fixed discount a code may carry, in minor units: 100,000.00. */
+export const MAX_FIXED_PROMO_CENTS = 10_000_000
+
+/**
+ * Create a promo code. `value` is basis points or cents, depending on `type`.
+ *
+ * The organisation comes from the path (`/v1/organizations/:id/promo-codes`),
+ * never the body: a body naming its own organisation is a body choosing whose
+ * discount it writes. A fixed amount is money, so it names its currency; a
+ * percentage has none, which the database also insists on.
+ */
 export const createPromoCodeRequestSchema = z
   .object({
-    organizationId: cuidSchema,
     eventId: cuidSchema.nullish(),
     code: promoCodeStringSchema,
     type: promoTypeSchema,
-    value: z.int().min(1).max(1_000_000_000),
-    maxRedemptions: countSchema.nullish(),
+    value: z.int().min(1).max(MAX_FIXED_PROMO_CENTS),
+    currency: currencySchema.nullish(),
+    maxRedemptions: z.int().min(1).max(1_000_000).nullish(),
     startsAt: timestampSchema.nullish(),
     endsAt: timestampSchema.nullish(),
     active: z.boolean().default(true),
@@ -707,6 +838,20 @@ export const createPromoCodeRequestSchema = z
         message: 'A PERCENTAGE promo code is basis points and cannot exceed 10000 (100%)',
       })
     }
+    if (value.type === 'FIXED_AMOUNT' && !value.currency) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['currency'],
+        message: 'A fixed-amount code needs the currency its amount is in',
+      })
+    }
+    if (value.type === 'PERCENTAGE' && value.currency) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['currency'],
+        message: 'A percentage code has no currency',
+      })
+    }
     if (value.startsAt && value.endsAt && Date.parse(value.endsAt) <= Date.parse(value.startsAt)) {
       ctx.addIssue({
         code: 'custom',
@@ -715,6 +860,18 @@ export const createPromoCodeRequestSchema = z
       })
     }
   })
+
+/** `GET /v1/organizations/:id/promo-codes`: a page, optionally one event's codes or one status. */
+export const listPromoCodesQuerySchema = paginationQuerySchema.extend({
+  eventId: cuidSchema.optional(),
+  status: promoStatusSchema.optional(),
+})
+
+/** `/v1/organizations/:id/promo-codes/:promoCodeId`. */
+export const organizationPromoCodeParamSchema = z.object({
+  id: cuidSchema,
+  promoCodeId: cuidSchema,
+})
 
 /** Query string for endpoints that only paginate. */
 export const listQuerySchema = paginationQuerySchema
@@ -1160,6 +1317,26 @@ export const moderationQueueQuerySchema = paginationQuerySchema.extend({
  */
 const revisionPrecondition = { revision: z.number().int().min(0) }
 
+/**
+ * A night's short name, e.g. "Night 1" or "Ashtami".
+ *
+ * Optional: a night with no label is labelled by its date and time, which is
+ * always true. A blank one is read as none rather than refused, so clearing
+ * the box in the editor clears the label.
+ */
+const sessionLabelSchema = z
+  .preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? null : value),
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(60)
+      .regex(/^[^\p{Cc}]+$/u, 'A label cannot contain control characters')
+      .nullable(),
+  )
+  .optional()
+
 /** Create a session on an event. */
 export const createSessionRequestSchema = z.object({
   ...revisionPrecondition,
@@ -1167,6 +1344,8 @@ export const createSessionRequestSchema = z.object({
   endsAt: timestampSchema,
   doorsOpenAt: timestampSchema.nullish(),
   timezone: timezoneSchema,
+  /** "Night 1", "Ashtami": optional, and a blank one means the date labels it. */
+  label: sessionLabelSchema,
   salesStartAt: timestampSchema.nullish(),
   salesEndAt: timestampSchema.nullish(),
   /** Null for general admission; a published map version for reserved seating. */
@@ -1212,6 +1391,8 @@ export const updateSessionRequestSchema = z
     endsAt: timestampSchema.optional(),
     doorsOpenAt: timestampSchema.nullish(),
     timezone: timezoneSchema.optional(),
+    /** Null or blank clears it, and the night is labelled by its date alone. */
+    label: sessionLabelSchema,
     salesStartAt: timestampSchema.nullish(),
     salesEndAt: timestampSchema.nullish(),
     venueMapVersionId: cuidSchema.nullish(),

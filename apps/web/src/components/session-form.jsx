@@ -40,6 +40,8 @@ const FIELD_WORDS = Object.freeze({
  */
 export function toSessionForm(source) {
   return {
+    // Only a session carries a label; a new one timed like the event starts blank.
+    label: typeof source.label === 'string' ? source.label : '',
     timezone: source.timezone ?? 'America/New_York',
     startsAt: source.startsAt ?? '',
     endsAt: source.endsAt ?? '',
@@ -58,7 +60,11 @@ export function toSessionForm(source) {
  * @returns {object} The body.
  */
 export function toSessionBody(values) {
+  const label = String(values.label ?? '').trim()
+
   return {
+    // Blank means the date labels the night; the API reads null the same way.
+    label: label.length > 0 ? label : null,
     startsAt: values.startsAt || undefined,
     endsAt: values.endsAt || undefined,
     doorsOpenAt: values.doorsOpenAt || null,
@@ -311,6 +317,21 @@ export function SessionForm({
           </ul>
         </div>
       ) : null}
+
+      <FormField
+        label="Label (optional)"
+        id={`${idPrefix}-label`}
+        description="For example, Night 1. Leave blank to label it by its date."
+        {...(errors.label ? { error: errors.label } : {})}
+      >
+        <Input
+          type="text"
+          maxLength={60}
+          autoComplete="off"
+          value={values.label ?? ''}
+          onChange={(change) => set({ label: change.target.value })}
+        />
+      </FormField>
 
       <FormField
         label="Time zone"

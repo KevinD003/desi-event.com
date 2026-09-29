@@ -12,6 +12,7 @@ import {
   taxRateBps,
 } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
+import { reservedWorld } from './helpers/reserved-world.js'
 import { resolveSearchTerms, searchTerms } from '../src/routes/events.js'
 
 /**
@@ -97,7 +98,9 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'id',
       'isOnline',
       'languages',
-      'onlineUrl',
+      // No `onlineUrl`: an online event's joining link is its ticket holders'
+      // (`onlineJoinUrl` on the ticket) and its organiser's, never a
+      // stranger's. The key itself is absent from the public payload.
       'organization',
       'organizationId',
       'performers',
@@ -108,6 +111,8 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'publishedAt',
       'revision',
       'runningOrder',
+      // The event's nights, with their labels, times and sales windows.
+      'sessions',
       'slug',
       'socialLinks',
       'sponsors',
@@ -922,5 +927,242 @@ describe('caller-supplied input never surfaces as a server fault', () => {
     expect(response.json().error.message).toMatch(/no such venue/i)
 
     await app.close()
+  })
+})
+
+describe('GET /v1/events/:slug: the online joining link and the nights', () => {
+  it('never gives an anonymous caller an online event’s joining link', async () => {
+    const { app, ids } = await createTestApp()
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.isOnline).toBe(true)
+    expect(response.json().data).not.toHaveProperty('onlineUrl')
+    // Not under any other key either.
+    expect(response.body).not.toContain(ids.onlineEvent.onlineUrl)
+
+    await app.close()
+  })
+
+  it('does not give it to a signed-in buyer who holds no ticket either', async () => {
+    const { app, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+      headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.body).not.toContain(ids.onlineEvent.onlineUrl)
+
+    await app.close()
+  })
+
+  it('still gives the organiser’s own team the link, for the editor', async () => {
+    const { app, ids } = await createTestApp()
+    // The online event belongs to the other organisation, whose owner this is.
+    const headers = bearer(await signIn(app, 'rival@dhol.example'))
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+      headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.onlineUrl).toBe(ids.onlineEvent.onlineUrl)
+
+    // A member of a different organisation is a stranger here.
+    const outsider = bearer(await signIn(app, 'arun@rangoli.example'))
+    const refused = await app.inject({
+      method: 'GET',
+      url: `/v1/events/${ids.onlineEvent.slug}`,
+      headers: outsider,
+    })
+    expect(refused.body).not.toContain(ids.onlineEvent.onlineUrl)
+
+    await app.close()
+  })
+
+  it('lists the nights soonest first, with their labels, doors and zone; tiers name theirs', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const first = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+    const second = {
+      ...first,
+      id: 'ckseconds0000000000000000',
+      label: 'Night 1',
+      startsAt: minutesFromNow(60 * 24 * 5),
+      endsAt: minutesFromNow(60 * 24 * 5 + 240),
+      doorsOpenAt: minutesFromNow(60 * 24 * 5 - 30),
+      timezone: 'America/Chicago',
+      sortOrder: 0,
+    }
+    prisma._store.eventSession.push(second)
+    first.label = '  Night 2  '
+    first.sortOrder = 1
+
+    await prisma.ticketType.update({
+      where: { id: ids.vip.id },
+      data: { eventSessionId: second.id },
+    })
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+
+    expect(response.statusCode).toBe(200)
+
+    const { sessions, ticketTypes } = response.json().data
+    expect(sessions.map((session) => session.id)).toEqual([second.id, first.id])
+    expect(sessions[0]).toEqual({
+      id: second.id,
+      label: 'Night 1',
+      startsAt: second.startsAt.toISOString(),
+      endsAt: second.endsAt.toISOString(),
+      doorsOpenAt: second.doorsOpenAt.toISOString(),
+      timezone: 'America/Chicago',
+      status: 'SCHEDULED',
+      salesStartAt: null,
+      salesEndAt: null,
+      hasSeatMap: false,
+      seatsAvailable: null,
+    })
+    // A label is trimmed, never padded out to the page.
+    expect(sessions[1].label).toBe('Night 2')
+
+    const vip = ticketTypes.find((tier) => tier.id === ids.vip.id)
+    const general = ticketTypes.find((tier) => tier.id === ids.generalAdmission.id)
+    expect(vip.eventSessionId).toBe(second.id)
+    expect(general.eventSessionId ?? null).toBeNull()
+
+    await app.close()
+  })
+
+  it('counts a seated night’s free seats that a tier sells, and no others', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const session = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+    session.venueMapVersionId = 'ckmapversion0000000000000'
+    session.capacity = null
+
+    const seat = (status, ticketTypeId) => ({
+      id: `ckseat${Math.random().toString(36).slice(2, 12).padEnd(19, '0')}`,
+      eventSessionId: session.id,
+      seatId: `cksid${Math.random().toString(36).slice(2, 12).padEnd(20, '0')}`,
+      ticketTypeId,
+      status,
+    })
+
+    prisma._store.eventSeat.push(
+      seat('AVAILABLE', ids.generalAdmission.id),
+      seat('AVAILABLE', ids.generalAdmission.id),
+      seat('AVAILABLE', null),
+      seat('SOLD', ids.generalAdmission.id),
+    )
+
+    const response = await app.inject({ method: 'GET', url: '/v1/events/navratri-garba-night' })
+    const [night] = response.json().data.sessions
+
+    expect(night).toMatchObject({ hasSeatMap: true, seatsAvailable: 2 })
+
+    await app.close()
+  })
+})
+
+describe('GET /v1/events/:slug, for a night sold by zone', () => {
+  /**
+   * Read the event page's payload.
+   *
+   * @param {object} world From `reservedWorld`.
+   * @param {object} [headers] Request headers.
+   * @returns {Promise<object>} The event's `data`.
+   */
+  async function page(world, headers = {}) {
+    const response = await world.app.inject({
+      method: 'GET',
+      url: `/v1/events/${world.ids.publishedEvent.slug}`,
+      headers,
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    return response.json().data
+  }
+
+  it('gives each zone’s tier its own free seats, so a sold-out zone reads sold out', async () => {
+    const world = await reservedWorld({
+      statuses: { A1: 'SOLD', A2: 'SOLD', A3: 'HELD' },
+    })
+
+    const data = await page(world)
+    const night = data.sessions.find((session) => session.id === world.sessionId)
+    const front = data.ticketTypes.find((tier) => tier.id === world.frontTier.id)
+    const back = data.ticketTypes.find((tier) => tier.id === world.backTier.id)
+
+    expect(front).toMatchObject({ availableQuantity: 0, isSoldOut: true })
+    expect(back).toMatchObject({ availableQuantity: 3, isSoldOut: false })
+    expect(night).toMatchObject({ hasSeatMap: true, seatsAvailable: 3 })
+
+    // General admission is still counted where it always was, not here.
+    const general = data.ticketTypes.find((tier) => tier.id === world.ids.generalAdmission.id)
+    expect(general).not.toHaveProperty('availableQuantity')
+
+    await world.app.close()
+  })
+
+  it('counts no seat of a draft or hidden tier for a stranger, and names neither', async () => {
+    const world = await reservedWorld({
+      front: { status: 'DRAFT' },
+      back: { visibility: 'HIDDEN' },
+    })
+
+    const data = await page(world)
+    const night = data.sessions.find((session) => session.id === world.sessionId)
+
+    // The seat map offers this stranger nothing, and the page says the same.
+    expect(night).toMatchObject({ hasSeatMap: true, seatsAvailable: 0 })
+    expect(data.ticketTypes.map((tier) => tier.id)).not.toContain(world.frontTier.id)
+    expect(data.ticketTypes.map((tier) => tier.id)).not.toContain(world.backTier.id)
+
+    const map = await world.app.inject({
+      method: 'GET',
+      url: `/v1/sessions/${world.sessionId}/seats`,
+    })
+    expect(map.json().data.counts.available).toBe(night.seatsAvailable)
+
+    // The organiser is shown both tiers, each with its own seats.
+    const headers = bearer(await signIn(world.app, 'arun@rangoli.example'))
+    const inside = await page(world, headers)
+    expect(inside.ticketTypes.find((tier) => tier.id === world.frontTier.id)).toMatchObject({
+      availableQuantity: 3,
+    })
+    expect(inside.ticketTypes.find((tier) => tier.id === world.backTier.id)).toMatchObject({
+      availableQuantity: 3,
+    })
+
+    await world.app.close()
+  })
+
+  it('leaves a tier outside its sales window out of the night’s count, without calling it sold out', async () => {
+    const world = await reservedWorld({ back: { salesStartAt: minutesFromNow(60) } })
+
+    const data = await page(world)
+    const night = data.sessions.find((session) => session.id === world.sessionId)
+    const back = data.ticketTypes.find((tier) => tier.id === world.backTier.id)
+
+    // Only the Front seats can be had now; the Back tier still has its three.
+    expect(night.seatsAvailable).toBe(3)
+    expect(back).toMatchObject({ availableQuantity: 3, isSoldOut: false })
+
+    const map = await world.app.inject({
+      method: 'GET',
+      url: `/v1/sessions/${world.sessionId}/seats`,
+    })
+    expect(map.json().data.counts.available).toBe(night.seatsAvailable)
+
+    await world.app.close()
   })
 })

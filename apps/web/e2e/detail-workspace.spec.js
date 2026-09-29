@@ -1,13 +1,8 @@
 import { createPrismaClient } from '@desi-event/db'
 
 import { expect, test, world } from './support/detail-fixtures.mjs'
-import {
-  CONNECTION,
-  PASSWORD,
-  TOTP_SECRET,
-  currentCode,
-  forgetCodeUse,
-} from './support/seed-refusals.mjs'
+import { CONNECTION, PASSWORD, TOTP_SECRET } from './support/seed-refusals.mjs'
+import { confirmIfAsked } from './support/step-up.mjs'
 
 /**
  * The organiser and operations lists this phase added, and the scoping fix
@@ -277,51 +272,6 @@ function memberRow(table, name) {
   return table.getByRole('row').filter({
     has: table.page().getByRole('rowheader', { name, exact: true }),
   })
-}
-
-/**
- * Confirm a second factor with the page's own prompt, if and only if the page
- * offers it.
- *
- * See the module note: this is arrangement. Whether a window is still open
- * depends on how long the run has taken, and everything asserted afterwards is
- * asserted either way.
- *
- * The offer is drawn on the server and works once React has hydrated it, so
- * the press is repeated until the form it opens is there rather than assumed
- * to have landed.
- *
- * @param {object} page The Playwright page, arrived.
- * @returns {Promise<void>} Resolves once the page no longer asks.
- */
-async function confirmIfAsked(page) {
-  const offer = page.getByRole('button', { name: 'Confirm and continue', exact: true })
-
-  if ((await offer.count()) === 0) return
-
-  const password = page.getByLabel(/^Your password/u)
-
-  await expect(async () => {
-    if (await offer.isVisible()) await offer.click()
-    await expect(password).toBeVisible({ timeout: 1_000 })
-  }).toPass({ timeout: 15_000 })
-
-  // The seeded factor's last code is forgotten first, as the sign-in helper
-  // does, so a code another case used inside the same thirty seconds is not
-  // refused as a replay.
-  await forgetCodeUse()
-
-  const code = currentCode()
-
-  await password.fill(PASSWORD)
-  await page.getByLabel(/^Code from your authenticator/u).fill(code)
-  await page.getByRole('button', { name: 'Confirm', exact: true }).click()
-
-  await expect(page.getByRole('heading', { name: 'Confirm it is you' })).toHaveCount(0)
-
-  // Typed into fields and sent in a request body, never in the address.
-  expect(page.url(), 'the address carries the password').not.toContain(PASSWORD)
-  expect(page.url(), 'the address carries the code').not.toContain(code)
 }
 
 /**

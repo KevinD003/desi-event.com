@@ -142,6 +142,13 @@ export const WORKSPACE_GROUPS = Object.freeze([
         offered: (session) => membershipsWith(session, 'organization:view_members').length > 0,
       },
       {
+        href: '/organizer/promo-codes',
+        label: 'Promo codes',
+        // Membership only, like Team: the codes are an organisation's, and the
+        // API answers them only to a member holding `promo:manage` there.
+        offered: (session) => membershipsWith(session, 'promo:manage').length > 0,
+      },
+      {
         href: '/analytics',
         label: 'Analytics',
         offered: (session) => admits(session, 'analytics'),

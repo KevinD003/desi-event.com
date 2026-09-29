@@ -1095,7 +1095,10 @@ describe('ci:check, on where the verdict lands', () => {
    * Run the real checker against a copy of the committed workflow, changed.
    *
    * The checker reads `.github/workflows` and `turbo.json` from its working
-   * directory, so the copy is a directory holding just those.
+   * directory, so the copy is a directory holding those. It also follows each
+   * browser job to the specs it runs, so the directory holds the two package
+   * manifests, the ruleset document, and a link to the real web package —
+   * linked rather than copied, since these cases change only the workflow.
    *
    * @param {function(string): string} [change] Rewrites the workflow text.
    * @returns {{code: number, output: string}} Exit code and combined output.
@@ -1110,6 +1113,14 @@ describe('ci:check, on where the verdict lands', () => {
     mkdirSync(workflows, { recursive: true })
     writeFileSync(path.join(workflows, 'ci.yml'), workflow, 'utf8')
     copyFileSync(path.join(repoRoot, 'turbo.json'), path.join(root, 'turbo.json'))
+    copyFileSync(path.join(repoRoot, 'package.json'), path.join(root, 'package.json'))
+    mkdirSync(path.join(root, 'apps'))
+    symlinkSync(path.join(repoRoot, 'apps', 'web'), path.join(root, 'apps', 'web'))
+    mkdirSync(path.join(root, 'docs'))
+    copyFileSync(
+      path.join(repoRoot, 'docs', 'BRANCH_PROTECTION.md'),
+      path.join(root, 'docs', 'BRANCH_PROTECTION.md'),
+    )
 
     try {
       const output = execFileSync('node', [checker], {
