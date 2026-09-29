@@ -187,6 +187,33 @@ test.describe.serial('the ticket wallet', () => {
     }
   })
 
+  test('offers one group pass for an order holding two tickets that still admit', async ({
+    owner,
+  }) => {
+    // The seeded order bought two tickets and this account holds both, so the
+    // order has a group pass. The wallet is a way to it and never draws it:
+    // the pass is on the order's own page, on request.
+    const { orderReference } = ids()
+
+    await owner.goto('/tickets')
+
+    const passes = owner.getByRole('region', { name: 'Group passes' })
+    const card = passes.getByRole('listitem').filter({ hasText: orderReference })
+
+    await expect(card).toHaveCount(1)
+    await expect(card).toContainText('Group pass (admits 2)')
+    await expect(card.getByRole('link', { name: /^Show group pass/u })).toHaveAttribute(
+      'href',
+      `/account/orders/${encodeURIComponent(orderReference)}#group-pass`,
+    )
+    await expect(owner.getByRole('img', { name: /group entry pass/iu })).toHaveCount(0)
+
+    const html = await owner.content()
+
+    expect(html).not.toMatch(/G1\.[A-Za-z0-9_-]{43}/u)
+    expect(html).not.toMatch(/DEG-[2-9A-HJ-NP-Z]{12}/u)
+  })
+
   test('reaches every ticket from the keyboard', async ({ owner }) => {
     await owner.goto('/tickets')
 

@@ -28,7 +28,11 @@
     "test:e2e:seats": "DETAIL_E2E_SPEC=**/detail-seat-picker.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:promo-codes": "DETAIL_E2E_SPEC=**/detail-promo-codes.spec.js playwright test --config playwright.detail.config.js",
     "test:e2e:promo-checkout": "DETAIL_E2E_SPEC=**/detail-promo-checkout.spec.js playwright test --config playwright.detail.config.js",
-    "test:e2e:group-booking": "DETAIL_E2E_SPEC=**/detail-group-booking.spec.js playwright test --config playwright.detail.config.js"
+    "test:e2e:group-booking": "DETAIL_E2E_SPEC=**/detail-promo-checkout.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:online-event": "DETAIL_E2E_SPEC=**/detail-online-event.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:group-pass": "DETAIL_E2E_SPEC=**/detail-group-pass.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:transfer-code": "DETAIL_E2E_SPEC=**/detail-transfer-code.spec.js playwright test --config playwright.detail.config.js",
+    "test:e2e:platform-door": "DETAIL_E2E_SPEC=**/detail-platform-door.spec.js playwright test --config playwright.detail.config.js"
   },
   "dependencies": {
     "@desi-event/api-contract": "workspace:*",

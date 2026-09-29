@@ -2,9 +2,14 @@ import AxeBuilder from '@axe-core/playwright'
 import { createPrismaClient } from '@desi-event/db'
 import { expect, test } from '@playwright/test'
 
+import { signIn as signInWaitingOutTheLimiter } from './support/detail-world.mjs'
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
-import { cleanupFeatureWorld, seedFeatureWorld } from './support/seed-feature-world.mjs'
+import {
+  GROUP_GUESTS,
+  cleanupFeatureWorld,
+  seedFeatureWorld,
+} from './support/seed-feature-world.mjs'
 import { removePictures, seedPictures } from './support/seed-media.mjs'
 import {
   CONNECTION,
@@ -15,6 +20,15 @@ import {
   forgetCodeUse,
   seedRefusals,
 } from './support/seed-refusals.mjs'
+import { waitOutCredentialBudget } from './support/step-up.mjs'
+
+// The feature-completion cases below put a team invitation code and an order's
+// group pass on the screen — the one sanctioned exception to "no credential
+// on a page", shown once to the person who hands it over. A screenshot, a
+// trace or a film of either is a working credential in a CI artefact, and
+// these options are worker-scoped, so they cannot be turned off for those
+// cases alone: they are off for the whole file.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 /**
  * The responsive and accessibility sweep the organiser screens never had.
@@ -108,6 +122,18 @@ import {
  * straight into the store for alpha's draft (waiting for review) and gamma's
  * public event (approved), scans all three pages at every viewport, and
  * removes them again.
+ *
+ * The block also sweeps the screens that commerce and the door added: the
+ * page where a team invitation code is typed, the team screen with a freshly
+ * issued code on it, the promo codes screen with a code in its table, the
+ * seat picker as a stranger sees it, a signed-in checkout with a code applied
+ * and a name box per ticket, the platform administrator's filtered door, an
+ * order with its group pass shown, and the door with that group looked up.
+ * The code and the pass are real, which is why this file turns screenshots,
+ * traces and video off at its top level. After the block, the seat grid, the
+ * door's filter and the group pass's controls are worked from the keyboard
+ * alone, and the editor's ticket form is scanned with its reserved-seating
+ * block open, on gamma's balcony concert, whose nights sit on a seat plan.
  *
  * ## Why these tests live in this file rather than a new one
  *
@@ -217,6 +243,49 @@ let platformContext
  * @type {(Promise<object>|null)}
  */
 let platformSignIn = null
+
+/**
+ * The feature world's giver, signed in on first use: the buyer of the group
+ * order whose pass the Phase 4 block draws. No second factor, one credential
+ * request, spent only when a case needs the window.
+ *
+ * @type {(Promise<object>|null)}
+ */
+let giverSignIn = null
+/** @type {object} */
+let giverContext
+/**
+ * The group code the giver's order page showed, for the door case after it.
+ *
+ * @type {string|null}
+ */
+let shownGroupCode = null
+/**
+ * A promo code the Phase 4 block writes for alpha, so the promo codes screen
+ * is measured with a row in its table, and removes again.
+ *
+ * @type {string}
+ */
+const SWEEP_PROMO_CODE = `SWEEP10${TAG.toUpperCase()}`
+
+/**
+ * The giver's page, signing in the first time it is asked for.
+ *
+ * Memoised as a promise for the reason {@link platformReader} gives.
+ *
+ * @returns {Promise<object>} A signed-in page.
+ */
+function giverWindow() {
+  giverSignIn ??= (async () => {
+    const page = await giverContext.newPage()
+
+    await signInWaitingOutTheLimiter(page, feature.giverEmail)
+
+    return page
+  })()
+
+  return giverSignIn
+}
 
 /**
  * The platform reader's page, signing in the first time it is asked for.
@@ -644,12 +713,13 @@ function levelOneHeadings(page) {
 /**
  * The window a surface is opened in.
  *
- * @param {'visitor'|'organiser'|'platform'} kind Whose.
+ * @param {'visitor'|'organiser'|'platform'|'giver'} kind Whose.
  * @returns {Promise<object>} The page.
  */
 async function windowFor(kind) {
   if (kind === 'visitor') return visitor
   if (kind === 'platform') return platformReader()
+  if (kind === 'giver') return giverWindow()
 
   return organiser
 }
@@ -701,7 +771,7 @@ async function openMenu(page, press) {
 /**
  * @typedef {object} SweptSurface
  * @property {string} name What the page is, for the test title.
- * @property {'visitor'|'organiser'|'platform'} window Whose window it is opened in.
+ * @property {'visitor'|'organiser'|'platform'|'giver'} window Whose window it is opened in.
  * @property {function(): string} path Where it is.
  * @property {function(): string} heading Its one level-one heading, exactly.
  * @property {function(): string} title Its document title, before the site's suffix.
@@ -1086,6 +1156,203 @@ const PHASE_4_SURFACES = Object.freeze([
       await expect(page.getByRole('article', { name: 'Role Target' })).toContainText(
         'Platform role: Attendee',
       )
+    },
+  },
+  {
+    name: 'the page where a team invitation code is typed',
+    window: 'organiser',
+    path: () => '/account/invitations',
+    heading: () => 'Join an organisation',
+    title: () => 'Join an organisation',
+    async arrived(page) {
+      // Measured as it first appears: nothing is typed or sent.
+      const form = page.getByRole('form', { name: 'Join with a code', exact: true })
+
+      await expect(form.getByLabel(/^Invitation code/u)).toBeVisible()
+      await expect(form.getByLabel(/^Invitation code/u)).toHaveValue('')
+    },
+  },
+  {
+    name: 'the team screen with a freshly issued invitation code on it',
+    window: 'organiser',
+    path: () => '/organizer/team',
+    heading: () => 'Team and roles',
+    title: () => 'Team and roles',
+    async arrived(page) {
+      // A real invitation, to an address of this run's own, so the panel is
+      // the one a person sees: the code, its field and its instructions.
+      const invitee = `sweep-invitee-${TAG}@attendee.test`
+      const form = page.getByRole('form', { name: 'Invite somebody', exact: true })
+
+      await form.getByLabel(/^Their email address/u).fill(invitee)
+      await waitOutCredentialBudget(
+        page,
+        async () => {
+          await form.getByRole('button', { name: 'Invite them', exact: true }).click()
+          await expect(
+            page.getByRole('region', { name: `Invitation code for ${invitee}`, exact: true }),
+          ).toBeVisible()
+        },
+        { refusedAt: /\/invitations$/u },
+      )
+
+      const panel = page.getByRole('region', {
+        name: `Invitation code for ${invitee}`,
+        exact: true,
+      })
+
+      await expect(panel.getByLabel('Invitation code', { exact: true })).toHaveAttribute(
+        'readonly',
+        '',
+      )
+      await expect(
+        panel.getByRole('button', { name: 'I have handed it over', exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'the promo codes screen, with a code in its table',
+    window: 'organiser',
+    path: () =>
+      `/organizer/promo-codes?organizationId=${encodeURIComponent(seeded.alphaOrganizationId)}`,
+    heading: () => 'Promo codes',
+    title: () => 'Promo codes',
+    async arrived(page) {
+      const row = page
+        .getByRole('table')
+        .getByRole('row')
+        .filter({ has: page.getByRole('rowheader', { name: SWEEP_PROMO_CODE, exact: true }) })
+
+      await expect(row).toContainText('10% off')
+      await expect(row).toContainText('Active')
+      await expect(
+        page.getByRole('form', { name: 'Make a promo code', exact: true }).getByLabel('Code', {
+          exact: true,
+        }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'the seat picker, signed out',
+    window: 'visitor',
+    path: () => `/events/${feature.gammaSeatedEventSlug}/seats/${feature.gammaSeatedSessionIds[0]}`,
+    heading: () => `Choose seats for ${feature.gammaSeatedEventTitle}`,
+    title: () => `Choose seats for ${feature.gammaSeatedEventTitle}`,
+    async arrived(page) {
+      const grid = page.getByRole('grid', { name: 'Balcony', exact: true })
+
+      await expect(page.getByRole('heading', { name: 'What the seats show' })).toBeVisible()
+      await expect(grid.getByRole('button')).toHaveCount(12)
+      // The giver's seat, sold, and said to be in words.
+      await expect(grid.getByRole('button', { name: /^Seat A3, .*, unavailable$/u })).toHaveCount(1)
+      await expect(
+        page.getByRole('link', { name: 'Sign in to reserve', exact: true }),
+      ).toBeVisible()
+      await expect(page.getByRole('button', { name: /^Reserve /u })).toHaveCount(0)
+    },
+  },
+  {
+    name: 'a signed-in checkout with a promo code applied and a name box for each ticket',
+    window: 'organiser',
+    path: () => `/events/${feature.gammaGaEventSlug}/checkout`,
+    heading: () => `Tickets for ${feature.gammaGaEventTitle}`,
+    title: () => `Tickets for ${feature.gammaGaEventTitle}`,
+    async arrived(page) {
+      const tier = 'General admission, night 1'
+      const quantity = page.getByLabel(`Quantity of ${tier}`)
+      const add = page.getByRole('button', { name: `Add one ${tier}`, exact: true })
+
+      await expect(async () => {
+        if ((await quantity.inputValue()) === '0') await add.click()
+
+        await expect(quantity).toHaveValue('1', { timeout: 1_000 })
+      }).toPass({ timeout: 15_000 })
+
+      // Held for the length of a hold and never paid for: it lapses by itself.
+      await page.getByRole('button', { name: 'Reserve tickets', exact: true }).click()
+      await expect(page.getByRole('status').filter({ hasText: 'Tickets held' })).toBeVisible()
+
+      const summary = page.getByRole('region', { name: 'Order summary', exact: true })
+
+      await summary.getByLabel('Promo code').fill(feature.gammaPromoCode)
+      await summary.getByRole('button', { name: 'Apply', exact: true }).click()
+      await expect(summary).toContainText(`${feature.gammaPromoCode} applied: 10% off.`)
+      await expect(summary.getByTestId('summary-discount')).toBeVisible()
+      await expect(
+        page.getByRole('group', { name: 'Who is going?', exact: true }).getByRole('textbox'),
+      ).toHaveCount(1)
+    },
+  },
+  {
+    name: 'the platform administrator’s door, filtered to one organisation',
+    window: 'platform',
+    path: () =>
+      `/organizer/check-in?organizationId=${encodeURIComponent(feature.gammaOrganizationId)}`,
+    heading: () => 'Check-in',
+    title: () => 'Check-in',
+    async arrived(page) {
+      const filter = page.getByRole('search', { name: 'Find an event', exact: true })
+
+      await expect(filter.getByLabel('Organisation', { exact: true })).toHaveValue(
+        feature.gammaOrganizationId,
+      )
+      await expect(
+        page.getByRole('status').filter({ hasText: 'Platform administrator authority' }),
+      ).toBeVisible()
+      await expect(
+        page
+          .getByLabel('Event you are admitting to')
+          .locator('option', { hasText: feature.gammaGaEventTitle }),
+      ).toHaveCount(1)
+    },
+  },
+  {
+    name: 'an order with its group pass shown',
+    window: 'giver',
+    path: () => `/account/orders/${encodeURIComponent(feature.groupOrderReference)}`,
+    heading: () => feature.gammaGaEventTitle,
+    title: () => 'Order',
+    async arrived(page) {
+      const section = page.getByRole('region', { name: 'Group pass (admits 3)', exact: true })
+
+      await section.getByRole('button', { name: 'Show group pass', exact: true }).click()
+      await expect(
+        page.getByRole('img', { name: 'Group entry pass for 3 people, as a QR code' }),
+      ).toBeVisible()
+      await expect(section.getByRole('button', { name: 'Hide group pass' })).toBeFocused()
+
+      // Read for the door case next, which types it.
+      shownGroupCode = (await section.innerText()).match(/DEG-[2-9A-HJ-NP-Z]{12}/u)?.[0] ?? null
+      expect(shownGroupCode, 'the order page shows no group code').not.toBeNull()
+    },
+  },
+  {
+    name: 'the door with a group pass looked up',
+    window: 'platform',
+    path: () =>
+      `/organizer/check-in?organizationId=${encodeURIComponent(feature.gammaOrganizationId)}&q=${encodeURIComponent('Garba Nights')}`,
+    heading: () => 'Check-in',
+    title: () => 'Check-in',
+    async arrived(page) {
+      expect(shownGroupCode, 'the order case before this one showed no code').not.toBeNull()
+
+      // Looked up, not admitted: the card is measured with every guest ticked.
+      await page.getByLabel(/^Printed ticket code/u).fill(shownGroupCode)
+      await page.getByRole('button', { name: 'Look up', exact: true }).click()
+
+      const card = page
+        .getByRole('region')
+        .filter({ has: page.getByRole('heading', { name: 'Check the group, then admit' }) })
+
+      await expect(card).toBeVisible()
+
+      for (const guest of GROUP_GUESTS) {
+        await expect(
+          card.getByRole('checkbox', { name: new RegExp(`^${guest}`, 'u') }),
+        ).toBeChecked()
+      }
+
+      await expect(card.getByRole('button', { name: 'Admit 3', exact: true })).toBeVisible()
     },
   },
 ])
@@ -2076,20 +2343,18 @@ test.describe.serial('the Phase 2 screens, swept', () => {
 
   test('the holder’s pass is clean, at the narrowest width and the widest', async ({ browser }) => {
     // This case scans the panel a pass is drawn in, and it never draws a real
-    // one. This configuration keeps screenshots of a failing test's pages, and
-    // a screenshot of a pass is a ticket. Closing the context does not stop
-    // that: Playwright 1.63 takes a screenshot of every page in a context as
-    // the context closes and keeps it if the test failed, and on a timeout it
-    // screenshots every page still open. `screenshot`, `trace` and `video` are
-    // worker-scoped, so `test.use` cannot turn them off for this one case
-    // while the rest of the sweep keeps them.
+    // one. A screenshot of a pass is a ticket, and Playwright takes one of
+    // every open page when a test fails or times out. This file now turns
+    // screenshots, traces and video off at its top level (its team-code and
+    // group-pass cases need that), and the pass is still answered here, so
+    // that this case is safe on its own terms too and never depends on the
+    // file's settings to keep a real pass out of an artefact.
     //
     // So the pass request is answered here, before it can leave the browser,
     // with a value that is plainly not a credential. It has a real pass's
     // length and alphabet, so the drawing is the size a real one is. The real
     // round trip — drawn, decoded, scanned, admitted — is in
-    // `detail-organizer-checkin.spec.js`, whose file-level `test.use` turns
-    // screenshots, traces and video off.
+    // `detail-organizer-checkin.spec.js`.
     const context = await browser.newContext()
     const ticketId = door.doorTicketIds[0]
     const synthetic = 'SWEEP-NOT-A-CREDENTIAL-'.padEnd(43, 'x')
@@ -2196,6 +2461,25 @@ test.describe.serial('the Phase 2 screens, swept', () => {
           update: message,
           create: { dedupeKey, ...message },
         })
+
+        // One of alpha's own, so its promo codes screen has a row to reflow.
+        const code = {
+          organizationId: seeded.alphaOrganizationId,
+          type: 'PERCENTAGE',
+          value: 1_000,
+          active: true,
+        }
+
+        await prisma.promoCode.upsert({
+          where: {
+            organizationId_code: {
+              organizationId: seeded.alphaOrganizationId,
+              code: SWEEP_PROMO_CODE,
+            },
+          },
+          update: code,
+          create: { code: SWEEP_PROMO_CODE, ...code },
+        })
       } finally {
         await prisma.$disconnect()
       }
@@ -2204,17 +2488,24 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       // a visitor sees, and sign-in and registration redirect anybody else.
       visitorContext = await browser.newContext()
       visitor = await visitorContext.newPage()
+      // Empty until a case asks for the giver.
+      giverContext = await browser.newContext()
     })
 
     test.afterAll(async () => {
       await visitorContext?.close()
+      await giverContext?.close()
 
       const prisma = createPrismaClient({ connectionString: CONNECTION })
 
-      // Nothing references either row, so both deletes succeed.
+      // Nothing references these rows — the promo code was never used — so
+      // every delete succeeds.
       try {
         await prisma.venue.deleteMany({ where: { slug: SWEEP_VENUE.slug } })
         await prisma.notificationOutbox.deleteMany({ where: { dedupeKey: OUTBOX_PROBE.dedupeKey } })
+        await prisma.promoCode.deleteMany({
+          where: { organizationId: seeded.alphaOrganizationId, code: SWEEP_PROMO_CODE },
+        })
       } finally {
         await prisma.$disconnect()
       }
@@ -2462,6 +2753,270 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         expect(found.unsettled, '[data-motion] content not at rest').toEqual([])
       } finally {
         await page.close()
+      }
+    })
+
+    test('the seat grid is reached and worked by keyboard alone, and says what changed', async () => {
+      const page = visitor
+
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(
+        `/events/${feature.gammaSeatedEventSlug}/seats/${feature.gammaSeatedSessionIds[1]}`,
+      )
+
+      const grid = page.getByRole('grid', { name: 'Balcony', exact: true })
+      const seat = (label) =>
+        grid.getByRole('button', { name: new RegExp(`^Seat ${label}, `, 'u') })
+
+      await expect(grid).toBeVisible()
+      // The grid answers only once it has hydrated.
+      await expect(
+        page.getByRole('link', { name: 'Sign in to reserve', exact: true }),
+      ).toBeVisible()
+
+      // One tab stop for the whole grid: Tab lands on its first seat.
+      let onSeat = false
+
+      for (let press = 0; press < 60 && !onSeat; press += 1) {
+        await page.keyboard.press('Tab')
+        onSeat = await page.evaluate(() =>
+          /^Seat [A-Z]\d+, /u.test(document.activeElement?.getAttribute('aria-label') ?? ''),
+        )
+      }
+
+      expect(onSeat, 'Tab never reached the seat grid').toBe(true)
+      await expect(seat('A1')).toBeFocused()
+
+      // Where the focus is, is drawn: a ring, not the browser's default alone.
+      const ring = await seat('A1').evaluate((node) => getComputedStyle(node).boxShadow)
+
+      expect(ring, 'the focused seat draws no ring').not.toBe('none')
+
+      await page.keyboard.press('ArrowRight')
+      await expect(seat('A2')).toBeFocused()
+      await page.keyboard.press('End')
+      await expect(seat('A6')).toBeFocused()
+      await page.keyboard.press('PageDown')
+      await expect(seat('B6')).toBeFocused()
+      await page.keyboard.press('Space')
+      await expect(seat('B6')).toHaveAttribute('aria-pressed', 'true')
+      await expect(
+        page
+          .getByRole('region', { name: 'Your selection', exact: true })
+          .getByRole('status')
+          .first(),
+      ).toHaveText('Seat B6 added. 1 seat selected.')
+      await page.keyboard.press('Space')
+      await expect(seat('B6')).toHaveAttribute('aria-pressed', 'false')
+
+      // Tab leaves the grid in one press, rather than walking every seat.
+      await page.keyboard.press('Tab')
+      expect(
+        await page.evaluate(() =>
+          /^Seat [A-Z]\d+, /u.test(document.activeElement?.getAttribute('aria-label') ?? ''),
+        ),
+        'Tab walked into another seat instead of leaving the grid',
+      ).toBe(false)
+    })
+
+    test('the door’s filter is worked by keyboard alone', async () => {
+      const page = await platformReader()
+
+      await page.setViewportSize({ width: 1280, height: 900 })
+      await page.goto('/organizer/check-in')
+
+      const filter = page.getByRole('search', { name: 'Find an event', exact: true })
+      const organisation = filter.getByLabel('Organisation', { exact: true })
+
+      await expect(organisation).toBeVisible()
+
+      await organisation.focus()
+      await page.keyboard.type(`Gamma Collective ${TAG}`)
+      await expect(organisation).toHaveValue(feature.gammaOrganizationId)
+      await page.keyboard.press('Tab')
+      await expect(filter.getByLabel('Event or organisation name')).toBeFocused()
+      await page.keyboard.type('Balcony')
+      await page.keyboard.press('Tab')
+      await expect(filter.getByRole('button', { name: 'Show events', exact: true })).toBeFocused()
+      await page.keyboard.press('Enter')
+
+      await page.waitForURL(
+        (url) =>
+          url.searchParams.get('organizationId') === feature.gammaOrganizationId &&
+          url.searchParams.get('q') === 'Balcony',
+      )
+      await expect(
+        page
+          .getByRole('region', { name: 'Event', exact: true })
+          .getByText(feature.gammaSeatedEventTitle, { exact: true }),
+      ).toBeVisible()
+    })
+
+    test('the group pass is shown and hidden by keyboard alone, with focus kept on its controls', async () => {
+      const page = await giverWindow()
+
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto(`/account/orders/${encodeURIComponent(feature.groupOrderReference)}`)
+
+      const section = page.getByRole('region', { name: 'Group pass (admits 3)', exact: true })
+      const show = section.getByRole('button', { name: 'Show group pass', exact: true })
+
+      await expect(show).toBeVisible()
+      await show.focus()
+      await page.keyboard.press('Enter')
+
+      const hide = section.getByRole('button', { name: 'Hide group pass', exact: true })
+
+      await expect(hide).toBeFocused()
+      await expect(page.getByRole('img', { name: /group entry pass/iu })).toBeVisible()
+      await page.keyboard.press('Enter')
+
+      await expect(show).toBeFocused()
+      await expect(page.getByRole('img', { name: /group entry pass/iu })).toHaveCount(0)
+    })
+
+    test('the feature-completion screens are walked by keyboard, every stop showing where the focus is', async () => {
+      // Tab from the top of each page through everything in its main region,
+      // as somebody without a mouse does. Every control must draw a ring or an
+      // outline of its own when focus arrives on it — a border that was there
+      // anyway says nothing about focus — and each page must have stops to
+      // walk: a page whose controls Tab cannot reach would pass the first rule
+      // with nothing to check.
+      //
+      // A control is judged where focus arrives on it. A date-and-time field
+      // is one control with several stops inside it — each part of the date,
+      // then its calendar button, on which the browser draws its own ring
+      // inside the field, beyond this page's styles and this check's reach —
+      // so its later stops are not counted again.
+      const screens = [
+        ['organiser', '/account/organizations/new'],
+        ['organiser', '/organizer/organization'],
+        ['organiser', '/account/invitations'],
+        ['organiser', '/organizer/team'],
+        [
+          'organiser',
+          `/organizer/promo-codes?organizationId=${encodeURIComponent(seeded.alphaOrganizationId)}`,
+        ],
+        ['platform', '/moderation/organizations'],
+        [
+          'platform',
+          `/moderation/organizations/${encodeURIComponent(feature.pendingOrganizationId)}`,
+        ],
+        ['platform', '/admin/users'],
+        [
+          'platform',
+          `/organizer/check-in?organizationId=${encodeURIComponent(feature.gammaOrganizationId)}`,
+        ],
+        [
+          'visitor',
+          `/events/${feature.gammaSeatedEventSlug}/seats/${feature.gammaSeatedSessionIds[0]}`,
+        ],
+      ]
+
+      for (const [kind, path] of screens) {
+        const page = await windowFor(kind)
+
+        await page.setViewportSize({ width: 1280, height: 900 })
+        await page.goto(path)
+        await expect(page.locator('main h1')).toBeVisible()
+        // The rings are the stylesheet's and the order is the document's, so
+        // the server's markup is what is walked; nothing waits on a script.
+        await page.evaluate(() => {
+          document.activeElement?.blur()
+          window.scrollTo(0, 0)
+        })
+
+        const stops = []
+
+        for (let press = 0; press < 60; press += 1) {
+          await page.keyboard.press('Tab')
+
+          const stop = await page.evaluate(() => {
+            const element = document.activeElement
+            const main = document.querySelector('main')
+
+            if (!element || element === document.body) return { done: true }
+            if (!main?.contains(element)) return { outside: true }
+
+            window.sweepWalked ??= new WeakSet()
+
+            if (window.sweepWalked.has(element)) return { again: true }
+
+            window.sweepWalked.add(element)
+
+            const style = getComputedStyle(element)
+            const outlined =
+              style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) > 0
+            const ringed = style.boxShadow !== 'none'
+
+            return {
+              marked: outlined || ringed,
+              what: element.outerHTML.slice(0, 100),
+            }
+          })
+
+          if (stop.done) break
+          if (stop.again) continue
+          if (stop.outside) {
+            if (stops.length > 0) break
+            continue
+          }
+
+          stops.push(stop)
+        }
+
+        expect(stops.length, `${path}: Tab reached nothing in main`).toBeGreaterThan(0)
+        expect(
+          stops.filter((stop) => !stop.marked).map((stop) => stop.what),
+          `${path}: stops that show no focus`,
+        ).toEqual([])
+      }
+    })
+
+    test('the editor’s ticket form is clean with its reserved-seating block open', async ({
+      browser,
+    }) => {
+      // Gamma's balcony concert: its nights sit on a published seat plan, so
+      // the reserved-seating choice is live there (alpha's draft has no such
+      // night, which is why the per-viewport editor cases cannot open it).
+      // Opened and measured; nothing is added.
+      const context = await browser.newContext()
+
+      try {
+        const page = await context.newPage()
+
+        await signInWaitingOutTheLimiter(page, feature.gammaOwnerEmail)
+
+        for (const viewport of VIEWPORTS) {
+          await page.setViewportSize({ width: viewport.width, height: viewport.height })
+          await page.goto(`/organizer/events/${feature.gammaSeatedEventId}`)
+          await expect(
+            page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+          ).toBeAttached()
+
+          const step = page
+            .getByRole('navigation', { name: 'Editor steps' })
+            .getByRole('button', { name: /^Step 4\s*Tickets$/u })
+
+          await step.click()
+          await expect(step).toHaveAttribute('aria-current', 'step')
+
+          const add = page
+            .locator('div')
+            .filter({ has: page.getByRole('heading', { name: 'Add a ticket type', exact: true }) })
+            .last()
+
+          await add.getByLabel(/^Reserved seating/u).check()
+          await expect(add.getByLabel(/^Which session/u)).toBeVisible()
+          await expect(add.getByLabel(/^Price zone/u)).toBeVisible()
+
+          const violations = await scan(page)
+
+          expect(violations, `at ${viewport.name}\n  ${describe(violations)}`).toHaveLength(0)
+          expect(await sidewaysOverflow(page), `at ${viewport.name}`).toBeLessThanOrEqual(1)
+        }
+      } finally {
+        await context.close()
       }
     })
   })

@@ -19,16 +19,22 @@
  *         reserved tier per night pricing that zone, and every seat of every
  *         night bound to its night's tier;
  *       - a draft event, for pictures and the new detail fields;
- *       - two organisation-wide promo codes, one current and one expired.
+ *       - an online event on sale, with a joining link only a holder is
+ *         given, and beside its public tier a hidden one nobody is shown;
+ *       - three organisation-wide promo codes: one current, one expired, and
+ *         one whose only use is spent.
  *   - **giver**, an attendee holding a general-admission ticket to offer, a
- *     reserved seat on night one, and an order of three tickets with three
- *     guests' names, for the group pass.
+ *     reserved seat on night one, an order of three tickets with three
+ *     guests' names, for the group pass, and one more ticket on night one
+ *     that only the platform's own door admits (`detail-platform-door`).
  *   - **taker**, an attendee with nothing, to accept what is offered.
  *   - **role-target**, an attendee with a confirmed second factor whom no
  *     global setup ever signs in, so a platform-role change rotates nobody's
  *     saved session.
  *   - **pending-<tag>**, an organisation that has asked to be verified and is
  *     waiting, with its owner, so the verification queue is not empty.
+ *   - **door-moderator**, a MODERATOR with a confirmed second factor: a
+ *     platform role that is not door authority, whom the door refuses.
  *
  * Every address and slug carries the tag, and every name a buyer or guest
  * types is checked against the analytics and refund needle lists, so none of
@@ -96,6 +102,28 @@ export const TAKER_NAME = 'Tara Iyer'
 /** The three guests on the giver's group order, in ticket order. */
 export const GROUP_GUESTS = Object.freeze(['Meera Joshi', 'Kabir Rao', 'Anika Sen'])
 
+/** The name on the ticket the platform's door admits. */
+export const PLATFORM_GUEST = 'Nikhil Varma'
+
+/** An online ticket, in cents. */
+export const ONLINE_PRICE_CENTS = 1_500
+
+/** The online event's public tier, and the hidden one beside it. */
+export const ONLINE_TIERS = Object.freeze({ public: 'Online pass', hidden: 'Speakers and crew' })
+
+/**
+ * The online event's joining link.
+ *
+ * On a `.test` host, so nothing ever resolves it, and carrying the tag, so a
+ * page that printed another run's link could not pass for this one's.
+ *
+ * @param {string} tag The run suffix.
+ * @returns {string} The link.
+ */
+export function onlineJoinUrl(tag) {
+  return `https://stream.example.test/${checkedTag(tag)}`
+}
+
 /**
  * Words the analytics, refund and reconciliation payload scans look for.
  *
@@ -153,7 +181,7 @@ export function checkedTag(tag) {
  * Pure, so a spec can name an account without reading the world file.
  *
  * @param {string} tag The run suffix.
- * @returns {{gammaOwner: string, giver: string, taker: string, roleTarget: string, pendingOwner: string}} The addresses.
+ * @returns {{gammaOwner: string, giver: string, taker: string, roleTarget: string, pendingOwner: string, doorModerator: string}} The addresses.
  */
 export function featureAccounts(tag) {
   checkedTag(tag)
@@ -164,6 +192,7 @@ export function featureAccounts(tag) {
     taker: `taker-${tag}@attendee.test`,
     roleTarget: `role-target-${tag}@platform.test`,
     pendingOwner: `pending-owner-${tag}@organiser.test`,
+    doorModerator: `door-moderator-${tag}@platform.test`,
   }
 }
 
@@ -171,7 +200,7 @@ export function featureAccounts(tag) {
  * The slugs this world's organisations, venue and events use.
  *
  * @param {string} tag The run suffix.
- * @returns {{gamma: string, pending: string, venue: string, gaEvent: string, seatedEvent: string, draftEvent: string}} The slugs.
+ * @returns {{gamma: string, pending: string, venue: string, gaEvent: string, seatedEvent: string, draftEvent: string, onlineEvent: string}} The slugs.
  */
 export function featureSlugs(tag) {
   checkedTag(tag)
@@ -183,11 +212,12 @@ export function featureSlugs(tag) {
     gaEvent: `gamma-nights-${tag}`,
     seatedEvent: `gamma-balcony-${tag}`,
     draftEvent: `gamma-draft-${tag}`,
+    onlineEvent: `gamma-online-${tag}`,
   }
 }
 
 /**
- * Gamma's two promo codes.
+ * Gamma's three promo codes.
  *
  * Each carries the tag, upper-cased, so two runs never share a code. A tag is
  * random, and one that happened to spell a payload needle would put it in a
@@ -195,7 +225,7 @@ export function featureSlugs(tag) {
  * alphabet cannot spell any of them.
  *
  * @param {string} tag The run suffix.
- * @returns {{current: string, expired: string}} The current 10% code and the expired one.
+ * @returns {{current: string, expired: string, used: string}} The current 10% code, the expired one, and the one used up.
  */
 export function featurePromoCodes(tag) {
   checkedTag(tag)
@@ -205,7 +235,11 @@ export function featurePromoCodes(tag) {
     ? createHash('sha256').update(tag).digest('hex').slice(0, 12).toUpperCase()
     : tag.toUpperCase()
 
-  return { current: `GAMMA10${suffix}`, expired: `GAMMAOLD${suffix}` }
+  return {
+    current: `GAMMA10${suffix}`,
+    expired: `GAMMAOLD${suffix}`,
+    used: `GAMMAUSED${suffix}`,
+  }
 }
 
 /**
@@ -565,6 +599,7 @@ export async function seedFeatureWorld({ tag }) {
     'taker name': TAKER_NAME,
     'current promo code': promoCodes.current,
     'expired promo code': promoCodes.expired,
+    'used promo code': promoCodes.used,
   })
 
   const prisma = createPrismaClient({ connectionString: CONNECTION })
@@ -623,9 +658,14 @@ export async function seedFeatureWorld({ tag }) {
     const taker = await account(accounts.taker, TAKER_NAME, 'ATTENDEE')
     const roleTarget = await account(accounts.roleTarget, 'Role Target', 'ATTENDEE')
     const pendingOwner = await account(accounts.pendingOwner, 'Pending Owner', 'ORGANIZER')
+    const doorModerator = await account(accounts.doorModerator, 'Door Moderator', 'MODERATOR')
 
     await enrol(gammaOwner.id)
     await enrol(pendingOwner.id)
+    // A platform role with capabilities, none of them the door's: the role
+    // requires a second factor, so it has one, and it signs in the way a real
+    // moderator would.
+    await enrol(doorModerator.id)
     // An attendee needs no factor, but the role this account is about to be
     // given does: a platform role without one is refused at the next
     // privileged route, which is a different journey from the one under test.
@@ -890,6 +930,61 @@ export async function seedFeatureWorld({ tag }) {
       },
     })
 
+    // ------------------------------------------------------------ online
+    //
+    // No venue, a joining link, and two tiers: the public one, and a hidden
+    // one the public page must not list and a stranger must not book by id.
+    // Seventy days out, after every other public event in the detail world,
+    // so the listings those specs read keep their order.
+
+    const onlineTimes = night(70)
+    const onlineEvent = await prisma.event.create({
+      data: {
+        organizationId: gamma.id,
+        venueId: null,
+        isOnline: true,
+        onlineUrl: onlineJoinUrl(tag),
+        title: `Gamma Online Workshop ${tag}`,
+        slug: slugs.onlineEvent,
+        summary: 'A garba steps class, streamed.',
+        description:
+          'An online class in the first eight steps of garba. The joining link is on your ticket once you have booked.',
+        category: 'WORKSHOP',
+        status: 'ON_SALE',
+        publishedAt: now,
+        salesOpenedAt: now,
+        startsAt: onlineTimes.startsAt,
+        endsAt: onlineTimes.endsAt,
+        timezone: FEATURE_TIME_ZONE,
+        policies,
+        contactEmail: `gamma-${tag}@example.test`,
+      },
+    })
+
+    const onlinePublicTier = await prisma.ticketType.create({
+      data: {
+        eventId: onlineEvent.id,
+        name: ONLINE_TIERS.public,
+        priceCents: ONLINE_PRICE_CENTS,
+        currency: FEATURE_CURRENCY,
+        quantityTotal: 100,
+        status: 'ON_SALE',
+        sortOrder: 0,
+      },
+    })
+    const onlineHiddenTier = await prisma.ticketType.create({
+      data: {
+        eventId: onlineEvent.id,
+        name: ONLINE_TIERS.hidden,
+        priceCents: ONLINE_PRICE_CENTS,
+        currency: FEATURE_CURRENCY,
+        quantityTotal: 20,
+        status: 'ON_SALE',
+        visibility: 'HIDDEN',
+        sortOrder: 1,
+      },
+    })
+
     // ----------------------------------------------------------- promo codes
 
     // Organisation-wide, so the current code applies on either event.
@@ -911,6 +1006,20 @@ export async function seedFeatureWorld({ tag }) {
         active: true,
         startsAt: new Date(now.getTime() - 30 * DAY_MS),
         endsAt: new Date(now.getTime() - DAY_MS),
+      },
+    })
+    // One use allowed, and that use counted: live in every other respect, so
+    // a buyer is told it is used up rather than anything else, and its
+    // organiser may pause it but not delete it.
+    await prisma.promoCode.create({
+      data: {
+        organizationId: gamma.id,
+        code: promoCodes.used,
+        type: 'PERCENTAGE',
+        value: 1_000,
+        active: true,
+        maxRedemptions: 1,
+        redemptionCount: 1,
       },
     })
 
@@ -951,6 +1060,19 @@ export async function seedFeatureWorld({ tag }) {
       unitPriceCents: GA_PRICE_CENTS,
     })
 
+    // One ticket that only the platform's door admits in its spec: nobody in
+    // gamma is signed in at it there, and no other spec touches it.
+    const platform = await paidOrder(prisma, {
+      reference: `DE-GP${TAG}`,
+      codePrefix: `DE-GAM-${TAG}-P`,
+      eventId: gaEvent.id,
+      eventSessionId: gaSessions[0].id,
+      ticketTypeId: gaTiers[0].id,
+      buyer: giver,
+      attendeeNames: [PLATFORM_GUEST],
+      unitPriceCents: GA_PRICE_CENTS,
+    })
+
     return {
       gammaOrganizationId: gamma.id,
       gammaOrganizationName: gamma.name,
@@ -973,8 +1095,14 @@ export async function seedFeatureWorld({ tag }) {
       gammaSeatLabels: seats.map((seat) => seat.label),
       gammaDraftEventId: draftEvent.id,
       gammaDraftEventSlug: draftEvent.slug,
+      gammaOnlineEventId: onlineEvent.id,
+      gammaOnlineEventSlug: onlineEvent.slug,
+      gammaOnlineEventTitle: onlineEvent.title,
+      gammaOnlineTierId: onlinePublicTier.id,
+      gammaOnlineHiddenTierId: onlineHiddenTier.id,
       gammaPromoCode: promoCodes.current,
       gammaExpiredPromoCode: promoCodes.expired,
+      gammaUsedPromoCode: promoCodes.used,
       giverEmail: giver.email,
       giverId: giver.id,
       offerTicketId: offer.ticketIds[0],
@@ -985,6 +1113,9 @@ export async function seedFeatureWorld({ tag }) {
       groupOrderId: group.orderId,
       groupOrderReference: group.reference,
       groupTicketIds: group.ticketIds,
+      platformOrderReference: platform.reference,
+      platformTicketId: platform.ticketIds[0],
+      platformTicketCode: `DE-GAM-${TAG}-P1`,
       takerEmail: taker.email,
       takerId: taker.id,
       roleTargetEmail: roleTarget.email,
@@ -993,6 +1124,8 @@ export async function seedFeatureWorld({ tag }) {
       pendingOrganizationName: pending.name,
       pendingOrganizationSlug: pending.slug,
       pendingOwnerEmail: pendingOwner.email,
+      doorModeratorEmail: doorModerator.email,
+      doorModeratorId: doorModerator.id,
     }
   } finally {
     await prisma.$disconnect()
@@ -1063,6 +1196,16 @@ export async function cleanupFeatureWorld(tag) {
       for (const event of events) {
         // Picture bytes go with their asset, by cascade.
         await prisma.mediaAsset.deleteMany({ where: { eventId: event.id } }).catch(() => {})
+        // A seat still held — a spec that stopped between reserving and
+        // paying — is given back first: deleting its hold would clear the
+        // seat's hold and leave it HELD, which `event_seat_status_coherent`
+        // refuses, and the refusal would keep every hold below.
+        await prisma.eventSeat
+          .updateMany({
+            where: { status: 'HELD', hold: { ticketType: { eventId: event.id } } },
+            data: { status: 'AVAILABLE', holdId: null },
+          })
+          .catch(() => {})
         // A hold line refuses its tier's deletion; its hold takes it along.
         await prisma.ticketHold
           .deleteMany({ where: { ticketType: { eventId: event.id } } })

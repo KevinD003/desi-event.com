@@ -1,8 +1,7 @@
-import jsQRModule from 'jsqr'
-
 import { createPrismaClient } from '@desi-event/db'
 
 import { expect, test, world } from './support/detail-fixtures.mjs'
+import { decodeDrawing, slices } from './support/qr-drawing.mjs'
 import { CONNECTION } from './support/seed-refusals.mjs'
 
 /**
@@ -39,8 +38,6 @@ import { CONNECTION } from './support/seed-refusals.mjs'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
-const jsQR = jsQRModule.default ?? jsQRModule
-
 /**
  * This run's seeded ids.
  *
@@ -62,49 +59,6 @@ async function admissions(ticketId) {
   } finally {
     await prisma.$disconnect()
   }
-}
-
-/**
- * Decode the QR the holder's page drew, from the path it drew it with.
- *
- * @param {string} path The SVG path, in module units.
- * @param {number} size Modules per side.
- * @returns {string|null} What it encodes.
- */
-function decodeDrawing(path, size) {
-  const scale = 6
-  const width = size * scale
-  const data = new Uint8ClampedArray(width * width * 4).fill(255)
-
-  for (const [, x, y, run] of path.matchAll(/M(\d+) (\d+)h(\d+)v1h-\d+z/gu)) {
-    for (let px = Number(x) * scale; px < (Number(x) + Number(run)) * scale; px += 1) {
-      for (let py = Number(y) * scale; py < (Number(y) + 1) * scale; py += 1) {
-        const at = (py * width + px) * 4
-
-        data[at] = 0
-        data[at + 1] = 0
-        data[at + 2] = 0
-      }
-    }
-  }
-
-  return jsQR(data, width, width)?.data ?? null
-}
-
-/**
- * Every eight-character slice of a string.
- *
- * What "no part of the pass" is checked against. Eight characters of a random
- * base64url string do not turn up anywhere by chance, so a slice found in the
- * door's storage got there from the pass.
- *
- * @param {string} text The string.
- * @returns {string[]} Its slices, overlapping.
- */
-function slices(text) {
-  const size = 8
-
-  return Array.from({ length: text.length - size + 1 }, (_, at) => text.slice(at, at + size))
 }
 
 /**

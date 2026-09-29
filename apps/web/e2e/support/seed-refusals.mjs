@@ -384,11 +384,31 @@ export async function cleanupRefusals(tag) {
       .catch(() => [])
 
     for (const map of maps) {
+      // A night the ledger kept above still sits on its map — the feature
+      // world's balcony, once a spec has sold a seat on it through checkout —
+      // and the map stays with it. Skipped rather than attempted, for the
+      // reason the events are: a foreign-key error in a green run's log reads
+      // like a failure.
+      const inUse = await prisma.eventSession
+        .count({ where: { venueMapVersion: { venueMapId: map.id } } })
+        .catch(() => 0)
+
+      if (inUse > 0) continue
+
       await prisma.venueMapVersion.deleteMany({ where: { venueMapId: map.id } }).catch(() => {})
       await prisma.venueMap.delete({ where: { id: map.id } }).catch(() => {})
     }
 
-    await prisma.venue.deleteMany({ where: { organizationId: organization.id } }).catch(() => {})
+    // And a venue stays while a kept night is on one of its maps, which is
+    // the one thing that would refuse its delete.
+    await prisma.venue
+      .deleteMany({
+        where: {
+          organizationId: organization.id,
+          maps: { none: { versions: { some: { sessions: { some: {} } } } } },
+        },
+      })
+      .catch(() => {})
   }
 
   const users = await prisma.user.findMany({ where: { email: { contains: tag } } })

@@ -1,3 +1,5 @@
+'use client'
+
 /**
  * Narrowing a platform administrator's door list: one organisation, a search.
  *
@@ -6,6 +8,15 @@
  * organisation id and a few words of a title — so both belong in the query
  * string. Shown only when the list is the platform's; a member's list is
  * already just their own doors.
+ *
+ * A client module, though it keeps no state: `FormField` clones the control
+ * it is given, and a control handed to it by a Server Component can arrive as
+ * a lazy reference rather than an element, which it cannot clone. Rendered
+ * from the server, the door page failed with "FormField expects a single
+ * control element" — on a client-side navigation back to the unfiltered door
+ * (the form's own Clear link) it showed the error page instead of the door.
+ * Built here, the controls are ordinary elements. `form-field-boundary.test.js`
+ * holds every `FormField` to the same rule.
  *
  * @module components/door-event-filter
  */
