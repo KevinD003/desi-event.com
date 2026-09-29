@@ -7,10 +7,16 @@ import {
   forgetCodeUse,
   seedEvents,
 } from './support/seed-events.mjs'
+import { confirmIfPrompted } from './support/step-up.mjs'
 
 /**
- * Twenty browser journeys through an event's life, against a real API, a real
- * browser and a disposable database.
+ * Thirty browser journeys through an event's life, against a real API, a real
+ * browser and a disposable database. The twenty numbered ones are the story;
+ * the lettered ones (6a, 7a, 8a…) are the authoring it now takes on the way —
+ * a link typed after the box is ticked, sessions in other zones, tiers edited
+ * and removed, a complimentary tier nobody else sees, the organiser's own
+ * details formatted safely, a live event's safe edits, a date moved only with
+ * a reason, and a postponed event brought back.
  *
  * They are one story told in order, because that is what the feature is: a
  * blank list becomes a draft, a draft becomes a submission, a submission
@@ -56,6 +62,44 @@ let eventId
 let eventSlug
 /** A title unique to this run, so the queue and the catalogue can be searched. */
 const TITLE = `Qawwali Under the Banyan ${TAG}`
+
+/**
+ * A description written the way an organiser formats one: emphasis, a list, a
+ * link that may be followed and one that must never become a link.
+ */
+const DESCRIPTION_MARKUP = [
+  'An evening of qawwali under a **two-hundred-year-old** banyan.',
+  '',
+  '- Chai from seven',
+  '- Seating on durries',
+  '',
+  'More at [our site](https://example.com/) and nothing at [this](javascript:alert(1)).',
+].join('\n')
+
+/** The line-up's one performer. */
+const PERFORMER = Object.freeze({
+  name: 'Ustad Rahim Khan',
+  role: 'lead vocals',
+  bio: 'Has sung qawwali in courtyards like this one for forty years.',
+})
+
+/** The one question people ask. */
+const FAQ = Object.freeze({
+  question: 'Is there somewhere to sit?',
+  answer: 'Durries on the ground, and chairs at the back for anybody who asks.',
+})
+
+/** The public contact address, on a domain that reaches nobody. */
+const PUBLIC_EMAIL = 'hello@banyan.example'
+
+/** The event's Instagram page. */
+const INSTAGRAM = 'https://www.instagram.com/banyan_qawwali'
+
+/** Parking and directions for this event. */
+const PARKING = 'Overflow parking at the school across the road.'
+
+/** What to wear. */
+const DRESS_CODE = 'Comfortable, with shoes you can slip off at the durries.'
 
 /**
  * Sign one seeded account in, through the second factor its role requires.
@@ -121,9 +165,27 @@ async function openStep(page, step) {
 }
 
 /**
+ * Wait until every change on the open step is saved.
+ *
+ * Several fields typed in a row can be saved in more than one request, and the
+ * status can read "Saved at" between them. The button beside it reads "Saved"
+ * only once nothing on the form differs from what the server holds, so both
+ * together mean the last keystroke is stored.
+ *
+ * @param {object} page The organiser's page.
+ * @returns {Promise<void>} Resolves once saved.
+ */
+async function settle(page) {
+  await expect(page.getByRole('button', { name: 'Saved', exact: true })).toBeVisible({
+    timeout: 20_000,
+  })
+  await expect(page.getByTestId('save-status')).toHaveAttribute('data-save-state', 'saved')
+}
+
+/**
  * One story, told in order.
  *
- * `describe.serial` rather than twenty independent tests, because they are not
+ * `describe.serial` rather than thirty independent tests, because they are not
  * independent: journey 4 edits the event journey 1 created, and journey 20
  * cancels the one journey 16 published. Two things follow from saying so.
  *
@@ -305,6 +367,59 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     )
   })
 
+  test('journey 6a: ticking online before typing the link still saves', async () => {
+    await openStep(organiser, /when and where/i)
+
+    const status = organiser.getByTestId('save-status')
+    /**
+     * The next autosave of this event, as the server answered it.
+     *
+     * @returns {Promise<object>} The response.
+     */
+    const nextSave = () =>
+      organiser.waitForResponse(
+        (response) =>
+          response.request().method() === 'PATCH' &&
+          new URL(response.url()).pathname === `/api/v1/events/${eventId}`,
+        { timeout: 20_000 },
+      )
+
+    // Ticked first, with no link typed: a draft is allowed to be unfinished,
+    // so the box saves and the missing link is named as a gap, never an error.
+    let saved = nextSave()
+
+    await organiser.getByLabel('This event is online').check()
+
+    expect((await saved).status()).toBe(200)
+    await expect(status).toHaveAttribute('data-save-state', 'saved')
+    await expect(organiser.getByTestId('validation-summary')).toHaveCount(0)
+    await expect(organiser.getByTestId('readiness-gaps')).toContainText(
+      /an online event needs an address to join it at/i,
+    )
+
+    saved = nextSave()
+    await organiser.getByLabel(/^Where to join/).fill('https://meet.example.com/qawwali')
+
+    expect((await saved).status()).toBe(200)
+    await expect(status).toHaveAttribute('data-save-state', 'saved')
+    await expect(organiser.getByTestId('readiness-gaps')).toHaveCount(0)
+
+    // Survives a reload, which is what saved means.
+    await openStep(organiser, /when and where/i)
+    await expect(organiser.getByLabel('This event is online')).toBeChecked()
+    await expect(organiser.getByLabel(/^Where to join/)).toHaveValue(
+      'https://meet.example.com/qawwali',
+    )
+
+    // Back to in person, for the venue the next journey chooses. Unticking
+    // drops the link with it, so none is left stored on an in-person event.
+    saved = nextSave()
+    await organiser.getByLabel('This event is online').uncheck()
+
+    expect((await saved).status()).toBe(200)
+    await expect(status).toHaveAttribute('data-save-state', 'saved')
+  })
+
   test("journey 7: a session is added and reads back in the venue's zone", async () => {
     // The venue first, because a session is no use without somewhere to be.
     await openStep(organiser, /when and where/i)
@@ -324,6 +439,56 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(organiser.getByText('Session 1')).toBeVisible()
     await expect(organiser.getByText(/\(Asia\/Kolkata GMT\+5:30\)/)).toBeVisible()
     await expect(organiser.getByText('General admission').first()).toBeVisible()
+  })
+
+  test('journey 7a: a session is edited and removed, in any zone', async () => {
+    await openStep(organiser, /^step 3\s*sessions$/i)
+
+    // Every zone, not a short list of Indian and American ones: a festival
+    // touring to Chicago or London can say so.
+    const zone = organiser.getByLabel(/^Time zone/)
+
+    await expect(zone.locator('option[value="America/Chicago"]')).toHaveCount(1)
+    await expect(zone.locator('option[value="Europe/London"]')).toHaveCount(1)
+
+    await zone.selectOption('America/Los_Angeles')
+    await organiser.getByLabel(/^Starts/).fill(wallClock(46, 19))
+    await organiser.getByLabel(/^Ends/).fill(wallClock(46, 22))
+    await organiser.getByLabel(/^Capacity/).fill('50')
+    await organiser.getByRole('button', { name: 'Add session' }).click()
+
+    await expect(organiser.getByText('Session added.')).toBeVisible()
+
+    const second = organiser
+      .getByRole('listitem')
+      .filter({ has: organiser.getByRole('heading', { name: /^Session 2/ }) })
+
+    // Read back in its own zone, whatever zone the event is in.
+    await expect(second).toContainText(/\(America\/Los_Angeles P[DS]T\)/u)
+    await expect(second).toContainText(`${wallClock(46, 19).replace('T', ' ')}`)
+
+    await second.getByRole('button', { name: 'Edit session 2' }).click()
+    await second.getByLabel(/^Capacity/).fill('75')
+    await second.getByRole('button', { name: 'Save changes' }).click()
+
+    await expect(organiser.getByText('Session saved.')).toBeVisible()
+    await expect(second).toContainText('Capacity 75')
+
+    // A DELETE with its revision in the query, answered 2xx: the Remove that
+    // used to be refused with a 400 whatever was sent.
+    await second.getByRole('button', { name: 'Remove session 2' }).click()
+
+    const removed = organiser.waitForResponse(
+      (response) =>
+        response.request().method() === 'DELETE' && /\/sessions\//u.test(response.url()),
+    )
+
+    await second.getByRole('button', { name: 'Yes, remove it' }).click()
+
+    expect((await removed).status()).toBeLessThan(300)
+    await expect(organiser.getByText('Session removed.')).toBeVisible()
+    await expect(organiser.getByRole('heading', { name: /^Session 2/ })).toHaveCount(0)
+    await expect(organiser.getByRole('heading', { name: /^Session 1/ })).toBeVisible()
   })
 
   test('journey 8: a ticket type shows what a buyer is actually charged', async () => {
@@ -346,6 +511,92 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(organiser.getByText(/Face value \$35\.00/)).toBeVisible()
     await expect(organiser.getByText(/all in/i)).toBeVisible()
     await expect(organiser.getByText(/fee/i).first()).toBeVisible()
+  })
+
+  test('journey 8a: a ticket type is edited after it was added', async () => {
+    await openStep(organiser, /^step 4/i)
+
+    await organiser.getByLabel(/^Name/).fill('Early bird')
+    await organiser.getByLabel(/^Face value \(USD\)/).fill('30.00')
+    await organiser.getByLabel(/how many/i).fill('50')
+    await organiser.getByLabel(/^Sales close/).fill(wallClock(40, 18))
+    await organiser.getByLabel(/^Position in the list/).fill('1')
+    await organiser.getByRole('button', { name: 'Add ticket type' }).click()
+
+    await expect(organiser.getByText('Added "Early bird".')).toBeVisible()
+
+    const card = organiser.getByRole('listitem').filter({ hasText: /Early bird/u })
+
+    await expect(card).toHaveCount(1)
+    await expect(card).toContainText(/On sale until/u)
+    await expect(card).toContainText(/Face value \$30\.00/u)
+
+    await card.getByRole('button', { name: 'Edit', exact: true }).click()
+    await card.getByLabel(/^Name/).fill('Early bird (limited)')
+    await card.getByLabel(/^Face value/).fill('32.50')
+    await card.getByRole('button', { name: 'Save changes' }).click()
+
+    await expect(organiser.getByText('Saved "Early bird (limited)".')).toBeVisible()
+    // Dollars in, dollars out: 32.50 typed is $32.50 stored, not 3,250 dollars
+    // nor 32 cents. One card, renamed, not a second one beside it.
+    await expect(card).toContainText(/Face value \$32\.50/u)
+    await expect(organiser.getByText('Early bird (limited)', { exact: true })).toHaveCount(1)
+    await expect(organiser.getByText('Early bird', { exact: true })).toHaveCount(0)
+  })
+
+  test('journey 8b: a ticket type nobody has bought is removed', async () => {
+    await openStep(organiser, /^step 4/i)
+
+    const card = organiser.getByRole('listitem').filter({ hasText: /Early bird \(limited\)/u })
+
+    await card.getByRole('button', { name: 'Remove', exact: true }).click()
+
+    const confirm = organiser.getByRole('group', { name: 'Remove Early bird (limited)' })
+
+    await expect(confirm).toContainText(/nobody has bought or held one/i)
+
+    // The request that used to be refused with a 400 whatever was sent: its
+    // revision rides in the query string, because a DELETE has no body.
+    const removed = organiser.waitForResponse(
+      (response) => response.request().method() === 'DELETE' && /\/tiers\//u.test(response.url()),
+    )
+
+    await confirm.getByRole('button', { name: 'Yes, remove it' }).click()
+
+    expect((await removed).status()).toBeLessThan(300)
+    await expect(organiser.getByText('Removed "Early bird (limited)".')).toBeVisible()
+    await expect(organiser.getByText('Early bird (limited)', { exact: true })).toHaveCount(0)
+    await expect(organiser.getByText('That did not work')).toHaveCount(0)
+    // The first tier is untouched.
+    await expect(organiser.getByText(/Face value \$35\.00/)).toBeVisible()
+  })
+
+  test('journey 8c: a complimentary tier is free and hidden from the public', async () => {
+    await openStep(organiser, /^step 4/i)
+
+    await organiser.getByLabel(/^Name/).fill('Guest list')
+    await organiser.getByLabel(/how many/i).fill('20')
+    await organiser.getByLabel(/^Complimentary/).check()
+
+    // Free, and not shown: the price box takes nothing, and the only choice
+    // of who can see it is the team.
+    await expect(organiser.getByLabel(/^Face value/)).toBeDisabled()
+    await expect(organiser.getByLabel(/^Face value/)).toHaveValue('0')
+    await expect(organiser.getByLabel(/^Hidden/)).toBeChecked()
+    await expect(organiser.getByLabel(/^Shown on the event page/)).toBeDisabled()
+
+    await organiser.getByRole('button', { name: 'Add ticket type' }).click()
+    await expect(organiser.getByText('Added "Guest list".')).toBeVisible()
+
+    const card = organiser.getByRole('listitem').filter({ hasText: /Guest list/u })
+
+    // Said in words, each with what it is about: a badge is not a colour.
+    await expect(card).toContainText('Visibility: Hidden')
+    await expect(card).toContainText('Price: Complimentary')
+    await expect(card).toContainText(/Face value Free/u)
+    // What a guest pays, all in, with its parts as amounts: nothing, and no
+    // "Free fee".
+    await expect(card).toContainText('Free all in ($0.00 fee)')
   })
 
   test('journey 9: preparing inventory says what there actually is to prepare', async () => {
@@ -381,6 +632,61 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(organiser.getByText(/needs entry, refund and conduct policies/i)).toHaveCount(2)
   })
 
+  test("journey 10a: the organiser's details are written in, and formatted safely", async () => {
+    await openStep(organiser, /details/i)
+    await organiser.getByLabel(/^Description/).fill(DESCRIPTION_MARKUP)
+    await settle(organiser)
+
+    // The preview is what the public page will draw: emphasis and a list, an
+    // https link, and a javascript: one left as the text it was typed as.
+    await organiser.getByRole('button', { name: 'Preview', exact: true }).click()
+
+    const preview = organiser.getByRole('region', { name: 'Preview of the description' })
+
+    await expect(preview.locator('strong')).toHaveText('two-hundred-year-old')
+    await expect(preview.locator('li')).toHaveText(['Chai from seven', 'Seating on durries'])
+    await expect(preview.getByRole('link', { name: 'our site' })).toHaveAttribute(
+      'href',
+      'https://example.com/',
+    )
+    await expect(preview.locator('a[href^="javascript:"]')).toHaveCount(0)
+    await organiser.getByRole('button', { name: 'Back to editing' }).click()
+
+    await openStep(organiser, /line-up and running order/i)
+    await organiser.getByRole('button', { name: 'Add a performer' }).click()
+    await organiser.getByLabel(/^Name/).fill(PERFORMER.name)
+    await organiser.getByLabel(/^Role/).fill(PERFORMER.role)
+    await organiser.getByLabel(/^Short bio/).fill(PERFORMER.bio)
+    await organiser.getByRole('button', { name: 'Add a slot' }).click()
+    await organiser.getByLabel(/^Time/).fill('19:30')
+    await organiser.getByLabel(/^What happens/).fill('First set, under the tree')
+    await settle(organiser)
+
+    await openStep(organiser, /guest information/i)
+    await organiser.getByRole('button', { name: 'Add a question' }).click()
+    await organiser.getByLabel(/^Question/).fill(FAQ.question)
+    await organiser.getByLabel(/^Answer/).fill(FAQ.answer)
+    await organiser.getByLabel(/^Public email/).fill(PUBLIC_EMAIL)
+    await organiser.getByLabel(/^Instagram/).fill(INSTAGRAM)
+    await settle(organiser)
+
+    await openStep(organiser, /when and where/i)
+    await organiser.getByLabel(/^Parking and directions/).fill(PARKING)
+    await settle(organiser)
+
+    await openStep(organiser, /policies and access/i)
+    await organiser.getByLabel(/^Dress code/).fill(DRESS_CODE)
+    await settle(organiser)
+
+    // All of it read back from the server, not from what is still typed.
+    await openStep(organiser, /line-up and running order/i)
+    await expect(organiser.getByLabel(/^Short bio/)).toHaveValue(PERFORMER.bio)
+    await expect(organiser.getByLabel(/^Time/)).toHaveValue('19:30')
+    await openStep(organiser, /guest information/i)
+    await expect(organiser.getByLabel(/^Answer/)).toHaveValue(FAQ.answer)
+    await expect(organiser.getByLabel(/^Instagram/)).toHaveValue(INSTAGRAM)
+  })
+
   test('journey 11: an organiser fills in the policies and sends it for review', async () => {
     await openStep(organiser, /policies and access/i)
 
@@ -390,7 +696,12 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
 
     await expect(organiser.getByTestId('save-status')).toHaveText(/saved at/i, { timeout: 20_000 })
 
-    await organiser.getByRole('button', { name: /review/i }).click()
+    // In the steps nav: the details step has a "Preview" button of its own,
+    // whose name contains "review" too.
+    await organiser
+      .getByRole('navigation', { name: 'Editor steps' })
+      .getByRole('button', { name: /review/i })
+      .click()
     await organiser.getByRole('button', { name: 'Send for review' }).click()
     await organiser.getByRole('button', { name: /yes, send for review/i }).click()
 
@@ -408,6 +719,14 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(moderator).toHaveURL(new RegExp(`/moderation/events/${eventId}`))
     await expect(moderator.getByText('Verification: Verified')).toBeVisible()
     await expect(moderator.getByText(/refundable up to 48 hours/i)).toBeVisible()
+
+    // A link's label can say anything, so whoever decides whether this may be
+    // published reads where each one goes, in full. The javascript: one is
+    // not a link at all.
+    await expect(moderator.locator('[data-link-destination]')).toContainText([
+      '(https://example.com/)',
+    ])
+    await expect(moderator.locator('a[href^="javascript:"]')).toHaveCount(0)
   })
 
   test('journey 13: the moderator asks for a specific change, and the organiser sees it', async () => {
@@ -442,7 +761,12 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
       .fill('Three hours of qawwali in Urdu and Punjabi, in a courtyard with a very old tree.')
     await expect(organiser.getByTestId('save-status')).toHaveText(/saved at/i, { timeout: 20_000 })
 
-    await organiser.getByRole('button', { name: /review/i }).click()
+    // In the steps nav: the details step has a "Preview" button of its own,
+    // whose name contains "review" too.
+    await organiser
+      .getByRole('navigation', { name: 'Editor steps' })
+      .getByRole('button', { name: /review/i })
+      .click()
     await organiser.getByRole('button', { name: 'Send for review' }).click()
     await organiser.getByRole('button', { name: /yes, send for review/i }).click()
     // The announcement, as journey 11 waits for, and not any "waiting for
@@ -480,7 +804,10 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     await expect(organiser.getByText(/publishing makes this page public/i)).toBeVisible()
     await organiser.getByRole('button', { name: /yes, publish/i }).click()
 
-    await expect(organiser.getByText(/the page is live/i).first()).toBeVisible()
+    // Publishing asks for a second factor confirmed within its window. The
+    // journeys before this one take long enough that the window from signing
+    // in may have closed, so the prompt is answered if, and only if, it comes.
+    await confirmIfPrompted(organiser, organiser.getByText(/the page is live/i).first())
 
     await page.goto(`/events/${eventSlug}`)
 
@@ -493,13 +820,49 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     expect(JSON.parse(jsonLd).eventStatus).toBe('https://schema.org/EventScheduled')
   })
 
+  test("journey 16a: the public page carries the organiser's details", async ({ page }) => {
+    await page.goto(`/events/${eventSlug}`)
+    await expect(page.getByRole('heading', { level: 1, name: TITLE })).toBeVisible()
+
+    // The line-up with its bio, the running order in the event's clock, the
+    // questions as disclosures, and the rest of what 10a wrote.
+    await expect(page.getByText(PERFORMER.name)).toBeVisible()
+    await expect(page.getByText(PERFORMER.bio)).toBeVisible()
+
+    const order = page.getByRole('region', { name: 'Running order' })
+
+    await expect(order.locator('time')).toContainText('7:30 PM')
+    await expect(order).toContainText('First set, under the tree')
+
+    const question = page.locator('details').filter({ hasText: FAQ.question })
+
+    await expect(question).toHaveCount(1)
+    await question.locator('summary').click()
+    await expect(question).toContainText(FAQ.answer)
+
+    await expect(page.getByRole('region', { name: 'Dress code' })).toContainText(DRESS_CODE)
+    await expect(page.getByRole('region', { name: 'Getting there' })).toContainText(PARKING)
+    await expect(
+      page.getByRole('region', { name: 'Contact the organiser' }).getByRole('link', {
+        name: PUBLIC_EMAIL,
+      }),
+    ).toHaveAttribute('href', `mailto:${PUBLIC_EMAIL}`)
+
+    const instagram = page.getByRole('region', { name: 'Links' }).getByRole('link', {
+      name: /instagram/i,
+    })
+
+    await expect(instagram).toHaveAttribute('href', INSTAGRAM)
+    await expect(instagram).toHaveAttribute('rel', 'nofollow ugc noopener noreferrer')
+  })
+
   test('journey 17: opening sales offers a way to buy', async ({ page }) => {
     await openStep(organiser, /review/i)
 
     await organiser.getByRole('button', { name: 'Open sales' }).click()
     await organiser.getByRole('button', { name: /yes, open sales/i }).click()
 
-    await expect(organiser.getByText(/people can buy/i).first()).toBeVisible()
+    await confirmIfPrompted(organiser, organiser.getByText(/people can buy/i).first())
 
     await page.goto(`/events/${eventSlug}`)
 
@@ -508,6 +871,76 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
 
     const jsonLd = await page.locator('script[type="application/ld+json"]').textContent()
     expect(JSON.parse(jsonLd).offers[0].availability).toBe('https://schema.org/InStock')
+  })
+
+  test('journey 17a: a live event takes safe edits, and shows them formatted', async ({ page }) => {
+    await openStep(organiser, /details/i)
+
+    // Open for editing: public, not locked, with the details saving as typed.
+    await expect(organiser.getByText('This event is public').first()).toBeVisible()
+    await expect(organiser.getByText(/not open for editing/i)).toHaveCount(0)
+    await expect(organiser.getByLabel(/^Title/)).toBeEnabled()
+
+    await organiser
+      .getByLabel(/one-line summary/i)
+      .fill('Qawwali in Urdu and Punjabi under a two-hundred-year-old banyan.')
+    await organiser.getByLabel(/^Description/).fill(DESCRIPTION_MARKUP)
+    await settle(organiser)
+
+    // Tickets on a live event: more of the tier that is on sale, and a new
+    // tier that starts as a draft and can be removed while nobody has one.
+    await openStep(organiser, /^step 4/i)
+    await expect(
+      organiser.getByText(/This event is public\. You can add ticket types/),
+    ).toBeVisible()
+
+    const general = organiser.getByRole('listitem').filter({ hasText: /^General admission/u })
+
+    await general.getByRole('button', { name: 'Edit', exact: true }).click()
+    await general.getByLabel(/how many/i).fill('250')
+    await general.getByRole('button', { name: 'Save changes' }).click()
+    await expect(organiser.getByText('Saved "General admission".')).toBeVisible()
+    await expect(general).toContainText(/0 of 250 sold/u)
+
+    await organiser.getByLabel(/^Name/).fill('Late entry')
+    await organiser.getByLabel(/^Face value \(USD\)/).fill('20.00')
+    await organiser.getByLabel(/how many/i).fill('30')
+    await organiser.getByRole('button', { name: 'Add ticket type' }).click()
+    await expect(organiser.getByText('Added "Late entry".')).toBeVisible()
+
+    const late = organiser.getByRole('listitem').filter({ hasText: /^Late entry/u })
+
+    await expect(late).toContainText(/Not on sale \(draft\)/u)
+    await late.getByRole('button', { name: 'Remove', exact: true }).click()
+    await organiser
+      .getByRole('group', { name: 'Remove Late entry' })
+      .getByRole('button', { name: 'Yes, remove it' })
+      .click()
+    await expect(organiser.getByText('Removed "Late entry".')).toBeVisible()
+
+    await page.goto(`/events/${eventSlug}`)
+    await expect(page.getByRole('heading', { level: 1, name: TITLE })).toBeVisible()
+    await expect(
+      page.getByText('Qawwali in Urdu and Punjabi under a two-hundred-year-old banyan.'),
+    ).toBeVisible()
+
+    // The description, formatted and safe: emphasis, a list, and the one
+    // https link, which carries exactly the rel a user-written link needs.
+    const main = page.getByRole('main')
+
+    await expect(main.locator('strong', { hasText: 'two-hundred-year-old' })).toHaveCount(1)
+    await expect(main.locator('li', { hasText: 'Seating on durries' })).toHaveCount(1)
+
+    const site = main.getByRole('link', { name: 'our site' })
+
+    await expect(site).toHaveAttribute('href', 'https://example.com/')
+    await expect(site).toHaveAttribute('rel', 'nofollow ugc noopener noreferrer')
+    await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0)
+
+    // The complimentary tier is booked by the team, and is not on the page.
+    await expect(main.getByText('General admission').first()).toBeVisible()
+    await expect(page.getByText('Guest list')).toHaveCount(0)
+    expect(await page.content()).not.toContain('Guest list')
   })
 
   test('journey 18: pausing sales takes the button away, not the page', async ({ page }) => {
@@ -580,6 +1013,113 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
     expect(refused.ageRestriction).toBe(21)
   })
 
+  test('journey 19a: a live event moves its date only with a reason and a tick', async () => {
+    await openStep(organiser, /^step 2/i)
+
+    // The step's own box, read-only; the panel opens above the steps with a
+    // box of the same name.
+    const scheduled = organiser
+      .getByRole('region', { name: 'When and where' })
+      .getByLabel(/^Starts/)
+
+    await expect(scheduled).toHaveValue(wallClock(45, 19))
+    await expect(scheduled).toBeDisabled()
+
+    await organiser.getByRole('button', { name: 'Change date, place or terms…' }).click()
+
+    const panel = organiser.getByRole('region', { name: 'Change date, place or terms' })
+
+    await expect(panel).toBeVisible()
+    // Said before anything is saved: a notice per order, and no email.
+    await expect(panel).toContainText(/a notice is recorded for every current order/i)
+    await expect(panel).toContainText(/this build does not send email/i)
+
+    // An hour earlier: doors at six rather than seven.
+    await panel.getByLabel(/^Starts/).fill(wallClock(45, 18))
+    await expect(panel).toContainText(/You are changing: the start time\./u)
+
+    await panel.getByRole('button', { name: 'Save the change' }).click()
+
+    // Refused before it is sent, and every reason is named at once.
+    await expect(panel.getByRole('link', { name: 'Say why this is changing.' })).toBeVisible()
+    await expect(
+      panel.getByRole('link', { name: 'Tick the box to confirm the change.' }),
+    ).toBeVisible()
+    await expect(scheduled).toHaveValue(wallClock(45, 19))
+
+    await panel
+      .getByLabel(/^Why this is changing/)
+      .fill('The courtyard asked us to finish an hour earlier.')
+    await panel.getByLabel(/^I understand this changes what people bought/).check()
+
+    const saved = organiser.waitForResponse(
+      (response) =>
+        response.request().method() === 'PATCH' &&
+        new URL(response.url()).pathname === `/api/v1/events/${eventId}`,
+    )
+
+    await panel.getByRole('button', { name: 'Save the change' }).click()
+
+    expect((await saved).status()).toBe(200)
+    await expect(panel).toHaveCount(0)
+    await expect(organiser.getByTestId('save-status')).toHaveText(
+      /a notice has been recorded for every current order/i,
+    )
+    // The read-only start now reads the new time, and still is read-only.
+    await expect(scheduled).toHaveValue(wallClock(45, 18))
+    await expect(scheduled).toBeDisabled()
+
+    await openStep(organiser, /^step 2/i)
+    await expect(scheduled).toHaveValue(wallClock(45, 18))
+  })
+
+  test('journey 19b: a postponed event comes back with a new date', async ({ page }) => {
+    await openStep(organiser, /review/i)
+
+    await organiser.getByRole('button', { name: 'Postpone', exact: true }).click()
+    await organiser.getByLabel(/^Reason/).selectOption('VENUE_UNAVAILABLE')
+    await organiser
+      .getByLabel(/what to tell ticket holders/i)
+      .fill('The courtyard is closed for repairs that week.')
+    await organiser.getByRole('button', { name: /yes, postpone/i }).click()
+
+    await confirmIfPrompted(
+      organiser,
+      organiser.getByText(/set a new date to bring it back/i).first(),
+    )
+
+    await page.goto(`/events/${eventSlug}`)
+    // Said at the top of the page, and again where the tickets would be.
+    await expect(page.getByText('This event has been postponed').first()).toBeVisible()
+    await expect(page.getByRole('link', { name: /choose tickets/i })).toHaveCount(0)
+
+    await openStep(organiser, /review/i)
+    await organiser.getByRole('button', { name: 'Set a new date and bring it back' }).click()
+
+    const form = organiser.getByRole('region', { name: 'Set a new date and bring it back' })
+
+    // A week later. The one session moves with the event, by the same amount.
+    await form.getByLabel(/^New start/).fill(wallClock(52, 18))
+    await expect(form.getByLabel(/^Move every session by the same amount/)).toBeChecked()
+    await expect(form.getByLabel(/^Session 1 starts/)).toHaveValue(wallClock(52, 19))
+
+    await form.getByLabel(/^On sale straight away/).check()
+    await form
+      .getByLabel(/^Why, for the people holding tickets/)
+      .fill('The repairs are done a week later than planned; the new night is a week on.')
+    await form.getByLabel(/^I understand this changes the date/).check()
+    await form.getByRole('button', { name: 'Bring it back' }).click()
+
+    // Bringing it back asks for the second factor within its window.
+    await confirmIfPrompted(organiser, organiser.getByText(/people can buy/i).first())
+    await expect(organiser.getByText('State: On sale').first()).toBeVisible()
+
+    await page.goto(`/events/${eventSlug}`)
+    await expect(page.getByRole('heading', { level: 1, name: TITLE })).toBeVisible()
+    await expect(page.getByRole('link', { name: /choose tickets/i })).toBeVisible()
+    await expect(page.getByText(/this event has been postponed/i)).toHaveCount(0)
+  })
+
   test('journey 20: cancelling says so everywhere, and promises nothing it cannot keep', async ({
     page,
   }) => {
@@ -598,7 +1138,8 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
       .fill('The lead qawwal has been taken ill and we cannot replace him.')
     await organiser.getByRole('button', { name: /yes, cancel this event/i }).click()
 
-    await expect(organiser.getByText(/refunds have been requested/i).first()).toBeVisible()
+    // Cancelling keeps a five-minute window, which this long a story outlasts.
+    await confirmIfPrompted(organiser, organiser.getByText(/refunds have been requested/i).first())
 
     await page.goto(`/events/${eventSlug}`)
 

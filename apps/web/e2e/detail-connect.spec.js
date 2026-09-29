@@ -191,6 +191,13 @@ test.describe('confirming, cancelling and moving the simulation', () => {
     // was never started — which is what this file looks like when the last
     // journey is run on its own rather than after the one above it.
     const off = page.getByRole('button', { name: /simulate switching the setup off/i })
+    const start = page.getByRole('button', { name: /start the simulated setup/i })
+
+    // Asked once the screen has drawn its state, and not before: counting the
+    // buttons while the page is still arriving finds neither, and would send
+    // the setup down the branch for a simulation that was never started.
+    await expect(page.getByRole('heading', { name: 'Payout setup', level: 1 })).toBeVisible()
+    await expect(off.or(start).first()).toBeVisible()
 
     if ((await off.count()) === 0) {
       await page.getByRole('button', { name: /start the simulated setup/i }).click()

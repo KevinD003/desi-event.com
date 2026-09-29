@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test'
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
 import { cleanupFeatureWorld, seedFeatureWorld } from './support/seed-feature-world.mjs'
+import { removePictures, seedPictures } from './support/seed-media.mjs'
 import {
   CONNECTION,
   PASSWORD,
@@ -96,6 +97,18 @@ import {
  * nothing inside the home page's animated content may run for longer than
  * the stylesheet's 0.01 ms, or be left short of its resting state.
  *
+ * ## The feature-completion screens
+ *
+ * The editor's tickets, pictures, line-up and guest steps and the panel that
+ * changes a live event's date are measured in the per-viewport loop; the
+ * organisation pages, the organisation checks and the platform's people and
+ * roles join the Phase 4 block. The pictures have a block of their own,
+ * because a Media step, a moderator's review and a public page with no picture
+ * on them measure nothing about pictures: it writes a cover and a gallery
+ * straight into the store for alpha's draft (waiting for review) and gamma's
+ * public event (approved), scans all three pages at every viewport, and
+ * removes them again.
+ *
  * ## Why these tests live in this file rather than a new one
  *
  * `playwright.sweep.config.js` pins `testMatch: '**‍/accessibility-sweep.spec.js'`.
@@ -131,6 +144,24 @@ const VIEWPORTS = [
   { name: 'desktop', width: 1280, height: 900 },
 ]
 
+/**
+ * What the pictures block's pictures show, as their organisers described them.
+ *
+ * Long enough to wrap at 320, which is part of what is being measured.
+ */
+const SWEEP_PICTURES = Object.freeze({
+  draftCover: 'The courtyard at dusk, with lanterns strung between the trees',
+  draftGallery: Object.freeze([
+    'Musicians tuning up on a low stage',
+    'The first row of the audience, cross-legged on durries',
+  ]),
+  liveCover: 'Dancers circling a lit garbo under string lights',
+  liveGallery: Object.freeze([
+    'The first circle of dancers, before the music starts',
+    'Children learning the steps at the edge of the floor',
+  ]),
+})
+
 /** @type {object} */
 let seeded
 /**
@@ -145,6 +176,13 @@ let commerce
  * @type {object}
  */
 let door
+/**
+ * The feature world's rows under this file's tag: gamma, the waiting
+ * organisation, the role target (`seed-feature-world.mjs`).
+ *
+ * @type {object}
+ */
+let feature
 /** @type {object} */
 let organiserContext
 /**
@@ -978,6 +1016,78 @@ const PHASE_4_SURFACES = Object.freeze([
       expect(markup, 'the queue carries a message payload').not.toContain(OUTBOX_PROBE.marker)
     },
   },
+  {
+    name: 'the page that creates an organisation',
+    window: 'organiser',
+    path: () => '/account/organizations/new',
+    heading: () => 'Create an organisation',
+    title: () => 'Create an organisation',
+    async arrived(page) {
+      // Nothing is sent from here: the form is measured as it first appears.
+      const form = page.getByRole('form', { name: 'Create an organisation', exact: true })
+
+      await expect(form.getByLabel(/^Name/u)).toBeVisible()
+      await expect(form.getByLabel(/^Time zone/u)).toBeVisible()
+      await expect(
+        form.getByRole('button', { name: 'Create the organisation', exact: true }),
+      ).toBeDisabled()
+    },
+  },
+  {
+    name: 'an organisation’s own page, with its verification',
+    window: 'organiser',
+    path: () => '/organizer/organization',
+    heading: () => `Alpha Collective ${TAG}`,
+    title: () => 'Organisation',
+    async arrived(page) {
+      const verification = page.getByRole('region', { name: 'Verification', exact: true })
+
+      await expect(verification.getByText('Verification: Verified')).toBeVisible()
+    },
+  },
+  {
+    name: 'the organisation checks queue',
+    window: 'platform',
+    path: () => '/moderation/organizations',
+    heading: () => 'Organisation checks',
+    title: () => 'Organisation checks',
+    async arrived(page) {
+      await expect(
+        page.getByRole('link', { name: feature.pendingOrganizationName, exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'an organisation waiting for its check',
+    window: 'platform',
+    path: () => `/moderation/organizations/${encodeURIComponent(feature.pendingOrganizationId)}`,
+    heading: () => feature.pendingOrganizationName,
+    title: () => 'Check an organisation',
+    async arrived(page) {
+      // The decisions a moderator has from here, offered and not pressed.
+      const decisions = page.getByRole('group', { name: 'Decisions', exact: true })
+
+      await expect(decisions.getByRole('button', { name: 'Verify', exact: true })).toBeVisible()
+      await expect(page.getByText('State: Waiting for a moderator').first()).toBeVisible()
+    },
+  },
+  {
+    name: 'people and roles, with an account found',
+    window: 'platform',
+    path: () => '/admin/users',
+    heading: () => 'People and roles',
+    title: () => 'People and roles',
+    async arrived(page) {
+      const search = page.getByRole('form', { name: 'Find an account', exact: true })
+
+      // Searched in the request body; nothing is changed.
+      await search.getByLabel(/^Email address, name or account id/u).fill(feature.roleTargetEmail)
+      await search.getByRole('button', { name: 'Search', exact: true }).click()
+      await expect(page.getByRole('article', { name: 'Role Target' })).toContainText(
+        'Platform role: Attendee',
+      )
+    },
+  },
 ])
 
 test.describe.serial('the Phase 2 screens, swept', () => {
@@ -997,7 +1107,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     // Gamma, its nights and seats, the giver and taker and the waiting
     // organisation, under this file's own tag and never inside alpha: where
     // the sweep's cases for the feature-completion screens find their rows.
-    await seedFeatureWorld({ tag: TAG })
+    feature = await seedFeatureWorld({ tag: TAG })
 
     organiserContext = await browser.newContext()
     organiser = await organiserContext.newPage()
@@ -1049,6 +1159,77 @@ test.describe.serial('the Phase 2 screens, swept', () => {
 
       expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+    })
+
+    test(`the editor's tickets, pictures, line-up and guest steps are clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(`/organizer/events/${seeded.alphaDraftId}`)
+      // The step buttons answer only once the editor has hydrated.
+      await expect(
+        page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+      ).toBeAttached()
+
+      const steps = page.getByRole('navigation', { name: 'Editor steps' })
+
+      // Each measured as it first opens: nothing is typed into alpha's draft,
+      // whose content later cases read.
+      for (const [step, heading] of [
+        [/^Step 4\s*Tickets$/u, 'Tickets'],
+        [/^Step 6\s*Media$/u, 'Media'],
+        [/^Step 7\s*Line-up and running order$/u, 'Line-up and running order'],
+        [/^Step 8\s*Guest information$/u, 'Guest information'],
+      ]) {
+        const button = steps.getByRole('button', { name: step })
+
+        await button.click()
+        await expect(button).toHaveAttribute('aria-current', 'step')
+        await expect(
+          page.getByRole('heading', { level: 2, name: heading, exact: true }),
+        ).toBeVisible()
+
+        const violations = await scan(page)
+
+        expect(
+          violations,
+          `${heading} at ${viewport.name}\n  ${describe(violations)}`,
+        ).toHaveLength(0)
+        expect(await sidewaysOverflow(page), `${heading} at ${viewport.name}`).toBeLessThanOrEqual(
+          1,
+        )
+      }
+    })
+
+    test(`the change of date, place or terms on a live event is clean at ${viewport.name}`, async () => {
+      const page = organiser
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(`/organizer/events/${seeded.alphaEventId}`)
+      await expect(
+        page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+      ).toBeAttached()
+
+      const schedule = page
+        .getByRole('navigation', { name: 'Editor steps' })
+        .getByRole('button', { name: /^Step 2\s*When and where$/u })
+
+      await schedule.click()
+      await expect(schedule).toHaveAttribute('aria-current', 'step')
+      await page.getByRole('button', { name: 'Change date, place or terms…', exact: true }).click()
+
+      const panel = page.getByRole('region', { name: 'Change date, place or terms', exact: true })
+
+      // Opened, measured and closed again: nothing is saved.
+      await expect(panel.getByLabel(/^Why this is changing/u)).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+
+      await panel.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(panel).toHaveCount(0)
     })
 
     test(`the public event page is clean at ${viewport.name}`, async ({ page }) => {
@@ -1255,6 +1436,125 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
     })
   }
+
+  test.describe("an event's pictures, swept", () => {
+    test.beforeAll(async () => {
+      // Written for this block and removed after it, as the Phase 4 block's
+      // rows are: alpha's draft gets a cover and two gallery pictures waiting
+      // for review, as an upload leaves them, and gamma's public event an
+      // approved cover and gallery, as a moderator leaves them. The cases
+      // before this block measured the Media step empty; the ones after it
+      // meet no pictures. What an upload does to a picture on its way in is
+      // `detail-event-media.spec.js`'s to prove.
+      await removePictures(seeded.alphaDraftId)
+      await removePictures(feature.gammaGaEventId)
+      await seedPictures({
+        eventId: seeded.alphaDraftId,
+        status: 'PENDING',
+        coverAlt: SWEEP_PICTURES.draftCover,
+        galleryAlts: SWEEP_PICTURES.draftGallery,
+      })
+      await seedPictures({
+        eventId: feature.gammaGaEventId,
+        status: 'APPROVED',
+        coverAlt: SWEEP_PICTURES.liveCover,
+        galleryAlts: SWEEP_PICTURES.liveGallery,
+      })
+    })
+
+    test.afterAll(async () => {
+      await removePictures(seeded.alphaDraftId)
+      await removePictures(feature.gammaGaEventId)
+    })
+
+    for (const viewport of VIEWPORTS) {
+      test(`the Media step with a cover and a gallery is clean at ${viewport.name}`, async () => {
+        const page = organiser
+
+        await page.setViewportSize({ width: viewport.width, height: viewport.height })
+        await page.goto(`/organizer/events/${seeded.alphaDraftId}`)
+        // The step buttons answer only once the editor has hydrated.
+        await expect(
+          page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+        ).toBeAttached()
+
+        const media = page
+          .getByRole('navigation', { name: 'Editor steps' })
+          .getByRole('button', { name: /^Step 6\s*Media$/u })
+
+        await media.click()
+        await expect(media).toHaveAttribute('aria-current', 'step')
+
+        // Measured with its pictures drawn, each with its controls: the state
+        // an organiser works in once something is uploaded.
+        const cover = page.getByRole('listitem', { name: 'The cover', exact: true })
+        const last = page.getByRole('listitem', { name: 'Picture 2 of 2', exact: true })
+
+        await expect(cover.getByRole('img', { name: SWEEP_PICTURES.draftCover })).toBeVisible()
+        await expect(cover).toContainText('Waiting for review')
+        await expect(last.getByRole('img')).toHaveAttribute('alt', SWEEP_PICTURES.draftGallery[1])
+
+        const violations = await scan(page)
+
+        expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+        expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+      })
+
+      test(`the moderator's review of an event's pictures is clean at ${viewport.name}`, async () => {
+        const page = await platformReader()
+
+        await page.setViewportSize({ width: viewport.width, height: viewport.height })
+        await page.goto(`/moderation/events/${seeded.alphaDraftId}`)
+        await expect(
+          page.getByRole('heading', { level: 1, name: `Alpha's Draft ${TAG}`, exact: true }),
+        ).toBeVisible()
+
+        // Every picture, described in words beside the picture, with the one
+        // decision it can take. Nothing is pressed.
+        const cards = page.getByRole('listitem').filter({ has: page.getByRole('img') })
+
+        await expect(cards).toHaveCount(3)
+
+        for (const alt of [SWEEP_PICTURES.draftCover, ...SWEEP_PICTURES.draftGallery]) {
+          const card = cards.filter({ hasText: alt })
+
+          await expect(card.getByRole('img')).toHaveAttribute('alt', alt)
+          await expect(
+            card.getByRole('button', { name: 'Reject this picture', exact: true }),
+          ).toBeVisible()
+        }
+
+        const violations = await scan(page)
+
+        expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+        expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+      })
+
+      test(`the public event page with a cover and a gallery is clean at ${viewport.name}`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height })
+        await page.goto(`/events/${feature.gammaGaEventSlug}`)
+        await expect(
+          page.getByRole('heading', { level: 1, name: feature.gammaGaEventTitle, exact: true }),
+        ).toBeVisible()
+
+        // The cover in place of the poster, and the gallery under its heading.
+        await expect(
+          page.getByRole('img', { name: SWEEP_PICTURES.liveCover, exact: true }).first(),
+        ).toBeVisible()
+
+        const gallery = page.getByRole('region', { name: 'Pictures', exact: true })
+
+        await expect(gallery.getByRole('img')).toHaveCount(SWEEP_PICTURES.liveGallery.length)
+
+        const violations = await scan(page)
+
+        expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+        expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+      })
+    }
+  })
 
   test('the finance screen says what produced its figures, before any of them', async () => {
     const page = organiser

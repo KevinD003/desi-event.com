@@ -15,9 +15,10 @@
  *
  * ## No names that are not in the payload
  *
- * An order line carries `ticketTypeId`, a quantity and prices — not the tier's
- * name, and the event summary carries no tiers. So a line reads "Tickets,
- * 2 × ₹500.00" rather than a name fetched from somewhere else or made up.
+ * An order line carries `ticketTypeId`, a quantity, prices and the ticket
+ * type's name as the API read it (`ticketTypeName`). So a line reads
+ * "General admission, 2 × ₹500.00", and "Tickets, 2 × ₹500.00" only when the
+ * payload names no type — never a name fetched from somewhere else or made up.
  *
  * ## The tickets, but never their codes
  *

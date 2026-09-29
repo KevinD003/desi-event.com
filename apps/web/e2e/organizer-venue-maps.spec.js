@@ -342,7 +342,9 @@ test.describe('7, 8, 9, 10. publish, freeze, clone, and history', () => {
     // 10. The published version is still there, still frozen, still version 1.
     await page.goto(`/organizer/venues/${venueId}/maps`)
     await expect(page.getByText('Version 1')).toBeVisible()
-    await expect(page.getByText('Published')).toBeVisible()
+    // The state badge, by the words it is read out with: the draft's own note
+    // ("Not sellable until published.") says "published" too.
+    await expect(page.getByText('State: Published', { exact: true })).toBeVisible()
     await expect(page.getByText('Version 2')).toBeVisible()
     await expect(page.getByText('Draft')).toBeVisible()
   })

@@ -34,7 +34,7 @@ import { TierForm } from './tier-form.jsx'
 import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { fieldIssues, refusalSentence } from '../lib/refusal.js'
-import { formatPrice } from '../lib/pricing.js'
+import { formatAmount, formatPrice } from '../lib/pricing.js'
 import { blankTierForm, sessionLabel, toTierForm } from '../lib/tier-form.js'
 
 /** How each tier status reads. */
@@ -404,10 +404,12 @@ export function EventTiersEditor({
                             <span className="font-medium text-ink">
                               {formatPrice(money.allInCents, money.currency)} all in
                             </span>{' '}
+                            {/* The parts as amounts: a zero fee is "$0.00 fee",
+                                never "Free fee", which reads as a fee called free. */}
                             <span className="text-ink-muted">
-                              ({formatPrice(money.feesCents, money.currency)} fee
+                              ({formatAmount(money.feesCents, money.currency)} fee
                               {money.taxCents > 0
-                                ? ` + ${formatPrice(money.taxCents, money.currency)} tax`
+                                ? ` + ${formatAmount(money.taxCents, money.currency)} tax`
                                 : ''}
                               )
                             </span>

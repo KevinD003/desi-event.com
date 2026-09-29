@@ -1,7 +1,7 @@
 /**
  * The event-lifecycle journeys.
  *
- * Twenty journeys against a real API, a real browser and a disposable
+ * Thirty journeys against a real API, a real browser and a disposable
  * database. Like the venue-map suite and unlike every public suite here, the
  * API is up: an organiser screen has no fallback and must not have one, and
  * half of what these journeys check is a refusal that only the server can make.
@@ -33,7 +33,7 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 90_000,
   expect: { timeout: 15_000 },
-  // Serial, and in file order: the twenty journeys walk one event from a blank
+  // Serial, and in file order: the thirty journeys walk one event from a blank
   // list to a cancellation, which is the thing being tested.
   fullyParallel: false,
   workers: 1,
@@ -76,8 +76,8 @@ export default defineConfig({
         WEB_ORIGIN: baseURL,
         CORS_ORIGIN: baseURL,
         SECURE_COOKIES: 'false',
-        // Twenty journeys drive a whole product lifecycle from one address in
-        // about a minute, which the default budget correctly reads as a
+        // Thirty journeys drive a whole product lifecycle from one address in
+        // about two minutes, which the default budget correctly reads as a
         // scraper. The limit is not disabled and the default is not changed —
         // this suite is a different deployment shape, which is exactly why the
         // budget is an environment variable rather than a constant.

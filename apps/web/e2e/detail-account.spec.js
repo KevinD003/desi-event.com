@@ -2,6 +2,11 @@ import { issueTicketCredential } from '../../api/src/lib/ticket-credentials.js'
 import { expect, test, world } from './support/detail-fixtures.mjs'
 import { AUTH_SECRET, TOTP_SECRET } from './support/seed-refusals.mjs'
 
+// The transfers case offers a ticket, and an offer shows its one-time code on
+// the page (this build sends no email, so the sender hands it over). A code on
+// screen is a ticket in a screenshot, a trace or a film, so none is taken.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
 /**
  * The attendee's own pages, read as the person they belong to and as three
  * people they do not.
@@ -295,7 +300,18 @@ test.describe('the account rail', () => {
         'Two-step sign-in': 'Off.',
       },
     )
-    await expect(region(holder, 'Where to go').getByRole('link')).toHaveCount(5)
+    // Anybody signed in can join an organisation with a code or start their
+    // own, so those two are offered to an attendee too — and still no
+    // workspace, which is for members.
+    const places = region(holder, 'Where to go').getByRole('link')
+
+    await expect(places).toHaveCount(7)
+    await expect(
+      region(holder, 'Where to go').getByRole('link', { name: /^Join an organisation/u }),
+    ).toHaveAttribute('href', '/account/invitations')
+    await expect(
+      region(holder, 'Where to go').getByRole('link', { name: /^Create an organisation/u }),
+    ).toHaveAttribute('href', '/account/organizations/new')
     await expect(
       region(holder, 'Where to go').getByRole('link', { name: /^Workspace/u }),
     ).toHaveCount(0)
@@ -372,7 +388,8 @@ test.describe('orders', () => {
         ),
       )
 
-    expect(lines).toEqual([['Tickets, 2 × ₹1,000.00', '₹2,000.00']])
+    // The line names its ticket type, which the order's lines now carry.
+    expect(lines).toEqual([['General admission, 2 × ₹1,000.00', '₹2,000.00']])
 
     // Discount and tax are drawn only when there is one; the booking fee always
     // is. Exactly these three rows, so a zero tax line appearing, or the fee
@@ -399,7 +416,7 @@ test.describe('orders', () => {
     }
 
     await expect(tickets).toContainText(
-      'Open a ticket to show its pass at the door or, unless it is for a reserved seat, to hand it on.',
+      'Open a ticket to show its pass at the door or to hand it on.',
     )
 
     // The payload carries each ticket's code and the buyer's address; the page
@@ -446,7 +463,7 @@ test.describe('orders', () => {
     const money = region(holder, 'What it cost')
     const firstLine = money.locator('ul > li').first()
 
-    await expect(firstLine).toContainText('Tickets, 6 × ₹1,000.00')
+    await expect(firstLine).toContainText('General admission, 6 × ₹1,000.00')
     await expect(firstLine).toContainText('₹6,000.00')
 
     const links = region(holder, 'Tickets on this order').getByRole('link', {
@@ -583,14 +600,16 @@ test.describe('transfers', () => {
     const accept = region(owner, 'Accept a ticket')
 
     await expect(accept.locator('p')).toHaveText(
-      'An offer is accepted with the invitation code issued with it. The person who made the offer never sees that code, and this site delivers no email, so it does not arrive on its own. If you have one, enter the code to accept the ticket.',
+      'An offer is accepted with the code shown to the person who made it, once, when they made it. They pass it on to you themselves; this site sends no email. If you have one, enter the code to accept the ticket.',
     )
     await expect(
       accept.getByRole('link', { name: 'enter the code to accept the ticket', exact: true }),
     ).toHaveAttribute('href', '/tickets/accept')
 
+    // A reserved seat is handed on with its ticket now (ADR 0006), and the
+    // page says so rather than refusing it.
     await expect(region(owner, 'Reserved seats').locator('p')).toHaveText(
-      'Tickets for reserved seats cannot be handed on. An offer for one is refused, and the ticket stays with you.',
+      'A reserved seat goes with its ticket: whoever accepts it holds the same seat.',
     )
   })
 
@@ -603,7 +622,16 @@ test.describe('transfers', () => {
     await owner.getByRole('button', { name: 'Offer this ticket to somebody', exact: true }).click()
     await owner.getByLabel(/^Their email address/u).fill(RECIPIENT)
     await owner.getByRole('button', { name: 'Send the offer', exact: true }).click()
-    await expect(statusSaying(owner, 'Offered. The invitation is recorded')).toBeVisible()
+    await expect(
+      statusSaying(owner, 'Offered. Give them the code shown below; it is shown only once.'),
+    ).toBeVisible()
+
+    // Shown once, to be handed over, then gone from the page for good.
+    const code = owner.getByLabel('Ticket transfer code', { exact: true })
+
+    await expect(code).toHaveAttribute('readonly', '')
+    await owner.getByRole('button', { name: 'I have handed it over', exact: true }).click()
+    await expect(code).toHaveCount(0)
 
     let withdrawn = false
 

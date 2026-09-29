@@ -117,6 +117,47 @@ const SEEDS = Object.freeze([
     idempotent: true,
     explains: true,
   },
+  {
+    // The authoring journeys' draft, live and rejected events under gamma,
+    // and the account that bought two of the live event's tickets.
+    file: 'seed-authoring.mjs',
+    cleanup: Object.freeze([
+      /ticket\s*\.deleteMany/u,
+      /order\s*\.delete\b/u,
+      /eventSeat\s*\.deleteMany/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The pictures journey's own draft under gamma. Its teardown takes the
+    // event and, by cascade, every picture's bytes.
+    file: 'seed-media.mjs',
+    cleanup: Object.freeze([
+      /mediaAsset\s*\.deleteMany/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+    ]),
+    explains: true,
+  },
+  {
+    // The team-and-organisations journey's creator and invitee. Its teardown
+    // removes the organisation the creator made, with its invitations and
+    // memberships, and puts the feature world's role target back.
+    file: 'seed-team.mjs',
+    cleanup: Object.freeze([
+      /invitation\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /organization\s*\.delete\b/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
 ])
 
 /**

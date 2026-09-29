@@ -1,5 +1,10 @@
 import { expect, test, world } from './support/detail-fixtures.mjs'
 
+// An offer made here shows its one-time code on the page: this build sends no
+// email, so the sender hands it over. A code on screen is a ticket in a
+// screenshot, a trace or a film, so none is taken in this file.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
 /**
  * The ticket wallet, in a real browser, against a real API.
  *
@@ -279,7 +284,12 @@ test.describe.serial('the ticket wallet', () => {
       await owner.getByRole('button', { name: /offer this ticket/i }).click()
       await owner.getByLabel(/their email address/i).fill('meenakshi.wallet+x@elsewhere.test')
       await owner.getByRole('button', { name: /send the offer/i }).click()
-      await expect(owner.getByText(/offered\. the invitation is recorded/i)).toBeVisible()
+      await expect(
+        owner.getByText('Offered. Give them the code shown below; it is shown only once.'),
+      ).toBeVisible()
+      // Handed over, and gone from the page before anything else is read.
+      await owner.getByRole('button', { name: 'I have handed it over', exact: true }).click()
+      await expect(owner.getByLabel('Ticket transfer code', { exact: true })).toHaveCount(0)
 
       try {
         await owner.goto('/tickets')
@@ -334,9 +344,15 @@ test.describe.serial('the ticket wallet', () => {
     await owner.getByRole('button', { name: /send the offer/i }).click()
 
     try {
-      const announced = owner.locator('[aria-live="polite"][role="status"]')
+      // Two polite regions share the screen now: the outcome's, and the code
+      // panel's own for "copied". The outcome is announced in exactly one.
+      const announced = owner
+        .locator('[aria-live="polite"][role="status"]')
+        .filter({ hasText: /offered/iu })
 
+      await expect(announced).toHaveCount(1)
       await expect(announced).toContainText(/offered/iu)
+      await owner.getByRole('button', { name: 'I have handed it over', exact: true }).click()
     } finally {
       await owner.goto(`/tickets/${ticketId}`)
       await owner.getByRole('button', { name: /withdraw the offer/i }).click()

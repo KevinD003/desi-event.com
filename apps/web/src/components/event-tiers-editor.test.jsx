@@ -336,3 +336,58 @@ describe('a tier’s card', () => {
     expect(screen.getByText(/3 sold · 2 held/)).toBeInTheDocument()
   })
 })
+
+describe('what a buyer is charged', () => {
+  it('states a zero fee as an amount, never as a "Free fee"', () => {
+    respond(answer(200, { data: {} }))
+    render(
+      <EventTiersEditor
+        event={event}
+        sessions={sessions}
+        tiers={[
+          tier({
+            id: 'tguests',
+            name: 'Guest list',
+            priceCents: 0,
+            complimentary: true,
+            visibility: 'HIDDEN',
+          }),
+        ]}
+        preview={[
+          { ticketTypeId: 'tguests', allInCents: 0, feesCents: 0, taxCents: 0, currency: 'USD' },
+        ]}
+        revision={1}
+      />,
+    )
+
+    const card = screen.getByText('Guest list').closest('li')
+
+    expect(card).toHaveTextContent('Free all in ($0.00 fee)')
+    expect(card).not.toHaveTextContent(/Free fee/u)
+  })
+
+  it('states a fee and a tax as amounts beside the all-in price', () => {
+    respond(answer(200, { data: {} }))
+    render(
+      <EventTiersEditor
+        event={event}
+        sessions={sessions}
+        tiers={[tier()]}
+        preview={[
+          {
+            ticketTypeId: 'tgeneral',
+            allInCents: 4491,
+            feesCents: 306,
+            taxCents: 685,
+            currency: 'USD',
+          },
+        ]}
+        revision={1}
+      />,
+    )
+
+    const card = screen.getByText('General').closest('li')
+
+    expect(card).toHaveTextContent('$44.91 all in ($3.06 fee + $6.85 tax)')
+  })
+})

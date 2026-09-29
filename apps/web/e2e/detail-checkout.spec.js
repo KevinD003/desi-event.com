@@ -630,7 +630,9 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     const response = await answered
 
     // What the browser sent: what to buy and which hold pays for it, under a
-    // key a retry would reuse. No figure — the server prices it again.
+    // key a retry would reuse. The server prices it again; the one figure sent
+    // is the total the buyer was shown, as a precondition that can only refuse
+    // an order whose total moved since (409 PRICE_CHANGED), never set a price.
     expect(request.headers()['idempotency-key']).toMatch(UUID)
 
     const body = request.postDataJSON()
@@ -639,6 +641,7 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
       'buyerEmail',
       'buyerName',
       'eventId',
+      'expectedTotalCents',
       'holdIds',
       'items',
     ])
@@ -649,8 +652,13 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
       buyerName: DISPLAY_NAME,
       holdIds: [holdId],
       items: [{ ticketTypeId: tierId, quantity: 1 }],
+      expectedTotalCents: paise(allIn),
     })
-    expect(JSON.stringify(body)).not.toMatch(/cents|price|total|amount/iu)
+
+    const { expectedTotalCents: _shown, ...priceless } = body
+
+    // Nothing else in the body is a figure: no unit price, no line total.
+    expect(JSON.stringify(priceless)).not.toMatch(/cents|price|total|amount/iu)
 
     // What the API answered: paid, the quoted total, one ticket, no pass.
     expect(response.ok(), `the order answered ${response.status()}`).toBe(true)
@@ -790,7 +798,8 @@ test.describe.serial('buying a ticket as somebody who has never been here', () =
     const lines = money.getByRole('listitem')
 
     await expect(lines).toHaveCount(1)
-    await expect(lines).toContainText(`Ticket, 1 × ${FACE}`)
+    // The line names its ticket type, which the order's lines now carry.
+    await expect(lines).toContainText(`General admission, 1 × ${FACE}`)
 
     await expect(definition(money, 'Subtotal')).toHaveText(FACE)
     await expect(definition(money, 'Booking fee')).toHaveText(fee)

@@ -155,7 +155,9 @@ const OWNER_RAIL = Object.freeze([
   'Events',
   'Venues',
   'Check-in',
+  'Organisation',
   'Team',
+  'Promo codes',
   'Analytics',
   'Finance',
   'Operations',
@@ -164,7 +166,10 @@ const OWNER_RAIL = Object.freeze([
 
 /**
  * What the platform reader's rail offers: a SUPER_ADMIN with no membership, so
- * nothing that needs one — Check-in, Team, Analytics — and every platform door.
+ * nothing that needs one — Organisation, Team, Promo codes, Analytics — and
+ * every platform door. Check-in is one of those: a super administrator may
+ * admit at any door by platform role (ADR 0007), and the rail offers what the
+ * API would answer.
  *
  * @type {ReadonlyArray<string>}
  */
@@ -172,20 +177,24 @@ const PLATFORM_RAIL = Object.freeze([
   'Overview',
   'Events',
   'Venues',
+  'Check-in',
   'Finance',
   'Operations',
   'Notifications',
   'Moderation',
   'Privacy',
   'Retention',
+  'Organisation checks',
+  'People and roles',
 ])
 
 /**
- * What an alpha VIEWER's rail offers: the workspace, the team and the counts.
+ * What an alpha VIEWER's rail offers: the workspace, the organisation's page,
+ * the team and the counts.
  *
  * @type {ReadonlyArray<string>}
  */
-const VIEWER_RAIL = Object.freeze(['Overview', 'Team', 'Analytics'])
+const VIEWER_RAIL = Object.freeze(['Overview', 'Organisation', 'Team', 'Analytics'])
 
 /**
  * What an alpha SCANNER's rail offers: the workspace and its door.
@@ -497,14 +506,21 @@ test.describe('the team screen', () => {
       await expect(row.getByRole('button', { name: `Remove ${name} from the team` })).toBeVisible()
     }
 
-    // No invite form, because nothing in this build could deliver one.
+    // An invite form, which says how its code travels: shown once to the
+    // inviter, who hands it over, because this build sends no email. Nothing
+    // is pressed here — the journey through it is
+    // `detail-team-and-organisations.spec.js`, which keeps no artefacts.
     await expect(
       owner.getByText(
-        'Inviting someone new needs email delivery, which this build does not have. Existing invitations are listed so they can be withdrawn.',
+        'This site sends no email. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
         { exact: true },
       ),
     ).toBeVisible()
-    await expect(owner.locator('main input[type="email"]')).toHaveCount(0)
+
+    const invite = owner.getByRole('form', { name: 'Invite somebody' })
+
+    await expect(invite.getByLabel(/^Their email address/u)).toHaveValue('')
+    await expect(owner.locator('main input[type="email"]')).toHaveCount(1)
 
     await expectNoCredentials(owner)
   })
