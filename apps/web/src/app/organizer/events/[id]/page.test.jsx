@@ -35,7 +35,10 @@ vi.mock('../../../../lib/organizer-api.js', async () => {
   }
 })
 
+vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
+
 const api = await import('../../../../lib/organizer-api.js')
+const { readSession } = await import('../../../../lib/session.js')
 const { default: EditEventPage } = await import('./page.jsx')
 
 /** A draft with everything the form needs. */
@@ -136,5 +139,71 @@ describe('the Media step on the editor page', () => {
     expect(screen.queryByText(/There is no cover/)).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Upload a cover' })).toBeNull()
     expect(screen.queryByRole('form')).toBeNull()
+  })
+})
+
+describe('booking from a hidden tier, on the editor page', () => {
+  const LIVE = { ...EVENT, status: 'ON_SALE' }
+  const GUEST_LIST = {
+    id: 'ttguestlist',
+    name: 'Guest list',
+    status: 'ON_SALE',
+    visibility: 'HIDDEN',
+    complimentary: true,
+    priceCents: 0,
+  }
+
+  /**
+   * A signed-in member with these capabilities in the event's organisation.
+   *
+   * @param {string[]} capabilities What the membership holds.
+   * @returns {object} The session payload.
+   */
+  const member = (capabilities) => ({
+    user: { id: 'u1', displayName: 'Meera Shah', email: 'meera@example.test' },
+    capabilities: [],
+    memberships: [{ organizationId: EVENT.organizationId, capabilities }],
+  })
+
+  beforeEach(() => {
+    readSession.mockReset()
+    api.getOrganizerEvent.mockResolvedValue(LIVE)
+    api.getEventTicketTypes.mockResolvedValue({ data: [GUEST_LIST], meta: { revision: 3 } })
+    api.getEventMedia.mockResolvedValue({ data: [], meta: { revision: 3 } })
+  })
+
+  it('sends a member who may book it to the event’s own checkout', async () => {
+    readSession.mockResolvedValue(member(['ticketType:manage', 'event:update']))
+
+    render(await EditEventPage({ params: Promise.resolve({ id: EVENT.id }) }))
+
+    const panel = screen.getByTestId('team-booking-panel')
+    expect(panel).toHaveTextContent('Book from a hidden tier')
+    expect(panel).toHaveTextContent('handed on to a guest with a transfer code')
+    expect(screen.getByRole('link', { name: 'Book team tickets' })).toHaveAttribute(
+      'href',
+      '/events/qawwali-under-the-banyan/checkout',
+    )
+  })
+
+  it('offers nothing to a member who may not, before the event is on sale, or with no hidden tier', async () => {
+    readSession.mockResolvedValue(member(['event:update']))
+    const first = render(await EditEventPage({ params: Promise.resolve({ id: EVENT.id }) }))
+    expect(screen.queryByTestId('team-booking-panel')).toBeNull()
+    first.unmount()
+
+    readSession.mockResolvedValue(member(['ticketType:manage']))
+    api.getOrganizerEvent.mockResolvedValue(EVENT)
+    const draft = render(await EditEventPage({ params: Promise.resolve({ id: EVENT.id }) }))
+    expect(screen.queryByTestId('team-booking-panel')).toBeNull()
+    draft.unmount()
+
+    api.getOrganizerEvent.mockResolvedValue(LIVE)
+    api.getEventTicketTypes.mockResolvedValue({
+      data: [{ ...GUEST_LIST, visibility: 'PUBLIC', complimentary: false }],
+      meta: { revision: 3 },
+    })
+    render(await EditEventPage({ params: Promise.resolve({ id: EVENT.id }) }))
+    expect(screen.queryByTestId('team-booking-panel')).toBeNull()
   })
 })

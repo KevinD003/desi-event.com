@@ -29,6 +29,7 @@
 
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { Alert, Badge, Button, FormField, Input } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { describeApiRefusal, parseRetryAfter, refusalSentence } from '../../../lib/refusal.js'
@@ -63,6 +64,7 @@ export function UserSearch() {
   const [refused, setRefused] = useState(null)
   const [announcement, setAnnouncement] = useState('')
   const refusalRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const trimmed = terms.trim()
 
@@ -102,10 +104,10 @@ export function UserSearch() {
           ? describeApiRefusal({ status: 429, retryAfterSeconds }).detail
           : refusalSentence(response.status, body, 'The search was refused.'),
       )
-      queueMicrotask(() => refusalRef.current?.focus())
+      focusAfterRender(refusalRef)
     } catch {
       setRefused(describeApiRefusal(null).detail)
-      queueMicrotask(() => refusalRef.current?.focus())
+      focusAfterRender(refusalRef)
     } finally {
       setBusy(false)
     }

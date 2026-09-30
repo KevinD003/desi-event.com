@@ -6,19 +6,28 @@
  * believed is decided by the database rather than by whichever scanner asked
  * first.
  *
- * ## Check-in happens once
+ * ## Check-in happens once — once a night for a ticket good for every night
  *
- * Not "usually once". The `CheckIn` row has a unique index on `ticketId`, so two
- * scanners racing produce one row and one of them is told the ticket is already
- * in. The ticket's own status moves under a conditional `UPDATE` in the same
- * transaction, and a trigger — `desi_check_in_ticket_admissible` — refuses a
- * row for a ticket that is refunded, revoked or transferred away, whatever the
- * application believed.
+ * Not "usually once". The `CheckIn` row is unique on the ticket and the night,
+ * so two scanners racing produce one row and one of them is told the ticket is
+ * already in. A ticket for one night moves to CHECKED_IN under a conditional
+ * `UPDATE` in the same transaction; a ticket good for every night (a tier with
+ * no night of its own, on an event of more than one) stays VALID and gains one
+ * row per night. A trigger — `desi_check_in_ticket_admissible` — locks the
+ * ticket and refuses a row for a ticket that is refunded, revoked or
+ * transferred away, on a night that is not its own, or a second row for a
+ * ticket that admits once, whatever the application believed.
  *
  * That is three layers for one property, and it is not redundancy for its own
  * sake: the unique index is what makes the race safe, the conditional update is
  * what makes the answer correct, and the trigger is what makes it true for code
  * that has not been written yet.
+ *
+ * A ticket that has been let in on any night is not handed on: a successor
+ * would start with no admissions and could be let in again on a night this one
+ * already was. For a ticket that admits once CHECKED_IN says so; for one good
+ * for every night the offer and the acceptance check its admissions, and
+ * `desi_ticket_status_transition` refuses the move whatever the caller checked.
  *
  * ## A transfer is an invitation, not a handover
  *
@@ -214,6 +223,8 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
   ORDER_NOT_PAID: 'The order for this ticket is not paid.',
   EVENT_CANCELLED: 'This event was cancelled.',
   WRONG_EVENT: 'This ticket is for a different event.',
+  WRONG_NIGHT: 'This ticket is for a different night.',
+  NIGHT_REQUIRED: 'This event has more than one night. Say which night the door is admitting to.',
   PREVIEW_EXPIRED: 'That check took too long. Look the ticket up again.',
   PREVIEW_INVALID: 'That check could not be confirmed. Look the ticket up again.',
   PREVIEW_MISMATCH: 'The pass presented is not the one that was checked. Look it up again.',
@@ -298,16 +309,17 @@ export async function transition(tx, { ticket, to, data = {} }) {
 }
 
 /**
- * Admit somebody, once.
+ * Admit somebody, once — or once tonight, for a ticket good for every night.
  *
- * The `CheckIn` row is what makes "once" true: its unique index on `ticketId`
- * means two scanners racing produce one row, and the loser learns from the
- * violation rather than from a status it read a moment ago.
+ * The `CheckIn` row is what makes "once" true: its unique index on the ticket
+ * and the night means two scanners racing produce one row, and the loser
+ * learns from the violation rather than from a status it read a moment ago.
  *
  * @param {object} tx A Prisma transaction client.
  * @param {object} params Inputs.
  * @param {object} params.ticket The ticket, in an admissible state.
- * @param {string|null} [params.eventSessionId] Which performance.
+ * @param {string|null} [params.eventSessionId] Which night: the ticket's own, or for a ticket good for every night the night it is let in on.
+ * @param {boolean} [params.everyNight] A ticket good for every night: record tonight's admission and leave the ticket VALID for the others.
  * @param {string|null} [params.scannedByUserId] Who scanned it.
  * @param {string|null} [params.deviceId] A `Device` row this system issued, or null.
  * @param {string|null} [params.scannerId] What the scanner calls itself. Audit only.
@@ -325,6 +337,7 @@ export async function admit(tx, params) {
   const {
     ticket,
     eventSessionId = null,
+    everyNight = false,
     scannedByUserId = null,
     // `CheckIn.deviceId` is a foreign key to a `Device` this system issued. A
     // string a scanner sends about itself is not one, and putting it here turns
@@ -390,11 +403,21 @@ export async function admit(tx, params) {
     },
   })
 
-  const moved = await transition(tx, {
-    ticket,
-    to: TICKET_STATES.CHECKED_IN,
-    data: { checkedInAt: now },
-  })
+  if (everyNight && !eventSessionId) {
+    throw new TypeError('An admission of a ticket good for every night names the night.')
+  }
+
+  // A ticket good for every night stays as it is: tonight's row is the record,
+  // and the ticket still admits on the other nights. The row lock the caller
+  // holds, and the one the trigger takes, keep its status from changing under
+  // this admission until it commits.
+  const moved = everyNight
+    ? true
+    : await transition(tx, {
+        ticket,
+        to: TICKET_STATES.CHECKED_IN,
+        data: { checkedInAt: now },
+      })
 
   // The attendance row was accepted and the ticket moved on underneath it —
   // somebody revoked or refunded it between the insert above and this update.
@@ -431,11 +454,25 @@ export async function admit(tx, params) {
       role,
       organizationId,
       groupPassId,
+      everyNight,
       previousStatus: ticket.status,
     },
   })
 
   return { admitted: true, checkIn }
+}
+
+/**
+ * Whether a ticket has been let in on any night, read under its row lock.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {string} ticketId The ticket.
+ * @returns {Promise<boolean>} True when it has an admission.
+ */
+async function admittedAlready(tx, ticketId) {
+  await tx.$queryRaw`SELECT "id" FROM "Ticket" WHERE "id" = ${ticketId} FOR UPDATE`
+
+  return (await tx.checkIn.count({ where: { ticketId } })) > 0
 }
 
 /**
@@ -478,6 +515,19 @@ export async function startTransfer(tx, params) {
     // No address in the refusal: the sender typed it, and an error body is
     // kept by more things than the screen that shows it.
     throw unprocessable('That ticket is already theirs.')
+  }
+
+  // A ticket good for every night stays VALID after a night's admission, so
+  // its status does not say it was used. Its admissions do, read under its row
+  // lock so an admission cannot slip in between the check and the offer.
+  if (
+    canTransition(ticket.status, TICKET_STATES.TRANSFER_PENDING) &&
+    (await admittedAlready(tx, ticket.id))
+  ) {
+    throw conflict(
+      'This ticket has already let somebody in, so it cannot be handed on. The nights left are for whoever went in.',
+      { reason: 'ALREADY_ADMITTED' },
+    )
   }
 
   const moved = await transition(tx, { ticket, to: TICKET_STATES.TRANSFER_PENDING })
@@ -561,6 +611,22 @@ export async function acceptTransfer(tx, params) {
   // successor admitting (ADR 0005's "quiet double admission"; ADR 0006).
   await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${ticket.orderItemId} FOR UPDATE`
 
+  // Then the ticket, which every admission locks before it writes. A ticket
+  // good for every night that was let in on a night while the offer stood is
+  // still TRANSFER_PENDING, so only its admissions say it was used: handing it
+  // on would let the recipient in again on that night. Refused like any other
+  // change to the ticket since it was offered, and nothing is written. (A
+  // ticket read as CHECKED_IN is refused by the transition table below.)
+  if (
+    canTransition(ticket.status, TICKET_STATES.TRANSFERRED) &&
+    (await admittedAlready(tx, ticket.id))
+  ) {
+    throw conflict(
+      'That ticket changed while the transfer was being accepted. Nothing was handed on.',
+      { reason: 'TICKET_CHANGED', ticketId: ticket.id },
+    )
+  }
+
   // Conditional on the transfer still being PENDING. Two people cannot accept
   // one invitation, and the same person clicking twice accepts once.
   const { count } = await tx.ticketTransfer.updateMany({
@@ -598,11 +664,22 @@ export async function acceptTransfer(tx, params) {
     )
   }
 
+  // The name the door will match a face to: the recipient's own, read from
+  // their account here rather than taken from `recipient`. The route passes the
+  // request actor, which carries an id, a role and an address but no name, and
+  // reading `recipient.displayName` left every ticket ever handed on nameless —
+  // including a seat whose buyer had typed the guest's name at checkout. The
+  // buyer's guest name is not carried over: it names somebody else.
+  const account = await tx.user.findUnique({
+    where: { id: recipient.id },
+    select: { displayName: true },
+  })
+
   const issued = await tx.ticket.create({
     data: {
       orderItemId: ticket.orderItemId,
       code: generateTicketCode(),
-      attendeeName: recipient.displayName ?? null,
+      attendeeName: account?.displayName ?? null,
       ownerUserId: recipient.id,
       eventSeatId: ticket.eventSeatId,
       status: TICKET_STATES.VALID,

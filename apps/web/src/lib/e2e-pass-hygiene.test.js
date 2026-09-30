@@ -10,6 +10,11 @@
  * pass** against the real API can leave a working ticket in a test artefact,
  * and closing the context in a `finally` does not prevent it.
  *
+ * A group pass is the same kind of credential for a whole order: its QR and
+ * printed `DEG-` code admit every ticket the buyer still holds. **Show group
+ * pass** (`components/group-pass.jsx`) fetches and draws it, so the same rule
+ * applies to that control, with its own endpoint.
+ *
  * `screenshot`, `trace` and `video` are worker-scoped options. `test.use` can
  * set them only at the top of a file, never for one case inside a `describe`.
  * That leaves two safe ways to press the control, and this file accepts either:
@@ -19,8 +24,9 @@
  *   `detail-organizer-checkin.spec.js`, which draws a real pass and scans it,
  *   does this.
  * - Every case that presses the control answers the pass request itself, with
- *   `route(…/pass…)` and `fulfill(…)`, so the real pass is never fetched. The
- *   accessibility sweep does this: it keeps screenshots for its other cases.
+ *   `route(…/pass…)` (for a group pass, `route(…/group-pass…)`) and
+ *   `fulfill(…)`, so the real pass is never fetched. A route for one kind of
+ *   pass does not guard a press of the other.
  *
  * This became a rule after the sweep's pass case was found showing a live pass
  * under `only-on-failure`, with a comment claiming the `finally` protected it
@@ -50,6 +56,9 @@
  *   file-level `test.use`.
  * - The endpoint is pinned to the component too, so a moved fetch cannot leave
  *   a route guarding a path nothing requests.
+ * - Replacing a group pass (`…/group-pass/rotate`) answers no secret; the new
+ *   pass is drawn by the same fetch as **Show group pass**, and that control is
+ *   the only way to reach **Replace group pass**, so the press is what counts.
  *
  * @module lib/e2e-pass-hygiene.test
  */
@@ -63,8 +72,32 @@ import { describe, expect, it } from 'vitest'
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const e2e = join(webRoot, 'e2e')
 
-/** The control that fetches and draws the pass. */
-const PASS_CONTROL = /show my entry pass/iu
+/**
+ * Each control that fetches and draws a pass, the route that has to answer
+ * its request instead of the server, and where the component labels it and
+ * fetches it.
+ */
+const PASSES = [
+  {
+    name: 'entry pass',
+    label: 'Show my entry pass',
+    control: /show my entry pass/iu,
+    route: /\.route\(\s*[^,\n]*\/pass\b/u,
+    component: 'ticket-pass.jsx',
+    fetch: /apiFetch\(`\/v1\/tickets\/\$\{[^}]+\}\/pass`/u,
+  },
+  {
+    name: 'group pass',
+    label: 'Show group pass',
+    control: /show group pass/iu,
+    route: /\.route\(\s*[^,\n]*\/group-pass\b/u,
+    component: 'group-pass.jsx',
+    fetch: /`\/v1\/orders\/\$\{encodeURIComponent\(reference\)\}\/group-pass`/u,
+  },
+]
+
+/** Any control that fetches and draws a pass. */
+const PASS_CONTROL = new RegExp(PASSES.map(({ control }) => control.source).join('|'), 'iu')
 
 /** Where a case starts: `test('…'`, and its `only`, `skip`, `fixme` and `fail` forms. */
 const CASE_START = /^[ \t]*test(?:\.(?:only|skip|fixme|fail))?\(\s*(['"`])(.*?)\1/gmu
@@ -75,9 +108,6 @@ const CASE_START = /^[ \t]*test(?:\.(?:only|skip|fixme|fail))?\(\s*(['"`])(.*?)\
  */
 const OTHER_START =
   /^(?:[ \t]*test\.(?:describe(?:\.\w+)?|beforeAll|beforeEach|afterAll|afterEach)\(|(?:export\s+)?(?:async\s+)?function\b|(?:const|let)\s)/gmu
-
-/** A route whose pattern names the pass endpoint. */
-const PASS_ROUTE = /\.route\(\s*[^,\n]*\/pass\b/u
 
 /** A route answered in the test, rather than continued to the server. */
 const FULFIL = /\.fulfill\(/u
@@ -141,18 +171,20 @@ function pieces(source) {
 }
 
 /**
- * Whether a case answers the pass request itself before it presses the
- * control: a route naming the pass endpoint, set up before the press, whose
- * handler — the text from that route to the next route or the press, whichever
- * comes first — fulfils the request and never sends it on. A fulfil anywhere
- * else in the case, for some other request, does not count.
+ * Whether a case answers one kind of pass request itself before it presses
+ * that control: a route naming that pass's endpoint, set up before the press,
+ * whose handler — the text from that route to the next route or the next press
+ * of any pass control, whichever comes first — fulfils the request and never
+ * sends it on. A fulfil anywhere else in the case, for some other request, does
+ * not count, and neither does a route for the other kind of pass.
  *
  * @param {string} text One case, comments removed.
+ * @param {{control: RegExp, route: RegExp}} pass The kind of pass: its control and the route that answers it.
  * @returns {boolean} True when the real pass cannot be fetched by the press.
  */
-function answersPassFirst(text) {
-  const press = text.search(PASS_CONTROL)
-  const at = text.search(PASS_ROUTE)
+function answersFirst(text, pass) {
+  const press = text.search(pass.control)
+  const at = text.search(pass.route)
 
   if (at < 0 || press < 0 || at > press) return false
 
@@ -161,6 +193,19 @@ function answersPassFirst(text) {
   const handler = after.slice(0, Math.min(after.length, ...ends))
 
   return FULFIL.test(handler) && !PASS_THROUGH.test(handler)
+}
+
+/**
+ * Whether a case answers every pass request it causes before it presses the
+ * control that causes it.
+ *
+ * @param {string} text One case, comments removed.
+ * @returns {boolean} True when no real pass can be fetched by the case.
+ */
+function answersPassFirst(text) {
+  return PASSES.filter(({ control }) => control.test(text)).every((pass) =>
+    answersFirst(text, pass),
+  )
 }
 
 /**
@@ -191,24 +236,25 @@ describe('the entry pass in end-to-end specs', () => {
     expect(unguardedPresses(readFileSync(join(e2e, file), 'utf8'))).toEqual([])
   })
 
-  it('has specs that press the control, so the rule above is not empty', () => {
+  it.each(PASSES)('has specs that press the $name control, so the rule is not empty', (pass) => {
     const pressing = SPECS.filter((file) =>
-      PASS_CONTROL.test(withoutComments(readFileSync(join(e2e, file), 'utf8'))),
+      pass.control.test(withoutComments(readFileSync(join(e2e, file), 'utf8'))),
     )
 
     expect(pressing.length).toBeGreaterThan(0)
   })
 
-  it('names the control the way the component labels it', () => {
+  it.each(PASSES)('names the $name control the way the component labels it', (pass) => {
     // If the button is relabelled, every pattern above stops matching and the
     // rule passes by seeing nothing. This makes the rename fail here instead.
-    const component = readFileSync(join(webRoot, 'src', 'components', 'ticket-pass.jsx'), 'utf8')
+    const component = readFileSync(join(webRoot, 'src', 'components', pass.component), 'utf8')
 
-    expect(component).toContain('Show my entry pass')
+    expect(component).toContain(pass.label)
+    expect(pass.control.test(pass.label)).toBe(true)
     // And the endpoint a route has to answer: if the component fetched the pass
     // from somewhere else, a route on the old path would let the real pass
     // through while this file still saw a guarded case.
-    expect(component).toMatch(/apiFetch\(`\/v1\/tickets\/\$\{[^}]+\}\/pass`/u)
+    expect(component).toMatch(pass.fetch)
   })
 })
 
@@ -343,6 +389,85 @@ describe('the invariant itself', () => {
     )
 
     expect(unguardedPresses(raw)).toEqual(['outside any case'])
+  })
+
+  describe('for a group pass', () => {
+    const groupPress = `    await page.getByRole('button', { name: 'Show group pass' }).click()`
+    const groupRoute = [
+      '    await page.route(`**/api/v1/orders/${reference}/group-pass`, (route) =>',
+      "      route.fulfill({ status: 200, body: '{}' }),",
+      '    )',
+    ].join('\n')
+
+    it('refuses a case that presses Show group pass with nothing guarding it', () => {
+      const raw = spec("test('shows the group', async ({ page }) => {", groupPress, '})')
+
+      expect(unguardedPresses(raw)).toEqual(['shows the group'])
+    })
+
+    it('accepts a file that turns all three artefacts off at the top', () => {
+      const raw = spec(
+        "test.use({ screenshot: 'off', trace: 'off', video: 'off' })",
+        "test('shows the group', async ({ page }) => {",
+        groupPress,
+        '})',
+      )
+
+      expect(unguardedPresses(raw)).toEqual([])
+    })
+
+    it('accepts a case that answers the group pass request itself', () => {
+      const raw = spec(
+        "test('shows a stand-in group', async ({ page }) => {",
+        groupRoute,
+        groupPress,
+        '})',
+      )
+
+      expect(unguardedPresses(raw)).toEqual([])
+    })
+
+    it('does not take an entry-pass route as guarding the group pass', () => {
+      const raw = spec("test('shows the group', async ({ page }) => {", route, groupPress, '})')
+
+      expect(unguardedPresses(raw)).toEqual(['shows the group'])
+    })
+
+    it('does not take a group-pass route as guarding an entry pass', () => {
+      const raw = spec("test('shows a ticket', async ({ page }) => {", groupRoute, press, '})')
+
+      expect(unguardedPresses(raw)).toEqual(['shows a ticket'])
+    })
+
+    it('needs both routes in a case that presses both controls', () => {
+      const raw = spec(
+        "test('shows both', async ({ page }) => {",
+        route,
+        press,
+        groupPress,
+        '})',
+        '',
+        "test('guards both', async ({ page }) => {",
+        route,
+        groupRoute,
+        press,
+        groupPress,
+        '})',
+      )
+
+      expect(unguardedPresses(raw)).toEqual(['shows both'])
+    })
+
+    it('refuses a group-pass route that passes the request through', () => {
+      const raw = spec(
+        "test('shows the group', async ({ page }) => {",
+        "  await page.route('**/api/v1/orders/*/group-pass', (route) => route.continue())",
+        groupPress,
+        '})',
+      )
+
+      expect(unguardedPresses(raw)).toEqual(['shows the group'])
+    })
   })
 
   it('does not treat a comment that names the control as a press', () => {

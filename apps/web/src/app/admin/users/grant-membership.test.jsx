@@ -175,6 +175,11 @@ describe('putting an account into an organisation', () => {
 
     expect(outcome).toHaveAttribute('role', 'status')
     expect(onChanged).toHaveBeenCalledTimes(1)
+    // The panel and its button are gone: focus goes back to the control that
+    // opened it, which is drawn again only once the answer is in.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Put Ben into an organisation' })).toHaveFocus(),
+    )
   })
 
   it('will not offer the role the account already holds there', async () => {

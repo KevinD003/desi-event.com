@@ -15,9 +15,12 @@
  *       - a general-admission event on sale over two labelled nights, one tier
  *         per night;
  *       - a seated event on sale over two labelled nights: a published venue
- *         map (one balcony section, two rows of six seats, one price zone), a
- *         reserved tier per night pricing that zone, and every seat of every
- *         night bound to its night's tier;
+ *         map in two sections, each its own price zone — the balcony, two rows
+ *         of six plain seats, and the boxes, one row of the seats a picker has
+ *         to explain (a wheelchair space and its companion seat, an obstructed
+ *         view, a restricted seat with its note, and one blocked on both
+ *         nights) — a reserved tier per zone per night, and every seat of
+ *         every night bound to the tier pricing its zone;
  *       - a draft event, for pictures and the new detail fields;
  *       - an online event on sale, with a joining link only a holder is
  *         given, and beside its public tier a hidden one nobody is shown;
@@ -92,6 +95,37 @@ export const SEAT_PRICE_CENTS = 4_500
 
 /** The balcony: row label to seat count. */
 export const BALCONY_ROWS = Object.freeze({ A: 6, B: 6 })
+
+/** A box seat, in cents. */
+export const BOX_PRICE_CENTS = 6_000
+
+/**
+ * The boxes: one row, K, in a section and price zone of their own, holding
+ * every kind of seat the picker has to say something about.
+ *
+ *   - K1 is a wheelchair space and K2 its companion seat, which are chosen,
+ *     held and sold together;
+ *   - K3 has an obstructed view;
+ *   - K4 is restricted, with the note the picker shows under the section;
+ *   - K5 is blocked on both nights, by the organiser, for the sound desk.
+ *
+ * The balcony's seats are plain, so no assertion about them moves.
+ */
+export const BOX_SEATS = Object.freeze([
+  Object.freeze({ label: 'K1', accessible: true }),
+  Object.freeze({ label: 'K2', companionOf: 'K1' }),
+  Object.freeze({ label: 'K3', obstructedView: true }),
+  Object.freeze({
+    label: 'K4',
+    restricted: true,
+    restrictionNote: 'Beside the camera platform: the stage is seen from the side.',
+  }),
+  Object.freeze({ label: 'K5', blockedReason: 'Kept for the sound desk.' }),
+])
+
+/** Every seat on gamma's plan, both sections. */
+export const PLAN_SEATS =
+  Object.values(BALCONY_ROWS).reduce((sum, count) => sum + count, 0) + BOX_SEATS.length
 
 /** Who the giver is, as a buyer and on their own tickets. */
 export const GIVER_NAME = 'Rohan Mehta'
@@ -383,8 +417,8 @@ async function paidOrder(
 }
 
 /**
- * The balcony's published seat plan: one section, the rows in
- * {@link BALCONY_ROWS}, one price zone every seat is in.
+ * Gamma's published seat plan: the balcony, the rows in {@link BALCONY_ROWS}
+ * in the Balcony zone, then the boxes, {@link BOX_SEATS} in the Box zone.
  *
  * A published version is frozen by trigger and cannot be deleted, so a cleanup
  * leaves it behind; a later seed of the same tag reuses it, which is safe
@@ -397,10 +431,10 @@ async function paidOrder(
  * @param {string} options.venueId Gamma's venue.
  * @param {string} options.tag The run suffix.
  * @param {Date} options.now The publication instant, for a new version.
- * @returns {Promise<{version: object, zone: object, seats: object[], seatCount: number}>} The published plan, seats in row order.
+ * @returns {Promise<{version: object, zone: object, boxZone: object, seats: object[], seatCount: number}>} The published plan, seats in section and row order.
  */
 async function balconyPlan(prisma, { venueId, tag, now }) {
-  const seatCount = Object.values(BALCONY_ROWS).reduce((sum, count) => sum + count, 0)
+  const seatCount = PLAN_SEATS
   const name = `Gamma plan ${tag}`
   const map = await prisma.venueMap.upsert({
     where: { venueId_name: { venueId, name } },
@@ -415,16 +449,19 @@ async function balconyPlan(prisma, { venueId, tag, now }) {
     const zone = await prisma.priceZone.findFirst({
       where: { venueMapVersionId: existing.id, name: 'Balcony' },
     })
+    const boxZone = await prisma.priceZone.findFirst({
+      where: { venueMapVersionId: existing.id, name: 'Box' },
+    })
     const seats = await prisma.seat.findMany({
       where: { venueMapVersionId: existing.id },
       orderBy: { sortOrder: 'asc' },
     })
 
-    if (zone === null || seats.length !== seatCount) {
+    if (zone === null || boxZone === null || seats.length !== seatCount) {
       throw new Error(`The kept balcony plan for ${tag} is not the one this seed draws.`)
     }
 
-    return { version: existing, zone, seats, seatCount }
+    return { version: existing, zone, boxZone, seats, seatCount }
   }
 
   if (existing) await prisma.venueMapVersion.delete({ where: { id: existing.id } })
@@ -433,10 +470,10 @@ async function balconyPlan(prisma, { venueId, tag, now }) {
     data: { venueMapId: map.id, version: 1, seatCount },
   })
   const section = await prisma.section.create({
-    data: { venueMapVersionId: version.id, name: 'Balcony', kind: 'SEATED' },
+    data: { venueMapVersionId: version.id, name: 'Balcony', kind: 'SEATED', sortOrder: 0 },
   })
   const zone = await prisma.priceZone.create({
-    data: { venueMapVersionId: version.id, name: 'Balcony' },
+    data: { venueMapVersionId: version.id, name: 'Balcony', sortOrder: 0 },
   })
 
   const seats = []
@@ -467,13 +504,52 @@ async function balconyPlan(prisma, { venueId, tag, now }) {
     }
   }
 
+  // The boxes: their own section, zone and row, after the balcony.
+  const boxes = await prisma.section.create({
+    data: { venueMapVersionId: version.id, name: 'Boxes', kind: 'SEATED', sortOrder: 1 },
+  })
+  const boxZone = await prisma.priceZone.create({
+    data: { venueMapVersionId: version.id, name: 'Box', sortOrder: 1 },
+  })
+  const boxRow = await prisma.seatRow.create({
+    data: {
+      venueMapVersionId: version.id,
+      sectionId: boxes.id,
+      label: 'K',
+      sortOrder: Object.keys(BALCONY_ROWS).length,
+    },
+  })
+  const byLabel = new Map()
+
+  // In order, so a companion's wheelchair space exists before it points at it.
+  for (const [index, box] of BOX_SEATS.entries()) {
+    const seat = await prisma.seat.create({
+      data: {
+        venueMapVersionId: version.id,
+        sectionId: boxes.id,
+        rowId: boxRow.id,
+        label: box.label,
+        sortOrder: 1_000 + index + 1,
+        priceZoneId: boxZone.id,
+        accessible: box.accessible === true,
+        companionOfSeatId: box.companionOf ? byLabel.get(box.companionOf).id : null,
+        obstructedView: box.obstructedView === true,
+        restricted: box.restricted === true,
+        restrictionNote: box.restrictionNote ?? null,
+      },
+    })
+
+    byLabel.set(box.label, seat)
+    seats.push(seat)
+  }
+
   // The freeze: from here the layout cannot change, and a session may sell it.
   const published = await prisma.venueMapVersion.update({
     where: { id: version.id },
     data: { publishedAt: now },
   })
 
-  return { version: published, zone, seats, seatCount }
+  return { version: published, zone, boxZone, seats, seatCount }
 }
 
 /**
@@ -566,6 +642,187 @@ export async function seedPaidOrder(options) {
 
   try {
     return await paidOrder(prisma, options)
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+/**
+ * Everything an organiser can put on an event's page beyond its basics: a
+ * line-up with bios, a running order, questions and answers, a dress code,
+ * arrival notes, a published contact, links and a sponsor.
+ *
+ * Nothing else seeds these, so without them no page a scanner reads draws
+ * those sections. `rows: 'one'` gives a draft one performer, one slot and one
+ * question, so the editor's repeating rows exist when its steps are measured.
+ * Every string is held to the payload scans' needles, like the rest of this
+ * world, and every address is on a `.test` host nothing resolves.
+ *
+ * @param {string} tag The run suffix.
+ * @param {object} [options] Options.
+ * @param {'all'|'one'} [options.rows] How much of each list.
+ * @returns {object} The fields, as the `Event` columns hold them.
+ */
+export function eventContent(tag, { rows = 'all' } = {}) {
+  checkedTag(tag)
+
+  const performers = [
+    {
+      name: 'Meera Dhol Ensemble',
+      role: 'Dhol and percussion',
+      bio: 'Six drummers from Jersey City who have played garba nights since 2014.',
+    },
+    { name: 'Kiran Solanki', role: 'Lead vocals' },
+  ]
+  const runningOrder = [
+    { time: '19:00', title: 'Doors and aarti', note: 'The aarti starts on time.' },
+    { time: '19:45', title: 'First garba set' },
+    { time: '21:30', title: 'Dandiya raas', note: 'Sticks are lent at the door.' },
+  ]
+  const faq = [
+    {
+      question: 'Can I bring my own dandiya sticks?',
+      answer: 'Yes. Sticks are lent at the door as well, and handed back as you leave.',
+    },
+    { question: 'Is there food?', answer: 'Vegetarian stalls open at seven.' },
+  ]
+  const one = rows === 'one'
+  const content = {
+    performers: one ? performers.slice(0, 1) : performers,
+    artists: (one ? performers.slice(0, 1) : performers).map((performer) => performer.name),
+    runningOrder: one ? runningOrder.slice(0, 1) : runningOrder,
+    faq: one ? faq.slice(0, 1) : faq,
+    dressCode: 'Traditional dress is welcome and not required. Wear shoes you can dance in.',
+    directions: 'Parking is in the south lot. The entrance is beside the fountain.',
+    publicContactEmail: `hello-${tag}@example.test`,
+    publicContactPhone: '+1 201 555 0142',
+    socialLinks: {
+      website: `https://garba-${tag}.example.test/`,
+      instagram: 'https://www.instagram.com/desievent.sweep',
+    },
+    sponsors: [
+      { name: 'Edison Sweets', url: `https://sweets-${tag}.example.test/`, level: 'Gold' },
+    ],
+  }
+
+  assertNoPayloadNeedles({
+    ...Object.fromEntries(
+      content.performers.flatMap((p, i) =>
+        Object.entries(p).map(([k, v]) => [`performer ${i} ${k}`, v]),
+      ),
+    ),
+    ...Object.fromEntries(
+      content.runningOrder.flatMap((r, i) =>
+        Object.entries(r).map(([k, v]) => [`slot ${i} ${k}`, v]),
+      ),
+    ),
+    ...Object.fromEntries(
+      content.faq.flatMap((q, i) => Object.entries(q).map(([k, v]) => [`question ${i} ${k}`, v])),
+    ),
+    'dress code': content.dressCode,
+    directions: content.directions,
+    sponsor: content.sponsors[0].name,
+  })
+
+  return content
+}
+
+/**
+ * Write {@link eventContent} onto an existing event.
+ *
+ * For the accessibility sweep, whose own world's events carry none of it.
+ * The event keeps its status: this is what the organiser's content steps
+ * write, not a lifecycle change. Whatever cleans up the event takes this with
+ * it.
+ *
+ * @param {string} eventId The event.
+ * @param {string} tag The run suffix.
+ * @param {object} [options] As {@link eventContent} takes them.
+ * @returns {Promise<object>} What was written.
+ */
+export async function seedEventContent(eventId, tag, options = {}) {
+  const prisma = createPrismaClient({ connectionString: CONNECTION })
+  const content = eventContent(tag, options)
+
+  try {
+    await prisma.event.update({ where: { id: eventId }, data: content })
+
+    return content
+  } finally {
+    await prisma.$disconnect()
+  }
+}
+
+/**
+ * A postponed event beside an existing one: same organisation, venue, zone
+ * and terms, one night, one tier, and no date yet to come back on.
+ *
+ * For the accessibility sweep, whose organiser needs a postponed event to open
+ * the form that sets a new date and brings it back (`event-reschedule-form`).
+ * It hangs from the same organisation as `fromEventId`, so whatever cleans up
+ * that organisation's events removes it.
+ *
+ * @param {object} options Options.
+ * @param {string} options.fromEventId The event to take the organisation, venue and terms from.
+ * @param {string} options.tag The run suffix.
+ * @returns {Promise<{eventId: string, title: string, slug: string}>} The postponed event.
+ */
+export async function seedPostponedEvent({ fromEventId, tag }) {
+  checkedTag(tag)
+
+  const prisma = createPrismaClient({ connectionString: CONNECTION })
+
+  try {
+    const from = await prisma.event.findUniqueOrThrow({ where: { id: fromEventId } })
+    const now = new Date()
+    const startsAt = new Date(now.getTime() + 40 * DAY_MS)
+    const endsAt = new Date(startsAt.getTime() + 3 * 3_600_000)
+    const event = await prisma.event.create({
+      data: {
+        organizationId: from.organizationId,
+        venueId: from.venueId,
+        title: `Postponed Evening ${tag}`,
+        slug: `postponed-evening-${tag}`,
+        summary: 'Postponed until the venue can be used again.',
+        description:
+          'An evening moved off its date. Ticket holders keep their tickets until a new date is set.',
+        category: from.category,
+        status: 'POSTPONED',
+        startsAt,
+        endsAt,
+        timezone: from.timezone,
+        policies: from.policies ?? undefined,
+        publishedAt: now,
+        salesOpenedAt: now,
+        postponedAt: now,
+        previousStartsAt: startsAt,
+      },
+    })
+    const session = await prisma.eventSession.create({
+      data: {
+        eventId: event.id,
+        startsAt,
+        endsAt,
+        timezone: from.timezone,
+        status: 'SCHEDULED',
+        sortOrder: 0,
+        label: 'The evening',
+      },
+    })
+
+    await prisma.ticketType.create({
+      data: {
+        eventId: event.id,
+        eventSessionId: session.id,
+        name: 'General admission',
+        priceCents: 2_000,
+        currency: 'USD',
+        quantityTotal: 100,
+        status: 'ON_SALE',
+      },
+    })
+
+    return { eventId: event.id, title: event.title, slug: event.slug }
   } finally {
     await prisma.$disconnect()
   }
@@ -823,7 +1080,7 @@ export async function seedFeatureWorld({ tag }) {
 
     // ----------------------------------------------- reserved seats, two nights
 
-    const { version, zone, seats, seatCount } = await balconyPlan(prisma, {
+    const { version, zone, boxZone, seats } = await balconyPlan(prisma, {
       venueId: venue.id,
       tag,
       now,
@@ -844,8 +1101,13 @@ export async function seedFeatureWorld({ tag }) {
 
     const seatedSessions = []
     const seatedTiers = []
+    const boxTiers = []
     // Night index, then seat label, to the EventSeat that sells it.
     const eventSeats = []
+    const boxLabels = new Set(BOX_SEATS.map((box) => box.label))
+    const blocked = new Map(
+      BOX_SEATS.filter((box) => box.blockedReason).map((box) => [box.label, box.blockedReason]),
+    )
 
     for (const [index, times] of seatedNights.entries()) {
       const session = await prisma.eventSession.create({
@@ -860,7 +1122,7 @@ export async function seedFeatureWorld({ tag }) {
         },
       })
 
-      // One reserved tier prices the zone on each night, and every seat in
+      // One reserved tier prices each zone on each night, and every seat in
       // the zone is bound to it — what `bindReservedSeats` does when a tier is
       // created or sales open, written here directly.
       const tier = await prisma.ticketType.create({
@@ -872,21 +1134,39 @@ export async function seedFeatureWorld({ tag }) {
           name: `Balcony, night ${index + 1}`,
           priceCents: SEAT_PRICE_CENTS,
           currency: FEATURE_CURRENCY,
-          quantityTotal: seatCount,
+          quantityTotal: seats.length - boxLabels.size,
           status: 'ON_SALE',
           sortOrder: index,
+        },
+      })
+      const boxTier = await prisma.ticketType.create({
+        data: {
+          eventId: seatedEvent.id,
+          eventSessionId: session.id,
+          priceZoneId: boxZone.id,
+          reserved: true,
+          name: `Boxes, night ${index + 1}`,
+          priceCents: BOX_PRICE_CENTS,
+          currency: FEATURE_CURRENCY,
+          quantityTotal: boxLabels.size,
+          status: 'ON_SALE',
+          sortOrder: seatedNights.length + index,
         },
       })
 
       const bySeat = {}
 
       for (const seat of seats) {
+        // The blocked box is the organiser's to hold back: bound to its tier,
+        // as a prepared seat is, and not for sale.
+        const reason = blocked.get(seat.label) ?? null
         const eventSeat = await prisma.eventSeat.create({
           data: {
             eventSessionId: session.id,
             seatId: seat.id,
-            ticketTypeId: tier.id,
-            status: 'AVAILABLE',
+            ticketTypeId: boxLabels.has(seat.label) ? boxTier.id : tier.id,
+            status: reason ? 'BLOCKED' : 'AVAILABLE',
+            blockedReason: reason,
           },
         })
 
@@ -895,6 +1175,7 @@ export async function seedFeatureWorld({ tag }) {
 
       seatedSessions.push(session)
       seatedTiers.push(tier)
+      boxTiers.push(boxTier)
       eventSeats.push(bySeat)
     }
 
@@ -1090,8 +1371,10 @@ export async function seedFeatureWorld({ tag }) {
       gammaSeatedEventTitle: seatedEvent.title,
       gammaSeatedSessionIds: seatedSessions.map((session) => session.id),
       gammaSeatedTierIds: seatedTiers.map((tier) => tier.id),
+      gammaBoxTierIds: boxTiers.map((tier) => tier.id),
       gammaMapVersionId: version.id,
       gammaPriceZoneId: zone.id,
+      gammaBoxZoneId: boxZone.id,
       gammaSeatLabels: seats.map((seat) => seat.label),
       gammaDraftEventId: draftEvent.id,
       gammaDraftEventSlug: draftEvent.slug,

@@ -12,6 +12,10 @@
  *     security page's own journey, not this one's.
  *   - **The invitee** is invited as staff and joins with the code the creator
  *     hands over. Staff needs no second factor, so the account has none.
+ *   - **The solo creator** is an attendee with no second factor, the way most
+ *     people arrive, who makes an organisation of their own and is sent to set
+ *     one up before the workspace opens. A re-seed takes away any factor an
+ *     earlier run enrolled, so the journey always starts from none.
  *
  * The journey's other actors already exist: the platform reader (the seed's
  * super administrator) changes a platform role and grants a membership without
@@ -50,7 +54,7 @@ import { AUTH_SECRET, CONNECTION, PASSWORD, TOTP_SECRET } from './seed-refusals.
  * Pure, so a spec can name them before anything is seeded.
  *
  * @param {string} tag The run suffix.
- * @returns {{creatorEmail: string, creatorName: string, inviteeEmail: string, inviteeName: string, organizationName: string}} The names.
+ * @returns {{creatorEmail: string, creatorName: string, inviteeEmail: string, inviteeName: string, organizationName: string, soloEmail: string, soloName: string, soloOrganizationName: string}} The names.
  */
 export function teamAccounts(tag) {
   checkedTag(tag)
@@ -61,6 +65,9 @@ export function teamAccounts(tag) {
     inviteeEmail: `team-invitee-${tag}@attendee.test`,
     inviteeName: 'Farhan Qureshi',
     organizationName: `Team Journey ${tag}`,
+    soloEmail: `team-solo-${tag}@attendee.test`,
+    soloName: 'Ishita Vora',
+    soloOrganizationName: `Solo Journey ${tag}`,
   }
 }
 
@@ -71,7 +78,7 @@ export function teamAccounts(tag) {
  * every seed, so a re-run starts from an attendee with no organisation.
  *
  * @param {string} tag The run suffix.
- * @returns {Promise<{creatorEmail: string, creatorId: string, inviteeEmail: string, inviteeId: string, organizationName: string}>} The ids.
+ * @returns {Promise<{creatorEmail: string, creatorId: string, inviteeEmail: string, inviteeId: string, organizationName: string, soloEmail: string, soloId: string, soloOrganizationName: string}>} The ids.
  */
 export async function seedTeam(tag) {
   const names = teamAccounts(tag)
@@ -96,6 +103,11 @@ export async function seedTeam(tag) {
 
     const creator = await attendee(names.creatorEmail, names.creatorName)
     const invitee = await attendee(names.inviteeEmail, names.inviteeName)
+    const solo = await attendee(names.soloEmail, names.soloName)
+
+    // The solo creator starts with no second factor, whatever an earlier run
+    // of this tag enrolled.
+    await prisma.mfaFactor.deleteMany({ where: { userId: solo.id } })
 
     // Once: `seal` picks a fresh nonce each time, so a blind create would give
     // a re-seeded account a second factor rather than fail.
@@ -120,6 +132,9 @@ export async function seedTeam(tag) {
       inviteeEmail: invitee.email,
       inviteeId: invitee.id,
       organizationName: names.organizationName,
+      soloEmail: solo.email,
+      soloId: solo.id,
+      soloOrganizationName: names.soloOrganizationName,
     }
   } finally {
     await prisma.$disconnect()
@@ -130,15 +145,17 @@ export async function seedTeam(tag) {
  * The organisation the creator made, if it exists yet.
  *
  * @param {string} tag The run suffix.
+ * @param {object} [options] Options.
+ * @param {'creator'|'solo'} [options.who] Whose organisation: the creator's, or the solo creator's.
  * @returns {Promise<{id: string, slug: string}|null>} Its id and slug.
  */
-export async function createdOrganization(tag) {
-  const { creatorEmail } = teamAccounts(tag)
+export async function createdOrganization(tag, { who = 'creator' } = {}) {
+  const { creatorEmail, soloEmail } = teamAccounts(tag)
   const prisma = createPrismaClient({ connectionString: CONNECTION })
 
   try {
     return await prisma.organization.findFirst({
-      where: { createdBy: { email: creatorEmail } },
+      where: { createdBy: { email: who === 'solo' ? soloEmail : creatorEmail } },
       select: { id: true, slug: true },
     })
   } finally {
@@ -194,7 +211,7 @@ export async function cleanupTeam(tag) {
 
   try {
     const organizations = await prisma.organization.findMany({
-      where: { createdBy: { email: names.creatorEmail } },
+      where: { createdBy: { email: { in: [names.creatorEmail, names.soloEmail] } } },
       select: { id: true },
     })
 
@@ -210,7 +227,7 @@ export async function cleanupTeam(tag) {
     }
 
     const users = await prisma.user.findMany({
-      where: { email: { in: [names.creatorEmail, names.inviteeEmail] } },
+      where: { email: { in: [names.creatorEmail, names.inviteeEmail, names.soloEmail] } },
     })
 
     for (const user of users) {

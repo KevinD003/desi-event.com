@@ -1,3 +1,5 @@
+import { totp } from '@desi-event/auth'
+
 import { arriving, expect, test, world } from './support/detail-fixtures.mjs'
 import { signIn } from './support/detail-world.mjs'
 import {
@@ -31,14 +33,22 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *      use the dead one, and joins with the new one.
  *   5. The super administrator finds an account by address — in a request
  *      body, never a query string — and makes it a moderator, through a
- *      second-factor confirmation. Their own row offers no change, and the API
- *      refuses one: the only super administrator cannot be demoted by anybody.
+ *      second-factor confirmation, which ends every session the account held.
+ *      Their own row offers no change, and the API refuses one: the only super
+ *      administrator cannot be demoted by anybody.
  *   6. The new moderator signs in, finds the organisation waiting, and
  *      verifies it; its owner sees it verified.
  *   7. The super administrator puts that account into the organisation as an
  *      administrator, which ends its sessions.
  *   8. The owner hands the organisation to that administrator and becomes an
  *      administrator themselves.
+ *   9. The super administrator puts the moderator's platform role back to
+ *      attendee, through the same page.
+ *  10. An attendee with no second factor — the way most people arrive — makes
+ *      an organisation, is told the workspace will not open until two-step
+ *      sign-in is set up, sets it up from the key on the security page, and
+ *      reaches the workspace. The organisation is in no public directory: it
+ *      has nothing on sale.
  *
  * ## Who is who
  *
@@ -388,9 +398,16 @@ test.describe.serial('an organisation, its team and the platform roles above it'
   })
 
   test('journey 5: the super administrator makes an account a moderator, and cannot change their own role', async ({
+    browser,
     platform,
   }) => {
     recording(platform)
+
+    // The account is signed in somewhere when its role changes, so the
+    // sessions the change ends are real ones.
+    target = await openWindow(browser)
+    await signIn(target, ids().roleTargetEmail)
+    expect(await liveSessionsOf(ids().roleTargetEmail)).toBeGreaterThan(0)
 
     await platform.goto('/admin/users')
     await expect(pageHeading(platform, 'People and roles')).toBeVisible()
@@ -429,6 +446,12 @@ test.describe.serial('an organisation, its team and the platform roles above it'
       card.getByText(`${TARGET_NAME}’s platform role is now Moderator.`, { exact: false }),
     )
     await expect(card).toContainText('Platform role: Moderator')
+
+    // Every session the account held ended with the change, in the same
+    // transaction, and the window it was signed in on is sent to sign in.
+    expect(await liveSessionsOf(ids().roleTargetEmail)).toBe(0)
+    await target.goto('/account', { waitUntil: 'commit' })
+    await expect(target).toHaveURL(/\/sign-in/u)
 
     // Their own row offers no change, and says who can make one.
     await search.getByLabel(/^Email address, name or account id/u).fill(ids().platformReaderEmail)
@@ -473,10 +496,9 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     expect(await superAdministrators()).toBe(before)
   })
 
-  test('journey 6: the new moderator verifies the organisation, and its owner sees it', async ({
-    browser,
-  }) => {
-    target = await openWindow(browser)
+  test('journey 6: the new moderator verifies the organisation, and its owner sees it', async () => {
+    // The window journey 5 opened, whose session the role change ended.
+    expect(target, 'journey 5 opened no window for the role target').toBeDefined()
     await signIn(target, ids().roleTargetEmail)
 
     await target.goto('/moderation/organizations')
@@ -589,5 +611,101 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     await expect(members.getByRole('row').filter({ hasText: TARGET_NAME })).toContainText('Owner')
     // Only an owner is offered the hand-over.
     await expect(creator.getByRole('region', { name: 'Ownership', exact: true })).toHaveCount(0)
+  })
+
+  test('journey 9: the super administrator puts the moderator back to attendee, through the page', async ({
+    platform,
+  }) => {
+    await platform.goto('/admin/users')
+
+    const search = platform.getByRole('form', { name: 'Find an account' })
+
+    await search.getByLabel(/^Email address, name or account id/u).fill(ids().roleTargetEmail)
+    await search.getByRole('button', { name: 'Search', exact: true }).click()
+
+    const card = platform.getByRole('article', { name: TARGET_NAME })
+
+    await expect(card).toContainText('Platform role: Moderator')
+    await card.getByRole('button', { name: `Change ${TARGET_NAME}’s platform role` }).click()
+    await card.getByLabel(/^New platform role/u).selectOption('ATTENDEE')
+    await card
+      .getByLabel(/^Reason/u)
+      .first()
+      .fill('The trust work is finished; back to an ordinary account.')
+    await card.getByRole('button', { name: 'Change the role', exact: true }).click()
+
+    await confirmed(
+      platform,
+      card.getByText(`${TARGET_NAME}’s platform role is now Attendee.`, { exact: false }),
+    )
+    await expect(card).toContainText('Platform role: Attendee')
+    // The organisation role is separate, and stays.
+    await expect(card).toContainText(`${orgName()} · Owner`)
+    expect(await liveSessionsOf(ids().roleTargetEmail)).toBe(0)
+  })
+
+  test('journey 10: an attendee with no second factor makes an organisation, sets one up, and reaches the workspace', async ({
+    browser,
+  }) => {
+    const solo = await openWindow(browser)
+
+    // No factor, so signing in asks for none.
+    await signIn(solo, team.soloEmail)
+    await solo.goto('/account/organizations/new')
+    await expect(pageHeading(solo, 'Create an organisation')).toBeVisible()
+    await solo.getByLabel(/^Name/u).fill(team.soloOrganizationName)
+    await solo.getByLabel(/^Time zone/u).selectOption('America/New_York')
+    await solo.getByRole('button', { name: 'Create the organisation', exact: true }).click()
+
+    await expect(
+      solo.getByText(`${team.soloOrganizationName} exists`, { exact: true }),
+    ).toBeVisible()
+
+    const made = await createdOrganization(ids().tag, { who: 'solo' })
+
+    expect(made, 'the organisation was not written').not.toBeNull()
+
+    // An owner must use two-step sign-in and this account has none, so it is
+    // sent to set one up — not to an organisation page that would refuse it.
+    await expect(
+      solo.getByText(/the workspace will not open for this account until it is set up/u),
+    ).toBeVisible()
+    await expect(
+      solo.getByRole('link', { name: 'Open its organisation page', exact: true }),
+    ).toHaveCount(0)
+
+    await solo.getByRole('link', { name: 'Set up two-step sign-in', exact: true }).click()
+    await expect(solo).toHaveURL((url) => url.pathname === '/account/security')
+
+    const twoStep = solo.getByRole('region', { name: 'Two-step sign-in', exact: true })
+
+    await twoStep.getByRole('button', { name: 'Set up two-step sign-in', exact: true }).click()
+    // The key an authenticator would scan, typed in instead, as the page
+    // offers for a phone that cannot scan.
+    await twoStep.getByText('Cannot scan? Type this key into the app instead').click()
+
+    const key = (await twoStep.locator('details p').innerText()).replace(/\s+/gu, '')
+
+    expect(key).toMatch(/^[A-Z2-7]{16,}$/u)
+    await twoStep.getByLabel(/^Six-digit code from your app/u).fill(totp(key))
+    await twoStep.getByRole('button', { name: 'Confirm', exact: true }).click()
+
+    await expect(solo.getByRole('heading', { name: 'Save your recovery codes now' })).toBeVisible()
+    await solo.getByRole('button', { name: 'I have saved them', exact: true }).click()
+    await expect(twoStep).toContainText(
+      'On. Signing in asks for a code from your authenticator app as well as your password.',
+    )
+
+    // And now the workspace opens, on the organisation it made.
+    await solo.goto(`/organizer/organization?organizationId=${made.id}`)
+    await expect(pageHeading(solo, team.soloOrganizationName)).toBeVisible()
+    await expect(solo.getByText('Verification: Unverified')).toBeVisible()
+
+    // Nothing on sale, so no public directory lists it yet.
+    await solo.goto('/organizers')
+    await expect(pageHeading(solo, 'Who is putting on the nights')).toBeVisible()
+    await expect(
+      solo.getByRole('link', { name: team.soloOrganizationName, exact: true }),
+    ).toHaveCount(0)
   })
 })

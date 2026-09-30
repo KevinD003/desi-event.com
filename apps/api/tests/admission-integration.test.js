@@ -985,7 +985,7 @@ when()('scanner authorisation', () => {
     expect(admitted.data.outcome).toBe('ADMITTED')
     expect(await admissions(ticket)).toBe(1)
 
-    const checkIn = await prisma.checkIn.findUnique({ where: { ticketId: ticket.id } })
+    const checkIn = await prisma.checkIn.findFirst({ where: { ticketId: ticket.id } })
 
     expect(checkIn).toMatchObject({ scannedByUserId: platform.id, method: 'MANUAL_CODE' })
 
@@ -1080,6 +1080,31 @@ when()('scanner authorisation', () => {
     // And a request built after the demotion is refused before any lookup.
     expect((await confirmAs(platform, body)).status).toBe(403)
     expect(await admissions(ticket)).toBe(0)
+  })
+
+  it('a scoped scanner suspended between preview and confirmation is refused at confirmation', async () => {
+    const w = await world()
+    const [ticket] = w.a.tickets
+
+    const body = await previewed(w.cast.scannerA, { credential: ticket.credential })
+    // The actor as the request carried it when it started: the sign-in check
+    // ran before the suspension landed, so only the transaction's re-read of
+    // the account can see it.
+    const stale = await actorFor(w.cast.scannerA)
+
+    await prisma.user.update({
+      where: { id: w.cast.scannerA.id },
+      data: { suspendedAt: new Date() },
+    })
+
+    const confirmed = await outcome(confirmAdmission({ prisma, env: ENV, actor: stale, body }))
+
+    expect(confirmed.status).toBe(403)
+    expect(await admissions(ticket)).toBe(0)
+    expect(
+      (await prisma.ticket.findUnique({ where: { id: ticket.id }, select: { status: true } }))
+        .status,
+    ).toBe('VALID')
   })
 
   it('a super-administrator who is also OWNER is recorded as ORGANIZATION_ROLE', async () => {

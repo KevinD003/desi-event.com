@@ -20,7 +20,7 @@
  */
 
 import { useRouter } from 'next/navigation'
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { apiFetch } from '../lib/api-fetch.js'
 import {
@@ -128,6 +128,24 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
   const [stepUp, setStepUp] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
+  // Counts refusals, so each one moves focus even when its words repeat: to
+  // the refusal when there is one, else to the first field it names. A
+  // message that only appears is not reliably heard, and focus left on the
+  // button says nothing at all.
+  const [failures, setFailures] = useState(0)
+  const formRef = useRef(null)
+  const errorRef = useRef(null)
+
+  useEffect(() => {
+    if (failures === 0) return
+
+    if (errorRef.current) {
+      errorRef.current.focus()
+      return
+    }
+
+    formRef.current?.querySelector('[aria-invalid="true"]')?.focus()
+  }, [failures])
 
   /**
    * Change some values.
@@ -154,7 +172,10 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
     setProblems(found)
     setError(null)
 
-    if (Object.keys(found).length > 0) return
+    if (Object.keys(found).length > 0) {
+      setFailures((count) => count + 1)
+      return
+    }
 
     setBusy(true)
 
@@ -186,6 +207,7 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
         setProblems({
           code: `This organiser already has a code called ${normalisePromoCode(values.code)}.`,
         })
+        setFailures((count) => count + 1)
         return
       }
 
@@ -197,8 +219,10 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
           ? body.error.message
           : describeApiRefusal({ status: response.status, code }).detail,
       )
+      setFailures((count) => count + 1)
     } catch {
       setError('The service is not responding. Nothing was made.')
+      setFailures((count) => count + 1)
     } finally {
       setBusy(false)
     }
@@ -233,6 +257,7 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
       </p>
 
       <form
+        ref={formRef}
         noValidate
         onSubmit={(submitted) => {
           submitted.preventDefault()
@@ -418,7 +443,11 @@ export function PromoCodeForm({ organizationId, events, defaultEventId = null, t
         </label>
 
         {error ? (
-          <div className="sm:col-span-2">
+          <div
+            ref={errorRef}
+            tabIndex={-1}
+            className="rounded-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none sm:col-span-2"
+          >
             <Alert variant="error" title="Not made">
               {error}
             </Alert>

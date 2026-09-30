@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto'
 
 import { afterAll, expect, it } from 'vitest'
 
+import { toActor } from '../src/lib/actor.js'
 import { SEAT_POLICIES, settleRefund } from '../src/lib/refunds.js'
 import {
   TICKET_STATES,
@@ -261,7 +262,8 @@ function accept(transfer, ticket, recipient) {
     acceptTransfer(tx, {
       transfer,
       ticket,
-      recipient,
+      // As the route passes it: the request actor, which has no display name.
+      recipient: toActor(recipient),
       credentialSecret: SECRET,
       generateTicketCode: () =>
         `DET-SBX${(sequence += 1).toString(36).toUpperCase()}${RUN.toUpperCase()}`,
@@ -479,7 +481,11 @@ when()('a reserved-seat ticket', () => {
       eventSeatId: w.eventSeat.id,
       ownerUserId: w.recipient.id,
       supersedesTicketId: w.ticket.id,
+      // The recipient's name from their account, not the guest name the buyer
+      // typed for this seat at checkout, which names somebody else.
+      attendeeName: w.recipient.displayName,
     })
+    expect(predecessor.attendeeName).toBe('holder')
     expect((await liveTicketsFor(w.eventSeat.id)).map((row) => row.id)).toEqual([successor.id])
     // The seat records the line, not the ticket: still sold, on the same line.
     expect(await prisma.eventSeat.findUnique({ where: { id: w.eventSeat.id } })).toMatchObject({
@@ -603,13 +609,24 @@ when()('a reserved-seat ticket', () => {
     const refund = await submittedRefund(w)
 
     const settlement = await holding((tx) => settleIn(tx, w, refund))
-    const acceptance = accept(transfer, pending, w.recipient)
+    // Settled into a value at once, so the acceptance's refusal is never a
+    // rejection with no handler: it can arrive while the settlement is still
+    // being awaited below, and Node reports that as an unhandled rejection that
+    // fails the whole run, however this test's own assertions come out.
+    const acceptance = accept(transfer, pending, w.recipient).then(
+      (value) => ({ value }),
+      (error) => ({ error }),
+    )
 
     await untilBlocked(settlement)
     settlement.release()
 
     await expect(settlement.done).resolves.toMatchObject({ settled: true, ticketsRevoked: 1 })
-    await expect(acceptance).rejects.toMatchObject({
+
+    const accepted = await acceptance
+
+    expect(accepted.value, 'the acceptance must be refused').toBeUndefined()
+    expect(accepted.error).toMatchObject({
       statusCode: 409,
       details: { reason: 'TICKET_CHANGED' },
     })

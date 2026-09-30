@@ -370,27 +370,46 @@ async function noDuplicateLedgerPosting(prisma) {
 }
 
 /**
- * One ticket, two admissions.
+ * One ticket, two admissions on one night — or two at all for a ticket that
+ * admits once.
  *
- * `CheckIn.ticketId` is unique, so this asks whether that index is still there
- * as much as it asks about the application.
+ * `CheckIn` is unique on the ticket and the night, with a partial index for a
+ * row with no night, so the first half asks whether those indexes are still
+ * there. A ticket with admissions on more than one night must be good for
+ * every night — a tier with no night of its own, on an event of more than
+ * one, never CHECKED_IN — which is `desi_check_in_ticket_admissible`'s rule
+ * and the second half.
  *
  * @param {object} prisma A Prisma client.
  * @returns {Promise<{name: string, ok: boolean, detail: string}>} The result.
  */
 async function noDuplicateCheckIn(prisma) {
-  const rows = await prisma.$queryRawUnsafe(
+  const sameNight = await prisma.$queryRawUnsafe(
     `SELECT "ticketId", count(*)::int AS count
-     FROM "CheckIn" GROUP BY "ticketId" HAVING count(*) > 1`,
+     FROM "CheckIn" GROUP BY "ticketId", "eventSessionId" HAVING count(*) > 1`,
   )
+  const onceTwice = await prisma.$queryRawUnsafe(
+    `SELECT c."ticketId", count(*)::int AS count
+     FROM "CheckIn" c
+     JOIN "Ticket" t ON t."id" = c."ticketId"
+     JOIN "OrderItem" oi ON oi."id" = t."orderItemId"
+     JOIN "Order" o ON o."id" = oi."orderId"
+     JOIN "TicketType" tt ON tt."id" = oi."ticketTypeId"
+     LEFT JOIN "EventSeat" es ON es."id" = t."eventSeatId"
+     WHERE t."status" = 'CHECKED_IN'
+        OR COALESCE(es."eventSessionId", tt."eventSessionId") IS NOT NULL
+        OR (SELECT count(*) FROM "EventSession" s WHERE s."eventId" = o."eventId") <= 1
+     GROUP BY c."ticketId" HAVING count(*) > 1`,
+  )
+  const broken = sameNight.length + onceTwice.length
 
   return {
     name: 'no duplicate check-in',
-    ok: rows.length === 0,
+    ok: broken === 0,
     detail:
-      rows.length === 0
-        ? 'every ticket was admitted at most once'
-        : `${rows.length} admitted twice`,
+      broken === 0
+        ? 'every ticket was admitted at most once, or once a night when good for every night'
+        : `${sameNight.length} admitted twice on one night, ${onceTwice.length} that admit once admitted twice`,
   }
 }
 

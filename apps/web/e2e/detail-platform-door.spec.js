@@ -227,6 +227,16 @@ test.describe.serial('the platform’s own door', () => {
       `?organizationId=${encodeURIComponent(gammaOrganizationId)}&q=${encodeURIComponent('Garba Nights')}`,
     )
 
+    // The garba has two nights and this ticket is for the first: the door
+    // says which night it is admitting to.
+    const night = platform.getByLabel('Night you are admitting to')
+    const nightValue = await night
+      .locator('option', { hasText: /^Night 1 · /u })
+      .getAttribute('value')
+
+    await night.selectOption(nightValue)
+    await expect(night).toHaveValue(nightValue)
+
     await platform.getByLabel(/^Printed ticket code/u).fill(platformTicketCode)
     await platform.getByRole('button', { name: 'Look up' }).click()
 

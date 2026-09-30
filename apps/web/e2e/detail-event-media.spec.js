@@ -13,10 +13,12 @@ import { confirmIfPrompted, waitOutCredentialBudget } from './support/step-up.mj
  *      with no description, a drawing named like a PNG, and a file over the
  *      limit — and the API refuses the drawing too, for a client that skips
  *      the form.
- *   2. A cover and two gallery pictures go up. The cover carried a text chunk,
- *      and the page says it was removed; the gallery is reordered and one is
- *      described again, and both survive a reload. None of it is public: an
- *      anonymous read of the cover is a 404 that nothing may cache.
+ *   2. A cover and three gallery pictures go up. The cover carried a text
+ *      chunk, and the page says it was removed; the middle picture is
+ *      removed, and the two either side of it keep their order through a
+ *      reload; the gallery is reordered and one is described again, and both
+ *      survive a reload. None of it is public: an anonymous read of the cover
+ *      is a 404 that nothing may cache.
  *   3. The event goes for review. The moderator sees every picture with its
  *      description, takes one down with a reason, and approves the event.
  *   4. Published, the event page shows the cover through the image optimiser,
@@ -49,6 +51,9 @@ const COVER_ALT = 'Dancers circling a lit garbo under string lights'
 /** The two gallery pictures' descriptions, in upload order. */
 const FIRST_ALT = 'The first circle of dancers, before the music starts'
 const SECOND_ALT = 'Children learning the steps at the edge of the floor'
+
+/** The gallery picture uploaded between the two, and removed again. */
+const REMOVED_ALT = 'A blurred photograph of the stage, taken by mistake'
 
 /** The first gallery picture's description once it is written again. */
 const FIRST_ALT_AGAIN = 'The first circle of dancers, under the lights, before the music starts'
@@ -293,14 +298,35 @@ test.describe.serial("an event's pictures, from upload to the public page", () =
     await expect(saying(gamma, 'Picture added to the gallery.')).toBeVisible()
     await upload(
       uploadForm(gamma, 'Add a gallery picture'),
+      { name: 'blurred.png', buffer: solidPng(400, 400, { rgb: [90, 90, 90] }) },
+      REMOVED_ALT,
+    )
+    await expect(gamma.getByText(/^2 of 8 pictures/u)).toBeVisible()
+    await upload(
+      uploadForm(gamma, 'Add a gallery picture'),
       { name: 'children.png', buffer: solidPng(400, 400, { rgb: [120, 40, 90] }) },
       SECOND_ALT,
     )
+    await expect(gamma.getByText(/^3 of 8 pictures/u)).toBeVisible()
+
+    // The middle one is removed, with a button that names which picture, and
+    // a question first: it is deleted, not hidden.
+    const middle = gamma.getByRole('listitem', { name: 'Picture 2 of 3' })
+
+    await expect(middle.getByRole('img')).toHaveAttribute('alt', REMOVED_ALT)
+    await middle.getByRole('button', { name: /^Remove\s*: picture 2 of 3$/u }).click()
+    await middle.getByRole('button', { name: 'Remove picture', exact: true }).click()
+    await expect(saying(gamma, 'Picture removed from the gallery.')).toBeVisible()
     await expect(gamma.getByText(/^2 of 8 pictures/u)).toBeVisible()
 
     const first = gamma.getByRole('listitem', { name: 'Picture 1 of 2' })
     const second = gamma.getByRole('listitem', { name: 'Picture 2 of 2' })
 
+    // The two either side of it close up, in the order they went up — and the
+    // server says so, not only the page.
+    await openStep(gamma, /^step 6\s*media$/iu)
+    await expect(gamma.getByText(/^2 of 8 pictures/u)).toBeVisible()
+    await expect(gamma.getByRole('img', { name: REMOVED_ALT })).toHaveCount(0)
     await expect(first.getByRole('img')).toHaveAttribute('alt', FIRST_ALT)
     await expect(second.getByRole('img')).toHaveAttribute('alt', SECOND_ALT)
 

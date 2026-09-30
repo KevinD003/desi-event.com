@@ -39,7 +39,8 @@ import {
 import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { conflict, httpError, notFound, unprocessable } from './errors.js'
-import { lockTicketTypes, readAvailability } from './inventory.js'
+import { lockTicketHolds, lockTicketTypes, readAvailability } from './inventory.js'
+import { pendingOrdersOf } from './seating.js'
 import {
   assertSessionCapacity,
   assertSessionOnSale,
@@ -124,6 +125,15 @@ export async function findPromoCode(tx, code, event, { lock = false } = {}) {
  * one `TicketHold.ticketTypeId` names); which tier each seat is sold under is
  * the hold item's, checked separately.
  *
+ * A hold an order is waiting on belongs to that order until its payment is
+ * confirmed or refused, here as in `holds.release`, the expiry sweep and the
+ * seat reclaim. Spending it again — a double-submitted checkout, or a retry
+ * after a capture timed out — would sell its stock twice and charge the buyer
+ * twice, so it answers 409 before anything is written. With `lock`, each hold
+ * row is locked first (after the tiers and the nights, before the promo code),
+ * so two checkouts naming one hold take turns and the second reads the order
+ * the first attached.
+ *
  * @param {object} tx A Prisma transaction client.
  * @param {string[]|undefined} holdIds Hold ids from the request.
  * @param {Set<string>} ticketTypeIds Ticket type ids the order is for.
@@ -131,16 +141,28 @@ export async function findPromoCode(tx, code, event, { lock = false } = {}) {
  * @param {object} owner Caller identity.
  * @param {{id: string}|null} [owner.actor] The verified server actor.
  * @param {string|null} [owner.guestToken] The one-time token for a guest hold.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.lock] Whether to lock each hold row before reading it (the charge).
  * @returns {Promise<Map<string, object[]>>} Live holds grouped by ticket type id.
- * @throws {Error} A 404 for an unknown or unowned hold, 410 for a lapsed one, 409 for one already spent.
+ * @throws {Error} A 404 for an unknown or unowned hold, 410 for a lapsed one, 409 for one already spent or awaiting another order's payment.
  */
-export async function resolveHolds(tx, holdIds, ticketTypeIds, now, owner = {}) {
+export async function resolveHolds(
+  tx,
+  holdIds,
+  ticketTypeIds,
+  now,
+  owner = {},
+  { lock = false } = {},
+) {
   /** @type {Map<string, object[]>} */
   const byTicketType = new Map()
 
   if (!holdIds || holdIds.length === 0) return byTicketType
 
+  if (lock) await lockTicketHolds(tx, holdIds)
+
   const holds = await tx.ticketHold.findMany({ where: { id: { in: holdIds } } })
+  const awaitingPayment = await pendingOrdersOf(tx, holds)
   const found = new Set(holds.map((hold) => hold.id))
 
   for (const id of holdIds) {
@@ -161,6 +183,12 @@ export async function resolveHolds(tx, holdIds, ticketTypeIds, now, owner = {}) 
     }
     if (hold.status !== 'ACTIVE') {
       throw httpError(410, 'HOLD_EXPIRED', `Hold ${hold.id} is no longer active.`)
+    }
+    if (hold.orderId && awaitingPayment.has(hold.orderId)) {
+      throw conflict(
+        `Hold ${hold.id} belongs to an order whose payment is still being confirmed. It stays with that order until the payment is settled or refused; nothing has been charged for this attempt.`,
+        { holdId: hold.id },
+      )
     }
     if (new Date(hold.expiresAt).getTime() <= now.getTime()) {
       throw httpError(410, 'HOLD_EXPIRED', `Hold ${hold.id} expired; please try again.`)
@@ -362,10 +390,15 @@ export async function priceCheckout(
       : await tx.eventSession.findMany({ where: { id: { in: sessionIds } } })
   const sessionsById = new Map(sessions.map((session) => [session.id, session]))
 
-  const holdsByType = await resolveHolds(tx, body.holdIds, new Set(requestedIds), now, {
-    actor,
-    guestToken,
-  })
+  // The holds, locked after the nights and before the promo code.
+  const holdsByType = await resolveHolds(
+    tx,
+    body.holdIds,
+    new Set(requestedIds),
+    now,
+    { actor, guestToken },
+    { lock },
+  )
 
   // Reserved seating, if any. Read after the row locks are held, so the seat
   // states below cannot move under the order being built, and checked before

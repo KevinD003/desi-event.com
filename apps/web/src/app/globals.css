@@ -101,6 +101,35 @@
     outline-offset: 2px;
   }
 
+  /*
+   * A date or time box keeps its ring on every stop Tab makes inside it.
+   * Chromium's calendar or clock button is a stop of its own, inside the box,
+   * and there the box matches neither `:focus` nor `:focus-visible`, only
+   * `:focus-within`, so the controls' own `focus:` and `focus-visible:` rings
+   * vanish and only the browser's thin default is left. This draws the same
+   * ring at that stop; while `:focus` matches, the utilities still win.
+   */
+  input:is(
+      [type='date'],
+      [type='datetime-local'],
+      [type='time'],
+      [type='month'],
+      [type='week']
+    ):focus-within {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  input:is(
+      [type='date'],
+      [type='datetime-local'],
+      [type='time'],
+      [type='month'],
+      [type='week']
+    )[aria-invalid='true']:focus-within {
+    outline-color: var(--color-status-danger);
+  }
+
   /* The skip link's target should not draw a ring when moved to programmatically. */
   main:focus {
     outline: none;

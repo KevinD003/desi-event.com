@@ -31,6 +31,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Select, Textarea } from './ui.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -157,6 +158,7 @@ export function ReconciliationActions({ task, mayAct }) {
   const [announcement, setAnnouncement] = useState('')
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const available = ACTIONS.filter((action) => action.states.includes(task.state))
   const action = ACTIONS.find((candidate) => candidate.key === pending) ?? null
@@ -193,7 +195,7 @@ export function ReconciliationActions({ task, mayAct }) {
     setError(null)
     setDetail(null)
     setNote('')
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -204,7 +206,7 @@ export function ReconciliationActions({ task, mayAct }) {
   function dismiss() {
     setPending(null)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -253,7 +255,7 @@ export function ReconciliationActions({ task, mayAct }) {
       // `why` is the provider's own account of the disagreement, and it is the
       // most useful sentence on the screen when a resolve is refused.
       setDetail(parsed?.error?.details?.why ?? null)
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {

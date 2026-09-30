@@ -29,6 +29,9 @@ export const REFUSAL_SENTENCES = Object.freeze({
   ORDER_NOT_PAID: 'The order for this ticket is not paid. Do not admit.',
   EVENT_CANCELLED: 'This event was cancelled. Nobody is admitted to it.',
   WRONG_EVENT: 'This ticket is for a different event.',
+  WRONG_NIGHT: 'This ticket is for a different night. Do not admit.',
+  NIGHT_REQUIRED:
+    'This event has more than one night. Choose the night you are admitting to, then look the ticket up again.',
   PREVIEW_EXPIRED: 'That lookup took too long to confirm. Look the ticket up again.',
   PREVIEW_INVALID: 'That lookup could not be confirmed. Look the ticket up again.',
   PREVIEW_MISMATCH: 'The pass confirmed is not the one looked up. Look it up again.',
@@ -215,6 +218,24 @@ export function doorEventLabel(entry, { withOrganization = false } = {}) {
   return withOrganization && entry.organization?.name
     ? `${entry.event.title} — ${entry.organization.name} — ${when}`
     : `${entry.event.title} — ${when}`
+}
+
+/**
+ * The night a door is most likely admitting to: the first night that has not
+ * ended — tonight's while it runs, else the next — or the last one when
+ * all are over. Only the starting choice: the steward can pick another, and
+ * the server checks every ticket against the night that was picked.
+ *
+ * @param {Array<{id: string, startsAt: string, endsAt: string, status?: string}>} nights The event's nights, soonest first.
+ * @param {Date} [now] The moment in question.
+ * @returns {string} The night's id, or an empty string when there are none.
+ */
+export function tonightOf(nights = [], now = new Date()) {
+  const open = nights.filter((night) => night.status !== 'CANCELLED')
+  const candidates = open.length > 0 ? open : nights
+  const current = candidates.find((night) => new Date(night.endsAt).getTime() > now.getTime())
+
+  return (current ?? candidates.at(-1))?.id ?? ''
 }
 
 /**

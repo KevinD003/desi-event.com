@@ -123,7 +123,7 @@ export function ProgrammeStep({ values, setField, editable, errors = {} }) {
       <RepeatableList
         noun="slot"
         title="Running order"
-        description={`Times are 24-hour, local to the event (${values.timezone}). A run of several nights shows the same order each night.`}
+        description={`Local time at the event (${values.timezone}). A run of several nights shows the same order each night.`}
         idPrefix="event-runningOrder"
         rows={values.runningOrder}
         onChange={(rows) => setField('runningOrder', rows)}

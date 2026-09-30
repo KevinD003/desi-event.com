@@ -131,10 +131,14 @@ well because it must hold for code that does not exist yet.
 `ticket_credential_version_positive` guards the rotation counter. A transfer
 clears the old hash so the old pass matches nothing.
 
-`CheckIn.ticketId` is unique, and `desi_check_in_ticket_admissible` refuses a row
-for a ticket that is not admissible. Together those make "admitted once" true
-under two scanners racing rather than merely under one steward retrying. See
-`docs/CHECK_IN.md`.
+`CheckIn` is unique on `(ticketId, eventSessionId)`, with the partial index
+`CheckIn_ticketId_no_night_key` for a row with no night, and
+`desi_check_in_ticket_admissible` locks the ticket and refuses a row for a ticket
+that is not admissible, on a night that is not its own, or a second row for a
+ticket that admits once. Together those make "admitted once" — once each night,
+for a ticket good for every night — true under two scanners racing rather than
+merely under one steward retrying. See `docs/CHECK_IN.md` and "Admission per
+night" below.
 
 `CheckIn.deviceId` is a **foreign key to a registered `Device`**. The scanner's
 own free-text identifier goes into the audit metadata instead; putting it in the
@@ -173,8 +177,9 @@ so checkout, the webhook and existing orders needed no backfill.
 
 `desi_check_in_group_pass_matches` refuses a `CheckIn` that names a group pass
 for a ticket on another order, or for a ticket whose owner is no longer the
-order's buyer. The unique `CheckIn.ticketId` still makes each admission happen
-once, whether it came through a group or alone.
+order's buyer. The unique `CheckIn(ticketId, eventSessionId)` still makes each
+admission happen once (once each night, for a ticket good for every night),
+whether it came through a group or alone.
 
 ---
 
@@ -265,8 +270,13 @@ public), `position` (a gallery picture's place, 0–7), and the review stamp
 `moderatedAt`, `moderatedById` and `moderationNote` (the reason a picture was
 taken down: shown to its organiser as `rejectionReason`, never public).
 `Event.coverImageUrl` is gone: an external address the organiser's browser
-fetched is exactly what uploads replace, and the migration reports how many it
-dropped rather than fetching them.
+fetched is exactly what uploads replace, and the migration drops them rather
+than fetching them. What it dropped is kept: before the column goes, it writes
+one `AuditLog` row per event that had an address — action
+`event.cover_address_dropped`, entity the event, no actor, metadata
+`{ organizationId, coverImageUrl, migration }` — with the address's user name,
+password, query string and fragment removed, since that is where a signed link
+carries its secret. `pnpm db:verify:upgrade` checks these rows.
 
 `MediaBlob` holds the bytes — `bytea`, stored `EXTERNAL` because the formats are
 already compressed — one row per picture, keyed by `MediaAsset.storageKey`
@@ -653,9 +663,9 @@ account could ever have been written while the broken body was installed.
 Migration `20260929090000_checkout_promos_attendees_nights`.
 
 **`EventSession.label`** is the organiser's short name for a night ("Night 2"),
-optional, 1 to 60 characters after trimming (`event_session_label_length`). It
-is a label and nothing more: every surface shows it beside the night's own date,
-and the door refuses nothing on it.
+optional, 1 to 60 characters after trimming (`event_session_label_length`).
+Every surface shows it beside the night's own date. Since
+`20260929100000_check_in_per_night` the door admits by night (below).
 
 **Guests' names are staged, not stored twice.** A name typed at checkout is
 personal data about somebody who may have no account. Until settlement issues
@@ -693,3 +703,56 @@ WHERE "reserved"`, created by `20260928090000_event_authoring_content_and_tier_r
 and relied on, not recreated, here. It is what makes "which tier sells this
 seat" a question with one answer: a seat is sold under the reserved tier that
 prices its zone at that night.
+
+---
+
+## Admission per night — 2026-09-30
+
+Migration `20260929100000_check_in_per_night`.
+
+On an event of more than one night, a ticket for one night — its seat's, else
+its tier's — admits once, on that night; a ticket whose tier names no night is
+good for every night and admits once on each. Three changes make that true in
+the database rather than only in the door's code:
+
+- **`CheckIn` is unique on `(ticketId, eventSessionId)`**, replacing the unique
+  `ticketId`. Nulls are distinct in a unique index, so the partial index
+  `CheckIn_ticketId_no_night_key` (`ticketId` where `eventSessionId` is null)
+  keeps a ticket to one admission recorded with no night. Prisma's schema
+  cannot express the partial index; `Ticket.checkIn` became `Ticket.checkIns`.
+- **`desi_check_in_ticket_admissible`** locks the ticket row first, so two
+  admissions of one ticket take turns, and then refuses: a ticket that does not
+  admit (as before); a night that is not one of the ticket's event's; a night
+  other than a single-night ticket's own; an every-night admission that names
+  no night; and a second admission, on any other key, of a ticket that admits
+  once. The same night twice is left to the unique index.
+- **`desi_ticket_status_transition`** also refuses `TRANSFER_PENDING` and
+  `TRANSFERRED` for a ticket with any admission. A ticket good for every night
+  stays `VALID` between nights, so its status alone would not stop a successor
+  being issued and let in again on a night it already was.
+
+Rows written before the migration are brought under the new rules by the
+migration itself. Each ticket had at most one admission, which satisfies both
+indexes; but that admission named no night, and a ticket good for every night
+had become `CHECKED_IN` at it, so left alone the trigger would refuse it on
+every later night. So, on each event of more than one night (an event of one
+night needs no nights and is left alone):
+
+- each admission with no night is given one — the ticket's own night (its
+  seat's, else its tier's) when it has one; otherwise the night whose window
+  (doors, or the start, to the end) holds the moment it was scanned; otherwise
+  the night nearest that moment;
+- a ticket good for every night that is `CHECKED_IN`, was let in, and has a
+  night it was not let in on is `VALID` again with no `checkedInAt`, as the new
+  rules would have left it (the status trigger, which refuses that move, is
+  switched off for that one statement);
+- each ticket touched gets an `AuditLog` row with no actor — action
+  `ticket.admission_night_backfilled`, metadata `{ checkInId, eventId,
+eventSessionId, chosenBy, scannedAt, restoredToValid, previousCheckedInAt,
+migration }`.
+
+`pnpm db:verify:upgrade` seeds such admissions (a pass scanned in a night's
+window, one scanned between nights, a one-night ticket scanned in another
+night's window, a refunded pass and a one-night event) and checks each result,
+the audit rows, and that the pass is then let in on its next night and not
+twice on the first.

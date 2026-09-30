@@ -534,6 +534,79 @@ async function assertVenueExists(prisma, venueId) {
 }
 
 /**
+ * How each ticket type's own sales window moves when a postponed event comes
+ * back with new dates.
+ *
+ * By the same amount as what the tier is sold for: a tier for one night moves
+ * with that night's start (not at all when that night keeps its date), and a
+ * tier for every night moves with the event's start. A window that opened or
+ * closed relative to the old date keeps that relation to the new one; left
+ * behind, one that closed at the postponed date would keep the tier off sale
+ * after the event came back. A tier with no window of its own has nothing to
+ * move.
+ *
+ * A moved window is held to the rule a tier edit is held to: a tier for one
+ * night may not close after that night has finished. A move that would break
+ * it — a night brought back shorter — is a problem the caller is told about,
+ * never a window silently clipped.
+ *
+ * @param {object} event The event as loaded, with `sessions` and `ticketTypes`.
+ * @param {object} change The reschedule.
+ * @param {string} change.startsAt The event's new start.
+ * @param {Array<{id: string, startsAt: string}>} change.moves The nights named, with their new starts.
+ * @param {object[]} change.proposed Every night as it will be.
+ * @returns {Array<{id: string, data: object, before: object, after: object, problems: string[]}>} One entry per tier whose window moves.
+ */
+export function tierWindowMoves(event, { startsAt, moves, proposed }) {
+  const eventDelta = new Date(startsAt).getTime() - new Date(event.startsAt).getTime()
+  const oldNights = new Map((event.sessions ?? []).map((session) => [session.id, session]))
+  const newNights = new Map(proposed.map((session) => [session.id, session]))
+  const nightDelta = new Map(
+    moves
+      .filter((move) => oldNights.has(move.id))
+      .map((move) => [
+        move.id,
+        new Date(move.startsAt).getTime() - new Date(oldNights.get(move.id).startsAt).getTime(),
+      ]),
+  )
+
+  /** @type {Array<{id: string, data: object, before: object, after: object, problems: string[]}>} */
+  const out = []
+
+  for (const tier of event.ticketTypes ?? []) {
+    if (!tier.salesStartAt && !tier.salesEndAt) continue
+
+    const delta = tier.eventSessionId ? (nightDelta.get(tier.eventSessionId) ?? 0) : eventDelta
+
+    if (delta === 0) continue
+
+    const shift = (value) => (value ? new Date(new Date(value).getTime() + delta) : null)
+    const data = { salesStartAt: shift(tier.salesStartAt), salesEndAt: shift(tier.salesEndAt) }
+    const night = tier.eventSessionId ? newNights.get(tier.eventSessionId) : null
+    /** @type {string[]} */
+    const problems = []
+
+    if (night && data.salesEndAt && data.salesEndAt > new Date(night.endsAt)) {
+      problems.push(
+        `Ticket type "${tier.name}": its sales window moves with its session, and would then close after the session has finished. Change its sales window first, or give the session a later end.`,
+      )
+    }
+
+    const iso = (value) => (value ? new Date(value).toISOString() : null)
+
+    out.push({
+      id: tier.id,
+      data,
+      before: { salesStartAt: iso(tier.salesStartAt), salesEndAt: iso(tier.salesEndAt) },
+      after: { salesStartAt: iso(data.salesStartAt), salesEndAt: iso(data.salesEndAt) },
+      problems,
+    })
+  }
+
+  return out
+}
+
+/**
  * Register the `/v1/events` routes.
  *
  * @param {object} app The Fastify instance.
@@ -959,6 +1032,15 @@ export function registerEventRoutes(app, { prisma, env }) {
         }
       }
 
+      // A ticket type's own sales window moves with what it is sold for, by
+      // the same amount: a tier for one night with that night, a tier for
+      // every night with the event's start. Left at the old dates, a window
+      // that closed at the postponed date would keep the tier off sale after
+      // the event came back.
+      const tierMoves = tierWindowMoves(event, { startsAt, moves, proposed })
+
+      for (const move of tierMoves) problems.push(...move.problems)
+
       if (problems.length > 0) {
         throw unprocessable('That new date cannot be used.', {
           problems: [...new Set(problems)],
@@ -1035,6 +1117,10 @@ export function registerEventRoutes(app, { prisma, env }) {
             }
           }
 
+          for (const move of tierMoves) {
+            await tx.ticketType.update({ where: { id: move.id }, data: move.data })
+          }
+
           const change = classifyChanges(event, {
             startsAt: new Date(startsAt),
             endsAt: new Date(endsAt),
@@ -1064,6 +1150,8 @@ export function registerEventRoutes(app, { prisma, env }) {
               before: change.before,
               after: change.after,
               sessions: moved,
+              // Each ticket type whose own sales window moved, and by how much.
+              ticketTypes: tierMoves.map(({ id, before, after }) => ({ id, before, after })),
               reason,
               ordersAffected: work.orders,
               // Created, not delivered: this build queues notices and sends none.

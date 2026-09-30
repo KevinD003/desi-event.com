@@ -14664,7 +14664,7 @@
       "get": {
         "operationId": "events.list",
         "summary": "List events",
-        "description": "Paginated, filterable event discovery. Anonymous callers only ever see PUBLISHED events; a token widens the result set to drafts the caller may view.",
+        "description": "Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the thirteen event statuses and never widens it.",
         "tags": [
           "events"
         ],
@@ -18566,7 +18566,7 @@
       "patch": {
         "operationId": "events.update",
         "summary": "Update an event",
-        "description": "Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` cannot be changed here — use `POST /v1/events/:id/publish`, which requires `event:publish`. Requires `event:update`. A draft may be marked online before its joining link is typed; a live (published, on sale, paused, sold out or postponed) online event with no link is refused with 422. On a live event, a change to the date, time zone, venue, age limit, online status or policies needs `confirmMaterialChange: true` and a `changeReason`, and queues a notice for every current order; anything else, including the event page content (FAQ, line-up, running order, sponsors, social links, dress code, directions, public contact), is housekeeping. `performers` is the line-up and `artists` is kept in step with its names; sending only `artists` rebuilds `performers`, keeping the role and bio of any performer matched by name.",
+        "description": "Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` is not writable here (one in the body is dropped): the status moves only through the lifecycle commands — submit-review, withdraw-review, rework, publish, open-sales, pause-sales, postpone, reschedule and cancel under `/v1/events/:id/`, and a moderator’s decision — each with its own capability and gates. Requires `event:update`. A draft may be marked online before its joining link is typed; a live (published, on sale, paused, sold out or postponed) online event with no link is refused with 422. On a live event, a change to the date, time zone, venue, age limit, online status or policies needs `confirmMaterialChange: true` and a `changeReason`, and queues a notice for every current order; anything else, including the event page content (FAQ, line-up, running order, sponsors, social links, dress code, directions, public contact), is housekeeping. `performers` is the line-up and `artists` is kept in step with its names; sending only `artists` rebuilds `performers`, keeping the role and bio of any performer matched by name.",
         "tags": [
           "events"
         ],
@@ -30565,7 +30565,7 @@
       "post": {
         "operationId": "events.reschedule",
         "summary": "Bring a postponed event back with a new date",
-        "description": "One command, one transaction: the event and the named sessions move to their new dates and the event returns to PUBLISHED (sales stay closed) or ON_SALE, so there is never a live event carrying the date it was postponed from. Takes the event revision as a precondition (409 STALE_REVISION), a confirmation and a reason; one notice per current order is queued, not sent. Refuses a start in the past, a session of another event, and ON_SALE without a ticket type ready to sell (422). Requires `event:update` for the dates and `event:publish` for the return, both asserted in the handler, and a recent step-up under the EVENT_PUBLISH policy.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "One command, one transaction: the event and the named sessions move to their new dates and the event returns to PUBLISHED (sales stay closed) or ON_SALE, so there is never a live event carrying the date it was postponed from. Each ticket type’s own sales window moves in the same transaction by the same amount as what it is sold for — a tier for one session with the start of that session, a tier for every session with the start of the event — and a move that would have a tier for one session close after that session has finished is refused (422) with the tier named. Takes the event revision as a precondition (409 STALE_REVISION), a confirmation and a reason; one notice per current order is queued, not sent. Refuses a start in the past, a session of another event, and ON_SALE without a ticket type ready to sell (422). Requires `event:update` for the dates and `event:publish` for the return, both asserted in the handler, and a recent step-up under the EVENT_PUBLISH policy.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "events"
         ],
@@ -49389,7 +49389,7 @@
       "post": {
         "operationId": "events.addTicketType",
         "summary": "Add a ticket type to an event",
-        "description": "Requires `event:update`, on a draft or a live event (a new tier starts as DRAFT unless told otherwise). General admission carries a quantity; reserved carries a price zone of the session's own map version and a session whose map is published, and at most one reserved tier prices a zone at a session (422 before the database is asked). A reserved tier is assigned the session's available seats in its zone. A tier may not name a session belonging to another event — the database refuses that too, finding NF-20. Two tiers on one event may not share a name (422 before the database is asked; 409 TIER_NAME_TAKEN, or TIER_ZONE_TAKEN for a reserved zone, when a concurrent write takes it first). Names are at most 120 characters, descriptions 500, and 1 to 50 per order. A complimentary tier is free and HIDDEN; a HIDDEN tier is left off the public page and bookable only by the organisation's team.",
+        "description": "Requires `event:update`, on a draft or a live event (a new tier starts as DRAFT unless told otherwise). General admission carries a quantity; reserved carries a price zone of the session's own map version and a session whose map is published, and at most one reserved tier prices a zone at a session (422 before the database is asked). A reserved tier is assigned the session's available seats in its zone. A tier may not name a session belonging to another event — the database refuses that too, finding NF-20. Two tiers on one event may not share a name (422 before the database is asked; 409 TIER_NAME_TAKEN, or TIER_ZONE_TAKEN for a reserved zone, when a concurrent write takes it first). Names are at most 120 characters, descriptions 500, and 1 to 50 per order. A tier given no `currency` is priced in the one the event's other tiers use (the organisation's `payoutCurrency` for the first), and a tier in any other currency is refused (422): an order is paid in one currency. A complimentary tier is free and HIDDEN; a HIDDEN tier is left off the public page and bookable only by the organisation's team.",
         "tags": [
           "ticket-types"
         ],
@@ -50278,7 +50278,7 @@
       "patch": {
         "operationId": "events.updateTicketType",
         "summary": "Change a ticket type",
-        "description": "Same preconditions as adding one, checked against the stored row merged with the change, so a row written before a limit tightened is refused with a sentence rather than saved. A tier that has sold anything keeps its price (409 TIER_SOLD), and one with live holds keeps it too (409 TIER_IN_USE). Its session, zone, reserved and complimentary flags change only while nothing is sold, held or ordered (409 TIER_IN_USE). Its quantity may be lowered only to what is sold and held (409 TIER_QUANTITY_BELOW_SOLD), checked under the tier's row lock.",
+        "description": "Same preconditions as adding one, checked against the stored row merged with the change, so a row written before a limit tightened is refused with a sentence rather than saved. A tier that has sold anything keeps its price (409 TIER_SOLD), and one with live holds keeps it too (409 TIER_IN_USE). Its session, zone, reserved and complimentary flags change only while nothing is sold, held or ordered (409 TIER_IN_USE). Its quantity may be lowered only to what is sold and held (409 TIER_QUANTITY_BELOW_SOLD), checked under the tier's row lock. Its currency may change only to the one the event's other tiers use (422).",
         "tags": [
           "ticket-types"
         ],
@@ -52795,7 +52795,7 @@
       "post": {
         "operationId": "ticketTypes.create",
         "summary": "Create a ticket type",
-        "description": "Adds a tier to an event. Prices are integer minor units (cents/paise). Requires `ticketType:manage`.",
+        "description": "Adds a tier to an event. Prices are integer minor units (cents/paise). Requires `ticketType:manage`. A tier given no `currency` is priced in the one the event's other tiers use (the organisation's `payoutCurrency` for the first), and a tier in any other currency is refused (422). A name another tier on the event has answers 409 TIER_NAME_TAKEN, before the insert or from the unique index. Recorded in the audit log as `event.ticket_type_added`.",
         "tags": [
           "ticket-types"
         ],
@@ -53022,6 +53022,16 @@
           },
           "409": {
             "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
             "content": {
               "application/json": {
                 "schema": {
@@ -54426,7 +54436,7 @@
       "post": {
         "operationId": "orders.create",
         "summary": "Place an order",
-        "description": "Converts holds into a PENDING order and computes totals server-side, with the same function `POST /v1/orders/quote` uses. Client-supplied prices are ignored: only the ticket type id and quantity are trusted. `expectedTotalCents` is a precondition and never a price: when it differs from the recomputed total the order is refused with 409 `PRICE_CHANGED` before anything is written or charged, and the client quotes again for the new figure. A promo code is locked for the rest of the checkout (after the tier rows, then the night rows) and re-checked under the lock, so a code with one use left gives one discount however many buyers race for it; a declined card gives the use back. A reserved-seating tier is bought only with the seats held for it: every seat in the holds must be for a tier in the order, and a reserved line with no seats behind it answers 422. `attendees` names the guests, one per ticket, all optional; a ticket nobody named carries the buyer's name. A tier for one night is held to that night's sales window and capacity. A hidden tier answers 404 like an unknown one unless the caller holds `ticketType:manage` in its organisation. The buyer's own response carries `onlineJoinUrl` for a paid online event.",
+        "description": "Converts holds into a PENDING order and computes totals server-side, with the same function `POST /v1/orders/quote` uses. Client-supplied prices are ignored: only the ticket type id and quantity are trusted. `expectedTotalCents` is a precondition and never a price: when it differs from the recomputed total the order is refused with 409 `PRICE_CHANGED` before anything is written or charged, and the client quotes again for the new figure. A promo code is locked for the rest of the checkout (after the tier rows, then the night rows) and re-checked under the lock, so a code with one use left gives one discount however many buyers race for it; a declined card gives the use back. A reserved-seating tier is bought only with the seats held for it: every seat in the holds must be for a tier in the order, and a reserved line with no seats behind it answers 422. `attendees` names the guests, one per ticket, all optional; a ticket nobody named carries the buyer's name. A tier for one night is held to that night's sales window and capacity. A hidden tier answers 404 like an unknown one unless the caller holds `ticketType:manage` in its organisation. Each hold named is locked for the rest of the checkout (after the tiers and nights, before the promo code), and a hold attached to an order whose payment is still being confirmed answers 409 before anything is written or charged: it stays with that order until the payment is settled or refused. A checkout that names a promo code is rate-limited like the quote (per account, or per address for a guest), so codes cannot be tried at speed here either; one with no code is never counted. When the charge succeeds but the order cannot be completed, the capture is recorded for reconciliation and the answer is a 500 `ORDER_NOT_COMPLETED`; a capture the provider did not answer is a 502 `PAYMENT_TIMEOUT`. Both leave the order PENDING, name it in `error.orderReference`, and tell the buyer not to pay again, in production too. A free order whose settlement refuses is cancelled, nothing having been charged, and answers 409 `ORDER_CANCELLED`. An `Idempotency-Key` names one attempt, and a retry of it never places a second order or charges twice: it answers with the attempt's outcome as the order stands now — 201 and the order once it is paid (or refunded since), 409 `ORDER_PENDING` with `error.orderReference` while its payment is still being checked (including a double submission still in flight), 402 `PAYMENT_DECLINED` after a declined card, and 409 `ORDER_CANCELLED` for a cancelled free order. A 201 is never a replay of an unpaid order. The buyer's own response carries `onlineJoinUrl` for a paid online event.",
         "tags": [
           "orders"
         ],
@@ -55145,6 +55155,16 @@
               }
             }
           },
+          "402": {
+            "description": "The payment was declined and nothing was charged; the order is cancelled and its holds stay with the buyer. A retry with the same `Idempotency-Key` answers this again: another attempt needs a new key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No such resource, or it is not visible to this caller.",
             "content": {
@@ -55177,6 +55197,36 @@
           },
           "422": {
             "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The payment was taken but the order could not be completed. It stays PENDING with a reconciliation task, and `error.orderReference` names it; the buyer must not pay again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The payment provider did not answer, so whether the buyer was charged is being checked. The order stays PENDING and keeps its holds, and `error.orderReference` names it; the buyer must not pay again.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56490,7 +56540,7 @@
       "get": {
         "operationId": "orders.get",
         "summary": "Get an order by reference",
-        "description": "Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`. For the account that bought it, `groupPass` says whether the order has a group pass (two to fifty tickets the buyer still holds that would admit) and, when not, why; it is null for every other reader and never carries the pass itself. Each line names its tier and its night. For the buyer only, a paid order for an online event carries `onlineJoinUrl` while one of the tickets they hold still admits.",
+        "description": "Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`. For the account that bought it, `groupPass` says whether the order has a group pass to show (two to fifty tickets the buyer still holds that would admit for a new one; one, once it was taken out) and, when not, why; it is null for every other reader and never carries the pass itself. Each line names its tier and its night. For the buyer only, a paid order for an online event carries `onlineJoinUrl` while one of the tickets they hold still admits.",
         "tags": [
           "orders"
         ],
@@ -57267,7 +57317,7 @@
       "get": {
         "operationId": "orders.groupPass",
         "summary": "My order's group pass",
-        "description": "One QR, and a printed `DEG-` code, that admit every ticket on this order that its buyer still holds — so a party arriving together is let in with one scan, the steward choosing who is at the door. Returned to the account that bought the order and to nobody else: an organiser holding `order:view`, a platform administrator, another account using the buyer's address and a guest order all get the same 404 as a reference nobody has used. Created on first request and derived, never stored: the database holds only SHA-256 digests of the QR content and the code, and the derived values are checked against them before they are returned. A ticket handed to somebody else leaves the group when the transfer is accepted; the recipient has their own pass. Refused with a 409 naming a reason when the buyer holds fewer than two or more than fifty tickets that would admit, the order is not paid, or the event is cancelled. Rate-limited, never cached, never logged or audited in plain.",
+        "description": "One QR, and a printed `DEG-` code, that admit every ticket on this order that its buyer still holds — so a party arriving together is let in with one scan, the steward choosing who is at the door. Returned to the account that bought the order and to nobody else: an organiser holding `order:view`, a platform administrator, another account using the buyer's address and a guest order all get the same 404 as a reference nobody has used. Created on first request and derived, never stored: the database holds only SHA-256 digests of the QR content and the code, and the derived values are checked against them before they are returned. A ticket handed to somebody else leaves the group when the transfer is accepted; the recipient has their own pass. Refused with a 409 naming a reason when the order is not paid, the event is cancelled, or the buyer holds more than fifty tickets that would admit, or too few: a pass taken out for the first time needs two, and one already taken out keeps showing while one still admits, so the last guest of a group is let in by it too. Rate-limited, never cached, never logged or audited in plain.",
         "tags": [
           "tickets",
           "orders"
@@ -57313,7 +57363,7 @@
                         },
                         "admits": {
                           "type": "integer",
-                          "minimum": 2,
+                          "minimum": 1,
                           "maximum": 50
                         },
                         "tickets": {
@@ -57506,7 +57556,7 @@
       "post": {
         "operationId": "orders.rotateGroupPass",
         "summary": "Replace my order's group pass",
-        "description": "Stops the current group QR and printed code working and derives new ones, for a buyer whose group pass was photographed or shared by mistake. Each ticket's own pass is untouched. Holder-only with the same uniform 404 as the group pass itself; the response carries the new version and no secret, and the buyer fetches the new pass. Audited with the versions, never the values.",
+        "description": "Stops the current group QR and printed code working and derives new ones, for a buyer whose group pass was photographed or shared by mistake. Each ticket's own pass is untouched. Holder-only with the same uniform 404 as the group pass itself; refused with a 409 naming a reason when there is no pass to replace, or when the pass could not be shown (no ticket on it still admits, the order is not paid, or the event is cancelled), since a new code could not be shown to anybody. The response carries the new version and no secret, and the buyer fetches the new pass. Audited with the versions, never the values.",
         "tags": [
           "tickets",
           "orders"
@@ -59225,7 +59275,7 @@
       "get": {
         "operationId": "tickets.admissionEvents",
         "summary": "Events I may admit to",
-        "description": "The events this account may admit people to, each with the authority it rests on. OWNER and ADMIN see every current event of their organisation; MANAGER, STAFF and SCANNER see only the events a scope names. A platform super administrator sees every organisation's current door events as well, on `PLATFORM_ROLE` authority, filterable by organisation (`organizationId`) and by a search of the event title or organisation name (`q`); the list is cut at 100 events, starting soonest, and `meta.truncated` says so. Other platform roles see nothing. Read from the database on every request, so a scope granted or withdrawn a moment ago is already reflected.",
+        "description": "The events this account may admit people to, each with the authority it rests on. OWNER and ADMIN see every current event of their organisation; MANAGER, STAFF and SCANNER see only the events a scope names. A platform super administrator sees every organisation's current door events as well, on `PLATFORM_ROLE` authority, filterable by organisation (`organizationId`) and by a search of the event title or organisation name (`q`); the list is cut at 100 events, starting soonest, and `meta.truncated` says so. Other platform roles see nothing. Each entry lists the event's nights (`sessions`, soonest first); on an event of more than one, the door says which night it is admitting to on every lookup and admission. Read from the database on every request, so a scope granted or withdrawn a moment ago is already reflected.",
         "tags": [
           "tickets"
         ],
@@ -59302,6 +59352,58 @@
                             ],
                             "additionalProperties": false
                           },
+                          "sessions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "maxLength": 64,
+                                  "pattern": "^[a-z][a-z0-9]{7,31}$"
+                                },
+                                "label": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "startsAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "endsAt": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                "timezone": {
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "SCHEDULED",
+                                    "ON_SALE",
+                                    "SALES_PAUSED",
+                                    "SOLD_OUT",
+                                    "CANCELLED",
+                                    "COMPLETED"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "label",
+                                "startsAt",
+                                "endsAt",
+                                "timezone",
+                                "status"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "organization": {
                             "type": "object",
                             "properties": {
@@ -59345,6 +59447,7 @@
                         },
                         "required": [
                           "event",
+                          "sessions",
                           "organization",
                           "authority",
                           "role"
@@ -59462,7 +59565,7 @@
       "post": {
         "operationId": "tickets.previewAdmission",
         "summary": "Look a ticket up at the door",
-        "description": "Resolves a scanned pass or a printed code and says what a door needs to decide: the event and its time, the tier, the seat, the attendee's name, whether the ticket is already in, and a closed refusal reason when it may not be admitted. Writes nothing to the ticket: no check-in, no status change, no credential rotation. The ticket is resolved first and the caller authorised against the ticket's own event, never an event id from the browser; a caller not authorised for it receives the same 404 as a caller who presented nothing real. An admissible ticket carries a short-lived `previewReference` bound to this scanner and this way of presenting it, which a confirmation must return. A platform super administrator may look up tickets at any event and is recorded with `PLATFORM_ROLE` authority, with a separate entry on the event's record; SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner, never cached, and the presented pass is never logged or audited. Names the ticket's night (`session`: label, start, end, zone) so a steward can see a ticket for another night; the door refuses nothing on it. Never carries an online event's joining link.",
+        "description": "Resolves a scanned pass or a printed code and says what a door needs to decide: the event and its time, the tier, the seat, the attendee's name, whether the ticket is already in, and a closed refusal reason when it may not be admitted. Writes nothing to the ticket: no check-in, no status change, no credential rotation. The ticket is resolved first and the caller authorised against the ticket's own event, never an event id from the browser; a caller not authorised for it receives the same 404 as a caller who presented nothing real. An admissible ticket carries a short-lived `previewReference` bound to this scanner and this way of presenting it, which a confirmation must return. A platform super administrator may look up tickets at any event and is recorded with `PLATFORM_ROLE` authority, with a separate entry on the event's record; SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner, never cached, and the presented pass is never logged or audited. Names the ticket's night (`session`: label, start, end, zone; null for a ticket good for every night). On an event of more than one night the door names the night it is admitting to (`eventSessionId`): without it the lookup is refused `NIGHT_REQUIRED`, a ticket for another night is refused `WRONG_NIGHT`, and a ticket good for every night is `ALREADY_CHECKED_IN` only when it was let in on that night. The reference binds the night. Never carries an online event's joining link.",
         "tags": [
           "tickets"
         ],
@@ -59500,6 +59603,8 @@
                                 "ORDER_NOT_PAID",
                                 "EVENT_CANCELLED",
                                 "WRONG_EVENT",
+                                "WRONG_NIGHT",
+                                "NIGHT_REQUIRED",
                                 "PREVIEW_EXPIRED",
                                 "PREVIEW_INVALID",
                                 "PREVIEW_MISMATCH",
@@ -59783,6 +59888,11 @@
                     "type": "string",
                     "maxLength": 64,
                     "pattern": "^[a-z][a-z0-9]{7,31}$"
+                  },
+                  "eventSessionId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9]{7,31}$"
                   }
                 },
                 "additionalProperties": false
@@ -59804,7 +59914,7 @@
       "post": {
         "operationId": "tickets.checkIn",
         "summary": "Admit a previewed ticket",
-        "description": "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. A platform super administrator may admit at any event; its platform role is re-read inside the admitting transaction, so a demotion since the preview refuses the confirmation, and the admission is recorded with `PLATFORM_ROLE` authority and a separate entry on the event's record. SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner and never cached. Names the ticket's night (`session`), as the preview does.",
+        "description": "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. A platform super administrator may admit at any event; its platform role is re-read inside the admitting transaction, so a demotion since the preview refuses the confirmation, and the admission is recorded with `PLATFORM_ROLE` authority and a separate entry on the event's record. SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner and never cached. Names the ticket's night (`session`), as the preview does. The night (`eventSessionId`) must be the one the preview was for (else `PREVIEW_MISMATCH`): a ticket for one night admits once, on that night; a ticket good for every night admits once on each night, recorded on the named night, and stays VALID between nights.",
         "tags": [
           "tickets"
         ],
@@ -60099,6 +60209,11 @@
                     "maxLength": 64,
                     "pattern": "^[a-z][a-z0-9]{7,31}$"
                   },
+                  "eventSessionId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                  },
                   "previewReference": {
                     "type": "string",
                     "minLength": 20,
@@ -60138,7 +60253,7 @@
       "post": {
         "operationId": "tickets.previewGroupAdmission",
         "summary": "Look a group pass up at the door",
-        "description": "Resolves a group pass — its scanned QR or its printed `DEG-` code — and lists every ticket on the order that its buyer still holds, each with the same outcome and closed refusal reason a single lookup gives, plus counts and how many tickets from the order were handed to other people. Writes nothing to any ticket. The same door authority as a single ticket, checked against the order's own event from the database; a caller not authorised for it gets the same 404 as a caller who presented nothing real. When at least one ticket is admissible the answer carries a short-lived `previewReference` naming them, bound to this scanner and this way of presenting, which a group confirmation must return. Rate-limited per scanner, never cached, and neither the pass, the code nor the reference is ever logged or audited.",
+        "description": "Resolves a group pass — its scanned QR or its printed `DEG-` code — and lists every ticket on the order that its buyer still holds, each with the same outcome and closed refusal reason a single lookup gives, plus counts and how many tickets from the order were handed to other people. Writes nothing to any ticket. The same door authority as a single ticket, checked against the order's own event from the database; a caller not authorised for it gets the same 404 as a caller who presented nothing real. Each ticket names its night (`session`), and the door names the night it is admitting to (`eventSessionId`) on an event of more than one, as for a single ticket: a ticket for another night is refused `WRONG_NIGHT`. When at least one ticket is admissible the answer carries a short-lived `previewReference` naming them and the night, bound to this scanner and this way of presenting, which a group confirmation must return. Rate-limited per scanner, never cached, and neither the pass, the code nor the reference is ever logged or audited.",
         "tags": [
           "tickets"
         ],
@@ -60176,6 +60291,8 @@
                                 "ORDER_NOT_PAID",
                                 "EVENT_CANCELLED",
                                 "WRONG_EVENT",
+                                "WRONG_NIGHT",
+                                "NIGHT_REQUIRED",
                                 "PREVIEW_EXPIRED",
                                 "PREVIEW_INVALID",
                                 "PREVIEW_MISMATCH",
@@ -60269,6 +60386,8 @@
                                       "ORDER_NOT_PAID",
                                       "EVENT_CANCELLED",
                                       "WRONG_EVENT",
+                                      "WRONG_NIGHT",
+                                      "NIGHT_REQUIRED",
                                       "PREVIEW_EXPIRED",
                                       "PREVIEW_INVALID",
                                       "PREVIEW_MISMATCH",
@@ -60332,6 +60451,44 @@
                                   }
                                 ]
                               },
+                              "session": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "label": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "startsAt": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                      },
+                                      "endsAt": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                      },
+                                      "timezone": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "label",
+                                      "startsAt",
+                                      "endsAt",
+                                      "timezone"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "attendeeName": {
                                 "type": [
                                   "string",
@@ -60357,6 +60514,7 @@
                               "refusal",
                               "tier",
                               "seat",
+                              "session",
                               "attendeeName",
                               "checkedInAt"
                             ],
@@ -60505,6 +60663,11 @@
                     "type": "string",
                     "maxLength": 64,
                     "pattern": "^[a-z][a-z0-9]{7,31}$"
+                  },
+                  "eventSessionId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9]{7,31}$"
                   }
                 },
                 "additionalProperties": false
@@ -60526,7 +60689,7 @@
       "post": {
         "operationId": "tickets.checkInGroup",
         "summary": "Admit people from a previewed group",
-        "description": "Admits the tickets named in `ticketIds` — the people actually at the door — in one transaction, each exactly once. Every named ticket must have been admissible in the preview, else 409 `PREVIEW_MISMATCH`. Everything is re-derived under lock: the order, the group pass and its version (a replaced pass is `PREVIEW_MISMATCH`), each ticket, and the caller's authority. A ticket already admitted is reported, not refused, so a retry after a lost answer is safe. If any named ticket stopped admitting for another reason — refunded, withdrawn, handed on — nothing is admitted and the answer is 409 `GROUP_CHANGED`: look the group up again. The method follows from what was presented, as for a single ticket. Rate-limited per scanner and never cached.",
+        "description": "Admits the tickets named in `ticketIds` — the people actually at the door — in one transaction, each exactly once. Every named ticket must have been admissible in the preview, else 409 `PREVIEW_MISMATCH`. Everything is re-derived under lock: the order, the group pass and its version (a replaced pass is `PREVIEW_MISMATCH`), each ticket, and the caller's authority. A ticket already admitted is reported, not refused, so a retry after a lost answer is safe. If any named ticket stopped admitting for another reason — refunded, withdrawn, handed on — nothing is admitted and the answer is 409 `GROUP_CHANGED`: look the group up again. The method follows from what was presented, as for a single ticket, and the night must be the preview's (else `PREVIEW_MISMATCH`); a ticket good for every night is admitted once on each night. Rate-limited per scanner and never cached.",
         "tags": [
           "tickets"
         ],
@@ -60691,6 +60854,44 @@
                                   }
                                 ]
                               },
+                              "session": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "label": {
+                                        "type": [
+                                          "string",
+                                          "null"
+                                        ]
+                                      },
+                                      "startsAt": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                      },
+                                      "endsAt": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                      },
+                                      "timezone": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "label",
+                                      "startsAt",
+                                      "endsAt",
+                                      "timezone"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
                               "attendeeName": {
                                 "type": [
                                   "string",
@@ -60705,6 +60906,7 @@
                               "checkedInByYou",
                               "tier",
                               "seat",
+                              "session",
                               "attendeeName"
                             ],
                             "additionalProperties": false
@@ -60807,6 +61009,11 @@
                     "pattern": "^DEG-[2-9A-HJ-NP-Z]{12}$"
                   },
                   "expectedEventId": {
+                    "type": "string",
+                    "maxLength": 64,
+                    "pattern": "^[a-z][a-z0-9]{7,31}$"
+                  },
+                  "eventSessionId": {
                     "type": "string",
                     "maxLength": 64,
                     "pattern": "^[a-z][a-z0-9]{7,31}$"
@@ -63498,6 +63705,10 @@
               "reason": {
                 "type": "string",
                 "pattern": "^[A-Z][A-Z0-9_]{1,63}$"
+              },
+              "orderReference": {
+                "type": "string",
+                "pattern": "^[A-Z0-9-]{4,32}$"
               },
               "requestId": {
                 "type": "string",

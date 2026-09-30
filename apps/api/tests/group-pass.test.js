@@ -392,6 +392,55 @@ describe('GET /v1/orders/:reference', () => {
     await app.close()
   })
 
+  it('keeps a pass already taken out showing for the last ticket that admits, and says when none does', async () => {
+    const { app, prisma, order, tickets } = await withOrder()
+    const token = await signIn(app, ATTENDEE)
+    const summary = async () =>
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/v1/orders/${order.reference}`,
+          headers: bearer(token),
+        })
+      ).json().data.groupPass
+    const taken = (await groupPass(app, token, order.reference)).json().data
+    const ticket = (id) => prisma._store.ticket.find((row) => row.id === id)
+
+    // One of the two went in.
+    ticket(tickets[0].id).status = 'CHECKED_IN'
+
+    expect(await summary()).toEqual({ admits: 1, available: true, unavailableReason: null })
+
+    const lastGuest = await groupPass(app, token, order.reference)
+
+    expect(lastGuest.statusCode, lastGuest.body).toBe(200)
+    expect(lastGuest.json().data).toMatchObject({
+      admits: 1,
+      credential: taken.credential,
+      groupCode: taken.groupCode,
+    })
+
+    // And the other.
+    ticket(tickets[1].id).status = 'CHECKED_IN'
+
+    expect(await summary()).toEqual({
+      admits: 0,
+      available: false,
+      unavailableReason: 'TOO_FEW_TICKETS',
+    })
+
+    const none = await groupPass(app, token, order.reference)
+    const replaced = await rotate(app, token, order.reference)
+
+    expect(none.statusCode).toBe(409)
+    expect(none.json().error.reason).toBe('TOO_FEW_TICKETS')
+    expect(replaced.statusCode).toBe(409)
+    expect(replaced.json().error.reason).toBe('TOO_FEW_TICKETS')
+    expect(prisma._store.groupPass[0].credentialVersion).toBe(1)
+
+    await app.close()
+  })
+
   it('says why an order of one ticket has none', async () => {
     const { app, order } = await withOrder({ quantity: 1 })
     const response = await app.inject({

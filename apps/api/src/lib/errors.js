@@ -76,6 +76,7 @@ const JWT_ERROR_CODES = new Set([
  * @property {Array<{path: string, code: string, message: string}>} [issues] Field-level validation issues.
  * @property {string[]} [problems] Business-rule reasons, for a 4xx.
  * @property {string} [reason] A closed-vocabulary refusal code, for a 4xx.
+ * @property {string} [orderReference] The order a checkout answer is about, when one was placed and the caller has to find it (see `orderReferenceOf`).
  * @property {boolean} expected Whether this is an anticipated 4xx rather than a bug.
  */
 
@@ -101,10 +102,16 @@ export function isAuthError(error) {
 }
 
 /**
- * PostgreSQL's SQLSTATE for a character the database encoding cannot hold:
- * `character_not_in_repertoire`, raised for a NUL (0x00) in any text value.
+ * PostgreSQL's SQLSTATEs for a character it cannot store.
+ *
+ * - `22021` `character_not_in_repertoire`: a NUL (0x00) in a text value.
+ * - `22P05` `untranslatable_character`: the `\u0000` escape in a `json` or
+ *   `jsonb` value ("unsupported Unicode escape sequence"), which is how a NUL
+ *   in a JSON column, an audit row's metadata or an outbox payload arrives.
+ *
+ * @type {ReadonlySet<string>}
  */
-const UNSTORABLE_CHARACTER = '22021'
+const UNSTORABLE_CHARACTER_CODES = new Set(['22021', '22P05'])
 
 /** What a caller is told when they sent one. Names the fix, not the database. */
 export const UNSTORABLE_CHARACTER_MESSAGE =
@@ -143,10 +150,11 @@ export function normaliseError(error, options = {}) {
 
   // A character PostgreSQL cannot store — a NUL above all, which every text
   // and JSON column refuses — is a bad request, not a fault. The request
-  // schemas refuse control characters in the fields they know reach a query
-  // (`withoutControlCharacters`), so this is the backstop for one they miss:
-  // the caller hears 400 and what to change, and the log is not given a 500.
-  if (databaseErrorCode(error) === UNSTORABLE_CHARACTER) {
+  // validator refuses a NUL in every string of a validated request
+  // (`lib/validation.js`), so this is the backstop for one that arrives by
+  // another road: the caller hears 400 and what to change, and the log is not
+  // given a 500.
+  if (UNSTORABLE_CHARACTER_CODES.has(databaseErrorCode(error))) {
     return {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
@@ -201,6 +209,26 @@ export function normaliseError(error, options = {}) {
 
   const statusCode = statusOf(error)
 
+  // A 5xx the API raised on purpose, with a sentence the caller must read:
+  // "your payment may have been taken; do not pay again" is not an internal
+  // detail, and replacing it with "An unexpected error occurred" is how a
+  // buyer comes to pay twice. Only an error built by `exposedServerError`
+  // carries `expose`, so an unexpected failure is still masked.
+  if (statusCode >= 500 && /** @type {{expose?: unknown}} */ (error)?.expose === true) {
+    /** @type {NormalisedError} */
+    const exposed = {
+      statusCode,
+      code: /** @type {{code?: string}} */ (error).code ?? INTERNAL_ERROR_CODE,
+      message: /** @type {Error} */ (error).message,
+      expected: false,
+    }
+
+    const orderReference = orderReferenceOf(error)
+    if (orderReference) exposed.orderReference = orderReference
+
+    return exposed
+  }
+
   if (statusCode >= 500) {
     return {
       statusCode,
@@ -249,7 +277,29 @@ export function normaliseError(error, options = {}) {
   const reason = refusalReasonOf(error)
   if (reason) normalised.reason = reason
 
+  const orderReference = orderReferenceOf(error)
+  if (orderReference) normalised.orderReference = orderReference
+
   return normalised
+}
+
+/**
+ * The order a checkout answer is about, when the service named one.
+ *
+ * A checkout that placed an order and could not finish it — a capture that
+ * timed out, a capture the order could not be completed for, a retry of an
+ * attempt whose payment is still being checked — has to tell the buyer where
+ * that order is, or the only thing left to press is Pay. The service puts the
+ * reference in `details.orderReference`; only a bare reference is forwarded.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {string|null} The reference, or null.
+ */
+function orderReferenceOf(error) {
+  const reference = /** @type {{details?: {orderReference?: unknown}}} */ (error)?.details
+    ?.orderReference
+
+  return typeof reference === 'string' && /^[A-Z0-9-]{4,32}$/u.test(reference) ? reference : null
 }
 
 /**
@@ -277,7 +327,7 @@ function refusalReasonOf(error) {
  *
  * @param {NormalisedError} normalised The normalised error.
  * @param {string} [requestId] The request id, echoed so a user can quote it in a support ticket.
- * @returns {{error: {code: string, message: string, statusCode: number, issues?: object[], problems?: string[], reason?: string, requestId?: string}}} The response body.
+ * @returns {{error: {code: string, message: string, statusCode: number, issues?: object[], problems?: string[], reason?: string, orderReference?: string, requestId?: string}}} The response body.
  */
 export function toErrorBody(normalised, requestId) {
   /** @type {Record<string, unknown>} */
@@ -290,6 +340,7 @@ export function toErrorBody(normalised, requestId) {
   if (normalised.issues) error.issues = normalised.issues
   if (normalised.problems) error.problems = normalised.problems
   if (normalised.reason) error.reason = normalised.reason
+  if (normalised.orderReference) error.orderReference = normalised.orderReference
   if (requestId) error.requestId = String(requestId).slice(0, 64)
 
   return { error: /** @type {never} */ (error) }
@@ -313,6 +364,25 @@ export function httpError(statusCode, code, message, details) {
   Object.assign(error, { statusCode, code, ...(details ? { details } : {}) })
 
   return error
+}
+
+/**
+ * A 5xx whose code and sentence reach the caller in production too.
+ *
+ * For the few server-side outcomes the caller has to act on — above all a
+ * checkout whose payment may already have been taken, where the one thing the
+ * buyer must be told is not to pay again. Everything else that fails with a
+ * 5xx is still masked by `normaliseError`, so a stack trace or a SQL fragment
+ * cannot leave by this road: only a message written here does.
+ *
+ * @param {number} statusCode HTTP status, 500 or above.
+ * @param {string} code Machine-readable code, e.g. `PAYMENT_TIMEOUT`.
+ * @param {string} message The sentence for the caller.
+ * @param {object} [details] Extra context; `orderReference` is forwarded.
+ * @returns {Error} An error carrying `statusCode`, `code` and `expose`.
+ */
+export function exposedServerError(statusCode, code, message, details) {
+  return Object.assign(httpError(statusCode, code, message, details), { expose: true })
 }
 
 /**

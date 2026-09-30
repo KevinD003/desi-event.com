@@ -144,13 +144,14 @@ bug — leaves through one handler in one shape:
 }
 ```
 
-| Field        | Always present           | Meaning                                                    |
-| ------------ | ------------------------ | ---------------------------------------------------------- |
-| `code`       | yes                      | Machine-readable. Branch on this, never on `message`       |
-| `message`    | yes                      | Human-readable. Safe to show a user                        |
-| `statusCode` | yes                      | Mirrors the HTTP status                                    |
-| `issues`     | validation failures only | One entry per offending field: `path`, `code`, `message`   |
-| `requestId`  | yes                      | Echoes the id in the server logs. Quote it in a bug report |
+| Field            | Always present                        | Meaning                                                    |
+| ---------------- | ------------------------------------- | ---------------------------------------------------------- |
+| `code`           | yes                                   | Machine-readable. Branch on this, never on `message`       |
+| `message`        | yes                                   | Human-readable. Safe to show a user                        |
+| `statusCode`     | yes                                   | Mirrors the HTTP status                                    |
+| `issues`         | validation failures only              | One entry per offending field: `path`, `code`, `message`   |
+| `orderReference` | checkout answers about a placed order | The order to look at instead of paying again (see Orders)  |
+| `requestId`      | yes                                   | Echoes the id in the server logs. Quote it in a bug report |
 
 ### Codes
 
@@ -168,6 +169,18 @@ bug — leaves through one handler in one shape:
 | 429    | `RATE_LIMITED`           | Too many attempts; the message says how long to wait                                    |
 | 500    | `INTERNAL_SERVER_ERROR`  | A bug. In production the message is fixed and the detail stays in the logs              |
 | 503    | `SERVICE_UNAVAILABLE`    | The database is unreachable                                                             |
+
+Checkout adds its own outcomes, with sentences written for the buyer that
+production does not mask: 402 `PAYMENT_DECLINED`, 409 `ORDER_PENDING` and
+`ORDER_CANCELLED`, 500 `ORDER_NOT_COMPLETED` and 502 `PAYMENT_TIMEOUT` (see
+Orders).
+
+A NUL (U+0000) in any string or key of a validated body, query or path is a
+400 `VALIDATION_ERROR` whose issue names the field: PostgreSQL stores that
+character in no text or JSON column, so it is refused before the handler
+writes anything, whatever the field's own schema allows. Should one reach the
+database by another road, PostgreSQL's refusal (SQLSTATE 22021 for a text
+column, 22P05 for a JSON one) is answered with the same 400, never a 500.
 
 Domain packages set these themselves — `InventoryError` carries
 `INSUFFICIENT_INVENTORY`, `BELOW_MINIMUM`, `ABOVE_MAXIMUM` and friends with
@@ -232,6 +245,7 @@ accident.
 | Door lookups and admissions, single and group                                                                                                                                      | 120 per minute per account                                                    |
 | `tickets.pass`, `orders.groupPass`, `orders.rotateGroupPass`                                                                                                                       | 30 per minute per account                                                     |
 | `orders.quote`                                                                                                                                                                     | 30 per minute per account                                                     |
+| `orders.create` when the body names a `promoCode` (a checkout with no code is never counted)                                                                                       | 30 per minute per account, or per address for a guest                         |
 | `events.addMedia`                                                                                                                                                                  | 20 per ten minutes per account, counted before the body is read               |
 | `media.get`                                                                                                                                                                        | 1,200 per minute per account or address, its own budget                       |
 | `/docs`                                                                                                                                                                            | Exempt                                                                        |
@@ -396,33 +410,56 @@ with an apostrophe.
 
 ### Events
 
-| Method | Path                     | Auth     | Purpose                                                                                                                                   |
-| ------ | ------------------------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/events`             | optional | Paginated, filterable discovery. Anonymous callers see `PUBLISHED` events only; a token widens the set to drafts the caller may view      |
-| GET    | `/v1/events/:slug`       | optional | Full detail: venue, organisation and ticket types. A draft answers 404 without `event:view_draft`                                         |
-| POST   | `/v1/events`             | bearer   | Create an event in `DRAFT`. Requires `event:create`. The slug is unique platform-wide. 201                                                |
-| PATCH  | `/v1/events/:id`         | bearer   | Partial update; at least one field. The owning organisation is immutable. Requires `event:update`                                         |
-| POST   | `/v1/events/:id/publish` | bearer   | Move between `DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`. Publishing with no on-sale ticket type answers 422. Requires `event:publish` |
+| Method | Path                         | Auth     | Purpose                                                                                                                                                                                                                                                                                                                                     |
+| ------ | ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/events`                 | optional | Paginated, filterable discovery. Anonymous callers see the listed statuses only: `PUBLISHED`, `ON_SALE`, `SALES_PAUSED` and `SOLD_OUT` (`PUBLIC_EVENT_STATUSES`). A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`; `platform:admin` sees every event                                |
+| GET    | `/v1/events/:slug`           | optional | Full detail: venue, organisation, tiers and nights. A stranger can open an event in a listed status or one that is `COMPLETED`, `POSTPONED` or `CANCELLED`, so a ticket holder's link still resolves; any other status answers 404 unless the caller holds `event:view_draft` for its organisation, `moderation:review` or `platform:admin` |
+| POST   | `/v1/events`                 | session  | Create an event in `DRAFT`, whatever status the body names. Requires `event:create`. The slug is unique platform-wide. 201                                                                                                                                                                                                                  |
+| PATCH  | `/v1/events/:id`             | session  | Partial update; at least one field. Requires `event:update`. The owning organisation and the status are not writable here — a `status` in the body is dropped; the status moves only by the commands below. A live event's material changes need a confirmation and a reason (see "Event authoring after publication")                      |
+| GET    | `/v1/events/:id/transitions` | session  | The moves open from the current status, each marked allowed or not with what blocks it. A convenience for the console; every command decides again for itself                                                                                                                                                                               |
+
+**The status moves only by command.** Each command is its own route, with no
+status in the body: the destination is the route. Each checks the caller's
+capability for the owning organisation once the event is loaded, checks its
+gates, and writes the move and its audit row in one transaction; a command
+called from a status it does not start from answers 409 `ILLEGAL_TRANSITION`,
+and a gate that fails answers 422 with the reasons.
+
+| Path                                      | From → to                                                                                                                                                         | Capability                         | Step-up         |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | --------------- |
+| `POST /v1/events/:id/submit-review`       | `DRAFT`, `CHANGES_REQUIRED` → `REVIEW_PENDING`; 422 with the problems when the event is not complete enough to review                                             | `event:submit_review`              | —               |
+| `POST /v1/events/:id/withdraw-review`     | `REVIEW_PENDING` → `DRAFT`, while no moderator has ruled                                                                                                          | `event:update`                     | —               |
+| `POST /v1/moderation/events/:id/decision` | `REVIEW_PENDING` → `APPROVED`, `CHANGES_REQUIRED` or `REJECTED`; before publication an approval can be taken back (`APPROVED` → `CHANGES_REQUIRED` or `REJECTED`) | `moderation:review`                | `MODERATION`    |
+| `POST /v1/events/:id/rework`              | `REJECTED` → `DRAFT`                                                                                                                                              | `event:update`                     | —               |
+| `POST /v1/events/:id/publish`             | `APPROVED`, `POSTPONED` → `PUBLISHED`; the organisation must be verified, the event complete and its inventory prepared                                           | `event:publish`                    | `EVENT_PUBLISH` |
+| `POST /v1/events/:id/open-sales`          | `PUBLISHED`, `SALES_PAUSED`, `POSTPONED` → `ON_SALE`; the organisation must be verified and a tier ready to sell                                                  | `event:publish`                    | `EVENT_PUBLISH` |
+| `POST /v1/events/:id/pause-sales`         | `ON_SALE`, `SOLD_OUT` → `SALES_PAUSED`                                                                                                                            | `event:pause_sales`                | —               |
+| `POST /v1/events/:id/postpone`            | `PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT` → `POSTPONED`, with a reason code and prose                                                                    | `event:cancel`                     | `EVENT_CANCEL`  |
+| `POST /v1/events/:id/reschedule`          | `POSTPONED` → `PUBLISHED` or `ON_SALE`, with the new dates in the same transaction                                                                                | `event:update` and `event:publish` | `EVENT_PUBLISH` |
+| `POST /v1/events/:id/cancel`              | Any live or postponed status → `CANCELLED`, terminal, with a reason code and prose; refund work is created `PENDING`, once per order                              | `event:cancel`                     | `EVENT_CANCEL`  |
+
+The full table of moves, including the ones only the system makes (`SOLD_OUT`,
+`COMPLETED`), is `TRANSITIONS` in `packages/schemas/src/lifecycle.js`.
 
 `GET /v1/events` query parameters, beyond `page` and `perPage`:
 
-| Parameter                     | Values                                                                                                                                                                                                               |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `q`                           | Free-text search, 1–120 characters                                                                                                                                                                                   |
-| `category`                    | `MUSIC_CONCERT`, `GARBA_DANDIYA`, `BOLLYWOOD_NIGHT`, `CLASSICAL_DANCE`, `COMEDY`, `FILM_SCREENING`, `CULTURAL_FESTIVAL`, `FOOD_FESTIVAL`, `WEDDING_EXPO`, `RELIGIOUS`, `THEATRE`, `WORKSHOP`, `NETWORKING`, `SPORTS` |
-| `status`                      | `DRAFT`, `PUBLISHED`, `CANCELLED`, `COMPLETED`                                                                                                                                                                       |
-| `city`                        | Venue city                                                                                                                                                                                                           |
-| `organizationId`              | Restrict to one organiser                                                                                                                                                                                            |
-| `isOnline`                    | `true` / `false`                                                                                                                                                                                                     |
-| `startsAfter`, `startsBefore` | `YYYY-MM-DD` or a full ISO timestamp. `startsBefore` must be after `startsAfter`                                                                                                                                     |
-| `sort`                        | `startsAt:asc` (default), `startsAt:desc`, `createdAt:desc`, `title:asc`                                                                                                                                             |
+| Parameter                     | Values                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `q`                           | Free-text search, 1–120 characters; no control characters                                                                                                                                                                                                                                                                                            |
+| `category`                    | `MUSIC_CONCERT`, `GARBA_DANDIYA`, `BOLLYWOOD_NIGHT`, `CLASSICAL_DANCE`, `COMEDY`, `FILM_SCREENING`, `CULTURAL_FESTIVAL`, `FOOD_FESTIVAL`, `WEDDING_EXPO`, `RELIGIOUS`, `THEATRE`, `WORKSHOP`, `NETWORKING`, `SPORTS`                                                                                                                                 |
+| `status`                      | Any of the thirteen event statuses (`eventStatusSchema`: `DRAFT`, `REVIEW_PENDING`, `CHANGES_REQUIRED`, `APPROVED`, `PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT`, `COMPLETED`, `POSTPONED`, `CANCELLED`, `REJECTED`, `ARCHIVED`). It narrows what the caller may already see and never widens it: anonymously, `status=DRAFT` is an empty page |
+| `city`                        | Venue city; no control characters                                                                                                                                                                                                                                                                                                                    |
+| `organizationId`              | Restrict to one organiser                                                                                                                                                                                                                                                                                                                            |
+| `isOnline`                    | `true` / `false`                                                                                                                                                                                                                                                                                                                                     |
+| `startsAfter`, `startsBefore` | `YYYY-MM-DD` or a full ISO timestamp. `startsBefore` must be after `startsAfter`                                                                                                                                                                                                                                                                     |
+| `sort`                        | `startsAt:asc` (default), `startsAt:desc`, `createdAt:desc`, `title:asc`                                                                                                                                                                                                                                                                             |
 
 ### Ticket types
 
 | Method | Path                               | Auth     | Purpose                                                                                                                                            |
 | ------ | ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/v1/events/:eventId/ticket-types` | optional | Tiers with live availability folded in. `availableQuantity` already subtracts active holds, so it can be lower than `quantityTotal - quantitySold` |
-| POST   | `/v1/events/:eventId/ticket-types` | bearer   | Add a tier. Prices are integer minor units. Requires `ticketType:manage`. 201                                                                      |
+| POST   | `/v1/events/:eventId/ticket-types` | bearer   | Add a tier (minor units, `ticketType:manage`, audited). No currency: the event's. Another currency 422; a taken name 409 `TIER_NAME_TAKEN`. 201    |
 
 ### Holds
 
@@ -499,28 +536,78 @@ recomputes the same figures under lock; send the quote's `totalCents` as
 `PRICE_CHANGED` before anything is written or charged. An unknown promo code is
 not an error on the quote — it answers `promo.applied: false` with a reason —
 so a buyer can fix a typo; the quote is signed-in only and rate-limited per
-account so it cannot be used to try codes at speed. A promo code is locked for
-the rest of the checkout and re-checked under the lock, so a code with one use
-left gives one discount however many buyers race for it.
+account so it cannot be used to try codes at speed. `POST /v1/orders` refuses an
+unknown code and moves the total for a known one, both before anything is
+written, so a checkout that names a code draws on a budget of the same size (per
+account, or per address for a guest); a checkout with no code is never counted.
+A promo code is locked for the rest of the checkout and re-checked under the
+lock, so a code with one use left gives one discount however many buyers race
+for it.
+
+**A hold belongs to one order at a time.** Each hold a checkout names is locked
+(after the tiers and the nights, before the promo code), and so is a hold being
+released, so a release and a checkout on one hold take turns: the release that
+comes first gives the hold back and the checkout answers 410 before anything is
+charged; the checkout that comes first keeps it, and the release answers 409. A
+hold attached to an order whose payment is still being confirmed — a
+double-submitted checkout, or a retry after a capture timed out — answers 409
+until that payment is settled or refused. If the charge succeeds and the order
+still cannot be completed, the capture is recorded on the payment
+(`reconciliationRequired`, the provider's reference) with a `PROVIDER_MISMATCH`
+reconciliation task, the order stays `PENDING`, and the answer is a 500
+`ORDER_NOT_COMPLETED` telling the buyer not to pay again. A capture the provider
+does not answer is a 502 `PAYMENT_TIMEOUT` with the order left `PENDING` the
+same way. Both name the order in `error.orderReference` and keep their code and
+sentence in production, where any other 5xx is masked. A free order whose
+settlement refuses moved no money: it is cancelled, which gives its promo use
+back, and the answer is a 409 `ORDER_CANCELLED` — nothing was charged, reserve
+again.
+
+**One `Idempotency-Key`, one attempt.** A retry with the key an earlier request
+used never places a second order and never charges twice. It is answered with
+that attempt's outcome, read from the order as it stands now, so it can differ
+from the first answer when the payment has settled since:
+
+| The order the key placed is                                                                            | The retry answers                                |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| `PAID`, or `REFUNDED` since                                                                            | 201 and the order                                |
+| `PENDING` (a first request still running, a capture that timed out, or one captured and not completed) | 409 `ORDER_PENDING`, with `error.orderReference` |
+| `CANCELLED` after a declined card                                                                      | 402 `PAYMENT_DECLINED`, as the attempt was       |
+| `CANCELLED` otherwise (a free order), or `EXPIRED`                                                     | 409 `ORDER_CANCELLED`                            |
+
+So a 201 is always a sale: a client never has to guess from a success status
+that nothing was booked. Trying again after a decline is a new attempt, with a
+new key. Two requests with one key that both miss the opening read (a double
+submission) meet on the key's unique index, and the second is answered the same
+way rather than with a 500.
 
 **Guest names.** `attendees` names the guests, one per ticket, all optional; a
 ticket nobody named carries the buyer's name. A name that is an email address
 is refused.
 
 **Hidden tiers and nights.** A hidden tier answers 404 like an unknown one
-unless the caller holds `ticketType:manage` in its organisation. A tier for one
-night is held to that night's sales window and capacity.
+unless the caller holds `ticketType:manage` in its organisation. On the site,
+the checkout and seat pages read the event as such a member, so hidden and
+complimentary tiers are listed there for them (marked Team only) and booked
+through the same checkout; the tickets land in the booker's account and are
+handed on with transfer codes. A tier for one night is held to that night's
+sales window and capacity. A seat hold keeps its tiers and night from being
+deleted under it (`FOR KEY SHARE`), so one racing the removal of its night or
+tier answers 422, never a foreign-key 500.
 
 **The group pass is the buyer's alone.** `GET …/group-pass` returns the QR
 content and the printed code to the account that bought the order and to
 nobody else: an organiser with `order:view`, a platform administrator, another
 account using the buyer's address and a guest order all get the same 404 as a
 reference nobody has used. It is created on first request and derived, never
-stored — the database holds SHA-256 digests only. It needs 2 to 50 tickets that
-still admit, a paid order and an event that is not cancelled (409 with a reason
-otherwise). A ticket handed on leaves the group when its transfer is accepted.
-Rotating it bumps the version, so the old QR and code match nothing; the
-response carries the new version and no secret. Both are rate-limited and never
+stored — the database holds SHA-256 digests only. It needs a paid order, an
+event that is not cancelled and at most 50 tickets that still admit — 2 of them
+to be taken out the first time, 1 to keep showing afterwards, so the last guest
+of a group is let in by it too (409 with a reason otherwise). A ticket handed on
+leaves the group when its transfer is accepted. Rotating it bumps the version,
+so the old QR and code match nothing; the response carries the new version and
+no secret, and it is refused (409 with the same reasons) when the pass could not
+be shown. Both are rate-limited and never
 cached.
 
 ### Tickets
@@ -590,7 +677,12 @@ steward — answers **200 with `outcome: "ALREADY_CHECKED_IN"`**, the
 **original** instant, and `checkedInByYou`, and writes nothing. A ticket that
 may not be admitted answers **409** with `error.reason` from
 `ADMISSION_REFUSAL_REASONS` (`REFUNDED`, `REVOKED`, `WRONG_EVENT`,
-`PREVIEW_EXPIRED`, …); a client branches on that, never on the message.
+`WRONG_NIGHT`, `NIGHT_REQUIRED`, `PREVIEW_EXPIRED`, …); a client branches on
+that, never on the message. On an event of more than one night every lookup and
+confirmation names the night the door is admitting to (`eventSessionId`, from
+`tickets.admissionEvents` → `sessions`): a ticket for another night is
+`WRONG_NIGHT`, and a ticket good for every night admits once on each night
+([`CHECK_IN.md`](CHECK_IN.md), "Nights").
 
 **A transfer is an invitation, not a handover.** Offering does not move the
 ticket; the current holder can still walk in. Offers lapse after 72 hours. How
@@ -906,7 +998,13 @@ public view. Removing the last night of a live event is 409 `LAST_SESSION`.
 new dates, and the event returns to `PUBLISHED` or `ON_SALE`, so there is never
 a live event carrying the date it was postponed from. It takes the revision as
 a precondition (409 `STALE_REVISION`), a confirmation and a reason, and records
-one notice per current order.
+one notice per current order. A night's own sales window moves as the request
+says; each ticket type's own window moves in the same transaction by as much as
+what it is sold for — a tier for one night with that night's start (not at all
+if that night keeps its date), a tier for every night with the event's start —
+so a window that closed at the postponed date does not keep the tier off sale.
+A move that would have a night's tier close after the night has finished is a
+422 naming the tier; the audit row lists each tier's window before and after.
 
 ### Pictures
 

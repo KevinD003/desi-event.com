@@ -678,9 +678,9 @@ when()('a group confirmation', () => {
     })
 
     expect(last.data).toMatchObject({ admitted: 1, method: 'MANUAL_CODE' })
-    expect(await prisma.checkIn.findUnique({ where: { ticketId: w.tickets[2].id } })).toMatchObject(
-      { method: 'MANUAL_CODE' },
-    )
+    expect(await prisma.checkIn.findFirst({ where: { ticketId: w.tickets[2].id } })).toMatchObject({
+      method: 'MANUAL_CODE',
+    })
     expect(await admissions(w.tickets)).toBe(3)
   })
 
@@ -812,13 +812,14 @@ when()('group admission against refunds', () => {
 
     const after = await prisma.ticket.findMany({
       where: { id: { in: w.tickets.map((ticket) => ticket.id) } },
-      include: { checkIn: true },
+      include: { checkIns: true },
     })
 
     for (const ticket of after) {
       // Exactly one outcome per ticket: admitted, or refunded.
       expect(['CHECKED_IN', 'REFUNDED'], ticket.id).toContain(ticket.status)
-      expect(Boolean(ticket.checkIn), ticket.id).toBe(ticket.status === 'CHECKED_IN')
+      // Once: one admission row, or none.
+      expect(ticket.checkIns.length, ticket.id).toBe(ticket.status === 'CHECKED_IN' ? 1 : 0)
     }
   })
 
@@ -867,10 +868,219 @@ when()('group admission against refunds', () => {
 
       const refunded = await prisma.ticket.findUnique({
         where: { id: w.tickets[2].id },
-        include: { checkIn: true },
+        include: { checkIns: true },
       })
 
-      expect(Boolean(refunded.checkIn)).toBe(refunded.status === 'CHECKED_IN')
+      expect(refunded.checkIns.length).toBe(refunded.status === 'CHECKED_IN' ? 1 : 0)
     }
   }, 60_000)
+})
+
+when()('a group confirmation re-reads who is asking', () => {
+  /**
+   * The refusal audit a group confirmation writes, for this pass.
+   *
+   * @param {object} w From {@link world}.
+   * @returns {Promise<Array<object>>} The rows.
+   */
+  async function refusalsOf(w) {
+    const pass = await prisma.groupPass.findUnique({ where: { orderId: w.order.id } })
+
+    return prisma.auditLog.findMany({
+      where: { action: 'ticket.admission_refused', entityType: 'GroupPass', entityId: pass.id },
+    })
+  }
+
+  it('13. a scope withdrawn between the lookup and the confirmation refuses it with a 403, audited, admitting nobody', async () => {
+    const w = await world()
+    const body = await groupPreviewed(w.steward, { credential: w.pass.credential })
+
+    // Still a SCANNER of the organisation, so the cheap up-front check passes;
+    // only the scope for this event is gone, which only the re-read sees.
+    await prisma.scannerScope.deleteMany({
+      where: { membership: { userId: w.steward.id }, eventId: w.event.id },
+    })
+
+    const refused = await groupConfirmAs(w.steward, body)
+
+    expect(refused).toMatchObject({
+      status: 403,
+      message: 'You are no longer authorised to admit to this event.',
+    })
+    expect(await admissions(w.tickets)).toBe(0)
+    expect(
+      await prisma.ticket.count({
+        where: { id: { in: w.tickets.map((ticket) => ticket.id) }, status: 'VALID' },
+      }),
+    ).toBe(3)
+
+    const audited = await refusalsOf(w)
+
+    expect(audited).toHaveLength(1)
+    expect(audited[0]).toMatchObject({
+      actorId: w.steward.id,
+      metadata: {
+        operation: 'group_check_in',
+        reason: 'NOT_AUTHORISED_FOR_EVENT',
+        method: 'QR_SCAN',
+      },
+    })
+  })
+
+  it('14. a steward suspended between the lookup and the confirmation is refused, admitting nobody', async () => {
+    const w = await world()
+    const body = await groupPreviewed(w.steward, { code: w.pass.groupCode })
+    // The actor as the request carried it when it started: the sign-in check
+    // ran before the suspension landed.
+    const actor = await actorFor(w.steward)
+
+    await prisma.user.update({ where: { id: w.steward.id }, data: { suspendedAt: new Date() } })
+
+    const refused = await outcome(confirmGroupAdmission({ prisma, env: ENV, actor, body }))
+
+    expect(refused.status).toBe(403)
+    expect(await admissions(w.tickets)).toBe(0)
+    expect((await refusalsOf(w)).map((row) => row.metadata.reason)).toEqual([
+      'NOT_AUTHORISED_FOR_EVENT',
+    ])
+  })
+})
+
+when()('a group lookup with somebody who no longer admits', () => {
+  it('15. lists a refunded ticket as refused with its reason, and signs only the admissible ones', async () => {
+    const w = await world()
+
+    await settle(w, await submittedRefund(w, [w.lines[1]]))
+
+    const looked = await groupPreviewAs(w.steward, { credential: w.pass.credential })
+
+    expect(looked.status, looked.message).toBe(200)
+    expect(looked.data).toMatchObject({
+      outcome: 'ADMISSIBLE',
+      counts: { admissible: 2, alreadyIn: 0, refused: 1 },
+    })
+
+    const byId = new Map(looked.data.tickets.map((ticket) => [ticket.ticketId, ticket]))
+
+    expect(byId.get(w.tickets[1].id)).toMatchObject({ outcome: 'REFUSED', refusal: 'REFUNDED' })
+    expect(byId.get(w.tickets[0].id)).toMatchObject({ outcome: 'ADMISSIBLE', refusal: null })
+
+    // The reference names the two admissible tickets and not the refunded one,
+    // so naming it is refused before anything is locked — as a mismatch with
+    // the lookup, not as a group that changed since.
+    const widened = await groupConfirmAs(w.steward, {
+      credential: w.pass.credential,
+      previewReference: looked.data.previewReference,
+      ticketIds: [w.tickets[0].id, w.tickets[1].id],
+    })
+
+    expect(widened).toMatchObject({ status: 409, reason: 'PREVIEW_MISMATCH' })
+    expect(await admissions(w.tickets)).toBe(0)
+
+    const admitted = await groupConfirmAs(w.steward, {
+      credential: w.pass.credential,
+      previewReference: looked.data.previewReference,
+      ticketIds: [w.tickets[0].id, w.tickets[2].id],
+    })
+
+    expect(admitted.status, admitted.message).toBe(200)
+    expect(admitted.data).toMatchObject({ outcome: 'ADMITTED', admitted: 2 })
+  })
+
+  it('16. a group nobody in which admits gets no reference at all', async () => {
+    const w = await world()
+
+    await settle(w, await submittedRefund(w, w.lines))
+
+    const looked = await groupPreviewAs(w.steward, { credential: w.pass.credential })
+
+    expect(looked.status, looked.message).toBe(200)
+    expect(looked.data).toMatchObject({
+      outcome: 'REFUSED',
+      refusal: 'REFUNDED',
+      counts: { admissible: 0, alreadyIn: 0, refused: 3 },
+      previewReference: null,
+      previewExpiresAt: null,
+    })
+    expect(looked.data.tickets.every((ticket) => ticket.refusal === 'REFUNDED')).toBe(true)
+  })
+})
+
+when()('a group pass after most of its group is in', () => {
+  it('17. still shows for the last guest, and stops (and cannot be replaced) once nobody on it admits', async () => {
+    const w = await world()
+    const buyer = await actorFor(w.holder)
+    const body = await groupPreviewed(w.steward, { credential: w.pass.credential }, [
+      w.tickets[0].id,
+      w.tickets[1].id,
+    ])
+
+    expect((await groupConfirmAs(w.steward, body)).status).toBe(200)
+
+    // One guest still to come. The pass taken out for three still shows, for
+    // the one it still admits, with the same QR and code as before.
+    const again = await outcome(
+      retrieveGroupPass({ prisma, env: ENV, actor: buyer, reference: w.order.reference }),
+    )
+
+    expect(again.status, again.message).toBe(200)
+    expect(again.data).toMatchObject({
+      admits: 1,
+      credential: w.pass.credential,
+      groupCode: w.pass.groupCode,
+    })
+    expect(again.data.tickets.map((ticket) => ticket.id)).toEqual([w.tickets[2].id])
+
+    // It can still be replaced while it admits somebody.
+    const replaced = await outcome(
+      rotateGroupPass({ prisma, env: ENV, actor: buyer, reference: w.order.reference }),
+    )
+
+    expect(replaced.status, replaced.message).toBe(200)
+
+    const current = await retrieveGroupPass({
+      prisma,
+      env: ENV,
+      actor: buyer,
+      reference: w.order.reference,
+    })
+    const last = await groupPreviewed(w.steward, { code: current.groupCode })
+
+    expect(last.ticketIds).toEqual([w.tickets[2].id])
+    expect((await groupConfirmAs(w.steward, last)).status).toBe(200)
+
+    // Everybody is in: nothing to show, and nothing to replace — a new code
+    // could not be shown to anybody.
+    const none = await outcome(
+      retrieveGroupPass({ prisma, env: ENV, actor: buyer, reference: w.order.reference }),
+    )
+    const version = (await prisma.groupPass.findUnique({ where: { orderId: w.order.id } }))
+      .credentialVersion
+    const rotateNone = await outcome(
+      rotateGroupPass({ prisma, env: ENV, actor: buyer, reference: w.order.reference }),
+    )
+
+    expect(none).toMatchObject({ status: 409, reason: 'TOO_FEW_TICKETS' })
+    expect(rotateNone).toMatchObject({ status: 409, reason: 'TOO_FEW_TICKETS' })
+    expect(
+      (await prisma.groupPass.findUnique({ where: { orderId: w.order.id } })).credentialVersion,
+    ).toBe(version)
+  })
+
+  it('18. is still not taken out for the first time for a single ticket', async () => {
+    const w = await world({ count: 2 })
+    const pass = await prisma.groupPass.findUnique({ where: { orderId: w.order.id } })
+    const buyer = await actorFor(w.holder)
+
+    // Forget the pass the world took out, then leave one ticket admitting.
+    await prisma.groupPass.delete({ where: { id: pass.id } })
+    await settle(w, await submittedRefund(w, [w.lines[0]]))
+
+    const first = await outcome(
+      retrieveGroupPass({ prisma, env: ENV, actor: buyer, reference: w.order.reference }),
+    )
+
+    expect(first).toMatchObject({ status: 409, reason: 'TOO_FEW_TICKETS' })
+    expect(await prisma.groupPass.count({ where: { orderId: w.order.id } })).toBe(0)
+  })
 })

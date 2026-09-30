@@ -20,6 +20,7 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Badge, Button, FormField, Textarea } from './ui.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -121,6 +122,7 @@ function PictureCard({ item, label, onDecided }) {
   const headingId = useId()
   const reasonRef = useRef(null)
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   const [reasonError, setReasonError] = useState(null)
@@ -295,7 +297,7 @@ function PictureCard({ item, label, onDecided }) {
               disabled={busy}
               onClick={() => {
                 setRejecting(true)
-                queueMicrotask(() => reasonRef.current?.focus())
+                focusAfterRender(reasonRef)
               }}
             >
               Reject this picture

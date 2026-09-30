@@ -31,6 +31,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { describeApiRefusal, parseRetryAfter } from '../../../lib/refusal.js'
@@ -38,6 +39,16 @@ import { roleLabel } from '../../organizer/team/team-vocabulary.js'
 
 /** The shortest code the API will look at. */
 const MIN_LENGTH = 16
+
+/** Said when Join is pressed with nothing typed. */
+export const NO_CODE = 'Type or paste the invitation code first.'
+
+/**
+ * Said when what was typed is shorter than any code: most often a paste that
+ * lost its end. The field hides what is in it, so the sentence has to say it.
+ */
+export const PART_OF_A_CODE =
+  'That is shorter than any invitation code, so part of it is missing. Paste the whole code again.'
 
 /** What every unusable code is told. */
 export const UNUSABLE_CODE =
@@ -64,8 +75,11 @@ export function InvitationAcceptForm() {
   const [joined, setJoined] = useState(null)
   const [needsFactorFirst, setNeedsFactorFirst] = useState(false)
   const [refusals, setRefusals] = useState(0)
+  const [fieldError, setFieldError] = useState(null)
   const errorRef = useRef(null)
   const joinedRef = useRef(null)
+  const fieldRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const trimmed = code.trim()
 
   // The form, and the button that had focus, are gone once joining is done:
@@ -89,6 +103,16 @@ export function InvitationAcceptForm() {
    */
   async function onSubmit(submitted) {
     submitted.preventDefault()
+
+    // Nothing that cannot be a code is sent. The button stays pressable so it
+    // never sits greyed out with no reason; the field says what is wrong.
+    if (trimmed.length < MIN_LENGTH) {
+      setFieldError(trimmed.length === 0 ? NO_CODE : PART_OF_A_CODE)
+      focusAfterRender(fieldRef)
+      return
+    }
+
+    setFieldError(null)
     setBusy(true)
     setError(null)
     setNeedsFactorFirst(false)
@@ -199,18 +223,23 @@ export function InvitationAcceptForm() {
         id="invitation-code"
         required
         description="Type or paste it exactly as you were given it. It is hidden as you type, like a password."
+        error={fieldError}
       >
         <Input
+          ref={fieldRef}
           type="password"
           autoComplete="off"
           spellCheck={false}
           value={code}
-          onChange={(changed) => setCode(changed.target.value)}
+          onChange={(changed) => {
+            setCode(changed.target.value)
+            setFieldError(null)
+          }}
         />
       </FormField>
 
       <div className="mt-4">
-        <Button type="submit" className="min-h-11" disabled={busy || trimmed.length < MIN_LENGTH}>
+        <Button type="submit" className="min-h-11" disabled={busy}>
           {busy ? 'Joining…' : 'Join the organisation'}
         </Button>
       </div>

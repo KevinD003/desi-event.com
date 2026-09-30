@@ -20,6 +20,7 @@
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Button, FormField, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -56,13 +57,36 @@ export function VerificationDecision({ organizationId, organizationName, status 
   const [stepUp, setStepUp] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const panelRef = useRef(null)
+  const announcementRef = useRef(null)
+  // The decision buttons, by decision, so Cancel can hand focus back to the
+  // one that opened the panel it closes.
+  const triggerRefs = useRef({})
+  const focusAfterRender = useFocusAfterRender()
+
+  // One region in one place whatever is offered, so a decision recorded and
+  // refreshed into a state with nothing left to decide is still said — and
+  // focus, moved to it, is not left on a panel that is gone.
+  const region = (
+    <p
+      ref={announcementRef}
+      tabIndex={-1}
+      role="status"
+      aria-live="polite"
+      className="rounded-sm text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+    >
+      {announcement}
+    </p>
+  )
 
   if (offered.length === 0) {
     return (
-      <p className="mt-3 text-sm text-ink-muted">
-        No decision is open to a moderator from here. The organisation may ask again from its own
-        page.
-      </p>
+      <div className="mt-3">
+        {region}
+        <p className="mt-3 text-sm text-ink-muted">
+          No decision is open to a moderator from here. The organisation may ask again from its own
+          page.
+        </p>
+      </div>
     )
   }
 
@@ -84,7 +108,7 @@ export function VerificationDecision({ organizationId, organizationName, status 
     setDecision(key)
     setRefused(null)
     setStepUp(false)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -115,6 +139,8 @@ export function VerificationDecision({ organizationId, organizationName, status 
         setDecision(null)
         setReason('')
         setNote('')
+        // The panel, and the button that was pressed, go with the decision.
+        focusAfterRender(announcementRef)
         router.refresh()
         return
       }
@@ -133,7 +159,7 @@ export function VerificationDecision({ organizationId, organizationName, status 
       // Somebody else moved it on: show them where it stands now.
       if (response.status === 409) router.refresh()
 
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused(describeApiRefusal(null).detail)
     } finally {
@@ -143,14 +169,15 @@ export function VerificationDecision({ organizationId, organizationName, status 
 
   return (
     <div className="mt-3">
-      <p role="status" aria-live="polite" className="text-sm text-ink">
-        {announcement}
-      </p>
+      {region}
 
       <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Decisions">
         {offered.map((key) => (
           <Button
             key={key}
+            ref={(element) => {
+              triggerRefs.current[key] = element
+            }}
             type="button"
             variant={decision === key ? 'primary' : 'secondary'}
             className="min-h-11"
@@ -246,9 +273,13 @@ export function VerificationDecision({ organizationId, organizationName, status 
               className="min-h-11"
               disabled={busy}
               onClick={() => {
+                const opener = triggerRefs.current[decision]
+
                 setDecision(null)
                 setRefused(null)
                 setStepUp(false)
+                // Cancel goes with the panel; the decision that opened it stays.
+                opener?.focus()
               }}
             >
               Cancel

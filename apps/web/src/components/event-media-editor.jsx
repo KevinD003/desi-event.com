@@ -47,6 +47,7 @@ import {
   altTextSchema,
 } from '@desi-event/schemas/media'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { ReadRefusal } from './read-refusal.jsx'
 import { Alert, Badge, Button, FormField, Input, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -765,6 +766,7 @@ function MediaItem({
   const [draftError, setDraftError] = useState(null)
   const [confirming, setConfirming] = useState(false)
   const draftRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const badge = reviewBadge(item)
   const src = mediaSrc(item)
   const gallery = item.kind === 'EVENT_GALLERY'
@@ -905,7 +907,7 @@ function MediaItem({
               onClick={() => {
                 setDraft(item.altText)
                 setEditing(true)
-                queueMicrotask(() => draftRef.current?.focus())
+                focusAfterRender(draftRef)
               }}
             >
               Edit description

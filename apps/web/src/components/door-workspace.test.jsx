@@ -1307,7 +1307,7 @@ describe('DoorWorkspace: the night a ticket is for', () => {
     timezone: 'Asia/Kolkata',
   }
 
-  it('names the night in words in the preview and in the result, and refuses nothing on it', async () => {
+  it('names the night in words in the preview and in the result', async () => {
     const user = userEvent.setup()
 
     apiFetch.mockResolvedValueOnce(answer(200, { data: { ...ADMISSIBLE.data, session: NIGHT } }))
@@ -1327,7 +1327,7 @@ describe('DoorWorkspace: the night a ticket is for', () => {
     ).toBeTruthy()
   })
 
-  it('says nothing about a night for a ticket good for every night', async () => {
+  it('says nothing about a night on an event of one night', async () => {
     const user = userEvent.setup()
 
     apiFetch.mockResolvedValueOnce(answer(200, { data: { ...ADMISSIBLE.data, session: null } }))
@@ -1337,5 +1337,198 @@ describe('DoorWorkspace: the night a ticket is for', () => {
     await screen.findByRole('heading', { name: /check the ticket, then admit/iu })
 
     expect(screen.queryByText('Night')).toBeNull()
+  })
+})
+
+describe('DoorWorkspace: an event of more than one night', () => {
+  const NIGHTS = [
+    {
+      id: 'nightoneaaaaaaaaaaaaaaaaa',
+      label: 'Night 1',
+      startsAt: '2026-10-01T13:30:00.000Z',
+      endsAt: '2026-10-01T18:30:00.000Z',
+      timezone: 'Asia/Kolkata',
+      status: 'ON_SALE',
+    },
+    {
+      id: 'nighttwoaaaaaaaaaaaaaaaaa',
+      label: 'Night 2',
+      startsAt: '2026-10-02T13:30:00.000Z',
+      endsAt: '2026-10-02T18:30:00.000Z',
+      timezone: 'Asia/Kolkata',
+      status: 'ON_SALE',
+    },
+  ]
+  const MULTI = { ...ENTRY, sessions: NIGHTS }
+
+  beforeEach(() => {
+    // Between the two nights' ends: Night 2 is tonight.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-02T12:00:00.000Z') })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('asks which night, starts on tonight’s, and sends it with the lookup and the admission', async () => {
+    const user = userEvent.setup()
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, { data: { ...ADMISSIBLE.data, session: null } }))
+      .mockResolvedValueOnce(answer(200, { data: { ...ADMITTED.data, session: null } }))
+    render(<DoorWorkspace events={[MULTI]} />)
+
+    const picker = screen.getByLabelText('Night you are admitting to')
+
+    expect(picker.value).toBe(NIGHTS[1].id)
+
+    await lookUp(user)
+
+    expect(sent(0)).toEqual({
+      code: 'DET-ABC123XYZ',
+      expectedEventId: EVENT.id,
+      eventSessionId: NIGHTS[1].id,
+    })
+
+    await screen.findByRole('heading', { name: /check the ticket, then admit/iu })
+    // A ticket with no night of its own, on an event of several, is good for
+    // every night and says so.
+    expect(screen.getByText('Every night')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: /^admit$/iu }))
+
+    expect(sent(1)).toMatchObject({ eventSessionId: NIGHTS[1].id })
+    expect(await screen.findByText('General Admission · Every night')).toBeTruthy()
+  })
+
+  it('looks nothing up until a night is chosen, and forgets the ticket in hand when it changes', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, ADMISSIBLE))
+    render(<DoorWorkspace events={[MULTI]} />)
+
+    const picker = screen.getByLabelText('Night you are admitting to')
+
+    await user.selectOptions(picker, '')
+
+    expect(screen.getByText('Choose the night you are admitting to first.')).toBeTruthy()
+    expect(screen.queryByLabelText(/printed ticket code/iu)).toBeNull()
+
+    await user.selectOptions(picker, NIGHTS[0].id)
+    await lookUp(user)
+    await screen.findByRole('heading', { name: /check the ticket, then admit/iu })
+
+    await user.selectOptions(picker, NIGHTS[1].id)
+
+    expect(screen.queryByRole('heading', { name: /check the ticket, then admit/iu })).toBeNull()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('says a ticket for another night is for that night, and never offers Admit', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...ADMISSIBLE.data,
+          outcome: 'REFUSED',
+          refusal: 'WRONG_NIGHT',
+          previewReference: null,
+          previewExpiresAt: null,
+          session: NIGHTS[0],
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[MULTI]} />)
+    await lookUp(user)
+
+    await screen.findByRole('heading', { name: 'Do not admit' })
+
+    expect(
+      screen.getByText(
+        'This ticket is for a different night. Do not admit. It is for Night 1 · Thu, Oct 1 · 7:00 PM.',
+      ),
+    ).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^admit$/iu })).toBeNull()
+  })
+
+  it('tells a steward a season pass is already in tonight, and that it admits once each night', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          ...ADMISSIBLE.data,
+          outcome: 'ALREADY_CHECKED_IN',
+          previewReference: null,
+          previewExpiresAt: null,
+          session: null,
+          checkedInAt: '2026-10-02T13:40:00.000Z',
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[MULTI]} />)
+    await lookUp(user)
+
+    await screen.findByRole('heading', { name: /already admitted/iu })
+
+    expect(
+      screen.getByText(
+        /already admitted on Night 2 · Fri, Oct 2 · 7:00 PM at .*A ticket for every night admits once each night\./u,
+      ),
+    ).toBeTruthy()
+  })
+
+  it('names each group ticket’s night, and every night for a season pass', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(200, {
+        data: {
+          outcome: 'ADMISSIBLE',
+          refusal: null,
+          method: 'MANUAL_CODE',
+          event: EVENT,
+          tickets: [
+            {
+              ticketId: 'ticketaaaaaaaaaaaaaaaaaaa',
+              outcome: 'ADMISSIBLE',
+              refusal: null,
+              tier: { name: 'Season' },
+              seat: null,
+              session: null,
+              attendeeName: 'Guest 1',
+              checkedInAt: null,
+            },
+            {
+              ticketId: 'ticketbbbbbbbbbbbbbbbbbbb',
+              outcome: 'REFUSED',
+              refusal: 'WRONG_NIGHT',
+              tier: { name: 'Night 1 only' },
+              seat: null,
+              session: NIGHTS[0],
+              attendeeName: 'Guest 2',
+              checkedInAt: null,
+            },
+          ],
+          counts: { admissible: 1, alreadyIn: 0, refused: 1 },
+          handedOn: 0,
+          previewReference: REFERENCE,
+          previewExpiresAt: '2026-10-02T12:02:00.000Z',
+        },
+      }),
+    )
+    render(<DoorWorkspace events={[MULTI]} />)
+    await lookUp(user, 'deg-abcdefgh2345')
+
+    await screen.findByRole('heading', { name: 'Check the group, then admit' })
+
+    expect(sent(0)).toMatchObject({ eventSessionId: NIGHTS[1].id })
+    expect(screen.getByLabelText('Guest 1 · Season · Every night')).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Guest 2 · Night 1 only · Night 1 · Thu, Oct 1 · 7:00 PM — This ticket is for a different night. Do not admit.',
+      ),
+    ).toBeTruthy()
   })
 })

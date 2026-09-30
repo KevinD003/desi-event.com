@@ -27,6 +27,7 @@
 import { useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { OneTimeCodePanel } from '../../../components/one-time-code-panel.jsx'
 import { ACCEPT_PATH, ACCEPT_PLACE } from './team-vocabulary.js'
 
@@ -60,12 +61,16 @@ export function TeamAnnouncer({ children }) {
   const [message, setMessage] = useState('')
   const [held, setHeld] = useState(null)
   const regionRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
-  const announce = useCallback((text, { focus = false } = {}) => {
-    setMessage(text)
-    // Focus follows when the control that was pressed is about to disappear.
-    if (focus) queueMicrotask(() => regionRef.current?.focus())
-  }, [])
+  const announce = useCallback(
+    (text, { focus = false } = {}) => {
+      setMessage(text)
+      // Focus follows when the control that was pressed is about to disappear.
+      if (focus) focusAfterRender(regionRef)
+    },
+    [focusAfterRender],
+  )
 
   /** @type {function(HeldCode): void} */
   const holdCode = useCallback((issued) => setHeld(issued), [])

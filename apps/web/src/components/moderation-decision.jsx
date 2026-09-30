@@ -30,6 +30,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Select, Textarea } from './ui.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -117,6 +118,7 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
   const [announcement, setAnnouncement] = useState('')
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Open the form for one decision.
@@ -130,7 +132,7 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
     setPending(key)
     setError(null)
     setProblems([])
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -141,7 +143,7 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
   function dismiss() {
     setPending(null)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -206,7 +208,7 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
 
       setError(parsed?.error?.message ?? 'The decision was refused.')
       setProblems(parsed?.error?.problems ?? [])
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {

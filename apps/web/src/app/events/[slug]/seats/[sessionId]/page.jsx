@@ -8,6 +8,10 @@
  * or an event only the fallback catalogue knows, renders the not-found view
  * rather than a picture of seats that do not exist.
  *
+ * A member of the organiser's team who may book hidden tiers is shown the map
+ * as the team reads it instead (`lib/team-booking.js`), so the seats of a
+ * hidden or complimentary tier can be chosen and booked here too.
+ *
  * Kept out of the index, like checkout: a step in a flow, not a destination.
  *
  * @module app/events/slug/seats/sessionId/page
@@ -17,6 +21,7 @@ import { loadEventBySlug, loadSeatMap } from '../../../../../lib/api.js'
 import { formatEventLocation, formatTimeZoneLabel } from '../../../../../lib/format.js'
 import { signInHref } from '../../../../../lib/next-path.js'
 import { readSession } from '../../../../../lib/session.js'
+import { loadTeamSeatMap, mayBookTeamTiers } from '../../../../../lib/team-booking.js'
 import { formatNightTime, sessionDisplayLabel } from '../../../../../lib/sessions.js'
 import { ScallopHem, Toran } from '../../../../../components/festive-decor.jsx'
 import { CalendarIcon, ClockIcon, PinIcon } from '../../../../../components/icons.jsx'
@@ -64,11 +69,15 @@ export default async function SeatPage({ params }) {
   // this version of Next.js. See components/not-found-view.jsx.
   if (!event || usedFallback) return <NotFoundView />
 
-  const map = await loadSeatMap(sessionId)
+  const publicMap = await loadSeatMap(sessionId)
 
-  if (!map || map.eventId !== event.id) return <NotFoundView />
+  if (!publicMap || publicMap.eventId !== event.id) return <NotFoundView />
 
   const session = await readSession()
+  // The team's map when this member may book hidden tiers, so their seats are
+  // on it; the public one otherwise, and also when that read fails.
+  const teamMap = mayBookTeamTiers(session, event) ? await loadTeamSeatMap(sessionId) : null
+  const map = teamMap?.eventId === event.id ? teamMap : publicMap
   const buyer = session?.user ? { name: session.user.displayName, email: session.user.email } : null
   const night = {
     label: map.label,

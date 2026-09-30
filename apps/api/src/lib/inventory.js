@@ -59,6 +59,34 @@ export async function lockTicketTypes(tx, ticketTypeIds) {
 }
 
 /**
+ * Take a row lock on each hold, in a deadlock-free order, before reading it.
+ *
+ * A hold changes hands at checkout (its `orderId` is set) and is given back on
+ * release. Both decide from what they read, so both lock the row first: a
+ * release that read the hold before a checkout attached it, and wrote after,
+ * put a paid order's seats back on sale; two checkouts that read one hold
+ * before either attached it both spent it. With the lock, the second of any
+ * two waits here and then reads what the first committed.
+ *
+ * In the checkout's lock order the holds come after the tiers and the nights
+ * and before the promo code (see `session-inventory.js`). A release takes only
+ * the hold, then its seats, which is the order the expiry sweep keeps.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {Array<string|null|undefined>} holdIds Hold ids. Nulls and duplicates are dropped.
+ * @returns {Promise<string[]>} The ids locked, in the order they were locked.
+ */
+export async function lockTicketHolds(tx, holdIds) {
+  const ids = [...new Set(holdIds.filter(Boolean))].sort()
+
+  for (const id of ids) {
+    await tx.$queryRaw`SELECT id FROM "TicketHold" WHERE id = ${id} FOR UPDATE`
+  }
+
+  return ids
+}
+
+/**
  * Recompute a ticket type's live availability from the database.
  *
  * @param {object} tx A Prisma client or transaction client.

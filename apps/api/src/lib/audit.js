@@ -43,6 +43,12 @@ export const AUDIT_ACTIONS = Object.freeze({
   DISPUTE_WON: 'dispute.won',
   DISPUTE_LOST: 'dispute.lost',
   TICKET_CHECKED_IN: 'ticket.checked_in',
+  // Written by no route: migration 20260929100000_check_in_per_night writes
+  // one, with no actor, for each ticket whose earlier admission it gave a night
+  // (and, for a pass good for every night, made VALID again). The metadata says
+  // which night, how it was chosen, and the checkedInAt it cleared. Named here
+  // so a query for those rows spells the action the same.
+  TICKET_ADMISSION_NIGHT_BACKFILLED: 'ticket.admission_night_backfilled',
   /**
    * A door looked a ticket up without admitting it.
    *
@@ -173,6 +179,11 @@ export const AUDIT_ACTIONS = Object.freeze({
   EVENT_MEDIA_DESCRIBED: 'event.media_described',
   EVENT_MEDIA_REORDERED: 'event.media_reordered',
   EVENT_MEDIA_REMOVED: 'event.media_removed',
+  // Written by no route: migration 20260928130000_event_media writes one, with
+  // no actor, for each event whose external cover address it dropped. The
+  // metadata keeps the address without its user name, password, query string
+  // or fragment. Named here so a query for those rows spells the action the same.
+  EVENT_COVER_ADDRESS_DROPPED: 'event.cover_address_dropped',
   MEDIA_APPROVED: 'moderation.media_approved',
   MEDIA_REJECTED: 'moderation.media_rejected',
 

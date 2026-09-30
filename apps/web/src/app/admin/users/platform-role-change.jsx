@@ -33,6 +33,7 @@
 import Link from 'next/link'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../../components/step-up-prompt.jsx'
 import { Alert, Button, FormField, Select, Textarea } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
@@ -72,6 +73,7 @@ export function PlatformRoleChange({ account, onChanged }) {
   const [outcome, setOutcome] = useState('')
   const panelRef = useRef(null)
   const openerRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const name = account.displayName
   const trimmedReason = reason.trim()
@@ -109,7 +111,7 @@ export function PlatformRoleChange({ account, onChanged }) {
     setOpen(false)
     setRefused(null)
     setStepUp(false)
-    queueMicrotask(() => openerRef.current?.focus())
+    focusAfterRender(openerRef)
   }
 
   /**
@@ -135,7 +137,7 @@ export function PlatformRoleChange({ account, onChanged }) {
         setOutcome(
           `${name}’s platform role is now ${platformRoleLabel(role)}. ${sessionsSentence(ended)}`,
         )
-        queueMicrotask(() => openerRef.current?.focus())
+        focusAfterRender(openerRef)
         await onChanged?.()
         return
       }
@@ -154,7 +156,7 @@ export function PlatformRoleChange({ account, onChanged }) {
             : refusalSentence(response.status, body, 'The change was refused.'),
         enrol: body?.error?.code === 'MFA_ENROLMENT_REQUIRED',
       })
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
     } finally {
@@ -284,7 +286,7 @@ export function PlatformRoleChange({ account, onChanged }) {
             setStepUp(false)
             setOutcome('')
             setOpen(true)
-            queueMicrotask(() => panelRef.current?.focus())
+            focusAfterRender(panelRef)
           }}
         >
           Change platform role

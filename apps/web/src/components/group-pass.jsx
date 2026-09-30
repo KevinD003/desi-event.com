@@ -43,7 +43,7 @@ function refusal(status, reason) {
   if (status === 409) {
     switch (reason) {
       case 'TOO_FEW_TICKETS':
-        return 'A group pass needs at least two tickets on this order that still admit.'
+        return 'Too few tickets on this order still admit: a new group pass needs two, and one already taken out needs one.'
       case 'TOO_MANY_TICKETS':
         return 'This order has more than 50 tickets; use each ticket’s own pass.'
       case 'ORDER_NOT_PAID':
@@ -94,8 +94,10 @@ export function GroupPass({ reference, admits }) {
   const showButton = useRef(null)
   const hideButton = useRef(null)
   const confirmHeading = useRef(null)
+  const replaceButton = useRef(null)
   const justShown = useRef(false)
   const justHidden = useRef(false)
+  const justKept = useRef(false)
 
   useEffect(() => {
     if (shown && justShown.current) {
@@ -110,7 +112,14 @@ export function GroupPass({ reference, admits }) {
   }, [shown])
 
   useEffect(() => {
-    if (confirming) confirmHeading.current?.focus()
+    if (confirming) {
+      confirmHeading.current?.focus()
+    } else if (justKept.current) {
+      // "Keep it" goes with the question it answered; focus goes back to the
+      // button that asked it, rather than falling to the page.
+      justKept.current = false
+      replaceButton.current?.focus()
+    }
   }, [confirming])
 
   const hide = useCallback(() => {
@@ -297,7 +306,10 @@ export function GroupPass({ reference, admits }) {
                   type="button"
                   variant="secondary"
                   disabled={busy}
-                  onClick={() => setConfirming(false)}
+                  onClick={() => {
+                    justKept.current = true
+                    setConfirming(false)
+                  }}
                 >
                   Keep it
                 </Button>
@@ -310,7 +322,12 @@ export function GroupPass({ reference, admits }) {
               Hide group pass
             </Button>
             {!confirming ? (
-              <Button type="button" variant="outline" onClick={() => setConfirming(true)}>
+              <Button
+                ref={replaceButton}
+                type="button"
+                variant="outline"
+                onClick={() => setConfirming(true)}
+              >
                 Replace group pass
               </Button>
             ) : null}

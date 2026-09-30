@@ -7,15 +7,17 @@ first.
 
 ---
 
-## Check-in happens once
+## Check-in happens once — once each night for a ticket good for every night
 
 Not "usually once". Three mechanisms, and each covers what the others cannot:
 
-| Mechanism                                   | What it guarantees                                                                       |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Unique index on `CheckIn.ticketId`          | Two scanners racing produce **one** row                                                  |
-| Conditional `UPDATE` on the ticket's status | The ticket moves to `CHECKED_IN` exactly once                                            |
-| Trigger `desi_check_in_ticket_admissible`   | No row for a refunded, revoked or transferred ticket — whatever the application believed |
+| Mechanism                                                                                                        | What it guarantees                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unique index on `CheckIn(ticketId, eventSessionId)`, and `CheckIn_ticketId_no_night_key` for a row with no night | Two scanners racing produce **one** row per ticket per night                                                                                                                                                      |
+| Conditional `UPDATE` on the ticket's status                                                                      | A ticket that admits once moves to `CHECKED_IN` exactly once                                                                                                                                                      |
+| Trigger `desi_check_in_ticket_admissible`                                                                        | It locks the ticket, then refuses a row for a refunded, revoked or transferred ticket, on a night that is not the ticket's own, or a second row for a ticket that admits once — whatever the application believed |
+
+Nights are the subject of their own section below.
 
 That is three layers for one property, and not redundancy for its own sake: the
 unique index makes the race safe, the conditional update makes the answer
@@ -31,6 +33,57 @@ The transition is then conditional on the ticket still being what it was read
 as, and a failed transition **throws** rather than returns. An earlier draft
 returned, which committed an attendance row for a ticket that had been revoked
 in between — a person admitted against a ticket the system says was withdrawn.
+
+---
+
+## Nights
+
+On an event of more than one night (`EventSession` rows), a ticket's night is
+its seat's, else its tier's (`TicketType.eventSessionId`). A tier with no night
+of its own is **good for every night** — the event page files it under "Every
+night".
+
+- **The door names the night.** The check-in page lists each event's nights
+  (`tickets.admissionEvents` → `sessions`) and the steward picks the one they
+  are admitting to — tonight's, to start with (the first night that has not ended).
+  Every lookup and admission sends it (`eventSessionId`), and the preview
+  reference binds it, so a confirmation cannot switch nights
+  (`PREVIEW_MISMATCH`). Without a night, a lookup on such an event is refused
+  `NIGHT_REQUIRED`: nothing is guessed from the clock.
+- **A ticket for one night admits once, on that night.** On any other night it
+  is refused `WRONG_NIGHT`, and the door says which night it is for. Admitted,
+  it becomes `CHECKED_IN` as before.
+- **A ticket good for every night admits once on each night.** The admission
+  row carries the night; the ticket stays `VALID` (or `TRANSFER_PENDING`)
+  between nights, so its pass, the wallet and the group pass keep working for
+  the nights left. "Already in" means already in tonight, with tonight's time.
+- **Let in on any night, it is not handed on.** A successor ticket would start
+  with no admissions and could be let in again on a night this one already was.
+  The offer and the acceptance check its admissions under the ticket's row lock
+  (`ALREADY_ADMITTED`, `TICKET_CHANGED`), and `desi_ticket_status_transition`
+  refuses the move to `TRANSFER_PENDING` or `TRANSFERRED` whatever the caller
+  checked.
+- **A refund still applies.** A partly used season pass can be refunded like
+  any other admitting ticket; it becomes `REFUNDED` and is refused on the
+  nights left.
+- **Counting.** Analytics counts tickets that came through the door, not
+  admission rows, so a season pass let in on three nights is one ticket.
+- **The group pass** admits each ticket on the night the door names, by the
+  same rules, and names each ticket's night.
+- **Admissions from before admission per night** were given a night by the
+  migration that brought it in (`20260929100000_check_in_per_night`): the
+  ticket's own night, else the night whose window held the scan, else the
+  nearest. A pass good for every night that the old rules had made
+  `CHECKED_IN` at its first night is `VALID` again, so it is let in on the
+  nights it has not been; each such change is in the audit log as
+  `ticket.admission_night_backfilled`.
+- **Events of one night, or none,** are unchanged: no night is chosen, and a
+  ticket admits once.
+
+A night is the door's word, not the clock's: a steward who picks the wrong
+night is refused by every ticket for the right one, and every admission is
+recorded with the night it was let in on (`CheckIn.eventSessionId` and the
+`ticket.checked_in` audit row).
 
 ---
 
@@ -221,8 +274,8 @@ an audit row, not in a log line. `@desi-event/logger` redacts `credential` and
 
 ## The group pass: one QR for a party arriving together
 
-A buyer holding two to fifty tickets on a paid order can show one pass for all
-of them. It is the buyer's alone — `Order.userId` decides, and an organiser, a
+A buyer holding two to fifty tickets on a paid order can take out one pass for
+all of them, and keeps it while any one still admits. It is the buyer's alone — `Order.userId` decides, and an organiser, a
 platform administrator, another account signed in with the buyer's address and
 a guest order all get the same 404 as a reference nobody has used.
 
@@ -252,12 +305,18 @@ tickets (`ticketIds`):
   handed on — admits **nobody**, and the answer is 409 `GROUP_CHANGED`: look
   the group up again;
 - otherwise each is admitted through the same `admit()` a single ticket uses,
-  exactly once by the unique `CheckIn.ticketId`, with `CheckIn.groupPassId`
+  exactly once — once a night for a ticket good for every night — by the unique
+  `CheckIn(ticketId, eventSessionId)`, with `CheckIn.groupPassId`
   set. The trigger `desi_check_in_group_pass_matches` refuses a group admission
   of a ticket on another order, or one its buyer no longer holds.
 
 The rest of the group can be admitted later — by the QR again or the typed
-group code — as each person arrives. The pass is drawn only on request, on the
+group code — as each person arrives. A new pass needs two tickets on the order
+that still admit; one already taken out keeps showing on the order page while
+any one of its tickets still does, so the guest who arrives last is let in the
+same way as the others. When none still admits, `orders.groupPass` answers 409
+`TOO_FEW_TICKETS` and `orders.rotateGroupPass` refuses the same way: a new code
+could not be shown to anybody. The pass is drawn only on request, on the
 order page, from a holder-only `no-store` route; the component keeps the
 drawing, not the QR text, and the printed code only while the pass is shown.
 

@@ -170,10 +170,26 @@ describe('the invite form', () => {
 
     await invite(user)
 
-    expect(
-      await screen.findByText('That person is already in this organisation.'),
-    ).toBeInTheDocument()
+    const sentence = await screen.findByText('That person is already in this organisation.')
+
+    expect(sentence).toBeInTheDocument()
     expect(screen.queryByLabelText('Invitation code')).not.toBeInTheDocument()
+    // Focus goes to the refusal, drawn only once the answer is in: not to the page.
+    await waitFor(() => expect(sentence.closest('[tabindex="-1"]')).toHaveFocus())
+  })
+
+  it('moves focus to the refusal again when the network fails', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<InviteForm organizationId={ORG} assignableRoles={['STAFF']} />)
+
+    await invite(user)
+
+    const refusal = (await screen.findByText('Nobody was invited')).closest('[tabindex="-1"]')
+
+    expect(refusal).not.toBeNull()
+    await waitFor(() => expect(refusal).toHaveFocus())
   })
 
   it('says how long to wait when rate limited', async () => {

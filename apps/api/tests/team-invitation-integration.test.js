@@ -5,8 +5,9 @@
  * the real database can answer: what the stored row actually holds, what the
  * audit table actually holds, whether the partial unique index behind "one live
  * invitation per address" exists and bites, what two invitations issued at the
- * same moment produce, and whether accepting one really ends the invitee's
- * other sessions.
+ * same moment produce, whether accepting one really ends the invitee's
+ * other sessions, and whether an acceptance that waited while the invitation
+ * was withdrawn is refused rather than overwriting the withdrawal.
  *
  * Runs against `TEST_DATABASE_URL`. With `REQUIRE_DATABASE` set it fails rather
  * than skips.
@@ -23,6 +24,7 @@ import { buildApp } from '../src/app.js'
 import { startSession } from '../src/lib/sessions.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { testEnv } from './helpers/app.js'
+import { holdRow, untilWaiting } from './helpers/row-locks.js'
 
 const { prisma, reachable, when } = await connectTestDatabase('the team invitation suite')
 
@@ -350,5 +352,56 @@ describeWhen('an invitation code, in the database', () => {
         }),
       ).toBe(1)
     }
+  })
+  it('refuses an acceptance that waited while the invitation was withdrawn, and joins nobody', async () => {
+    const invitee = await user('withdrawn.invitee')
+    const invited = (await invite(invitee.email)).json().data
+    const inviteeSession = await sessionFor(invitee)
+    const holder = await holdRow(prisma, 'Invitation', invited.id)
+
+    // The withdrawal reaches the row first...
+    const withdrawal = app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${world.organization.id}/invitations/${invited.id}/revoke`,
+      headers: world.ownerSession.headers,
+    })
+    const [withdrawalPid] = await untilWaiting(prisma, () => [holder.pid], 1, 'the withdrawal')
+
+    // ...and the acceptance, which has already read the invitation as
+    // outstanding, queues behind it.
+    const acceptance = app.inject({
+      method: 'POST',
+      url: '/v1/invitations/accept',
+      headers: inviteeSession.headers,
+      payload: { token: invited.delivery.invitationCode },
+    })
+
+    await untilWaiting(prisma, () => [holder.pid, withdrawalPid], 2, 'the acceptance')
+    holder.release()
+    await holder.done
+
+    const [withdrawn, accepted] = await Promise.all([withdrawal, acceptance])
+
+    expect(withdrawn.statusCode).toBe(200)
+    // The spend is conditional on the invitation still being outstanding.
+    // Without that, the acceptance overwrote REVOKED with ACCEPTED and joined.
+    expect(accepted.statusCode).toBe(409)
+    expect(accepted.json().error.code).toBe('CONFLICT')
+
+    const row = await prisma.invitation.findUnique({ where: { id: invited.id } })
+
+    expect(row.status).toBe('REVOKED')
+    expect(row.acceptedAt).toBeNull()
+    expect(row.acceptedByUserId).toBeNull()
+    expect(
+      await prisma.membership.count({
+        where: { organizationId: world.organization.id, userId: invitee.id },
+      }),
+    ).toBe(0)
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'team.invitation_accepted', actorId: invitee.id },
+      }),
+    ).toBe(0)
   })
 })

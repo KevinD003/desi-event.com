@@ -39,6 +39,13 @@
  * since the lookup. The QR's shape tells the camera which lookup to use; a
  * typed code is a group code when it has the group code's shape.
  *
+ * ## Nights
+ *
+ * On an event of more than one night the steward also says which night they
+ * are admitting to — tonight's, to start with — and every lookup and admission
+ * carries it. The server refuses a ticket for another night, and lets a ticket
+ * good for every night in once on each night; this screen only says so.
+ *
  * ## A platform administrator
  *
  * A platform super administrator admits at any event on its own authority.
@@ -72,9 +79,10 @@ import {
   lookupFailure,
   refusalSentence,
   seatWords,
+  tonightOf,
 } from '../lib/door.js'
 import { looksLikeGroupCode } from '../lib/pass-shape.js'
-import { sessionDisplayLabel } from '../lib/sessions.js'
+import { EVERY_NIGHT, sessionDisplayLabel } from '../lib/sessions.js'
 
 /** How many recent tickets the session list shows. */
 const RECENT_LIMIT = 8
@@ -127,6 +135,9 @@ const ROUTES = Object.freeze({
  */
 export function DoorWorkspace({ events, platform = false }) {
   const [eventId, setEventId] = useState(events.length === 1 ? events[0].event.id : '')
+  const [nightId, setNightId] = useState(() =>
+    events.length === 1 ? tonightOf(events[0].sessions ?? []) : '',
+  )
   const [mode, setMode] = useState('manual')
   const [code, setCode] = useState('')
   const [stage, setStage] = useState('ready')
@@ -145,10 +156,18 @@ export function DoorWorkspace({ events, platform = false }) {
   const headingRef = useRef(null)
   const codeField = useRef(null)
   const eventField = useRef(null)
+  const nightField = useRef(null)
+  // The list this workspace was drawn with, for the one effect that runs once.
+  const firstEvents = useRef(events)
   const focusTarget = useRef(null)
   const answerId = useId()
 
   const selected = events.find((entry) => entry.event.id === eventId) ?? null
+  const nights = selected?.sessions ?? []
+  // One night or none: nothing to choose, and nothing sent.
+  const manyNights = nights.length > 1
+  const night = manyNights ? (nights.find((entry) => entry.id === nightId) ?? null) : null
+  const ready = Boolean(selected) && (!manyNights || Boolean(night))
   const busy = stage === 'looking' || stage === 'confirming'
   // Name the organisation beside each event when the list spans more than one.
   const manyOrganizations = new Set(events.map((entry) => entry.organization?.id ?? null)).size > 1
@@ -161,8 +180,15 @@ export function DoorWorkspace({ events, platform = false }) {
   useEffect(() => {
     const chosen = eventField.current?.value
     const typed = codeField.current?.value
+    const chosenNight = nightField.current?.value
 
-    if (chosen) setEventId(chosen)
+    if (chosen) {
+      setEventId(chosen)
+      setNightId(
+        chosenNight ||
+          tonightOf(firstEvents.current.find((entry) => entry.event.id === chosen)?.sessions ?? []),
+      )
+    }
     if (typed) setCode(typed)
   }, [])
 
@@ -250,7 +276,7 @@ export function DoorWorkspace({ events, platform = false }) {
    * @returns {Promise<void>}
    */
   async function lookUp(presented) {
-    if (!selected || busy) return
+    if (!ready || busy) return
 
     if (!online) {
       setProblem({ urgent: true, sentence: lookupFailure(0) })
@@ -259,8 +285,11 @@ export function DoorWorkspace({ events, platform = false }) {
     }
 
     const { kind, ...body } = presented
+    // The night goes with the pass: the admission must name the one the
+    // lookup did, whatever the picker says by then.
+    const admittingTo = night ? { eventSessionId: night.id } : {}
 
-    presentation.current = { kind, body }
+    presentation.current = { kind, body, night: admittingTo }
     previewReference.current = null
     setStage('looking')
     setPreview(null)
@@ -274,6 +303,7 @@ export function DoorWorkspace({ events, platform = false }) {
     const answer = await send(ROUTES[kind].preview, {
       ...body,
       expectedEventId: selected.event.id,
+      ...admittingTo,
     })
 
     focusTarget.current = 'answer'
@@ -329,7 +359,7 @@ export function DoorWorkspace({ events, platform = false }) {
   async function admit() {
     if (!presentation.current || !previewReference.current || busy) return
 
-    const { kind, body: presented } = presentation.current
+    const { kind, body: presented, night: admittingTo } = presentation.current
 
     if (kind === 'group' && chosen.length === 0) return
 
@@ -341,6 +371,7 @@ export function DoorWorkspace({ events, platform = false }) {
       ...presented,
       previewReference: previewReference.current,
       expectedEventId: selected.event.id,
+      ...admittingTo,
       ...(kind === 'group' ? { ticketIds: chosen } : {}),
     })
 
@@ -460,7 +491,7 @@ export function DoorWorkspace({ events, platform = false }) {
     )
   }
 
-  const scanning = mode === 'camera' && stage === 'ready' && Boolean(selected) && online
+  const scanning = mode === 'camera' && stage === 'ready' && ready && online
 
   return (
     <div className="space-y-8">
@@ -505,6 +536,11 @@ export function DoorWorkspace({ events, platform = false }) {
               value={eventId}
               onChange={(changed) => {
                 setEventId(changed.target.value)
+                setNightId(
+                  tonightOf(
+                    events.find((entry) => entry.event.id === changed.target.value)?.sessions ?? [],
+                  ),
+                )
                 clear(false)
               }}
             >
@@ -520,9 +556,33 @@ export function DoorWorkspace({ events, platform = false }) {
         {selected && events.length > 1 ? (
           <p className="mt-2 text-sm text-ink-muted">{authorityLabel(selected)}</p>
         ) : null}
+        {manyNights ? (
+          <FormField
+            label="Night you are admitting to"
+            description="A ticket for another night is refused. A ticket for every night is let in once each night."
+            className="mt-4 max-w-xl"
+          >
+            <Select
+              ref={nightField}
+              value={nightId}
+              onChange={(changed) => {
+                setNightId(changed.target.value)
+                clear(false)
+              }}
+            >
+              <option value="">Choose a night</option>
+              {nights.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {sessionDisplayLabel(entry)}
+                  {entry.status === 'CANCELLED' ? ' (cancelled)' : ''}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        ) : null}
       </section>
 
-      {selected ? (
+      {ready ? (
         <section aria-labelledby="door-present-heading">
           <h2 id="door-present-heading" className="text-xl font-semibold text-ink">
             Present a ticket
@@ -599,7 +659,11 @@ export function DoorWorkspace({ events, platform = false }) {
           </div>
         </section>
       ) : (
-        <p className="text-sm text-ink-muted">Choose the event you are admitting to first.</p>
+        <p className="text-sm text-ink-muted">
+          {selected
+            ? 'Choose the night you are admitting to first.'
+            : 'Choose the event you are admitting to first.'}
+        </p>
       )}
 
       {problem && !preview && !groupPreview ? (
@@ -624,6 +688,7 @@ export function DoorWorkspace({ events, platform = false }) {
       {preview && !result ? (
         <PreviewCard
           preview={preview}
+          night={night}
           headingId={answerId}
           headingRef={headingRef}
           stage={stage}
@@ -638,6 +703,7 @@ export function DoorWorkspace({ events, platform = false }) {
       {result ? (
         <ResultCard
           result={result}
+          night={night}
           headingId={answerId}
           headingRef={headingRef}
           onClear={() => clear()}
@@ -647,6 +713,7 @@ export function DoorWorkspace({ events, platform = false }) {
       {groupPreview && !groupResult ? (
         <GroupPreviewCard
           preview={groupPreview}
+          night={night}
           chosen={chosen}
           onToggle={toggle}
           headingId={answerId}
@@ -663,6 +730,7 @@ export function DoorWorkspace({ events, platform = false }) {
       {groupResult ? (
         <GroupResultCard
           result={groupResult}
+          night={night}
           headingId={answerId}
           headingRef={headingRef}
           onClear={() => clear()}
@@ -706,6 +774,7 @@ export function DoorWorkspace({ events, platform = false }) {
  *
  * @param {object} props Component props.
  * @param {object} props.preview The preview payload.
+ * @param {object|null} props.night The night the door is admitting to, on an event of more than one.
  * @param {string} props.headingId The heading's id.
  * @param {object} props.headingRef Receives the heading, for focus.
  * @param {string} props.stage The workspace stage.
@@ -718,6 +787,7 @@ export function DoorWorkspace({ events, platform = false }) {
  */
 function PreviewCard({
   preview,
+  night,
   headingId,
   headingRef,
   stage,
@@ -771,12 +841,15 @@ function PreviewCard({
             <dd className="text-ink">{preview.tier.name}</dd>
           </div>
         ) : null}
-        {/* The night the ticket is for, in words, so a steward notices a ticket
-            for another night. A label only: the door refuses nothing on it. */}
-        {preview.session ? (
+        {/* The night the ticket is for, in words. On an event of more than one
+            night the server refuses a ticket for another; one for every night
+            is let in once each night. */}
+        {preview.session || night ? (
           <div className="flex flex-wrap gap-2">
             <dt className="text-ink-muted">Night</dt>
-            <dd className="text-ink">{sessionDisplayLabel(preview.session)}</dd>
+            <dd className="text-ink">
+              {preview.session ? sessionDisplayLabel(preview.session) : EVERY_NIGHT}
+            </dd>
           </div>
         ) : null}
         {seat ? (
@@ -794,10 +867,11 @@ function PreviewCard({
       {preview.outcome === 'ALREADY_CHECKED_IN' ? (
         <Alert variant="error" urgent className="mt-3">
           This ticket was already admitted
+          {night && !preview.session ? ` on ${sessionDisplayLabel(night)}` : ''}
           {preview.checkedInAt
             ? ` at ${doorTime(preview.checkedInAt, preview.event.timezone)}`
             : ''}
-          . Each ticket admits once.
+          . {admitsOnceWords(preview, night)}
         </Alert>
       ) : null}
 
@@ -805,6 +879,9 @@ function PreviewCard({
         <Alert variant="error" urgent className="mt-3">
           {refusalSentence(preview.refusal)}
           {preview.refusal === 'WRONG_EVENT' ? ` It is for ${preview.event.title}.` : ''}
+          {preview.refusal === 'WRONG_NIGHT' && preview.session
+            ? ` It is for ${sessionDisplayLabel(preview.session)}.`
+            : ''}
         </Alert>
       ) : null}
 
@@ -853,12 +930,13 @@ function PreviewCard({
  *
  * @param {object} props Component props.
  * @param {object} props.result The check-in payload.
+ * @param {object|null} props.night The night the door is admitting to, on an event of more than one.
  * @param {string} props.headingId The heading's id.
  * @param {object} props.headingRef Receives the heading, for focus.
  * @param {function(): void} props.onClear Take the next ticket.
  * @returns {JSX.Element} The card.
  */
-function ResultCard({ result, headingId, headingRef, onClear }) {
+function ResultCard({ result, night, headingId, headingRef, onClear }) {
   const admitted = result.outcome === 'ADMITTED' || result.checkedInByYou
   const when = doorTime(result.checkedInAt, result.event.timezone)
 
@@ -873,9 +951,12 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
       <p className="mt-3 font-display text-h2 font-semibold break-words text-ink">
         {result.attendeeName ?? 'Ticket holder'}
       </p>
-      {result.session || result.tier ? (
+      {result.session || result.tier || night ? (
         <p className="mt-1 text-sm text-ink">
-          {[result.tier?.name, result.session ? sessionDisplayLabel(result.session) : null]
+          {[
+            result.tier?.name,
+            result.session ? sessionDisplayLabel(result.session) : night ? EVERY_NIGHT : null,
+          ]
             .filter(Boolean)
             .join(' · ')}
         </p>
@@ -889,7 +970,9 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
       </p>
       {!admitted ? (
         <Alert variant="error" urgent className="mt-3">
-          Each ticket admits once. This one already has.
+          {night && !result.session
+            ? `A ticket for every night admits once each night, and this one already has on ${sessionDisplayLabel(night)}.`
+            : 'Each ticket admits once. This one already has.'}
         </Alert>
       ) : null}
       <Button type="button" className="mt-4" onClick={onClear}>
@@ -900,15 +983,38 @@ function ResultCard({ result, headingId, headingRef, onClear }) {
 }
 
 /**
- * One ticket of a group, in words: name, tier and seat.
+ * One ticket of a group, in words: name, tier, seat and night.
  *
- * @param {{attendeeName: string|null, tier: {name: string}|null, seat: object|null}} ticket A group ticket.
+ * The night is named so a steward sees a Night 2 ticket on Night 1; on an event
+ * of more than one night, a ticket with none of its own is good for every
+ * night and says so.
+ *
+ * @param {{attendeeName: string|null, tier: {name: string}|null, seat: object|null, session?: object|null}} ticket A group ticket.
+ * @param {object|null} [night] The night the door is admitting to, on an event of more than one.
  * @returns {string} The words.
  */
-function groupTicketWords(ticket) {
-  return [ticket.attendeeName ?? 'No name on the ticket', ticket.tier?.name, seatWords(ticket.seat)]
+function groupTicketWords(ticket, night = null) {
+  return [
+    ticket.attendeeName ?? 'No name on the ticket',
+    ticket.tier?.name,
+    seatWords(ticket.seat),
+    ticket.session ? sessionDisplayLabel(ticket.session) : night ? EVERY_NIGHT : null,
+  ]
     .filter(Boolean)
     .join(' · ')
+}
+
+/**
+ * How often a ticket admits, for a steward told it is already in.
+ *
+ * @param {{session?: object|null}} ticket The preview.
+ * @param {object|null} night The night the door is admitting to, on an event of more than one.
+ * @returns {string} The sentence.
+ */
+function admitsOnceWords(ticket, night) {
+  return night && !ticket.session
+    ? 'A ticket for every night admits once each night.'
+    : 'Each ticket admits once.'
 }
 
 /**
@@ -919,6 +1025,7 @@ function groupTicketWords(ticket) {
  *
  * @param {object} props Component props.
  * @param {object} props.preview The group preview payload.
+ * @param {object|null} props.night The night the door is admitting to, on an event of more than one.
  * @param {string[]} props.chosen The ticked ticket ids.
  * @param {function(string): void} props.onToggle Tick or untick one.
  * @param {string} props.headingId The heading's id.
@@ -933,6 +1040,7 @@ function groupTicketWords(ticket) {
  */
 function GroupPreviewCard({
   preview,
+  night,
   chosen,
   onToggle,
   headingId,
@@ -1000,7 +1108,7 @@ function GroupPreviewCard({
                     className="mt-0.5 size-5 shrink-0 rounded border-line-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
                   />
                   <label htmlFor={id} className="min-w-0 break-words text-ink">
-                    {groupTicketWords(ticket)}
+                    {groupTicketWords(ticket, night)}
                   </label>
                 </li>
               )
@@ -1015,7 +1123,7 @@ function GroupPreviewCard({
           <ul className="mt-1 space-y-1 text-sm text-ink">
             {alreadyIn.map((ticket) => (
               <li key={ticket.ticketId} className="break-words">
-                {groupTicketWords(ticket)} —{' '}
+                {groupTicketWords(ticket, night)} —{' '}
                 {ticket.checkedInAt
                   ? `already in at ${doorTime(ticket.checkedInAt, preview.event.timezone)}`
                   : 'already in'}
@@ -1031,7 +1139,7 @@ function GroupPreviewCard({
           <ul className="mt-1 space-y-1 text-sm text-ink">
             {refused.map((ticket) => (
               <li key={ticket.ticketId} className="break-words">
-                {groupTicketWords(ticket)} — {refusalSentence(ticket.refusal)}
+                {groupTicketWords(ticket, night)} — {refusalSentence(ticket.refusal)}
               </li>
             ))}
           </ul>
@@ -1083,12 +1191,13 @@ function GroupPreviewCard({
  *
  * @param {object} props Component props.
  * @param {object} props.result The group check-in payload.
+ * @param {object|null} props.night The night the door is admitting to, on an event of more than one.
  * @param {string} props.headingId The heading's id.
  * @param {object} props.headingRef Receives the heading, for focus.
  * @param {function(): void} props.onClear Take the next ticket.
  * @returns {JSX.Element} The card.
  */
-function GroupResultCard({ result, headingId, headingRef, onClear }) {
+function GroupResultCard({ result, night, headingId, headingRef, onClear }) {
   const admittedNow = result.tickets.filter((ticket) => ticket.outcome === 'ADMITTED')
   const alreadyIn = result.tickets.filter((ticket) => ticket.outcome !== 'ADMITTED')
 
@@ -1106,7 +1215,7 @@ function GroupResultCard({ result, headingId, headingRef, onClear }) {
         <ul className="mt-3 space-y-1 text-sm text-ink">
           {admittedNow.map((ticket) => (
             <li key={ticket.ticketId} className="break-words">
-              {groupTicketWords(ticket)} — admitted at{' '}
+              {groupTicketWords(ticket, night)} — admitted at{' '}
               {doorTime(ticket.checkedInAt, result.event.timezone)}
             </li>
           ))}
@@ -1119,7 +1228,7 @@ function GroupResultCard({ result, headingId, headingRef, onClear }) {
           <ul className="mt-1 space-y-1 text-sm text-ink">
             {alreadyIn.map((ticket) => (
               <li key={ticket.ticketId} className="break-words">
-                {groupTicketWords(ticket)} —{' '}
+                {groupTicketWords(ticket, night)} —{' '}
                 {ticket.checkedInByYou ? 'admitted by you at ' : 'admitted at '}
                 {doorTime(ticket.checkedInAt, result.event.timezone)}
               </li>

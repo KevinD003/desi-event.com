@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { createPrismaClient } from '@desi-event/db'
 
 import { expect, test, world } from './support/detail-fixtures.mjs'
+import { BOX_SEATS } from './support/seed-feature-world.mjs'
 import { CONNECTION } from './support/seed-refusals.mjs'
 
 /**
@@ -10,9 +11,12 @@ import { CONNECTION } from './support/seed-refusals.mjs'
  *
  * ## The world
  *
- * Gamma's balcony concert runs two nights on one published seat plan — one
- * balcony section, rows A and B of six seats, one price zone at $45 — and
- * every seat of each night is bound to that night's reserved tier
+ * Gamma's balcony concert runs two nights on one published seat plan in two
+ * sections, each its own price zone: the balcony, rows A and B of six plain
+ * seats at $45, and the boxes, row K at $60 — a wheelchair space (K1) and its
+ * companion seat (K2), an obstructed view (K3), a restricted seat with a note
+ * (K4) and a seat the organiser has blocked (K5). Every seat of each night is
+ * bound to the reserved tier pricing its zone that night
  * (`seed-feature-world.mjs`). Seat A3 on the first night is already sold: it
  * is the giver's.
  *
@@ -22,7 +26,12 @@ import { CONNECTION } from './support/seed-refusals.mjs'
  *   map, and a visitor sees every seat's price and state before signing in —
  *   and is asked to sign in, rather than offered a reserve button.
  * - A sold seat is a stop on the grid that says it is unavailable, in words
- *   and without colour alone, and pressing it chooses nothing.
+ *   and without colour alone, and pressing it chooses nothing — reached by
+ *   the arrows, as a keyboard user reaches it, as well as by a click.
+ * - A wheelchair space is chosen from the keyboard and its companion seat
+ *   comes with it, said so in the status; unchoosing either gives both back.
+ *   An obstructed, a restricted and a blocked seat each say what they are,
+ *   the restricted one with its note, and the blocked one cannot be chosen.
  * - The grid is worked from the keyboard alone: Tab reaches it, the arrows
  *   move, Space chooses, and a polite status says what changed.
  * - Reserving holds exactly the chosen seats, which a second window then sees
@@ -59,6 +68,28 @@ const BOUGHT = Object.freeze([
 
 /** The seat this file reserves and then gives back. */
 const RELEASED = 'B4'
+
+/**
+ * Anything that invents a hurry. The same list as `detail-checkout.spec.js`:
+ * the picker says what is free and what is not, and never how fast it is
+ * going.
+ *
+ * @type {RegExp}
+ */
+const URGENCY = /selling fast|few (?:tickets )?left|almost gone|hurry|last chance|only \d+ left/iu
+
+/**
+ * Text with its runs of whitespace made single spaces, as it reads.
+ *
+ * @param {string} text Any text.
+ * @returns {string} The same words, spaced once.
+ */
+function normalise(text) {
+  return text.replace(/\s+/gu, ' ').trim()
+}
+
+/** The boxes' seats, by label, as the feature world seeds them. */
+const BOX = Object.fromEntries(BOX_SEATS.map((box) => [box.label, box]))
 
 /**
  * The scanner's findings for a page, at WCAG 2.2 AA, with no rule turned off.
@@ -196,6 +227,9 @@ test.describe.serial('the seat picker on a reserved night', () => {
     await expect(sold).toHaveAttribute('aria-pressed', 'false')
     await expect(visitor.getByText('No seats chosen.')).toBeVisible()
 
+    // What is free and what is not, and never how fast it is going.
+    expect(normalise(await visitor.getByRole('main').innerText())).not.toMatch(URGENCY)
+
     // Signed out, there is a way to sign in and back, and nothing to reserve with.
     const signIn = visitor.getByRole('link', { name: 'Sign in to reserve', exact: true })
 
@@ -218,6 +252,137 @@ test.describe.serial('the seat picker on a reserved night', () => {
 
     await visitor.setViewportSize({ width: 320, height: 720 })
     expect(await sidewaysOverflow(visitor)).toBeLessThanOrEqual(0)
+  })
+
+  test('a wheelchair space is chosen from the keyboard with its companion, and a seat nobody can take says why', async ({
+    visitor,
+  }) => {
+    const balcony = await openNight(visitor, 0)
+    const boxes = visitor.getByRole('grid', { name: 'Boxes', exact: true })
+    const status = visitor
+      .getByRole('region', { name: 'Your selection' })
+      .getByRole('status')
+      .first()
+
+    // Two sections, each its own price zone, and the zone is a filter.
+    await expect(boxes.getByRole('button')).toHaveCount(BOX_SEATS.length)
+    await expect(visitor.getByLabel('Price zone', { exact: true }).locator('option')).toHaveText([
+      'Every zone',
+      'Balcony',
+      'Box',
+    ])
+    // The keys answer only once the page has hydrated.
+    await expect(
+      visitor.getByRole('link', { name: 'Sign in to reserve', exact: true }),
+    ).toBeVisible()
+
+    // Keyboard only: Tab to the first grid, then along row A to the sold seat.
+    let onSeat = false
+
+    for (let press = 0; press < 60 && !onSeat; press += 1) {
+      await visitor.keyboard.press('Tab')
+      onSeat = await visitor.evaluate(() =>
+        /^Seat [A-Z]\d+, /u.test(document.activeElement?.getAttribute('aria-label') ?? ''),
+      )
+    }
+
+    expect(onSeat, 'Tab never reached the seat grid').toBe(true)
+    await expect(seat(balcony, 'A1')).toBeFocused()
+    await visitor.keyboard.press('ArrowRight')
+    await visitor.keyboard.press('ArrowRight')
+
+    // The sold seat is a stop, and says it cannot be had; Space chooses nothing.
+    const sold = seat(balcony, 'A3')
+
+    await expect(sold).toBeFocused()
+    await expect(sold).toHaveAccessibleName(
+      'Seat A3, row A, Balcony, Balcony zone, $45.00, unavailable',
+    )
+    await expect(sold).toHaveAttribute('aria-disabled', 'true')
+    await visitor.keyboard.press('Space')
+    await expect(sold).toHaveAttribute('aria-pressed', 'false')
+    await expect(visitor.getByText('No seats chosen.')).toBeVisible()
+
+    // One Tab leaves the balcony for the boxes, whose first seat is the
+    // wheelchair space.
+    await visitor.keyboard.press('Tab')
+
+    const space = seat(boxes, 'K1')
+    const companion = seat(boxes, 'K2')
+
+    await expect(space).toBeFocused()
+    await expect(space).toHaveAccessibleName(
+      'Seat K1, row K, Boxes, Box zone, $60.00, wheelchair space, available',
+    )
+
+    // Choosing it takes its companion seat too, and the status says both.
+    await visitor.keyboard.press('Space')
+    await expect(space).toHaveAttribute('aria-pressed', 'true')
+    await expect(companion).toHaveAttribute('aria-pressed', 'true')
+    await expect(status).toHaveText('Seat K1 added, with companion seat K2. 2 seats selected.')
+    await expect(companion).toHaveAccessibleName(
+      'Seat K2, row K, Boxes, Box zone, $60.00, companion seat, selected',
+    )
+
+    // Along the row: every other kind of seat says what it is, in words.
+    await visitor.keyboard.press('ArrowRight')
+    await expect(companion).toBeFocused()
+    await visitor.keyboard.press('ArrowRight')
+    await expect(seat(boxes, 'K3')).toBeFocused()
+    await expect(seat(boxes, 'K3')).toHaveAccessibleName(
+      'Seat K3, row K, Boxes, Box zone, $60.00, obstructed view, available',
+    )
+    await visitor.keyboard.press('ArrowRight')
+
+    const restricted = seat(boxes, 'K4')
+
+    await expect(restricted).toBeFocused()
+    await expect(restricted).toHaveAccessibleName(
+      'Seat K4, row K, Boxes, Box zone, $60.00, restricted, available',
+    )
+    // Its note is read with it, and printed under the section for everybody.
+    await expect(restricted).toHaveAccessibleDescription(BOX.K4.restrictionNote)
+    await expect(
+      visitor.getByRole('listitem').filter({ hasText: `! Seat K4: ${BOX.K4.restrictionNote}` }),
+    ).toBeVisible()
+
+    // The seat the organiser blocked: a stop, unavailable, and never chosen.
+    await visitor.keyboard.press('ArrowRight')
+
+    const kept = seat(boxes, 'K5')
+
+    await expect(kept).toBeFocused()
+    await expect(kept).toHaveAccessibleName('Seat K5, row K, Boxes, Box zone, $60.00, unavailable')
+    await expect(kept).toHaveAttribute('aria-disabled', 'true')
+    await visitor.keyboard.press('Space')
+    await expect(kept).toHaveAttribute('aria-pressed', 'false')
+    await expect(status).toHaveText('Seat K1 added, with companion seat K2. 2 seats selected.')
+
+    // Unchoosing the companion gives the wheelchair space back with it.
+    for (const label of ['K4', 'K3', 'K2']) {
+      await visitor.keyboard.press('ArrowLeft')
+      await expect(seat(boxes, label)).toBeFocused()
+    }
+
+    await visitor.keyboard.press('Space')
+    await expect(companion).toHaveAttribute('aria-pressed', 'false')
+    await expect(space).toHaveAttribute('aria-pressed', 'false')
+    await expect(status).toHaveText('Seats K1 and K2 removed together. 0 seats selected.')
+
+    // The accessible-seats filter leaves the wheelchair space and its
+    // companion, and nothing else.
+    const accessibleOnly = visitor.getByLabel('Wheelchair spaces and companion seats only')
+
+    await accessibleOnly.check()
+    await expect(balcony).toHaveCount(0)
+    await expect(boxes.getByRole('button')).toHaveCount(2)
+    await expect(seat(boxes, 'K1')).toBeVisible()
+    await expect(seat(boxes, 'K2')).toBeVisible()
+    await accessibleOnly.uncheck()
+    await expect(boxes.getByRole('button')).toHaveCount(BOX_SEATS.length)
+
+    // Nothing was held: choosing is the page's alone until Reserve is pressed.
+    expect(await seatStates(0)).toMatchObject({ K1: 'AVAILABLE', K2: 'AVAILABLE', K5: 'BLOCKED' })
   })
 
   test('a buyer chooses seats from the keyboard, reserves them, names them and pays', async ({

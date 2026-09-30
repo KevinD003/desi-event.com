@@ -53,6 +53,7 @@ import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { EventRescheduleForm } from './event-reschedule-form.jsx'
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Badge, Button, Card, CardBody, FormField, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -193,6 +194,7 @@ export function EventLifecyclePanel({
   const [needsEnrolment, setNeedsEnrolment] = useState(false)
   const dialogRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const reading = statusReading(status)
   const offered = OFFERED[status] ?? []
@@ -263,7 +265,7 @@ export function EventLifecyclePanel({
 
     if (key === 'reschedule' || command.confirm || command.reason !== 'none') {
       setPending(key)
-      queueMicrotask(() => dialogRef.current?.focus())
+      focusAfterRender(dialogRef)
       return
     }
 
@@ -281,7 +283,7 @@ export function EventLifecyclePanel({
     // Focus does not evaporate when a dialogue closes. Putting it back is the
     // difference between a keyboard user carrying on and a keyboard user
     // hunting for where they were.
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -327,13 +329,13 @@ export function EventLifecyclePanel({
           setError(
             'A role this account holds needs two-step sign-in before it can do this, and it has not been set up. Nothing has changed.',
           )
-          queueMicrotask(() => dialogRef.current?.focus())
+          focusAfterRender(dialogRef)
           return
         }
 
         setError(parsed?.error?.message ?? 'The command was refused.')
         setProblems(parsed?.error?.problems ?? [])
-        queueMicrotask(() => dialogRef.current?.focus())
+        focusAfterRender(dialogRef)
         return
       }
 

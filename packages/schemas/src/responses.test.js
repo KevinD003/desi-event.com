@@ -36,6 +36,7 @@ const ids = {
   order: 'ckl1a2b3c4d5e6f7g8h9i0jp',
   orderItem: 'ckl1a2b3c4d5e6f7g8h9i0jq',
   ticket: 'ckl1a2b3c4d5e6f7g8h9i0jr',
+  session: 'ckl1a2b3c4d5e6f7g8h9i0js',
 }
 
 const publicUser = {
@@ -419,12 +420,23 @@ describe('checkInResponseSchema', () => {
 
 const membershipsMeta = { scope: 'MEMBERSHIPS', organizations: [], truncated: false }
 
+/** One night of an event, as a door list names it. */
+const doorNight = {
+  id: ids.session,
+  label: 'Night 2',
+  startsAt: '2026-10-02T13:00:00.000Z',
+  endsAt: '2026-10-02T18:00:00.000Z',
+  timezone: 'America/Chicago',
+  status: 'ON_SALE',
+}
+
 describe('admissionEventsResponseSchema', () => {
   it('names each event with its organisation and the authority it rests on', () => {
     const parsed = admissionEventsResponseSchema.parse({
       data: [
         {
           event: { ...admissionEvent, status: 'ON_SALE', ...HOSTILE },
+          sessions: [{ ...doorNight, ...HOSTILE }],
           organization: { id: ids.org, name: 'Rangoli', ...HOSTILE },
           authority: 'EVENT_SCOPE',
           role: 'SCANNER',
@@ -439,8 +451,17 @@ describe('admissionEventsResponseSchema', () => {
       'event',
       'organization',
       'role',
+      'sessions',
     ])
     expect(parsed.data[0].organization).toEqual({ id: ids.org, name: 'Rangoli' })
+    // The nights, for the door to say which one it is admitting to.
+    expect(parsed.data[0].sessions).toEqual([doorNight])
+    expect(
+      admissionEventsResponseSchema.safeParse({
+        data: [{ ...parsed.data[0], sessions: undefined }],
+        meta: membershipsMeta,
+      }).success,
+    ).toBe(false)
     expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
     expect(
       admissionEventsResponseSchema.safeParse({
@@ -453,6 +474,7 @@ describe('admissionEventsResponseSchema', () => {
   it('carries platform authority only on SUPER_ADMIN, and SUPER_ADMIN only on platform authority', () => {
     const entry = {
       event: { ...admissionEvent, status: 'ON_SALE' },
+      sessions: [],
       organization: { id: ids.org, name: 'Rangoli' },
     }
     const platformMeta = {
@@ -489,6 +511,7 @@ describe('admissionEventsResponseSchema', () => {
   it('needs the list meta, and bounds its organisations', () => {
     const entry = {
       event: { ...admissionEvent, status: 'ON_SALE' },
+      sessions: [doorNight],
       organization: { id: ids.org, name: 'Rangoli' },
       authority: 'ORGANIZATION_ROLE',
       role: 'OWNER',
@@ -520,6 +543,12 @@ describe('the group door schemas', () => {
     refusal: null,
     tier: { name: 'General admission' },
     seat: null,
+    session: {
+      label: 'Night 2',
+      startsAt: '2026-10-02T13:00:00.000Z',
+      endsAt: '2026-10-02T18:00:00.000Z',
+      timezone: 'America/Chicago',
+    },
     attendeeName: 'Priya Sharma',
     checkedInAt: null,
   }
@@ -535,7 +564,7 @@ describe('the group door schemas', () => {
     previewExpiresAt: '2026-10-01T13:02:00.000Z',
   }
 
-  it('describes each ticket of a group by name, tier and seat, and nothing more', () => {
+  it('describes each ticket of a group by name, tier, seat and night, and nothing more', () => {
     const parsed = groupAdmissionPreviewResponseSchema.parse({
       data: { ...preview, ...HOSTILE, tickets: [{ ...groupTicket, ...HOSTILE }] },
     })
@@ -546,10 +575,23 @@ describe('the group door schemas', () => {
       'outcome',
       'refusal',
       'seat',
+      'session',
       'ticketId',
       'tier',
     ])
+    expect(parsed.data.tickets[0].session.label).toBe('Night 2')
     expect(JSON.stringify(parsed)).not.toContain('priya@example.com')
+    // A ticket good for every night names no night, and says so with null.
+    expect(
+      groupAdmissionPreviewResponseSchema.parse({
+        data: { ...preview, tickets: [{ ...groupTicket, session: null }] },
+      }).data.tickets[0].session,
+    ).toBeNull()
+    expect(
+      groupAdmissionPreviewResponseSchema.safeParse({
+        data: { ...preview, tickets: [{ ...groupTicket, session: undefined }] },
+      }).success,
+    ).toBe(false)
   })
 
   it('refuses an address where an attendee name goes, in a preview and in a result', () => {
@@ -573,6 +615,7 @@ describe('the group door schemas', () => {
           checkedInByYou: true,
           tier: null,
           seat: null,
+          session: null,
           attendeeName: 'Priya Sharma',
         },
       ],
@@ -602,9 +645,17 @@ describe('the group door schemas', () => {
         data: { ...preview, outcome: 'REFUSED', refusal: 'GROUP_CHANGED' },
       }).data.refusal,
     ).toBe('GROUP_CHANGED')
+
+    for (const refusal of ['WRONG_NIGHT', 'NIGHT_REQUIRED']) {
+      expect(
+        groupAdmissionPreviewResponseSchema.parse({
+          data: { ...preview, outcome: 'REFUSED', refusal },
+        }).data.refusal,
+      ).toBe(refusal)
+    }
   })
 
-  it('shapes the group pass: a G1 credential, a DEG code, and two to fifty tickets', () => {
+  it('shapes the group pass: a G1 credential, a DEG code, and one to fifty tickets', () => {
     const pass = {
       orderReference: 'DE-8F3K2QRT',
       credential: `G1.${'A'.repeat(43)}`,
@@ -626,7 +677,10 @@ describe('the group door schemas', () => {
       groupPassResponseSchema.safeParse({ data: { ...pass, groupCode: 'DEG-ABCDEFGH234O' } })
         .success,
     ).toBe(false)
-    expect(groupPassResponseSchema.safeParse({ data: { ...pass, admits: 1 } }).success).toBe(false)
+    // Two to take one out; once taken out it keeps showing for the last guest.
+    expect(groupPassResponseSchema.parse({ data: { ...pass, admits: 1 } }).data.admits).toBe(1)
+    expect(groupPassResponseSchema.safeParse({ data: { ...pass, admits: 0 } }).success).toBe(false)
+    expect(groupPassResponseSchema.safeParse({ data: { ...pass, admits: 51 } }).success).toBe(false)
   })
 })
 
@@ -695,6 +749,21 @@ describe('errorResponseSchema reason', () => {
     )
     expect(
       errorResponseSchema.safeParse({ error: { ...base, reason: 'it was refunded' } }).success,
+    ).toBe(false)
+  })
+})
+
+describe('errorResponseSchema orderReference', () => {
+  it('carries the order a checkout answer is about, and refuses prose in its place', () => {
+    const base = { code: 'ORDER_PENDING', message: 'Still being checked.', statusCode: 409 }
+
+    expect(
+      errorResponseSchema.parse({ error: { ...base, orderReference: 'DE-7K2M9Q' } }).error
+        .orderReference,
+    ).toBe('DE-7K2M9Q')
+    expect(
+      errorResponseSchema.safeParse({ error: { ...base, orderReference: 'your last order' } })
+        .success,
     ).toBe(false)
   })
 })

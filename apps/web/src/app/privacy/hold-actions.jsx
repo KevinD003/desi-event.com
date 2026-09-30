@@ -31,6 +31,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { useFocusAfterRender } from '../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../components/step-up-prompt.jsx'
 import { apiFetch } from '../../lib/api-fetch.js'
 import { HOLD_KINDS, HOLD_RELEASE_REASONS, describeRefusal } from '../../lib/privacy-vocabulary.js'
@@ -62,6 +63,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
   const [restore, setRestore] = useState(false)
   const panelRef = useRef(null)
   const triggerRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   // Restored by effect rather than by holding the node: opening the panel
   // unmounts the trigger, so the element captured on the way in is detached by
@@ -82,7 +84,7 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
   function start() {
     setOpen(true)
     setRefusal(null)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -134,14 +136,14 @@ export function HoldActions({ organizationId, hold, releaseOnly = false }) {
       }
 
       setRefusal(describeRefusal({ status: response.status, code: parsed?.error?.code ?? null }))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefusal({
         title: 'The service is not responding',
         detail: 'Nothing has been recorded.',
         recoverable: true,
       })
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } finally {
       setBusy(false)
     }

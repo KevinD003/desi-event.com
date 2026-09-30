@@ -14,6 +14,9 @@
  *     date somebody had in their calendar.
  *   - `POSTPONED` becomes `EventPostponed`, which is the vocabulary's own word
  *     for "it is not happening then and we will say when".
+ *   - A postponed event brought back on a new date is `EventRescheduled`, with
+ *     `previousStartDate` the date it moved from: `EventScheduled` means "on
+ *     the startDate as scheduled", which an event that moved is not.
  *   - Everything else on sale is `EventScheduled`.
  *
  * ## What is not in here
@@ -50,6 +53,32 @@ const EVENT_STATUS = Object.freeze({
 })
 
 /**
+ * The statuses a postponed event comes back to, where a start that moved makes
+ * it `EventRescheduled` rather than `EventScheduled`.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const RESCHEDULABLE = new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'COMPLETED'])
+
+/**
+ * Whether the event was postponed and brought back on another date.
+ *
+ * `previousStartsAt` is written at postponement and kept, so an event back on
+ * sale carries it; it means a reschedule only when the start actually moved.
+ *
+ * @param {object} event The public event payload.
+ * @returns {boolean} True when it now starts somewhere other than it did.
+ */
+function wasRescheduled(event) {
+  if (!event.previousStartsAt || !RESCHEDULABLE.has(event.status)) return false
+
+  const before = Date.parse(event.previousStartsAt)
+  const after = Date.parse(event.startsAt)
+
+  return Number.isFinite(before) && Number.isFinite(after) && before !== after
+}
+
+/**
  * `schema.org` availability URLs, by what the ticket situation actually is.
  *
  * @type {Readonly<Record<string, string>>}
@@ -80,6 +109,11 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     (tier) => Number.isFinite(tier.priceCents) && tier.visibility !== 'HIDDEN',
   )
 
+  const rescheduled = wasRescheduled(event)
+  const status = rescheduled
+    ? 'https://schema.org/EventRescheduled'
+    : (EVENT_STATUS[event.status] ?? 'https://schema.org/EventScheduled')
+
   /** @type {Record<string, unknown>} */
   const data = {
     '@context': 'https://schema.org',
@@ -88,7 +122,7 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     description: event.summary,
     startDate: event.startsAt,
     endDate: event.endsAt,
-    eventStatus: EVENT_STATUS[event.status] ?? 'https://schema.org/EventScheduled',
+    eventStatus: status,
     eventAttendanceMode: event.isOnline
       ? 'https://schema.org/OnlineEventAttendanceMode'
       : 'https://schema.org/OfflineEventAttendanceMode',
@@ -96,8 +130,12 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
   }
 
   // The date somebody wrote in their diary. Without it a postponement says
-  // only that something changed, not what.
-  if (event.previousStartsAt) data.previousStartDate = event.previousStartsAt
+  // only that something changed, not what. On an event back on sale it goes
+  // with `EventRescheduled` and only then: a start that did not move was not
+  // rescheduled from anywhere.
+  if (event.previousStartsAt && (rescheduled || !RESCHEDULABLE.has(event.status))) {
+    data.previousStartDate = event.previousStartsAt
+  }
 
   // Always the page, never the joining link: the link is for ticket holders,
   // and structured data is read by every search engine and scraper there is.
@@ -168,10 +206,7 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
       startDate: session.startsAt,
       endDate: session.endsAt,
       ...(session.doorsOpenAt ? { doorTime: session.doorsOpenAt } : {}),
-      eventStatus:
-        session.status === 'CANCELLED'
-          ? 'https://schema.org/EventCancelled'
-          : (EVENT_STATUS[event.status] ?? 'https://schema.org/EventScheduled'),
+      eventStatus: session.status === 'CANCELLED' ? 'https://schema.org/EventCancelled' : status,
       url,
     }))
   }

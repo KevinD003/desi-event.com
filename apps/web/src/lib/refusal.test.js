@@ -27,7 +27,14 @@ describe('describeApiRefusal', () => {
     [{ status: 503, code: 'API_UNREACHABLE' }, 'network', true],
     [{}, 'network', true],
     [{ status: 500 }, 'server-error', true],
-    [{ status: 502, code: 'PAYMENT_TIMEOUT' }, 'server-error', true],
+    [{ status: 502 }, 'server-error', true],
+    // An order was placed and whether it was paid is being checked: pressing
+    // the button again is exactly what must not happen, so none of these is
+    // recoverable, whatever its status says.
+    [{ status: 502, code: 'PAYMENT_TIMEOUT' }, 'payment-unsettled', false],
+    [{ status: 500, code: 'ORDER_NOT_COMPLETED' }, 'payment-unsettled', false],
+    [{ status: 409, code: 'ORDER_PENDING' }, 'payment-unsettled', false],
+    [{ status: 402, code: 'PAYMENT_DECLINED' }, 'payment-declined', true],
   ])('reads %j as %s', (error, state, recoverable) => {
     const refusal = describeApiRefusal(error)
 
@@ -35,6 +42,23 @@ describe('describeApiRefusal', () => {
     expect(refusal.recoverable).toBe(recoverable)
     expect(refusal.title.length).toBeGreaterThan(0)
     expect(refusal.detail.length).toBeGreaterThan(0)
+  })
+
+  it('keeps the API’s own sentence and the order for a payment that is being checked', () => {
+    const refusal = describeApiRefusal({
+      status: 502,
+      code: 'PAYMENT_TIMEOUT',
+      message: 'Whether you were charged is being checked; please do not pay again.',
+      orderReference: 'DE-7K2M9Q',
+    })
+
+    expect(refusal).toMatchObject({
+      state: 'payment-unsettled',
+      detail: 'Whether you were charged is being checked; please do not pay again.',
+      orderReference: 'DE-7K2M9Q',
+      recoverable: false,
+    })
+    expect(refusal.detail).not.toMatch(/try again/)
   })
 
   it('tells a lapsed step-up apart from a refusal nothing can fix', () => {
@@ -136,6 +160,28 @@ describe('refusalFromResponse', () => {
       message: 'Slow down.',
       retryAfterSeconds: 12,
     })
+  })
+
+  it('carries the order a checkout refusal names, and only a bare reference', async () => {
+    const named = new Response(
+      JSON.stringify({
+        error: {
+          code: 'PAYMENT_TIMEOUT',
+          message: 'Do not pay again.',
+          orderReference: 'DE-7K2M9Q',
+        },
+      }),
+      { status: 502, headers: { 'content-type': 'application/json' } },
+    )
+    const prose = new Response(
+      JSON.stringify({
+        error: { code: 'PAYMENT_TIMEOUT', message: 'Do not pay again.', orderReference: '<b>' },
+      }),
+      { status: 502, headers: { 'content-type': 'application/json' } },
+    )
+
+    expect(await refusalFromResponse(named)).toMatchObject({ orderReference: 'DE-7K2M9Q' })
+    expect(await refusalFromResponse(prose)).not.toHaveProperty('orderReference')
   })
 
   it('copes with a body that is not JSON', async () => {

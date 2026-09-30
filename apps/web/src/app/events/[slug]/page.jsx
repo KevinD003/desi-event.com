@@ -76,6 +76,7 @@ import { INVERSE_TEXT_LINK, PRIMARY_LINK, TEXT_LINK } from '../../../components/
 import { AvailabilityChip } from '../../../components/listing-card.jsx'
 import { EventArt } from '../../../components/event-art.jsx'
 import { EventGallery } from '../../../components/event-gallery.jsx'
+import { JsonLd } from '../../../components/json-ld.jsx'
 import {
   EventContact,
   EventDirections,
@@ -299,12 +300,7 @@ export default async function EventDetailPage({ params }) {
 
   return (
     <article>
-      {structuredData ? (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
-        />
-      ) : null}
+      <JsonLd data={structuredData} />
 
       <div className="mx-auto max-w-content px-4 py-1 sm:px-6">
         <Breadcrumbs

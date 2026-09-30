@@ -1233,6 +1233,10 @@ async function main() {
         // Group passes at the door: the order, pass and ticket locks, the
         // group-pass trigger and the races against refunds and single scans.
         'tests/group-admission-integration.test.js',
+        // Admission per night: the (ticket, night) index and its partial
+        // no-night half, the rewritten admission and hand-on triggers, and
+        // stewards racing on one night by single, group and raw writes.
+        'tests/check-in-per-night-integration.test.js',
         // Who sees a colleague's address: real sessions, memberships and
         // second factors, read from their rows.
         'tests/team-email-integration.test.js',
@@ -1254,6 +1258,14 @@ async function main() {
         // wheelchair pair raced for, released and swept seats back on sale.
         'tests/promo-redemption-integration.test.js',
         'tests/seat-purchase-integration.test.js',
+        // A hold changing hands: a release racing a checkout, two checkouts
+        // spending one hold, a retry after a timed-out capture, a settlement
+        // refused after the capture, and a seat hold racing its night's removal.
+        'tests/checkout-hold-race-integration.test.js',
+        // A NUL in a request: refused before any write on the paths that put
+        // free text into JSON columns, audit rows and outbox payloads, and
+        // PostgreSQL's own refusal of it in jsonb (22P05) answered as a 400.
+        'tests/unstorable-character-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

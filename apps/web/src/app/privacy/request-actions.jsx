@@ -42,6 +42,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { useFocusAfterRender } from '../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../components/step-up-prompt.jsx'
 import { apiFetch } from '../../lib/api-fetch.js'
 import { REQUEST_CANCEL_REASONS, describeRefusal } from '../../lib/privacy-vocabulary.js'
@@ -73,6 +74,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
   const panelRef = useRef(null)
   const confirmRef = useRef(null)
   const cancelRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   // Focus is restored by effect rather than by holding the node, because
   // opening a panel unmounts the trigger buttons — the element captured on the
@@ -99,7 +101,7 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
     setPending(key)
     setRefusal(null)
     setPhrase('')
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -157,14 +159,14 @@ export function RequestActions({ organizationId, request, canConfirm, canCancel 
       }
 
       setRefusal(describeRefusal({ status: response.status, code: parsed?.error?.code ?? null }))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefusal({
         title: 'The service is not responding',
         detail: 'Nothing has been recorded. The request is exactly as it was.',
         recoverable: true,
       })
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } finally {
       setBusy(false)
     }

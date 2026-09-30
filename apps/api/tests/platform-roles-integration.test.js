@@ -1,7 +1,7 @@
 /**
  * The last of something, against PostgreSQL.
  *
- * Two rules only the real database can prove, because both are about two
+ * Rules only the real database can prove, because each is about two
  * transactions at once under READ COMMITTED — which the stub, whose
  * transactions run one after another, cannot reproduce:
  *
@@ -9,7 +9,11 @@
  *     least one super administrator;
  *   - two owners demoting each other at the same moment leave at least one
  *     owner. Before the owner rows were locked, both counted two owners and
- *     both proceeded, leaving none.
+ *     both proceeded, leaving none;
+ *   - two owners removing each other at the same moment leave one, because
+ *     the second removal meets the last-owner rule once it holds the locks;
+ *   - an owner demoted while their hand-on of ownership waited hands nothing
+ *     on, because the swap is conditional on the caller still being an owner.
  *
  * Plus the direct membership grant and the session revocation that goes with
  * every role change, on real rows.
@@ -29,6 +33,7 @@ import { buildApp } from '../src/app.js'
 import { startSession } from '../src/lib/sessions.js'
 import { connectTestDatabase } from './helpers/database.js'
 import { testEnv } from './helpers/app.js'
+import { holdRow, untilWaiting as untilWaitingOn } from './helpers/row-locks.js'
 
 const { prisma, reachable, when } = await connectTestDatabase('the platform roles suite')
 
@@ -320,79 +325,168 @@ function member(who, organization, role) {
 }
 
 /**
- * Hold one membership row locked until told to let go.
- *
- * A timing device only: the racing requests queue behind it, so the order in
- * which they reach their locks is decided here rather than by the scheduler.
+ * Hold one membership row locked until told to let go. See `helpers/row-locks.js`.
  *
  * @param {string} membershipId The row to hold.
  * @returns {Promise<{release: function(): void, done: Promise<void>, pid: number}>} Resolves once held.
  */
-async function holdingMembership(membershipId) {
-  let release
-  const gate = new Promise((resolve) => {
-    release = resolve
-  })
-  let held
-  const heldPromise = new Promise((resolve) => {
-    held = resolve
-  })
-
-  const done = prisma.$transaction(
-    async (tx) => {
-      const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
-
-      await tx.$queryRaw`SELECT "id" FROM "Membership" WHERE "id" = ${membershipId} FOR UPDATE`
-      held(pid)
-      await gate
-    },
-    { timeout: 20_000, maxWait: 10_000 },
-  )
-
-  return { release, done, pid: await heldPromise }
+function holdingMembership(membershipId) {
+  return holdRow(prisma, 'Membership', membershipId)
 }
 
 /**
- * The backends PostgreSQL reports as waiting on any of `pids`.
- *
- * Asked by pid through `pg_blocking_pids`, so another suite's lock wait in the
- * same database is never mistaken for one of these.
- *
- * @param {number[]} pids The blocking backends.
- * @returns {Promise<number[]>} The waiting backends.
- */
-async function waitingOn(pids) {
-  const rows = await prisma.$queryRaw`
-    SELECT pid FROM pg_stat_activity
-    WHERE datname = current_database() AND pg_blocking_pids(pid) && ${pids}::int[]`
-
-  return rows.map((row) => Number(row.pid))
-}
-
-/**
- * Wait until `count` backends are waiting on the given ones.
+ * Wait until `count` backends are waiting on the given ones. See `helpers/row-locks.js`.
  *
  * @param {function(): number[]} pids The blocking backends, re-read each poll.
  * @param {number} count How many waiters to wait for.
  * @param {string} what What is being waited for, for the failure message.
  * @returns {Promise<number[]>} The waiters.
- * @throws {Error} After five seconds without them.
  */
-async function untilWaiting(pids, count, what) {
-  const deadline = Date.now() + 5_000
-
-  while (Date.now() < deadline) {
-    const waiting = await waitingOn(pids())
-
-    if (waiting.length >= count) return waiting
-
-    await new Promise((resolve) => {
-      setTimeout(resolve, 25)
-    })
-  }
-
-  throw new Error(`Never saw ${what} waiting on a lock within five seconds.`)
+function untilWaiting(pids, count, what) {
+  return untilWaitingOn(prisma, pids, count, what)
 }
+
+/**
+ * Two owners, and the membership that sorts first: the owner row every
+ * owner-changing request locks first, so holding it queues them all.
+ *
+ * @param {string} label Distinguishes the organisation.
+ * @returns {Promise<object>} The organisation, both owners' memberships and sessions, and the first row.
+ */
+async function twoOwners(label) {
+  const organization = await organisation(label)
+  const one = await user(`${label.toLowerCase()}.one`)
+  const two = await user(`${label.toLowerCase()}.two`)
+  const oneMembership = await member(one, organization, 'OWNER')
+  const twoMembership = await member(two, organization, 'OWNER')
+  const [oneSession, twoSession] = await Promise.all([sessionFor(one), sessionFor(two)])
+  const first = [oneMembership, twoMembership].sort((a, b) => (a.id < b.id ? -1 : 1))[0]
+
+  return { organization, oneMembership, twoMembership, oneSession, twoSession, first }
+}
+
+/**
+ * Start `first`, wait until it queues behind a held owner row, then start
+ * `second` and wait until it queues too, then let the row go.
+ *
+ * Both requests have authenticated and read their target before either
+ * reaches a lock, so the second decides from what the first committed.
+ *
+ * @param {object} held The membership row to hold.
+ * @param {function(): Promise<object>} first The request that goes first.
+ * @param {function(): Promise<object>} second The request that goes second.
+ * @returns {Promise<object[]>} Both responses, in that order.
+ */
+async function oneAfterTheOther(held, first, second) {
+  const holder = await holdingMembership(held.id)
+  const firstResponse = first()
+  const [firstPid] = await untilWaiting(() => [holder.pid], 1, 'the first request')
+  const secondResponse = second()
+
+  await untilWaiting(() => [holder.pid, firstPid], 2, 'the second request')
+  holder.release()
+  await holder.done
+
+  return [await firstResponse, await secondResponse]
+}
+
+describeWhen('two owners at once, against PostgreSQL', () => {
+  it('leaves an owner when two owners remove each other at the same moment', async () => {
+    const world = await twoOwners('RemoveEachOther')
+
+    const [first, second] = await oneAfterTheOther(
+      world.first,
+      () =>
+        app.inject({
+          method: 'POST',
+          url: `/v1/organizations/${world.organization.id}/members/${world.twoMembership.id}/remove`,
+          headers: world.oneSession.headers,
+          payload: { reason: 'Racing the other owner' },
+        }),
+      () =>
+        app.inject({
+          method: 'POST',
+          url: `/v1/organizations/${world.organization.id}/members/${world.oneMembership.id}/remove`,
+          headers: world.twoSession.headers,
+          payload: { reason: 'Racing the other owner' },
+        }),
+    )
+
+    expect(first.statusCode).toBe(200)
+    // Both were authorised as owners before either locked anything. The second
+    // finds, once it holds the owner rows, that its target is now the only
+    // owner. Without the last-owner rule it removed them too, leaving none.
+    expect(second.statusCode).toBe(422)
+    expect(second.json().error).toMatchObject({
+      code: 'UNPROCESSABLE',
+      message: 'This is the only owner of the organisation. Make somebody else an owner first.',
+    })
+
+    const left = await prisma.membership.findMany({
+      where: { organizationId: world.organization.id },
+    })
+
+    expect(left.map((row) => [row.id, row.role])).toEqual([[world.oneMembership.id, 'OWNER']])
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'team.member_removed', entityId: world.oneMembership.id },
+      }),
+    ).toBe(0)
+  })
+
+  it('refuses to hand ownership on for an owner demoted while the hand-on waited', async () => {
+    const world = await twoOwners('DemotedWhileWaiting')
+    const heir = await user('demotedwhilewaiting.heir')
+    const heirMembership = await member(heir, world.organization, 'STAFF')
+
+    const [demoted, handedOn] = await oneAfterTheOther(
+      world.first,
+      // The second owner demotes the first...
+      () =>
+        app.inject({
+          method: 'PATCH',
+          url: `/v1/organizations/${world.organization.id}/members/${world.oneMembership.id}`,
+          headers: world.twoSession.headers,
+          payload: { role: 'MANAGER' },
+        }),
+      // ...while the first, still an owner when it was authorised, hands on.
+      () =>
+        app.inject({
+          method: 'POST',
+          url: `/v1/organizations/${world.organization.id}/ownership`,
+          headers: world.oneSession.headers,
+          payload: { toMemberId: heirMembership.id },
+        }),
+    )
+
+    expect(demoted.statusCode).toBe(200)
+    // The swap is conditional on the caller still being an owner. Without the
+    // condition the heir became an owner and the demoted caller was raised
+    // from manager to administrator.
+    expect(handedOn.statusCode).toBe(409)
+    expect(handedOn.json().error).toMatchObject({
+      code: 'CONFLICT',
+      message: 'You are no longer an owner of this organisation. Reload and try again.',
+    })
+
+    const roles = Object.fromEntries(
+      (await prisma.membership.findMany({ where: { organizationId: world.organization.id } })).map(
+        (row) => [row.id, row.role],
+      ),
+    )
+
+    expect(roles).toEqual({
+      [world.oneMembership.id]: 'MANAGER',
+      [world.twoMembership.id]: 'OWNER',
+      [heirMembership.id]: 'STAFF',
+    })
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'team.ownership_transferred', entityId: heirMembership.id },
+      }),
+    ).toBe(0)
+  })
+})
 
 describeWhen('a role read before the lock is never the one decided on, against PostgreSQL', () => {
   /**

@@ -17,6 +17,7 @@
 
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import {
   TIER_LIMITS,
@@ -68,6 +69,7 @@ export function TierForm({
   const [shown, setShown] = useState([])
   const [notice, setNotice] = useState(null)
   const summary = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const session = sessions.find((candidate) => candidate.id === values.eventSessionId) ?? null
   const zone = session?.timezone ?? eventTimezone
@@ -115,7 +117,7 @@ export function TierForm({
     setShown(problems)
 
     if (problems.length > 0) {
-      queueMicrotask(() => summary.current?.focus())
+      focusAfterRender(summary)
       return
     }
 
@@ -434,7 +436,8 @@ export function TierForm({
           }
         />
         Complimentary (guest list, no charge). Hidden from the event page; your team books it
-        through the ordinary checkout.
+        through the event&rsquo;s own checkout, where it is listed for them, and hands each ticket
+        on with a transfer code.
       </label>
 
       <FormField

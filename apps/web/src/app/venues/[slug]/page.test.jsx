@@ -177,6 +177,26 @@ describe('the venue page', () => {
     expect(json.accessibilityFeature).toContain('Step-free entrance')
   })
 
+  it('keeps a venue name that closes a script element inside the structured data', async () => {
+    const breakout = '</script><script>window.__pwned = 1</script>'
+
+    loadVenueBySlug.mockResolvedValue({
+      venue: venue({ name: `Garden ${breakout}`, city: `Mumbai ${breakout}` }),
+      usedFallback: false,
+    })
+
+    const { renderToString } = await import('react-dom/server')
+    const html = renderToString(await VenuePage(route))
+    const scripts = new DOMParser().parseFromString(html, 'text/html').querySelectorAll('script')
+
+    // One script, the structured data, with the words escaped rather than
+    // run: a browser reads the same markup the server sends.
+    expect(html.match(/<\/script>/giu)).toHaveLength(1)
+    expect(scripts).toHaveLength(1)
+    expect(JSON.parse(scripts[0].textContent).name).toBe(`Garden ${breakout}`)
+    expect(JSON.parse(scripts[0].textContent).address.addressLocality).toBe(`Mumbai ${breakout}`)
+  })
+
   it('omits coordinates and capacity it does not have', async () => {
     loadVenueBySlug.mockResolvedValue({
       venue: venue({ latitude: null, longitude: null, capacity: null }),

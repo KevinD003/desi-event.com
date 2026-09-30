@@ -87,7 +87,8 @@ export default async function CheckInPage({ searchParams }) {
       <h1 className="mt-2 text-h2 font-semibold text-ink">Check-in</h1>
       <p className="mt-2 max-w-2xl text-ink-muted">
         Look each ticket up, check the name, then admit. Looking up changes nothing; only{' '}
-        <strong>Admit</strong> does, and a ticket admits once.
+        <strong>Admit</strong> does, and a ticket admits once — or, on an event of several nights,
+        once on its own night, or once each night when it is good for every night.
       </p>
 
       {failure ? (

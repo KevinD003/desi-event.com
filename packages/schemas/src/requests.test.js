@@ -384,15 +384,22 @@ describe('createVenueRequestSchema', () => {
 })
 
 describe('createTicketTypeRequestSchema', () => {
-  it('accepts a ticket type and fills defaults', () => {
+  it('accepts a ticket type and fills defaults, leaving a currency it was not given to the server', () => {
+    // No fixed currency: the route prices a tier in the event's own, and a
+    // literal default is how a tier on a dollar event came to be in rupees.
     expect(createTicketTypeRequestSchema.parse(validTicketType)).toEqual({
       ...validTicketType,
-      currency: 'INR',
       minPerOrder: 1,
       maxPerOrder: 10,
       status: 'DRAFT',
       sortOrder: 0,
     })
+    expect(createTicketTypeRequestSchema.parse({ ...validTicketType, currency: 'USD' })).toEqual(
+      expect.objectContaining({ currency: 'USD' }),
+    )
+    expect(
+      createTicketTypeRequestSchema.safeParse({ ...validTicketType, currency: 'dollars' }).success,
+    ).toBe(false)
   })
 
   it('rejects a negative price', () => {
@@ -854,7 +861,6 @@ describe('checkInRequestSchema', () => {
     ['method', { method: 'MANUAL_CODE' }],
     ['checkedInAt', { checkedInAt: '2026-01-01T10:00:00.000Z' }],
     ['force', { force: true }],
-    ['eventSessionId', { eventSessionId: EVENT_ID }],
     ['eventId', { eventId: EVENT_ID }],
   ])('refuses %s: the server decides it, not the client', (_key, extra) => {
     // `force` used to re-stamp an admission, `checkedInAt` to backdate one, and
@@ -864,6 +870,40 @@ describe('checkInRequestSchema', () => {
       checkInRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', previewReference, ...extra }).success,
     ).toBe(false)
   })
+
+  it('takes the night the door is admitting to as an id, and nothing else in its place', () => {
+    // Chosen at the door like the event, and checked by the server against the
+    // ticket's own night and the event's nights: on an event of more than one
+    // night a ticket for another is refused, and one good for every night is
+    // admitted once on each.
+    expect(
+      checkInRequestSchema.parse({
+        code: 'DE-8F3K2Q-01',
+        previewReference,
+        eventSessionId: EVENT_ID,
+      }).eventSessionId,
+    ).toBe(EVENT_ID)
+    expect(
+      admissionPreviewRequestSchema.parse({ code: 'DE-8F3K2Q-01', eventSessionId: EVENT_ID })
+        .eventSessionId,
+    ).toBe(EVENT_ID)
+
+    for (const night of ['Night 2', '', 7, null]) {
+      expect(
+        checkInRequestSchema.safeParse({
+          code: 'DE-8F3K2Q-01',
+          previewReference,
+          eventSessionId: night,
+        }).success,
+        String(night),
+      ).toBe(false)
+      expect(
+        admissionPreviewRequestSchema.safeParse({ code: 'DE-8F3K2Q-01', eventSessionId: night })
+          .success,
+        String(night),
+      ).toBe(false)
+    }
+  })
 })
 
 describe('group door requests', () => {
@@ -871,6 +911,29 @@ describe('group door requests', () => {
   const groupCode = 'DEG-ABCDEFGH2345'
   const previewReference = `${'a'.repeat(40)}.${'b'.repeat(43)}`
   const ticketIds = [EVENT_ID, TT_ID]
+
+  it('takes the night the door is admitting to, as a single lookup does', () => {
+    expect(
+      groupAdmissionPreviewRequestSchema.parse({ code: groupCode, eventSessionId: EVENT_ID })
+        .eventSessionId,
+    ).toBe(EVENT_ID)
+    expect(
+      groupCheckInRequestSchema.parse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        eventSessionId: EVENT_ID,
+      }).eventSessionId,
+    ).toBe(EVENT_ID)
+    expect(
+      groupCheckInRequestSchema.safeParse({
+        code: groupCode,
+        previewReference,
+        ticketIds,
+        eventSessionId: 'Night 2',
+      }).success,
+    ).toBe(false)
+  })
 
   it('accepts a group QR or a typed group code, upper-casing the code', () => {
     expect(groupAdmissionPreviewRequestSchema.parse({ credential: groupCredential })).toEqual({

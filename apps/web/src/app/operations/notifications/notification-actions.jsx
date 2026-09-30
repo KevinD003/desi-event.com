@@ -46,6 +46,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../../components/step-up-prompt.jsx'
 import { Alert, Button, FormField, Textarea } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
@@ -164,6 +165,7 @@ export function NotificationActions({ notification, leaseLapsed }) {
   const [announcement, setAnnouncement] = useState('')
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const available = ACTIONS.filter((action) =>
     action.key === 'retry'
@@ -187,7 +189,7 @@ export function NotificationActions({ notification, leaseLapsed }) {
     setReason('')
     setRefused(null)
     setStepUp(false)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -199,7 +201,7 @@ export function NotificationActions({ notification, leaseLapsed }) {
     setPending(null)
     setStepUp(false)
     setRefused(null)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -235,7 +237,7 @@ export function NotificationActions({ notification, leaseLapsed }) {
       }
 
       setRefused(refusedBecause(response, body))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused({
         title: null,

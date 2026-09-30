@@ -435,6 +435,29 @@ export const API_ERRORS = Object.freeze({
     code: 'SERVICE_UNAVAILABLE',
     description: 'A dependency (database or Redis) is unreachable.',
   }),
+  /**
+   * Checkout's own outcomes that are not the caller's fault and not a fault
+   * either. Each carries a sentence written for the buyer, which production
+   * does not mask, and the 5xx ones name the order in `error.orderReference`.
+   */
+  paymentDeclined: Object.freeze({
+    status: 402,
+    code: 'PAYMENT_DECLINED',
+    description:
+      'The payment was declined and nothing was charged; the order is cancelled and its holds stay with the buyer. A retry with the same `Idempotency-Key` answers this again: another attempt needs a new key.',
+  }),
+  orderNotCompleted: Object.freeze({
+    status: 500,
+    code: 'ORDER_NOT_COMPLETED',
+    description:
+      'The payment was taken but the order could not be completed. It stays PENDING with a reconciliation task, and `error.orderReference` names it; the buyer must not pay again.',
+  }),
+  paymentTimeout: Object.freeze({
+    status: 502,
+    code: 'PAYMENT_TIMEOUT',
+    description:
+      'The payment provider did not answer, so whether the buyer was charged is being checked. The order stays PENDING and keeps its holds, and `error.orderReference` names it; the buyer must not pay again.',
+  }),
 })
 
 /** Path parameters for the routes nested under an organisation id. */
@@ -1743,7 +1766,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events',
       summary: 'List events',
       description:
-        'Paginated, filterable event discovery. Anonymous callers only ever see PUBLISHED events; a token widens the result set to drafts the caller may view.',
+        'Paginated, filterable event discovery. Anonymous callers see only the listed statuses: PUBLISHED, ON_SALE, SALES_PAUSED and SOLD_OUT. A token adds every event, in any status, of each organisation where the caller holds `event:view_draft`, and `platform:admin` sees every event. `status` narrows that set to one of the thirteen event statuses and never widens it.',
       tags: ['events'],
       auth: 'optional',
       params: null,
@@ -1812,7 +1835,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id',
       summary: 'Update an event',
       description:
-        'Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` cannot be changed here — use `POST /v1/events/:id/publish`, which requires `event:publish`. Requires `event:update`. A draft may be marked online before its joining link is typed; a live (published, on sale, paused, sold out or postponed) online event with no link is refused with 422. On a live event, a change to the date, time zone, venue, age limit, online status or policies needs `confirmMaterialChange: true` and a `changeReason`, and queues a notice for every current order; anything else, including the event page content (FAQ, line-up, running order, sponsors, social links, dress code, directions, public contact), is housekeeping. `performers` is the line-up and `artists` is kept in step with its names; sending only `artists` rebuilds `performers`, keeping the role and bio of any performer matched by name.',
+        'Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` is not writable here (one in the body is dropped): the status moves only through the lifecycle commands — submit-review, withdraw-review, rework, publish, open-sales, pause-sales, postpone, reschedule and cancel under `/v1/events/:id/`, and a moderator\u2019s decision — each with its own capability and gates. Requires `event:update`. A draft may be marked online before its joining link is typed; a live (published, on sale, paused, sold out or postponed) online event with no link is refused with 422. On a live event, a change to the date, time zone, venue, age limit, online status or policies needs `confirmMaterialChange: true` and a `changeReason`, and queues a notice for every current order; anything else, including the event page content (FAQ, line-up, running order, sponsors, social links, dress code, directions, public contact), is housekeeping. `performers` is the line-up and `artists` is kept in step with its names; sending only `artists` rebuilds `performers`, keeping the role and bio of any performer matched by name.',
       tags: ['events'],
       auth: 'session',
       params: idParamSchema,
@@ -2025,7 +2048,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id/reschedule',
       summary: 'Bring a postponed event back with a new date',
       description:
-        'One command, one transaction: the event and the named sessions move to their new dates and the event returns to PUBLISHED (sales stay closed) or ON_SALE, so there is never a live event carrying the date it was postponed from. Takes the event revision as a precondition (409 STALE_REVISION), a confirmation and a reason; one notice per current order is queued, not sent. Refuses a start in the past, a session of another event, and ON_SALE without a ticket type ready to sell (422). Requires `event:update` for the dates and `event:publish` for the return, both asserted in the handler, and a recent step-up under the EVENT_PUBLISH policy.',
+        'One command, one transaction: the event and the named sessions move to their new dates and the event returns to PUBLISHED (sales stay closed) or ON_SALE, so there is never a live event carrying the date it was postponed from. Each ticket type\u2019s own sales window moves in the same transaction by the same amount as what it is sold for \u2014 a tier for one session with the start of that session, a tier for every session with the start of the event \u2014 and a move that would have a tier for one session close after that session has finished is refused (422) with the tier named. Takes the event revision as a precondition (409 STALE_REVISION), a confirmation and a reason; one notice per current order is queued, not sent. Refuses a start in the past, a session of another event, and ON_SALE without a ticket type ready to sell (422). Requires `event:update` for the dates and `event:publish` for the return, both asserted in the handler, and a recent step-up under the EVENT_PUBLISH policy.',
       tags: ['events'],
       auth: 'session',
       stepUp: 'EVENT_PUBLISH',
@@ -2944,7 +2967,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id/tiers',
       summary: 'Add a ticket type to an event',
       description:
-        "Requires `event:update`, on a draft or a live event (a new tier starts as DRAFT unless told otherwise). General admission carries a quantity; reserved carries a price zone of the session's own map version and a session whose map is published, and at most one reserved tier prices a zone at a session (422 before the database is asked). A reserved tier is assigned the session's available seats in its zone. A tier may not name a session belonging to another event — the database refuses that too, finding NF-20. Two tiers on one event may not share a name (422 before the database is asked; 409 TIER_NAME_TAKEN, or TIER_ZONE_TAKEN for a reserved zone, when a concurrent write takes it first). Names are at most 120 characters, descriptions 500, and 1 to 50 per order. A complimentary tier is free and HIDDEN; a HIDDEN tier is left off the public page and bookable only by the organisation's team.",
+        "Requires `event:update`, on a draft or a live event (a new tier starts as DRAFT unless told otherwise). General admission carries a quantity; reserved carries a price zone of the session's own map version and a session whose map is published, and at most one reserved tier prices a zone at a session (422 before the database is asked). A reserved tier is assigned the session's available seats in its zone. A tier may not name a session belonging to another event — the database refuses that too, finding NF-20. Two tiers on one event may not share a name (422 before the database is asked; 409 TIER_NAME_TAKEN, or TIER_ZONE_TAKEN for a reserved zone, when a concurrent write takes it first). Names are at most 120 characters, descriptions 500, and 1 to 50 per order. A tier given no `currency` is priced in the one the event's other tiers use (the organisation's `payoutCurrency` for the first), and a tier in any other currency is refused (422): an order is paid in one currency. A complimentary tier is free and HIDDEN; a HIDDEN tier is left off the public page and bookable only by the organisation's team.",
       tags: ['ticket-types'],
       auth: 'session',
       params: idParamSchema,
@@ -2967,7 +2990,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id/tiers/:tierId',
       summary: 'Change a ticket type',
       description:
-        "Same preconditions as adding one, checked against the stored row merged with the change, so a row written before a limit tightened is refused with a sentence rather than saved. A tier that has sold anything keeps its price (409 TIER_SOLD), and one with live holds keeps it too (409 TIER_IN_USE). Its session, zone, reserved and complimentary flags change only while nothing is sold, held or ordered (409 TIER_IN_USE). Its quantity may be lowered only to what is sold and held (409 TIER_QUANTITY_BELOW_SOLD), checked under the tier's row lock.",
+        "Same preconditions as adding one, checked against the stored row merged with the change, so a row written before a limit tightened is refused with a sentence rather than saved. A tier that has sold anything keeps its price (409 TIER_SOLD), and one with live holds keeps it too (409 TIER_IN_USE). Its session, zone, reserved and complimentary flags change only while nothing is sold, held or ordered (409 TIER_IN_USE). Its quantity may be lowered only to what is sold and held (409 TIER_QUANTITY_BELOW_SOLD), checked under the tier's row lock. Its currency may change only to the one the event's other tiers use (422).",
       tags: ['ticket-types'],
       auth: 'session',
       params: eventTierParamSchema,
@@ -3208,7 +3231,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:eventId/ticket-types',
       summary: 'Create a ticket type',
       description:
-        'Adds a tier to an event. Prices are integer minor units (cents/paise). Requires `ticketType:manage`.',
+        "Adds a tier to an event. Prices are integer minor units (cents/paise). Requires `ticketType:manage`. A tier given no `currency` is priced in the one the event's other tiers use (the organisation's `payoutCurrency` for the first), and a tier in any other currency is refused (422). A name another tier on the event has answers 409 TIER_NAME_TAKEN, before the insert or from the unique index. Recorded in the audit log as `event.ticket_type_added`.",
       tags: ['ticket-types'],
       auth: 'session',
       params: eventIdParamSchema,
@@ -3222,6 +3245,7 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.forbidden,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
+        API_ERRORS.unprocessable,
       ],
     },
     {
@@ -3307,7 +3331,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/orders',
       summary: 'Place an order',
       description:
-        "Converts holds into a PENDING order and computes totals server-side, with the same function `POST /v1/orders/quote` uses. Client-supplied prices are ignored: only the ticket type id and quantity are trusted. `expectedTotalCents` is a precondition and never a price: when it differs from the recomputed total the order is refused with 409 `PRICE_CHANGED` before anything is written or charged, and the client quotes again for the new figure. A promo code is locked for the rest of the checkout (after the tier rows, then the night rows) and re-checked under the lock, so a code with one use left gives one discount however many buyers race for it; a declined card gives the use back. A reserved-seating tier is bought only with the seats held for it: every seat in the holds must be for a tier in the order, and a reserved line with no seats behind it answers 422. `attendees` names the guests, one per ticket, all optional; a ticket nobody named carries the buyer's name. A tier for one night is held to that night's sales window and capacity. A hidden tier answers 404 like an unknown one unless the caller holds `ticketType:manage` in its organisation. The buyer's own response carries `onlineJoinUrl` for a paid online event.",
+        "Converts holds into a PENDING order and computes totals server-side, with the same function `POST /v1/orders/quote` uses. Client-supplied prices are ignored: only the ticket type id and quantity are trusted. `expectedTotalCents` is a precondition and never a price: when it differs from the recomputed total the order is refused with 409 `PRICE_CHANGED` before anything is written or charged, and the client quotes again for the new figure. A promo code is locked for the rest of the checkout (after the tier rows, then the night rows) and re-checked under the lock, so a code with one use left gives one discount however many buyers race for it; a declined card gives the use back. A reserved-seating tier is bought only with the seats held for it: every seat in the holds must be for a tier in the order, and a reserved line with no seats behind it answers 422. `attendees` names the guests, one per ticket, all optional; a ticket nobody named carries the buyer's name. A tier for one night is held to that night's sales window and capacity. A hidden tier answers 404 like an unknown one unless the caller holds `ticketType:manage` in its organisation. Each hold named is locked for the rest of the checkout (after the tiers and nights, before the promo code), and a hold attached to an order whose payment is still being confirmed answers 409 before anything is written or charged: it stays with that order until the payment is settled or refused. A checkout that names a promo code is rate-limited like the quote (per account, or per address for a guest), so codes cannot be tried at speed here either; one with no code is never counted. When the charge succeeds but the order cannot be completed, the capture is recorded for reconciliation and the answer is a 500 `ORDER_NOT_COMPLETED`; a capture the provider did not answer is a 502 `PAYMENT_TIMEOUT`. Both leave the order PENDING, name it in `error.orderReference`, and tell the buyer not to pay again, in production too. A free order whose settlement refuses is cancelled, nothing having been charged, and answers 409 `ORDER_CANCELLED`. An `Idempotency-Key` names one attempt, and a retry of it never places a second order or charges twice: it answers with the attempt's outcome as the order stands now — 201 and the order once it is paid (or refunded since), 409 `ORDER_PENDING` with `error.orderReference` while its payment is still being checked (including a double submission still in flight), 402 `PAYMENT_DECLINED` after a declined card, and 409 `ORDER_CANCELLED` for a cancelled free order. A 201 is never a replay of an unpaid order. The buyer's own response carries `onlineJoinUrl` for a paid online event.",
       tags: ['orders'],
       auth: 'optional',
       params: null,
@@ -3317,10 +3341,14 @@ export const apiRoutes = Object.freeze(
       successStatus: 201,
       errors: [
         API_ERRORS.validation,
+        API_ERRORS.paymentDeclined,
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.gone,
         API_ERRORS.unprocessable,
+        API_ERRORS.rateLimited,
+        API_ERRORS.orderNotCompleted,
+        API_ERRORS.paymentTimeout,
       ],
     },
     {
@@ -3354,7 +3382,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/orders/:reference',
       summary: 'Get an order by reference',
       description:
-        'Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`. For the account that bought it, `groupPass` says whether the order has a group pass (two to fifty tickets the buyer still holds that would admit) and, when not, why; it is null for every other reader and never carries the pass itself. Each line names its tier and its night. For the buyer only, a paid order for an online event carries `onlineJoinUrl` while one of the tickets they hold still admits.',
+        'Looks an order up by its customer-facing reference (e.g. `DE-8F3K2Q`). Visible to the buyer and to organisation members holding `order:view`. For the account that bought it, `groupPass` says whether the order has a group pass to show (two to fifty tickets the buyer still holds that would admit for a new one; one, once it was taken out) and, when not, why; it is null for every other reader and never carries the pass itself. Each line names its tier and its night. For the buyer only, a paid order for an online event carries `onlineJoinUrl` while one of the tickets they hold still admits.',
       tags: ['orders'],
       auth: 'session',
       params: orderReferenceParamSchema,
@@ -3375,7 +3403,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/orders/:reference/group-pass',
       summary: "My order's group pass",
       description:
-        "One QR, and a printed `DEG-` code, that admit every ticket on this order that its buyer still holds — so a party arriving together is let in with one scan, the steward choosing who is at the door. Returned to the account that bought the order and to nobody else: an organiser holding `order:view`, a platform administrator, another account using the buyer's address and a guest order all get the same 404 as a reference nobody has used. Created on first request and derived, never stored: the database holds only SHA-256 digests of the QR content and the code, and the derived values are checked against them before they are returned. A ticket handed to somebody else leaves the group when the transfer is accepted; the recipient has their own pass. Refused with a 409 naming a reason when the buyer holds fewer than two or more than fifty tickets that would admit, the order is not paid, or the event is cancelled. Rate-limited, never cached, never logged or audited in plain.",
+        "One QR, and a printed `DEG-` code, that admit every ticket on this order that its buyer still holds — so a party arriving together is let in with one scan, the steward choosing who is at the door. Returned to the account that bought the order and to nobody else: an organiser holding `order:view`, a platform administrator, another account using the buyer's address and a guest order all get the same 404 as a reference nobody has used. Created on first request and derived, never stored: the database holds only SHA-256 digests of the QR content and the code, and the derived values are checked against them before they are returned. A ticket handed to somebody else leaves the group when the transfer is accepted; the recipient has their own pass. Refused with a 409 naming a reason when the order is not paid, the event is cancelled, or the buyer holds more than fifty tickets that would admit, or too few: a pass taken out for the first time needs two, and one already taken out keeps showing while one still admits, so the last guest of a group is let in by it too. Rate-limited, never cached, never logged or audited in plain.",
       tags: ['tickets', 'orders'],
       auth: 'session',
       params: orderReferenceParamSchema,
@@ -3397,7 +3425,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/orders/:reference/group-pass/rotate',
       summary: "Replace my order's group pass",
       description:
-        "Stops the current group QR and printed code working and derives new ones, for a buyer whose group pass was photographed or shared by mistake. Each ticket's own pass is untouched. Holder-only with the same uniform 404 as the group pass itself; the response carries the new version and no secret, and the buyer fetches the new pass. Audited with the versions, never the values.",
+        "Stops the current group QR and printed code working and derives new ones, for a buyer whose group pass was photographed or shared by mistake. Each ticket's own pass is untouched. Holder-only with the same uniform 404 as the group pass itself; refused with a 409 naming a reason when there is no pass to replace, or when the pass could not be shown (no ticket on it still admits, the order is not paid, or the event is cancelled), since a new code could not be shown to anybody. The response carries the new version and no secret, and the buyer fetches the new pass. Audited with the versions, never the values.",
       tags: ['tickets', 'orders'],
       auth: 'session',
       params: orderReferenceParamSchema,
@@ -3606,7 +3634,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/tickets/admission/events',
       summary: 'Events I may admit to',
       description:
-        "The events this account may admit people to, each with the authority it rests on. OWNER and ADMIN see every current event of their organisation; MANAGER, STAFF and SCANNER see only the events a scope names. A platform super administrator sees every organisation's current door events as well, on `PLATFORM_ROLE` authority, filterable by organisation (`organizationId`) and by a search of the event title or organisation name (`q`); the list is cut at 100 events, starting soonest, and `meta.truncated` says so. Other platform roles see nothing. Read from the database on every request, so a scope granted or withdrawn a moment ago is already reflected.",
+        "The events this account may admit people to, each with the authority it rests on. OWNER and ADMIN see every current event of their organisation; MANAGER, STAFF and SCANNER see only the events a scope names. A platform super administrator sees every organisation's current door events as well, on `PLATFORM_ROLE` authority, filterable by organisation (`organizationId`) and by a search of the event title or organisation name (`q`); the list is cut at 100 events, starting soonest, and `meta.truncated` says so. Other platform roles see nothing. Each entry lists the event's nights (`sessions`, soonest first); on an event of more than one, the door says which night it is admitting to on every lookup and admission. Read from the database on every request, so a scope granted or withdrawn a moment ago is already reflected.",
       tags: ['tickets'],
       auth: 'session',
       params: null,
@@ -3622,7 +3650,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/tickets/admission/preview',
       summary: 'Look a ticket up at the door',
       description:
-        "Resolves a scanned pass or a printed code and says what a door needs to decide: the event and its time, the tier, the seat, the attendee's name, whether the ticket is already in, and a closed refusal reason when it may not be admitted. Writes nothing to the ticket: no check-in, no status change, no credential rotation. The ticket is resolved first and the caller authorised against the ticket's own event, never an event id from the browser; a caller not authorised for it receives the same 404 as a caller who presented nothing real. An admissible ticket carries a short-lived `previewReference` bound to this scanner and this way of presenting it, which a confirmation must return. A platform super administrator may look up tickets at any event and is recorded with `PLATFORM_ROLE` authority, with a separate entry on the event's record; SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner, never cached, and the presented pass is never logged or audited. Names the ticket's night (`session`: label, start, end, zone) so a steward can see a ticket for another night; the door refuses nothing on it. Never carries an online event's joining link.",
+        "Resolves a scanned pass or a printed code and says what a door needs to decide: the event and its time, the tier, the seat, the attendee's name, whether the ticket is already in, and a closed refusal reason when it may not be admitted. Writes nothing to the ticket: no check-in, no status change, no credential rotation. The ticket is resolved first and the caller authorised against the ticket's own event, never an event id from the browser; a caller not authorised for it receives the same 404 as a caller who presented nothing real. An admissible ticket carries a short-lived `previewReference` bound to this scanner and this way of presenting it, which a confirmation must return. A platform super administrator may look up tickets at any event and is recorded with `PLATFORM_ROLE` authority, with a separate entry on the event's record; SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner, never cached, and the presented pass is never logged or audited. Names the ticket's night (`session`: label, start, end, zone; null for a ticket good for every night). On an event of more than one night the door names the night it is admitting to (`eventSessionId`): without it the lookup is refused `NIGHT_REQUIRED`, a ticket for another night is refused `WRONG_NIGHT`, and a ticket good for every night is `ALREADY_CHECKED_IN` only when it was let in on that night. The reference binds the night. Never carries an online event's joining link.",
       tags: ['tickets'],
       auth: 'session',
       params: null,
@@ -3644,7 +3672,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/tickets/check-in',
       summary: 'Admit a previewed ticket',
       description:
-        "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. A platform super administrator may admit at any event; its platform role is re-read inside the admitting transaction, so a demotion since the preview refuses the confirmation, and the admission is recorded with `PLATFORM_ROLE` authority and a separate entry on the event's record. SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner and never cached. Names the ticket's night (`session`), as the preview does.",
+        "Admits a ticket exactly once. The same pass or code must be presented again together with the preview's `previewReference`, and every fact is re-derived inside the admitting transaction: the ticket, its status, its event and organisation, and the caller's membership and scope, the last two locked until the admission commits. A preview is not an authorisation token. The method is recorded from what was presented — `QR_SCAN` for the secure credential, `MANUAL_CODE` for the printed reference — and cannot be chosen by the client; the recorded instant is the server's. An already-admitted ticket answers 200 with `ALREADY_CHECKED_IN` and the original instant. A ticket that may not be admitted is a 409 whose `details.reason` is one of `ADMISSION_REFUSAL_REASONS`. A platform super administrator may admit at any event; its platform role is re-read inside the admitting transaction, so a demotion since the preview refuses the confirmation, and the admission is recorded with `PLATFORM_ROLE` authority and a separate entry on the event's record. SUPPORT, MODERATOR and FINANCE_ADMIN are refused and the attempt is audited. Rate-limited per scanner and never cached. Names the ticket's night (`session`), as the preview does. The night (`eventSessionId`) must be the one the preview was for (else `PREVIEW_MISMATCH`): a ticket for one night admits once, on that night; a ticket good for every night admits once on each night, recorded on the named night, and stays VALID between nights.",
       tags: ['tickets'],
       auth: 'session',
       params: null,
@@ -3667,7 +3695,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/tickets/admission/group/preview',
       summary: 'Look a group pass up at the door',
       description:
-        "Resolves a group pass — its scanned QR or its printed `DEG-` code — and lists every ticket on the order that its buyer still holds, each with the same outcome and closed refusal reason a single lookup gives, plus counts and how many tickets from the order were handed to other people. Writes nothing to any ticket. The same door authority as a single ticket, checked against the order's own event from the database; a caller not authorised for it gets the same 404 as a caller who presented nothing real. When at least one ticket is admissible the answer carries a short-lived `previewReference` naming them, bound to this scanner and this way of presenting, which a group confirmation must return. Rate-limited per scanner, never cached, and neither the pass, the code nor the reference is ever logged or audited.",
+        "Resolves a group pass — its scanned QR or its printed `DEG-` code — and lists every ticket on the order that its buyer still holds, each with the same outcome and closed refusal reason a single lookup gives, plus counts and how many tickets from the order were handed to other people. Writes nothing to any ticket. The same door authority as a single ticket, checked against the order's own event from the database; a caller not authorised for it gets the same 404 as a caller who presented nothing real. Each ticket names its night (`session`), and the door names the night it is admitting to (`eventSessionId`) on an event of more than one, as for a single ticket: a ticket for another night is refused `WRONG_NIGHT`. When at least one ticket is admissible the answer carries a short-lived `previewReference` naming them and the night, bound to this scanner and this way of presenting, which a group confirmation must return. Rate-limited per scanner, never cached, and neither the pass, the code nor the reference is ever logged or audited.",
       tags: ['tickets'],
       auth: 'session',
       params: null,
@@ -3689,7 +3717,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/tickets/admission/group/check-in',
       summary: 'Admit people from a previewed group',
       description:
-        "Admits the tickets named in `ticketIds` — the people actually at the door — in one transaction, each exactly once. Every named ticket must have been admissible in the preview, else 409 `PREVIEW_MISMATCH`. Everything is re-derived under lock: the order, the group pass and its version (a replaced pass is `PREVIEW_MISMATCH`), each ticket, and the caller's authority. A ticket already admitted is reported, not refused, so a retry after a lost answer is safe. If any named ticket stopped admitting for another reason — refunded, withdrawn, handed on — nothing is admitted and the answer is 409 `GROUP_CHANGED`: look the group up again. The method follows from what was presented, as for a single ticket. Rate-limited per scanner and never cached.",
+        "Admits the tickets named in `ticketIds` — the people actually at the door — in one transaction, each exactly once. Every named ticket must have been admissible in the preview, else 409 `PREVIEW_MISMATCH`. Everything is re-derived under lock: the order, the group pass and its version (a replaced pass is `PREVIEW_MISMATCH`), each ticket, and the caller's authority. A ticket already admitted is reported, not refused, so a retry after a lost answer is safe. If any named ticket stopped admitting for another reason — refunded, withdrawn, handed on — nothing is admitted and the answer is 409 `GROUP_CHANGED`: look the group up again. The method follows from what was presented, as for a single ticket, and the night must be the preview's (else `PREVIEW_MISMATCH`); a ticket good for every night is admitted once on each night. Rate-limited per scanner and never cached.",
       tags: ['tickets'],
       auth: 'session',
       params: null,

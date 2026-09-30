@@ -125,6 +125,14 @@ describe('the organisation screen', () => {
     )
     expect(screen.getByText('Unverified')).toBeInTheDocument()
     expect(screen.getByText('It may not publish events or be paid.')).toBeInTheDocument()
+    // Only publishing and selling wait for verification: its events can still
+    // be sent for review and approved, and the page must not say otherwise.
+    expect(
+      screen.getByText(
+        /Until then its events can be drafted, sent for review and approved, but not published or sold\./u,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/events stay drafts/u)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ask for verification' })).toBeInTheDocument()
     expect(
       screen.getByText(/No documents, bank details or tax\s+numbers are collected here/u),

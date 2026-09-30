@@ -6,8 +6,11 @@
   `5f01676` (database foundation), `3c6e4f9` (team access and event
   pictures), `140b79a` (event authoring, the door's group pass, super-admin
   door authority and transfer codes), `0dfb1bd` (seat picker, promo codes,
-  guests' names, nights and private joining links) — plus the integration
-  stage recorded here.
+  guests' names, nights and private joining links) — then the integration
+  stage (`860ae39`) recorded here, and the end-to-end stage in two commits:
+  `999f7b3` (browser journeys for team access, pictures and full event
+  authoring) and `5eb42f4` (the door, the group pass, transfer codes and
+  checkout, and an accessibility sweep of every new screen).
 - **Payment mode:** `PAYMENT_MODE=MOCK` throughout. No real payment, card
   capture, Connect onboarding or payout happens anywhere in this work.
 - **Binding decisions:** ADR 0006 to ADR 0009 (`docs/adr/`), indexed in
@@ -70,10 +73,15 @@ the fallback.**
   hidden after the image are gone before anybody sees it, and a **moderator
   approves it with the event** before it is public. A moderator can take one
   picture down at any time (`moderation.decideMedia`).
-- An approved cover appears on the **event page hero, listing cards, the
-  social preview images** (`opengraph-image`, `twitter-image`) and the page's
-  structured data; the gallery appears on the event page. Pictures are served
-  by `media.get` and resized by the web image optimiser.
+- An approved cover appears on the **event page hero, listing cards** and the
+  page's structured data; the gallery appears on the event page. Pictures are
+  served by `media.get` and resized by the web image optimiser.
+- The **social preview images** (`opengraph-image`, `twitter-image`) show the
+  cover only when it is a PNG, or a JPEG stored upright, of at most 12
+  megapixels. For a WebP cover, a JPEG whose EXIF orientation turns it, a
+  larger one, or one whose bytes cannot be fetched, the card shows the
+  generated poster instead ([`MEDIA.md`](MEDIA.md), "Social previews and
+  structured data"); the editor says so beside the cover upload.
 - **Without a cover, the generated poster** (`components/poster.jsx`) is drawn
   everywhere, as before. The site's look and motion are the redesign's and are
   unchanged by this work; motion is removed under `prefers-reduced-motion`
@@ -93,7 +101,8 @@ the fallback.**
 - **Dates and places:** a time-zone picker with the common zones first and
   every other zone after; several **nights** (sessions), each with its own
   label, times, sales window and capacity, shown on the event page and on every
-  ticket.
+  ticket. At the door a ticket for one night is let in on that night only, and
+  a tier with no night of its own ("Every night") is let in once on each night.
 - **Tickets:** prices typed in dollars; per-tier sales windows; 1 to 50 per
   order; **hidden** tiers the public never sees and **complimentary** tiers
   that are free and hidden; **reserved seating** by price zone per night, sold
@@ -117,9 +126,10 @@ the fallback.**
   **one QR, or one printed `DEG-` code, for everybody on the order** that they
   still hold (`orders.groupPass`, on `/account/orders/[reference]`). At the
   door the steward sees every person in the group, ticks who is there, and
-  admits them in one press, each exactly once
-  (`tickets.previewGroupAdmission`, `tickets.checkInGroup`). The rest can come
-  in later with the same pass. The buyer can replace a pass that was shared by
+  admits them in one press, each exactly once — once each night on an event of
+  several (`tickets.previewGroupAdmission`, `tickets.checkInGroup`). The rest
+  can come in later with the same pass: once taken out, it keeps showing while
+  any ticket on it still admits. The buyer can replace a pass that was shared by
   mistake (`orders.rotateGroupPass`).
 - **Super-admin scanning:** a platform `SUPER_ADMIN` sees **Check-in** in the
   navigation and can look up and admit tickets at **any** event
@@ -129,7 +139,9 @@ the fallback.**
   the other platform roles are still refused (ADR 0007).
 - **Verification:** at the door, "verify" is the preview — a lookup that shows
   the event, tier, seat, night and name and whether the ticket admits, and
-  writes nothing. For organisations, verification is the moderators' queue
+  writes nothing. On an event of several nights the steward picks the night
+  they are admitting to; a ticket for another night is refused, and one for
+  every night is let in once each night. For organisations, verification is the moderators' queue
   described under question 1; a super administrator holds
   `moderation:review`, so it can decide there too.
 
@@ -226,9 +238,18 @@ contract grew from 134 to **164 operations across 22 tags** (146 paths);
   client paths each new screen must reach.
 - **Control characters in searches:** every free-text search or filter field
   that reaches PostgreSQL refuses control characters in its schema
-  (`withoutControlCharacters`, `packages/schemas/src/primitives.js`), and the
-  error handler answers PostgreSQL's invalid-byte error (22021) with a 400
-  instead of a 500.
+  (`withoutControlCharacters`, `packages/schemas/src/primitives.js`).
+- **A NUL anywhere in a request:** the request validator
+  (`apps/api/src/lib/validation.js`) refuses U+0000 in any string, or key, of a
+  validated body, query or path with a 400 that names the field, before the
+  handler writes anything. The review found that a NUL in text bound for a JSON
+  column — event page content, a material-change reason in the outbox payload,
+  a platform role or membership reason in the audit row — answered 500, because
+  PostgreSQL refuses it there as 22P05 and only 22021 (a text column) was
+  mapped. The error handler now answers both SQLSTATEs with a 400, as the
+  backstop for a NUL that arrives by another road. Tests:
+  `apps/api/tests/validation.test.js`, `apps/api/tests/errors.test.js` and
+  `apps/api/tests/unstorable-character-integration.test.js` (on PostgreSQL).
 
 ---
 
@@ -269,6 +290,12 @@ it links.
   since the lookup admits nobody (`GROUP_CHANGED`); a trigger refuses a ticket
   from another order or no longer held by the buyer.
 - The group pass is the buyer's alone; every other caller gets the same 404.
+- On an event of several nights the door names the night it admits to
+  (`NIGHT_REQUIRED` otherwise); a ticket for another night is `WRONG_NIGHT`; a
+  ticket for every night admits once each night and cannot be handed on after
+  any of them. `CheckIn` is unique per ticket and night, and
+  `desi_check_in_ticket_admissible` and `desi_ticket_status_transition` hold
+  the same rules for any writer ([`CHECK_IN.md`](CHECK_IN.md), "Nights").
 
 **Reserved seats** (ADR 0006)
 
@@ -310,18 +337,26 @@ no user-facing copy says "soon", "yet" or "planned".
 
 ## Migrations
 
-Six, in this order, each listed in `PHASE3_MIGRATIONS` in
+Seven, in this order, each listed in `PHASE3_MIGRATIONS` in
 `packages/db/scripts/verify-populated-upgrade.mjs` so the populated-upgrade
-verifier applies them over pre-existing rows.
+verifier applies them over pre-existing rows. Just before the first of them it
+puts in the rows the API at a6bd5e4 could write and these migrations rewrite —
+a complimentary tier, per-order bounds of 60 to 100, a blank and a
+2000-character tier description, a line-up, two cover addresses (one carrying a
+password and a signature), two live invitations to one address in different
+case, and seven promo codes out of range — and afterwards checks what each
+backfill made of them, including the audit row kept for every dropped cover
+address.
 
-| #   | Directory                                                  | What it does                                                                                                                                                                                                                                                                                                                                                                    |
-| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `20260928090000_event_authoring_content_and_tier_rules`    | `TicketTypeVisibility` and `TicketType.visibility` (complimentary tiers backfilled hidden); per-order bounds clamped to 1–50 and checked; complimentary must be free and hidden; tier description cap by trigger; `TicketType_reserved_session_zone_key`; triggers keeping a reserved tier's zone on its night's map, from both sides; nine `Event` content columns with CHECKs |
-| 2   | `20260928100000_live_seat_ticket_index`                    | `Ticket_eventSeatId_live_key` replaces the full `Ticket_eventSeatId_key` (ADR 0006)                                                                                                                                                                                                                                                                                             |
-| 3   | `20260928110000_group_pass`                                | `GroupPass`, `CheckIn.groupPassId`, the digest CHECKs and `desi_check_in_group_pass_matches`                                                                                                                                                                                                                                                                                    |
-| 4   | `20260928120000_team_delivery_and_organisation_provenance` | `InvitationDelivery` and `Invitation.deliveryMode`; `Organization.createdById`; older duplicate pending invitations revoked; `Invitation_one_pending_per_address`                                                                                                                                                                                                               |
-| 5   | `20260928130000_event_media`                               | `MediaKind`; new `MediaAsset` columns; `MediaBlob`; one cover per event; the gallery cap trigger (eight, locking the event `FOR NO KEY UPDATE`); `Event.coverImageUrl` dropped                                                                                                                                                                                                  |
-| 6   | `20260929090000_checkout_promos_attendees_nights`          | `EventSession.label`; `OrderItem.attendeeNames` and `HoldItem.attendeeName`; `PromoCode` CHECKs after normalising backfills                                                                                                                                                                                                                                                     |
+| #   | Directory                                                  | What it does                                                                                                                                                                                                                                                                                                                                                                                     |
+| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | `20260928090000_event_authoring_content_and_tier_rules`    | `TicketTypeVisibility` and `TicketType.visibility` (complimentary tiers backfilled hidden); per-order bounds clamped to 1–50 and checked; complimentary must be free and hidden; tier description cap by trigger; `TicketType_reserved_session_zone_key`; triggers keeping a reserved tier's zone on its night's map, from both sides; nine `Event` content columns with CHECKs                  |
+| 2   | `20260928100000_live_seat_ticket_index`                    | `Ticket_eventSeatId_live_key` replaces the full `Ticket_eventSeatId_key` (ADR 0006)                                                                                                                                                                                                                                                                                                              |
+| 3   | `20260928110000_group_pass`                                | `GroupPass`, `CheckIn.groupPassId`, the digest CHECKs and `desi_check_in_group_pass_matches`                                                                                                                                                                                                                                                                                                     |
+| 4   | `20260928120000_team_delivery_and_organisation_provenance` | `InvitationDelivery` and `Invitation.deliveryMode`; `Organization.createdById`; older duplicate pending invitations revoked; `Invitation_one_pending_per_address`                                                                                                                                                                                                                                |
+| 5   | `20260928130000_event_media`                               | `MediaKind`; new `MediaAsset` columns; `MediaBlob`; one cover per event; the gallery cap trigger (eight, locking the event `FOR NO KEY UPDATE`); `Event.coverImageUrl` dropped                                                                                                                                                                                                                   |
+| 6   | `20260929090000_checkout_promos_attendees_nights`          | `EventSession.label`; `OrderItem.attendeeNames` and `HoldItem.attendeeName`; `PromoCode` CHECKs after normalising backfills                                                                                                                                                                                                                                                                      |
+| 7   | `20260929100000_check_in_per_night`                        | `CheckIn` unique on `(ticketId, eventSessionId)` instead of `ticketId`, plus `CheckIn_ticketId_no_night_key`; `desi_check_in_ticket_admissible` locks the ticket and refuses another night, a night of another event, an every-night admission with no night and a second admission of a ticket that admits once; `desi_ticket_status_transition` refuses handing on a ticket with any admission |
 
 Details: [`DATA_MODEL.md`](DATA_MODEL.md).
 
@@ -329,15 +364,21 @@ Details: [`DATA_MODEL.md`](DATA_MODEL.md).
 
 ## Tests
 
-Counted by `pnpm verify:tests:fresh` on the working tree at the end of the
-integration stage (2026-09-29), with every report proved fresh, the API, worker
-and database suites against a freshly migrated private PostgreSQL database, and
-`REQUIRE_DATABASE=1`. Nothing failed, was skipped or was left as a todo.
+Counted by `pnpm verify:tests:fresh` at `5eb42f4`, the end of the end-to-end
+stage, in a clean copy of that commit (2026-09-30), with every report proved
+fresh, the API, worker and database suites against a freshly migrated private
+PostgreSQL database, and `REQUIRE_DATABASE=1`. Nothing failed, was skipped or
+was left as a todo. The integration stage's own count, on its working tree on
+2026-09-29, was 9,184 cases across 406 files; the difference is `apps/web`,
+where the end-to-end stage added `form-field-boundary.test.js` and cases to
+`event-tiers-editor.test.jsx` and `e2e-seed-invariants.test.js` (174 files and
+2,632 cases then). A later commit changes these figures; the final gate
+recounts them.
 
 | Suite                                                    | Files | Cases | Result     |
 | -------------------------------------------------------- | ----- | ----- | ---------- |
 | `apps/api` (real PostgreSQL, `REQUIRE_DATABASE=1`)       | 110   | 2,223 | all passed |
-| `apps/web`                                               | 174   | 2,632 | all passed |
+| `apps/web`                                               | 175   | 2,861 | all passed |
 | `apps/worker` (real PostgreSQL and Redis)                | 21    | 328   | all passed |
 | `packages/db` (real PostgreSQL)                          | 3     | 133   | all passed |
 | `packages/schemas`                                       | 23    | 1,121 | all passed |
@@ -352,10 +393,10 @@ and database suites against a freshly migrated private PostgreSQL database, and
 | `packages/logger`                                        | 4     | 75    | all passed |
 | `packages/notifications`                                 | 2     | 56    | all passed |
 | `packages/ledger`                                        | 1     | 33    | all passed |
-| **Total**                                                | 406   | 9,184 | all passed |
+| **Total**                                                | 407   | 9,413 | all passed |
 
-An earlier full API run in this stage failed one case, "a refund racing a
-ticket transfer"; its cause is closed (see "Closed in the integration stage"
+An earlier full API run in the integration stage failed one case, "a refund
+racing a ticket transfer"; its cause is closed (see "Closed in the integration stage"
 under "Still limited"), and the figures above are from after that fix.
 
 **Real-PostgreSQL suites added by this work** (each also runs in
@@ -364,10 +405,30 @@ under "Still limited"), and the figures above are from after that fix.
 `event-media-integration`, `event-authoring-live-integration`,
 `group-admission-integration`, `seat-transfer-integration` (renamed from
 `seat-transfer-block-integration`, every case restated),
-`promo-redemption-integration` and `seat-purchase-integration`.
+`promo-redemption-integration` and `seat-purchase-integration`. The review's
+fixes add `unstorable-character-integration` (a NUL in a request, "H —
+Honesty, guards and scaffolding" above), which runs there too.
 
-**Browser suites:** the new end-to-end journeys belong to the end-to-end stage
-and were not run in this stage. No browser result is claimed here.
+**Browser suites:** none was run in the integration stage. The end-to-end stage
+that followed (`999f7b3`, `5eb42f4`) added the journeys, and its last full run
+of all seven configurations — on 2026-09-29 between 19:35 and 19:56 UTC,
+against the tree then committed as `5eb42f4`, each on a fresh database — is the
+last browser result measured:
+
+| Configuration                     | Collected | Passed | Flaky | Skipped |
+| --------------------------------- | --------- | ------ | ----- | ------- |
+| `playwright.config.js` (default)  | 119       | 119    | 0     | 0       |
+| `playwright.production.config.js` | 19        | 19     | 0     | 0       |
+| `playwright.organizer.config.js`  | 13        | 13     | 0     | 0       |
+| `playwright.events.config.js`     | 30        | 30     | 0     | 0       |
+| `playwright.refusals.config.js`   | 4         | 4      | 0     | 0       |
+| `playwright.sweep.config.js`      | 114       | 114    | 0     | 0       |
+| `playwright.detail.config.js`     | 174       | 174    | 0     | 0       |
+| **Total**                         | 473       | 473    | 0     | 0       |
+
+What that stage changed in the product is listed under "Found and fixed in the
+end-to-end stage" below. Browser cases are never added to the Vitest figures
+above.
 
 ---
 
@@ -447,9 +508,12 @@ Stated plainly, so nobody reads a working screen as more than it is:
 - **No split payment** for a group, and no group discount beyond a promo code.
 - **Check-in needs a connection.** No pass, a ticket's own or a group pass, has
   been tried with a real phone at a real door (**EXTERNAL DEVICE VERIFICATION
-  PENDING**). A ticket's own pass and the door scanner have been tested in a
-  simulated Chromium browser; no browser suite exercised the group pass in this
-  stage (the new browser journeys belong to the end-to-end stage).
+  PENDING**). A ticket's own pass, the group pass and the door scanner have
+  been tested in a simulated Chromium browser only: in the end-to-end stage
+  `detail-group-pass.spec.js` draws a group pass on request, replaces it, reads
+  the new QR through a simulated camera and admits two of three, then admits
+  the third by the typed code; `detail-platform-door.spec.js` admits at the
+  super administrator's door and shows a moderator refused.
 - **No text messages**; **automatic deletion is DISABLED** (the retention job
   counts and removes nothing).
 - **US sales tax is not calculated.**
@@ -492,6 +556,20 @@ Closed in the integration stage:
   listing and analytics already do; case 15 of `settlement-invariants.test.js`
   shows a sale within the seats passing and a sale past them still refused.
 
+Found and fixed in the end-to-end stage (`999f7b3`, `5eb42f4`):
+
+- **The super administrator's door filter crashed the check-in page.**
+  `door-event-filter.jsx` was a Server Component that passed a `<Select>` into
+  `FormField`, which clones its control and could not; every server render of
+  `/organizer/check-in` with the filter threw "FormField expects a single
+  control element", and the filter's own Clear link showed "Something went
+  wrong at our end" instead of the door. It is now a client component, and
+  `apps/web/src/components/form-field-boundary.test.js` requires every module
+  that renders `<FormField>` to be one.
+- **A complimentary tier's fee read "Free fee".** The tiers editor now writes
+  the parts as amounts, so a zero fee reads "$0.00 fee"
+  (`event-tiers-editor.test.jsx`).
+
 ---
 
 ## Verification
@@ -502,5 +580,7 @@ a place for one.
 - Local gate (`pnpm verify` and its steps): _(integrator)_
 - `pnpm db:verify:fresh`: _(integrator)_
 - `pnpm db:verify:upgrade`: _(integrator)_
-- Browser suites, one line per CI leg: _(integrator)_
+- Browser suites, one line per CI leg: _(integrator)_. The last local run of
+  all seven, from the end-to-end stage, is under "Tests" above; it is not a CI
+  result.
 - Commit SHA and exact-SHA CI run: _(integrator)_

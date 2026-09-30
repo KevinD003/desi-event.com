@@ -20,6 +20,7 @@
 import Link from 'next/link'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refusalFromResponse } from '../lib/refusal.js'
@@ -44,6 +45,7 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
   const [error, setError] = useState(null)
   const [needsEnrolment, setNeedsEnrolment] = useState(false)
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   // Per instance, so two prompts on one page do not share a label target.
   const id = useId()
 
@@ -86,10 +88,10 @@ export function StepUpPrompt({ action, onConfirmed, onCancel }) {
         setError(refusal.message ?? 'That did not confirm your identity.')
       }
 
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The service is not responding. Nothing has happened.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }

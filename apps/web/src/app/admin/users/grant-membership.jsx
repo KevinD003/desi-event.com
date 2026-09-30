@@ -26,6 +26,7 @@
 import Link from 'next/link'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../../components/step-up-prompt.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
@@ -94,6 +95,7 @@ export function GrantMembership({ account, onChanged }) {
   const [found, setFound] = useState('')
   const panelRef = useRef(null)
   const openerRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const name = account.displayName
   const trimmedTerms = terms.trim()
@@ -150,7 +152,7 @@ export function GrantMembership({ account, onChanged }) {
     setOpen(false)
     setRefused(null)
     setStepUp(false)
-    queueMicrotask(() => openerRef.current?.focus())
+    focusAfterRender(openerRef)
   }
 
   /**
@@ -222,7 +224,7 @@ export function GrantMembership({ account, onChanged }) {
         setOutcome(
           `${name} is now ${roleLabel(role).toLowerCase()} of ${chosen.name}. They are signed out everywhere and sign in again with it.`,
         )
-        queueMicrotask(() => openerRef.current?.focus())
+        focusAfterRender(openerRef)
         await onChanged?.()
         return
       }
@@ -233,7 +235,7 @@ export function GrantMembership({ account, onChanged }) {
       }
 
       setRefused(refusedBecause(response, body, 'The grant was refused.'))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
     } finally {
@@ -443,7 +445,7 @@ export function GrantMembership({ account, onChanged }) {
             setStepUp(false)
             setOutcome('')
             setOpen(true)
-            queueMicrotask(() => panelRef.current?.focus())
+            focusAfterRender(panelRef)
           }}
         >
           Add to an organisation

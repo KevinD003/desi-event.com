@@ -698,7 +698,9 @@ model Ticket {
   supersedes   Ticket?          @relation("TicketSupersession", fields: [supersedesTicketId], references: [id], onDelete: SetNull)
   supersededBy Ticket?          @relation("TicketSupersession")
   transfers    TicketTransfer[]
-  checkIn      CheckIn?
+  /// One for a ticket that admits once; one per night for a ticket good for
+  /// every night. See `CheckIn`.
+  checkIns     CheckIn[]
   refundItems  RefundItem[]
 
   @@index([orderItemId])
@@ -2131,14 +2133,25 @@ enum CheckInMethod {
   ASSISTED
 }
 
-/// One admission through the door.
+/// One admission through the door: a ticket, on one night.
 ///
-/// `ticketId` is unique. One ticket, one attendance, enforced by the database —
-/// so two gates scanning the same pass at the same moment produce one row and
-/// one of them is told, truthfully, that it has already been used.
+/// Two gates scanning the same pass at the same moment produce one row, and one
+/// of them is told, truthfully, that it has already been used.
+///
+/// A ticket for one night — its seat's, else its tier's — admits once, on that
+/// night. A ticket good for every night (a tier with no night, on an event of
+/// more than one) admits once on each night, and stays VALID between them.
+/// Unique on (ticketId, eventSessionId); the partial unique index
+/// `CheckIn_ticketId_no_night_key`, which Prisma cannot express, allows one row
+/// with no night. The trigger `desi_check_in_ticket_admissible` refuses a
+/// ticket that does not admit, a night that is not the ticket's own or not its
+/// event's, an every-night admission that names no night, and a second
+/// admission of a ticket that admits once.
 model CheckIn {
   id              String        @id @default(cuid())
-  ticketId        String        @unique
+  ticketId        String
+  /// The night the ticket was let in on. Null only for a ticket on an event of
+  /// one night or none whose tier names no night.
   eventSessionId  String?
   scannedByUserId String?
   deviceId        String?
@@ -2157,6 +2170,7 @@ model CheckIn {
   device       Device?       @relation(fields: [deviceId], references: [id], onDelete: SetNull)
   groupPass    GroupPass?    @relation(fields: [groupPassId], references: [id], onDelete: SetNull)
 
+  @@unique([ticketId, eventSessionId])
   @@index([eventSessionId, scannedAt])
   @@index([scannedByUserId])
   @@index([groupPassId])

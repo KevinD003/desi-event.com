@@ -17,7 +17,9 @@
  *    seats; a name for each seat, all optional; a promo code.
  * 4. **Pay, simulated.** `POST /v1/orders` with one line per tier (counted
  *    from the hold's own seats, companions included), the hold, the names by
- *    seat, the code and the quoted total as a precondition.
+ *    seat, the code and the quoted total as a precondition. Booked only when
+ *    the order comes back `PAID`; one placed and not settled shows the API's
+ *    own sentence, takes Pay away and links to the order (`UnsettledPayment`).
  *
  * Signed-out visitors can look and see every price; reserving needs an
  * account, and signing in brings them back here.
@@ -37,6 +39,7 @@ import {
   quoteThroughApi,
   releaseThroughApi,
 } from '../lib/checkout-api.js'
+import { isBooked, notBookedNotice } from '../lib/checkout-outcome.js'
 import { formatAmount, priceSelection } from '../lib/pricing.js'
 import { describeApiRefusal } from '../lib/refusal.js'
 import {
@@ -53,11 +56,13 @@ import {
 } from '../lib/seat-map.js'
 import { AttendeeNames, attendeesFrom, hasNameProblems } from './attendee-names.jsx'
 import { BookedOrder } from './booked-order.jsx'
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { PRIMARY_LINK } from './link-classes.js'
 import { OrderSummary, totalsFromEstimate, totalsFromQuote } from './order-summary.jsx'
 import { PromoCodeField } from './promo-code-field.jsx'
 import { SeatPicker } from './seat-picker.jsx'
 import { Alert, Button } from './ui.jsx'
+import { UnsettledPayment } from './unsettled-payment.jsx'
 
 /**
  * @typedef {object} SeatCheckoutProps
@@ -135,6 +140,8 @@ export function SeatCheckout({
   const [priceChanged, setPriceChanged] = useState(false)
   const [order, setOrder] = useState(null)
   const attemptKey = useRef(null)
+  const unsettledRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Start a new purchase attempt: a fresh idempotency key, because the last
@@ -171,7 +178,10 @@ export function SeatCheckout({
   )
 
   const holding = status === 'held' || status === 'paying' || status === 'pay-failed'
-  const busy = status === 'reserving' || status === 'paying' || quoting
+  // An order is waiting on its payment: nothing here may change until that is
+  // settled, and the page says where to look instead.
+  const unsettled = status === 'unsettled'
+  const busy = status === 'reserving' || status === 'paying' || quoting || unsettled
   const items = hold ? groupSelectionIntoItems(hold.seats) : []
 
   /**
@@ -360,6 +370,15 @@ export function SeatCheckout({
         expectedTotalCents: quote.totalCents,
       })
 
+      // A booking only if it is paid. Anything else is an order to look at,
+      // not a success, and not a reason to pay again.
+      if (!isBooked(placed)) {
+        setRefusal(notBookedNotice(placed))
+        setStatus('unsettled')
+        focusAfterRender(unsettledRef)
+        return
+      }
+
       setOrder(placed)
       setHold(null)
       setSelected([])
@@ -374,9 +393,30 @@ export function SeatCheckout({
         return
       }
 
-      const described = describeApiRefusal(error)
+      const described = { ...describeApiRefusal(error), code: error?.code ?? null }
 
       setRefusal(described)
+
+      // An order was placed and whether it was paid is being checked. Its seats
+      // are its own until then; Pay is taken away, not offered again.
+      if (described.state === 'payment-unsettled') {
+        setStatus('unsettled')
+        focusAfterRender(unsettledRef)
+        return
+      }
+
+      // A declined card spent this attempt: the same key would be answered
+      // with the same decline. The hold is still the buyer's, so the next
+      // press of Pay is a new attempt against it.
+      if (described.state === 'payment-declined') {
+        renewAttempt()
+        setStatus('pay-failed')
+        return
+      }
+
+      // The order was cancelled and nothing was charged; its hold is not to be
+      // relied on, so it is given back and the seats chosen again.
+      if (error?.code === 'ORDER_CANCELLED' && hold) void release([hold.id])
 
       if (described.state === 'expired' || error?.status === 409) {
         setHold(null)
@@ -410,7 +450,7 @@ export function SeatCheckout({
       })
     : []
 
-  if (status === 'paid' && order) {
+  if (status === 'paid' && isBooked(order)) {
     return (
       <BookedOrder
         order={order}
@@ -542,7 +582,7 @@ export function SeatCheckout({
                   if (hold) void refreshQuote(hold, null)
                 }}
                 busy={quoting}
-                disabled={status === 'paying' || status === 'reserving'}
+                disabled={status === 'paying' || status === 'reserving' || unsettled}
                 disabledReason={buyer ? null : 'You can use a promo code after signing in.'}
                 reserveNoun="seats"
               />
@@ -565,10 +605,16 @@ export function SeatCheckout({
           ) : null}
 
           {status === 'expired' && refusal ? (
-            <Alert variant="warning" title="The hold ran out" className="mt-5">
-              The hold on these seats ran out or one of them went. Nothing was charged. Choose your
-              seats again to carry on.
-            </Alert>
+            refusal.code === 'ORDER_CANCELLED' ? (
+              <Alert variant="warning" title="The order was cancelled" className="mt-5">
+                {refusal.detail}
+              </Alert>
+            ) : (
+              <Alert variant="warning" title="The hold ran out" className="mt-5">
+                The hold on these seats ran out or one of them went. Nothing was charged. Choose
+                your seats again to carry on.
+              </Alert>
+            )
           ) : null}
 
           {holding && quoteFailure && !quoting ? (
@@ -596,11 +642,21 @@ export function SeatCheckout({
           ) : null}
 
           {status === 'pay-failed' && refusal ? (
-            <Alert variant="warning" title="The order was not placed" className="mt-5">
+            <Alert
+              variant="warning"
+              title={
+                refusal.state === 'payment-declined' ? refusal.title : 'The order was not placed'
+              }
+              className="mt-5"
+            >
               {refusal.state === 'network'
                 ? 'The service did not answer. Trying again is safe: the same attempt cannot book twice, and nothing is charged in this build.'
                 : refusal.detail}
             </Alert>
+          ) : null}
+
+          {unsettled && refusal ? (
+            <UnsettledPayment refusal={refusal} focusRef={unsettledRef} />
           ) : null}
 
           <div className="mt-6 flex flex-col items-stretch gap-3">
@@ -614,13 +670,13 @@ export function SeatCheckout({
                   one. Signing in brings you back to this map.
                 </p>
               </>
-            ) : holding ? (
+            ) : holding || unsettled ? (
               <Button
                 fullWidth
                 size="lg"
                 className="min-h-14 text-[1.0625rem]"
                 loading={status === 'paying'}
-                disabled={!payable}
+                disabled={!payable || unsettled}
                 onClick={handlePay}
               >
                 {quote

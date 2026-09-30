@@ -17,6 +17,7 @@
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { Alert, Button, FormField, Input, Textarea } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { describeApiRefusal, parseRetryAfter, refusalSentence } from '../../../lib/refusal.js'
@@ -44,6 +45,7 @@ export function VerificationRequestForm({ organizationId, status }) {
   const [refused, setRefused] = useState(null)
   const [sent, setSent] = useState(false)
   const refusalRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const trimmedNote = note.trim()
 
   /**
@@ -81,10 +83,10 @@ export function VerificationRequestForm({ organizationId, status }) {
       setRefused(
         refusalSentence(response.status, body, 'The request was refused.', retryAfterSeconds),
       )
-      queueMicrotask(() => refusalRef.current?.focus())
+      focusAfterRender(refusalRef)
     } catch {
       setRefused(describeApiRefusal(null).detail)
-      queueMicrotask(() => refusalRef.current?.focus())
+      focusAfterRender(refusalRef)
     } finally {
       setBusy(false)
     }

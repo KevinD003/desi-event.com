@@ -62,20 +62,40 @@ beforeEach(() => {
 })
 
 describe('the invitation accept form', () => {
-  it('is a hidden, non-autocompleting field that waits for a whole code', async () => {
+  it('is a hidden, non-autocompleting field that says why a part of a code is not sent', async () => {
     const user = userEvent.setup()
 
     render(<InvitationAcceptForm />)
 
     const field = screen.getByLabelText(/Invitation code/u)
+    const join = screen.getByRole('button', { name: 'Join the organisation' })
 
     expect(field).toHaveAttribute('type', 'password')
     expect(field).toHaveAttribute('autocomplete', 'off')
-    expect(screen.getByRole('button', { name: 'Join the organisation' })).toBeDisabled()
+    // Never a greyed button with no reason: it can be pressed, and says why
+    // nothing was sent.
+    expect(join).toBeEnabled()
 
+    await user.click(join)
+
+    expect(field).toHaveAccessibleDescription(/Type or paste the invitation code first\./u)
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(field).toHaveFocus()
+
+    // A truncated paste: the field hides it, so the sentence says what is wrong.
     await user.type(field, 'short')
 
-    expect(screen.getByRole('button', { name: 'Join the organisation' })).toBeDisabled()
+    expect(field).not.toHaveAttribute('aria-invalid')
+    expect(join).toBeEnabled()
+
+    await user.click(join)
+
+    expect(field).toHaveAccessibleDescription(
+      /That is shorter than any invitation code, so part of it is missing\. Paste the whole code again\./u,
+    )
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(field).toHaveFocus()
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 
   it('sends the code, clears it, and says where the account now is', async () => {

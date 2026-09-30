@@ -38,9 +38,13 @@ import {
 } from '@desi-event/inventory'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
+import { unprocessable } from './errors.js'
 
 /** Hold states that no longer own their seats, though the seats may still say HELD. */
 const FINISHED_HOLD_STATES = new Set(['EXPIRED', 'RELEASED'])
+
+/** What a buyer is told when the seats' tier or night is gone. */
+const NOT_ON_SALE_HERE = 'Those seats are not on sale at this session.'
 
 /**
  * Whether a hold has stopped owning its seats.
@@ -432,30 +436,112 @@ export async function holdSeats(
     maxPerOrder,
   })
 
-  return prisma.$transaction(async (tx) => {
-    const reclaimed = await reclaimLapsedSeats(tx, {
-      eventSeatIds: selection.eventSeatIds,
-      eventSessionId,
-      now,
+  const tierIds = [
+    ...new Set([hold.ticketTypeId, ...tierByEventSeatId.values()].filter(Boolean)),
+  ].sort()
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      // FIRST: the tiers and the night this hold is for, so neither can be
+      // deleted under it (see `keepSaleRows`).
+      await keepSaleRows(tx, { ticketTypeIds: tierIds, eventSessionId })
+
+      return writeSeatHold(tx, { selection, hold, eventSessionId, tierByEventSeatId, now })
     })
+  } catch (error) {
+    // The backstop for a row the lock above did not cover: a hold that names
+    // something deleted meanwhile is a sale that is off, not a fault.
+    if (error?.code === 'P2003') throw unprocessable(NOT_ON_SALE_HERE)
 
-    const created = await tx.ticketHold.create({
-      data: { ...hold, quantity: selection.eventSeatIds.length, eventSessionId },
-    })
+    throw error
+  }
+}
 
-    await claimSeats(tx, { eventSeatIds: selection.eventSeatIds, holdId: created.id })
+/**
+ * Keep a seat hold's tiers and night from being deleted under it.
+ *
+ * The seat plan and its tiers are read outside the hold's transaction, and a
+ * night or tier removal (which locks those tiers and the night `FOR UPDATE`,
+ * then deletes them) could commit between that read and the hold's insert.
+ * The insert then waited on the removal and failed its foreign key: a 500 for
+ * a sale that is simply off. So the hold's transaction takes `FOR KEY SHARE`
+ * on each tier, sorted, and then on the night — the checkout's order — and
+ * reads them again. A removal already under way is waited for, and what it
+ * deleted is refused with the route's own 422; one that starts later waits for
+ * the hold, and then sees it. `KEY SHARE` does not conflict with settlement's
+ * update of a tier's sold count, so selling seats never waits on a hold.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} options Options.
+ * @param {string[]} options.ticketTypeIds The tiers, sorted.
+ * @param {string} options.eventSessionId The night.
+ * @returns {Promise<void>} Resolves when every row is held and still on this night.
+ * @throws {Error} A 422 when a tier or the night is gone, or a tier is now another night's.
+ */
+export async function keepSaleRows(tx, { ticketTypeIds, eventSessionId }) {
+  for (const id of ticketTypeIds) {
+    await tx.$queryRaw`SELECT id FROM "TicketType" WHERE id = ${id} FOR KEY SHARE`
+  }
 
-    for (const eventSeatId of selection.eventSeatIds) {
-      await tx.holdItem.create({
-        data: {
-          holdId: created.id,
-          ticketTypeId: tierByEventSeatId.get(eventSeatId) ?? hold.ticketTypeId,
-          eventSeatId,
-          quantity: 1,
-        },
-      })
-    }
+  await tx.$queryRaw`SELECT id FROM "EventSession" WHERE id = ${eventSessionId} FOR KEY SHARE`
 
-    return { hold: created, ...selection, reclaimed }
+  // One statement at a time: a transaction is one connection.
+  const tiers =
+    ticketTypeIds.length === 0
+      ? []
+      : await tx.ticketType.findMany({
+          where: { id: { in: ticketTypeIds } },
+          select: { id: true, eventSessionId: true },
+        })
+  const session = await tx.eventSession.findUnique({
+    where: { id: eventSessionId },
+    select: { id: true },
   })
+
+  if (
+    !session ||
+    tiers.length !== ticketTypeIds.length ||
+    tiers.some((tier) => tier.eventSessionId && tier.eventSessionId !== eventSessionId)
+  ) {
+    throw unprocessable(NOT_ON_SALE_HERE)
+  }
+}
+
+/**
+ * Write a seat hold: take back lapsed holds, create the hold, claim the seats.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} options Options.
+ * @param {{eventSeatIds: string[]}} options.selection The validated selection.
+ * @param {object} options.hold Fields for the `TicketHold` row.
+ * @param {string} options.eventSessionId The night.
+ * @param {Map<string, string>} options.tierByEventSeatId Each seat's tier.
+ * @param {Date} options.now The moment.
+ * @returns {Promise<object>} The hold, the selection and what was reclaimed.
+ */
+async function writeSeatHold(tx, { selection, hold, eventSessionId, tierByEventSeatId, now }) {
+  const reclaimed = await reclaimLapsedSeats(tx, {
+    eventSeatIds: selection.eventSeatIds,
+    eventSessionId,
+    now,
+  })
+
+  const created = await tx.ticketHold.create({
+    data: { ...hold, quantity: selection.eventSeatIds.length, eventSessionId },
+  })
+
+  await claimSeats(tx, { eventSeatIds: selection.eventSeatIds, holdId: created.id })
+
+  for (const eventSeatId of selection.eventSeatIds) {
+    await tx.holdItem.create({
+      data: {
+        holdId: created.id,
+        ticketTypeId: tierByEventSeatId.get(eventSeatId) ?? hold.ticketTypeId,
+        eventSeatId,
+        quantity: 1,
+      },
+    })
+  }
+
+  return { hold: created, ...selection, reclaimed }
 }

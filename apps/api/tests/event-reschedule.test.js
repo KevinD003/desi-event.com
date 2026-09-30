@@ -194,6 +194,128 @@ describe('a postponed event comes back with a new date', () => {
     await app.close()
   })
 
+  it('moves each ticket type’s own sales window with what it is sold for', async () => {
+    // A tier for every night moves with the event's start; a tier for one
+    // night moves with that night. Left at the old dates, a window that closed
+    // at the postponed date would keep the tier off sale after the event came
+    // back.
+    const { app, prisma, ids, event, session, body, reschedule, startsAt } =
+      await postponedHarness()
+    const hour = 60 * 60 * 1000
+    const day = 24 * hour
+    const everyNight = prisma._store.ticketType.find((row) => row.id === ids.generalAdmission.id)
+    const oneNight = prisma._store.ticketType.find((row) => row.id === ids.vip.id)
+    const oldEventStart = event.startsAt.getTime()
+    const oldNightStart = session.startsAt.getTime()
+
+    everyNight.salesStartAt = new Date(oldEventStart - 20 * day)
+    everyNight.salesEndAt = new Date(oldEventStart - hour)
+    oneNight.eventSessionId = session.id
+    oneNight.salesStartAt = null
+    oneNight.salesEndAt = new Date(oldNightStart)
+
+    const response = await reschedule(body())
+
+    expect(response.statusCode).toBe(200)
+
+    const eventDelta = startsAt.getTime() - oldEventStart
+    const nightDelta = startsAt.getTime() - oldNightStart
+
+    expect(everyNight.salesStartAt.getTime()).toBe(oldEventStart - 20 * day + eventDelta)
+    expect(everyNight.salesEndAt.getTime()).toBe(oldEventStart - hour + eventDelta)
+    expect(oneNight.salesStartAt).toBeNull()
+    expect(oneNight.salesEndAt.getTime()).toBe(oldNightStart + nightDelta)
+
+    // The every-night tier sells again: its window now closes an hour before
+    // the new start, which is in the future.
+    expect(everyNight.salesEndAt.getTime()).toBeGreaterThan(Date.now())
+
+    const [row] = auditRows(prisma, 'event.rescheduled')
+    expect(row.metadata.ticketTypes).toEqual(
+      expect.arrayContaining([
+        {
+          id: everyNight.id,
+          before: {
+            salesStartAt: new Date(oldEventStart - 20 * day).toISOString(),
+            salesEndAt: new Date(oldEventStart - hour).toISOString(),
+          },
+          after: {
+            salesStartAt: everyNight.salesStartAt.toISOString(),
+            salesEndAt: everyNight.salesEndAt.toISOString(),
+          },
+        },
+        expect.objectContaining({ id: oneNight.id }),
+      ]),
+    )
+
+    await app.close()
+  })
+
+  it('moves a night’s tier with its night, and an every-night tier not at all, when only the night moves', async () => {
+    const { app, prisma, ids, event, session, body, reschedule } = await postponedHarness()
+    const hour = 60 * 60 * 1000
+    const everyNight = prisma._store.ticketType.find((row) => row.id === ids.generalAdmission.id)
+    const oneNight = prisma._store.ticketType.find((row) => row.id === ids.vip.id)
+    const everyNightEnd = new Date(event.startsAt.getTime() - hour)
+    const oneNightEnd = new Date(session.startsAt.getTime())
+
+    everyNight.salesEndAt = everyNightEnd
+    oneNight.eventSessionId = session.id
+    oneNight.salesEndAt = oneNightEnd
+
+    const response = await reschedule(
+      body({
+        startsAt: event.startsAt.toISOString(),
+        endsAt: event.endsAt.toISOString(),
+        sessions: [
+          {
+            id: session.id,
+            startsAt: new Date(session.startsAt.getTime() + hour).toISOString(),
+            endsAt: new Date(session.endsAt.getTime() + hour).toISOString(),
+          },
+        ],
+      }),
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(everyNight.salesEndAt.getTime()).toBe(everyNightEnd.getTime())
+    expect(oneNight.salesEndAt.getTime()).toBe(oneNightEnd.getTime() + hour)
+
+    await app.close()
+  })
+
+  it('refuses a move that would leave a night’s tier selling after the night, and changes nothing', async () => {
+    const { app, prisma, ids, event, session, body, reschedule, startsAt } =
+      await postponedHarness()
+    const hour = 60 * 60 * 1000
+    const oneNight = prisma._store.ticketType.find((row) => row.id === ids.vip.id)
+    const duration = session.endsAt.getTime() - session.startsAt.getTime()
+    const oldEnd = new Date(session.endsAt.getTime())
+
+    // Sales close as the night ends; the night comes back an hour shorter.
+    oneNight.eventSessionId = session.id
+    oneNight.salesEndAt = oldEnd
+
+    const shorter = new Date(startsAt.getTime() + duration - hour)
+    const response = await reschedule(
+      body({
+        endsAt: shorter.toISOString(),
+        sessions: [
+          { id: session.id, startsAt: startsAt.toISOString(), endsAt: shorter.toISOString() },
+        ],
+      }),
+    )
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.problems).toEqual([
+      'Ticket type "VIP Table": its sales window moves with its session, and would then close after the session has finished. Change its sales window first, or give the session a later end.',
+    ])
+    expect(event.status).toBe('POSTPONED')
+    expect(oneNight.salesEndAt.getTime()).toBe(oldEnd.getTime())
+
+    await app.close()
+  })
+
   it('asks for a recent step-up', async () => {
     const { app, event, body, reschedule } = await postponedHarness({ stepUp: false })
 
@@ -264,14 +386,31 @@ describe('a postponed event comes back with a new date', () => {
     await app.close()
   })
 
-  it('refuses a start in the past', async () => {
+  it('refuses a start in the past, even with every night in the future', async () => {
+    const { app, body, reschedule } = await postponedHarness()
+
+    // Only the event's own start is past: the nights keep the harness's future
+    // dates, so the refusal can come from nothing but the event-level check.
+    const response = await reschedule(
+      body({
+        startsAt: minutesFromNow(-60).toISOString(),
+        endsAt: minutesFromNow(60).toISOString(),
+      }),
+    )
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.problems).toContain('The new start is in the past.')
+    expect(response.json().error.problems.join(' ')).not.toMatch(/The session starting/u)
+
+    await app.close()
+  })
+
+  it('refuses a night left in the past, even with the event’s start in the future', async () => {
     const { app, session, body, reschedule } = await postponedHarness()
     const past = minutesFromNow(-60)
 
     const response = await reschedule(
       body({
-        startsAt: past.toISOString(),
-        endsAt: minutesFromNow(60).toISOString(),
         sessions: [
           {
             id: session.id,
@@ -283,7 +422,10 @@ describe('a postponed event comes back with a new date', () => {
     )
 
     expect(response.statusCode).toBe(422)
-    expect(response.json().error.problems.join(' ')).toMatch(/in the past/)
+    expect(response.json().error.problems).toContain(
+      `The session starting ${past.toISOString()} is in the past. Give it a new date too.`,
+    )
+    expect(response.json().error.problems).not.toContain('The new start is in the past.')
 
     await app.close()
   })

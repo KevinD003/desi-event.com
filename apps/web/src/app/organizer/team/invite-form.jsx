@@ -24,6 +24,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { OneTimeCodePanel } from '../../../components/one-time-code-panel.jsx'
 import { Alert, Button, FormField, Input, Select } from '../../../components/ui.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
@@ -59,6 +60,7 @@ export function InviteForm({ organizationId, assignableRoles }) {
   const [issued, setIssued] = useState(null)
   const [emailed, setEmailed] = useState(null)
   const refusalRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   if (roles.length === 0) return null
 
@@ -112,10 +114,10 @@ export function InviteForm({ organizationId, assignableRoles }) {
             : refusalSentence(response.status, body, 'The invitation was refused.'),
         enrol: body?.error?.code === 'MFA_ENROLMENT_REQUIRED',
       })
-      queueMicrotask(() => refusalRef.current?.focus())
+      focusAfterRender(refusalRef)
     } catch {
       setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
-      queueMicrotask(() => refusalRef.current?.focus())
+      focusAfterRender(refusalRef)
     } finally {
       setBusy(false)
     }

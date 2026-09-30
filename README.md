@@ -270,10 +270,16 @@ runs exactly this command, and `pnpm ci:check` refuses a workflow that produces
 or judges reports any other way. `pnpm verify` runs it too, in place of a plain
 `pnpm test`, so the local gate needs the test database just as CI does.
 
-**The current figures**, as `pnpm verify:tests:fresh` counted them on
-2026-09-29: **9,184** unit and integration cases across 406 files, none failed
-or skipped. Browser cases, across seven Playwright configurations, are counted
-by their own runs and never added to these.
+**The figures at `5eb42f4`**, as `pnpm verify:tests:fresh` counted them on
+2026-09-30 in a clean copy of that commit, against a freshly migrated private
+database with `REQUIRE_DATABASE=1`: **9,413** unit and integration cases across
+407 files, none failed or skipped. A later commit that adds or removes a case
+changes them; recount with the same command rather than trusting this line.
+Browser cases, across seven Playwright configurations, are counted by their own
+runs and never added to these: the last full run of all seven, against the tree
+committed as `5eb42f4`, collected and passed 473
+([`docs/PHASE4_FEATURE_COMPLETION_REPORT.md`](docs/PHASE4_FEATURE_COMPLETION_REPORT.md),
+"Tests").
 
 ## Documentation
 

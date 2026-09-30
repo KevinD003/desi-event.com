@@ -27,8 +27,8 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  * already in and admits the last. A third lookup has nobody left to admit.
  *
  * The replacement comes before the door, not after: a pass lets in the
- * tickets on the order that still admit, and an order with fewer than two of
- * those has no group pass to replace.
+ * tickets on the order that still admit, and once none does there is no pass
+ * to show or to replace.
  *
  * ## What is checked where
  *
@@ -197,6 +197,16 @@ async function openGammaDoor(page) {
       timeout: 1_000,
     })
   }).toPass({ timeout: 15_000 })
+
+  // The garba has two nights, and the group's tickets are for the second:
+  // the door says which night it is admitting to, and refuses the other's.
+  const night = page.getByLabel('Night you are admitting to')
+  const nightValue = await night
+    .locator('option', { hasText: /^Night 2 · /u })
+    .getAttribute('value')
+
+  await night.selectOption(nightValue)
+  await expect(night).toHaveValue(nightValue)
 }
 
 /**

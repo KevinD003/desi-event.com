@@ -246,6 +246,132 @@ describe('POST /v1/orders', () => {
     await app.close()
   })
 
+  describe('a promo code is the organiser’s own, for the events it names', () => {
+    /**
+     * A promo row.
+     *
+     * @param {object} fields What differs from a plain 50%-off code.
+     * @returns {object} The row.
+     */
+    function promoRow(fields) {
+      return {
+        id: cuid(),
+        type: 'PERCENTAGE',
+        value: 5000,
+        maxRedemptions: null,
+        redemptionCount: 0,
+        startsAt: null,
+        endsAt: null,
+        active: true,
+        createdAt: new Date('2025-02-01T00:00:00.000Z'),
+        updatedAt: new Date('2025-02-01T00:00:00.000Z'),
+        ...fields,
+      }
+    }
+
+    it('prices a code shared by two organisations on the event’s own organisation’s terms', async () => {
+      // Codes are unique only within an organisation. Another organiser's
+      // code with the same letters, listed first, must neither discount this
+      // order nor lose a use to it.
+      const world = await makeWorld()
+      const theirs = promoRow({
+        organizationId: world.ids.otherOrganization.id,
+        eventId: null,
+        code: 'DIWALI20',
+        value: 5000,
+      })
+      const ours = promoRow({
+        organizationId: world.ids.organization.id,
+        eventId: null,
+        code: 'DIWALI20',
+        value: 2000,
+      })
+      world.seed.promoCode.unshift(theirs, ours)
+
+      const { app, prisma, ids } = await createTestApp({ seed: world.seed, ids: world.ids })
+
+      const response = await order(app, checkout(ids, { promoCode: 'DIWALI20' }))
+
+      expect(response.statusCode).toBe(201)
+      expect(response.json().data.discountCents).toBe(expectedTotals(1, ours).discountCents)
+      expect(response.json().data.discountCents).toBe(GA_PRICE * 0.2)
+      expect(prisma._store.order[0].promoCodeId).toBe(ours.id)
+      expect(prisma._store.promoCode.find((row) => row.id === ours.id).redemptionCount).toBe(1)
+      expect(prisma._store.promoCode.find((row) => row.id === theirs.id).redemptionCount).toBe(0)
+
+      await app.close()
+    })
+
+    it('does not know another organisation’s code, at the charge or in the quote', async () => {
+      const world = await makeWorld()
+      const theirs = promoRow({
+        organizationId: world.ids.otherOrganization.id,
+        eventId: null,
+        code: 'ONLYTHEIRS',
+      })
+      world.seed.promoCode.unshift(theirs)
+
+      const { app, prisma, ids } = await createTestApp({ seed: world.seed, ids: world.ids })
+
+      const charged = await order(app, checkout(ids, { promoCode: 'ONLYTHEIRS' }))
+      expect(charged.statusCode).toBe(422)
+      expect(charged.json().error.message).toBe(
+        'Promo code "ONLYTHEIRS" is not valid for this event.',
+      )
+
+      const quoted = await app.inject({
+        method: 'POST',
+        url: '/v1/orders/quote',
+        headers: bearer(await signIn(app, 'priya@example.com')),
+        payload: {
+          eventId: ids.publishedEvent.id,
+          items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+          promoCode: 'ONLYTHEIRS',
+        },
+      })
+      expect(quoted.statusCode).toBe(200)
+      expect(quoted.json().data.promo).toMatchObject({ applied: false, reason: 'UNKNOWN' })
+
+      expect(prisma._store.order).toHaveLength(0)
+      expect(prisma._store.promoCode.find((row) => row.id === theirs.id).redemptionCount).toBe(0)
+
+      await app.close()
+    })
+
+    it('refuses a code limited to one event on the organisation’s other events, as if it did not exist', async () => {
+      const world = await makeWorld()
+      const elsewhere = promoRow({
+        organizationId: world.ids.organization.id,
+        eventId: world.ids.approvedEvent.id,
+        code: 'THATNIGHT',
+      })
+      world.seed.promoCode.unshift(elsewhere)
+
+      const { app, prisma, ids } = await createTestApp({ seed: world.seed, ids: world.ids })
+
+      const charged = await order(app, checkout(ids, { promoCode: 'THATNIGHT' }))
+      expect(charged.statusCode).toBe(422)
+      expect(charged.json().error.message).toBe(
+        'Promo code "THATNIGHT" is not valid for this event.',
+      )
+
+      const quoted = await app.inject({
+        method: 'POST',
+        url: '/v1/orders/quote',
+        headers: bearer(await signIn(app, 'priya@example.com')),
+        payload: {
+          eventId: ids.publishedEvent.id,
+          items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 1 }],
+          promoCode: 'THATNIGHT',
+        },
+      })
+      expect(quoted.json().data.promo).toMatchObject({ applied: false, reason: 'UNKNOWN' })
+      expect(prisma._store.promoCode.find((row) => row.id === elsewhere.id).redemptionCount).toBe(0)
+
+      await app.close()
+    })
+  })
+
   it('ignores a userId in the body and attributes the order to the caller', async () => {
     // Regression guard: the route used `body.userId ?? actor.id`, so an
     // anonymous request could attach its order to anyone's account.
@@ -295,6 +421,41 @@ describe('POST /v1/orders', () => {
 
     expect(response.statusCode).toBe(422)
     expect(prisma._store.order).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('rations promo-code attempts at checkout like the quote, for a guest too, and never a checkout without one', async () => {
+    const { app, prisma, ids } = await createTestApp({
+      rateLimit: {
+        global: { max: 10_000, timeWindow: '1 minute' },
+        quote: { max: 2, timeWindow: '1 minute' },
+      },
+    })
+
+    // A guest with no account telling codes apart: an unknown one is refused,
+    // a real one moves the total against a deliberately wrong figure. Both
+    // before anything is written, so without a budget it was a free oracle.
+    const unknown = await order(app, checkout(ids, { promoCode: 'WELCOME10' }))
+    const known = await order(app, checkout(ids, { promoCode: 'GARBA10', expectedTotalCents: 1 }))
+
+    expect(unknown.statusCode).toBe(422)
+    expect(known.statusCode).toBe(409)
+    expect(known.json().error.code).toBe('PRICE_CHANGED')
+
+    const third = await order(app, checkout(ids, { promoCode: 'DIWALI20', expectedTotalCents: 1 }))
+    expect(third.statusCode).toBe(429)
+    expect(third.json().error.code).toBe('RATE_LIMITED')
+    expect(prisma._store.order).toHaveLength(0)
+
+    // Buying without a code is never counted against it.
+    const plain = await order(app, checkout(ids))
+    expect(plain.statusCode).toBe(201)
+
+    // A signed-in buyer has a budget of their own.
+    const headers = bearer(await signIn(app, 'priya@example.com'))
+    const mine = await order(app, checkout(ids, { promoCode: 'WELCOME10' }), headers)
+    expect(mine.statusCode).toBe(422)
 
     await app.close()
   })

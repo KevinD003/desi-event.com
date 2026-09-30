@@ -23,7 +23,6 @@ import {
 import {
   ADMISSION_EVENT_SCOPES,
   GROUP_PASS_MAX_TICKETS,
-  GROUP_PASS_MIN_TICKETS,
   admissionAuthoritySchema,
   admissionPreviewOutcomeSchema,
   admissionRefusalReasonSchema,
@@ -31,6 +30,7 @@ import {
   checkInOutcomeSchema,
   connectOnboardingStatusSchema,
   eventCategorySchema,
+  eventSessionStatusSchema,
   eventStatusSchema,
   logLevelSchema,
   promoQuoteReasonSchema,
@@ -131,6 +131,18 @@ export const errorResponseSchema = z.object({
       .string()
       .regex(/^[A-Z][A-Z0-9_]{1,63}$/u)
       .optional(),
+    /**
+     * The order a checkout answer is about, when one was placed and the buyer
+     * has to be able to find it: a capture that timed out (502
+     * `PAYMENT_TIMEOUT`), a capture the order could not be completed for (500
+     * `ORDER_NOT_COMPLETED`), and a retry of an attempt whose payment is still
+     * being checked (409 `ORDER_PENDING`). Its page says where the order
+     * stands; paying again is what it exists to prevent.
+     */
+    orderReference: z
+      .string()
+      .regex(/^[A-Z0-9-]{4,32}$/u)
+      .optional(),
     requestId: z.string().min(1).max(64).optional(),
   }),
 })
@@ -203,9 +215,10 @@ export const admissionEventSchema = z.object({
 })
 
 /**
- * Which night a ticket is for, so a steward sees "Night 3 · Wed Oct 8" rather
- * than admitting Friday's ticket on Thursday. Null for a ticket good for every
- * night. A label only: the door refuses nothing on it.
+ * Which night a ticket is for, so a steward sees "Night 3 · Wed Oct 8". Null
+ * for a ticket good for every night (or on an event of one night whose tier
+ * names none). On an event of more than one night the door names the night it
+ * is admitting to, and a ticket for another is refused `WRONG_NIGHT`.
  */
 export const admissionSessionSchema = z
   .object({
@@ -314,6 +327,20 @@ export const admissionEventsResponseSchema = z.object({
     z
       .object({
         event: admissionEventSchema.extend({ status: eventStatusSchema }),
+        /**
+         * The event's nights, soonest first, for the door to say which one it
+         * is admitting to. With more than one, every lookup must name one.
+         */
+        sessions: z.array(
+          z.object({
+            id: cuidSchema,
+            label: z.string().nullable(),
+            startsAt: timestampSchema,
+            endsAt: timestampSchema,
+            timezone: z.string(),
+            status: eventSessionStatusSchema,
+          }),
+        ),
         organization: z.object({ id: cuidSchema, name: z.string() }),
         authority: admissionAuthoritySchema,
         role: admissionRoleSchema,
@@ -347,6 +374,8 @@ export const groupAdmissionTicketSchema = z.object({
   refusal: admissionRefusalReasonSchema.nullable(),
   tier: z.object({ name: z.string() }).nullable(),
   seat: admissionSeatSchema,
+  // The night this ticket is for, as on a single ticket's preview.
+  session: admissionSessionSchema,
   // Never an address: the presenter replaces one, and this refuses one it missed.
   attendeeName: addressFree(z.string()).nullable(),
   checkedInAt: timestampSchema.nullable(),
@@ -402,6 +431,7 @@ export const groupCheckInResponseSchema = z.object({
           checkedInByYou: z.boolean(),
           tier: z.object({ name: z.string() }).nullable(),
           seat: admissionSeatSchema,
+          session: admissionSessionSchema,
           attendeeName: addressFree(z.string()).nullable(),
         }),
       )
@@ -425,7 +455,9 @@ export const groupPassResponseSchema = z.object({
     groupCode: z.string().regex(/^DEG-[2-9A-HJ-NP-Z]{12}$/u),
     credentialVersion: z.int().min(1),
     issuedAt: timestampSchema.nullable(),
-    admits: z.int().min(GROUP_PASS_MIN_TICKETS).max(GROUP_PASS_MAX_TICKETS),
+    // At least GROUP_PASS_MIN_TICKETS when a pass is first taken out; once
+    // taken out it keeps showing for as long as one ticket on it still admits.
+    admits: z.int().min(1).max(GROUP_PASS_MAX_TICKETS),
     tickets: z
       .array(
         z.object({

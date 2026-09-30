@@ -28,6 +28,46 @@ const DUPLICATE = /P2002|duplicate key|unique constraint/i
 const REFUSED = /check_violation|violates check constraint|P2010|P2002/i
 
 /**
+ * The night an admission of a ticket is recorded on, as the door would name
+ * it: the ticket's own (its seat's, else its tier's), else the first of its
+ * event's nights when it is good for every night, else none.
+ *
+ * Since admission per night (`20260929100000_check_in_per_night`) the trigger
+ * refuses a night that is not the ticket's, or of another event; the probes
+ * that expect an admission to be accepted, or refused for another reason, name
+ * one the trigger would accept.
+ *
+ * @param {object} tx The probe's transaction.
+ * @param {string} ticketId The ticket.
+ * @returns {Promise<string|null>} The session id, or null.
+ */
+async function nightOf(tx, ticketId) {
+  const ticket = await tx.ticket.findUnique({
+    where: { id: ticketId },
+    select: {
+      eventSeat: { select: { eventSessionId: true } },
+      orderItem: {
+        select: {
+          ticketType: { select: { eventSessionId: true } },
+          order: { select: { eventId: true } },
+        },
+      },
+    },
+  })
+  const own = ticket.eventSeat?.eventSessionId ?? ticket.orderItem.ticketType?.eventSessionId
+
+  if (own) return own
+
+  const nights = await tx.eventSession.findMany({
+    where: { eventId: ticket.orderItem.order.eventId },
+    orderBy: [{ startsAt: 'asc' }, { id: 'asc' }],
+    select: { id: true },
+  })
+
+  return nights.length > 1 ? nights[0].id : null
+}
+
+/**
  * Fixtures the probes push against, created once and committed.
  *
  * @param {object} prisma A client connected to the disposable database.
@@ -701,8 +741,12 @@ export async function runPhase2Probes(prisma, { probe, record }) {
   results.push(
     await probe(prisma, 'a ticket is checked in once', DUPLICATE, async (tx) => {
       const ticket = await tx.ticket.findFirst()
-      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
-      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+      await tx.checkIn.create({
+        data: { ticketId: ticket.id, eventSessionId: await nightOf(tx, ticket.id) },
+      })
+      await tx.checkIn.create({
+        data: { ticketId: ticket.id, eventSessionId: await nightOf(tx, ticket.id) },
+      })
     }),
   )
 
@@ -834,7 +878,9 @@ export async function runPhase2Probes(prisma, { probe, record }) {
     await probe(prisma, 'a revoked ticket cannot be checked in', /does not admit/, async (tx) => {
       const ticket = await tx.ticket.findFirst()
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'REVOKED' } })
-      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+      await tx.checkIn.create({
+        data: { ticketId: ticket.id, eventSessionId: await nightOf(tx, ticket.id) },
+      })
     }),
   )
 
@@ -842,7 +888,9 @@ export async function runPhase2Probes(prisma, { probe, record }) {
     await probe(prisma, 'a refunded ticket cannot be checked in', /does not admit/, async (tx) => {
       const ticket = await tx.ticket.findFirst()
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'REFUNDED' } })
-      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+      await tx.checkIn.create({
+        data: { ticketId: ticket.id, eventSessionId: await nightOf(tx, ticket.id) },
+      })
     }),
   )
 
@@ -850,7 +898,9 @@ export async function runPhase2Probes(prisma, { probe, record }) {
     await probe(prisma, 'a ticket handed on cannot be checked in', /does not admit/, async (tx) => {
       const ticket = await tx.ticket.findFirst()
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFERRED' } })
-      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+      await tx.checkIn.create({
+        data: { ticketId: ticket.id, eventSessionId: await nightOf(tx, ticket.id) },
+      })
     }),
   )
 
@@ -860,7 +910,9 @@ export async function runPhase2Probes(prisma, { probe, record }) {
       // that turned those people away would be turning away the buyer.
       const ticket = await tx.ticket.findFirst()
       await tx.ticket.update({ where: { id: ticket.id }, data: { status: 'TRANSFER_PENDING' } })
-      await tx.checkIn.create({ data: { ticketId: ticket.id, eventSessionId: session.id } })
+      await tx.checkIn.create({
+        data: { ticketId: ticket.id, eventSessionId: await nightOf(tx, ticket.id) },
+      })
     }),
   )
 
@@ -908,7 +960,11 @@ export async function runPhase2Probes(prisma, { probe, record }) {
 
         await tx.checkIn.deleteMany({ where: { ticketId: ticket.id } })
         await tx.checkIn.create({
-          data: { ticketId: ticket.id, eventSessionId: session.id, groupPassId: pass.id },
+          data: {
+            ticketId: ticket.id,
+            eventSessionId: await nightOf(tx, ticket.id),
+            groupPassId: pass.id,
+          },
         })
       },
     ),
@@ -931,7 +987,11 @@ export async function runPhase2Probes(prisma, { probe, record }) {
         await tx.ticket.update({ where: { id: other.id }, data: { status: 'VALID' } })
         await tx.checkIn.deleteMany({ where: { ticketId: other.id } })
         await tx.checkIn.create({
-          data: { ticketId: other.id, eventSessionId: session.id, groupPassId: pass.id },
+          data: {
+            ticketId: other.id,
+            eventSessionId: await nightOf(tx, other.id),
+            groupPassId: pass.id,
+          },
         })
       },
     ),
@@ -948,7 +1008,11 @@ export async function runPhase2Probes(prisma, { probe, record }) {
         await tx.ticket.update({ where: { id: ticket.id }, data: { ownerUserId: null } })
         await tx.checkIn.deleteMany({ where: { ticketId: ticket.id } })
         await tx.checkIn.create({
-          data: { ticketId: ticket.id, eventSessionId: session.id, groupPassId: pass.id },
+          data: {
+            ticketId: ticket.id,
+            eventSessionId: await nightOf(tx, ticket.id),
+            groupPassId: pass.id,
+          },
         })
       },
     ),

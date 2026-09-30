@@ -124,7 +124,8 @@ export default async function OrganizationPage({ searchParams }) {
       </h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
         Its public details, and where it stands with verification. A verified organisation may
-        publish events and be paid; until then its events stay drafts.
+        publish events and be paid. Until then its events can be drafted, sent for review and
+        approved, but not published or sold.
       </p>
 
       {organizations.length > 1 ? (

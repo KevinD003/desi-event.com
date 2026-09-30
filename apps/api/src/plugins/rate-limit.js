@@ -153,9 +153,40 @@ export function mediaReadRateLimit(overrides = {}) {
  * Keyed on the signed-in account for the same reason as the pass budget: every
  * browser request arrives from the web server's address.
  *
+ * The charge is the other way to try codes — an unknown code is refused, and a
+ * known one moves the total — so `POST /v1/orders` carrying a code draws on a
+ * budget of the same size ({@link promoAttemptRateLimit}).
+ *
  * @type {Readonly<{max: number, timeWindow: string}>}
  */
 export const DEFAULT_QUOTE_LIMIT = Object.freeze({ max: 30, timeWindow: '1 minute' })
+
+/**
+ * Build the per-route `config.rateLimit` object for checkouts that name a promo code.
+ *
+ * `POST /v1/orders` answers an unknown code with a 422 and a known one with a
+ * different total (a 409 `PRICE_CHANGED` against a deliberately wrong
+ * `expectedTotalCents`), both before anything is written, and it takes guests.
+ * Unmetered, that was a way to test codes with no account and no side effects
+ * at ten times the quote's rate. So a checkout carrying a code spends from its
+ * own budget of the quote's size, keyed on the signed-in account or, for a
+ * guest, on the address — a hold token is no key, since anybody can mint
+ * another. A checkout with no code is never counted: the web's guests reach
+ * the API through one address, and buying must not be rationed.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, normally only supplied by tests.
+ * @returns {object} The effective promo-attempt limit.
+ */
+export function promoAttemptRateLimit(overrides = {}) {
+  return {
+    ...DEFAULT_QUOTE_LIMIT,
+    ...overrides,
+    hook: 'preHandler',
+    allowList: (request) => !request.body?.promoCode,
+    keyGenerator: (request) =>
+      request.actor?.id ? `promo:actor:${request.actor.id}` : `promo:ip:${request.ip}`,
+  }
+}
 
 /**
  * Build the per-route `config.rateLimit` object for checkout quotes.

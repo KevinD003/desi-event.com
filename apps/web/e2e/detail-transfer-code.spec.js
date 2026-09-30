@@ -34,6 +34,8 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  * - **The database:** the transfer is ACCEPTED, the taker holds a new ticket on
  *   the same seat, the seat is still sold, and the giver's ticket is
  *   TRANSFERRED with its credential digest gone.
+ * - **The API:** the giver asking for the old ticket's pass afterwards is
+ *   refused, and the answer carries no pass.
  * - **The door:** gamma's owner scans the giver's old pass and it matches
  *   nothing; types the old printed code and is told it was handed on; types
  *   the taker's and is shown the seat.
@@ -136,6 +138,16 @@ async function openBalconyDoor(page) {
       timeout: 1_000,
     })
   }).toPass({ timeout: 15_000 })
+
+  // The concert has two nights, and seat A3 is sold for the first: the door
+  // says which night it is admitting to, and refuses a ticket for the other.
+  const night = page.getByLabel('Night you are admitting to')
+  const nightValue = await night
+    .locator('option', { hasText: /^Night 1 · /u })
+    .getAttribute('value')
+
+  await night.selectOption(nightValue)
+  await expect(night).toHaveValue(nightValue)
 }
 
 /**
@@ -248,6 +260,7 @@ test.describe.serial('a reserved seat, handed on with a code shown once', () => 
   })
 
   test('the recipient accepts with the code, and the seat moves with the ticket', async ({
+    giver,
     taker,
   }) => {
     expect(story.code, 'the case before did not issue a code').not.toBeNull()
@@ -310,6 +323,17 @@ test.describe.serial('a reserved seat, handed on with a code shown once', () => 
     expect(seat).toEqual({ status: 'SOLD', seat: { label: seatedTicketSeatLabel } })
 
     Object.assign(story, { newTicketId: after.id, newCode: after.code })
+
+    // The giver asks for the old ticket's pass anyway, as a client that skips
+    // the page would: refused, with the door's own reason, and no pass in the
+    // answer. Asked without the page, so nothing is drawn.
+    const asked = await giver.request.get(`/api/v1/tickets/${seatedTicketId}/pass`)
+    const answer = await asked.text()
+
+    expect(asked.status()).toBe(409)
+    expect(JSON.parse(answer).error.message).toMatch(/handed to somebody else/u)
+    expect(answer).not.toContain(story.oldCredential)
+    expect(answer).not.toMatch(/"credential"/u)
 
     // And the taker's wallet shows it, with the seat and its night. (The
     // taker may hold other balcony seats by now — the seat picker's journey

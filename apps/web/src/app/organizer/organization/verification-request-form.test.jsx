@@ -91,6 +91,24 @@ describe('the verification request', () => {
 
     await user.click(screen.getByRole('button', { name: 'Ask for verification' }))
 
-    expect(await screen.findByText(/can only move to/u)).toBeInTheDocument()
+    const sentence = await screen.findByText(/can only move to/u)
+
+    expect(sentence).toBeInTheDocument()
+    // Focus goes to the refusal, drawn only once the answer is in: not to the page.
+    await waitFor(() => expect(sentence.closest('[tabindex="-1"]')).toHaveFocus())
+  })
+
+  it('moves focus to the refusal when the network fails', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<VerificationRequestForm organizationId={ORG} status="UNVERIFIED" />)
+
+    await user.click(screen.getByRole('button', { name: 'Ask for verification' }))
+
+    const refusal = (await screen.findByText('Nothing was sent')).closest('[tabindex="-1"]')
+
+    expect(refusal).not.toBeNull()
+    await waitFor(() => expect(refusal).toHaveFocus())
   })
 })

@@ -330,6 +330,48 @@ export function isKnownTimeZone(timezone) {
 }
 
 /**
+ * The currency a new tier is priced in when its author names none.
+ *
+ * The one the event's other tiers are priced in, because an order is paid in
+ * one currency and a tier in another could never share a basket with them;
+ * for an event's first tier, the organisation's own. Never a fixed code: a
+ * literal default is how a tier on a dollar event came to be priced in rupees.
+ *
+ * @param {object} event The event, as {@link loadForAuthoring} loads it.
+ * @returns {string} An ISO 4217 code.
+ */
+export function defaultTierCurrency(event) {
+  return (
+    (event?.ticketTypes ?? []).find((tier) => tier.currency)?.currency ??
+    event?.organization?.payoutCurrency ??
+    'USD'
+  )
+}
+
+/**
+ * Why a tier's currency does not fit the event's other tiers.
+ *
+ * Checkout refuses a basket that mixes currencies, so a tier priced apart from
+ * the rest is one no buyer can add to theirs. Asked when a tier is added, and
+ * when an edit changes a tier's currency.
+ *
+ * @param {object} tier The proposed tier, with its currency.
+ * @param {object[]} siblings The event's ticket types.
+ * @returns {string[]} Reasons. Empty means it fits.
+ */
+export function tierCurrencyProblems(tier, siblings) {
+  const other = siblings.find(
+    (sibling) => sibling.id !== tier.id && sibling.currency && sibling.currency !== tier.currency,
+  )
+
+  if (!other) return []
+
+  return [
+    `The other ticket types on this event are priced in ${other.currency}, and an order is paid in one currency, so price this one in ${other.currency} too.`,
+  ]
+}
+
+/**
  * Why a proposed ticket type is not coherent.
  *
  * Run against the row as it would be stored — the stored row merged with the

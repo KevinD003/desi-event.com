@@ -27,6 +27,7 @@ import Link from 'next/link'
 import { Badge } from '../../../components/ui.jsx'
 import { GarbaRings, MirrorBand } from '../../../components/festive-decor.jsx'
 import { ArrowRightIcon, CheckIcon, ClockIcon, PinIcon } from '../../../components/icons.jsx'
+import { JsonLd } from '../../../components/json-ld.jsx'
 import { Reveal } from '../../../components/motion.jsx'
 import { NotFoundView } from '../../../components/not-found-view.jsx'
 import { Breadcrumbs } from '../../../components/page-state.jsx'
@@ -149,10 +150,7 @@ export default async function VenuePage({ params }) {
 
   return (
     <article>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(placeStructuredData(venue)) }}
-      />
+      <JsonLd data={placeStructuredData(venue)} />
 
       <PageHero
         headingId="venue-heading"

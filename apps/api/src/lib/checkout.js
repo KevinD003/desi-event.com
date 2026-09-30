@@ -156,8 +156,11 @@ export async function sellHeldSeats(tx, { orderId }) {
         // and skipping this one would leave a seat held against a paid order,
         // which the expiry sweep would eventually release out from under a
         // ticket. Refusing rolls the settlement back instead.
-        throw new Error(
-          `Hold ${hold.id} reserves seat ${heldSeat.eventSeatId} for order ${orderId}, but no line on that order pays for it`,
+        throw Object.assign(
+          new Error(
+            `Hold ${hold.id} reserves seat ${heldSeat.eventSeatId} for order ${orderId}, but no line on that order pays for it`,
+          ),
+          { code: 'SEAT_UNCLAIMED' },
         )
       }
 
@@ -335,14 +338,17 @@ export async function settleCheckout(
   // reclaim and `holds.release` all leave a PENDING order's holds alone, so
   // this is the backstop: refusing rolls the settlement back, as the
   // unclaimed-seat check in `sellHeldSeats` does, and the order stays PENDING
-  // for reconciliation to resolve.
+  // with a reconciliation task opened for it (`recordUnsettledCapture`).
   const reservedSeats = await tx.holdItem.count({
     where: { orderItemId: { in: items.map((item) => item.id) }, eventSeatId: { not: null } },
   })
 
   if (soldSeats < reservedSeats) {
-    throw new Error(
-      `Order ${order.id} reserved ${reservedSeats} seat(s), but only ${soldSeats} were still held for it; refusing to issue tickets without their seats`,
+    throw Object.assign(
+      new Error(
+        `Order ${order.id} reserved ${reservedSeats} seat(s), but only ${soldSeats} were still held for it; refusing to issue tickets without their seats`,
+      ),
+      { code: 'SEATS_NOT_HELD' },
     )
   }
 
@@ -546,6 +552,140 @@ export async function compensateCheckout(
   })
 
   return { compensated: true }
+}
+
+/**
+ * Record a capture the order could not be completed for.
+ *
+ * Settlement runs after the provider has taken the money, and it can still
+ * refuse: its seat backstop, or a database fault. Rolling it back leaves the
+ * order PENDING and the attempt INITIATED — a charge nothing would ever look
+ * at, since nothing sweeps INITIATED payments. So, in a fresh transaction, the
+ * attempt is marked for reconciliation with the provider's reference and a
+ * task is opened for somebody to settle or refund it; the order stays PENDING,
+ * which keeps its holds its own (see `resolveHolds` and `holds.release`) until
+ * that is decided. Nothing here calls the provider or guesses the outcome.
+ *
+ * A zero-total order has no payment and nothing was taken, so there is
+ * nothing to reconcile: it is cancelled instead, which gives its holds back to
+ * the buyer and its promo use back to the code.
+ *
+ * Conditional on the order still being PENDING and the attempt still
+ * INITIATED, so a settlement that did land (a webhook, say) is never undone.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params Inputs.
+ * @param {object} params.order The PENDING order.
+ * @param {object|null} params.payment The payment attempt row, or null for a zero-total order.
+ * @param {object} params.result The capture result.
+ * @param {string} params.reason Why settlement refused, for the task. Never shown to the buyer.
+ * @param {Date} params.now Instant.
+ * @param {string|null} [params.actorId] Actor for the audit trail.
+ * @param {string|null} [params.requestId] Request id for the audit trail.
+ * @returns {Promise<{recorded: boolean}>} Whether this call wrote anything.
+ */
+export async function recordUnsettledCapture(
+  tx,
+  { order, payment, result, reason, now, actorId = null, requestId = null },
+) {
+  const current = await tx.order.findUnique({
+    where: { id: order.id },
+    select: { status: true },
+  })
+
+  if (current?.status !== 'PENDING') return { recorded: false }
+
+  if (!payment) {
+    const { count } = await tx.order.updateMany({
+      where: { id: order.id, status: 'PENDING' },
+      data: { status: 'CANCELLED', cancelledAt: now },
+    })
+
+    if (count === 0) return { recorded: false }
+
+    const promoCodeId = order.promoCodeId ?? null
+    const returned = promoCodeId
+      ? await tx.promoCode.updateMany({
+          where: { id: promoCodeId, redemptionCount: { gt: 0 } },
+          data: { redemptionCount: { decrement: 1 } },
+        })
+      : { count: 0 }
+
+    await clearAttendeeStaging(tx, { orderId: order.id })
+
+    await recordAudit(tx, {
+      action: AUDIT_ACTIONS.ORDER_CANCELLED,
+      entityType: 'Order',
+      entityId: order.id,
+      actorId,
+      metadata: {
+        requestId,
+        at: now.toISOString(),
+        previousStatus: 'PENDING',
+        newStatus: 'CANCELLED',
+        paymentId: null,
+        reason: 'SETTLEMENT_FAILED',
+        promoRedemptionReturned: returned.count > 0,
+      },
+    })
+
+    return { recorded: true }
+  }
+
+  const providerRef = result.intent?.id ?? result.providerRef ?? payment.providerRef ?? null
+
+  const { count } = await tx.payment.updateMany({
+    where: { id: payment.id, status: 'INITIATED' },
+    data: {
+      reconciliationRequired: true,
+      providerRef,
+      rawProviderStatus: result.rawStatus ?? null,
+    },
+  })
+
+  if (count === 0) return { recorded: false }
+
+  const event = await tx.event.findUnique({
+    where: { id: order.eventId },
+    select: { organizationId: true },
+  })
+
+  const task = await openReconciliation(tx, {
+    kind: 'PROVIDER_MISMATCH',
+    paymentId: payment.id,
+    orderId: order.id,
+    providerRef,
+    organizationId: event?.organizationId ?? null,
+    localState: {
+      orderStatus: 'PENDING',
+      paymentStatus: 'INITIATED',
+      totalCents: order.totalCents,
+      currency: order.currency,
+      at: now.toISOString(),
+    },
+    providerState: { status: result.rawStatus ?? null, captured: true },
+    lastError: `the provider captured the charge but the order could not be completed: ${reason}`,
+  })
+
+  await recordAudit(tx, {
+    action: AUDIT_ACTIONS.RECONCILIATION_OPENED,
+    entityType: 'Payment',
+    entityId: payment.id,
+    actorId,
+    metadata: {
+      requestId,
+      at: now.toISOString(),
+      orderId: order.id,
+      taskId: task.id,
+      kind: 'PROVIDER_MISMATCH',
+      orderStatus: 'PENDING',
+      totalCents: order.totalCents,
+      currency: order.currency,
+      reason: 'CAPTURED_NOT_SETTLED',
+    },
+  })
+
+  return { recorded: true }
 }
 
 /**

@@ -1044,16 +1044,24 @@ describe('the surfaces added for feature completion', () => {
     }
   })
 
-  it('rate-limits the quote, which is the one place a promo code can be tried without buying', () => {
+  it('rate-limits both places a promo code can be tried: the quote, and a checkout that names one', () => {
     const orders = readFileSync(new URL('../src/routes/orders.js', import.meta.url), 'utf8')
-    const at = orders.indexOf("'orders.quote'")
 
-    expect(at).toBeGreaterThan(-1)
-    expect(orders.slice(at, at + 200)).toMatch(/rateLimit: quoteRateLimit\(/u)
-    expect(
-      apiRoutes
-        .find((candidate) => candidate.id === 'orders.quote')
-        .errors.map((error) => error.code),
-    ).toContain('RATE_LIMITED')
+    // The quote, per account. And the charge: it answers an unknown code and a
+    // known one differently before anything is written, and it takes guests,
+    // so a checkout carrying a code spends from a budget of the same size.
+    for (const [id, limiter] of [
+      ['orders.quote', /rateLimit: quoteRateLimit\(/u],
+      ['orders.create', /rateLimit: promoAttemptRateLimit\(/u],
+    ]) {
+      const at = orders.indexOf(`'${id}'`)
+
+      expect(at, id).toBeGreaterThan(-1)
+      expect(orders.slice(at, at + 200), id).toMatch(limiter)
+      expect(
+        apiRoutes.find((candidate) => candidate.id === id).errors.map((error) => error.code),
+        id,
+      ).toContain('RATE_LIMITED')
+    }
   })
 })

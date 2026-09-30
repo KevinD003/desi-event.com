@@ -8,6 +8,7 @@ import { ValidationError } from '@desi-event/schemas'
 
 import {
   UNSTORABLE_CHARACTER_MESSAGE,
+  exposedServerError,
   httpError,
   normaliseError,
   toErrorBody,
@@ -115,7 +116,32 @@ describe('normaliseError', () => {
       })
     }
 
-    // Only that SQLSTATE: any other database failure under the same Prisma
+    // And the NUL a JSON column refuses: `\u0000` in a jsonb value is 22P05,
+    // "unsupported Unicode escape sequence", again copied from a real query.
+    const jsonNul = {
+      ...nul,
+      meta: {
+        modelName: 'AuditLog',
+        driverAdapterError: {
+          cause: {
+            originalCode: '22P05',
+            originalMessage: 'unsupported Unicode escape sequence',
+            kind: 'postgres',
+          },
+        },
+      },
+    }
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(jsonNul, { exposeInternals })).toEqual({
+        statusCode: 400,
+        code: 'VALIDATION_ERROR',
+        message: UNSTORABLE_CHARACTER_MESSAGE,
+        expected: true,
+      })
+    }
+
+    // Only those SQLSTATEs: any other database failure under the same Prisma
     // code is still a fault, and still hidden in production.
     const check = {
       ...nul,
@@ -126,6 +152,48 @@ describe('normaliseError', () => {
       statusCode: 500,
       code: 'INTERNAL_SERVER_ERROR',
     })
+  })
+
+  it('keeps the words of a 5xx the API raised for the caller to read, in production too', () => {
+    // A checkout whose capture timed out: "do not pay again" is the sentence
+    // the buyer needs, and masking it is how somebody comes to pay twice.
+    const timeout = exposedServerError(
+      502,
+      'PAYMENT_TIMEOUT',
+      'Whether you were charged is being checked; please do not pay again.',
+      { orderReference: 'DE-7K2M9Q' },
+    )
+
+    for (const exposeInternals of [true, false]) {
+      expect(normaliseError(timeout, { exposeInternals })).toEqual({
+        statusCode: 502,
+        code: 'PAYMENT_TIMEOUT',
+        message: 'Whether you were charged is being checked; please do not pay again.',
+        orderReference: 'DE-7K2M9Q',
+        expected: false,
+      })
+    }
+
+    // The same status raised the ordinary way is still masked.
+    expect(
+      normaliseError(httpError(502, 'PAYMENT_TIMEOUT', 'upstream said: 10.0.0.4 refused'), {
+        exposeInternals: false,
+      }),
+    ).toMatchObject({ code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred.' })
+  })
+
+  it('forwards the order a refusal is about, and only a bare reference', () => {
+    const pending = httpError(409, 'ORDER_PENDING', 'Still being checked.', {
+      orderReference: 'DE-7K2M9Q',
+    })
+    const prose = httpError(409, 'ORDER_PENDING', 'Still being checked.', {
+      orderReference: 'the order you placed a moment ago',
+    })
+
+    expect(normaliseError(pending).orderReference).toBe('DE-7K2M9Q')
+    expect(toErrorBody(normaliseError(pending)).error.orderReference).toBe('DE-7K2M9Q')
+    expect(normaliseError(prose)).not.toHaveProperty('orderReference')
+    expect(toErrorBody(normaliseError(prose)).error).not.toHaveProperty('orderReference')
   })
 
   it('treats a nonsensical status as a server error', () => {

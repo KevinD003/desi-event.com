@@ -6,7 +6,14 @@
 
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 
-import { notFound } from '../lib/errors.js'
+import { recordAudit } from '../lib/audit.js'
+import { httpError, notFound } from '../lib/errors.js'
+import {
+  defaultTierCurrency,
+  refuseProblems,
+  rethrowTierTaken,
+  tierCurrencyProblems,
+} from '../lib/event-authoring.js'
 import { readAvailabilityMap } from '../lib/inventory.js'
 import { isPublicTier, toTicketType } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
@@ -94,27 +101,70 @@ export function registerTicketTypeRoutes(app, { prisma }) {
     handler: async (request) => {
       const { eventId } = request.params
 
-      const event = await prisma.event.findUnique({ where: { id: eventId } })
+      const event = await prisma.event.findUnique({
+        where: { id: eventId },
+        include: { organization: true, ticketTypes: { select: { id: true, currency: true } } },
+      })
       if (!event) throw notFound('No such event.')
 
       assertCan(request.actor, CAPABILITIES.TICKET_TYPE_MANAGE, {
         organizationId: event.organizationId,
       })
 
-      const body = request.body
+      // A currency left out is the event's own, as the authoring route has it,
+      // and a tier priced apart from the rest could never share an order.
+      const body = {
+        ...request.body,
+        currency: request.body.currency ?? defaultTierCurrency(event),
+      }
 
-      const ticketType = await prisma.ticketType.create({
-        data: {
-          ...body,
-          // The path identifies the event; a body field claiming otherwise is
-          // ignored rather than honoured, so a copy-pasted payload cannot
-          // attach a tier to somebody else's event.
-          eventId: event.id,
-          salesStartAt: body.salesStartAt ? new Date(body.salesStartAt) : null,
-          salesEndAt: body.salesEndAt ? new Date(body.salesEndAt) : null,
-          description: body.description ?? null,
-        },
+      refuseProblems(
+        tierCurrencyProblems(body, event.ticketTypes),
+        'That ticket type is not coherent.',
+      )
+
+      // One name per event, as `TicketType_eventId_name_key` has it: refused
+      // here with a sentence, and by the index, read the same way, when a
+      // namesake lands between this read and the insert. Never a 500.
+      const namesake = await prisma.ticketType.findFirst({
+        where: { eventId: event.id, name: body.name },
+        select: { id: true },
       })
+
+      if (namesake) {
+        throw httpError(
+          409,
+          'TIER_NAME_TAKEN',
+          `Another ticket type on this event is already called "${body.name}". Give this one a different name.`,
+        )
+      }
+
+      const ticketType = await prisma
+        .$transaction(async (tx) => {
+          const created = await tx.ticketType.create({
+            data: {
+              ...body,
+              // The path identifies the event; a body field claiming otherwise is
+              // ignored rather than honoured, so a copy-pasted payload cannot
+              // attach a tier to somebody else's event.
+              eventId: event.id,
+              salesStartAt: body.salesStartAt ? new Date(body.salesStartAt) : null,
+              salesEndAt: body.salesEndAt ? new Date(body.salesEndAt) : null,
+              description: body.description ?? null,
+            },
+          })
+
+          await recordAudit(tx, {
+            action: 'event.ticket_type_added',
+            entityType: 'Event',
+            entityId: event.id,
+            actorId: request.actor?.id ?? null,
+            metadata: { tierId: created.id, fields: Object.keys(request.body).sort() },
+          })
+
+          return created
+        })
+        .catch((error) => rethrowTierTaken(error, body.name))
 
       request.log.info({ eventId: event.id, ticketTypeId: ticketType.id }, 'ticket type created')
 

@@ -824,3 +824,66 @@ describe('an online event', () => {
     expect(JSON.stringify(structuredData(container))).not.toContain('stream.example.com')
   })
 })
+
+describe('structured data written by an organiser', () => {
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  // Every string here is the organiser's own, and every one of them reaches
+  // the JSON-LD block. The payload closes the script element it lands in.
+  const breakout = '</script><script>window.__pwned = 1</script>'
+
+  it('cannot close the script element it is served in, from any field', async () => {
+    const hostile = {
+      ...selling,
+      title: `Title ${breakout}`,
+      summary: `Summary ${breakout} <!-- & \u2028\u2029`,
+      performers: [{ name: `Performer ${breakout}`, role: null, bio: null }],
+      artists: [`Artist ${breakout}`],
+      ticketTypes: [{ ...selling.ticketTypes[0], name: `Tier ${breakout}` }],
+      organization: { ...selling.organization, name: `Organiser ${breakout}` },
+      venue: { ...selling.venue, name: `Venue ${breakout}` },
+      sessions: [1, 2].map((index) => ({
+        id: `snnight${index}xxxxx`,
+        label: `Night ${index} ${breakout}`,
+        startsAt: new Date(Date.UTC(2026, 10, index, 14, 30)).toISOString(),
+        endsAt: new Date(Date.UTC(2026, 10, index, 17, 30)).toISOString(),
+        doorsOpenAt: null,
+        timezone: 'Asia/Kolkata',
+        status: 'SCHEDULED',
+        salesStartAt: null,
+        salesEndAt: null,
+        hasSeatMap: false,
+        seatsAvailable: null,
+      })),
+    }
+
+    loadEventBySlug.mockResolvedValue({ event: hostile, usedFallback: false })
+    const { renderToString } = await import('react-dom/server')
+    const html = renderToString(
+      await EventDetailPage({ params: Promise.resolve({ slug: hostile.slug }) }),
+    )
+
+    // What a browser makes of the markup the server sends: one script, the
+    // structured data, and nothing an organiser typed is a tag inside it.
+    const parsed = new DOMParser().parseFromString(html, 'text/html')
+    const scripts = parsed.querySelectorAll('script')
+
+    expect(html.match(/<\/script>/giu)).toHaveLength(1)
+    expect(scripts).toHaveLength(1)
+    expect(scripts[0].getAttribute('type')).toBe('application/ld+json')
+    expect(scripts[0].textContent).not.toMatch(/[<>&\u2028\u2029]/u)
+
+    // Escaped, not stripped: a reader of the JSON gets the organiser's words.
+    const data = JSON.parse(scripts[0].textContent)
+
+    expect(data.name).toBe(hostile.title)
+    expect(data.description).toBe(hostile.summary)
+    expect(data.performer[0].name).toBe(hostile.performers[0].name)
+    expect(data.offers[0].name).toBe(hostile.ticketTypes[0].name)
+    expect(data.organizer.name).toBe(hostile.organization.name)
+    expect(data.location.name).toBe(hostile.venue.name)
+    expect(data.subEvent[1].name).toContain(`Night 2 ${breakout}`)
+  })
+})

@@ -227,6 +227,33 @@ describe('adding a ticket type', () => {
     })
   })
 
+  it('starts a new tier in the currency the event’s tiers are priced in', async () => {
+    const user = userEvent.setup()
+
+    respond(answer(201, { data: tier({ name: 'Encore', currency: 'CAD' }), meta: { revision: 5 } }))
+    render(
+      <EventTiersEditor
+        event={event}
+        sessions={sessions}
+        tiers={[tier({ currency: 'CAD' })]}
+        revision={4}
+      />,
+    )
+
+    // An order is paid in one currency, and the server refuses a tier priced
+    // apart from the rest: the form starts where the event already is.
+    await user.type(screen.getByLabelText(/^Name/, { selector: '#tier-name' }), 'Encore')
+    await user.type(
+      screen.getByLabelText(/^Face value \(CAD\)/, { selector: '#tier-price' }),
+      '20.00',
+    )
+    await user.type(screen.getByLabelText(/^How many/, { selector: '#tier-quantityTotal' }), '10')
+    await user.click(screen.getByRole('button', { name: 'Add ticket type' }))
+
+    await waitFor(() => expect(writeCall()).toBeDefined())
+    expect(JSON.parse(writeCall()[1].body)).toMatchObject({ currency: 'CAD', priceCents: 2000 })
+  })
+
   it('offers the zones of a mapped session once reserved is ticked, and no quantity', async () => {
     const user = userEvent.setup()
 

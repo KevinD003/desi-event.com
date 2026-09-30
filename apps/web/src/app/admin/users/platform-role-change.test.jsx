@@ -123,6 +123,11 @@ describe('changing a platform role', () => {
 
     expect(outcome).toHaveAttribute('role', 'status')
     expect(onChanged).toHaveBeenCalledTimes(1)
+    // The panel and its button are gone: focus goes back to the control that
+    // opened it, which is drawn again only once the answer is in.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Change Ben’s platform role' })).toHaveFocus(),
+    )
   })
 
   it('does not warn about a second factor the account already has', async () => {

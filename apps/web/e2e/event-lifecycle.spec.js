@@ -128,14 +128,28 @@ async function signIn(page, email, landing) {
 }
 
 /**
- * A local wall-clock value for a datetime-local box, days from now.
+ * The instant the story is told from, fixed once when the file loads.
+ *
+ * Journeys type a date early and read it back many journeys later. Were each
+ * value worked out from the clock at the moment it was used, a run that
+ * crossed midnight UTC between the typing and the reading would expect the
+ * next day, and fail on the time of day rather than on anything the product
+ * did. Every date in the story is counted from here instead.
+ *
+ * @type {number}
+ */
+const STORY_NOW = Date.now()
+
+/**
+ * A local wall-clock value for a datetime-local box, days after
+ * {@link STORY_NOW}.
  *
  * @param {number} days How far ahead.
  * @param {number} hour The hour of the day.
  * @returns {string} A `YYYY-MM-DDTHH:mm` value.
  */
 function wallClock(days, hour) {
-  const date = new Date(Date.now() + days * 24 * 3600 * 1000)
+  const date = new Date(STORY_NOW + days * 24 * 3600 * 1000)
 
   return `${date.toISOString().slice(0, 10)}T${String(hour).padStart(2, '0')}:00`
 }

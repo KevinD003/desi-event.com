@@ -39,6 +39,7 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input, Textarea } from './ui.jsx'
 import { OneTimeCodePanel } from './one-time-code-panel.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
@@ -84,6 +85,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
   const [issued, setIssued] = useState(null)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const outstanding = transfers.find((transfer) => transfer.status === 'PENDING') ?? null
   const offerable = holder && OFFERABLE.includes(ticket.status) && !outstanding
@@ -110,7 +112,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
     returnFocus.current = trigger
     setPending(key)
     setError(null)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -121,7 +123,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
   function dismiss() {
     setPending(null)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -171,7 +173,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
       }
 
       setError(parsed?.error?.message ?? 'That was refused.')
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {
@@ -444,6 +446,7 @@ export function TicketTransferResponse() {
   const [error, setError] = useState(null)
   const [accepted, setAccepted] = useState(null)
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Answer the invitation.
@@ -478,7 +481,7 @@ export function TicketTransferResponse() {
       setError(
         'That invitation cannot be used. It may have expired, been withdrawn, or been used already.',
       )
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {

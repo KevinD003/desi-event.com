@@ -88,6 +88,43 @@ A person resolves it through the reconciliation queue, which re-queries the
 provider and applies the answer through the ordinary domain commands. See
 `docs/RECONCILIATION_RUNBOOK.md`.
 
+The buyer is told so, in words production does not mask: a 502
+`PAYMENT_TIMEOUT` (or, when the capture succeeded and the order still could not
+be completed, a 500 `ORDER_NOT_COMPLETED`) says whether they were charged is
+being checked and not to pay again, and `error.orderReference` names the order.
+The site shows that sentence, takes Pay away, and links to the order's page,
+which says "Waiting for payment" until the task is resolved.
+
+---
+
+## A retry is the same attempt
+
+Checkout takes an `Idempotency-Key`, and the site mints one per attempt and
+sends it again on a retry, so a lost answer cannot book twice. What a retry is
+told matters as much as what it does. It used to be told 201 with whatever
+order the key had placed, so a retry after a timeout received a `PENDING` order
+with no tickets under a success status, and the checkout showed "Booked".
+
+A retry now answers with the attempt's own outcome, read from the order as it
+stands, and never places a second order or charges twice:
+
+- **Sold** (`PAID`, or `REFUNDED` since): 201 and the order.
+- **Still being checked** (`PENDING`: the first request still running, a
+  capture that timed out, or one captured and not completed): 409
+  `ORDER_PENDING` with `error.orderReference`. The attempt is not finished;
+  answering with a success would say it was, and answering with a new charge
+  would pay twice.
+- **Declined** (`CANCELLED` with a failed payment): 402 `PAYMENT_DECLINED`, as
+  the attempt was. Trying again is a new attempt with a new key, and the holds
+  are still the buyer's for it.
+- **Cancelled otherwise** (a free order whose settlement refused) or
+  **expired**: 409 `ORDER_CANCELLED`. Nothing was charged; reserve again.
+
+A 201 is therefore always a sale. The site checks the order's status all the
+same, and shows anything but `PAID` as not booked. Two requests with one key
+that both miss the opening read, a double submission, meet on the key's unique
+index; the second is answered as a retry, not with a 500.
+
 ---
 
 ## Mock mode, and how it says so

@@ -537,7 +537,7 @@ export function EventTiersEditor({
             key={addKey}
             kind="create"
             idPrefix="tier"
-            initial={blankTierForm('USD')}
+            initial={blankTierForm(tiers.find((tier) => tier.currency)?.currency ?? 'USD')}
             sessions={sessions}
             eventTimezone={eventZone}
             mode={mode === 'live' ? 'live' : 'draft'}

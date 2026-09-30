@@ -180,6 +180,122 @@ describe('POST /v1/events/:eventId/ticket-types', () => {
     await app.close()
   })
 
+  it('records who added the tier, in the same write', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(token),
+      payload,
+    })
+
+    expect(response.statusCode).toBe(201)
+
+    const audit = prisma._store.auditLog.find(
+      (row) =>
+        row.action === 'event.ticket_type_added' &&
+        row.metadata?.tierId === response.json().data.id,
+    )
+
+    expect(audit).toMatchObject({ entityType: 'Event', entityId: ids.publishedEvent.id })
+    expect(audit.actorId).toBeTruthy()
+
+    await app.close()
+  })
+
+  it('prices a tier given no currency in the event’s own, and refuses another one with 422', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    for (const row of prisma._store.ticketType.filter((t) => t.eventId === ids.publishedEvent.id)) {
+      row.currency = 'USD'
+    }
+
+    const defaulted = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(token),
+      payload,
+    })
+
+    expect(defaulted.statusCode).toBe(201)
+    expect(defaulted.json().data.currency).toBe('USD')
+
+    const before = prisma._store.ticketType.length
+    const mixed = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(token),
+      payload: { ...payload, name: 'Rupee row', currency: 'INR' },
+    })
+
+    expect(mixed.statusCode).toBe(422)
+    expect(mixed.json().error.problems).toEqual([
+      'The other ticket types on this event are priced in USD, and an order is paid in one currency, so price this one in USD too.',
+    ])
+    expect(prisma._store.ticketType).toHaveLength(before)
+
+    await app.close()
+  })
+
+  it('refuses a name another tier on the event has with 409 TIER_NAME_TAKEN, not a 500', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+    const before = prisma._store.ticketType.length
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(token),
+      payload: { ...payload, name: ids.vip.name },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('TIER_NAME_TAKEN')
+    expect(response.json().error.message).toBe(
+      `Another ticket type on this event is already called "${ids.vip.name}". Give this one a different name.`,
+    )
+    expect(prisma._store.ticketType).toHaveLength(before)
+
+    await app.close()
+  })
+
+  it('answers 409 TIER_NAME_TAKEN when the index refuses a name taken since the check', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    // The namesake lands between the route's read and its insert: the read
+    // sees none, and the unique index is what refuses.
+    const findFirst = prisma.ticketType.findFirst
+
+    prisma.ticketType.findFirst = async (args) => {
+      const row = await findFirst(args)
+
+      prisma._store.ticketType.push({
+        ...ids.vip,
+        id: 'cracingnamesake0000000000',
+        name: 'Balcony',
+      })
+      prisma.ticketType.findFirst = findFirst
+
+      return row
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(token),
+      payload,
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('TIER_NAME_TAKEN')
+
+    await app.close()
+  })
+
   it('answers 404 for an unknown event', async () => {
     const { app } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')

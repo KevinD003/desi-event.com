@@ -554,6 +554,11 @@ describe('POST /v1/ticket-transfers/accept', () => {
     expect(issued.ownerUserId).toBeTruthy()
     expect(issued.supersedesTicketId).toBe(tickets[0].id)
     expect(issued.credentialVersion).toBe(1)
+    // The recipient's own name, from their account: the door matches a face to
+    // it. The route passes the request actor, which carries no display name, so
+    // this was null on every ticket ever handed on.
+    expect(issued.attendeeName).toBe('Rival Organiser')
+    expect(data.ticket.attendeeName).toBe('Rival Organiser')
     // The digest is stored; the credential itself is not, anywhere.
     expect(issued.credentialHash).toBe(credentialDigest(data.credential))
     expect(JSON.stringify(prisma._store.ticket)).not.toContain(data.credential)

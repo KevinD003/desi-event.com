@@ -34,6 +34,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { StepUpPrompt } from '../../../components/step-up-prompt.jsx'
 import { apiFetch } from '../../../lib/api-fetch.js'
 import { connectActionsFor, describeConnectRefusal } from '../../../lib/connect-vocabulary.js'
@@ -61,6 +62,7 @@ export function ConnectActions({ organizationId, state }) {
   const [restoreTo, setRestoreTo] = useState(null)
   const panelRef = useRef(null)
   const triggerRefs = useRef(new Map())
+  const focusAfterRender = useFocusAfterRender()
 
   useEffect(() => {
     if (pending !== null || restoreTo === null) return
@@ -78,7 +80,7 @@ export function ConnectActions({ organizationId, state }) {
   function open(action) {
     setPending(action)
     setRefusal(null)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -132,14 +134,14 @@ export function ConnectActions({ organizationId, state }) {
       setRefusal(
         describeConnectRefusal({ status: response.status, code: parsed?.error?.code ?? null }),
       )
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefusal({
         title: 'The service is not responding',
         detail: 'Nothing has been recorded. The simulation is exactly as it was.',
         recoverable: true,
       })
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } finally {
       setBusy(false)
     }

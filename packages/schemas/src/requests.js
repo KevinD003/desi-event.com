@@ -364,11 +364,12 @@ function checkTicketTypeBounds(value, ctx) {
 
 /**
  * Create a ticket type. Rejects negative prices (via `centsSchema`) and a
- * `maxPerOrder` below `minPerOrder`.
+ * `maxPerOrder` below `minPerOrder`. A currency left out is the server's to
+ * choose, from the event's other tiers, rather than a fixed code.
  */
 export const createTicketTypeRequestSchema = ticketTypeWritableObject
   .extend({
-    currency: currencySchema.default('INR'),
+    currency: currencySchema.optional(),
     minPerOrder: quantitySchema.default(1),
     maxPerOrder: quantitySchema.default(10),
     status: ticketTypeStatusSchema.default('DRAFT'),
@@ -603,6 +604,19 @@ const doorGateSchema = withoutControlCharacters(z.string().trim().min(1).max(60)
 const scannerNameSchema = withoutControlCharacters(nonEmptyStringSchema)
 
 /**
+ * The night this door is admitting to, on an event of more than one night.
+ *
+ * Chosen at the door, as the event is, and required there: a lookup or an
+ * admission on such an event without it is refused `NIGHT_REQUIRED` rather
+ * than guessed from the clock. A ticket for one night is refused on any other
+ * (`WRONG_NIGHT`); a ticket good for every night admits once on each, and this
+ * is the night its admission is recorded on. Never an authority: the server
+ * reads the ticket's own night and the event's nights from the database. The
+ * preview reference carries it, so a confirmation cannot switch nights.
+ */
+const doorNightSchema = cuidSchema
+
+/**
  * Look a ticket up at the door without admitting it.
  *
  * Strict, so an unknown key is a 400 rather than silently dropped. The fields a
@@ -624,6 +638,8 @@ export const admissionPreviewRequestSchema = z
      * admission.
      */
     expectedEventId: cuidSchema.optional(),
+    /** The night this door is admitting to; see `doorNightSchema`. */
+    eventSessionId: doorNightSchema.optional(),
   })
   .strict()
   .superRefine(exactlyOnePresentation)
@@ -637,14 +653,15 @@ export const admissionPreviewRequestSchema = z
  * that writes the admission.
  *
  * There is no `checkedInAt`: the recorded instant is the server's. There is no
- * `method`: it follows from what was presented. There is no `eventSessionId`:
- * it follows from the order.
+ * `method`: it follows from what was presented. `eventSessionId` is the night
+ * the door is admitting to, and must be the one the preview was for.
  */
 export const checkInRequestSchema = z
   .object({
     credential: admissionCredentialSchema.optional(),
     code: ticketCodeSchema.optional(),
     expectedEventId: cuidSchema.optional(),
+    eventSessionId: doorNightSchema.optional(),
     /** From the preview. Opaque to the scanner; meaningless without the pass. */
     previewReference: z
       .string()
@@ -705,6 +722,8 @@ export const groupAdmissionPreviewRequestSchema = z
     code: groupCodeSchema.optional(),
     /** As on a single ticket: an expectation, never an authority. */
     expectedEventId: cuidSchema.optional(),
+    /** As on a single ticket: the night this door is admitting to. */
+    eventSessionId: doorNightSchema.optional(),
   })
   .strict()
   .superRefine(exactlyOnePresentation)
@@ -720,6 +739,7 @@ export const groupCheckInRequestSchema = z
     credential: groupPassCredentialSchema.optional(),
     code: groupCodeSchema.optional(),
     expectedEventId: cuidSchema.optional(),
+    eventSessionId: doorNightSchema.optional(),
     /** From the group preview. Longer than a single one: it names the tickets. */
     previewReference: z
       .string()

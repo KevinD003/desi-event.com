@@ -38,6 +38,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Select, Textarea } from './ui.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -119,6 +120,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
   const [announcement, setAnnouncement] = useState('')
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Whether this account may issue one command.
@@ -151,7 +153,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
     setPending(key)
     setError(null)
     setReason('')
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -162,7 +164,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
   function dismiss() {
     setPending(null)
     setStepUp(false)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -202,7 +204,7 @@ export function RefundActions({ refund, mayApprove, maySubmit }) {
       }
 
       setError(parsed?.error?.message ?? 'That was refused.')
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setError('The service is not responding. Nothing has been recorded.')
     } finally {

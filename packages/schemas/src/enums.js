@@ -348,6 +348,16 @@ export const ADMISSION_REFUSAL_REASONS = Object.freeze([
   'ORDER_NOT_PAID',
   'EVENT_CANCELLED',
   'WRONG_EVENT',
+  /**
+   * The ticket is for one night and the door is admitting to another, or the
+   * door named a night that is not one of the event's.
+   */
+  'WRONG_NIGHT',
+  /**
+   * The event has more than one night and the door did not say which it is
+   * admitting to. Nothing is guessed from the clock.
+   */
+  'NIGHT_REQUIRED',
   'PREVIEW_EXPIRED',
   'PREVIEW_INVALID',
   'PREVIEW_MISMATCH',

@@ -150,3 +150,43 @@ describe('the verification decision', () => {
     expect(refresh).toHaveBeenCalled()
   })
 })
+
+describe('where focus goes when the decision panel closes', () => {
+  it('returns to the decision that opened it when it is cancelled', async () => {
+    const user = userEvent.setup()
+
+    draw('PENDING')
+
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+    expect(screen.getByRole('group', { name: /^Reject: Bay Lights/u })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.queryByRole('group', { name: /^Reject: Bay Lights/u })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reject' })).toHaveFocus()
+  })
+
+  it('moves to the outcome once recorded, and keeps saying it when nothing is left to decide', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { data: { status: 'REJECTED' } }))
+    const { rerender } = draw('PENDING')
+
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+    await user.type(screen.getByLabelText(/^Reason/u), 'No evidence.')
+    await user.click(screen.getByRole('button', { name: 'Record: reject' }))
+
+    const outcome = await screen.findByText('Recorded: reject Bay Lights.')
+
+    await waitFor(() => expect(outcome).toHaveFocus())
+
+    // The refresh brings the new state, from which no moderator decision is
+    // open; the sentence and the focus on it survive that.
+    rerender(
+      <VerificationDecision organizationId={ORG} organizationName="Bay Lights" status="REJECTED" />,
+    )
+
+    expect(screen.getByText('Recorded: reject Bay Lights.')).toHaveFocus()
+    expect(screen.getByText(/No decision is open to a moderator from here/u)).toBeVisible()
+  })
+})

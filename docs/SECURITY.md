@@ -35,7 +35,8 @@ _Updated 2026-09-29._ More surfaces now have their own budget: team invitations,
 reissued codes and acceptances (10 a minute per account), organisation creation
 (5 attempts an hour and 3 organisations a day per account), door lookups and
 admissions, single and group (120 a minute), pass and group-pass retrieval (30 a
-minute), checkout quotes (30 a minute per account), picture uploads (20 per ten
+minute), checkout quotes (30 a minute per account), checkouts that name a promo
+code (30 a minute per account, or per address for a guest), picture uploads (20 per ten
 minutes, counted before the body is read) and picture reads (their own budget).
 The keys are per account where a session exists, because every browser request
 reaches the API through one same-origin proxy address. The table is in
@@ -519,7 +520,12 @@ and need neither step-up. Audit rows never record a code's text, and the logger
 redacts `promoCode`.
 
 Trying codes is bounded, not prevented: the checkout quote is signed-in only and
-allows 30 quotes a minute per account. A code that does not exist and a code for
+allows 30 quotes a minute per account. The charge is the other place a code can be
+tried — `POST /v1/orders` takes guests, refuses an unknown code and moves the total
+for a known one before anything is written — so a checkout that names a code draws
+on a budget of the same size, per account or, for a guest, per address (a hold
+token is no key: anybody can mint another). A checkout with no code is never
+counted. A code that does not exist and a code for
 another event both answer `UNKNOWN`; a code that exists for the event but has
 ended, not started, been paused or been used up says so, so that a buyer can act
 on it — which also tells somebody guessing that the code exists. Redemption is
@@ -560,14 +566,28 @@ What remains, stated rather than implied:
 
 ## Transport and headers
 
-Helmet, with CSP: `default-src 'self'`, `base-uri 'self'`,
+The API registers Helmet, with CSP: `default-src 'self'`, `base-uri 'self'`,
 `frame-ancestors 'none'`, `object-src 'none'`.
 
 **Two directives are weaker than they should be, and are recorded rather than
 glossed:** `script-src` and `style-src` both permit `'unsafe-inline'`, because
-Next.js's App Router emits inline bootstrap and style. Closing them needs a
-nonce threaded through the framework's document, which is real work and is not
-done. Written here so nobody reads "CSP is configured" as "CSP is strict".
+the bundled Swagger UI at `/docs` is built that way. The API otherwise answers
+JSON, which no browser runs. Written here so nobody reads "CSP is configured"
+as "CSP is strict".
+
+**The web app's pages are served with no Content-Security-Policy at all.**
+Helmet's policy is on the API's responses, not on the pages Next.js renders,
+and a nonce-based policy for them is not built. So nothing the organiser types
+may reach a page as markup. React escapes text; the one place the web app
+writes raw markup is the JSON-LD block on the event and venue pages, which goes
+through `serializeJsonLd` (`apps/web/src/lib/json-ld.js`). `JSON.stringify`
+leaves `<` alone, so a title, a performer's name, a night's label or a venue's
+name holding `</script><script>…` used to close the block and run as every
+visitor, with their CSRF cookie in reach. `serializeJsonLd` writes `<`, `>`,
+`&`, U+2028 and U+2029 as `\uXXXX` escapes, which leave the JSON a search
+engine reads unchanged. `json-ld.test.js` fails the build when any other source
+file writes raw markup or opens a script element, and both pages have a test
+that renders a hostile payload to HTML and parses it back.
 
 CORS is an explicit origin list with `credentials: false`.
 

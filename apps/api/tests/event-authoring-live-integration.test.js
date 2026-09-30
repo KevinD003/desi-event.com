@@ -139,7 +139,9 @@ beforeAll(async () => {
 
   app = await buildApp({
     prisma,
-    providers: createInMemoryProviderRegistry(),
+    // A payment reference unique to this run: the database outlives the
+    // provider's counter, and `Payment.providerRef` is unique.
+    providers: createInMemoryProviderRegistry({ payments: { idPrefix: `pilive${RUN}` } }),
     env: testEnv(),
     docs: false,
     processEnv: {},
@@ -422,6 +424,68 @@ when()('what the database would refuse, the API refuses first', () => {
     expect(caughtBy(() => rethrowTierTaken(new Error('boom'), tier.name)).message).toBe('boom')
   })
 
+  it('prices a tier added with no currency in the event’s own, and refuses one in another (422)', async () => {
+    const { event } = await liveEvent('currency')
+
+    const defaulted = await addTier(event.id, { name: 'Night 2 Entry', priceCents: 2500 })
+
+    expect(defaulted.statusCode).toBe(201)
+    expect(defaulted.json().data.currency).toBe('USD')
+    expect(
+      (await prisma.ticketType.findUnique({ where: { id: defaulted.json().data.id } })).currency,
+    ).toBe('USD')
+
+    const rupees = await addTier(event.id, { name: 'Rupee row', priceCents: 2500, currency: 'INR' })
+
+    expect(rupees.statusCode).toBe(422)
+    expect(await prisma.ticketType.count({ where: { eventId: event.id, currency: 'INR' } })).toBe(0)
+  })
+
+  it('answers 409 TIER_NAME_TAKEN, not 500, when the older tier route is given a taken name', async () => {
+    const { event, tier } = await liveEvent('legacy-namesake', { status: 'DRAFT' })
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/ticket-types`,
+      headers: world.headers,
+      payload: {
+        eventId: event.id,
+        name: tier.name,
+        priceCents: 100,
+        currency: 'USD',
+        quantityTotal: 5,
+      },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('TIER_NAME_TAKEN')
+    expect(await prisma.ticketType.count({ where: { eventId: event.id, name: tier.name } })).toBe(1)
+
+    const fresh = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/ticket-types`,
+      headers: world.headers,
+      payload: {
+        eventId: event.id,
+        name: 'Legacy encore',
+        priceCents: 100,
+        currency: 'USD',
+        quantityTotal: 5,
+      },
+    })
+
+    expect(fresh.statusCode).toBe(201)
+    expect(
+      await prisma.auditLog.count({
+        where: {
+          action: 'event.ticket_type_added',
+          entityId: event.id,
+          metadata: { path: ['tierId'], equals: fresh.json().data.id },
+        },
+      }),
+    ).toBe(1)
+  })
+
   it('refuses to remove the only night of a live event (409 LAST_SESSION), keeping its tiers', async () => {
     const { event, session } = await liveEvent('last-night')
 
@@ -510,6 +574,86 @@ when()('a quantity cut racing live holds', () => {
   })
 })
 
+when()("a night's capacity cut racing a sale", () => {
+  it('counts a sale that settled after the cut was read, and refuses the cut (409, not an oversold night)', async () => {
+    const { event, session, tier } = await liveEvent('capacity-cut', { quantity: 10 })
+
+    await prisma.eventSession.update({ where: { id: session.id }, data: { capacity: 10 } })
+
+    // Hold the event row the way another author's save would, so the cut
+    // reads the event, its tiers and its night, then waits at the revision
+    // compare-and-set. An order does not wait on that lock (its insert takes
+    // KEY SHARE), so it settles in the gap: after the cut read the tier's
+    // quantitySold, before the cut takes the night's lock.
+    let release
+    const gate = new Promise((resolve) => {
+      release = resolve
+    })
+    let held
+    const heldPid = new Promise((resolve) => {
+      held = resolve
+    })
+    const blocker = prisma.$transaction(
+      async (tx) => {
+        const [{ pid }] = await tx.$queryRaw`SELECT pg_backend_pid() AS pid`
+
+        await tx.$queryRaw`SELECT id FROM "Event" WHERE id = ${event.id} FOR NO KEY UPDATE`
+        held(pid)
+        await gate
+      },
+      { timeout: 20_000, maxWait: 10_000 },
+    )
+    const pid = await heldPid
+
+    const cut = app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${event.id}/sessions/${session.id}`,
+      headers: world.headers,
+      payload: { revision: await revisionOf(event.id), capacity: 1 },
+    })
+
+    // Asked of the database, by this blocker's pid: the cut has read and is
+    // now waiting on the event row.
+    const deadline = Date.now() + 5_000
+    let waiting = 0
+
+    while (waiting === 0 && Date.now() < deadline) {
+      ;[{ waiting }] = await prisma.$queryRaw`
+        SELECT count(*)::int AS waiting FROM pg_stat_activity
+        WHERE datname = current_database() AND ${pid}::int = ANY (pg_blocking_pids(pid))`
+      if (waiting === 0) await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+
+    expect(waiting).toBeGreaterThan(0)
+
+    const sale = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: event.id,
+        buyerEmail: `capacity-cut-${RUN}@live-authoring.example`,
+        buyerName: 'Racing Buyer',
+        items: [{ ticketTypeId: tier.id, quantity: 3 }],
+      },
+    })
+
+    expect(sale.statusCode).toBe(201)
+
+    release()
+    await blocker
+
+    const response = await cut
+    const stored = await prisma.eventSession.findUnique({ where: { id: session.id } })
+    const sold = await prisma.ticketType.findUnique({ where: { id: tier.id } })
+
+    expect(sold.quantitySold).toBe(3)
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('SESSION_CAPACITY_BELOW_SOLD')
+    expect(response.json().error.message).toMatch(/has 3 sold and 0 held/u)
+    expect(stored.capacity).toBe(10)
+  })
+})
+
 when()('rescheduling a postponed event', () => {
   it('leaves status, dates and notices unchanged when the revision has moved', async () => {
     const { event, session } = await liveEvent('reschedule', { status: 'POSTPONED' })
@@ -578,5 +722,85 @@ when()('rescheduling a postponed event', () => {
         where: { dedupeKey: { startsWith: `event.changed:${event.id}:` } },
       }),
     ).toBe(1)
+  })
+
+  it('moves each ticket type’s own sales window with it, so a tier that closed at the old date sells again', async () => {
+    const { event, session, tier } = await liveEvent('reschedule-window', { status: 'POSTPONED' })
+    const hour = 60 * 60 * 1000
+    const day = 24 * hour
+
+    // The original date has come and gone while the event was postponed.
+    // Sales for the night's tier closed as the night began; the every-night
+    // tier's closed an hour before.
+    const oldStart = new Date(Date.now() - 2 * day)
+    const oldEnd = new Date(oldStart.getTime() + 3 * hour)
+
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { startsAt: oldStart, endsAt: oldEnd },
+    })
+    await prisma.eventSession.update({
+      where: { id: session.id },
+      data: { startsAt: oldStart, endsAt: oldEnd },
+    })
+    await prisma.ticketType.update({
+      where: { id: tier.id },
+      data: { salesStartAt: new Date(oldStart.getTime() - 90 * day), salesEndAt: oldStart },
+    })
+    const everyNight = await prisma.ticketType.create({
+      data: {
+        id: id('tier-every-night'),
+        eventId: event.id,
+        name: `Season ${RUN}`,
+        priceCents: 9000,
+        currency: 'USD',
+        quantityTotal: 10,
+        maxPerOrder: 10,
+        status: 'ON_SALE',
+        salesEndAt: new Date(oldStart.getTime() - hour),
+      },
+    })
+
+    const newStart = new Date(Date.now() + 60 * day)
+    const newEnd = new Date(newStart.getTime() + 3 * hour)
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${event.id}/reschedule`,
+      headers: world.headers,
+      payload: {
+        revision: await revisionOf(event.id),
+        startsAt: newStart.toISOString(),
+        endsAt: newEnd.toISOString(),
+        sessions: [
+          { id: session.id, startsAt: newStart.toISOString(), endsAt: newEnd.toISOString() },
+        ],
+        resume: 'ON_SALE',
+        confirm: true,
+        reason: 'Back on.',
+      },
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const delta = newStart.getTime() - oldStart.getTime()
+    const night = await prisma.ticketType.findUnique({ where: { id: tier.id } })
+    const season = await prisma.ticketType.findUnique({ where: { id: everyNight.id } })
+
+    expect(night.salesStartAt.getTime()).toBe(oldStart.getTime() - 90 * day + delta)
+    expect(night.salesEndAt.getTime()).toBe(newStart.getTime())
+    expect(season.salesEndAt.getTime()).toBe(newStart.getTime() - hour)
+
+    // And they sell: a hold on each is taken, where the old windows would
+    // have refused both.
+    for (const ticketTypeId of [tier.id, everyNight.id]) {
+      const held = await app.inject({
+        method: 'POST',
+        url: '/v1/holds',
+        headers: world.headers,
+        payload: { ticketTypeId, quantity: 1 },
+      })
+
+      expect(held.statusCode, held.body).toBe(201)
+    }
   })
 })

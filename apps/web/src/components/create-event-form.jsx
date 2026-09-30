@@ -22,6 +22,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -55,6 +56,7 @@ export function CreateEventForm({ organizations = [] }) {
   const [problems, setProblems] = useState([])
   const [issues, setIssues] = useState([])
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Create the draft and go to its editor.
@@ -98,10 +100,10 @@ export function CreateEventForm({ organizations = [] }) {
       // The field-level issues too. "Invalid request body" on its own is a
       // message nobody can act on — including whoever is debugging it.
       setIssues(body?.error?.issues ?? [])
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been saved.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }

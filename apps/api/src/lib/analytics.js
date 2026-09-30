@@ -466,9 +466,12 @@ export async function salesBreakdowns(prisma, params) {
 /**
  * How many of the tickets that exist have come through a door.
  *
- * `CheckIn` rows rather than `Ticket.status === 'CHECKED_IN'`, because the
- * attendance row is the one the unique index protects and the one an organiser
- * would be shown if somebody disputed being let in.
+ * Tickets with a `CheckIn` row rather than `Ticket.status === 'CHECKED_IN'`,
+ * because the attendance row is the one the unique index protects and the one
+ * an organiser would be shown if somebody disputed being let in — and because a
+ * ticket good for every night stays VALID after each night. Tickets, not rows:
+ * a season pass let in on three nights is one ticket that came through, so the
+ * figure can never pass the number of live tickets.
  *
  * @param {object} prisma A Prisma client.
  * @param {object} params Inputs, as {@link eventScope}.
@@ -478,7 +481,7 @@ export async function checkInProgress(prisma, params) {
   const scope = { orderItem: { order: { event: eventScope(params) } } }
 
   const [admitted, live] = await Promise.all([
-    prisma.checkIn.count({ where: { ticket: scope } }),
+    prisma.ticket.count({ where: { ...scope, checkIns: { some: {} } } }),
     prisma.ticket.count({ where: { ...scope, status: { in: [...LIVE_TICKET_STATES] } } }),
   ])
 

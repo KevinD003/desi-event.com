@@ -187,20 +187,21 @@ here are now in the table above instead.
 ## Browser journeys, counted honestly
 
 Seven Playwright configurations, because they need different fixtures and
-different servers. Case counts are from `--list`:
+different servers. Case counts are from the last full run of all seven (see the
+2026-09-30 update below):
 
 | Configuration                     | Cases   | What it covers                                                                                     |
 | --------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| `playwright.config.js` (default)  | 118     | Public catalogue, event, venue, checkout, filters, focus, reduced motion, structural accessibility |
-| `playwright.sweep.config.js`      | 56      | The responsive and accessibility sweep                                                             |
-| `playwright.detail.config.js`     | 48      | The six detail surfaces, as behaviour rather than as markup                                        |
-| `playwright.events.config.js`     | 20      | The event lifecycle end to end                                                                     |
+| `playwright.config.js` (default)  | 119     | Public catalogue, event, venue, checkout, filters, focus, reduced motion, structural accessibility |
+| `playwright.sweep.config.js`      | 114     | The responsive and accessibility sweep                                                             |
+| `playwright.detail.config.js`     | 174     | The 22 `detail-*` specs, as behaviour rather than as markup                                        |
+| `playwright.events.config.js`     | 30      | The event lifecycle end to end                                                                     |
 | `playwright.production.config.js` | 19      | Not-found behaviour in a production build                                                          |
 | `playwright.organizer.config.js`  | 13      | Venue maps and versions                                                                            |
 | `playwright.refusals.config.js`   | 4       | Four product refusals (below)                                                                      |
-| **Total**                         | **278** |                                                                                                    |
+| **Total**                         | **473** |                                                                                                    |
 
-**278 browser cases is not "278 of the required journeys".** Passing a number of
+**473 browser cases is not "473 of the required journeys".** Passing a number of
 Playwright cases is not the same as passing a specific list of required
 journeys, and this document does not use the first as evidence for the second.
 The per-journey status lives in `PHASE2_STATUS.md` and nowhere else.
@@ -223,6 +224,35 @@ The per-journey status lives in `PHASE2_STATUS.md` and nowhere else.
 > 264", because it was true on its date. Two dated blocks disagreeing about a
 > total is the house rule working: the later one is current, and the earlier one
 > still records what was counted when.
+
+> **Update — 2026-09-30.** The total is 473: default 118 → 119, sweep 56 → 114,
+> detail 48 → 174 and events 20 → 30; production, organizer and refusals are
+> unchanged. The additions are the feature-completion work's browser journeys,
+> in the end-to-end stage's two commits (`999f7b3`, `5eb42f4`): ten new
+> `detail-*` specs (team access and organisations, event pictures, event
+> authoring, the platform door, the group pass, transfer codes, the seat
+> picker, promo codes, promo checkout and an online event), the authoring
+> journeys in `event-lifecycle.spec.js`, and sweep cases for every new screen.
+> These figures are the collected counts of that stage's last full run of all
+> seven configurations, on 2026-09-29 between 19:35 and 19:56 UTC against the
+> tree committed as `5eb42f4`, each on a fresh database: 473 collected, 473
+> passed, none flaky and none skipped. They were not re-read with `--list` for
+> this update.
+
+> **Update — 2026-09-30, the review's fix round.** The total is 483: sweep
+> 114 → 121 and detail 174 → 177; the other five rows are unchanged. The sweep
+> gained the reschedule form at three widths, three surfaces (an unverified
+> organisation's page as its owner sees it, people and roles with both forms
+> open, and the decision to verify an organisation open) and the seat picker
+> with motion reduced; the detail suite gained the seat picker's wheelchair
+> space, companion and unavailable seats by keyboard, and two team journeys
+> (a platform role put back to attendee, and an organisation made by an
+> attendee with no second factor). The sweep's two keyboard walks now judge
+> what focus adds rather than what a control draws at rest. All seven ran on
+> 2026-09-30 between 14:28 and 14:50 UTC against the working tree on top of
+> `5eb42f4`, uncommitted, each on a fresh database: 483 collected, 483 passed,
+> none flaky and none skipped. The table above keeps the earlier figures,
+> which were true for `5eb42f4`.
 
 The detail configuration runs four specs that are also separately runnable —
 `test:e2e:analytics`, `test:e2e:reconciliation`, `test:e2e:refunds`,
@@ -338,7 +368,9 @@ order…"), the postpone confirmation, the policies step and the reschedule form
 
 **A postponed event comes back in one step.** "Set a new date and bring it back"
 opens a form with the new start and end in the event's zone, every session
-prefilled and moved by the same amount unless that box is unticked, a choice of
+prefilled and moved by the same amount unless that box is unticked — its door
+time and its own sales window with it, the window shown beside the night and
+set on its own when the night is — a choice of
 coming back published (sales closed) or on sale — the second offered only when
 the server says sales can reopen, with the reasons when they cannot — a reason
 and a tick. A lapsed step-up opens the second-factor prompt beside the form, not
@@ -360,6 +392,31 @@ Checked by unit and component tests (`event-editor.test.jsx`,
 `event-reschedule-form.test.jsx`, the moderation page's test). When this
 section was written (2026-09-29), no browser journey drove these flows and none
 of these screens had been through the accessibility sweep.
+
+> **Update — 2026-09-30.** The end-to-end stage (`999f7b3`) added browser
+> journeys for them. In `e2e/event-lifecycle.spec.js`: prices typed in dollars
+> (journeys 8 and 8a), a material change that has to be confirmed with a reason
+> (19), a date moved only with a reason and a tick (19a), and a postponed event
+> brought back with a new date through the reschedule form (19b). In
+> `e2e/detail-event-authoring.spec.js`: a live event with sales keeping its
+> price, and a rejected event showing why and coming back as a draft to rework.
+> The sweep scans the editor — the step it opens on, and its tickets, pictures,
+> line-up and guest steps — at 320, 768 and 1280 pixels, walks it at 200% zoom
+> and by keyboard alone, and scans the moderation queue and decision screen. It
+> does not scan the material-change panel, the postpone and cancel forms or the
+> reschedule form.
+>
+> **Update — 2026-09-30, later.** The sentence above was wrong about the
+> material-change panel: the sweep's "change of date, place or terms on a live
+> event" case opens that panel and scans it at each width, and did before this
+> update. The sweep now also scans, at 320, 768 and 1280 pixels, the editor's
+> sessions and policies steps; its line-up and guest steps with a performer, a
+> slot and a question drawn in them (seeded on the draft by `seedEventContent`,
+> `e2e/support/seed-feature-world.mjs`); the reschedule form, opened on a
+> postponed event; and the public event page with every content section drawn
+> — the line-up with bios, the running order, the questions, the dress code,
+> the way there, the contact, the links and a sponsor. The postpone and cancel
+> forms are still not scanned.
 
 ---
 
@@ -397,6 +454,14 @@ a group as "First name and N more", or "Group pass" when nobody on it is named.
 Urgent outcomes stay assertive, as for a single ticket; the group cards are in
 `door-workspace.jsx` because that is the one file the live-region policy lets
 interrupt.
+
+On an event of more than one night the door asks **Night you are admitting
+to**, starting on tonight's (the first night that has not ended), and nothing can be
+presented until a night is chosen; changing it lets go of the ticket in hand.
+Every lookup and admission carries the night. A ticket for another night is
+refused with the night it is for; a ticket good for every night is named "Every
+night" and is "already admitted on" tonight's night only when it went in
+tonight. Each ticket of a group names its night the same way.
 
 A platform super administrator sees **Check-in** in the navigation and, on the
 door page, a persistent notice that every lookup and admission is recorded
@@ -465,6 +530,14 @@ terminal. Focus moves into the confirmation panel when it opens and returns to
 the exact trigger when it is dismissed — restored by effect against a live node,
 never against one captured on the way in, because opening the panel unmounts the
 triggers and focusing a detached node silently does nothing.
+
+Every screen moves focus the same way: through `useFocusAfterRender`
+(`apps/web/src/components/focus-after-render.jsx`), which asks for the move as a
+state change and makes it in an effect once the pass that draws the target is
+committed. A `queueMicrotask` does not do this. It works inside a click handler,
+but after an `await` it runs before React draws the refusal, or the opener that
+comes back when a panel closes, and focus falls to the page. A test in
+`focus-after-render.test.jsx` fails if any component goes back to it.
 
 There is no page-level loading state, and that is a fact about this application
 rather than an omission: every screen is `force-dynamic` and server-rendered, the
@@ -549,6 +622,30 @@ reserved or charged."
 2.2 (2.5.8). A wide section scrolls inside its own region; the page itself never
 scrolls sideways.
 
+**Checked in a browser (2026-09-30).** The end-to-end world's seat plan has two
+sections, each its own price zone: plain balcony seats, and boxes holding a
+wheelchair space with its companion seat, an obstructed seat, a restricted seat
+with its note and a seat the organiser has blocked. `e2e/detail-seat-picker.spec.js`
+reaches the sold seat and the blocked one with the arrow keys and hears each
+called unavailable, chooses the wheelchair space by keyboard and hears the
+companion come with it, and gives both back by unchoosing either. The
+accessibility sweep scans the map with every symbol and the restricted note
+drawn, and checks that with motion reduced no seat transitions for longer than
+0.01 ms.
+
+## Booking for the team — 2026-09-30
+
+A hidden or complimentary tier is not on the event page for anybody, and it is
+booked through the same checkout as every other tier. A member who may book it
+(`ticketType:manage` in the event's organisation) finds a "Book from a hidden
+tier" panel on the event's editor page once the event is on sale, with a "Book
+team tickets" link to the event's checkout. There, and on the seat page, the
+event is read as that member, so the hidden tiers are listed too, each marked
+"Team only", under a "Booking for your team" note: the tickets are kept in the
+booker's account, and each is handed on to a guest with a transfer code from
+their tickets. Anybody else, signed in or not, is shown only the public tiers,
+and the checkout never breaks when the team's read fails — it falls back to them.
+
 ## The promo code box — 2026-09-29
 
 One box at checkout, labelled "Promo code", with Apply (and Remove once a code
@@ -574,6 +671,19 @@ summary shows the discount as its own row, "Discount (SAVE10)". When the total
 moved between the quote and the payment (`409 PRICE_CHANGED`), nothing is
 charged; the summary is re-quoted and the page says "The total is now $X.
 Nothing was charged. Check the summary and pay again."
+
+A payment that did not end in a booking is never shown as one. "Booked" is
+drawn only for an order that came back `PAID`. When an order was placed and
+whether it was paid is being checked — the capture timed out (`502
+PAYMENT_TIMEOUT`), it was taken and the order could not be completed (`500
+ORDER_NOT_COMPLETED`), or a retry found the attempt still unsettled (`409
+ORDER_PENDING`) — both checkouts show "Please do not pay again" over the API's
+own sentence, disable Pay and the selection, move focus to the notice, and link
+to the order ("See order DE-…"). An order that came back unpaid under a success
+status gets the same treatment, titled "Not booked". A declined card
+(`402 PAYMENT_DECLINED`) says so in the API's words, keeps the holds, and makes
+the next Pay a new attempt with a new key. A cancelled order (`409
+ORDER_CANCELLED`) gives the holds back and asks for a new reservation.
 
 The organiser's side is `/organizer/promo-codes`: a table with each code's
 discount, what it applies to, its window in a stated zone, its uses against its

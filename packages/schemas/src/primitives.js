@@ -178,9 +178,12 @@ export const nonEmptyStringSchema = z.preprocess(trimmed, z.string().min(1).max(
  * Control characters: C0 (NUL included), DEL and C1.
  *
  * Nothing a person types into a search box, a filter or a door screen is one.
- * NUL in particular is refused by PostgreSQL in every text and JSON column, so
- * one that gets past validation reaches the database and comes back as a 500
- * rather than as the 400 it is.
+ * NUL in particular is refused by PostgreSQL in every text and JSON column.
+ * The API's request validator refuses a NUL in any string of any validated
+ * request whatever the schema says (`apps/api/src/lib/validation.js`), and
+ * answers one that reaches PostgreSQL by another road as a 400; a field that
+ * uses this refinement refuses every other control character as well, with a
+ * message of its own.
  *
  * @type {RegExp}
  */

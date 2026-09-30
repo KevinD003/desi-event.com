@@ -14,7 +14,7 @@
  * @module @desi-event/api/tests/reserved-seat-checkout
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { computeOrderTotals } from '@desi-event/pricing'
 import { createInMemoryProviderRegistry } from '@desi-event/providers'
@@ -667,11 +667,86 @@ describe('a reserved tier, as an organiser authors it', () => {
 
     // Settlement refuses and rolls back: no ticket without its seat, and the
     // order stays PENDING for reconciliation rather than being called paid.
+    // The answer names the order, so the buyer can find it instead of paying
+    // again.
     expect(response.statusCode).toBe(500)
+    expect(response.json().error.code).toBe('ORDER_NOT_COMPLETED')
+    expect(response.json().error.orderReference).toBe(world.prisma._store.order[0].reference)
     expect(world.prisma._store.ticket).toHaveLength(0)
     expect(world.prisma._store.order).toHaveLength(1)
     expect(world.prisma._store.order[0].status).toBe('PENDING')
     expect(seat).toMatchObject({ status: 'AVAILABLE', holdId: null })
+
+    // The money moved, so the charge is recorded and put in front of a
+    // person: the attempt is flagged with the provider's reference, and a
+    // reconciliation task names it.
+    const [payment] = world.prisma._store.payment
+    expect(payment).toMatchObject({ status: 'INITIATED', reconciliationRequired: true })
+    expect(payment.providerRef).toBeTruthy()
+    expect(world.prisma._store.reconciliationTask).toEqual([
+      expect.objectContaining({
+        kind: 'PROVIDER_MISMATCH',
+        paymentId: payment.id,
+        orderId: world.prisma._store.order[0].id,
+        providerRef: payment.providerRef,
+      }),
+    ])
+
+    await world.app.close()
+  })
+
+  it('cancels a free order whose settlement refused, so its holds are not left waiting on a payment', async () => {
+    const world = await reservedWorld({ front: { priceCents: 0 } })
+    const { headers, held } = await holdAsBuyer(world, ['A2'])
+    const seat = world.prisma._store.eventSeat.find((row) => row.id === world.eventSeatIdByLabel.A2)
+
+    // The zero-total path settles without calling the provider, so the hold
+    // is taken from under it before settlement by wrapping the transaction
+    // that settles: the second one this checkout opens.
+    const { prisma } = world
+    const transaction = prisma.$transaction
+    let opened = 0
+    const settling = vi.spyOn(prisma, '$transaction').mockImplementation((fn, ...rest) => {
+      opened += 1
+      if (opened === 2) {
+        prisma._store.ticketHold.find((row) => row.id === held.id).status = 'EXPIRED'
+        seat.status = 'AVAILABLE'
+        seat.holdId = null
+      }
+
+      return transaction(fn, ...rest)
+    })
+
+    const keyed = { ...headers, 'idempotency-key': 'free-order-settlement-refused' }
+    const body = {
+      items: [{ ticketTypeId: world.frontTier.id, quantity: 1 }],
+      holdIds: [held.id],
+    }
+    const response = await placeOrder(world, keyed, body)
+    settling.mockRestore()
+
+    // Nothing was charged, so there is nothing to reconcile: the order is
+    // cancelled, which gives its hold back, and no task is opened. That is a
+    // refusal the buyer can act on, not a fault: a precise 409 saying so.
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('ORDER_CANCELLED')
+    expect(response.json().error.message).toMatch(/Nothing was charged; reserve the tickets again/)
+
+    // A retry of the same attempt is told the same, and places nothing.
+    const retry = await placeOrder(world, keyed, body)
+    expect(retry.statusCode).toBe(409)
+    expect(retry.json().error.code).toBe('ORDER_CANCELLED')
+
+    expect(prisma._store.order).toHaveLength(1)
+    expect(prisma._store.order[0]).toMatchObject({ status: 'CANCELLED', totalCents: 0 })
+    expect(prisma._store.payment).toHaveLength(0)
+    expect(prisma._store.reconciliationTask ?? []).toHaveLength(0)
+    expect(prisma._store.ticket).toHaveLength(0)
+    expect(
+      prisma._store.auditLog.find(
+        (row) => row.action === 'order.cancelled' && row.entityId === prisma._store.order[0].id,
+      )?.metadata,
+    ).toMatchObject({ reason: 'SETTLEMENT_FAILED', paymentId: null })
 
     await world.app.close()
   })

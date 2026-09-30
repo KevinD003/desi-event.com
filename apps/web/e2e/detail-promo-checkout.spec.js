@@ -54,6 +54,25 @@ const TIER = 'General admission, night 2'
 const GUEST = 'Rhea Kapoor'
 
 /**
+ * Anything that invents a hurry. The same list as `detail-checkout.spec.js`:
+ * the nights list and the checkout say what is on sale, never how fast it is
+ * going.
+ *
+ * @type {RegExp}
+ */
+const URGENCY = /selling fast|few (?:tickets )?left|almost gone|hurry|last chance|only \d+ left/iu
+
+/**
+ * Text with its runs of whitespace made single spaces, as it reads.
+ *
+ * @param {string} text Any text.
+ * @returns {string} The same words, spaced once.
+ */
+function normalise(text) {
+  return text.replace(/\s+/gu, ' ').trim()
+}
+
+/**
  * A money amount as this site prints it, in dollars.
  *
  * @param {number} cents Minor units.
@@ -123,6 +142,8 @@ test.describe.serial('a night’s tickets, a promo code and a guest’s name', (
     await expect(
       buyer.getByText(/the local time at the venue \(America\/New_York\)/u),
     ).toBeVisible()
+    // The nights say what is on, never how fast it is going.
+    expect(normalise(await buyer.getByRole('main').innerText())).not.toMatch(URGENCY)
 
     await buyer.getByRole('link', { name: 'Choose tickets' }).first().click()
     await expect(
@@ -134,6 +155,7 @@ test.describe.serial('a night’s tickets, a promo code and a guest’s name', (
     await expect(buyer.getByRole('heading', { level: 3, name: /^Night 2 · / })).toBeVisible()
     await expect(buyer.getByLabel(`Quantity of ${TIER}`)).toBeVisible()
     await expect(buyer.getByLabel('Quantity of General admission, night 1')).toBeVisible()
+    expect(normalise(await buyer.getByRole('main').innerText())).not.toMatch(URGENCY)
   })
 
   test('reserving two gives a name box for each, and a code is refused in words until one takes', async () => {
@@ -215,6 +237,8 @@ test.describe.serial('a night’s tickets, a promo code and a guest’s name', (
 
     await expect(pay).toHaveText(`Pay ${total.trim()} (simulated)`)
     expect(await pay.innerText()).not.toBe(fullPrice)
+    // Nor does a held basket count anybody down.
+    expect(normalise(await buyer.getByRole('main').innerText())).not.toMatch(URGENCY)
   })
 
   test('paying records the discount and the code on the order, and the names on the tickets', async () => {
@@ -354,6 +378,15 @@ test.describe.serial('a night’s tickets, a promo code and a guest’s name', (
         timeout: 1_000,
       })
     }).toPass({ timeout: 15_000 })
+
+    // The guest's ticket is for Night 2, and the door admits by night.
+    const night = gamma.getByLabel('Night you are admitting to')
+    const nightValue = await night
+      .locator('option', { hasText: /^Night 2 · /u })
+      .getAttribute('value')
+
+    await night.selectOption(nightValue)
+    await expect(night).toHaveValue(nightValue)
 
     await gamma.getByLabel(/^Printed ticket code/u).fill(guestCode)
     await gamma.getByRole('button', { name: 'Look up' }).click()

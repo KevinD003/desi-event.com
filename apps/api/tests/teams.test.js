@@ -1003,7 +1003,7 @@ describe('removing a member', () => {
     await app.close()
   })
 
-  it('refuses removing the only owner', async () => {
+  it('refuses an administrator removing an owner, whom an administrator cannot act on', async () => {
     const { app, ids, prisma, team } = await createTeamApp()
     const token = await signIn(app, 'admin@rangoli.example')
 
@@ -1014,7 +1014,14 @@ describe('removing a member', () => {
       payload: {},
     })
 
-    expect([403, 422]).toContain(response.statusCode)
+    // The role bound, not the last-owner rule: one request at a time, an owner
+    // is only ever removed by another owner, so there is always one left. The
+    // last-owner rule on removal matters only when two owners remove each
+    // other at once, and platform-roles-integration.test.js races exactly that.
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.message).toBe(
+      'Your role in this organisation cannot act on a OWNER.',
+    )
     expect(prisma._store.membership.find((row) => row.id === team.owner.membershipId)).toBeTruthy()
 
     await app.close()
@@ -1440,6 +1447,33 @@ describe('issuing a new code for an invitation', () => {
 
     expect(response.statusCode).toBe(409)
     expect(response.body).not.toContain('invitationCode')
+
+    await app.close()
+  })
+
+  it.each([
+    ['a viewer', 'finance@rangoli.example'],
+    ['a staff member', 'door@rangoli.example'],
+    ['a finance member', 'money@rangoli.example'],
+    ['an event manager', 'events@rangoli.example'],
+    ['an owner of another organisation', 'rival@dhol.example'],
+  ])('refuses %s a new code, and replaces nothing', async (_who, email) => {
+    const { app, ids, prisma } = await createTeamApp()
+    // The lowest role, which every one of these callers could grant were
+    // granting the question: the refusal is the capability's, team:invite.
+    const original = await issued(app, ids, 'VIEWER')
+    const before = JSON.stringify(prisma._store.invitation)
+
+    const response = await reissue(app, ids, original.id, email)
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('FORBIDDEN')
+    expect(response.body).not.toContain('invitationCode')
+    // The live code is untouched: same row, same digest, still PENDING.
+    expect(JSON.stringify(prisma._store.invitation)).toBe(before)
+    expect(prisma._store.auditLog.some((row) => row.action === 'team.invitation_reissued')).toBe(
+      false,
+    )
 
     await app.close()
   })

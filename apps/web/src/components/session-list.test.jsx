@@ -61,6 +61,44 @@ describe('the list of nights', () => {
     ).toBeInTheDocument()
   })
 
+  it('marks each night with its own zone when the nights are not all in one', () => {
+    const chicago = night({
+      id: 'snchicagoxxxx',
+      label: 'Chicago night',
+      startsAt: '2026-10-04T23:30:00.000Z',
+      endsAt: '2026-10-05T03:30:00.000Z',
+      doorsOpenAt: null,
+      timezone: 'America/Chicago',
+    })
+
+    render(<SessionList sessions={[night(), chicago]} eventSlug="two-cities" now={NOW} />)
+
+    const items = within(screen.getByRole('list', { name: 'Nights' })).getAllByRole('listitem')
+
+    // One zone stated for every night would be wrong for one of them.
+    expect(screen.queryByText(/^All times are/u)).toBeNull()
+    expect(
+      screen.getByText(
+        'These nights are in different time zones. Each time is the local time at that night’s venue, marked with its zone, not your own.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(items[0]).getByRole('heading', { name: 'Night 1 · Sat, Oct 3 · 7:30 PM EDT' }),
+    ).toBeInTheDocument()
+    expect(within(items[0]).getByText('Sat, Oct 3 · 7:30 PM EDT')).toHaveAttribute(
+      'dateTime',
+      '2026-10-03T23:30:00.000Z',
+    )
+    expect(
+      within(items[1]).getByRole('heading', { name: 'Chicago night · Sun, Oct 4 · 6:30 PM CDT' }),
+    ).toBeInTheDocument()
+    expect(within(items[1]).getByText('Sun, Oct 4 · 6:30 PM CDT')).toHaveAttribute(
+      'dateTime',
+      '2026-10-04T23:30:00.000Z',
+    )
+    expect(within(items[1]).getByText('Sun, Oct 4 · 10:30 PM CDT')).toBeInTheDocument()
+  })
+
   it('says each night’s state in words', () => {
     render(
       <SessionList

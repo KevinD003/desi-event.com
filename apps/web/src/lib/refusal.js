@@ -15,6 +15,9 @@
  *
  * | state                  | from                                              |
  * |------------------------|---------------------------------------------------|
+ * | `payment-unsettled`    | 502 `PAYMENT_TIMEOUT`, 500 `ORDER_NOT_COMPLETED`, |
+ * |                        | 409 `ORDER_PENDING`                               |
+ * | `payment-declined`     | 402                                               |
  * | `auth-required`        | 401                                               |
  * | `mfa-enrolment`        | 403 `MFA_ENROLMENT_REQUIRED`                      |
  * | `step-up`              | 403 `STEP_UP_REQUIRED`                            |
@@ -32,6 +35,12 @@
  * API's own message is more specific than the generic one (a 409 or 422 always
  * is), `detail` carries it.
  *
+ * `payment-unsettled` is checked before the status, because its three codes
+ * arrive as a 409, a 500 and a 502 and mean one thing: an order was placed,
+ * whether it was paid is being checked, and pressing Pay again is the one
+ * thing that must not happen. It is never `recoverable`, and it carries the
+ * order's reference when the API sent one, so the screen can link to it.
+ *
  * @module lib/refusal
  */
 
@@ -42,7 +51,25 @@
  * @property {string} detail What happened, and what can be done about it.
  * @property {boolean} recoverable Whether trying again (after doing what `detail` says) can succeed.
  * @property {number|null} retryAfterSeconds For `rate-limited`, how long to wait, when the API said.
+ * @property {string} [orderReference] For `payment-unsettled`, the order the API named.
  */
+
+/**
+ * Checkout codes that mean an order exists and its payment is not settled.
+ *
+ * @type {ReadonlySet<string>}
+ */
+const UNSETTLED_PAYMENT_CODES = new Set(['PAYMENT_TIMEOUT', 'ORDER_NOT_COMPLETED', 'ORDER_PENDING'])
+
+/**
+ * An order reference the API sent, when it is one.
+ *
+ * @param {unknown} value The value.
+ * @returns {string|null} The reference, or null.
+ */
+function orderReferenceFrom(value) {
+  return typeof value === 'string' && /^[A-Z0-9-]{4,32}$/u.test(value) ? value : null
+}
 
 /**
  * How long a `Retry-After` header asks for, in seconds.
@@ -115,6 +142,21 @@ export function describeApiRefusal(error) {
     ? error.retryAfterSeconds
     : null
 
+  if (code && UNSETTLED_PAYMENT_CODES.has(code)) {
+    const orderReference = orderReferenceFrom(error?.orderReference)
+
+    return {
+      state: 'payment-unsettled',
+      title: 'Please do not pay again',
+      detail:
+        specificMessage(error) ??
+        'Whether this payment went through is being checked. Please do not pay again; your orders show where it stands.',
+      recoverable: false,
+      retryAfterSeconds: null,
+      ...(orderReference ? { orderReference } : {}),
+    }
+  }
+
   if (status === 0 || code === 'API_UNREACHABLE') {
     return {
       state: 'network',
@@ -131,6 +173,18 @@ export function describeApiRefusal(error) {
       state: 'auth-required',
       title: 'You are signed out',
       detail: 'Your session ended. Sign in again to carry on; nothing was changed.',
+      recoverable: true,
+      retryAfterSeconds: null,
+    }
+  }
+
+  if (status === 402) {
+    return {
+      state: 'payment-declined',
+      title: 'The payment was declined',
+      detail:
+        specificMessage(error) ??
+        'The payment was declined, and nothing was charged. You can try again.',
       recoverable: true,
       retryAfterSeconds: null,
     }
@@ -265,10 +319,11 @@ export function describeApiRefusal(error) {
  * rather than as thrown errors.
  *
  * @param {Response} response A response that was not ok.
- * @returns {Promise<{status: number, code: string|null, message: string|null, retryAfterSeconds: number|null}>} The error.
+ * @returns {Promise<{status: number, code: string|null, message: string|null, retryAfterSeconds: number|null, orderReference?: string}>} The error; `orderReference` only when the API named an order.
  */
 export async function refusalFromResponse(response) {
   const body = await response.json().catch(() => null)
+  const orderReference = orderReferenceFrom(body?.error?.orderReference)
 
   return {
     status: response.status,
@@ -276,6 +331,7 @@ export async function refusalFromResponse(response) {
     message: body?.error?.message ?? null,
     // Optional chaining: a test double, or a response built by hand, may have no headers.
     retryAfterSeconds: parseRetryAfter(response.headers?.get?.('retry-after') ?? null),
+    ...(orderReference ? { orderReference } : {}),
   }
 }
 

@@ -155,15 +155,43 @@ CREATE TRIGGER desi_media_gallery_cap
 -- Never rendered on a public page; the editor preview made the organiser's
 -- browser fetch an arbitrary third-party URL. Not migrated to uploads:
 -- fetching third-party bytes inside a migration is the behaviour being
--- removed. The count is reported so an operator can see what went.
+-- removed.
+--
+-- What went is kept, one audit row per event that had an address, written
+-- before the column is dropped and in the same transaction: action
+-- `event.cover_address_dropped`, entity the event, no actor (the migration did
+-- it), metadata { organizationId, coverImageUrl, migration }. Not a NOTICE:
+-- `prisma migrate deploy` prints none, so a count said that way reached nobody.
+-- Find them with
+--   SELECT "entityId", "metadata" FROM "AuditLog"
+--    WHERE "action" = 'event.cover_address_dropped';
+--
+-- The address is kept without any user name, password, query string or
+-- fragment: that is where a signed or credentialed link carries its secret,
+-- and a secret does not belong in an append-only table. Scheme, host and path
+-- are enough to find the picture again. At most 2048 characters.
+--
+-- The id is derived from the event's, so it is stable and cannot collide.
 
-DO $$
-DECLARE
-  n INTEGER;
-BEGIN
-  SELECT count(*) INTO n FROM "Event" WHERE "coverImageUrl" IS NOT NULL;
-  RAISE NOTICE 'dropping % external cover image address(es)', n;
-END $$;
+INSERT INTO "AuditLog" ("id", "actorId", "action", "entityType", "entityId", "metadata", "createdAt")
+SELECT
+  'c' || substr(md5("id" || ':cover-address-dropped'), 1, 24),
+  NULL,
+  'event.cover_address_dropped',
+  'Event',
+  "id",
+  jsonb_build_object(
+    'organizationId', "organizationId",
+    'coverImageUrl', left(
+      regexp_replace(
+        regexp_replace("coverImageUrl", '[?#].*$', ''),
+        '^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@', '\1'),
+      2048),
+    'migration', '20260928130000_event_media'
+  ),
+  now()
+FROM "Event"
+WHERE "coverImageUrl" IS NOT NULL;
 
 -- AlterTable
 ALTER TABLE "Event" DROP COLUMN "coverImageUrl";

@@ -393,6 +393,34 @@ describe('step-up without an enrolled factor, finding NF-12', () => {
   })
 })
 
+describe('the team routes, as the contract declares them', () => {
+  const byId = new Map(apiRoutes.map((route) => [route.id, route]))
+
+  it('guards each team route with its own capability in the organisation named in the path', () => {
+    const declared = Object.fromEntries(
+      [...byId.values()]
+        .filter((route) => route.id.startsWith('teams.') && route.id !== 'teams.accept')
+        .map((route) => [route.id, [route.auth, route.capability, route.capabilityScope]]),
+    )
+
+    // A new code for an invitation is the invitation: whoever may ask for one
+    // may invite, and nobody else — not a viewer, not staff, not finance.
+    expect(declared).toEqual({
+      'teams.list': ['session', 'organization:view_members', 'params.id'],
+      'teams.invite': ['session', 'team:invite', 'params.id'],
+      'teams.reissueInvitation': ['session', 'team:invite', 'params.id'],
+      'teams.revokeInvitation': ['session', 'team:invite', 'params.id'],
+      'teams.updateMember': ['session', 'team:role_manage', 'params.id'],
+      'teams.removeMember': ['session', 'team:remove', 'params.id'],
+      'teams.transferOwnership': ['session', 'organization:manage', 'params.id'],
+    })
+  })
+
+  it('takes an invitation code from any signed-in account, the code being the authority', () => {
+    expect(byId.get('teams.accept')).toMatchObject({ auth: 'session', capability: null })
+  })
+})
+
 describe('the promo code routes and the checkout quote, as the contract declares them', () => {
   const byId = new Map(apiRoutes.map((route) => [route.id, route]))
 

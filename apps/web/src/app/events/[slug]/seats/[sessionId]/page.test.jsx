@@ -15,9 +15,15 @@ vi.mock('../../../../../lib/api.js', () => ({
   loadSeatMap: vi.fn(),
 }))
 vi.mock('../../../../../lib/session.js', () => ({ readSession: vi.fn() }))
+// The team's read is made as the viewer; here it is the only part replaced.
+vi.mock('../../../../../lib/team-booking.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  loadTeamSeatMap: vi.fn(),
+}))
 
 const { loadEventBySlug, loadSeatMap } = await import('../../../../../lib/api.js')
 const { readSession } = await import('../../../../../lib/session.js')
+const { loadTeamSeatMap } = await import('../../../../../lib/team-booking.js')
 const { default: SeatPage, generateMetadata } = await import('./page.jsx')
 
 const EVENT = {
@@ -109,6 +115,7 @@ beforeEach(() => {
   loadEventBySlug.mockReset()
   loadSeatMap.mockReset()
   readSession.mockReset()
+  loadTeamSeatMap.mockReset()
   loadEventBySlug.mockResolvedValue({ event: EVENT, usedFallback: false })
   loadSeatMap.mockResolvedValue(seatMap())
   readSession.mockResolvedValue(null)
@@ -199,5 +206,94 @@ describe('the seat page for a night of this event', () => {
     loadEventBySlug.mockResolvedValue({ event: null, usedFallback: false })
 
     expect((await generateMetadata(params)).robots).toEqual({ index: false, follow: false })
+  })
+})
+
+describe('the seat page for the organiser’s own team', () => {
+  const teamEvent = { ...EVENT, organizationId: 'orgnavratrixx' }
+  const publicMap = seatMap()
+  const row = publicMap.sections[0].rows[0]
+  // The team's map has one more seat on it: a guest-list seat, sold under a
+  // hidden tier a stranger's map leaves out.
+  const guestSeats = seatMap({
+    tiers: [
+      ...publicMap.tiers,
+      {
+        id: 'ttguestxxxxxx',
+        name: 'Guest seats',
+        priceCents: 0,
+        currency: 'USD',
+        priceZoneId: 'pzfrontxxxxxx',
+        minPerOrder: 1,
+        maxPerOrder: 10,
+        onSale: true,
+      },
+    ],
+    sections: [
+      {
+        ...publicMap.sections[0],
+        rows: [
+          {
+            ...row,
+            seats: [
+              ...row.seats,
+              {
+                ...row.seats[0],
+                id: 'esa9xxxxxxxxx',
+                seatId: 'sta9xxxxxxxxx',
+                label: 'A9',
+                sortOrder: 9,
+                ticketTypeId: 'ttguestxxxxxx',
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+
+  /**
+   * A signed-in member with these capabilities in the event's organisation.
+   *
+   * @param {string[]} capabilities What the membership holds.
+   * @returns {object} The session payload.
+   */
+  const member = (capabilities) => ({
+    user: { displayName: 'Meera Shah', email: 'meera@example.test' },
+    capabilities: [],
+    memberships: [{ organizationId: teamEvent.organizationId, capabilities }],
+  })
+
+  beforeEach(() => {
+    loadEventBySlug.mockResolvedValue({ event: teamEvent, usedFallback: false })
+    loadTeamSeatMap.mockResolvedValue(guestSeats)
+  })
+
+  it('draws the map as the team reads it for a member who may book hidden tiers', async () => {
+    readSession.mockResolvedValue(member(['ticketType:manage']))
+
+    render(await SeatPage(params))
+
+    expect(loadTeamSeatMap).toHaveBeenCalledWith('snnightonexxx')
+    expect(document.body).toHaveTextContent('A9')
+  })
+
+  it('draws the public map for anybody else, and when the team’s read fails', async () => {
+    readSession.mockResolvedValue(member(['event:view_draft']))
+
+    const { unmount } = render(await SeatPage(params))
+
+    expect(loadTeamSeatMap).not.toHaveBeenCalled()
+    expect(document.body).not.toHaveTextContent('A9')
+    unmount()
+
+    readSession.mockResolvedValue(member(['ticketType:manage']))
+    loadTeamSeatMap.mockResolvedValue(null)
+
+    render(await SeatPage(params))
+
+    expect(loadTeamSeatMap).toHaveBeenCalledWith('snnightonexxx')
+    expect(document.body).not.toHaveTextContent('A9')
+    expect(document.body).toHaveTextContent('A1')
   })
 })

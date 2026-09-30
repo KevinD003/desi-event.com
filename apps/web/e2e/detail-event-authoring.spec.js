@@ -7,7 +7,7 @@ import {
   cleanupAuthoring,
   seedAuthoring,
 } from './support/seed-authoring.mjs'
-import { BALCONY_ROWS } from './support/seed-feature-world.mjs'
+import { BALCONY_ROWS, PLAN_SEATS } from './support/seed-feature-world.mjs'
 
 /**
  * Event authoring where it depends on a state the lifecycle story never
@@ -85,8 +85,11 @@ function tierCard(page, name) {
     .filter({ hasText: new RegExp(`^${name}`, 'u') })
 }
 
-/** The seat count of gamma's balcony plan. */
-const SEATS = Object.values(BALCONY_ROWS).reduce((sum, count) => sum + count, 0)
+/** Every seat on gamma's plan: the balcony and the boxes. */
+const SEATS = PLAN_SEATS
+
+/** The balcony's seats alone, the ones the Balcony zone prices. */
+const BALCONY_SEATS = Object.values(BALCONY_ROWS).reduce((sum, count) => sum + count, 0)
 
 /**
  * A wall-clock value for a datetime-local box, days from now.
@@ -155,7 +158,7 @@ test.describe.serial('authoring an event whose state the lifecycle never reaches
 
     const zone = add.getByLabel(/^Price zone/u)
 
-    await expect(zone.locator('option')).toHaveText(['Choose a zone', 'Balcony'])
+    await expect(zone.locator('option')).toHaveText(['Choose a zone', 'Balcony', 'Box'])
     // No "how many": the zone's seats are the quantity.
     await expect(add.getByLabel(/^How many/u)).toHaveCount(0)
 
@@ -167,7 +170,8 @@ test.describe.serial('authoring an event whose state the lifecycle never reaches
     )
 
     // Preparing the night makes a seat for every place on the plan, and every
-    // one of them is priced by the tier that prices its zone.
+    // one in the Balcony zone is priced by the tier that prices it; the boxes,
+    // in a zone no tier on this night prices, are made and left unpriced.
     await openStep(gamma, seeded.draftEventId, /^step 3\s*sessions$/iu)
 
     const balcony = gamma
@@ -177,7 +181,7 @@ test.describe.serial('authoring an event whose state the lifecycle never reaches
     await balcony.getByRole('button', { name: 'Prepare inventory', exact: true }).click()
     await expect(
       gamma.getByText(
-        `Prepared ${SEATS} new seats; ${SEATS} of ${SEATS} now exist. ${SEATS} seats were matched to the reserved ticket type that prices their zone.`,
+        `Prepared ${SEATS} new seats; ${SEATS} of ${SEATS} now exist. ${BALCONY_SEATS} seats were matched to the reserved ticket type that prices their zone.`,
       ),
     ).toBeVisible()
 

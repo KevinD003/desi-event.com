@@ -294,3 +294,63 @@ describe('what the form offers', () => {
     expect(await screen.findByText('SAVE10 made: paused.')).toBeInTheDocument()
   })
 })
+
+describe('where focus goes when a code is not made', () => {
+  it('moves to the first field the form found wrong, rather than staying on the button', async () => {
+    const user = renderForm()
+
+    await user.type(screen.getByLabelText('Code'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Make the code' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Code')).toHaveFocus())
+
+    // Mended, and the next problem is where focus goes next.
+    await user.clear(screen.getByLabelText('Code'))
+    await user.type(screen.getByLabelText('Code'), 'SAVE10')
+    await user.click(screen.getByRole('button', { name: 'Make the code' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Percentage off (%)')).toHaveFocus())
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('moves to the box the API said is taken', async () => {
+    const user = renderForm()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(409, { error: { code: 'PROMO_CODE_TAKEN', message: 'Taken.' } }),
+    )
+
+    await user.type(screen.getByLabelText('Code'), 'save10')
+    await user.type(screen.getByLabelText('Percentage off (%)'), '10')
+    await user.click(screen.getByRole('button', { name: 'Make the code' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Code')).toHaveFocus())
+  })
+
+  it('moves to the refusal, every time the API refuses', async () => {
+    const user = renderForm()
+    const refusal = answer(422, {
+      error: { code: 'UNPROCESSABLE', message: 'That window has already ended.' },
+    })
+
+    apiFetch.mockResolvedValueOnce(refusal).mockResolvedValueOnce(refusal)
+
+    await user.type(screen.getByLabelText('Code'), 'late')
+    await user.type(screen.getByLabelText('Percentage off (%)'), '10')
+    await user.click(screen.getByRole('button', { name: 'Make the code' }))
+
+    const said = await screen.findByText('That window has already ended.')
+    const holder = said.closest('[tabindex="-1"]')
+
+    await waitFor(() => expect(holder).toHaveFocus())
+
+    // The same words again still move focus to them.
+    await user.click(screen.getByRole('button', { name: 'Make the code' }))
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(
+        screen.getByText('That window has already ended.').closest('[tabindex="-1"]'),
+      ).toHaveFocus(),
+    )
+  })
+})

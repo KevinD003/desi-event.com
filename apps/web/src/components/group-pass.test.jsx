@@ -207,7 +207,11 @@ describe('GroupPass', () => {
   })
 
   it.each([
-    [409, 'TOO_FEW_TICKETS', /needs at least two tickets on this order that still admit/iu],
+    [
+      409,
+      'TOO_FEW_TICKETS',
+      /Too few tickets on this order still admit: a new group pass needs two, and one already taken out needs one/iu,
+    ],
     [409, 'TOO_MANY_TICKETS', /more than 50 tickets; use each ticket’s own pass/iu],
     [409, 'ORDER_NOT_PAID', /this order is not paid, so it has no group pass/iu],
     [409, 'EVENT_CANCELLED', /this event was cancelled, so nobody is admitted/iu],
@@ -266,6 +270,11 @@ describe('GroupPass', () => {
     expect(screen.queryByRole('group', { name: /replace the group pass\?/iu })).toBeNull()
     expect(apiFetch).toHaveBeenCalledTimes(1)
     expect(screen.getByText(CODE)).toBeTruthy()
+    // "Keep it" went with the question; focus goes back to the button that
+    // asked it, never to the page.
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: /replace group pass/iu }),
+    )
   })
 
   it('replaces the pass, says the old one stopped working, and shows the new one', async () => {

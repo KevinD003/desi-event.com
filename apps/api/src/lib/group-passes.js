@@ -28,6 +28,15 @@
  * backfill. The QR content and the printed code are derived from the row's id
  * and version (`./group-pass-credentials.js`); only their digests are stored.
  *
+ * ## Two tickets to start one, one to keep showing it
+ *
+ * A pass is first taken out only for an order with at least
+ * `GROUP_PASS_MIN_TICKETS` tickets that still admit. Once taken out it keeps
+ * showing while any one of them still does: the group is let in over the
+ * evening, and the guest who arrives last is let in by the same pass the
+ * others were. When none admits, there is nothing to show — and nothing to
+ * replace either, since a new code could not be shown to anybody.
+ *
  * @module @desi-event/api/lib/group-passes
  */
 
@@ -154,18 +163,21 @@ function stillAdmits(ticket, order, event) {
  *
  * @param {object} order The order, with `status`, `userId` and `event`.
  * @param {Array<object>} tickets The buyer's current rows (see {@link groupMembers}).
+ * @param {object} [options] Options.
+ * @param {boolean} [options.issued] Whether the pass was already taken out: then one ticket that still admits keeps it showing, where a new one needs `GROUP_PASS_MIN_TICKETS`.
  * @returns {{admits: number, available: boolean, unavailableReason: string|null}} The answer.
  */
-export function groupPassEligibility(order, tickets) {
+export function groupPassEligibility(order, tickets, { issued = false } = {}) {
   const event = order.event ?? null
   const admits = tickets.filter((ticket) => stillAdmits(ticket, order, event)).length
+  const fewest = issued ? 1 : GROUP_PASS_MIN_TICKETS
 
   let unavailableReason = null
 
   if (order.status !== 'PAID') unavailableReason = 'ORDER_NOT_PAID'
   else if (event && (event.status === 'CANCELLED' || event.cancelledAt)) {
     unavailableReason = 'EVENT_CANCELLED'
-  } else if (admits < GROUP_PASS_MIN_TICKETS) unavailableReason = 'TOO_FEW_TICKETS'
+  } else if (admits < fewest) unavailableReason = 'TOO_FEW_TICKETS'
   else if (admits > GROUP_PASS_MAX_TICKETS) unavailableReason = 'TOO_MANY_TICKETS'
 
   return { admits, available: unavailableReason === null, unavailableReason }
@@ -174,21 +186,35 @@ export function groupPassEligibility(order, tickets) {
 /**
  * The group-pass summary for `orders.get`, for the buyer and nobody else.
  *
- * Needs no query of its own: the order route already loads every ticket row
- * on the order and its event.
+ * Reads no tickets of its own: the order route already loads every ticket row
+ * on the order and its event. Whether the pass was taken out is the caller's
+ * to say (see {@link groupPassIssued}), because it changes how few tickets
+ * keep one showing.
  *
  * @param {object} order An order with `items[].tickets` and `event`.
  * @param {object} options Options.
  * @param {string|null|undefined} options.viewerUserId Who is reading.
+ * @param {boolean} [options.issued] Whether the order's pass was already taken out.
  * @returns {{admits: number, available: boolean, unavailableReason: string|null}|null} The summary, or null.
  */
-export function groupPassSummary(order, { viewerUserId }) {
+export function groupPassSummary(order, { viewerUserId, issued = false }) {
   if (!order?.userId || !viewerUserId || order.userId !== viewerUserId) return null
 
   const rows = (order.items ?? []).flatMap((item) => item.tickets ?? [])
   const { tickets } = groupMembers(order, rows)
 
-  return groupPassEligibility(order, tickets)
+  return groupPassEligibility(order, tickets, { issued })
+}
+
+/**
+ * Whether an order's group pass was already taken out.
+ *
+ * @param {object} db A Prisma client.
+ * @param {string} orderId The order.
+ * @returns {Promise<boolean>} True when its row exists.
+ */
+export async function groupPassIssued(db, orderId) {
+  return (await db.groupPass.count({ where: { orderId } })) > 0
 }
 
 /**
@@ -308,10 +334,11 @@ export async function retrieveGroupPass({
   const order = await orderForBuyer(prisma, actor, reference)
   const rows = await orderTicketRows(prisma, order.id)
   const { tickets } = groupMembers(order, rows)
-  const eligibility = groupPassEligibility(order, tickets)
+  const takenOut = Boolean(order.groupPass)
+  const eligibility = groupPassEligibility(order, tickets, { issued: takenOut })
 
   if (!eligibility.available) {
-    throw conflict(unavailableSentence(eligibility.unavailableReason), {
+    throw conflict(unavailableSentence(eligibility.unavailableReason, { issued: takenOut }), {
       reason: eligibility.unavailableReason,
     })
   }
@@ -404,6 +431,18 @@ export async function rotateGroupPass({
     })
   }
 
+  // Only a pass that can still be shown is replaced: with nobody on it left to
+  // admit, a new code could not be shown to anybody, and replacing it would
+  // only kill a copy the buyer kept.
+  const { tickets } = groupMembers(order, await orderTicketRows(prisma, order.id))
+  const eligibility = groupPassEligibility(order, tickets, { issued: true })
+
+  if (!eligibility.available) {
+    throw conflict(unavailableSentence(eligibility.unavailableReason, { issued: true }), {
+      reason: eligibility.unavailableReason,
+    })
+  }
+
   for (let attempt = 1; attempt <= DIGEST_ATTEMPTS; attempt += 1) {
     const current = await prisma.groupPass.findUnique({ where: { id: order.groupPass.id } })
     const fromVersion = current.credentialVersion
@@ -464,9 +503,11 @@ export async function rotateGroupPass({
  * What a buyer is told when their order has no group pass.
  *
  * @param {string} reason One of `GROUP_PASS_UNAVAILABLE_REASONS`.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.issued] Whether the pass was already taken out.
  * @returns {string} The sentence.
  */
-function unavailableSentence(reason) {
+function unavailableSentence(reason, { issued = false } = {}) {
   switch (reason) {
     case 'ORDER_NOT_PAID':
       return 'This order is not paid, so it has no group pass.'
@@ -475,6 +516,8 @@ function unavailableSentence(reason) {
     case 'TOO_MANY_TICKETS':
       return `A group pass covers at most ${GROUP_PASS_MAX_TICKETS} tickets. Use each ticket's own pass.`
     default:
-      return `A group pass needs at least ${GROUP_PASS_MIN_TICKETS} tickets on this order that still admit.`
+      return issued
+        ? 'No ticket on this order still admits, so its group pass lets nobody in.'
+        : `A group pass needs at least ${GROUP_PASS_MIN_TICKETS} tickets on this order that still admit.`
   }
 }

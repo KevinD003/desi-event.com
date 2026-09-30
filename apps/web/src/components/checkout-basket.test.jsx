@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { formatAmount, priceSelection } from '../lib/pricing.js'
@@ -405,6 +405,129 @@ describe('buying', () => {
     expect(placeOrder.mock.calls[0][0].idempotencyKey).toBe(
       placeOrder.mock.calls[1][0].idempotencyKey,
     )
+  })
+
+  it.each([
+    [
+      502,
+      'PAYMENT_TIMEOUT',
+      'The payment provider did not respond in time, so whether you were charged is being checked. Your order keeps its tickets reserved until that is settled; please do not pay again.',
+    ],
+    [
+      500,
+      'ORDER_NOT_COMPLETED',
+      'Your payment was taken, but the order could not be completed. It has been passed to our team to settle or refund; please do not pay again.',
+    ],
+    [
+      409,
+      'ORDER_PENDING',
+      "This attempt already placed order DE-7K2M9Q, and whether its payment went through is still being checked. Nothing more has been charged; please do not pay again. The order's page shows where it stands.",
+    ],
+  ])(
+    'after a %i %s shows the API’s own sentence, takes Pay away and links to the order',
+    async (status, code, message) => {
+      const placeOrder = vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error(message), { status, code, orderReference: 'DE-7K2M9Q' }),
+        )
+      const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+      await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+      await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+      await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+      expect(await screen.findByText(message)).toBeInTheDocument()
+      expect(screen.getByText('Please do not pay again')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'See order DE-7K2M9Q' })).toHaveAttribute(
+        'href',
+        '/account/orders/DE-7K2M9Q',
+      )
+      expect(screen.getByRole('button', { name: /^Pay / })).toBeDisabled()
+      expect(document.body.textContent).not.toMatch(/try again|went wrong at our end/i)
+      expect(screen.queryByRole('heading', { name: 'Booked' })).not.toBeInTheDocument()
+      // Nothing on the screen can spend the holds again, or give them away.
+      expect(screen.getByRole('button', { name: 'Add one Garden Seating' })).toBeDisabled()
+      // Focus follows the notice, since the button it was on is disabled.
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByText(message).closest('[tabindex="-1"]')),
+      )
+      expect(placeOrder).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('never shows an order that came back unpaid as booked', async () => {
+    const pending = { ...ORDER, status: 'PENDING', tickets: [] }
+    const user = renderBasket({
+      reserve: vi.fn().mockResolvedValue(HOLDS),
+      placeOrder: vi.fn().mockResolvedValue(pending),
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+    expect(await screen.findByText('Not booked')).toBeInTheDocument()
+    expect(screen.getByText(/nothing is booked yet\. Please do not pay again/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Booked' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/tickets are in your account/)).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'See order DE-7K2M9Q' })).toHaveAttribute(
+      'href',
+      '/account/orders/DE-7K2M9Q',
+    )
+    expect(screen.getByRole('button', { name: /^Pay / })).toBeDisabled()
+  })
+
+  it('makes a declined payment a new attempt, with the holds kept', async () => {
+    const declined = Object.assign(
+      new Error(
+        'The payment was declined, and nothing was charged. Your reservation is kept, so you can try again.',
+      ),
+      { status: 402, code: 'PAYMENT_DECLINED' },
+    )
+    const placeOrder = vi.fn().mockRejectedValueOnce(declined).mockResolvedValueOnce(ORDER)
+    const user = renderBasket({ reserve: vi.fn().mockResolvedValue(HOLDS), placeOrder })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+    expect(await screen.findByText('The payment was declined')).toBeInTheDocument()
+    expect(screen.getByText(declined.message)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/went wrong at our end/)
+
+    await user.click(screen.getByRole('button', { name: /^Pay / }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    // The same holds, and a new key: the declined attempt's would be declined again.
+    expect(placeOrder.mock.calls[1][0].holdIds).toEqual(HOLDS.map((hold) => hold.id))
+    expect(placeOrder.mock.calls[1][0].idempotencyKey).not.toBe(
+      placeOrder.mock.calls[0][0].idempotencyKey,
+    )
+  })
+
+  it('gives the holds back and asks to reserve again when the order was cancelled', async () => {
+    const cancelled = Object.assign(
+      new Error(
+        'The order could not be completed, so it was cancelled. Nothing was charged; reserve the tickets again to carry on.',
+      ),
+      { status: 409, code: 'ORDER_CANCELLED' },
+    )
+    const release = vi.fn().mockResolvedValue(undefined)
+    const user = renderBasket({
+      reserve: vi.fn().mockResolvedValue(HOLDS),
+      release,
+      placeOrder: vi.fn().mockRejectedValue(cancelled),
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Add one Garden Seating' }))
+    await user.click(screen.getByRole('button', { name: 'Reserve tickets' }))
+    await user.click(await screen.findByRole('button', { name: /^Pay / }))
+
+    expect(await screen.findByText('The order was cancelled')).toBeInTheDocument()
+    expect(screen.getByText(cancelled.message)).toBeInTheDocument()
+    expect(release).toHaveBeenCalledWith(HOLDS.map((hold) => hold.id))
+    expect(screen.getByRole('button', { name: 'Reserve tickets' })).toBeEnabled()
   })
 
   it('says the hold ran out, charges nothing, and asks to reserve again', async () => {

@@ -62,6 +62,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from '../../../components/focus-after-render.jsx'
 import { OneTimeCodePanel } from '../../../components/one-time-code-panel.jsx'
 import { StepUpPrompt } from '../../../components/step-up-prompt.jsx'
 import { Alert, Button, FormField, Select, Textarea } from '../../../components/ui.jsx'
@@ -223,6 +224,7 @@ export function MemberActions({
   const [stepUp, setStepUp] = useState(false)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const canChange = offerRoleChange && grantable.length > 0
 
@@ -264,7 +266,7 @@ export function MemberActions({
     setRole(initialRole)
     setChosen(new Set(member.scopedEventIds))
     setReason('')
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -276,7 +278,7 @@ export function MemberActions({
     setPending(null)
     setStepUp(false)
     setRefused(null)
-    queueMicrotask(() => returnFocus.current?.focus())
+    focusAfterRender(returnFocus)
   }
 
   /**
@@ -327,7 +329,7 @@ export function MemberActions({
           announce(`${member.name} is no longer on this team.`, { focus: true })
         } else {
           announce(`${member.name} is now ${roleLabel(role).toLowerCase()}.`)
-          queueMicrotask(() => returnFocus.current?.focus())
+          focusAfterRender(returnFocus)
         }
 
         router.refresh()
@@ -340,7 +342,7 @@ export function MemberActions({
       }
 
       setRefused(refusedBecause(response, body))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
     } finally {
@@ -634,6 +636,7 @@ export function InvitationActions({
   const [issued, setIssued] = useState(null)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const what = `the invitation to join as ${roleLabel(invitation.role).toLowerCase()}`
   const reissuing = confirming === 'reissue'
 
@@ -649,7 +652,7 @@ export function InvitationActions({
     setRefused(null)
     setStepUp(false)
     setConfirming(key)
-    queueMicrotask(() => panelRef.current?.focus())
+    focusAfterRender(panelRef)
   }
 
   /**
@@ -714,7 +717,7 @@ export function InvitationActions({
       }
 
       setRefused(refusedBecause(response, body))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
     } finally {
@@ -797,7 +800,7 @@ export function InvitationActions({
                 setConfirming(null)
                 setRefused(null)
                 setStepUp(false)
-                queueMicrotask(() => returnFocus.current?.focus())
+                focusAfterRender(returnFocus)
               }}
             >
               {reissuing ? 'Keep the current code' : 'Keep it'}
@@ -860,6 +863,7 @@ export function TransferOwnership({ organizationId, organizationName, member }) 
   const [stepUp, setStepUp] = useState(false)
   const panelRef = useRef(null)
   const returnFocus = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Hand it over.
@@ -890,7 +894,7 @@ export function TransferOwnership({ organizationId, organizationName, member }) 
       }
 
       setRefused(refusedBecause(response, body))
-      queueMicrotask(() => panelRef.current?.focus())
+      focusAfterRender(panelRef)
     } catch {
       setRefused({ sentence: describeApiRefusal(null).detail, enrol: false })
     } finally {
@@ -953,7 +957,7 @@ export function TransferOwnership({ organizationId, organizationName, member }) 
                 setConfirming(false)
                 setRefused(null)
                 setStepUp(false)
-                queueMicrotask(() => returnFocus.current?.focus())
+                focusAfterRender(returnFocus)
               }}
             >
               Keep ownership
@@ -971,7 +975,7 @@ export function TransferOwnership({ organizationId, organizationName, member }) 
             setRefused(null)
             setStepUp(false)
             setConfirming(true)
-            queueMicrotask(() => panelRef.current?.focus())
+            focusAfterRender(panelRef)
           }}
         >
           Hand ownership over

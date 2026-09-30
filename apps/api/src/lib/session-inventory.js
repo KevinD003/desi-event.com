@@ -16,8 +16,14 @@
  *
  *   1. every `TicketType` row involved, sorted by id (`lockTicketTypes`);
  *   2. every `EventSession` row involved, sorted by id ({@link lockEventSessions});
- *   3. a promo code row, when there is one (`lockPromoCode`);
- *   4. then, and only then, reads.
+ *   3. every `TicketHold` the checkout names, sorted by id (`lockTicketHolds`),
+ *      so a hold is spent by one order and never released while one attaches it;
+ *   4. a promo code row, when there is one (`lockPromoCode`);
+ *   5. then, and only then, reads.
+ *
+ * A seat hold takes the tiers and the night it is for with `FOR KEY SHARE`,
+ * in the same order, so neither can be deleted under it; that lock does not
+ * conflict with settlement's update of a tier's sold count.
  *
  * Authoring writes take the `Event` row first (`FOR NO KEY UPDATE`, through the
  * revision compare-and-set) and then a tier or a session. Checkout never waits

@@ -34,6 +34,7 @@
 
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 
@@ -54,6 +55,7 @@ export function SignInForm({ next = '/organizer/events' }) {
   const [busy, setBusy] = useState(false)
   const errorRef = useRef(null)
   const codeRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Submit the credentials.
@@ -91,7 +93,7 @@ export function SignInForm({ next = '/organizer/events' }) {
       // body decides, not the status.
       if (response.ok && body?.mfaRequired && !code) {
         setNeedsCode(true)
-        queueMicrotask(() => codeRef.current?.focus())
+        focusAfterRender(codeRef)
         return
       }
 
@@ -109,15 +111,15 @@ export function SignInForm({ next = '/organizer/events' }) {
       // field on screen so the next code can be typed without starting over.
       if (needsCode) {
         setError(message)
-        queueMicrotask(() => codeRef.current?.focus())
+        focusAfterRender(codeRef)
         return
       }
 
       setError(message)
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been changed.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }

@@ -57,6 +57,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Badge, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { TEXT_LINK } from './link-classes.js'
 import { GuestInfoStep, ProgrammeStep } from './event-content-steps.jsx'
@@ -431,6 +432,7 @@ export function EventEditor({
 
   const summaryRef = useRef(null)
   const timer = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   const mode = editMode(status)
   // Whether the step fields accept input at all, and whether the material ones
@@ -471,7 +473,7 @@ export function EventEditor({
           message: `Not saved: ${problems.length} ${problems.length === 1 ? 'thing needs' : 'things need'} fixing first.`,
         })
 
-        if (!silent) queueMicrotask(() => summaryRef.current?.focus())
+        if (!silent) focusAfterRender(summaryRef)
         return
       }
 
@@ -505,7 +507,7 @@ export function EventEditor({
           // work, and the second would do it in a way nobody could reconstruct.
           setConflict(body.error.message)
           setSave({ kind: 'conflict', message: 'Not saved. Somebody else changed this event.' })
-          queueMicrotask(() => summaryRef.current?.focus())
+          focusAfterRender(summaryRef)
           return
         }
 
@@ -514,7 +516,7 @@ export function EventEditor({
           kind: 'error',
           message: `Not saved. ${refusalSentence(response.status, body, 'The API refused.')}`,
         })
-        queueMicrotask(() => summaryRef.current?.focus())
+        focusAfterRender(summaryRef)
       } catch {
         setSave({
           kind: 'error',
@@ -523,7 +525,7 @@ export function EventEditor({
         })
       }
     },
-    [event.id, mode, problems, revision, values],
+    [event.id, focusAfterRender, mode, problems, revision, values],
   )
 
   // Autosave. Deliberately not on an interval: a timer that fires while

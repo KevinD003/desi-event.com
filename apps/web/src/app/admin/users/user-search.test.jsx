@@ -224,8 +224,24 @@ describe('the account search', () => {
 
     await searchFor(user, 'asha')
 
-    expect(
-      await screen.findByText('Only a super administrator may search accounts.'),
-    ).toBeInTheDocument()
+    const sentence = await screen.findByText('Only a super administrator may search accounts.')
+
+    expect(sentence).toBeInTheDocument()
+    // Focus goes to the refusal, drawn only once the answer is in.
+    await waitFor(() => expect(sentence.closest('[tabindex="-1"]')).toHaveFocus())
+  })
+
+  it('moves focus to the refusal when the network fails', async () => {
+    const user = userEvent.setup()
+
+    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    render(<UserSearch />)
+
+    await searchFor(user, 'asha')
+
+    const refusal = (await screen.findByText('The search did not run')).closest('[tabindex="-1"]')
+
+    expect(refusal).not.toBeNull()
+    await waitFor(() => expect(refusal).toHaveFocus())
   })
 })

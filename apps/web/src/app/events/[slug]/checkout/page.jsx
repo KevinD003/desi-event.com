@@ -7,6 +7,10 @@
  * are passed to it because the order needs them — they are the signed-in
  * person's own, on their own page — and nothing else about the session is.
  *
+ * A member of the organiser's team who may book hidden tiers is offered them
+ * here too: the tiers are read again as that member (`lib/team-booking.js`),
+ * so a guest list or a team allocation is booked through this same checkout.
+ *
  * @module app/events/slug/checkout/page
  */
 
@@ -31,6 +35,11 @@ import { NotFoundView } from '../../../../components/not-found-view.jsx'
 import { SampleDataNotice } from '../../../../components/sample-data-notice.jsx'
 import { signInHref } from '../../../../lib/next-path.js'
 import { readSession } from '../../../../lib/session.js'
+import {
+  hasHiddenTier,
+  loadTeamTicketTypes,
+  mayBookTeamTiers,
+} from '../../../../lib/team-booking.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -73,9 +82,13 @@ export default async function CheckoutPage({ params }) {
   // this version of Next.js. See components/not-found-view.jsx.
   if (!event) return <NotFoundView />
 
-  const ticketTypes = event.ticketTypes ?? []
   const session = usedFallback ? null : await readSession()
   const buyer = session?.user ? { name: session.user.displayName, email: session.user.email } : null
+  // The team's view when this member may book hidden tiers; the public one
+  // otherwise, and also when that read fails, so a checkout never breaks.
+  const teamTiers = mayBookTeamTiers(session, event) ? await loadTeamTicketTypes(event.slug) : null
+  const ticketTypes = teamTiers ?? event.ticketTypes ?? []
+  const bookingForTeam = Boolean(teamTiers) && hasHiddenTier(teamTiers)
 
   const zone = formatTimeZoneLabel(event)
   const locality = event.venue
@@ -136,6 +149,30 @@ export default async function CheckoutPage({ params }) {
         <PaymentModeNotice />
 
         <SampleDataNotice show={usedFallback} />
+
+        {bookingForTeam ? (
+          <aside
+            aria-labelledby="team-booking-heading"
+            data-testid="team-booking-notice"
+            className="mt-6 rounded-card border border-status-info/25 bg-status-info-soft px-5 py-4 text-ink sm:px-6 sm:py-5"
+          >
+            <h2 id="team-booking-heading" className="text-[1.0625rem] font-bold text-ink">
+              Booking for your team
+            </h2>
+            <p className="mt-1 text-[0.9375rem] text-ink">
+              You are on this event&rsquo;s team, so its hidden tiers are listed here too, marked
+              Team only. Nobody outside the team sees them. The tickets you book are kept in your
+              account: hand each one on to a guest with a transfer code from{' '}
+              <Link
+                href="/tickets"
+                className="underline underline-offset-4 hover:text-accent-strong"
+              >
+                your tickets
+              </Link>
+              .
+            </p>
+          </aside>
+        ) : null}
 
         <div className="mt-8">
           {ticketTypes.length === 0 ? (

@@ -13,16 +13,21 @@
  * in the meantime its refusal is repeated as it came.
  *
  * What happened is said in a polite status region, and the page is refreshed
- * so the row shows what the server now holds.
+ * so the row shows what the server now holds. A deletion removes the row, and
+ * with it the row's own region, so on the codes page the sentence goes to the
+ * page's announcer above the table (`OutcomeAnnouncer`) and focus with it.
+ * Opening the confirmation moves focus to its question; keeping the code
+ * returns focus to the Delete button that opened it.
  *
  * @module components/promo-code-actions
  */
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { apiFetch } from '../lib/api-fetch.js'
 import { describeApiRefusal } from '../lib/refusal.js'
+import { useOutcomeAnnouncer } from './outcome-announcer.jsx'
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Button } from './ui.jsx'
 
@@ -84,6 +89,21 @@ export function PromoCodeActions({ organizationId, code, now }) {
   const [stepUp, setStepUp] = useState(false)
   const [error, setError] = useState(null)
   const [status, setStatus] = useState('')
+  const announce = useOutcomeAnnouncer()
+  const questionRef = useRef(null)
+  const deleteRef = useRef(null)
+  // Where focus goes once the confirmation closes: back to Delete when the
+  // code was kept or the delete refused, and nowhere when the row is going.
+  const returnFocus = useRef(false)
+
+  useEffect(() => {
+    if (confirming) {
+      questionRef.current?.focus()
+    } else if (returnFocus.current) {
+      returnFocus.current = false
+      deleteRef.current?.focus()
+    }
+  }, [confirming])
 
   const base = `/v1/organizations/${encodeURIComponent(organizationId)}/promo-codes/${encodeURIComponent(code.id)}`
   const ended = promoHasEnded(code, now ?? new Date())
@@ -106,14 +126,23 @@ export function PromoCodeActions({ organizationId, code, now }) {
       })
 
       if (response.ok) {
-        setConfirming(false)
-        setStatus(
+        const said =
           action === 'pause'
             ? `${code.code} is paused. Orders already placed keep their discount.`
             : action === 'resume'
               ? `${code.code} is live again.`
-              : `${code.code} is deleted.`,
-        )
+              : `${code.code} is deleted.`
+
+        setConfirming(false)
+
+        if (action === 'delete' && announce) {
+          // The row goes at the refresh, and its region with it: the page's
+          // announcer says it, and takes focus from the button that is going.
+          announce(said, { focus: true })
+        } else {
+          setStatus(said)
+        }
+
         router.refresh()
         return
       }
@@ -128,6 +157,7 @@ export function PromoCodeActions({ organizationId, code, now }) {
 
       const message = typeof body?.error?.message === 'string' ? body.error.message.trim() : ''
 
+      if (action === 'delete') returnFocus.current = true
       setConfirming(false)
       setError(message || describeApiRefusal({ status: response.status, code: refusedCode }).detail)
     } catch {
@@ -145,7 +175,11 @@ export function PromoCodeActions({ organizationId, code, now }) {
 
       {confirming ? (
         <div className="rounded-control border border-line-strong bg-surface-subtle p-3">
-          <p className="text-sm text-ink">
+          <p
+            ref={questionRef}
+            tabIndex={-1}
+            className="rounded-sm text-sm text-ink focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
             Delete {code.code}? Nobody has used it. Once deleted, buyers who type it are told it
             does not exist.
           </p>
@@ -165,7 +199,10 @@ export function PromoCodeActions({ organizationId, code, now }) {
               variant="secondary"
               size="sm"
               disabled={busy !== null}
-              onClick={() => setConfirming(false)}
+              onClick={() => {
+                returnFocus.current = true
+                setConfirming(false)
+              }}
             >
               Keep it
             </Button>
@@ -200,6 +237,7 @@ export function PromoCodeActions({ organizationId, code, now }) {
           )}
           {cannotDelete ? null : (
             <Button
+              ref={deleteRef}
               type="button"
               variant="secondary"
               size="sm"

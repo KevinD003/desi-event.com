@@ -70,6 +70,46 @@ describe('the structured data an event publishes', () => {
     expect(data.previousStartDate).toBe('2026-10-01T14:30:00.000Z')
   })
 
+  it.each(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'COMPLETED'])(
+    'says rescheduled, with the old date, when a postponed event came back %s on a new one',
+    (status) => {
+      // What the API sends once a postponed event is rescheduled: the new
+      // dates, and the one somebody had in their calendar before.
+      const data = eventJsonLd({
+        ...event,
+        status,
+        startsAt: '2026-11-15T14:30:00.000Z',
+        endsAt: '2026-11-15T17:30:00.000Z',
+        previousStartsAt: '2026-11-01T14:30:00.000Z',
+        sessions: [
+          { id: 's1', startsAt: '2026-11-15T14:30:00.000Z', endsAt: '2026-11-15T17:30:00.000Z' },
+          { id: 's2', startsAt: '2026-11-16T14:30:00.000Z', endsAt: '2026-11-16T17:30:00.000Z' },
+        ],
+      })
+
+      // `EventScheduled` means "on the startDate as scheduled", which is not
+      // true of an event that moved, and `previousStartDate` belongs with
+      // `EventRescheduled`.
+      expect(data.eventStatus).toBe('https://schema.org/EventRescheduled')
+      expect(data.previousStartDate).toBe('2026-11-01T14:30:00.000Z')
+      expect(data.subEvent.map((night) => night.eventStatus)).toEqual([
+        'https://schema.org/EventRescheduled',
+        'https://schema.org/EventRescheduled',
+      ])
+    },
+  )
+
+  it('stays scheduled, with no old date, when a postponed event came back on the same one', () => {
+    const data = eventJsonLd({
+      ...event,
+      status: 'ON_SALE',
+      previousStartsAt: event.startsAt,
+    })
+
+    expect(data.eventStatus).toBe('https://schema.org/EventScheduled')
+    expect(data).not.toHaveProperty('previousStartDate')
+  })
+
   it('marks a sold-out event sold out rather than merely scheduled', () => {
     const data = eventJsonLd({ ...event, status: 'SOLD_OUT' })
 

@@ -27,6 +27,7 @@ import { useRef, useState } from 'react'
 
 import { apiFetch } from '../lib/api-fetch.js'
 import { parseRetryAfter, refusalSentence } from '../lib/refusal.js'
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input } from './ui.jsx'
 
 /** What the API accepts, from `passwordSchema` in `@desi-event/schemas`. */
@@ -50,6 +51,7 @@ export function RegisterForm({ next }) {
   // One announcement per failed attempt: the summary below, not a field error
   // as well, and nothing while somebody is still typing.
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Create the account.
@@ -66,7 +68,7 @@ export function RegisterForm({ next }) {
 
     if (!displayName || !email || password.length < PASSWORD_MIN) {
       setError('Fill in your name, your email address and a password of at least eight characters.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
 
       return
     }
@@ -98,10 +100,10 @@ export function RegisterForm({ next }) {
           parseRetryAfter(response.headers?.get?.('retry-after') ?? null),
         ),
       )
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The service is not responding. No account was created; try again.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }

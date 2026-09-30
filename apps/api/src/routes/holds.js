@@ -21,7 +21,7 @@ import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
-import { lockTicketTypes, readAvailability } from '../lib/inventory.js'
+import { lockTicketHolds, lockTicketTypes, readAvailability } from '../lib/inventory.js'
 import { toHold } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
 import { releaseSeats } from '../lib/seating.js'
@@ -180,6 +180,15 @@ export function registerHoldRoutes(app, { prisma, env }) {
       // Splitting them would leave a window in which a hold that was authorised
       // for release is converted into a paid order before the write lands.
       const outcome = await prisma.$transaction(async (tx) => {
+        // FIRST statement: the hold's row lock, before anything is read from
+        // it. A checkout attaching this hold to its order takes the same lock,
+        // so this either runs before the attach (and the checkout then finds
+        // the hold released) or after it (and reads the order it belongs to).
+        // Read unlocked, a release could decide on "no order" and write after
+        // the order had attached the hold, putting a paid order's seats back
+        // on sale while the buyer's card was being charged.
+        await lockTicketHolds(tx, [holdId])
+
         const hold = await tx.ticketHold.findUnique({ where: { id: holdId } })
 
         // "No such hold" and "not yours" must be indistinguishable. Answering
@@ -257,8 +266,10 @@ export function registerHoldRoutes(app, { prisma, env }) {
 
         // Conditional on ACTIVE so that two simultaneous releases produce
         // exactly one transition: the loser sees count 0 and writes nothing.
+        // And on the order it was read with: the row lock above already keeps
+        // a checkout from attaching it meanwhile, and this says so in the write.
         const { count } = await tx.ticketHold.updateMany({
-          where: { id: hold.id, status: 'ACTIVE' },
+          where: { id: hold.id, status: 'ACTIVE', orderId: hold.orderId ?? null },
           data: {
             status: nextStatus,
             releasedAt: now,
@@ -270,12 +281,22 @@ export function registerHoldRoutes(app, { prisma, env }) {
         if (count === 0) {
           const current = await tx.ticketHold.findUnique({
             where: { id: hold.id },
-            select: { status: true },
+            select: { status: true, orderId: true },
           })
 
-          return current?.status === 'CONVERTED'
-            ? { result: 'CONVERTED' }
-            : { result: 'ALREADY_RELEASED', mode }
+          if (current?.status === 'CONVERTED') return { result: 'CONVERTED' }
+
+          const order =
+            current?.status === 'ACTIVE' && current.orderId
+              ? await tx.order.findUnique({
+                  where: { id: current.orderId },
+                  select: { status: true },
+                })
+              : null
+
+          if (order?.status === 'PENDING') return { result: 'AWAITING_PAYMENT' }
+
+          return { result: 'ALREADY_RELEASED', mode }
         }
 
         // A seat hold's seats go back on sale in the same commit as the hold's

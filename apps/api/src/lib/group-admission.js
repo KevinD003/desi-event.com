@@ -12,7 +12,11 @@
  *
  * Computed live at every read (`./group-passes.js`): the tickets on the order
  * that its buyer still holds, minus rows a later row replaced. Each ticket gets
- * the same outcome and closed refusal reason a single lookup would give it.
+ * the same outcome and closed refusal reason a single lookup would give it —
+ * on the night the door names, as for a single ticket (`nightFor` in
+ * `./admission.js`): a ticket for another night is refused `WRONG_NIGHT`, and a
+ * ticket good for every night is "already in" only when it was let in tonight.
+ * Each ticket carries its own night, so a steward sees it.
  *
  * ## Partial admission, stated
  *
@@ -25,8 +29,9 @@
  *   withdrawn, handed on — admits **nobody**, and the answer is 409
  *   `GROUP_CHANGED`: look the group up again;
  * - otherwise each is admitted through the same `admit()` a single ticket
- *   uses, which is exactly once per ticket by the unique `CheckIn.ticketId`,
- *   with `CheckIn.groupPassId` set. A database trigger refuses a group
+ *   uses — exactly once per ticket, or once per night for a ticket good for
+ *   every night, by the unique `CheckIn(ticketId, eventSessionId)` — with
+ *   `CheckIn.groupPassId` set. A database trigger refuses a group
  *   admission of a ticket on another order, or one its buyer no longer holds.
  *
  * ## Locks, in one order
@@ -49,20 +54,25 @@ import {
   UNIFORM_NOT_FOUND,
   ADMISSION_INCLUDE,
   admissionConflict,
+  admissionOn,
+  alreadyIn,
   assertDoorAuthority,
   doorName,
+  eventNights,
+  nightFor,
   readAdmissionAuthority,
   readGroupPreviewReference,
   recordPlatformAuthorityUse,
   signGroupPreviewReference,
   toAdmissionEvent,
   toAdmissionSeat,
+  toAdmissionSession,
 } from './admission.js'
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { databaseErrorCode, forbidden, notFound } from './errors.js'
 import { groupCodeDigest, groupCredentialDigest } from './group-pass-credentials.js'
 import { GROUP_ORDER_SELECT, groupMembers, orderTicketRows } from './group-passes.js'
-import { TICKET_STATES, admissionRefusalCode, admit } from './tickets.js'
+import { admissionRefusalCode, admit } from './tickets.js'
 
 /**
  * How long one group confirmation may hold its locks.
@@ -116,10 +126,13 @@ export async function resolveGroup(db, presentation) {
  * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
  * @param {object} order Its order.
  * @param {object} event Its event.
+ * @param {{night: string|null, everyNight: boolean, refusal: string|null}} context Its night, from `nightFor`.
  * @returns {{outcome: string, refusal: string|null}} The outcome.
  */
-function ticketOutcome(ticket, order, event) {
-  if (ticket.status === TICKET_STATES.CHECKED_IN) {
+function ticketOutcome(ticket, order, event, context) {
+  if (context.refusal) return { outcome: 'REFUSED', refusal: context.refusal }
+
+  if (alreadyIn(ticket, context)) {
     return { outcome: 'ALREADY_CHECKED_IN', refusal: null }
   }
 
@@ -129,21 +142,40 @@ function ticketOutcome(ticket, order, event) {
 }
 
 /**
+ * When a ticket was let in on the night in question, or null.
+ *
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @param {{night: string|null, everyNight: boolean}|null} context Its night.
+ * @returns {Date|null} The instant.
+ */
+function admittedAt(ticket, context) {
+  const admission = admissionOn(ticket, context)
+
+  if (context?.everyNight) return admission?.scannedAt ?? null
+
+  return admission?.scannedAt ?? ticket.checkedInAt ?? null
+}
+
+/**
  * One ticket of a group, as the door is told about it. Named, not spread.
  *
  * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
  * @param {{outcome: string, refusal: string|null}} verdict Its outcome.
+ * @param {{night: string|null, everyNight: boolean}|null} context Its night.
  * @returns {object} A payload satisfying `groupAdmissionTicketSchema`.
  */
-function toGroupTicket(ticket, verdict) {
+function toGroupTicket(ticket, verdict, context) {
   return {
     ticketId: ticket.id,
     outcome: verdict.outcome,
     refusal: verdict.refusal,
     tier: ticket.orderItem?.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
     seat: toAdmissionSeat(ticket),
+    // Which night the ticket is for, so a steward sees a Night 2 ticket on
+    // Night 1. Null for a ticket good for every night.
+    session: toAdmissionSession(ticket),
     attendeeName: doorName(ticket.attendeeName),
-    checkedInAt: ticket.checkIn?.scannedAt ?? ticket.checkedInAt ?? null,
+    checkedInAt: admittedAt(ticket, context),
   }
 }
 
@@ -227,6 +259,8 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
 
   const rows = await orderTicketRows(prisma, order.id)
   const { tickets, handedOn } = groupMembers(order, rows)
+  const named = body.eventSessionId ?? null
+  const nights = await eventNights(prisma, event.id)
 
   let listed = []
   let outcome
@@ -239,12 +273,16 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
     refusal = 'NOT_ADMISSIBLE'
   } else if (body.expectedEventId && body.expectedEventId !== event.id) {
     listed = tickets.map((ticket) =>
-      toGroupTicket(ticket, { outcome: 'REFUSED', refusal: 'WRONG_EVENT' }),
+      toGroupTicket(ticket, { outcome: 'REFUSED', refusal: 'WRONG_EVENT' }, null),
     )
     outcome = 'REFUSED'
     refusal = 'WRONG_EVENT'
   } else {
-    listed = tickets.map((ticket) => toGroupTicket(ticket, ticketOutcome(ticket, order, event)))
+    listed = tickets.map((ticket) => {
+      const context = nightFor(ticket, nights, named)
+
+      return toGroupTicket(ticket, ticketOutcome(ticket, order, event, context), context)
+    })
     ;({ outcome, refusal } = groupOutcome(listed))
   }
 
@@ -269,6 +307,7 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
         actorId: actor.id,
         method: presentation.method,
         ticketIds: admissibleIds,
+        night: named,
         expiresAt: previewExpiresAt,
       })
     : null
@@ -288,6 +327,7 @@ export async function previewGroupAdmission({ prisma, env, actor, body, log, now
       organizationId: event.organizationId,
       orderId: order.id,
       credentialVersion: pass.credentialVersion,
+      eventSessionId: named,
       counts,
       handedOn,
     },
@@ -346,6 +386,7 @@ export async function confirmGroupAdmission({ prisma, env, actor, body, log, now
 
   if (claims.a !== actor.id) throw admissionConflict('PREVIEW_INVALID')
   if (claims.m !== presentation.method) throw admissionConflict('PREVIEW_MISMATCH')
+  if ((body.eventSessionId ?? null) !== claims.n) throw admissionConflict('PREVIEW_MISMATCH')
 
   // Only tickets the preview found admissible. A steward cannot widen a
   // lookup by naming a ticket it did not show them.
@@ -494,6 +535,8 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
   const rows = await orderTicketRows(tx, order.id)
   const { tickets } = groupMembers(order, rows)
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]))
+  const nights = await eventNights(tx, event.id)
+  const contexts = new Map()
 
   const toAdmit = []
   const already = []
@@ -504,7 +547,15 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
     // Handed on, superseded, or never the buyer's: the group changed.
     if (!ticket) return { kind: 'refused', reason: 'GROUP_CHANGED' }
 
-    if (ticket.status === TICKET_STATES.CHECKED_IN) {
+    const context = nightFor(ticket, nights, claims.n)
+
+    contexts.set(ticket.id, context)
+
+    // The preview found it admissible on this night; a night that stopped
+    // applying to it (the organiser moved its tier, say) changed the group.
+    if (context.refusal) return { kind: 'refused', reason: 'GROUP_CHANGED' }
+
+    if (alreadyIn(ticket, context)) {
       already.push(ticket)
       continue
     }
@@ -517,9 +568,12 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
   }
 
   for (const ticket of toAdmit) {
+    const context = contexts.get(ticket.id)
+
     await admit(tx, {
       ticket,
-      eventSessionId: order.eventSessionId ?? null,
+      eventSessionId: context.night,
+      everyNight: context.everyNight,
       scannedByUserId: actor.id,
       scannerId: body.deviceId ?? null,
       gate: body.gate ?? null,
@@ -545,6 +599,7 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
         organizationId: event.organizationId,
         admittedTicketIds: toAdmit.map((ticket) => ticket.id),
         alreadyIn: already.length,
+        eventSessionId: claims.n,
         method: presentation.method,
         authority: authority.authority,
         role: authority.role,
@@ -580,16 +635,22 @@ async function decideGroup(tx, { actor, body, presentation, claims, now }) {
       alreadyIn: already.length,
       method: presentation.method,
       event: toAdmissionEvent(event),
-      tickets: after.map((ticket) => ({
-        ticketId: ticket.id,
-        outcome: admittedIds.has(ticket.id) ? 'ADMITTED' : 'ALREADY_CHECKED_IN',
-        checkedInAt: ticket.checkIn?.scannedAt ?? ticket.checkedInAt ?? null,
-        checkedInByYou:
-          Boolean(ticket.checkIn?.scannedByUserId) && ticket.checkIn.scannedByUserId === actor.id,
-        tier: ticket.orderItem?.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
-        seat: toAdmissionSeat(ticket),
-        attendeeName: doorName(ticket.attendeeName),
-      })),
+      tickets: after.map((ticket) => {
+        const context = contexts.get(ticket.id) ?? null
+        const admission = admissionOn(ticket, context)
+
+        return {
+          ticketId: ticket.id,
+          outcome: admittedIds.has(ticket.id) ? 'ADMITTED' : 'ALREADY_CHECKED_IN',
+          checkedInAt: admittedAt(ticket, context),
+          checkedInByYou:
+            Boolean(admission?.scannedByUserId) && admission.scannedByUserId === actor.id,
+          tier: ticket.orderItem?.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
+          seat: toAdmissionSeat(ticket),
+          session: toAdmissionSession(ticket),
+          attendeeName: doorName(ticket.attendeeName),
+        }
+      }),
     },
   }
 }

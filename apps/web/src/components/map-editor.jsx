@@ -47,6 +47,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { validateLayout } from '@desi-event/inventory/layout'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Badge, Button, Card, CardBody, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refusalSentence } from '../lib/refusal.js'
@@ -106,6 +107,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
 
   const summaryRef = useRef(null)
   const dialogRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const headingId = useId()
 
   // The same rules the server applies, run here so an author sees a problem
@@ -183,7 +185,7 @@ export function MapEditor({ version, initialLayout, readOnly }) {
       if (response.status === 422) {
         setServerIssues(body?.error?.issues ?? [])
         setStatus(null)
-        queueMicrotask(() => summaryRef.current?.focus())
+        focusAfterRender(summaryRef)
         return
       }
 

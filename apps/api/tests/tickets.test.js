@@ -11,7 +11,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import { AUDIT_ACTIONS } from '../src/lib/audit.js'
-import { PREVIEW_TTL_MS, signPreviewReference } from '../src/lib/admission.js'
+import {
+  PREVIEW_TTL_MS,
+  signGroupPreviewReference,
+  signPreviewReference,
+} from '../src/lib/admission.js'
 import { mintTicketCredential } from '../src/lib/ticket-credentials.js'
 import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
 import { TEST_AUTH_SECRET } from './helpers/fixtures.js'
@@ -932,7 +936,6 @@ describe('POST /v1/tickets/check-in', () => {
     ['a method', { method: 'QR_SCAN' }],
     ['an admission time', { checkedInAt: '2026-01-01T10:00:00.000Z' }],
     ['force', { force: true }],
-    ['an event session', { eventSessionId: 'sessionaaaaaaaaa' }],
   ])('refuses a client that tries to choose %s', async (_label, extra) => {
     const { app, prisma, tickets } = harness
     const token = await signIn(app, DOOR)
@@ -1329,6 +1332,143 @@ describe('the group door, over the routes', () => {
     await app.close()
   })
 
+  it('binds a confirmation to its own preview: a bad, lapsed, borrowed or rebound reference admits nobody, and is never a 500', async () => {
+    const harness = await withGroup()
+    const { app, prisma, ids, tickets, pass } = harness
+    const token = await signIn(app, DOOR)
+    const doorUser = prisma._store.user.find((row) => row.email === DOOR)
+    const byQr = (await door(app, GROUP_PREVIEW_URL, token, { credential: pass.credential })).json()
+      .data
+    const ticketIds = [tickets[0].id]
+    const passRow = prisma._store.groupPass[0]
+    const claims = {
+      secret: TEST_AUTH_SECRET,
+      groupPassId: passRow.id,
+      groupPassVersion: passRow.credentialVersion,
+      eventId: ids.publishedEvent.id,
+      organizationId: ids.publishedEvent.organizationId,
+      actorId: doorUser.id,
+      method: 'QR_SCAN',
+      ticketIds,
+      expiresAt: new Date(Date.now() + PREVIEW_TTL_MS),
+    }
+    const [body, mac] = byQr.previewReference.split('.')
+    const flipped = `${body}.${mac.at(-1) === 'A' ? `${mac.slice(0, -1)}B` : `${mac.slice(0, -1)}A`}`
+
+    // A second order of the same buyer, with a group pass of its own.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: ATTENDEE,
+        buyerName: 'Priya Sharma',
+        items: [{ ticketTypeId: ids.generalAdmission.id, quantity: 2 }],
+      },
+    })
+
+    claim(prisma, second.json().data.tickets, ids.attendee.id)
+
+    const otherPass = (
+      await app.inject({
+        method: 'GET',
+        url: `/v1/orders/${second.json().data.reference}/group-pass`,
+        headers: bearer(await signIn(app, ATTENDEE)),
+      })
+    ).json().data
+    const platformPreview = (
+      await door(app, GROUP_PREVIEW_URL, await signIn(app, PLATFORM), {
+        credential: pass.credential,
+      })
+    ).json().data
+
+    const cases = [
+      [
+        'a lapsed reference',
+        {
+          credential: pass.credential,
+          previewReference: signGroupPreviewReference({
+            ...claims,
+            expiresAt: new Date(Date.now() - 1_000),
+          }),
+        },
+        'PREVIEW_EXPIRED',
+      ],
+      [
+        'a reference with a byte changed',
+        { credential: pass.credential, previewReference: flipped },
+        'PREVIEW_INVALID',
+      ],
+      [
+        "another steward's reference",
+        { credential: pass.credential, previewReference: platformPreview.previewReference },
+        'PREVIEW_INVALID',
+      ],
+      [
+        'a QR preview confirmed with the typed code',
+        { code: pass.groupCode, previewReference: byQr.previewReference },
+        'PREVIEW_MISMATCH',
+      ],
+      [
+        "another order's pass presented with this preview",
+        { credential: otherPass.credential, previewReference: byQr.previewReference },
+        'PREVIEW_MISMATCH',
+      ],
+      [
+        'a reference naming another event',
+        {
+          credential: pass.credential,
+          previewReference: signGroupPreviewReference({ ...claims, eventId: ids.draftEvent.id }),
+        },
+        'PREVIEW_MISMATCH',
+      ],
+      [
+        'a reference naming another organisation',
+        {
+          credential: pass.credential,
+          previewReference: signGroupPreviewReference({
+            ...claims,
+            organizationId:
+              ids.draftEvent.organizationId === claims.organizationId
+                ? 'cnotthisorganisation00000'
+                : ids.draftEvent.organizationId,
+          }),
+        },
+        'PREVIEW_MISMATCH',
+      ],
+      [
+        'a door admitting to another event',
+        {
+          credential: pass.credential,
+          previewReference: byQr.previewReference,
+          expectedEventId: ids.draftEvent.id,
+        },
+        'WRONG_EVENT',
+      ],
+    ]
+
+    for (const [what, presented, reason] of cases) {
+      const response = await door(app, GROUP_CHECK_IN_URL, token, { ...presented, ticketIds })
+
+      expect(response.statusCode, `${what}: ${response.body}`).toBe(409)
+      expect(response.json().error.reason, what).toBe(reason)
+      expect(prisma._store.checkIn ?? [], what).toHaveLength(0)
+    }
+
+    // And the genuine article still admits, so every refusal above was about
+    // the reference and not about the ticket.
+    const admitted = await door(app, GROUP_CHECK_IN_URL, token, {
+      credential: pass.credential,
+      previewReference: byQr.previewReference,
+      ticketIds,
+    })
+
+    expect(admitted.statusCode, admitted.body).toBe(200)
+    expect(prisma._store.checkIn).toHaveLength(1)
+
+    await app.close()
+  })
+
   it('refuses the whole selection with GROUP_CHANGED when one ticket stopped admitting', async () => {
     const { app, prisma, tickets, pass } = await withGroup()
     const token = await signIn(app, DOOR)
@@ -1469,6 +1609,290 @@ describe('the door names the night a ticket is for', () => {
     for (const body of [looked.body, confirmation.body]) {
       expect(body).not.toMatch(/onlineUrl|onlineJoinUrl|attendeeNames/)
     }
+
+    await app.close()
+  })
+})
+
+describe('the door admits by night, on an event of more than one', () => {
+  /**
+   * The fixture's event with a second night, a VIP tier for the first night
+   * only, and General Admission good for every night; and an order of one VIP
+   * ticket and two GA tickets held by the attendee.
+   *
+   * @returns {Promise<object>} The harness, both nights, and the tickets.
+   */
+  async function twoNights() {
+    const harness = await createTestApp()
+    const { app, prisma, ids } = harness
+    const first = prisma._store.eventSession.find((row) => row.eventId === ids.publishedEvent.id)
+
+    first.label = 'Night 1'
+
+    const second = {
+      ...first,
+      id: 'cnighttwo0000000000000000',
+      label: 'Night 2',
+      startsAt: new Date(first.startsAt.getTime() + 86_400_000),
+      endsAt: new Date(first.endsAt.getTime() + 86_400_000),
+      sortOrder: 1,
+    }
+
+    prisma._store.eventSession.push(second)
+    prisma._store.ticketType.find((row) => row.id === ids.vip.id).eventSessionId = first.id
+
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/v1/orders',
+      payload: {
+        eventId: ids.publishedEvent.id,
+        buyerEmail: ATTENDEE,
+        buyerName: 'Priya Sharma',
+        items: [
+          { ticketTypeId: ids.vip.id, quantity: 1 },
+          { ticketTypeId: ids.generalAdmission.id, quantity: 2 },
+        ],
+      },
+    })
+
+    expect(bought.statusCode, bought.body).toBe(201)
+
+    const tickets = bought.json().data.tickets
+
+    claim(prisma, tickets, ids.attendee.id)
+
+    const tierOf = (ticket) =>
+      prisma._store.orderItem.find(
+        (line) => line.id === storedTicket(prisma, ticket.id).orderItemId,
+      ).ticketTypeId
+
+    return {
+      ...harness,
+      first,
+      second,
+      vip: tickets.find((ticket) => tierOf(ticket) === ids.vip.id),
+      passes: tickets.filter((ticket) => tierOf(ticket) === ids.generalAdmission.id),
+      tickets,
+    }
+  }
+
+  it('lists the nights with the event, soonest first', async () => {
+    const { app, first, second } = await twoNights()
+    const response = await app.inject({
+      method: 'GET',
+      url: EVENTS_URL,
+      headers: bearer(await signIn(app, DOOR)),
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data[0].sessions.map((night) => [night.id, night.label])).toEqual([
+      [first.id, 'Night 1'],
+      [second.id, 'Night 2'],
+    ])
+
+    await app.close()
+  })
+
+  it('refuses a lookup that names no night, or a night of another event, and signs nothing', async () => {
+    const { app, prisma, ids, vip } = await twoNights()
+    const token = await signIn(app, DOOR)
+    const otherNight = prisma._store.eventSession.find(
+      (row) => row.eventId !== ids.publishedEvent.id,
+    )
+
+    expect(otherNight).toBeTruthy()
+
+    const unnamed = await preview(app, token, { code: vip.code })
+    const foreign = await preview(app, token, { code: vip.code, eventSessionId: otherNight.id })
+
+    expect(unnamed.statusCode).toBe(200)
+    expect(unnamed.json().data).toMatchObject({
+      outcome: 'REFUSED',
+      refusal: 'NIGHT_REQUIRED',
+      previewReference: null,
+    })
+    expect(foreign.json().data).toMatchObject({ outcome: 'REFUSED', refusal: 'WRONG_NIGHT' })
+    expect(checkInsFor(prisma, vip.id)).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('refuses a ticket for Night 1 on Night 2, and admits it once on Night 1', async () => {
+    const { app, prisma, first, second, vip } = await twoNights()
+    const token = await signIn(app, DOOR)
+
+    const wrong = await preview(app, token, { code: vip.code, eventSessionId: second.id })
+
+    expect(wrong.json().data).toMatchObject({
+      outcome: 'REFUSED',
+      refusal: 'WRONG_NIGHT',
+      previewReference: null,
+      session: expect.objectContaining({ label: 'Night 1' }),
+    })
+
+    const { confirmation } = await previewThenConfirm(app, token, {
+      code: vip.code,
+      eventSessionId: first.id,
+    })
+
+    expect(confirmation.statusCode, confirmation.body).toBe(200)
+    expect(confirmation.json().data.outcome).toBe('ADMITTED')
+    expect(storedTicket(prisma, vip.id).status).toBe('CHECKED_IN')
+    expect(checkInsFor(prisma, vip.id).map((row) => row.eventSessionId)).toEqual([first.id])
+
+    const again = await preview(app, token, { code: vip.code, eventSessionId: first.id })
+
+    expect(again.json().data.outcome).toBe('ALREADY_CHECKED_IN')
+
+    await app.close()
+  })
+
+  it('admits a ticket good for every night once on each night, and keeps it VALID', async () => {
+    const { app, prisma, first, second, passes } = await twoNights()
+    const token = await signIn(app, DOOR)
+    const [pass] = passes
+
+    const firstNight = await previewThenConfirm(app, token, {
+      code: pass.code,
+      eventSessionId: first.id,
+    })
+
+    expect(firstNight.preview.json().data.session).toBeNull()
+    expect(firstNight.confirmation.json().data).toMatchObject({
+      outcome: 'ADMITTED',
+      checkedInByYou: true,
+    })
+    expect(storedTicket(prisma, pass.id).status).toBe('VALID')
+
+    // The same night again: already in, at the time it went in.
+    const sameNight = await preview(app, token, { code: pass.code, eventSessionId: first.id })
+
+    expect(sameNight.json().data).toMatchObject({
+      outcome: 'ALREADY_CHECKED_IN',
+      previewReference: null,
+      checkedInAt: firstNight.confirmation.json().data.checkedInAt,
+    })
+
+    // The next night: admissible, and admitted.
+    const secondNight = await previewThenConfirm(app, token, {
+      code: pass.code,
+      eventSessionId: second.id,
+    })
+
+    expect(secondNight.preview.json().data).toMatchObject({
+      outcome: 'ADMISSIBLE',
+      checkedInAt: null,
+    })
+    expect(secondNight.confirmation.json().data.outcome).toBe('ADMITTED')
+    expect(
+      checkInsFor(prisma, pass.id)
+        .map((row) => row.eventSessionId)
+        .sort(),
+    ).toEqual([first.id, second.id].sort())
+    expect(storedTicket(prisma, pass.id).status).toBe('VALID')
+
+    await app.close()
+  })
+
+  it('refuses a confirmation on another night than its lookup, admitting nobody', async () => {
+    const { app, prisma, first, second, passes } = await twoNights()
+    const token = await signIn(app, DOOR)
+    const [pass] = passes
+    const looked = await preview(app, token, { code: pass.code, eventSessionId: first.id })
+
+    for (const night of [{ eventSessionId: second.id }, {}]) {
+      const response = await confirm(app, token, {
+        code: pass.code,
+        previewReference: looked.json().data.previewReference,
+        ...night,
+      })
+
+      expect(response.statusCode).toBe(409)
+      expect(response.json().error.reason).toBe('PREVIEW_MISMATCH')
+    }
+
+    expect(checkInsFor(prisma, pass.id)).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('names each ticket’s night in a group lookup, and refuses the other night’s', async () => {
+    const { app, prisma, second, vip, passes } = await twoNights()
+    const line = prisma._store.orderItem.find(
+      (row) => row.id === storedTicket(prisma, vip.id).orderItemId,
+    )
+    const order = prisma._store.order.find((row) => row.id === line.orderId)
+    const pass = (
+      await app.inject({
+        method: 'GET',
+        url: `/v1/orders/${order.reference}/group-pass`,
+        headers: bearer(await signIn(app, ATTENDEE)),
+      })
+    ).json().data
+    const token = await signIn(app, DOOR)
+    const looked = await app.inject({
+      method: 'POST',
+      url: '/v1/tickets/admission/group/preview',
+      headers: bearer(token),
+      payload: { code: pass.groupCode, eventSessionId: second.id },
+    })
+
+    expect(looked.statusCode, looked.body).toBe(200)
+
+    const byId = new Map(looked.json().data.tickets.map((ticket) => [ticket.ticketId, ticket]))
+
+    expect(byId.get(vip.id)).toMatchObject({
+      outcome: 'REFUSED',
+      refusal: 'WRONG_NIGHT',
+      session: expect.objectContaining({ label: 'Night 1' }),
+    })
+    for (const ticket of passes) {
+      expect(byId.get(ticket.id)).toMatchObject({ outcome: 'ADMISSIBLE', session: null })
+    }
+
+    const admitted = await app.inject({
+      method: 'POST',
+      url: '/v1/tickets/admission/group/check-in',
+      headers: bearer(token),
+      payload: {
+        code: pass.groupCode,
+        eventSessionId: second.id,
+        previewReference: looked.json().data.previewReference,
+        ticketIds: passes.map((ticket) => ticket.id),
+      },
+    })
+
+    expect(admitted.statusCode, admitted.body).toBe(200)
+    expect(admitted.json().data.tickets.every((ticket) => ticket.session === null)).toBe(true)
+    // Recorded on the night the door named, one row per ticket admitted.
+    expect((prisma._store.checkIn ?? []).map((row) => row.eventSessionId)).toEqual([
+      second.id,
+      second.id,
+    ])
+
+    await app.close()
+  })
+
+  it('refuses to hand on a ticket good for every night once it has let somebody in', async () => {
+    const { app, prisma, first, passes } = await twoNights()
+    const [pass] = passes
+
+    await previewThenConfirm(app, await signIn(app, DOOR), {
+      code: pass.code,
+      eventSessionId: first.id,
+    })
+
+    const offered = await app.inject({
+      method: 'POST',
+      url: `/v1/tickets/${pass.id}/transfers`,
+      headers: bearer(await signIn(app, ATTENDEE)),
+      payload: { toEmail: RIVAL },
+    })
+
+    expect(offered.statusCode, offered.body).toBe(409)
+    expect(offered.json().error.reason).toBe('ALREADY_ADMITTED')
+    expect(storedTicket(prisma, pass.id).status).toBe('VALID')
+    expect(prisma._store.ticketTransfer ?? []).toHaveLength(0)
 
     await app.close()
   })

@@ -19,6 +19,7 @@
 import { useRouter } from 'next/navigation'
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Button, FormField, Input, Select } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { refusalSentence } from '../lib/refusal.js'
@@ -69,6 +70,7 @@ export function VenueForm({ venue = null, organizations = [] }) {
   const [busy, setBusy] = useState(false)
   const [features, setFeatures] = useState(venue?.accessibility?.features ?? [])
   const errorRef = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
 
   /**
    * Create or update.
@@ -125,10 +127,10 @@ export function VenueForm({ venue = null, organizations = [] }) {
       }
 
       setError(refusalSentence(response.status, body, 'Could not save the venue.'))
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } catch {
       setError('The ticketing service is not responding. Nothing has been saved.')
-      queueMicrotask(() => errorRef.current?.focus())
+      focusAfterRender(errorRef)
     } finally {
       setBusy(false)
     }

@@ -19,6 +19,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -177,6 +178,7 @@ export function MaterialChangePanel({
   const [notice, setNotice] = useState(null)
   const heading = useRef(null)
   const summary = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const zone = values.timezone
   const changed = materialDiff(baseline, values)
   const fields = Object.keys(changed)
@@ -229,7 +231,7 @@ export function MaterialChangePanel({
     setShown(problems)
 
     if (problems.length > 0) {
-      queueMicrotask(() => summary.current?.focus())
+      focusAfterRender(summary)
       return
     }
 

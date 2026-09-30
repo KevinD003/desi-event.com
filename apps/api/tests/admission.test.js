@@ -76,7 +76,8 @@ describe('the preview reference', () => {
   it('carries nothing secret: no credential, no code, no email', () => {
     const body = Buffer.from(reference().split('.')[0], 'base64url').toString('utf8')
 
-    expect(Object.keys(JSON.parse(body)).sort()).toEqual(['a', 'e', 'm', 'o', 't', 'v', 'x'])
+    // `n` is the night the door said it was admitting to: an id, or null.
+    expect(Object.keys(JSON.parse(body)).sort()).toEqual(['a', 'e', 'm', 'n', 'o', 't', 'v', 'x'])
   })
 
   it('is refused under another deployment’s secret', () => {

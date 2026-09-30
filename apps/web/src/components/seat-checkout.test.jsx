@@ -557,6 +557,114 @@ describe('reserving, naming and paying', () => {
   })
 })
 
+describe('a payment that did not end in a booking', () => {
+  const TIMEOUT =
+    'The payment provider did not respond in time, so whether you were charged is being checked. Your order keeps its tickets reserved until that is settled; please do not pay again.'
+
+  it('after a timed-out payment shows the API’s sentence, takes Pay away and links to the order', async () => {
+    const placeOrder = vi.fn().mockRejectedValue(
+      Object.assign(new Error(TIMEOUT), {
+        status: 502,
+        code: 'PAYMENT_TIMEOUT',
+        orderReference: 'DE-SEAT09',
+      }),
+    )
+    const { user, props } = renderCheckout({ placeOrder })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+    await user.click(await screen.findByRole('button', { name: 'Pay $45.00 (simulated)' }))
+
+    expect(await screen.findByText(TIMEOUT)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'See order DE-SEAT09' })).toHaveAttribute(
+      'href',
+      '/account/orders/DE-SEAT09',
+    )
+    expect(screen.getByRole('button', { name: 'Pay $45.00 (simulated)' })).toBeDisabled()
+    expect(screen.queryByRole('heading', { name: 'Booked' })).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/try again|went wrong at our end/i)
+    // The seat stays the order's: nothing gives it back or reads the map as lost.
+    expect(props.release).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByText(TIMEOUT).closest('[tabindex="-1"]')),
+    )
+  })
+
+  it('never shows an order that came back unpaid as booked', async () => {
+    const placeOrder = vi.fn(async () => ({
+      id: 'orderxxxxxxxx',
+      reference: 'DE-SEAT09',
+      status: 'PENDING',
+      totalCents: 4_500,
+      discountCents: 0,
+      currency: 'USD',
+      items: [],
+    }))
+    const { user } = renderCheckout({ placeOrder })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+    await user.click(await screen.findByRole('button', { name: 'Pay $45.00 (simulated)' }))
+
+    expect(await screen.findByText('Not booked')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Booked' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'See order DE-SEAT09' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Pay $45.00 (simulated)' })).toBeDisabled()
+  })
+
+  it('makes a declined payment a new attempt against the same hold', async () => {
+    const declined = Object.assign(
+      new Error(
+        'The payment was declined, and nothing was charged. Your reservation is kept, so you can try again.',
+      ),
+      { status: 402, code: 'PAYMENT_DECLINED' },
+    )
+    const placeOrder = vi.fn().mockRejectedValueOnce(declined).mockResolvedValue({
+      id: 'orderxxxxxxxx',
+      reference: 'DE-SEAT10',
+      status: 'PAID',
+      totalCents: 4_500,
+      discountCents: 0,
+      currency: 'USD',
+      items: [],
+    })
+    const { user } = renderCheckout({ placeOrder })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+    await user.click(await screen.findByRole('button', { name: 'Pay $45.00 (simulated)' }))
+
+    expect(await screen.findByText('The payment was declined')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pay $45.00 (simulated)' }))
+    await screen.findByRole('heading', { name: 'Booked' })
+
+    expect(placeOrder.mock.calls[1][0].holdIds).toEqual(['hdholdxxxxxxx'])
+    expect(placeOrder.mock.calls[1][0].idempotencyKey).not.toBe(
+      placeOrder.mock.calls[0][0].idempotencyKey,
+    )
+  })
+
+  it('says the order was cancelled, in the API’s words, and gives the hold back', async () => {
+    const message =
+      'The order could not be completed, so it was cancelled. Nothing was charged; reserve the tickets again to carry on.'
+    const placeOrder = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error(message), { status: 409, code: 'ORDER_CANCELLED' }),
+      )
+    const { user, props } = renderCheckout({ placeOrder })
+
+    await user.click(seatButton('A3'))
+    await user.click(screen.getByRole('button', { name: 'Reserve 1 seat' }))
+    await user.click(await screen.findByRole('button', { name: 'Pay $45.00 (simulated)' }))
+
+    expect(await screen.findByText('The order was cancelled')).toBeInTheDocument()
+    expect(screen.getByText(message)).toBeInTheDocument()
+    expect(props.release).toHaveBeenCalledWith(['hdholdxxxxxxx'])
+  })
+})
+
 describe('a seat that went while choosing', () => {
   it('reads the map again, names the seat that went and keeps the rest', async () => {
     const holdSeats = vi.fn().mockRejectedValue(

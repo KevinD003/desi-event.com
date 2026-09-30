@@ -40,6 +40,7 @@ import {
   authorChange,
   bindReservedSeatsAudited,
   changedFields,
+  defaultTierCurrency,
   loadForAuthoring,
   loadZonesByVersion,
   lockSessionRow,
@@ -53,6 +54,7 @@ import {
   sessionUsage,
   ticketTypeProblems,
   tierChangeProblems,
+  tierCurrencyProblems,
   tierRemovable,
   tierUsage,
 } from '../lib/event-authoring.js'
@@ -385,11 +387,25 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
          */
         write: async (tx) => {
           if (lowersCapacity) {
-            // Under the session's row lock, so a hold landing since the read
-            // above is counted rather than oversold.
+            // Under the night's tier locks and then its own row lock, in the
+            // order checkout takes them, so a hold or a sale landing since the
+            // read above is counted rather than oversold. The tiers are read
+            // again under the locks: their `quantitySold` is what settlement
+            // moves, and the copy loaded before this transaction predates any
+            // sale that settled while this change waited for the event row.
+            await lockTicketTypes(
+              tx,
+              (
+                await tx.ticketType.findMany({
+                  where: { eventSessionId: existing.id },
+                  select: { id: true },
+                })
+              ).map((tier) => tier.id),
+            )
             await lockSessionRow(tx, existing.id)
 
-            const fresh = (await sessionUsage(tx, [existing], event.ticketTypes)).get(existing.id)
+            const tiers = await tx.ticketType.findMany({ where: { eventId: event.id } })
+            const fresh = (await sessionUsage(tx, [existing], tiers)).get(existing.id)
 
             refuseConflict(sessionChangeProblems(existing, patch, fresh, mode))
           }
@@ -436,7 +452,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
       })
 
       const zones = await loadZonesByVersion(prisma, [updated.venueMapVersionId])
-      const after = (await sessionUsage(prisma, [updated], event.ticketTypes)).get(updated.id)
+      const tiersNow = await prisma.ticketType.findMany({ where: { eventId: event.id } })
+      const after = (await sessionUsage(prisma, [updated], tiersNow)).get(updated.id)
 
       return { data: toSession(updated, zones, after), meta: { revision: revision + 1 } }
     },
@@ -546,26 +563,31 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
       const { event, mode } = await authorable(request)
       const { revision, ...body } = request.body
       // A complimentary tier is free and hidden, and the database refuses
-      // anything else (ticket_type_complimentary_free_and_hidden).
+      // anything else (ticket_type_complimentary_free_and_hidden). A tier
+      // named without a currency is priced in the event's own.
       const proposed = {
         ...body,
+        currency: body.currency ?? defaultTierCurrency(event),
         visibility: body.visibility ?? (body.complimentary ? 'HIDDEN' : 'PUBLIC'),
       }
 
       refuseProblems(
-        ticketTypeProblems(
-          {
-            minPerOrder: 1,
-            maxPerOrder: 10,
-            quantityTotal: 0,
-            reserved: false,
-            complimentary: false,
-            ...proposed,
-          },
-          event,
-          event.sessions,
-          { siblings: event.ticketTypes },
-        ),
+        [
+          ...ticketTypeProblems(
+            {
+              minPerOrder: 1,
+              maxPerOrder: 10,
+              quantityTotal: 0,
+              reserved: false,
+              complimentary: false,
+              ...proposed,
+            },
+            event,
+            event.sessions,
+            { siblings: event.ticketTypes },
+          ),
+          ...tierCurrencyProblems(proposed, event.ticketTypes),
+        ],
         'That ticket type is not coherent.',
       )
 
@@ -588,7 +610,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
               name: proposed.name,
               description: proposed.description ?? null,
               priceCents: proposed.priceCents,
-              currency: proposed.currency ?? 'INR',
+              currency: proposed.currency,
               quantityTotal: proposed.quantityTotal ?? 0,
               minPerOrder: proposed.minPerOrder ?? 1,
               maxPerOrder: proposed.maxPerOrder ?? 10,
@@ -637,7 +659,12 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
       const merged = { ...existing, ...patch }
 
       refuseProblems(
-        ticketTypeProblems(merged, event, event.sessions, { siblings: event.ticketTypes }),
+        [
+          ...ticketTypeProblems(merged, event, event.sessions, { siblings: event.ticketTypes }),
+          ...(patch.currency !== undefined && patch.currency !== existing.currency
+            ? tierCurrencyProblems(merged, event.ticketTypes)
+            : []),
+        ],
         'That ticket type is not coherent.',
       )
 

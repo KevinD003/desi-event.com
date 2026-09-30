@@ -23,6 +23,7 @@
 import Link from 'next/link'
 
 import { ScrollableTable } from '../../../components/money-figure.jsx'
+import { OutcomeAnnouncer } from '../../../components/outcome-announcer.jsx'
 import { AsOf, Empty, Forbidden } from '../../../components/page-state.jsx'
 import { PromoCodeActions } from '../../../components/promo-code-actions.jsx'
 import { PromoCodeForm } from '../../../components/promo-code-form.jsx'
@@ -246,100 +247,105 @@ export default async function PromoCodesPage({ searchParams }) {
             Codes <span className="font-normal text-ink-muted">({total})</span>
           </h2>
           <AsOf asOf={new Date().toISOString()} />
-          {pagination && pagination.totalPages > 1 && codes.length > 0 ? (
-            <p className="mt-1 text-sm text-ink-muted">
-              Codes {(pagination.page - 1) * pagination.perPage + 1} to{' '}
-              {(pagination.page - 1) * pagination.perPage + codes.length} of {total}, newest first.
-            </p>
-          ) : null}
+          {/* A deleted code's row goes at the refresh, and its own region with
+              it; the sentence is said here instead, above the table. */}
+          <OutcomeAnnouncer className="mt-2">
+            {pagination && pagination.totalPages > 1 && codes.length > 0 ? (
+              <p className="mt-1 text-sm text-ink-muted">
+                Codes {(pagination.page - 1) * pagination.perPage + 1} to{' '}
+                {(pagination.page - 1) * pagination.perPage + codes.length} of {total}, newest
+                first.
+              </p>
+            ) : null}
 
-          {codes.length === 0 && total > 0 ? (
-            <Empty
-              title={`There are no codes on page ${page}`}
-              description={`This list has ${total === 1 ? 'one code' : `${total} codes`}, and this page is past the last of them.`}
-            />
-          ) : codes.length === 0 ? (
-            <Empty
-              title="No promo codes"
-              description={
-                eventId
-                  ? 'No code applies to this event. Codes you make below appear here.'
-                  : 'This organiser has no promo codes. Codes you make below appear here.'
-              }
-            />
-          ) : (
-            <ScrollableTable label="Promo codes">
-              <table className="w-full min-w-[56rem] border-collapse text-sm">
-                <caption className="sr-only">
-                  Promo codes of {selected.organizationName ?? 'this organisation'}, with their
-                  discounts, windows, uses and status
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col" className={TH}>
-                      Code
-                    </th>
-                    <th scope="col" className={TH}>
-                      Discount
-                    </th>
-                    <th scope="col" className={TH}>
-                      Applies to
-                    </th>
-                    <th scope="col" className={TH}>
-                      Window
-                    </th>
-                    <th scope="col" className={TH}>
-                      Uses
-                    </th>
-                    <th scope="col" className={TH}>
-                      Status
-                    </th>
-                    <th scope="col" className={TH}>
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {codes.map((code) => {
-                    const status = promoStatusLabel(code.status)
-                    const zone = (code.eventId && zoneOf.get(code.eventId)) || wideZone
+            {codes.length === 0 && total > 0 ? (
+              <Empty
+                title={`There are no codes on page ${page}`}
+                description={`This list has ${total === 1 ? 'one code' : `${total} codes`}, and this page is past the last of them.`}
+              />
+            ) : codes.length === 0 ? (
+              <Empty
+                title="No promo codes"
+                description={
+                  eventId
+                    ? 'No code applies to this event. Codes you make below appear here.'
+                    : 'This organiser has no promo codes. Codes you make below appear here.'
+                }
+              />
+            ) : (
+              <ScrollableTable label="Promo codes">
+                <table className="w-full min-w-[56rem] border-collapse text-sm">
+                  <caption className="sr-only">
+                    Promo codes of {selected.organizationName ?? 'this organisation'}, with their
+                    discounts, windows, uses and status
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col" className={TH}>
+                        Code
+                      </th>
+                      <th scope="col" className={TH}>
+                        Discount
+                      </th>
+                      <th scope="col" className={TH}>
+                        Applies to
+                      </th>
+                      <th scope="col" className={TH}>
+                        Window
+                      </th>
+                      <th scope="col" className={TH}>
+                        Uses
+                      </th>
+                      <th scope="col" className={TH}>
+                        Status
+                      </th>
+                      <th scope="col" className={TH}>
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {codes.map((code) => {
+                      const status = promoStatusLabel(code.status)
+                      const zone = (code.eventId && zoneOf.get(code.eventId)) || wideZone
 
-                    return (
-                      <tr key={code.id}>
-                        <th scope="row" className={`${TD} font-mono font-semibold`}>
-                          {code.code}
-                        </th>
-                        <td className={TD}>{describeDiscount(code)}</td>
-                        <td className={TD}>{code.event ? code.event.title : 'All events'}</td>
-                        <td className={`${TD} text-ink-muted`}>{promoWindowText(code, zone)}</td>
-                        <td className={TD}>{usesText(code)}</td>
-                        <td className={TD}>
-                          <span className="inline-flex items-center gap-1.5">
-                            <StatusIcon tone={STATUS_TONES[code.status] ?? 'neutral'} />
-                            {status.text}
-                          </span>
-                        </td>
-                        <td className={TD}>
-                          <PromoCodeActions
-                            organizationId={organizationId}
-                            code={{
-                              id: code.id,
-                              code: code.code,
-                              status: code.status,
-                              active: code.active,
-                              endsAt: code.endsAt ?? null,
-                              redemptionCount: code.redemptionCount,
-                              ordersCount: code.ordersCount,
-                            }}
-                          />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </ScrollableTable>
-          )}
+                      return (
+                        <tr key={code.id}>
+                          <th scope="row" className={`${TD} font-mono font-semibold`}>
+                            {code.code}
+                          </th>
+                          <td className={TD}>{describeDiscount(code)}</td>
+                          <td className={TD}>{code.event ? code.event.title : 'All events'}</td>
+                          <td className={`${TD} text-ink-muted`}>{promoWindowText(code, zone)}</td>
+                          <td className={TD}>{usesText(code)}</td>
+                          <td className={TD}>
+                            <span className="inline-flex items-center gap-1.5">
+                              <StatusIcon tone={STATUS_TONES[code.status] ?? 'neutral'} />
+                              {status.text}
+                            </span>
+                          </td>
+                          <td className={TD}>
+                            <PromoCodeActions
+                              organizationId={organizationId}
+                              code={{
+                                id: code.id,
+                                code: code.code,
+                                status: code.status,
+                                active: code.active,
+                                endsAt: code.endsAt ?? null,
+                                redemptionCount: code.redemptionCount,
+                                ordersCount: code.ordersCount,
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </ScrollableTable>
+            )}
+          </OutcomeAnnouncer>
           {pagination ? <Pager pagination={pagination} hrefFor={hrefFor} /> : null}
         </section>
       )}

@@ -15,6 +15,7 @@
 
 import { useRef, useState } from 'react'
 
+import { useFocusAfterRender } from './focus-after-render.jsx'
 import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { SESSION_MATERIAL_FIELDS } from '../lib/event-status.js'
@@ -210,6 +211,7 @@ export function SessionForm({
   const [confirmed, setConfirmed] = useState(false)
   const [notice, setNotice] = useState(null)
   const summary = useRef(null)
+  const focusAfterRender = useFocusAfterRender()
   const zone = values.timezone
   const layoutLocked = kind === 'edit' && mode === 'live'
   const changed = kind === 'edit' ? diffSessionBody(initial, values) : {}
@@ -274,7 +276,7 @@ export function SessionForm({
     setShown(problems)
 
     if (problems.length > 0) {
-      queueMicrotask(() => summary.current?.focus())
+      focusAfterRender(summary)
       return
     }
 

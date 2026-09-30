@@ -220,7 +220,7 @@ export const SCENARIOS = Object.freeze([
       const pass = doorPasses[context.iteration % doorPasses.length]
       // Alternating between the secure pass and the printed code, so a QR
       // scan and a typed code race each other for the same ticket — the
-      // method-level race the unique `CheckIn.ticketId` has to settle.
+      // method-level race the unique `CheckIn(ticketId, eventSessionId)` settles.
       const presentation =
         context.iteration % 2 === 0 ? { credential: pass.credential } : { code: pass.code }
 

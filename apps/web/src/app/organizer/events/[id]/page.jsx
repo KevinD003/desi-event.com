@@ -18,6 +18,7 @@
  */
 
 import Link from 'next/link'
+import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { EventEditor } from '../../../../components/event-editor.jsx'
@@ -34,6 +35,8 @@ import {
   listMaps,
   listVenues,
 } from '../../../../lib/organizer-api.js'
+import { readSession } from '../../../../lib/session.js'
+import { mayBookTeamTiers } from '../../../../lib/team-booking.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -145,6 +148,17 @@ export default async function EditEventPage({ params }) {
 
   const preview = await getPricePreview(id).catch(() => [])
 
+  // A hidden or complimentary tier is booked by the team through the ordinary
+  // checkout, which lists it for a member allowed to book it. Offered once the
+  // event is on sale and has such a tier to book.
+  const hiddenOnSale = (tiers?.data ?? []).some(
+    (tier) => tier.visibility === 'HIDDEN' && tier.status !== 'DRAFT',
+  )
+  const teamBooking =
+    hiddenOnSale && BOOKABLE_STATUSES.has(event.status) && event.slug
+      ? mayBookTeamTiers(await readSession(), event)
+      : false
+
   return (
     <div>
       <nav aria-label="Breadcrumb" className="text-sm text-ink-muted">
@@ -165,6 +179,32 @@ export default async function EditEventPage({ params }) {
       </nav>
 
       <h1 className="mt-4 text-h2 font-semibold text-ink">{event.title}</h1>
+
+      {teamBooking ? (
+        <aside
+          aria-labelledby="team-booking-heading"
+          data-testid="team-booking-panel"
+          className="mt-4 max-w-2xl rounded-card border border-status-info/25 bg-status-info-soft px-5 py-4 text-ink"
+        >
+          <h2 id="team-booking-heading" className="text-[1.0625rem] font-bold text-ink">
+            Book from a hidden tier
+          </h2>
+          <p className="mt-1 text-[0.9375rem] text-ink">
+            Hidden and complimentary tiers are booked through the event&rsquo;s own checkout, signed
+            in as you: they are listed there for you and nobody outside the team. The tickets are
+            kept in your account, and each can be handed on to a guest with a transfer code from
+            your tickets.
+          </p>
+          <p className="mt-3">
+            <Link
+              href={`/events/${encodeURIComponent(event.slug)}/checkout`}
+              className="font-semibold underline underline-offset-4 hover:text-accent-strong"
+            >
+              Book team tickets
+            </Link>
+          </p>
+        </aside>
+      ) : null}
 
       <div className="mt-6">
         <EventEditor

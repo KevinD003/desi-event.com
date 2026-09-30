@@ -10,6 +10,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }
 
 const { apiFetch } = await import('../lib/api-fetch.js')
 const { PromoCodeActions, deleteRefusal } = await import('./promo-code-actions.jsx')
+const { OutcomeAnnouncer } = await import('./outcome-announcer.jsx')
 
 const ORGANIZATION = 'orgmirrorwork'
 const BASE = `/v1/organizations/${ORGANIZATION}/promo-codes/prsave10xxxxx`
@@ -238,5 +239,73 @@ describe('deleting', () => {
       await screen.findByText('Used 1 time, so it can be paused but not deleted.'),
     ).toBeInTheDocument()
     expect(refresh).not.toHaveBeenCalled()
+  })
+})
+
+describe('where focus goes around a deletion', () => {
+  it('moves to the question when it opens, and back to Delete when the code is kept', async () => {
+    const user = userEvent.setup()
+
+    render(<PromoCodeActions organizationId={ORGANIZATION} code={code()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Delete SAVE10' }))
+
+    expect(screen.getByText(/Delete SAVE10\? Nobody has used it\./u)).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'Keep it' }))
+
+    expect(screen.getByRole('button', { name: 'Delete SAVE10' })).toHaveFocus()
+    expect(document.body).not.toHaveFocus()
+  })
+
+  it('returns to Delete when the API refuses, beside the refusal', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(409, {
+        error: {
+          code: 'PROMO_IN_USE',
+          message: 'Used 1 time, so it can be paused but not deleted.',
+        },
+      }),
+    )
+    render(<PromoCodeActions organizationId={ORGANIZATION} code={code()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Delete SAVE10' }))
+    await user.click(screen.getAllByRole('button', { name: 'Delete SAVE10' }).at(-1))
+
+    await screen.findByText('Used 1 time, so it can be paused but not deleted.')
+    expect(screen.getByRole('button', { name: 'Delete SAVE10' })).toHaveFocus()
+  })
+
+  it('says a deletion above the table, where the refresh cannot take it, and focuses it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { ok: true }))
+
+    // The row goes when the page refreshes: modelled here by unmounting it.
+    const { rerender } = render(
+      <OutcomeAnnouncer>
+        <PromoCodeActions organizationId={ORGANIZATION} code={code()} />
+      </OutcomeAnnouncer>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Delete SAVE10' }))
+    await user.click(screen.getAllByRole('button', { name: 'Delete SAVE10' }).at(-1))
+
+    const region = screen.getByTestId('outcome-announcer')
+
+    await waitFor(() => expect(region).toHaveTextContent('SAVE10 is deleted.'))
+    await waitFor(() => expect(region).toHaveFocus())
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <OutcomeAnnouncer>
+        <p>No promo codes</p>
+      </OutcomeAnnouncer>,
+    )
+
+    expect(screen.getByTestId('outcome-announcer')).toHaveTextContent('SAVE10 is deleted.')
+    expect(screen.getByTestId('outcome-announcer')).toHaveFocus()
   })
 })

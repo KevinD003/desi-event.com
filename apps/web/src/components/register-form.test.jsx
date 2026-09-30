@@ -139,10 +139,12 @@ describe('RegisterForm', () => {
     await fill(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'An account with this email address already exists.',
-    )
+    const refusal = await screen.findByRole('status')
+
+    expect(refusal).toHaveTextContent('An account with this email address already exists.')
     expect(assign).not.toHaveBeenCalled()
+    // Drawn only once the answer is in, and focus goes to it, not to the page.
+    await waitFor(() => expect(refusal.closest('[tabindex="-1"]')).toHaveFocus())
   })
 
   it('says how long to wait when sign-ups are being throttled, and names no endpoint', async () => {
@@ -175,7 +177,10 @@ describe('RegisterForm', () => {
     await fill(user)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(/no account was created/i)
+    const refusal = await screen.findByRole('status')
+
+    expect(refusal).toHaveTextContent(/no account was created/i)
+    await waitFor(() => expect(refusal.closest('[tabindex="-1"]')).toHaveFocus())
   })
 
   it('says up front that the address is not confirmed and a password cannot be reset', () => {

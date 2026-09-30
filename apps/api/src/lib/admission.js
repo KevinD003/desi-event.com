@@ -61,6 +61,19 @@
  * a camera or a keyboard produced a credential; what it records is which secret
  * was presented, and the scanner's manual mode sends only the printed code.
  *
+ * ## Nights
+ *
+ * On an event of more than one night the door says which night it is admitting
+ * to (`eventSessionId`), as it says which event, and every lookup and
+ * confirmation must. A ticket for one night — its seat's, else its tier's — is
+ * refused on another (`WRONG_NIGHT`) and admits once, becoming CHECKED_IN. A
+ * ticket good for every night (its tier names none) admits once on each night:
+ * the admission row carries the night, the ticket stays VALID, and "already in"
+ * means already in tonight. Without a night the lookup is refused
+ * (`NIGHT_REQUIRED`) rather than guessed from the clock. The night is part of
+ * the preview reference, so a confirmation cannot switch it. The trigger
+ * `desi_check_in_ticket_admissible` holds the same rules for any writer.
+ *
  * ## What is never recorded
  *
  * The presented credential, the presented code, and the preview reference. Not
@@ -136,6 +149,17 @@ const ADMISSION_SESSION_SELECT = Object.freeze({
   timezone: true,
 })
 
+/** A night as a door lists it, to choose which one it is admitting to. */
+const DOOR_NIGHT_SELECT = Object.freeze({
+  id: true,
+  label: true,
+  startsAt: true,
+  endsAt: true,
+  timezone: true,
+  status: true,
+  sortOrder: true,
+})
+
 /**
  * Everything a door needs from a ticket, and nothing it does not.
  *
@@ -145,7 +169,13 @@ const ADMISSION_SESSION_SELECT = Object.freeze({
 export const ADMISSION_INCLUDE = Object.freeze({
   orderItem: {
     select: {
-      ticketType: { select: { name: true, eventSession: { select: ADMISSION_SESSION_SELECT } } },
+      ticketType: {
+        select: {
+          name: true,
+          eventSessionId: true,
+          eventSession: { select: ADMISSION_SESSION_SELECT },
+        },
+      },
       order: {
         select: {
           id: true,
@@ -169,6 +199,7 @@ export const ADMISSION_INCLUDE = Object.freeze({
   },
   eventSeat: {
     select: {
+      eventSessionId: true,
       seat: {
         select: {
           label: true,
@@ -179,8 +210,125 @@ export const ADMISSION_INCLUDE = Object.freeze({
       eventSession: { select: ADMISSION_SESSION_SELECT },
     },
   },
-  checkIn: { select: { scannedAt: true, method: true, scannedByUserId: true } },
+  // Every admission of the ticket: one for a ticket that admits once, one per
+  // night for a ticket good for every night. Few, so read whole and chosen
+  // from in code (`admissionOn`).
+  checkIns: {
+    select: { scannedAt: true, method: true, scannedByUserId: true, eventSessionId: true },
+    orderBy: [{ scannedAt: 'asc' }, { id: 'asc' }],
+  },
 })
+
+/**
+ * An event's nights, soonest first, as a door reads them.
+ *
+ * @param {object} db A Prisma client or transaction client.
+ * @param {string} eventId The event.
+ * @returns {Promise<Array<object>>} Its sessions.
+ */
+export async function eventNights(db, eventId) {
+  const nights = await db.eventSession.findMany({
+    where: { eventId },
+    select: DOOR_NIGHT_SELECT,
+    orderBy: [{ startsAt: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+  })
+
+  return sortNights(nights)
+}
+
+/**
+ * Nights in the order a door lists them: by start, then the organiser's order.
+ *
+ * @param {Array<object>} nights Sessions.
+ * @returns {Array<object>} A sorted copy.
+ */
+function sortNights(nights) {
+  return [...(nights ?? [])].sort(
+    (left, right) =>
+      new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime() ||
+      (left.sortOrder ?? 0) - (right.sortOrder ?? 0) ||
+      String(left.id).localeCompare(String(right.id)),
+  )
+}
+
+/**
+ * The night a ticket is for: its seat's, else its tier's.
+ *
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @returns {string|null} The session id, or null for a tier that names no night.
+ */
+export function ownNight(ticket) {
+  return ticket.eventSeat?.eventSessionId ?? ticket.orderItem?.ticketType?.eventSessionId ?? null
+}
+
+/**
+ * Which night an admission is on, and whether this ticket may be let in on it.
+ *
+ * - On an event of more than one night the door must name the night:
+ *   `NIGHT_REQUIRED` otherwise, rather than a night guessed from the clock.
+ * - A named night that is not one of the event's is `WRONG_NIGHT`.
+ * - A ticket for one night is `WRONG_NIGHT` on any other, and admits once.
+ * - A ticket whose tier names no night, on an event of more than one, is good
+ *   for every night (`everyNight`) and admits once on each: the admission is
+ *   recorded on the named night.
+ *
+ * Pure, so the preview and the confirmation cannot disagree about it.
+ *
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @param {Array<{id: string}>} nights The event's nights, from {@link eventNights}.
+ * @param {string|null} named The night the door says it is admitting to.
+ * @returns {{night: string|null, everyNight: boolean, refusal: string|null}} The night to record, and the refusal if any.
+ */
+export function nightFor(ticket, nights, named) {
+  const own = ownNight(ticket)
+  const everyNight = own === null && nights.length > 1
+
+  if (named && !nights.some((night) => night.id === named)) {
+    return { night: null, everyNight, refusal: 'WRONG_NIGHT' }
+  }
+
+  if (!named && nights.length > 1) return { night: null, everyNight, refusal: 'NIGHT_REQUIRED' }
+
+  if (own && named && own !== named) return { night: null, everyNight, refusal: 'WRONG_NIGHT' }
+
+  return { night: everyNight ? named : own, everyNight, refusal: null }
+}
+
+/**
+ * The admission row that answers "is this ticket already in?".
+ *
+ * Tonight's, for a ticket good for every night; its only one, for a ticket
+ * that admits once.
+ *
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @param {{night: string|null, everyNight: boolean}|null} context From {@link nightFor}.
+ * @returns {object|null} The `CheckIn` row, or null.
+ */
+export function admissionOn(ticket, context) {
+  const rows = [...(ticket.checkIns ?? [])].sort(
+    (left, right) => new Date(left.scannedAt).getTime() - new Date(right.scannedAt).getTime(),
+  )
+
+  if (context?.everyNight) return rows.find((row) => row.eventSessionId === context.night) ?? null
+
+  return rows[0] ?? null
+}
+
+/**
+ * Whether this ticket has already been let in, on the night in question.
+ *
+ * A CHECKED_IN ticket has, whichever night it is: it admitted once. A ticket
+ * good for every night has when tonight's admission exists.
+ *
+ * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
+ * @param {{night: string|null, everyNight: boolean}|null} context From {@link nightFor}.
+ * @returns {boolean} True when already in.
+ */
+export function alreadyIn(ticket, context) {
+  if (ticket.status === TICKET_STATES.CHECKED_IN) return true
+
+  return Boolean(context?.everyNight && admissionOn(ticket, context))
+}
 
 /**
  * Which secret was presented, and the method that follows from it.
@@ -373,10 +521,11 @@ export function toAdmissionSeat(ticket) {
 }
 
 /**
- * The night a ticket is for, so a steward sees a ticket for another night.
+ * The night a ticket is for, so a steward sees which night it is.
  *
- * The seat's session, else the tier's; null for a ticket good for every night.
- * A label only — the door refuses nothing on it.
+ * The seat's session, else the tier's; null for a ticket good for every night
+ * (or on an event of one night whose tier names none). What the door does with
+ * it is {@link nightFor}'s.
  *
  * @param {object} ticket A ticket with `ADMISSION_INCLUDE`.
  * @returns {{label: string|null, startsAt: Date, endsAt: Date, timezone: string}|null} The night.
@@ -410,6 +559,7 @@ export function toAdmissionSession(ticket) {
  * @param {string} options.method The method this presentation would record.
  * @param {string|null} options.previewReference The reference, when admissible.
  * @param {Date|null} options.previewExpiresAt When it lapses.
+ * @param {{night: string|null, everyNight: boolean}|null} [options.context] The night, from {@link nightFor}.
  * @returns {object} A payload satisfying `admissionPreviewResponseSchema`'s `data`.
  */
 export function toAdmissionPreview({
@@ -419,7 +569,12 @@ export function toAdmissionPreview({
   method,
   previewReference,
   previewExpiresAt,
+  context = null,
 }) {
+  // When it was let in on the night in question: tonight's admission for a
+  // ticket good for every night, never last night's.
+  const admission = admissionOn(ticket, context)
+
   return {
     outcome,
     refusal,
@@ -429,7 +584,9 @@ export function toAdmissionPreview({
     seat: toAdmissionSeat(ticket),
     session: toAdmissionSession(ticket),
     attendeeName: doorName(ticket.attendeeName),
-    checkedInAt: ticket.checkedInAt ?? null,
+    checkedInAt: context?.everyNight
+      ? (admission?.scannedAt ?? null)
+      : (admission?.scannedAt ?? ticket.checkedInAt ?? null),
     previewReference,
     previewExpiresAt,
   }
@@ -442,18 +599,22 @@ export function toAdmissionPreview({
  * @param {object} options.ticket A ticket with `ADMISSION_INCLUDE`, re-read after the write.
  * @param {string} options.outcome `ADMITTED` or `ALREADY_CHECKED_IN`.
  * @param {string} options.actorId Who confirmed.
+ * @param {{night: string|null, everyNight: boolean}|null} [options.context] The night, from {@link nightFor}.
  * @returns {object} A payload satisfying `checkInResponseSchema`'s `data`.
  */
-export function toAdmissionResult({ ticket, outcome, actorId }) {
+export function toAdmissionResult({ ticket, outcome, actorId, context = null }) {
+  // The admission this answer is about: tonight's, for a ticket good for
+  // every night.
+  const admission = admissionOn(ticket, context)
+
   return {
     outcome,
-    checkedInAt: ticket.checkIn?.scannedAt ?? ticket.checkedInAt,
+    checkedInAt: admission?.scannedAt ?? (context?.everyNight ? null : ticket.checkedInAt),
     method:
-      ticket.checkIn?.method === 'QR_SCAN' || ticket.checkIn?.method === 'MANUAL_CODE'
-        ? ticket.checkIn.method
+      admission?.method === 'QR_SCAN' || admission?.method === 'MANUAL_CODE'
+        ? admission.method
         : null,
-    checkedInByYou:
-      Boolean(ticket.checkIn?.scannedByUserId) && ticket.checkIn.scannedByUserId === actorId,
+    checkedInByYou: Boolean(admission?.scannedByUserId) && admission.scannedByUserId === actorId,
     event: toAdmissionEvent(ticket.orderItem.order.event),
     tier: ticket.orderItem.ticketType ? { name: ticket.orderItem.ticketType.name } : null,
     seat: toAdmissionSeat(ticket),
@@ -574,6 +735,16 @@ export function readReference({ secret, purpose, reference, now, validate }) {
 }
 
 /**
+ * Whether a reference's night claim is well formed: a session id, or null.
+ *
+ * @param {unknown} night The claim.
+ * @returns {boolean} True when it is.
+ */
+function nightClaim(night) {
+  return night === null || (typeof night === 'string' && night !== '')
+}
+
+/**
  * Whether each named claim is a non-empty string.
  *
  * @param {object} claims The claims.
@@ -594,6 +765,7 @@ function stringClaims(claims, keys) {
  * @param {string} options.organizationId Its organisation.
  * @param {string} options.actorId Who previewed it.
  * @param {string} options.method How it was presented.
+ * @param {string|null} [options.night] The night the door said it was admitting to.
  * @param {Date} options.expiresAt When the reference lapses.
  * @returns {string} The reference.
  */
@@ -604,6 +776,7 @@ export function signPreviewReference({
   organizationId,
   actorId,
   method,
+  night = null,
   expiresAt,
 }) {
   return signReference({
@@ -616,6 +789,7 @@ export function signPreviewReference({
       o: organizationId,
       a: actorId,
       m: method,
+      n: night,
       x: expiresAt.getTime(),
     },
   })
@@ -636,7 +810,8 @@ export function readPreviewReference({ secret, reference, now }) {
     purpose: PREVIEW_REFERENCE_PURPOSE,
     reference,
     now,
-    validate: (claims) => claims.v === 1 && stringClaims(claims, ['t', 'e', 'o', 'a', 'm']),
+    validate: (claims) =>
+      claims.v === 1 && stringClaims(claims, ['t', 'e', 'o', 'a', 'm']) && nightClaim(claims.n),
   })
 }
 
@@ -656,6 +831,7 @@ export function readPreviewReference({ secret, reference, now }) {
  * @param {string} options.actorId Who looked it up.
  * @param {string} options.method How it was presented.
  * @param {string[]} options.ticketIds The tickets that were admissible.
+ * @param {string|null} [options.night] The night the door said it was admitting to.
  * @param {Date} options.expiresAt When the reference lapses.
  * @returns {string} The reference.
  */
@@ -668,6 +844,7 @@ export function signGroupPreviewReference({
   actorId,
   method,
   ticketIds,
+  night = null,
   expiresAt,
 }) {
   return signReference({
@@ -682,6 +859,7 @@ export function signGroupPreviewReference({
       a: actorId,
       m: method,
       ts: ticketIds,
+      n: night,
       x: expiresAt.getTime(),
     },
   })
@@ -710,7 +888,8 @@ export function readGroupPreviewReference({ secret, reference, now }) {
       Array.isArray(claims.ts) &&
       claims.ts.length >= 1 &&
       claims.ts.length <= 50 &&
-      claims.ts.every((id) => typeof id === 'string' && id !== ''),
+      claims.ts.every((id) => typeof id === 'string' && id !== '') &&
+      nightClaim(claims.n),
   })
 }
 
@@ -772,13 +951,18 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
   }
 
   const order = ticket.orderItem.order
+  const named = body.eventSessionId ?? null
+  const context = nightFor(ticket, await eventNights(prisma, event.id), named)
   let outcome = 'ADMISSIBLE'
   let refusal = null
 
   if (body.expectedEventId && body.expectedEventId !== event.id) {
     outcome = 'REFUSED'
     refusal = 'WRONG_EVENT'
-  } else if (ticket.status === TICKET_STATES.CHECKED_IN) {
+  } else if (context.refusal) {
+    outcome = 'REFUSED'
+    refusal = context.refusal
+  } else if (alreadyIn(ticket, context)) {
     outcome = 'ALREADY_CHECKED_IN'
   } else {
     refusal = admissionRefusalCode(ticket, order, event)
@@ -797,6 +981,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
           organizationId: event.organizationId,
           actorId: actor.id,
           method: presentation.method,
+          night: named,
           expiresAt: previewExpiresAt,
         })
       : null
@@ -814,6 +999,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
       role: authority.role,
       eventId: event.id,
       organizationId: event.organizationId,
+      eventSessionId: named,
     },
   })
 
@@ -835,6 +1021,7 @@ export async function previewAdmission({ prisma, env, actor, body, log, now = ne
     method: presentation.method,
     previewReference,
     previewExpiresAt,
+    context,
   })
 }
 
@@ -874,6 +1061,9 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
   // code preview cannot be confirmed as a QR scan.
   if (claims.a !== actor.id) throw admissionConflict('PREVIEW_INVALID')
   if (claims.m !== presentation.method) throw admissionConflict('PREVIEW_MISMATCH')
+  // And to the night the door said it was admitting to: switching nights
+  // between the lookup and the admission is a different question.
+  if ((body.eventSessionId ?? null) !== claims.n) throw admissionConflict('PREVIEW_MISMATCH')
 
   let verdict
 
@@ -884,9 +1074,10 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
   } catch (error) {
     // Two ways the database refuses a racing admission that did not take the
     // row lock first — a writer outside this module, or a test inserting a row
-    // directly. P2002 is the unique `CheckIn.ticketId`; P0001 is
-    // `desi_check_in_ticket_admissible`. Neither is a 500 at a door: what the
-    // answer is depends on what the ticket now is, re-read rather than assumed.
+    // directly. P2002 is the unique `CheckIn(ticketId, eventSessionId)`; P0001
+    // is `desi_check_in_ticket_admissible`. Neither is a 500 at a door: what
+    // the answer is depends on what the ticket now is, re-read rather than
+    // assumed.
     const code = databaseErrorCode(error)
 
     if (code !== 'P2002' && code !== 'P0001') throw error
@@ -895,18 +1086,20 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       where: { id: claims.t },
       include: ADMISSION_INCLUDE,
     })
+    const currentEvent = current?.orderItem?.order?.event ?? null
+    const context = currentEvent
+      ? nightFor(current, await eventNights(prisma, currentEvent.id), claims.n)
+      : null
 
     verdict =
-      current?.status === TICKET_STATES.CHECKED_IN
-        ? { kind: 'already', ticket: current }
+      current && !context?.refusal && alreadyIn(current, context)
+        ? { kind: 'already', ticket: current, context }
         : {
             kind: 'refused',
             reason: current
-              ? (admissionRefusalCode(
-                  current,
-                  current.orderItem.order,
-                  current.orderItem.order.event,
-                ) ?? 'NOT_ADMISSIBLE')
+              ? (context?.refusal ??
+                admissionRefusalCode(current, current.orderItem.order, currentEvent) ??
+                'NOT_ADMISSIBLE')
               : 'NOT_ADMISSIBLE',
             ticketId: claims.t,
           }
@@ -914,11 +1107,21 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
 
   if (verdict.kind === 'admitted') {
     log?.info(
-      { ticketId: verdict.ticket.id, eventId: claims.e, method: presentation.method },
+      {
+        ticketId: verdict.ticket.id,
+        eventId: claims.e,
+        eventSessionId: verdict.context.night,
+        method: presentation.method,
+      },
       'ticket admitted',
     )
 
-    return toAdmissionResult({ ticket: verdict.ticket, outcome: 'ADMITTED', actorId: actor.id })
+    return toAdmissionResult({
+      ticket: verdict.ticket,
+      outcome: 'ADMITTED',
+      actorId: actor.id,
+      context: verdict.context,
+    })
   }
 
   if (verdict.kind === 'already') {
@@ -931,6 +1134,7 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
         operation: 'check_in',
         outcome: 'ALREADY_CHECKED_IN',
         method: presentation.method,
+        eventSessionId: verdict.context?.night ?? null,
       },
     })
 
@@ -938,6 +1142,7 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
       ticket: verdict.ticket,
       outcome: 'ALREADY_CHECKED_IN',
       actorId: actor.id,
+      context: verdict.context,
     })
   }
 
@@ -971,6 +1176,8 @@ export async function confirmAdmission({ prisma, env, actor, body, log, now = ne
  * @returns {Promise<object>} A verdict: admitted, already, refused, forbidden or hidden.
  */
 async function decide(tx, { actor, body, presentation, claims, now }) {
+  const named = claims.n
+
   // The previewed ticket's row, first. Every writer that changes whether a
   // ticket admits — refund, revocation, transfer — updates this row, so holding
   // it serialises them against this admission: whichever commits first, the
@@ -1051,7 +1258,13 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
     return { kind: 'refused', ticketId: ticket.id, reason: 'WRONG_EVENT' }
   }
 
-  if (ticket.status === TICKET_STATES.CHECKED_IN) return { kind: 'already', ticket }
+  // The nights read now, inside the transaction: the rule is the one in force
+  // as this admission is written, not the one the preview saw.
+  const context = nightFor(ticket, await eventNights(tx, event.id), named)
+
+  if (context.refusal) return { kind: 'refused', ticketId: ticket.id, reason: context.refusal }
+
+  if (alreadyIn(ticket, context)) return { kind: 'already', ticket, context }
 
   const refusal = admissionRefusalCode(ticket, order, event)
 
@@ -1059,7 +1272,8 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
 
   await admit(tx, {
     ticket,
-    eventSessionId: order.eventSessionId ?? null,
+    eventSessionId: context.night,
+    everyNight: context.everyNight,
     scannedByUserId: actor.id,
     scannerId: body.deviceId ?? null,
     gate: body.gate ?? null,
@@ -1088,7 +1302,7 @@ async function decide(tx, { actor, body, presentation, claims, now }) {
     include: ADMISSION_INCLUDE,
   })
 
-  return { kind: 'admitted', ticket: admitted }
+  return { kind: 'admitted', ticket: admitted, context }
 }
 
 /**
@@ -1152,7 +1366,7 @@ function doorEventWhere(since, filters) {
   }
 }
 
-/** The columns a door list reads from an event. */
+/** The columns a door list reads from an event, with its nights. */
 const DOOR_EVENT_SELECT = Object.freeze({
   id: true,
   title: true,
@@ -1160,7 +1374,28 @@ const DOOR_EVENT_SELECT = Object.freeze({
   endsAt: true,
   timezone: true,
   status: true,
+  sessions: {
+    select: DOOR_NIGHT_SELECT,
+    orderBy: [{ startsAt: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+  },
 })
+
+/**
+ * An event's nights, as a door picks among them.
+ *
+ * @param {Array<object>|undefined} sessions The event's sessions.
+ * @returns {Array<object>} Each night, soonest first.
+ */
+function toDoorNights(sessions) {
+  return sortNights(sessions).map((night) => ({
+    id: night.id,
+    label: typeof night.label === 'string' && night.label.trim() !== '' ? night.label.trim() : null,
+    startsAt: night.startsAt,
+    endsAt: night.endsAt,
+    timezone: night.timezone,
+    status: night.status,
+  }))
+}
 
 /**
  * The events this caller may admit to, and on what authority.
@@ -1238,6 +1473,7 @@ export async function listAdmissionEvents({ prisma, actor, filters = {}, now = n
 
       entries.push({
         event: { ...toAdmissionEvent(event), status: event.status },
+        sessions: toDoorNights(event.sessions),
         organization: membership.organization,
         authority: authority.authority,
         role: authority.role,
@@ -1294,6 +1530,7 @@ async function platformDoorList({ prisma, memberships, filters, since }) {
 
     return {
       event: { ...toAdmissionEvent(row), status: row.status },
+      sessions: toDoorNights(row.sessions),
       organization: { id: organization.id, name: organization.name },
       authority: authority.authority,
       role: authority.role,

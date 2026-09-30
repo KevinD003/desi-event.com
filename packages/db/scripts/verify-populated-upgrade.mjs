@@ -141,7 +141,21 @@ const PHASE3_MIGRATIONS = Object.freeze([
   '20260928130000_event_media',
   // EventSession.label, staged attendee names, and promo code CHECKs after normalising backfills.
   '20260929090000_checkout_promos_attendees_nights',
+  // Admission per night: CheckIn unique on (ticketId, eventSessionId) plus one row with no night,
+  // and the two ticket triggers rewritten. Swapping a unique index over rows is the upgrade case.
+  '20260929100000_check_in_per_night',
 ])
+
+/**
+ * The first migration written against the schema the API at a6bd5e4 wrote to.
+ *
+ * The generic filler runs once, before Phase 2, and gives every column its
+ * default — so every backfill after this point used to match no row at all,
+ * and a data change that went wrong passed. {@link seedLegacyRows} puts in the
+ * rows that API could really write, just before this migration, and
+ * {@link checkLegacyBackfills} checks what the migrations made of them.
+ */
+const FIRST_FEATURE_MIGRATION = '20260928090000_event_authoring_content_and_tier_rules'
 
 /**
  * Rows the generic filler cannot produce, because a CHECK constraint means the
@@ -441,17 +455,12 @@ function literalFor(column, table, index, identifiers, references, enums) {
 }
 
 /**
- * Put one row in every table, in an order that satisfies the foreign keys.
- *
- * Every NOT NULL column without a default gets a value; everything else is left
- * to the database, so a defaulted column that stops being defaulted shows up
- * here as a failure rather than as a silently different row.
+ * Every enum type's labels, in their declared order.
  *
  * @param {object} prisma A client connected to the disposable database.
- * @returns {Promise<{filled: string[], skipped: object[]}>} What was filled and what was not.
+ * @returns {Promise<Map<string, string[]>>} Labels by type name.
  */
-async function populate(prisma) {
-  const tables = await describe(prisma)
+async function enumLabels(prisma) {
   const enumRows = await prisma.$queryRawUnsafe(
     'SELECT type.typname AS name, label.enumlabel AS label FROM pg_enum label ' +
       'JOIN pg_type type ON type.oid = label.enumtypid ORDER BY label.enumsortorder',
@@ -463,6 +472,23 @@ async function populate(prisma) {
     if (!enums.has(row.name)) enums.set(row.name, [])
     enums.get(row.name).push(row.label)
   }
+
+  return enums
+}
+
+/**
+ * Put one row in every table, in an order that satisfies the foreign keys.
+ *
+ * Every NOT NULL column without a default gets a value; everything else is left
+ * to the database, so a defaulted column that stops being defaulted shows up
+ * here as a failure rather than as a silently different row.
+ *
+ * @param {object} prisma A client connected to the disposable database.
+ * @returns {Promise<{filled: string[], skipped: object[]}>} What was filled and what was not.
+ */
+async function populate(prisma) {
+  const tables = await describe(prisma)
+  const enums = await enumLabels(prisma)
 
   /** @type {Map<string, string>} */
   const identifiers = new Map()
@@ -511,6 +537,635 @@ async function populate(prisma) {
   }
 
   return { filled, skipped }
+}
+
+/** A 2000-character tier description: longer than today's limit, and legal before it. */
+const LONG_DESCRIPTION = 'A long tier description. '.repeat(80)
+
+/** A cover address with a password, a signature and a fragment, as an organiser could paste one. */
+const SIGNED_COVER = 'https://photos:hunter2@img.example.net/c/42.png?X-Amz-Signature=deadbeef#top'
+
+/** A plain cover address. */
+const PLAIN_COVER = 'https://cdn.example.com/covers/garba-night.jpg'
+
+/**
+ * Put in the rows the API at a6bd5e4 could write and the feature migrations
+ * rewrite: the data their backfills exist for.
+ *
+ * Each row names only the columns the case is about; every other NOT NULL
+ * column is filled the way {@link populate} fills it, and foreign keys point at
+ * its rows. Two reserved tiers on one session and zone are not among them: the
+ * API at a6bd5e4 refused that pair, and the migration refuses it by design.
+ *
+ * @param {object} prisma A client connected to the disposable database.
+ * @param {string[]} filled The tables {@link populate} put a row in.
+ * @returns {Promise<{added: Record<string, number>, refused: object[]}>} Rows added per table, and any refused.
+ */
+async function seedLegacyRows(prisma, filled) {
+  const tables = await describe(prisma)
+  const enums = await enumLabels(prisma)
+  const identifiers = new Map(filled.map((table) => [table, `upgrade-fixture-${table}`]))
+  /** @type {Record<string, number>} */
+  const added = {}
+  const refused = []
+  let index = 1000
+
+  /**
+   * Insert one row: the given literals, and the filler's for the rest.
+   *
+   * @param {string} table The table.
+   * @param {Record<string, string>} given Column to SQL literal; must name `id`.
+   * @returns {Promise<void>} Resolves once inserted, or recorded as refused.
+   */
+  const insert = async (table, given) => {
+    const { columns, references } = tables.get(table)
+    const names = []
+    const values = []
+    index += 1
+
+    for (const column of columns) {
+      const literal =
+        given[column.column_name] ??
+        literalFor(column, table, index, identifiers, references, enums)
+
+      if (literal === null) continue
+      names.push(`"${column.column_name}"`)
+      values.push(literal)
+    }
+
+    try {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "${table}" (${names.join(', ')}) VALUES (${values.join(', ')})`,
+      )
+      added[table] = (added[table] ?? 0) + 1
+    } catch (error) {
+      refused.push({
+        table,
+        id: given.id,
+        reason: String(error?.message ?? error)
+          .replace(/\s+/g, ' ')
+          .slice(0, 200),
+      })
+    }
+  }
+
+  const quote = (text) => `'${text.replaceAll("'", "''")}'`
+  const event = "'upgrade-fixture-Event'"
+  const organization = "'upgrade-fixture-Organization'"
+
+  // Events: a line-up to become performers, and two cover addresses to drop.
+  await insert('Event', {
+    id: "'legacy-event-lineup'",
+    slug: "'legacy-event-lineup'",
+    artists: "ARRAY['Falguni Pathak', 'Aishwarya Majmudar']::text[]",
+    coverImageUrl: quote(PLAIN_COVER),
+  })
+  await insert('Event', {
+    id: "'legacy-event-signed-cover'",
+    slug: "'legacy-event-signed-cover'",
+    coverImageUrl: quote(SIGNED_COVER),
+  })
+
+  // Tiers: a comp, bounds over the ceiling, a blank and a long description.
+  await insert('TicketType', {
+    id: "'legacy-tier-comp'",
+    eventId: event,
+    name: "'Legacy comp'",
+    complimentary: 'true',
+    priceCents: '0',
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-public'",
+    eventId: event,
+    name: "'Legacy public'",
+    complimentary: 'false',
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-bounds'",
+    eventId: event,
+    name: "'Legacy bounds'",
+    minPerOrder: '60',
+    maxPerOrder: '100',
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-blank'",
+    eventId: event,
+    name: "'Legacy blank description'",
+    description: "''",
+  })
+  await insert('TicketType', {
+    id: "'legacy-tier-long'",
+    eventId: event,
+    name: "'Legacy long description'",
+    description: quote(LONG_DESCRIPTION),
+  })
+
+  // Invitations: two live ones to one address in different case, and another.
+  const invitation = (id, email, createdAt) =>
+    insert('Invitation', {
+      id: `'${id}'`,
+      organizationId: organization,
+      email: quote(email),
+      role: "'STAFF'",
+      tokenHash: `'${id}-digest'`,
+      invitedById: "'upgrade-fixture-User'",
+      status: "'PENDING'",
+      expiresAt: "'2027-01-01T00:00:00Z'",
+      createdAt: `'${createdAt}'`,
+    })
+
+  await invitation('legacy-invite-older', 'Asha.Rao@Example.com', '2026-09-01T10:00:00Z')
+  await invitation('legacy-invite-newer', 'asha.rao@example.com', '2026-09-02T10:00:00Z')
+  await invitation('legacy-invite-other', 'ben@example.com', '2026-09-01T10:00:00Z')
+
+  // Promo codes outside the ranges the new CHECKs hold them to.
+  const promo = (id, fields) =>
+    insert('PromoCode', {
+      id: `'${id}'`,
+      organizationId: organization,
+      code: `'${id.toUpperCase()}'`,
+      type: "'PERCENTAGE'",
+      value: '1000',
+      ...fields,
+    })
+
+  await promo('legacy-promo-pct-currency', { currency: "'USD'" })
+  await promo('legacy-promo-pct-over', { value: '15000' })
+  await promo('legacy-promo-negative', {
+    type: "'FIXED_AMOUNT'",
+    value: '-500',
+    currency: "'USD'",
+  })
+  await promo('legacy-promo-negative-count', { redemptionCount: '-2' })
+  await promo('legacy-promo-cap-zero', { maxRedemptions: '0', redemptionCount: '0' })
+  await promo('legacy-promo-over-cap', { maxRedemptions: '5', redemptionCount: '7' })
+  await promo('legacy-promo-window', {
+    startsAt: "'2026-10-02T00:00:00Z'",
+    endsAt: "'2026-10-01T00:00:00Z'",
+  })
+
+  // Admissions as the API at a6bd5e4 recorded them: no night, and a pass good
+  // for every night CHECKED_IN at its first. `20260929100000_check_in_per_night`
+  // gives each a night and lets the passes in again on the others.
+  await seedLegacyAdmissions(insert, prisma)
+
+  return { added, refused }
+}
+
+/** Nights of the three-night legacy event, and the one-night one. */
+const LEGACY_NIGHTS = Object.freeze({
+  one: {
+    id: 'legacy-night-1',
+    startsAt: '2026-10-01T18:00:00Z',
+    endsAt: '2026-10-01T23:00:00Z',
+    doorsOpenAt: '2026-10-01T17:00:00Z',
+  },
+  two: {
+    id: 'legacy-night-2',
+    startsAt: '2026-10-02T18:00:00Z',
+    endsAt: '2026-10-02T23:00:00Z',
+    doorsOpenAt: null,
+  },
+  three: {
+    id: 'legacy-night-3',
+    startsAt: '2026-10-03T18:00:00Z',
+    endsAt: '2026-10-03T23:00:00Z',
+    doorsOpenAt: null,
+  },
+  only: {
+    id: 'legacy-night-only',
+    startsAt: '2026-10-05T18:00:00Z',
+    endsAt: '2026-10-05T23:00:00Z',
+    doorsOpenAt: null,
+  },
+})
+
+/**
+ * The legacy admissions, each with the ticket it admitted and where its scan
+ * falls, and what the per-night migration should make of it.
+ *
+ * `night` is the night the admission should end up on (null: left without
+ * one), `chosenBy` how, and `status` the ticket's status afterwards.
+ */
+const LEGACY_ADMISSIONS = Object.freeze([
+  // A pass scanned after night 1's doors opened: night 1, by its window.
+  {
+    ticket: 'legacy-ticket-pass-window',
+    tier: 'legacy-tier-every-night',
+    scannedAt: '2026-10-01T17:30:00Z',
+    finally: 'CHECKED_IN',
+    night: 'legacy-night-1',
+    chosenBy: 'WINDOW',
+    status: 'VALID',
+  },
+  // A pass scanned between nights, nearer night 2's start than night 1's end.
+  {
+    ticket: 'legacy-ticket-pass-nearest',
+    tier: 'legacy-tier-every-night',
+    scannedAt: '2026-10-02T12:00:00Z',
+    finally: 'CHECKED_IN',
+    night: 'legacy-night-2',
+    chosenBy: 'NEAREST',
+    status: 'VALID',
+  },
+  // A night-2 ticket let in during night 1's window: its own night wins, and it admitted once.
+  {
+    ticket: 'legacy-ticket-night-two',
+    tier: 'legacy-tier-night-two',
+    scannedAt: '2026-10-01T20:00:00Z',
+    finally: 'CHECKED_IN',
+    night: 'legacy-night-2',
+    chosenBy: 'OWN_NIGHT',
+    status: 'CHECKED_IN',
+  },
+  // A pass let in and refunded since: it gets its night, and stays refunded.
+  {
+    ticket: 'legacy-ticket-pass-refunded',
+    tier: 'legacy-tier-every-night',
+    scannedAt: '2026-10-01T19:00:00Z',
+    finally: 'REFUNDED',
+    night: 'legacy-night-1',
+    chosenBy: 'WINDOW',
+    status: 'REFUNDED',
+  },
+  // An admission on an event of one night needs no night, and is left alone.
+  {
+    ticket: 'legacy-ticket-one-night',
+    tier: 'legacy-tier-one-night',
+    scannedAt: '2026-10-05T19:00:00Z',
+    finally: 'CHECKED_IN',
+    night: null,
+    chosenBy: null,
+    status: 'CHECKED_IN',
+  },
+])
+
+/** How many audit rows the per-night migration writes for them: one per ticket it touches. */
+const LEGACY_ADMISSION_AUDITS = LEGACY_ADMISSIONS.filter((admission) => admission.night).length
+
+/**
+ * Put in a three-night event and a one-night one, with tickets let in the way
+ * the API at a6bd5e4 let them in: a `CheckIn` with no night, and the ticket
+ * moved to CHECKED_IN (then, for one, to REFUNDED).
+ *
+ * @param {function(string, Record<string, string>): Promise<void>} insert The row writer from {@link seedLegacyRows}.
+ * @param {object} prisma A client connected to the disposable database.
+ * @returns {Promise<void>} Resolves once every row is in or recorded as refused.
+ */
+async function seedLegacyAdmissions(insert, prisma) {
+  const at = (value) => (value ? `'${value}'` : 'NULL')
+
+  await insert('Event', {
+    id: "'legacy-event-nights'",
+    slug: "'legacy-event-nights'",
+    startsAt: at(LEGACY_NIGHTS.one.startsAt),
+    endsAt: at(LEGACY_NIGHTS.three.endsAt),
+  })
+  await insert('Event', {
+    id: "'legacy-event-one-night'",
+    slug: "'legacy-event-one-night'",
+    startsAt: at(LEGACY_NIGHTS.only.startsAt),
+    endsAt: at(LEGACY_NIGHTS.only.endsAt),
+  })
+
+  for (const [key, night] of Object.entries(LEGACY_NIGHTS)) {
+    await insert('EventSession', {
+      id: `'${night.id}'`,
+      eventId: key === 'only' ? "'legacy-event-one-night'" : "'legacy-event-nights'",
+      startsAt: at(night.startsAt),
+      endsAt: at(night.endsAt),
+      doorsOpenAt: at(night.doorsOpenAt),
+      venueMapVersionId: 'NULL',
+      capacity: 'NULL',
+    })
+  }
+
+  const tier = (id, eventId, night) =>
+    insert('TicketType', {
+      id: `'${id}'`,
+      eventId: `'${eventId}'`,
+      name: `'${id}'`,
+      eventSessionId: at(night),
+      priceZoneId: 'NULL',
+      complimentary: 'false',
+    })
+
+  await tier('legacy-tier-every-night', 'legacy-event-nights', null)
+  await tier('legacy-tier-night-two', 'legacy-event-nights', 'legacy-night-2')
+  await tier('legacy-tier-one-night', 'legacy-event-one-night', null)
+
+  for (const eventId of ['legacy-event-nights', 'legacy-event-one-night']) {
+    await insert('Order', {
+      id: `'${eventId}-order'`,
+      eventId: `'${eventId}'`,
+      reference: `'${eventId.toUpperCase()}'`,
+      status: "'PAID'",
+      promoCodeId: 'NULL',
+      eventSessionId: 'NULL',
+    })
+  }
+
+  for (const admission of LEGACY_ADMISSIONS) {
+    const eventId =
+      admission.tier === 'legacy-tier-one-night' ? 'legacy-event-one-night' : 'legacy-event-nights'
+
+    await insert('OrderItem', {
+      id: `'${admission.ticket}-item'`,
+      orderId: `'${eventId}-order'`,
+      ticketTypeId: `'${admission.tier}'`,
+      quantity: '1',
+    })
+    await insert('Ticket', {
+      id: `'${admission.ticket}'`,
+      orderItemId: `'${admission.ticket}-item'`,
+      status: "'VALID'",
+      eventSeatId: 'NULL',
+      supersedesTicketId: 'NULL',
+      transferredFromId: 'NULL',
+    })
+    await insert('CheckIn', {
+      id: `'${admission.ticket}-admission'`,
+      ticketId: `'${admission.ticket}'`,
+      eventSessionId: 'NULL',
+      scannedAt: at(admission.scannedAt),
+    })
+
+    // What the old API did next: the ticket admitted, so it was used up.
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Ticket" SET "status" = 'CHECKED_IN', "checkedInAt" = '${admission.scannedAt}' WHERE "id" = '${admission.ticket}'`,
+    )
+
+    if (admission.finally !== 'CHECKED_IN') {
+      await prisma.$executeRawUnsafe(
+        `UPDATE "Ticket" SET "status" = '${admission.finally}' WHERE "id" = '${admission.ticket}'`,
+      )
+    }
+  }
+}
+
+/**
+ * Check what the feature migrations made of the rows {@link seedLegacyRows} put in.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkLegacyBackfills(prisma) {
+  let ok = true
+  const one = async (sql) => (await prisma.$queryRawUnsafe(sql))[0] ?? null
+  const tiers = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "visibility"::text AS visibility, "minPerOrder", "maxPerOrder", ' +
+          'char_length("description") AS "descriptionLength", "description" IS NULL AS "noDescription" ' +
+          `FROM "TicketType" WHERE "id" LIKE 'legacy-tier-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+
+  ok =
+    record(
+      'a complimentary tier written before the migration is hidden, and a paid one is not',
+      tiers['legacy-tier-comp']?.visibility === 'HIDDEN' &&
+        tiers['legacy-tier-public']?.visibility === 'PUBLIC',
+      {
+        note: `comp ${tiers['legacy-tier-comp']?.visibility}, paid ${tiers['legacy-tier-public']?.visibility}`,
+      },
+    ) && ok
+
+  const bounds = tiers['legacy-tier-bounds']
+  ok =
+    record(
+      'per-order bounds of 60 to 100 are clamped to the ceiling of 50',
+      bounds?.minPerOrder === 50 && bounds?.maxPerOrder === 50,
+      { note: `${bounds?.minPerOrder} to ${bounds?.maxPerOrder}` },
+    ) && ok
+
+  ok =
+    record(
+      'a blank tier description becomes no description',
+      tiers['legacy-tier-blank']?.noDescription === true,
+      { note: `NULL=${tiers['legacy-tier-blank']?.noDescription}` },
+    ) && ok
+
+  // Kept whole, and a sale on its tier still records: the 500-character limit
+  // is checked only when the text itself changes.
+  let sold = 0
+  try {
+    sold = await prisma.$executeRawUnsafe(
+      `UPDATE "TicketType" SET "quantitySold" = "quantitySold" + 1 WHERE "id" = 'legacy-tier-long'`,
+    )
+  } catch {
+    sold = 0
+  }
+  ok =
+    record(
+      'a legacy 2000-character description is kept, and a sale on its tier still records',
+      Number(tiers['legacy-tier-long']?.descriptionLength) === LONG_DESCRIPTION.length &&
+        sold === 1,
+      { note: `${tiers['legacy-tier-long']?.descriptionLength} characters, ${sold} row updated` },
+    ) && ok
+
+  const lineup = await one(`SELECT "performers" FROM "Event" WHERE "id" = 'legacy-event-lineup'`)
+  const unbilled = await one(
+    `SELECT "performers" FROM "Event" WHERE "id" = 'legacy-event-signed-cover'`,
+  )
+  ok =
+    record(
+      'the line-up becomes performers in billing order, and no line-up stays none',
+      JSON.stringify(lineup?.performers) ===
+        JSON.stringify([{ name: 'Falguni Pathak' }, { name: 'Aishwarya Majmudar' }]) &&
+        unbilled?.performers === null,
+      { note: JSON.stringify(lineup?.performers) },
+    ) && ok
+
+  const invitations = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "status"::text AS status, "revokedAt" IS NOT NULL AS revoked ' +
+          `FROM "Invitation" WHERE "id" LIKE 'legacy-invite-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  ok =
+    record(
+      'of two live invitations to one address in different case, the older is withdrawn',
+      invitations['legacy-invite-older']?.status === 'REVOKED' &&
+        invitations['legacy-invite-older']?.revoked === true &&
+        invitations['legacy-invite-newer']?.status === 'PENDING' &&
+        invitations['legacy-invite-other']?.status === 'PENDING',
+      {
+        note: ['older', 'newer', 'other']
+          .map((key) => `${key} ${invitations[`legacy-invite-${key}`]?.status}`)
+          .join(', '),
+      },
+    ) && ok
+
+  const promos = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "value", "currency", "redemptionCount", "maxRedemptions", "active", ' +
+          `"startsAt" FROM "PromoCode" WHERE "id" LIKE 'legacy-promo-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const expectations = {
+    'legacy-promo-pct-currency': (row) => row.currency === null && row.value === 1000,
+    'legacy-promo-pct-over': (row) => row.value === 10000,
+    'legacy-promo-negative': (row) => row.value === 0 && row.currency === 'USD',
+    'legacy-promo-negative-count': (row) => row.redemptionCount === 0,
+    'legacy-promo-cap-zero': (row) => row.active === false && row.maxRedemptions === 1,
+    'legacy-promo-over-cap': (row) =>
+      row.active === true && row.maxRedemptions === 7 && row.redemptionCount === 7,
+    'legacy-promo-window': (row) => row.active === false && row.startsAt === null,
+  }
+  const wrong = Object.entries(expectations)
+    .filter(([id, holds]) => !promos[id] || !holds(promos[id]))
+    .map(([id]) => id)
+  ok =
+    record(
+      'promo codes out of range are brought into range without opening one that was closed',
+      wrong.length === 0,
+      {
+        wrong,
+        note: `${Object.keys(expectations).length - wrong.length} of ${Object.keys(expectations).length} as expected`,
+      },
+    ) && ok
+
+  ok = (await checkLegacyAdmissions(prisma)) && ok
+
+  const dropped = await prisma.$queryRawUnsafe(
+    'SELECT "entityId", "entityType", "actorId", "metadata" FROM "AuditLog" ' +
+      `WHERE "action" = 'event.cover_address_dropped' ORDER BY "entityId"`,
+  )
+  const kept = Object.fromEntries(dropped.map((row) => [row.entityId, row]))
+  const keptText = JSON.stringify(dropped)
+  ok =
+    record(
+      'every dropped cover address is kept in an audit row, without its password or signature',
+      dropped.length === 2 &&
+        dropped.every((row) => row.entityType === 'Event' && row.actorId === null) &&
+        kept['legacy-event-lineup']?.metadata?.coverImageUrl === PLAIN_COVER &&
+        kept['legacy-event-signed-cover']?.metadata?.coverImageUrl ===
+          'https://img.example.net/c/42.png' &&
+        dropped.every((row) => row.metadata?.organizationId === 'upgrade-fixture-Organization') &&
+        !/hunter2|Signature|deadbeef/u.test(keptText),
+      { note: dropped.map((row) => `${row.entityId}: ${row.metadata?.coverImageUrl}`).join('; ') },
+    ) && ok
+
+  return ok
+}
+
+/**
+ * Check what `20260929100000_check_in_per_night` made of the legacy admissions.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkLegacyAdmissions(prisma) {
+  let ok = true
+  const rows = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT t."id", t."status"::text AS status, t."checkedInAt", c."eventSessionId" AS night ' +
+          'FROM "Ticket" t JOIN "CheckIn" c ON c."ticketId" = t."id" ' +
+          `WHERE t."id" LIKE 'legacy-ticket-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const wrong = LEGACY_ADMISSIONS.filter(({ ticket, night, status }) => {
+    const row = rows[ticket]
+
+    return (
+      !row ||
+      row.night !== night ||
+      row.status !== status ||
+      // A pass let in again keeps no checkedInAt, as the new rules leave it.
+      (status === 'VALID' && row.checkedInAt !== null)
+    )
+  }).map(({ ticket }) => ticket)
+
+  ok =
+    record(
+      'every admission before per-night admission has its night, and a pass let in on one night admits on the others',
+      wrong.length === 0,
+      {
+        wrong,
+        note: LEGACY_ADMISSIONS.map(
+          ({ ticket }) => `${ticket}: ${rows[ticket]?.night ?? 'no night'} ${rows[ticket]?.status}`,
+        ).join('; '),
+      },
+    ) && ok
+
+  const audits = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "entityId", "entityType", "actorId", "metadata" FROM "AuditLog" ' +
+          `WHERE "action" = 'ticket.admission_night_backfilled'`,
+      )
+    ).map((row) => [row.entityId, row]),
+  )
+  const expected = LEGACY_ADMISSIONS.filter((admission) => admission.night)
+  const unaudited = expected
+    .filter(({ ticket, night, chosenBy, status }) => {
+      const audit = audits[ticket]
+
+      return (
+        !audit ||
+        audit.entityType !== 'Ticket' ||
+        audit.actorId !== null ||
+        audit.metadata?.eventSessionId !== night ||
+        audit.metadata?.chosenBy !== chosenBy ||
+        audit.metadata?.checkInId !== `${ticket}-admission` ||
+        audit.metadata?.restoredToValid !== (status === 'VALID') ||
+        (status === 'VALID' && !audit.metadata?.previousCheckedInAt)
+      )
+    })
+    .map(({ ticket }) => ticket)
+
+  ok =
+    record(
+      'each admission given a night is in the audit log, with how its night was chosen and any old checkedInAt',
+      unaudited.length === 0 && Object.keys(audits).length === expected.length,
+      { unaudited, note: `${Object.keys(audits).length} audit rows` },
+    ) && ok
+
+  // The point of it all: the pass let in on night 1 before the migration is
+  // let in on night 2 now, under the new trigger, and not twice on night 1.
+  let again = 'refused'
+  let twice = 'refused'
+  try {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CheckIn" ("id", "ticketId", "eventSessionId") ` +
+        `VALUES ('legacy-pass-night-two', 'legacy-ticket-pass-window', 'legacy-night-2')`,
+    )
+    again = 'admitted'
+  } catch (error) {
+    again = String(error?.message ?? error)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200)
+  }
+  try {
+    // ON CONFLICT DO NOTHING, so the unique key's refusal is a count of none
+    // rather than an error the client logs as though something broke.
+    const inserted = await prisma.$executeRawUnsafe(
+      `INSERT INTO "CheckIn" ("id", "ticketId", "eventSessionId") ` +
+        `VALUES ('legacy-pass-night-one-again', 'legacy-ticket-pass-window', 'legacy-night-1') ` +
+        'ON CONFLICT DO NOTHING',
+    )
+    twice = inserted === 0 ? 'refused' : 'admitted'
+  } catch {
+    twice = 'refused'
+  }
+
+  ok =
+    record(
+      'a pass let in on night 1 before the migration is let in on night 2 after it, and not twice on night 1',
+      again === 'admitted' && twice === 'refused',
+      { note: `night 2: ${again}; night 1 again: ${twice}` },
+    ) && ok
+
+  return ok
 }
 
 /**
@@ -753,7 +1408,29 @@ async function main() {
         ) && ok
     }
 
+    let legacy = null
+
     for (const migration of phase3) {
+      if (migration === FIRST_FEATURE_MIGRATION) {
+        prisma = createPrismaClient({ connectionString: target })
+        legacy = await seedLegacyRows(prisma, filled)
+        await prisma.$disconnect()
+        prisma = null
+
+        ok =
+          record(
+            'rows the API at a6bd5e4 could write are in place before the feature migrations',
+            legacy.refused.length === 0,
+            {
+              added: legacy.added,
+              refused: legacy.refused,
+              note: Object.entries(legacy.added)
+                .map(([table, count]) => `${count} ${table}`)
+                .join(', '),
+            },
+          ) && ok
+      }
+
       const applied = await applyMigration(target, migration)
       ok =
         record(
@@ -771,12 +1448,29 @@ async function main() {
     prisma = createPrismaClient({ connectionString: target })
     const upgraded = await countRows(prisma)
 
-    const lost = Object.entries(populated).filter(([table, count]) => upgraded[table] !== count)
+    // The rows put in on purpose are expected, and so are the audit rows two
+    // migrations write about what they changed; nothing else.
+    const expected = { ...populated }
+
+    for (const [table, count] of Object.entries(legacy?.added ?? {})) {
+      if (table in expected) expected[table] += count
+    }
+    // Two for the covers the media migration drops, and one for each legacy
+    // admission the per-night migration gives a night.
+    if ('AuditLog' in expected) expected.AuditLog += 2 + LEGACY_ADMISSION_AUDITS
+
+    const lost = Object.entries(expected).filter(([table, count]) => upgraded[table] !== count)
     ok =
       record('the upgrade preserved every existing row', lost.length === 0, {
         lost: lost.map(([table, count]) => ({ table, before: count, after: upgraded[table] })),
         note: `${Object.keys(populated).length} pre-existing tables`,
       }) && ok
+
+    if (!legacy) {
+      ok = record(`the legacy rows went in before ${FIRST_FEATURE_MIGRATION}`, false) && ok
+    } else {
+      ok = (await checkLegacyBackfills(prisma)) && ok
+    }
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

@@ -742,3 +742,117 @@ describe('opening sales needs seats behind every reserved tier on sale', () => {
     await app.close()
   })
 })
+
+describe('the currency a tier is priced in', () => {
+  /**
+   * Price every tier the draft event has in one currency.
+   *
+   * @param {object} prisma The stub.
+   * @param {string} eventId The event.
+   * @param {string} currency The currency.
+   * @returns {void}
+   */
+  function priceEventIn(prisma, eventId, currency) {
+    for (const row of prisma._store.ticketType.filter((t) => t.eventId === eventId)) {
+      row.currency = currency
+    }
+  }
+
+  it('takes the currency of the event’s other tiers when none is given, not a fixed one', async () => {
+    const { app, prisma, ids, headers } = await harness()
+
+    priceEventIn(prisma, ids.draftEvent.id, 'USD')
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(await revisionOf(app, ids.draftEvent.id, headers)),
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data.currency).toBe('USD')
+    expect(
+      prisma._store.ticketType.find((row) => row.id === response.json().data.id).currency,
+    ).toBe('USD')
+
+    await app.close()
+  })
+
+  it('takes the organisation’s currency for an event’s first tier', async () => {
+    const { app, prisma, ids, headers } = await harness()
+
+    prisma._store.ticketType = prisma._store.ticketType.filter(
+      (row) => row.eventId !== ids.draftEvent.id,
+    )
+    prisma._store.organization.find(
+      (row) => row.id === ids.draftEvent.organizationId,
+    ).payoutCurrency = 'USD'
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(await revisionOf(app, ids.draftEvent.id, headers)),
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data.currency).toBe('USD')
+
+    await app.close()
+  })
+
+  it('refuses, with 422 and nothing written, a tier in another currency than the rest', async () => {
+    const { app, prisma, ids, headers } = await harness()
+
+    priceEventIn(prisma, ids.draftEvent.id, 'USD')
+
+    const revision = await revisionOf(app, ids.draftEvent.id, headers)
+    const before = prisma._store.ticketType.length
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(revision, { currency: 'INR' }),
+    })
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error.problems).toContain(
+      'The other ticket types on this event are priced in USD, and an order is paid in one currency, so price this one in USD too.',
+    )
+    expect(prisma._store.ticketType).toHaveLength(before)
+    expect(await revisionOf(app, ids.draftEvent.id, headers)).toBe(revision)
+
+    await app.close()
+  })
+
+  it('refuses to move one tier into another currency than the rest', async () => {
+    const { app, prisma, ids, headers } = await harness()
+
+    priceEventIn(prisma, ids.draftEvent.id, 'USD')
+
+    const added = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.draftEvent.id}/tiers`,
+      headers,
+      payload: tier(await revisionOf(app, ids.draftEvent.id, headers), { currency: 'USD' }),
+    })
+
+    expect(added.statusCode).toBe(201)
+
+    const moved = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}/tiers/${added.json().data.id}`,
+      headers,
+      payload: { revision: await revisionOf(app, ids.draftEvent.id, headers), currency: 'INR' },
+    })
+
+    expect(moved.statusCode).toBe(422)
+    expect(moved.json().error.problems.join(' ')).toMatch(/priced in USD/u)
+    expect(prisma._store.ticketType.find((row) => row.id === added.json().data.id).currency).toBe(
+      'USD',
+    )
+
+    await app.close()
+  })
+})

@@ -22,6 +22,7 @@ import {
   PAGER_LINK_CLASSES,
   formatInstant,
   getVerificationQueue,
+  isPastTheEnd,
   listHref,
   readPage,
 } from '../../../lib/workspace-api.js'
@@ -31,18 +32,62 @@ export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Organisation checks', robots: { index: false, follow: false } }
 
 /**
- * The states a moderator filters by, and how each reads.
+ * The states a moderator filters by, how each reads, and what its list is.
  *
- * @type {ReadonlyArray<{value: string|null, label: string}>}
+ * The introduction follows the filter: only the waiting queue is organisations
+ * asking for something, and the API orders the two waiting states oldest
+ * first and every other state newest first.
+ *
+ * @type {ReadonlyArray<{value: string|null, label: string, intro: string}>}
  */
 export const FILTERS = Object.freeze([
-  { value: null, label: 'Waiting for review' },
-  { value: 'REQUIRES_INFORMATION', label: 'Needs information' },
-  { value: 'VERIFIED', label: 'Verified' },
-  { value: 'REJECTED', label: 'Rejected' },
-  { value: 'SUSPENDED', label: 'Suspended' },
-  { value: 'REVOKED', label: 'Revoked' },
+  {
+    value: null,
+    label: 'Waiting for review',
+    intro: 'Organisations asking to be verified, oldest request first.',
+  },
+  {
+    value: 'REQUIRES_INFORMATION',
+    label: 'Needs information',
+    intro:
+      'Organisations a moderator has asked for more information, the one waiting longest first. Each comes back to the waiting queue when it answers.',
+  },
+  {
+    value: 'VERIFIED',
+    label: 'Verified',
+    intro: 'Organisations a moderator has verified, the most recently changed first.',
+  },
+  {
+    value: 'REJECTED',
+    label: 'Rejected',
+    intro: 'Organisations whose request a moderator rejected, the most recently changed first.',
+  },
+  {
+    value: 'SUSPENDED',
+    label: 'Suspended',
+    intro: 'Organisations a moderator has suspended, the most recently changed first.',
+  },
+  {
+    value: 'REVOKED',
+    label: 'Revoked',
+    intro: 'Organisations whose verification a moderator revoked, the most recently changed first.',
+  },
 ])
+
+/**
+ * The organisations on how many pages, in words.
+ *
+ * @param {number} total How many organisations are in the state.
+ * @param {number} totalPages How many pages they fill.
+ * @returns {string} The sentence.
+ */
+function pastTheEndSentence(total, totalPages) {
+  const organisations = total === 1 ? 'one organisation' : `${total} organisations`
+
+  return `There ${total === 1 ? 'is' : 'are'} ${organisations} in this state, on ${
+    totalPages === 1 ? 'one page' : `${totalPages} pages`
+  }.`
+}
 
 /** How much of an organiser's note the queue shows. */
 const NOTE_EXCERPT = 180
@@ -77,6 +122,7 @@ export default async function VerificationQueuePage({ searchParams }) {
     ? query.status
     : undefined
   const page = readPage(query.page)
+  const filter = FILTERS.find((each) => each.value === (status ?? null)) ?? FILTERS[0]
 
   let organizations = []
   let pagination = null
@@ -91,6 +137,8 @@ export default async function VerificationQueuePage({ searchParams }) {
     failure = error
   }
 
+  const beyond = !failure && isPastTheEnd(organizations.length, pagination, page)
+
   return (
     <div>
       <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
@@ -98,8 +146,7 @@ export default async function VerificationQueuePage({ searchParams }) {
       </p>
       <h1 className="mt-2 text-h2 font-semibold text-ink">Organisation checks</h1>
       <p className="mt-2 max-w-3xl text-ink-muted">
-        Organisations asking to be verified, oldest request first. Verification is what lets an
-        organisation publish events and be paid.
+        {filter.intro} Verification is what lets an organisation publish events and be paid.
       </p>
 
       <nav aria-label="Filter by state" className="mt-6">
@@ -137,7 +184,26 @@ export default async function VerificationQueuePage({ searchParams }) {
         />
       ) : null}
 
-      {!failure && organizations.length === 0 ? (
+      {beyond ? (
+        <div className="mt-6 rounded-card border border-line bg-surface-subtle p-6">
+          <p className="font-medium text-ink">Page {page} is past the end of this list</p>
+          <p className="mt-1 text-sm text-ink-muted">
+            {Number.isInteger(pagination?.total)
+              ? pastTheEndSentence(pagination.total, pagination.totalPages)
+              : 'There is nothing on this page. The list may have shrunk since the link was made.'}
+          </p>
+          <p className="mt-3">
+            <Link
+              href={listHref('/moderation/organizations', { status, page: 1 })}
+              className={PAGER_LINK_CLASSES}
+            >
+              Go to the first page
+            </Link>
+          </p>
+        </div>
+      ) : null}
+
+      {!failure && !beyond && organizations.length === 0 ? (
         <div className="mt-6">
           <EmptyState
             title="Nothing here"

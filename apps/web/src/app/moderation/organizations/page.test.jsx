@@ -5,7 +5,7 @@
  * @module app/moderation/organizations/page.test
  */
 
-import { render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../lib/workspace-api.js', async () => {
@@ -44,10 +44,11 @@ function entry(overrides = {}) {
  *
  * @param {object} [query] The query string.
  * @param {object[]} [organizations] What the API answers.
+ * @param {object|null} [pagination] The API's pagination block.
  * @returns {Promise<object>} The render result.
  */
-async function renderPage(query = {}, organizations = [entry()]) {
-  getVerificationQueue.mockResolvedValue({ organizations, pagination: null })
+async function renderPage(query = {}, organizations = [entry()], pagination = null) {
+  getVerificationQueue.mockResolvedValue({ organizations, pagination })
 
   return render(await VerificationQueuePage({ searchParams: Promise.resolve(query) }))
 }
@@ -96,8 +97,50 @@ describe('the organisation queue', () => {
   })
 
   it('says so when nothing is in the state', async () => {
-    await renderPage({ status: 'REVOKED' }, [])
+    await renderPage({ status: 'REVOKED' }, [], {
+      page: 1,
+      perPage: 20,
+      total: 0,
+      totalPages: 0,
+      hasNextPage: false,
+      hasPreviousPage: false,
+    })
 
     expect(screen.getByText('Nothing here')).toBeInTheDocument()
+    expect(screen.getByText(/No organisation is in this state/u)).toBeInTheDocument()
+  })
+
+  it('says a page past the end is past the end, and links to the first page', async () => {
+    await renderPage({ status: 'VERIFIED', page: '4' }, [], {
+      page: 4,
+      perPage: 20,
+      total: 23,
+      totalPages: 2,
+      hasNextPage: false,
+      hasPreviousPage: true,
+    })
+
+    expect(getVerificationQueue).toHaveBeenLastCalledWith({ status: 'VERIFIED', page: 4 })
+    // Not "nothing is in this state": 23 organisations are.
+    expect(screen.queryByText('Nothing here')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No organisation is in this state/u)).not.toBeInTheDocument()
+    expect(screen.getByText('Page 4 is past the end of this list')).toBeInTheDocument()
+    expect(screen.getByText('There are 23 organisations in this state, on 2 pages.')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Go to the first page' })).toHaveAttribute(
+      'href',
+      '/moderation/organizations?status=VERIFIED',
+    )
+  })
+
+  it('describes the list the filter shows, not the waiting queue under every filter', async () => {
+    for (const filter of FILTERS) {
+      cleanup()
+
+      const { container } = await renderPage(filter.value ? { status: filter.value } : {}, [])
+
+      expect(container.textContent).toContain(filter.intro)
+      // Only the waiting queue is organisations asking for something.
+      expect(container.textContent.includes('asking to be verified')).toBe(filter.value === null)
+    }
   })
 })

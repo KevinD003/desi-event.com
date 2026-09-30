@@ -6,9 +6,12 @@ import { signIn as signInWaitingOutTheLimiter } from './support/detail-world.mjs
 import { cleanupDetailScreens, seedDetailScreens } from './support/seed-detail-screens.mjs'
 import { DOOR_TICKETS, LONG_NAME, cleanupDoor, seedDoor } from './support/seed-door.mjs'
 import {
+  BOX_SEATS,
   GROUP_GUESTS,
   cleanupFeatureWorld,
+  seedEventContent,
   seedFeatureWorld,
+  seedPostponedEvent,
 } from './support/seed-feature-world.mjs'
 import { removePictures, seedPictures } from './support/seed-media.mjs'
 import {
@@ -261,6 +264,44 @@ let giverContext
  */
 let shownGroupCode = null
 /**
+ * The public page content written onto alpha's published event
+ * (`eventContent` in `seed-feature-world.mjs`).
+ *
+ * @type {object}
+ */
+let content
+/**
+ * The one performer, slot and question written onto alpha's draft.
+ *
+ * @type {object}
+ */
+let draftContent
+/**
+ * Gamma's postponed event, for the form that brings it back.
+ *
+ * @type {{eventId: string, title: string, slug: string}}
+ */
+let postponed
+/**
+ * Gamma's owner, signed in on first use, for the postponed event's editor.
+ * Memoised as a promise for the reason {@link platformSignIn} gives.
+ *
+ * @type {(Promise<object>|null)}
+ */
+let gammaSignIn = null
+/** @type {object} */
+let gammaContext
+/**
+ * The unverified organisation's owner, signed in on first use: an owner whose
+ * organisation has not been checked, as somebody who has just made one sees
+ * its page. Memoised as a promise for the reason {@link platformSignIn} gives.
+ *
+ * @type {(Promise<object>|null)}
+ */
+let unverifiedSignIn = null
+/** @type {object} */
+let unverifiedContext
+/**
  * A promo code the Phase 4 block writes for alpha, so the promo codes screen
  * is measured with a row in its table, and removes again.
  *
@@ -285,6 +326,41 @@ function giverWindow() {
   })()
 
   return giverSignIn
+}
+
+/**
+ * Gamma's owner's page, signing in the first time it is asked for.
+ *
+ * @returns {Promise<object>} A signed-in page.
+ */
+function gammaOwnerWindow() {
+  gammaSignIn ??= (async () => {
+    const page = await gammaContext.newPage()
+
+    await signInWaitingOutTheLimiter(page, feature.gammaOwnerEmail)
+
+    return page
+  })()
+
+  return gammaSignIn
+}
+
+/**
+ * The unverified organisation's owner's page, signing in the first time it is
+ * asked for.
+ *
+ * @returns {Promise<object>} A signed-in page.
+ */
+function unverifiedOwnerWindow() {
+  unverifiedSignIn ??= (async () => {
+    const page = await unverifiedContext.newPage()
+
+    await signInWaitingOutTheLimiter(page, seeded.unverifiedOwnerEmail)
+
+    return page
+  })()
+
+  return unverifiedSignIn
 }
 
 /**
@@ -472,6 +548,185 @@ function sidewaysOverflow(page) {
   return page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   )
+}
+
+/**
+ * Where the keyboard focus is now, and whether focus draws anything there.
+ *
+ * A stop is marked when focus itself draws something the same control does
+ * not draw at rest: an outline, or a ring of box-shadow. What a control draws
+ * anyway says nothing about focus — every design-system field and button
+ * carries a resting box-shadow, and many a border — so the resting style is
+ * compared away rather than counted. An outline or a ring counts only when it
+ * can be seen: a style other than `none`, a width, a colour that is not
+ * transparent.
+ *
+ * The control at rest is read from a shallow copy of it, put beside it for
+ * the moment of the reading and taken away again: the same element, classes
+ * and attributes, never focused. Its `id`, `name`, `checked`, `autofocus` and
+ * `form` are taken off first, so the copy cannot join a radio group, take a
+ * label or be submitted.
+ *
+ * A date or time field is one element with several stops inside it; each is
+ * judged, because focus on its later stops is drawn by a different rule
+ * (`:focus-within`, `app/globals.css`) from focus on the first.
+ *
+ * Transitions focus started are finished before reading, so a ring that fades
+ * in is read where it comes to rest.
+ *
+ * @param {object} page The page.
+ * @returns {Promise<{done?: true, outside?: true, marked?: boolean, what?: string}>} The stop.
+ */
+function focusStop(page) {
+  return page.evaluate(() => {
+    const element = document.activeElement
+    const main = document.querySelector('main')
+
+    if (!element || element === document.body) return { done: true }
+    if (!main?.contains(element)) return { outside: true }
+
+    for (const animation of element.getAnimations()) {
+      if (animation instanceof CSSTransition) animation.finish()
+    }
+
+    /**
+     * Whether a computed colour draws nothing.
+     *
+     * @param {string} colour A computed colour.
+     * @returns {boolean} True when fully transparent.
+     */
+    const transparent = (colour) => {
+      const value = colour.trim()
+
+      if (value === 'transparent') return true
+
+      const slash = value.match(/\/\s*([\d.]+)%?\s*\)$/u)
+
+      if (slash) return Number.parseFloat(slash[1]) === 0
+
+      const rgba = value.match(/^rgba\(([^)]*)\)$/u)
+
+      return Boolean(rgba) && Number.parseFloat(rgba[1].split(',')[3]) === 0
+    }
+
+    /**
+     * The outline a style draws, or null when it draws none.
+     *
+     * @param {CSSStyleDeclaration} style A computed style.
+     * @returns {string|null} The outline, as one string.
+     */
+    const outline = (style) =>
+      ['none', 'hidden'].includes(style.outlineStyle) ||
+      Number.parseFloat(style.outlineWidth) < 1 ||
+      transparent(style.outlineColor)
+        ? null
+        : [style.outlineStyle, style.outlineWidth, style.outlineColor, style.outlineOffset].join(
+            ' ',
+          )
+
+    /**
+     * The box-shadow layers a style draws: each with a colour that shows and
+     * some size, so a zero-sized or transparent placeholder is not a ring.
+     *
+     * @param {string} value A computed `box-shadow`.
+     * @returns {string[]} The visible layers.
+     */
+    const rings = (value) => {
+      if (!value || value === 'none') return []
+
+      const layers = []
+      let depth = 0
+      let start = 0
+
+      for (let at = 0; at < value.length; at += 1) {
+        if (value[at] === '(') depth += 1
+        else if (value[at] === ')') depth -= 1
+        else if (value[at] === ',' && depth === 0) {
+          layers.push(value.slice(start, at).trim())
+          start = at + 1
+        }
+      }
+
+      layers.push(value.slice(start).trim())
+
+      return layers.filter((layer) => {
+        const colour =
+          layer.match(/(?:rgba?|hsla?|oklch|oklab|lab|lch|color)\([^)]*\)|transparent/u)?.[0] ??
+          'currentcolor'
+        const sizes = layer.replace(colour, '').match(/-?[\d.]+px/gu) ?? []
+
+        return !transparent(colour) && sizes.some((size) => Number.parseFloat(size) !== 0)
+      })
+    }
+
+    /**
+     * What a computed style draws that focus could have added.
+     *
+     * @param {CSSStyleDeclaration} style A computed style.
+     * @returns {{outline: string|null, rings: string[]}} The outline and rings.
+     */
+    const drawn = (style) => ({ outline: outline(style), rings: rings(style.boxShadow) })
+
+    const focused = drawn(getComputedStyle(element))
+    const copy = element.cloneNode(false)
+
+    for (const attribute of ['id', 'name', 'checked', 'autofocus', 'form']) {
+      copy.removeAttribute(attribute)
+    }
+
+    element.after(copy)
+
+    const rest = drawn(getComputedStyle(copy))
+
+    copy.remove()
+
+    window.sweepStops ??= new WeakMap()
+
+    const before = window.sweepStops.get(element) ?? 0
+
+    window.sweepStops.set(element, before + 1)
+
+    const outlined = focused.outline !== null && focused.outline !== rest.outline
+    const ringed = focused.rings.some((ring) => !rest.rings.includes(ring))
+
+    return {
+      marked: outlined || ringed,
+      what: `${element.outerHTML.slice(0, 100)}${before > 0 ? ` (stop ${before + 1} inside it)` : ''}`,
+    }
+  })
+}
+
+/**
+ * Tab from the top of a page through its main region, as somebody without a
+ * mouse does, judging every stop with {@link focusStop}.
+ *
+ * @param {object} page The page, arrived.
+ * @param {number} [presses] The most Tab presses to make.
+ * @returns {Promise<Array<{marked: boolean, what: string}>>} The stops inside `main`, in order.
+ */
+async function walkMain(page, presses = 60) {
+  await page.evaluate(() => {
+    document.activeElement?.blur()
+    window.scrollTo(0, 0)
+  })
+
+  const stops = []
+
+  for (let press = 0; press < presses; press += 1) {
+    await page.keyboard.press('Tab')
+
+    const stop = await focusStop(page)
+
+    if (stop.done) break
+    if (stop.outside) {
+      if (stops.length > 0) break
+      continue
+    }
+
+    stops.push(stop)
+  }
+
+  return stops
 }
 
 /**
@@ -713,13 +968,14 @@ function levelOneHeadings(page) {
 /**
  * The window a surface is opened in.
  *
- * @param {'visitor'|'organiser'|'platform'|'giver'} kind Whose.
+ * @param {'visitor'|'organiser'|'platform'|'giver'|'unverified'} kind Whose.
  * @returns {Promise<object>} The page.
  */
 async function windowFor(kind) {
   if (kind === 'visitor') return visitor
   if (kind === 'platform') return platformReader()
   if (kind === 'giver') return giverWindow()
+  if (kind === 'unverified') return unverifiedOwnerWindow()
 
   return organiser
 }
@@ -1116,6 +1372,28 @@ const PHASE_4_SURFACES = Object.freeze([
     },
   },
   {
+    name: 'an unverified organisation’s own page, as its owner sees it',
+    window: 'unverified',
+    path: () => '/organizer/organization',
+    heading: () => `Unverified Collective ${TAG}`,
+    title: () => 'Organisation',
+    async arrived(page) {
+      // What somebody who has just made an organisation sees: unverified, and
+      // the form that asks for a check, measured as it first appears. Nothing
+      // is sent.
+      const verification = page.getByRole('region', { name: 'Verification', exact: true })
+
+      await expect(verification.getByText('Verification: Unverified')).toBeVisible()
+
+      const ask = page.getByRole('form', { name: 'Ask for verification', exact: true })
+
+      await expect(ask.getByLabel(/^A note for the moderator/u)).toBeVisible()
+      await expect(
+        ask.getByRole('button', { name: 'Ask for verification', exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
     name: 'the organisation checks queue',
     window: 'platform',
     path: () => '/moderation/organizations',
@@ -1142,6 +1420,32 @@ const PHASE_4_SURFACES = Object.freeze([
     },
   },
   {
+    name: 'an organisation waiting for its check, with the decision to verify it open',
+    window: 'platform',
+    path: () => `/moderation/organizations/${encodeURIComponent(feature.pendingOrganizationId)}`,
+    heading: () => feature.pendingOrganizationName,
+    title: () => 'Check an organisation',
+    async arrived(page) {
+      // Opened, not recorded: the decision form is measured with its reason
+      // field and its button, and nothing is sent.
+      const verify = page
+        .getByRole('group', { name: 'Decisions', exact: true })
+        .getByRole('button', { name: 'Verify', exact: true })
+      const decision = page.getByRole('group', {
+        name: `Verify: ${feature.pendingOrganizationName}`,
+      })
+
+      await expect(async () => {
+        if ((await decision.count()) === 0) await verify.click()
+        await expect(decision).toBeVisible({ timeout: 1_000 })
+      }).toPass({ timeout: 15_000 })
+      await expect(decision.getByLabel(/^Reason/u)).toBeVisible()
+      await expect(
+        decision.getByRole('button', { name: 'Record: verify', exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
     name: 'people and roles, with an account found',
     window: 'platform',
     path: () => '/admin/users',
@@ -1156,6 +1460,34 @@ const PHASE_4_SURFACES = Object.freeze([
       await expect(page.getByRole('article', { name: 'Role Target' })).toContainText(
         'Platform role: Attendee',
       )
+    },
+  },
+  {
+    name: 'people and roles, with the role change and the membership forms open',
+    window: 'platform',
+    path: () => '/admin/users',
+    heading: () => 'People and roles',
+    title: () => 'People and roles',
+    async arrived(page) {
+      const search = page.getByRole('form', { name: 'Find an account', exact: true })
+
+      await search.getByLabel(/^Email address, name or account id/u).fill(feature.roleTargetEmail)
+      await search.getByRole('button', { name: 'Search', exact: true }).click()
+
+      const card = page.getByRole('article', { name: 'Role Target' })
+
+      await expect(card).toContainText('Platform role: Attendee')
+
+      // Both forms opened, filled with nothing, and measured; neither is sent.
+      await card.getByRole('button', { name: 'Change Role Target’s platform role' }).click()
+      await expect(card.getByLabel(/^New platform role/u)).toBeVisible()
+      await card.getByRole('button', { name: 'Put Role Target into an organisation' }).click()
+      await expect(
+        card
+          .getByRole('form', { name: 'Find an organisation' })
+          .getByLabel(/^Organisation name or web address/u),
+      ).toBeVisible()
+      await expect(card.getByLabel(/^New platform role/u)).toBeVisible()
     },
   },
   {
@@ -1240,11 +1572,33 @@ const PHASE_4_SURFACES = Object.freeze([
     title: () => `Choose seats for ${feature.gammaSeatedEventTitle}`,
     async arrived(page) {
       const grid = page.getByRole('grid', { name: 'Balcony', exact: true })
+      const boxes = page.getByRole('grid', { name: 'Boxes', exact: true })
 
       await expect(page.getByRole('heading', { name: 'What the seats show' })).toBeVisible()
       await expect(grid.getByRole('button')).toHaveCount(12)
       // The giver's seat, sold, and said to be in words.
       await expect(grid.getByRole('button', { name: /^Seat A3, .*, unavailable$/u })).toHaveCount(1)
+      // The boxes: every symbol the legend explains is on the map, and the
+      // restricted seat's note is printed under its section — all of it
+      // measured with the rest.
+      await expect(boxes.getByRole('button')).toHaveCount(BOX_SEATS.length)
+
+      for (const kind of [
+        /, wheelchair space, available$/u,
+        /, companion seat, available$/u,
+        /, obstructed view, available$/u,
+        /, restricted, available$/u,
+        /^Seat K5, .*, unavailable$/u,
+      ]) {
+        await expect(boxes.getByRole('button', { name: kind })).toHaveCount(1)
+      }
+
+      await expect(
+        page.getByRole('listitem').filter({
+          hasText: BOX_SEATS.find((box) => box.restrictionNote).restrictionNote,
+        }),
+      ).toBeVisible()
+      await expect(page.getByLabel('Price zone', { exact: true })).toBeVisible()
       await expect(
         page.getByRole('link', { name: 'Sign in to reserve', exact: true }),
       ).toBeVisible()
@@ -1336,6 +1690,20 @@ const PHASE_4_SURFACES = Object.freeze([
     async arrived(page) {
       expect(shownGroupCode, 'the order case before this one showed no code').not.toBeNull()
 
+      // The garba has two nights and the group's tickets are for the second:
+      // the door says which night it is admitting to, and refuses a lookup
+      // until it is told. Retried until the choice holds, because a choice
+      // made before the page hydrates is undone by it.
+      const night = page.getByLabel('Night you are admitting to')
+      const nightValue = await night
+        .locator('option', { hasText: /^Night 2 · /u })
+        .getAttribute('value')
+
+      await expect(async () => {
+        await night.selectOption(nightValue)
+        await expect(night).toHaveValue(nightValue, { timeout: 1_000 })
+      }).toPass({ timeout: 15_000 })
+
       // Looked up, not admitted: the card is measured with every guest ticked.
       await page.getByLabel(/^Printed ticket code/u).fill(shownGroupCode)
       await page.getByRole('button', { name: 'Look up', exact: true }).click()
@@ -1375,6 +1743,19 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     // organisation, under this file's own tag and never inside alpha: where
     // the sweep's cases for the feature-completion screens find their rows.
     feature = await seedFeatureWorld({ tag: TAG })
+    // Every section an organiser can add to an event's page, on the public
+    // event this file scans at each width, and one of each repeating row on
+    // alpha's draft, so the editor's line-up and guest steps are measured
+    // with rows in them. The refusals cleanup removes alpha's events with it.
+    content = await seedEventContent(seeded.alphaEventId, TAG)
+    draftContent = await seedEventContent(seeded.alphaDraftId, TAG, { rows: 'one' })
+    // A postponed event, for the form that brings one back — under gamma, not
+    // alpha: a postponed event is on its organisation's door list, and alpha's
+    // door cases expect alpha's one event to be chosen for them. The feature
+    // world's cleanup removes gamma's events with it.
+    postponed = await seedPostponedEvent({ fromEventId: feature.gammaGaEventId, tag: TAG })
+    // Empty until the reschedule cases ask for gamma's owner.
+    gammaContext = await browser.newContext()
 
     organiserContext = await browser.newContext()
     organiser = await organiserContext.newPage()
@@ -1392,6 +1773,7 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     await organiserContext?.close()
     await moderatorContext?.close()
     await platformContext?.close()
+    await gammaContext?.close()
     // Before the refusals cleanup, which deletes the events these rows hang
     // from — and the feature world first, since the refusals cleanup finds
     // organisations by tag too.
@@ -1441,12 +1823,20 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       const steps = page.getByRole('navigation', { name: 'Editor steps' })
 
       // Each measured as it first opens: nothing is typed into alpha's draft,
-      // whose content later cases read.
-      for (const [step, heading] of [
-        [/^Step 4\s*Tickets$/u, 'Tickets'],
-        [/^Step 6\s*Media$/u, 'Media'],
-        [/^Step 7\s*Line-up and running order$/u, 'Line-up and running order'],
-        [/^Step 8\s*Guest information$/u, 'Guest information'],
+      // whose content later cases read. The draft carries one performer, one
+      // slot and one question (`seedEventContent`), so the line-up and guest
+      // steps are measured with their repeating rows drawn, not empty.
+      for (const [step, heading, drawn] of [
+        [/^Step 3\s*Sessions$/u, 'Sessions', null],
+        [/^Step 4\s*Tickets$/u, 'Tickets', null],
+        [/^Step 5\s*Policies and access$/u, 'Policies and access', null],
+        [/^Step 6\s*Media$/u, 'Media', null],
+        [
+          /^Step 7\s*Line-up and running order$/u,
+          'Line-up and running order',
+          draftContent.performers[0].name,
+        ],
+        [/^Step 8\s*Guest information$/u, 'Guest information', draftContent.faq[0].question],
       ]) {
         const button = steps.getByRole('button', { name: step })
 
@@ -1455,6 +1845,25 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         await expect(
           page.getByRole('heading', { level: 2, name: heading, exact: true }),
         ).toBeVisible()
+
+        if (drawn) {
+          // The seeded row is drawn, so what is measured holds one.
+          await expect
+            .poll(
+              () =>
+                page
+                  .locator('main')
+                  .evaluate(
+                    (main, value) =>
+                      [...main.querySelectorAll('input, textarea')].some(
+                        (field) => field.value === value,
+                      ),
+                    drawn,
+                  ),
+              { message: `${heading} draws its seeded row` },
+            )
+            .toBe(true)
+        }
 
         const violations = await scan(page)
 
@@ -1499,6 +1908,44 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       await expect(panel).toHaveCount(0)
     })
 
+    test(`the form that brings a postponed event back is clean at ${viewport.name}`, async () => {
+      const page = await gammaOwnerWindow()
+
+      await page.setViewportSize({ width: viewport.width, height: viewport.height })
+      await page.goto(`/organizer/events/${postponed.eventId}`)
+      await expect(
+        page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+      ).toBeAttached()
+
+      const review = page
+        .getByRole('navigation', { name: 'Editor steps' })
+        .getByRole('button', { name: /^Step 9\s*Review$/u })
+
+      await review.click()
+      await expect(review).toHaveAttribute('aria-current', 'step')
+      await page
+        .getByRole('button', { name: 'Set a new date and bring it back', exact: true })
+        .click()
+
+      const form = page.getByRole('region', {
+        name: 'Set a new date and bring it back',
+        exact: true,
+      })
+
+      // Opened, measured and closed again: nothing is saved, and the event
+      // stays postponed for the next width.
+      await expect(form.getByLabel(/^New start/u)).toBeVisible()
+      await expect(form.getByLabel(/^Session 1 starts/u)).toBeVisible()
+
+      const violations = await scan(page)
+
+      expect(violations, `\n  ${describe(violations)}`).toHaveLength(0)
+      expect(await sidewaysOverflow(page)).toBeLessThanOrEqual(1)
+
+      await form.getByRole('button', { name: 'Not now', exact: true }).click()
+      await expect(form).toHaveCount(0)
+    })
+
     test(`the public event page is clean at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height })
       await page.goto(`/events/alpha-event-${seeded.tag}`)
@@ -1512,6 +1959,31 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       // This assertion stays because the page genuinely must have its heading
       // before a scan means anything.
       await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+
+      // Every section an organiser can add is drawn (`seedEventContent`), so
+      // the scan reads them all: the line-up with its bios, the running order,
+      // the questions, the dress code, the way there, the contact, the links
+      // and the sponsor.
+      await expect(page.getByRole('heading', { level: 3, name: 'Line-up' })).toBeVisible()
+      await expect(page.getByText(content.performers[0].bio)).toBeVisible()
+
+      for (const section of [
+        'Running order',
+        'Dress code',
+        'Getting there',
+        'Questions people ask',
+        'Contact the organiser',
+        'Links',
+        'Supported by',
+      ]) {
+        await expect(
+          page.getByRole('heading', { level: 2, name: section, exact: true }),
+          section,
+        ).toBeVisible()
+      }
+
+      await expect(page.locator('main time').first()).toBeAttached()
+      await expect(page.getByText(content.faq[0].question)).toBeVisible()
 
       const violations = await scan(page)
 
@@ -2036,31 +2508,19 @@ test.describe.serial('the Phase 2 screens, swept', () => {
     // exist when the case was written.
     for (const path of ['/organizer/events', '/finance/connect']) {
       await page.goto(path)
+      await expect(page.locator('main h1')).toBeVisible()
 
       // A focus ring removed without a replacement is the single most common way
-      // a keyboard user is left unable to tell where they are.
-      const unmarked = await page.evaluate(() => {
-        const offenders = []
-        const focusable = document.querySelectorAll(
-          'main a[href], main button:not([disabled]), main input:not([disabled]), main select:not([disabled])',
-        )
+      // a keyboard user is left unable to tell where they are. Walked by Tab,
+      // as a keyboard user arrives, and judged by what focus adds: a border or
+      // a resting shadow that was there anyway is not a ring (`focusStop`).
+      const stops = await walkMain(page, 120)
 
-        for (const element of focusable) {
-          element.focus()
-
-          const style = getComputedStyle(element)
-          const ring =
-            style.outlineStyle !== 'none' ||
-            style.boxShadow !== 'none' ||
-            style.borderStyle !== 'none'
-
-          if (!ring) offenders.push(element.outerHTML.slice(0, 80))
-        }
-
-        return offenders
-      })
-
-      expect(unmarked, path).toEqual([])
+      expect(stops.length, `${path}: Tab reached nothing in main`).toBeGreaterThan(0)
+      expect(
+        stops.filter((stop) => !stop.marked).map((stop) => stop.what),
+        `${path}: stops that show no focus`,
+      ).toEqual([])
     }
   })
 
@@ -2490,11 +2950,14 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       visitor = await visitorContext.newPage()
       // Empty until a case asks for the giver.
       giverContext = await browser.newContext()
+      // Empty until a case asks for the unverified organisation's owner.
+      unverifiedContext = await browser.newContext()
     })
 
     test.afterAll(async () => {
       await visitorContext?.close()
       await giverContext?.close()
+      await unverifiedContext?.close()
 
       const prisma = createPrismaClient({ connectionString: CONNECTION })
 
@@ -2756,6 +3219,126 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       }
     })
 
+    test('with motion reduced, a seat changes at once, and nothing on the seat picker moves for longer than 0.01 ms', async () => {
+      // Every seat carries a colour transition (`components/seat-picker.jsx`).
+      // It is measured first with no preference, so the check below cannot pass
+      // on a picker that simply has no transitions; then with motion reduced,
+      // where the shared stylesheet cuts every transition and animation to
+      // 0.01 ms. A seat is chosen in between, so a change of state is what is
+      // measured, not only a page at rest.
+      const path = `/events/${feature.gammaSeatedEventSlug}/seats/${feature.gammaSeatedSessionIds[1]}`
+      const page = await visitorContext.newPage()
+
+      /**
+       * The longest transition and animation on each seat and on everything
+       * else in the main region, in milliseconds, and any animation running
+       * longer than the limit.
+       *
+       * @param {number} limit The most a reduced-motion reader may be shown, in ms.
+       * @returns {Promise<{seats: number, seatTransition: number, slow: string[], running: string[]}>} What was found.
+       */
+      const measure = (limit) =>
+        page.evaluate((most) => {
+          // "1e-05s", "120ms" or a comma-separated list of either, in ms.
+          const toMs = (value) =>
+            Math.max(
+              0,
+              ...value.split(',').map((part) => {
+                const trimmed = part.trim()
+                const number = Number.parseFloat(trimmed)
+
+                return trimmed.endsWith('ms') ? number : number * 1000
+              }),
+            )
+          const tooLong = (ms) => ms - most > 1e-6
+          const seats = [...document.querySelectorAll('main [role="grid"] button')]
+          const slow = []
+
+          for (const element of document.querySelectorAll('main, main *')) {
+            const style = getComputedStyle(element)
+            const transition = toMs(style.transitionDuration)
+            const animation = style.animationName === 'none' ? 0 : toMs(style.animationDuration)
+
+            if (tooLong(transition) || tooLong(animation)) {
+              slow.push(
+                `${element.tagName.toLowerCase()} ${element.getAttribute('aria-label') ?? ''}: transition ${style.transitionDuration}, animation ${style.animationName} ${style.animationDuration}`.trim(),
+              )
+            }
+          }
+
+          const running = document
+            .getAnimations()
+            .filter(
+              (animation) =>
+                animation.playState === 'running' &&
+                tooLong(animation.effect?.getComputedTiming().endTime ?? 0),
+            )
+            .map(
+              (animation) =>
+                `${animation.constructor.name} on ${animation.effect?.target?.tagName}`,
+            )
+
+          return {
+            seats: seats.length,
+            seatTransition: Math.max(
+              0,
+              ...seats.map((seat) => toMs(getComputedStyle(seat).transitionDuration)),
+            ),
+            slow,
+            running,
+          }
+        }, limit)
+
+      try {
+        await page.setViewportSize({ width: 390, height: 844 })
+
+        // Not vacuous: without the preference, a seat does transition.
+        await page.emulateMedia({ reducedMotion: 'no-preference' })
+        await page.goto(path)
+        await expect(page.getByRole('grid', { name: 'Balcony', exact: true })).toBeVisible()
+
+        const moving = await measure(0.01)
+
+        expect(moving.seats, 'the picker has seats to measure').toBeGreaterThan(0)
+        expect(
+          moving.seatTransition,
+          'a seat transitions when motion is not reduced',
+        ).toBeGreaterThan(0.01)
+
+        await page.emulateMedia({ reducedMotion: 'reduce' })
+        await page.goto(path)
+
+        const grid = page.getByRole('grid', { name: 'Balcony', exact: true })
+        const seat = grid.getByRole('button', { name: /^Seat B1, /u })
+
+        await expect(grid).toBeVisible()
+        expect(
+          await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches),
+        ).toBe(true)
+        // Hydrated before a seat is pressed.
+        await expect(
+          page.getByRole('link', { name: 'Sign in to reserve', exact: true }),
+        ).toBeVisible()
+
+        await expect(async () => {
+          if ((await seat.getAttribute('aria-pressed')) !== 'true') await seat.click()
+          await expect(seat).toHaveAttribute('aria-pressed', 'true', { timeout: 1_000 })
+        }).toPass({ timeout: 15_000 })
+
+        const still = await measure(0.01)
+
+        expect(still.seats).toBe(moving.seats)
+        expect(still.slow, 'transitions or animations longer than 0.01 ms').toEqual([])
+        expect(still.running, 'animations still running under reduced motion').toEqual([])
+
+        // And back: the choice is the page's alone, nothing was held.
+        await seat.click()
+        await expect(seat).toHaveAttribute('aria-pressed', 'false')
+      } finally {
+        await page.close()
+      }
+    })
+
     test('the seat grid is reached and worked by keyboard alone, and says what changed', async () => {
       const page = visitor
 
@@ -2809,7 +3392,13 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       await page.keyboard.press('Space')
       await expect(seat('B6')).toHaveAttribute('aria-pressed', 'false')
 
-      // Tab leaves the grid in one press, rather than walking every seat.
+      // Tab leaves the grid in one press, rather than walking every seat: to
+      // the next section's grid, which is one stop too, and past it.
+      const boxes = page.getByRole('grid', { name: 'Boxes', exact: true })
+
+      await page.keyboard.press('Tab')
+      await expect(grid.locator(':focus')).toHaveCount(0)
+      await expect(boxes.getByRole('button', { name: /^Seat K1, /u })).toBeFocused()
       await page.keyboard.press('Tab')
       expect(
         await page.evaluate(() =>
@@ -2877,17 +3466,17 @@ test.describe.serial('the Phase 2 screens, swept', () => {
 
     test('the feature-completion screens are walked by keyboard, every stop showing where the focus is', async () => {
       // Tab from the top of each page through everything in its main region,
-      // as somebody without a mouse does. Every control must draw a ring or an
-      // outline of its own when focus arrives on it — a border that was there
-      // anyway says nothing about focus — and each page must have stops to
-      // walk: a page whose controls Tab cannot reach would pass the first rule
-      // with nothing to check.
+      // as somebody without a mouse does. Every stop must draw a ring or an
+      // outline that focus put there — one the control draws anyway, like the
+      // resting shadow on every field and button or a border, says nothing
+      // about focus (`focusStop`) — and each page must have stops to walk: a
+      // page whose controls Tab cannot reach would pass the first rule with
+      // nothing to check.
       //
-      // A control is judged where focus arrives on it. A date-and-time field
-      // is one control with several stops inside it — each part of the date,
-      // then its calendar button, on which the browser draws its own ring
-      // inside the field, beyond this page's styles and this check's reach —
-      // so its later stops are not counted again.
+      // A date-and-time field is one control with several stops inside it —
+      // each part of the date, then its calendar button — and every one of
+      // them is judged: on the later ones the field draws its ring through
+      // `:focus-within`, which is exactly where it once drew none.
       const screens = [
         ['organiser', '/account/organizations/new'],
         ['organiser', '/organizer/organization'],
@@ -2919,51 +3508,10 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         await page.setViewportSize({ width: 1280, height: 900 })
         await page.goto(path)
         await expect(page.locator('main h1')).toBeVisible()
+
         // The rings are the stylesheet's and the order is the document's, so
         // the server's markup is what is walked; nothing waits on a script.
-        await page.evaluate(() => {
-          document.activeElement?.blur()
-          window.scrollTo(0, 0)
-        })
-
-        const stops = []
-
-        for (let press = 0; press < 60; press += 1) {
-          await page.keyboard.press('Tab')
-
-          const stop = await page.evaluate(() => {
-            const element = document.activeElement
-            const main = document.querySelector('main')
-
-            if (!element || element === document.body) return { done: true }
-            if (!main?.contains(element)) return { outside: true }
-
-            window.sweepWalked ??= new WeakSet()
-
-            if (window.sweepWalked.has(element)) return { again: true }
-
-            window.sweepWalked.add(element)
-
-            const style = getComputedStyle(element)
-            const outlined =
-              style.outlineStyle !== 'none' && Number.parseFloat(style.outlineWidth) > 0
-            const ringed = style.boxShadow !== 'none'
-
-            return {
-              marked: outlined || ringed,
-              what: element.outerHTML.slice(0, 100),
-            }
-          })
-
-          if (stop.done) break
-          if (stop.again) continue
-          if (stop.outside) {
-            if (stops.length > 0) break
-            continue
-          }
-
-          stops.push(stop)
-        }
+        const stops = await walkMain(page)
 
         expect(stops.length, `${path}: Tab reached nothing in main`).toBeGreaterThan(0)
         expect(

@@ -9,8 +9,13 @@
  * so there is never a live event carrying the date it was postponed from.
  *
  * Sessions move with the event by default, by the same amount as its start, so
- * a nine-night run that slipped a week needs one change rather than nine. Each
- * session can still be set on its own.
+ * a nine-night run that slipped a week needs one change rather than nine. A
+ * night's door time and its own sales window move with it: a window left at
+ * the old date would close sales weeks early, or be refused as closing after
+ * a night that now ends sooner. Each session can still be set on its own,
+ * sales window included. A ticket type's own sales window is moved by the
+ * server, with the night it is for or with the event's start, and the form
+ * says so.
  *
  * The copy is exact about what happens to ticket holders: a notice is recorded
  * for every current order. This build does not send email.
@@ -22,7 +27,7 @@
  */
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { StepUpPrompt } from './step-up-prompt.jsx'
 import { Alert, Button, FormField, Input, Textarea } from './ui.jsx'
@@ -50,7 +55,7 @@ export function shiftInstant(value, delta) {
  *
  * @param {object[]} sessions The stored sessions.
  * @param {number} delta Milliseconds the event's start moved by.
- * @returns {object[]} `{id, startsAt, endsAt, doorsOpenAt}` per session.
+ * @returns {object[]} `{id, startsAt, endsAt, doorsOpenAt, salesStartAt, salesEndAt}` per session.
  */
 export function shiftSessions(sessions, delta) {
   return sessions.map((session) => ({
@@ -58,6 +63,8 @@ export function shiftSessions(sessions, delta) {
     startsAt: shiftInstant(session.startsAt, delta),
     endsAt: shiftInstant(session.endsAt, delta),
     doorsOpenAt: shiftInstant(session.doorsOpenAt, delta),
+    salesStartAt: shiftInstant(session.salesStartAt, delta),
+    salesEndAt: shiftInstant(session.salesEndAt, delta),
   }))
 }
 
@@ -98,6 +105,15 @@ export function EventRescheduleForm({
   const [problems, setProblems] = useState([])
   const [stepUp, setStepUp] = useState(false)
   const [needsEnrolment, setNeedsEnrolment] = useState(false)
+  // Counts refusals, so each one moves focus to its message even when the
+  // words repeat: a message that only appears is not reliably heard, and
+  // focus left on the button says nothing at all.
+  const [failures, setFailures] = useState(0)
+  const errorRef = useRef(null)
+
+  useEffect(() => {
+    if (failures > 0) errorRef.current?.focus()
+  }, [failures])
 
   const delta =
     startsAt && event.startsAt
@@ -128,7 +144,7 @@ export function EventRescheduleForm({
    * Change one session's own time.
    *
    * @param {string} id The session.
-   * @param {string} field `startsAt` or `endsAt`.
+   * @param {string} field `startsAt`, `endsAt`, `salesStartAt` or `salesEndAt`.
    * @param {string} value The new local value.
    * @param {string} sessionZone The session's zone.
    * @returns {void}
@@ -169,6 +185,8 @@ export function EventRescheduleForm({
             startsAt: row.startsAt,
             endsAt: row.endsAt,
             ...(row.doorsOpenAt ? { doorsOpenAt: row.doorsOpenAt } : {}),
+            ...(row.salesStartAt ? { salesStartAt: row.salesStartAt } : {}),
+            ...(row.salesEndAt ? { salesEndAt: row.salesEndAt } : {}),
           })),
           resume,
           confirm: true,
@@ -193,13 +211,16 @@ export function EventRescheduleForm({
         setError(
           'A role this account holds needs two-step sign-in before it can do this, and it has not been set up. Nothing has changed.',
         )
+        setFailures((count) => count + 1)
         return
       }
 
       setError(refusalSentence(response.status, body, 'The new date was refused.'))
       setProblems(body?.error?.problems ?? [])
+      setFailures((count) => count + 1)
     } catch {
       setError('The service is not responding. Nothing has changed.')
+      setFailures((count) => count + 1)
     } finally {
       setBusy(false)
     }
@@ -241,6 +262,12 @@ export function EventRescheduleForm({
             />
           </FormField>
         </div>
+
+        <p className="text-sm text-ink-muted">
+          Each ticket type’s own sales window moves too, by the same amount as what it is sold for:
+          a ticket for one session with that session, a ticket for every session with the event’s
+          start.
+        </p>
 
         {sessions.length > 0 ? (
           <fieldset className="space-y-3">
@@ -295,6 +322,49 @@ export function EventRescheduleForm({
                           }
                         />
                       </FormField>
+                      {/* The night's own sales window, only where it has one:
+                          it moves with the night, and a night set on its own
+                          needs its window set too. */}
+                      {session.salesStartAt ? (
+                        <FormField
+                          label={`Session ${index + 1} sales open`}
+                          id={`reschedule-${session.id}-sales-start`}
+                        >
+                          <Input
+                            type="datetime-local"
+                            disabled={together}
+                            value={toLocalInputValue(row?.salesStartAt, sessionZone)}
+                            onChange={(change) =>
+                              moveSession(
+                                session.id,
+                                'salesStartAt',
+                                change.target.value,
+                                sessionZone,
+                              )
+                            }
+                          />
+                        </FormField>
+                      ) : null}
+                      {session.salesEndAt ? (
+                        <FormField
+                          label={`Session ${index + 1} sales close`}
+                          id={`reschedule-${session.id}-sales-end`}
+                        >
+                          <Input
+                            type="datetime-local"
+                            disabled={together}
+                            value={toLocalInputValue(row?.salesEndAt, sessionZone)}
+                            onChange={(change) =>
+                              moveSession(
+                                session.id,
+                                'salesEndAt',
+                                change.target.value,
+                                sessionZone,
+                              )
+                            }
+                          />
+                        </FormField>
+                      ) : null}
                     </div>
                   </li>
                 )
@@ -367,26 +437,32 @@ export function EventRescheduleForm({
         </label>
 
         {error ? (
-          <Alert variant="error" title="The new date was not saved">
-            <p>{error}</p>
-            {needsEnrolment ? (
-              <p className="mt-2">
-                <Link
-                  href="/account/security"
-                  className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-                >
-                  Set up two-step sign-in
-                </Link>
-              </p>
-            ) : null}
-            {problems.length > 0 ? (
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                {problems.map((problem) => (
-                  <li key={problem}>{problem}</li>
-                ))}
-              </ul>
-            ) : null}
-          </Alert>
+          <div
+            ref={errorRef}
+            tabIndex={-1}
+            className="rounded-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            <Alert variant="error" title="The new date was not saved">
+              <p>{error}</p>
+              {needsEnrolment ? (
+                <p className="mt-2">
+                  <Link
+                    href="/account/security"
+                    className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  >
+                    Set up two-step sign-in
+                  </Link>
+                </p>
+              ) : null}
+              {problems.length > 0 ? (
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {problems.map((problem) => (
+                    <li key={problem}>{problem}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </Alert>
+          </div>
         ) : null}
 
         <div className="flex flex-wrap gap-2">

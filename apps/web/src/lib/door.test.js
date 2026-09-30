@@ -13,6 +13,7 @@ import {
   lookupFailure,
   refusalSentence,
   seatWords,
+  tonightOf,
 } from './door.js'
 
 describe('the refusal vocabulary', () => {
@@ -132,5 +133,35 @@ describe('the group door', () => {
     expect(doorEventLabel(entry, { withOrganization: true })).toMatch(
       /^Garba Night — Rangoli — Oct 1, 2026/u,
     )
+  })
+})
+
+describe('the night a door starts on', () => {
+  const night = (id, day, status = 'ON_SALE') => ({
+    id,
+    startsAt: `2026-10-0${day}T13:30:00.000Z`,
+    endsAt: `2026-10-0${day}T18:30:00.000Z`,
+    status,
+  })
+  const NIGHTS = [night('one', 1), night('two', 2), night('three', 3)]
+
+  it('is the night running now, else the next one, else the last', () => {
+    expect(tonightOf(NIGHTS, new Date('2026-10-01T15:00:00.000Z'))).toBe('one')
+    expect(tonightOf(NIGHTS, new Date('2026-10-01T20:00:00.000Z'))).toBe('two')
+    expect(tonightOf(NIGHTS, new Date('2026-09-20T00:00:00.000Z'))).toBe('one')
+    expect(tonightOf(NIGHTS, new Date('2026-10-09T00:00:00.000Z'))).toBe('three')
+  })
+
+  it('passes over a cancelled night, and is nothing when there are no nights', () => {
+    const withCancelled = [night('one', 1, 'CANCELLED'), night('two', 2)]
+
+    expect(tonightOf(withCancelled, new Date('2026-10-01T15:00:00.000Z'))).toBe('two')
+    expect(tonightOf([], new Date())).toBe('')
+  })
+
+  it('tells a steward what a night refusal means', () => {
+    expect(refusalSentence('WRONG_NIGHT')).toMatch(/different night\. Do not admit/u)
+    expect(refusalSentence('NIGHT_REQUIRED')).toMatch(/Choose the night you are admitting to/u)
+    expect(confirmFailure(409, 'NIGHT_REQUIRED').lookAgain).toBe(false)
   })
 })
