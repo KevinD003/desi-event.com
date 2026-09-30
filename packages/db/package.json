@@ -37,6 +37,7 @@
   "devDependencies": {
     "@desi-event/config": "workspace:*",
     "@desi-event/logger": "workspace:*",
+    "@desi-event/schemas": "workspace:*",
     "@vitest/coverage-v8": "^5.0.0",
     "dotenv": "^17.4.2",
     "prisma": "^7.10.0",
