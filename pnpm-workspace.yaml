@@ -19,3 +19,16 @@ onlyBuiltDependencies:
 overrides:
   mysql2: '>=3.23.1'
   deepmerge-ts: '>=8.0.0'
+  # Advisories published after the lockfile was last resolved. Each range
+  # moves only the vulnerable line to its patched release, so no consumer is
+  # handed a different major version.
+  #   fast-uri: host case normalisation and mailto header injection (Fastify's
+  #   AJV compiler and the Swagger schema resolver).
+  #   ip-address: subnet comparison and parse-diagnostic size (rate limiter).
+  #   brace-expansion: recursion and quadratic expansion (ESLint's minimatch;
+  #   development only).
+  'fast-uri@<3.1.8': '^3.1.8'
+  'fast-uri@>=4.0.0 <4.1.5': '^4.1.5'
+  'ip-address@<10.7.1': '^10.7.1'
+  'brace-expansion@<1.1.21': '^1.1.21'
+  'brace-expansion@>=4.0.0 <5.0.12': '^5.0.12'
