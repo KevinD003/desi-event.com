@@ -1217,6 +1217,10 @@ async function main() {
         'vitest',
         'run',
         'tests/facets-integration.test.js',
+        // The listing search: every branch of its OR indexed, the trigram
+        // indexes without a pending list, and the card's select against the
+        // whole row. `fastupdate` is not something `migrate diff` can see.
+        'tests/event-search-integration.test.js',
         'tests/ledger-integration.test.js',
         'tests/reserved-seat-concurrency.test.js',
         'tests/refund-concurrency.test.js',

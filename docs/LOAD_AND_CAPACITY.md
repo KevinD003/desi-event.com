@@ -140,6 +140,25 @@ should trust:
 Each was a real failure at a real door or a real provider, and none of them
 appears under any load a single-threaded test can produce.
 
+One finding was about speed, not correctness. **The search read every event.**
+On a 23,607-event test database, "Public search — steady" measured p95
+554-854ms against its 500ms budget. The code of 24c09de, which added the event
+trigram indexes, measured 554-564ms on the same data. The search had stopped
+using those indexes for two reasons:
+
+- 2,038 new events were waiting in each GIN index's pending list, which is
+  merged only by VACUUM or when it reaches 4MB. The planner counted the cost of
+  reading the list and chose to read the whole table instead.
+- A word that names a venue (74 venues are called Garba Ground) adds a
+  `venueId` branch to the search. No index could serve that branch for the
+  listing's four statuses, so Postgres scanned the table for it.
+
+Migration `20260929110000_search_index_upkeep` turns `fastupdate` off on the
+six trigram indexes, merges their pending lists and indexes `Event.venueId`.
+Listings now load only the columns a card shows (`EVENT_SUMMARY_SELECT`). The
+response schema's time zone check, which built an `Intl.DateTimeFormat` for
+every card, now remembers the zones it has accepted.
+
 ---
 
 ## Why these numbers are not capacity

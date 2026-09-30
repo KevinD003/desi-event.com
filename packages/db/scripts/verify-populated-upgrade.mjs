@@ -144,6 +144,9 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // Admission per night: CheckIn unique on (ticketId, eventSessionId) plus one row with no night,
   // and the two ticket triggers rewritten. Swapping a unique index over rows is the upgrade case.
   '20260929100000_check_in_per_night',
+  // The listing search's upkeep: Event.venueId indexed, and the six trigram indexes set to
+  // fastupdate = off with their pending lists merged, over rows already queued in them.
+  '20260929110000_search_index_upkeep',
 ])
 
 /**

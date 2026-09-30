@@ -15,7 +15,9 @@ import { listEventsQuerySchema } from '@desi-event/schemas'
 
 import { requireDatabaseOrWarn } from './helpers/database.js'
 
+import { EVENT_COVER_INCLUDE } from '../src/lib/event-media.js'
 import { databaseErrorCode, normaliseError } from '../src/lib/errors.js'
+import { EVENT_SUMMARY_SELECT, toEventSummary } from '../src/lib/presenters.js'
 import { buildEventQuery, resolveSearchTerms } from '../src/routes/events.js'
 
 const CONNECTION =
@@ -101,7 +103,7 @@ beforeAll(async () => {
   ]
 
   for (const [index, event] of events.entries()) {
-    await prisma.event.upsert({
+    const row = await prisma.event.upsert({
       where: { slug: event.slug },
       update: {},
       create: {
@@ -120,6 +122,31 @@ beforeAll(async () => {
         publishedAt: new Date(base),
       },
     })
+
+    // Tiers a card has to read correctly: the one it prices from, a cheaper
+    // guest list it must ignore, and one whose sales have not opened.
+    const tiers = [
+      { name: 'General', priceCents: 2_500, status: 'ON_SALE' },
+      { name: 'Guest list', priceCents: 0, status: 'ON_SALE', visibility: 'HIDDEN' },
+      {
+        name: 'Late',
+        priceCents: 3_500,
+        status: 'ON_SALE',
+        salesStartAt: new Date('2031-09-01T00:00:00.000Z'),
+      },
+    ]
+
+    for (const tier of tiers) {
+      const existing = await prisma.ticketType.findFirst({
+        where: { eventId: row.id, name: tier.name },
+      })
+
+      if (!existing) {
+        await prisma.ticketType.create({
+          data: { eventId: row.id, currency: 'USD', quantityTotal: 100, ...tier },
+        })
+      }
+    }
   }
 }, 120_000)
 
@@ -193,6 +220,65 @@ describe('the listing search on PostgreSQL', () => {
 
     for (const q of ['garba', 'juniperwick', 'marigoldton', 'quillfeather', 'garba marigoldton']) {
       expect(await search(q, { resolve: false })).toEqual(await search(q))
+    }
+  })
+})
+
+describe('what the listing asks PostgreSQL for', () => {
+  it('gives each card the same from the selected columns as from the whole row', async () => {
+    if (!reachable) return
+
+    const where = { slug: { startsWith: `${TAG}-` } }
+    const orderBy = [{ startsAt: 'asc' }, { id: 'asc' }]
+    const options = {
+      feeConfigFor: () => ({ percentageBps: 590, flatCents: 99, currency: 'USD' }),
+      now: new Date('2031-06-01T12:00:00.000Z'),
+    }
+    const [selected, whole] = await Promise.all([
+      prisma.event.findMany({ where, orderBy, select: EVENT_SUMMARY_SELECT }),
+      // What the listing loaded before: every column of the event and of each
+      // relation, and the approved cover.
+      prisma.event.findMany({
+        where,
+        orderBy,
+        include: { venue: true, organization: true, ticketTypes: true, ...EVENT_COVER_INCLUDE },
+      }),
+    ])
+
+    expect(selected).toHaveLength(3)
+    expect(selected.map((row) => toEventSummary(row, options))).toEqual(
+      whole.map((row) => toEventSummary(row, options)),
+    )
+    // And the columns a card never shows were not fetched.
+    expect(selected[0]).not.toHaveProperty('description')
+    expect(selected[0].organization).not.toHaveProperty('contactEmail')
+  })
+
+  it('has an index for every branch of the search, and none of them keeps a pending list', async () => {
+    if (!reachable) return
+
+    // `Event_venueId_idx` lets a word that names a venue join the bitmap
+    // instead of sending the whole OR to a scan of every event. A trigram index
+    // with `fastupdate` on keeps a pending list that every search reads, and
+    // the planner stops using it once the list grows. Both are in migration
+    // 20260929110000_search_index_upkeep, and Prisma's schema cannot say
+    // `fastupdate`, so this is where its loss would be noticed.
+    const indexes = await prisma.$queryRawUnsafe(
+      `SELECT c.relname AS name, c.reloptions AS options, pg_get_indexdef(c.oid) AS definition
+         FROM pg_class c
+        WHERE c.relkind = 'i'
+          AND c.relname IN ('Event_venueId_idx', 'Event_title_trgm_idx', 'Event_summary_trgm_idx',
+                            'Event_description_trgm_idx', 'Venue_name_trgm_idx',
+                            'Venue_city_trgm_idx', 'Organization_name_trgm_idx')
+        ORDER BY c.relname`,
+    )
+    const byName = Object.fromEntries(indexes.map((index) => [index.name, index]))
+
+    expect(Object.keys(byName)).toHaveLength(7)
+    expect(byName.Event_venueId_idx.definition).toMatch(/USING btree \("venueId"\)$/)
+
+    for (const name of Object.keys(byName).filter((name) => name.endsWith('_trgm_idx'))) {
+      expect(byName[name].options, name).toEqual(['fastupdate=off'])
     }
   })
 })

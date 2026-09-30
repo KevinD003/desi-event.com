@@ -30,6 +30,7 @@ import {
 } from '@desi-event/schemas'
 
 import {
+  EVENT_COVER_INCLUDE,
   PUBLIC_MEDIA_SELECT,
   PUBLIC_MEDIA_WHERE,
   publicCover,
@@ -220,6 +221,59 @@ function inSalesWindow(ticketType, now) {
 }
 
 /**
+ * Every column {@link toEventSummary} reads, and nothing else.
+ *
+ * A listing used to load whole rows: all 40 event columns, the venue, the
+ * organisation and each tier in full, for twenty cards that read eleven event
+ * fields and a few from each relation. That included the description, the
+ * JSON content columns, the moderator's note and the private contact
+ * addresses. The presenter never published those, but every search still
+ * fetched them, decoded them and threw them away.
+ *
+ * It lives beside the presenter for the reason {@link WALLET_INCLUDE} does: the
+ * two are one contract, and a select declared in a route drifts from the
+ * projection that depends on it. Add a field to the summary and it goes here
+ * too. The tests project a full row through this select and compare the two
+ * summaries, so a field missing here fails a test instead of shipping a blank
+ * card.
+ *
+ * @type {object}
+ */
+export const EVENT_SUMMARY_SELECT = Object.freeze({
+  id: true,
+  organizationId: true,
+  title: true,
+  slug: true,
+  summary: true,
+  category: true,
+  status: true,
+  startsAt: true,
+  endsAt: true,
+  timezone: true,
+  isOnline: true,
+  // The card's place, and the jurisdiction its "from" price is taxed in.
+  venue: { select: { name: true, slug: true, city: true, region: true, country: true } },
+  organization: { select: { name: true, slug: true } },
+  // What the price, "sold out" and "on sale" are worked out from.
+  ticketTypes: {
+    select: {
+      id: true,
+      status: true,
+      visibility: true,
+      reserved: true,
+      priceCents: true,
+      currency: true,
+      quantityTotal: true,
+      quantitySold: true,
+      salesStartAt: true,
+      salesEndAt: true,
+    },
+  },
+  // The approved cover only, as before. Filtered again by the presenter.
+  ...EVENT_COVER_INCLUDE,
+})
+
+/**
  * The lean event shape used by listings and cards.
  *
  * With `feeConfigFor`, the summary also carries `minTotalCents`: one ticket of
@@ -228,7 +282,7 @@ function inSalesWindow(ticketType, now) {
  * venue's jurisdiction at `now`. A seat's `priceCentsOverride` is not
  * consulted; no route writes one, and checkout reads it only at the seat.
  *
- * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`.
+ * @param {object} event An `Event` row including `venue`, `organization` and `ticketTypes`; {@link EVENT_SUMMARY_SELECT} is enough.
  * @param {object} [options] Options.
  * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them.
  * @param {Date} [options.now] When the price is being quoted.

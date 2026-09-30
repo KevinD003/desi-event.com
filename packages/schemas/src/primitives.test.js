@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   CONTROL_CHARACTER_PATTERN,
@@ -178,6 +178,66 @@ describe('timezoneSchema', () => {
     expect(timezoneSchema.safeParse('Asia/Atlantis').success).toBe(false)
     expect(timezoneSchema.safeParse('not a zone').success).toBe(false)
     expect(timezoneSchema.safeParse('').success).toBe(false)
+  })
+})
+
+describe('timezoneSchema remembers the zones Intl accepted', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('asks Intl about a zone once, however many rows carry it', () => {
+    // A zone no other case in this file uses, so the first parse here is the
+    // first time the process has seen it.
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat')
+
+    for (let row = 0; row < 20; row += 1) {
+      expect(timezoneSchema.parse('Pacific/Chatham')).toBe('Pacific/Chatham')
+    }
+
+    expect(formatter).toHaveBeenCalledTimes(1)
+  })
+
+  it('never remembers a refusal: an unknown zone is refused every time', () => {
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat')
+
+    expect(timezoneSchema.safeParse('Pacific/Lemuria').success).toBe(false)
+    expect(timezoneSchema.safeParse('Pacific/Lemuria').success).toBe(false)
+
+    expect(formatter).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives the same answers once its bound is reached, asking Intl again', () => {
+    // Intl accepts a zone name in any case, so the case spellings of one name
+    // are distinct accepted strings: more of them than the 2,000 remembered.
+    const base = 'europe/amsterdam'
+    const letters = [...base]
+      .map((character, index) => [character, index])
+      .filter(([c]) => /[a-z]/.test(c))
+    const spellings = Array.from({ length: 2_100 }, (_, variant) => {
+      const characters = [...base]
+
+      letters.forEach(([character, index], bit) => {
+        if (variant & (1 << bit)) characters[index] = character.toUpperCase()
+      })
+
+      return characters.join('')
+    })
+
+    expect(new Set(spellings).size).toBe(2_100)
+
+    for (const spelling of spellings) {
+      expect(timezoneSchema.safeParse(spelling).success).toBe(true)
+    }
+
+    // Past the bound a name is not remembered, so Intl is asked each time, and
+    // the answers do not change.
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat')
+
+    expect(timezoneSchema.safeParse(spellings.at(-1)).success).toBe(true)
+    expect(timezoneSchema.safeParse(spellings.at(-1)).success).toBe(true)
+    expect(timezoneSchema.safeParse('Europe/Atlantis').success).toBe(false)
+    expect(formatter).toHaveBeenCalledTimes(3)
   })
 })
 

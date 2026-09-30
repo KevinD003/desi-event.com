@@ -519,28 +519,26 @@ export default async function ReviewEventPage({ params }) {
               Your decision
             </h2>
 
-            {event.status === 'REVIEW_PENDING' ? (
-              <div className="mt-3">
+            {/* Drawn whatever the status, and in the same place: it says
+                "Nothing to decide" itself once the event has left review. The
+                decision's own refresh is what moves the event on, and swapping
+                the component out here at that moment unmounted the live region
+                announcing the outcome a quarter of a second after it spoke. */}
+            <div className="mt-3">
+              {event.status === 'REVIEW_PENDING' ? (
                 <p className="mb-3 text-sm text-ink-muted">
                   Approving also approves every picture still waiting for review.
                 </p>
-                <ModerationDecision
-                  event={event}
-                  approveBlockedReason={
-                    picturesUnknown
-                      ? 'Approving is not offered while the pictures cannot be shown: it would also approve pictures you have not seen. Asking for changes and rejecting are still available.'
-                      : null
-                  }
-                />
-              </div>
-            ) : (
-              <Alert variant="info" title="Nothing to decide" className="mt-3">
-                <p>
-                  This event is {reading.label.toLowerCase()}. A decision can only be taken on
-                  something waiting for review.
-                </p>
-              </Alert>
-            )}
+              ) : null}
+              <ModerationDecision
+                event={event}
+                approveBlockedReason={
+                  picturesUnknown
+                    ? 'Approving is not offered while the pictures cannot be shown: it would also approve pictures you have not seen. Asking for changes and rejecting are still available.'
+                    : null
+                }
+              />
+            </div>
 
             <p className="mt-3 text-sm text-ink-muted">
               Your reason goes to the organiser. Your name does not: they are negotiating with the

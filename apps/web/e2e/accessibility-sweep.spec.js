@@ -435,9 +435,24 @@ async function signIn(page, email) {
  * `motion.jsx` documents as load-bearing rather than decorative, so it is a
  * contract this file may rely on.
  *
+ * Every scroll here is instant, and the page is read back until it has
+ * stopped moving before the scan starts. The site sets
+ * `scroll-behavior: smooth` on the root (`app/globals.css`), and a scroll
+ * that names no behaviour inherits it: `scrollTo(0, 0)` returns before the
+ * page has moved at all, and the page then glides to the top over the next few
+ * hundred milliseconds — while the scanner measures it. Reproduced on the form
+ * that brings a postponed event back, at 768 × 1024, where the form taking
+ * focus leaves the page scrolled to 668: after the old `scrollTo(0, 0)` the
+ * scan began at 668 in 12 scans out of 12, and 2 of them reported a
+ * `target-size` violation on whichever editor step was passing under the
+ * sticky header's brand link at that frame ("partially obscured, 181px by
+ * 14.7px"). Scrolled to the top instantly, the same page at the same width
+ * scanned clean 12 times out of 12 — at rest, nothing overlaps those steps.
+ *
  * **This cannot mask a violation.** It waits for the resting state and then
  * scans it, and the resting state is the one a reader actually reads. Colours
- * that are wrong at rest are still wrong once the fade has finished.
+ * that are wrong at rest are still wrong once the fade has finished, and a
+ * target that is covered at rest is still covered.
  *
  * @param {object} page The page about to be scanned.
  * @returns {Promise<void>} Resolves once the page has stopped moving.
@@ -460,7 +475,7 @@ async function settled(page) {
       )
 
       for (const element of pending) {
-        element.scrollIntoView({ block: 'center' })
+        element.scrollIntoView({ block: 'center', behavior: 'instant' })
         await new Promise((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(resolve))
         })
@@ -482,7 +497,35 @@ async function settled(page) {
     await page.waitForTimeout(250)
   }
 
-  await page.evaluate(() => window.scrollTo(0, 0))
+  // Instant, then read back until two readings, each two frames on, agree: see
+  // the note above on what the smooth default did to the scan. Not "until it
+  // reads 0". With focus on something below the fold — the check-in preview's
+  // heading, at 320 wide — Chrome's scroll anchoring moves the page back down
+  // by a few pixels in the frame after the jump, and stays there; with
+  // `overflow-anchor: none` the same jump stays at 0. Where the page comes to
+  // rest is the page, and it was where the old smooth scroll ended up too.
+  await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: 'instant' }))
+
+  let previous = null
+
+  await expect
+    .poll(
+      async () => {
+        const current = await page.evaluate(
+          () =>
+            new Promise((resolve) => {
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve(window.scrollY)))
+            }),
+        )
+        const resting = current === previous
+
+        previous = current
+
+        return resting
+      },
+      { message: 'the page never stopped scrolling before the scan', intervals: [100] },
+    )
+    .toBe(true)
 
   // Fonts change metrics rather than colour, but a scan that begins mid-swap
   // measures a layout that nothing will ever look like.

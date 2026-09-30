@@ -13,6 +13,7 @@ import {
 } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 import { reservedWorld } from './helpers/reserved-world.js'
+import { EVENT_SUMMARY_SELECT, toEventSummary } from '../src/lib/presenters.js'
 import { resolveSearchTerms, searchTerms } from '../src/routes/events.js'
 
 /**
@@ -536,6 +537,340 @@ describe('GET /v1/events', () => {
     expect(card.minTotalCents).toBe(charged.totalCents)
     // All-in means more than the face value whenever there is a fee.
     expect(card.minTotalCents).toBeGreaterThan(card.minPriceCents)
+  })
+})
+
+/**
+ * A whole event row, as `include: {venue, organization, ticketTypes, media}`
+ * returned it: every column, the long and private ones included.
+ *
+ * @param {object} [overrides] Fields to change.
+ * @returns {object} The row.
+ */
+function wholeEventRow(overrides = {}) {
+  const startsAt = new Date('2031-11-07T00:30:00.000Z')
+  const tier = (fields) => ({
+    eventId: 'cevent0000000000000000001',
+    description: 'A long tier description nobody puts on a card.',
+    minPerOrder: 1,
+    maxPerOrder: 10,
+    sortOrder: 0,
+    createdAt: new Date('2031-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2031-01-01T00:00:00.000Z'),
+    eventSessionId: null,
+    priceZoneId: null,
+    complimentary: false,
+    refundedQuantity: 0,
+    refundedCents: 0,
+    visibility: 'PUBLIC',
+    reserved: false,
+    salesStartAt: null,
+    salesEndAt: null,
+    ...fields,
+  })
+
+  return {
+    id: 'cevent0000000000000000001',
+    organizationId: 'corg00000000000000000001',
+    venueId: 'cvenue000000000000000001',
+    title: 'Navratri Garba Night',
+    slug: 'navratri-garba-night',
+    summary: 'Nine nights of garba.',
+    description: 'A description far longer than any card.'.repeat(50),
+    category: 'GARBA_DANDIYA',
+    status: 'ON_SALE',
+    startsAt,
+    endsAt: new Date(startsAt.getTime() + 4 * 3_600_000),
+    timezone: 'America/Chicago',
+    isOnline: false,
+    onlineUrl: 'https://meet.example.com/private-room',
+    languages: ['Gujarati'],
+    publishedAt: new Date('2031-01-02T00:00:00.000Z'),
+    createdAt: new Date('2031-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2031-01-02T00:00:00.000Z'),
+    revision: 7,
+    ageRestriction: null,
+    accessibility: null,
+    artists: ['Falguni'],
+    policies: null,
+    contactEmail: 'private-contact@example.com',
+    reviewSubmittedAt: null,
+    moderationNote: 'A note for the organiser only.',
+    cancelledAt: null,
+    cancellationReason: null,
+    postponedAt: null,
+    previousStartsAt: null,
+    salesOpenedAt: new Date('2031-01-03T00:00:00.000Z'),
+    faq: [{ question: 'Parking?', answer: 'Yes.' }],
+    performers: [{ name: 'Falguni', role: null, bio: null }],
+    runningOrder: null,
+    sponsors: null,
+    socialLinks: null,
+    dressCode: 'Chaniya choli',
+    directions: 'Gate 3.',
+    publicContactEmail: 'hello@example.com',
+    publicContactPhone: null,
+    venue: {
+      id: 'cvenue000000000000000001',
+      name: 'Garba Ground',
+      slug: 'garba-ground',
+      addressLine1: '1 Main Street',
+      addressLine2: null,
+      city: 'Houston',
+      region: 'TX',
+      postalCode: '77001',
+      country: 'US',
+      description: 'A long venue description.',
+      timezone: 'America/Chicago',
+      directions: 'Park at the back.',
+      policies: null,
+      accessibility: null,
+      organizationId: 'corg00000000000000000001',
+    },
+    organization: {
+      id: 'corg00000000000000000001',
+      name: 'Rangoli Collective',
+      slug: 'rangoli-collective',
+      description: 'An organiser.',
+      contactEmail: 'account@example.com',
+      payoutCurrency: 'USD',
+      verified: true,
+      verificationStatus: 'VERIFIED',
+    },
+    ticketTypes: [
+      tier({
+        id: 'ctier0000000000000000001',
+        name: 'General',
+        priceCents: 2_500,
+        currency: 'USD',
+        quantityTotal: 100,
+        quantitySold: 40,
+        status: 'ON_SALE',
+      }),
+      // Cheaper, but a guest list: never the card's price.
+      tier({
+        id: 'ctier0000000000000000002',
+        name: 'Guest list',
+        priceCents: 0,
+        currency: 'USD',
+        quantityTotal: 20,
+        quantitySold: 0,
+        status: 'ON_SALE',
+        visibility: 'HIDDEN',
+      }),
+      // Not on sale until next year.
+      tier({
+        id: 'ctier0000000000000000003',
+        name: 'Late',
+        priceCents: 3_500,
+        currency: 'USD',
+        quantityTotal: 50,
+        quantitySold: 0,
+        status: 'ON_SALE',
+        salesStartAt: new Date('2099-01-01T00:00:00.000Z'),
+      }),
+      // Seated: its stock is its seats, not its quantity columns.
+      tier({
+        id: 'ctier0000000000000000004',
+        name: 'Stalls',
+        priceCents: 4_000,
+        currency: 'USD',
+        quantityTotal: 0,
+        quantitySold: 0,
+        status: 'ON_SALE',
+        reserved: true,
+      }),
+    ],
+    media: [
+      {
+        id: 'cmedia000000000000000001',
+        kind: 'EVENT_COVER',
+        position: null,
+        altText: 'Dancers in a circle',
+        width: 1600,
+        height: 900,
+        contentType: 'image/jpeg',
+        moderationStatus: 'APPROVED',
+        scanStatus: 'CLEAN',
+        sanitisedAt: new Date('2031-01-02T00:00:00.000Z'),
+        createdAt: new Date('2031-01-02T00:00:00.000Z'),
+      },
+    ],
+    ...overrides,
+  }
+}
+
+/**
+ * Keep only what a Prisma `select` names, the way Prisma answers one.
+ *
+ * @param {object} row A whole row.
+ * @param {object} select The select.
+ * @returns {object} The row as the select would load it.
+ */
+function projected(row, select) {
+  const out = {}
+
+  for (const [key, spec] of Object.entries(select)) {
+    if (!spec) continue
+
+    const value = row[key]
+
+    if (spec === true || value == null) {
+      out[key] = value ?? null
+      continue
+    }
+
+    out[key] = Array.isArray(value)
+      ? value.map((child) => projected(child, spec.select))
+      : projected(value, spec.select)
+  }
+
+  return out
+}
+
+/**
+ * Every path a select loads, as `venue.city` or `ticketTypes[].status`.
+ *
+ * @param {object} select The select.
+ * @param {string} [prefix] The path so far.
+ * @returns {Set<string>} The paths.
+ */
+function selectedPaths(select, prefix = '') {
+  const paths = new Set()
+
+  for (const [key, spec] of Object.entries(select)) {
+    if (!spec) continue
+
+    const path = `${prefix}${key}`
+    paths.add(path)
+
+    if (spec !== true) {
+      const many = key === 'ticketTypes' || key === 'media'
+      for (const nested of selectedPaths(spec.select, `${path}${many ? '[]' : ''}.`)) {
+        paths.add(nested)
+      }
+    }
+  }
+
+  return paths
+}
+
+/**
+ * Wrap a row so that every field read from it, at any depth, is recorded.
+ *
+ * @param {unknown} value The row, or a value inside it.
+ * @param {string} path Where it sits in the row.
+ * @param {Set<string>} reads Collects the paths read.
+ * @returns {unknown} The value, wrapped when it is an object.
+ */
+function watched(value, path, reads) {
+  if (value === null || typeof value !== 'object' || value instanceof Date) return value
+
+  return new Proxy(value, {
+    get(target, key, receiver) {
+      const result = Reflect.get(target, key, receiver)
+
+      if (typeof key === 'symbol') return result
+
+      if (Array.isArray(target)) {
+        return /^\d+$/.test(key) ? watched(result, `${path}[]`, reads) : result
+      }
+
+      const next = path ? `${path}.${key}` : key
+      reads.add(next)
+
+      return watched(result, next, reads)
+    },
+  })
+}
+
+describe('a listing card reads the columns it shows, and no others', () => {
+  const now = new Date('2031-06-01T12:00:00.000Z')
+  const options = { feeConfigFor: () => feeConfig('USD'), now }
+  const variants = [
+    wholeEventRow(),
+    wholeEventRow({ venue: null, venueId: null, isOnline: true, media: [] }),
+    wholeEventRow({ status: 'SALES_PAUSED' }),
+    wholeEventRow({
+      ticketTypes: wholeEventRow().ticketTypes.map((tier) => ({
+        ...tier,
+        quantitySold: tier.quantityTotal,
+      })),
+    }),
+    wholeEventRow({ ticketTypes: [] }),
+  ]
+
+  it('finds every field the summary reads in EVENT_SUMMARY_SELECT', () => {
+    // Read tracking rather than a list kept by hand: a field the presenter
+    // starts reading and the select does not load fails here, not on a card.
+    const allowed = selectedPaths(EVENT_SUMMARY_SELECT)
+    const reads = new Set()
+
+    for (const row of variants) {
+      toEventSummary(watched(row, '', reads), options)
+      toEventSummary(watched(row, '', reads))
+    }
+
+    expect([...reads].filter((path) => !allowed.has(path))).toEqual([])
+  })
+
+  it('gives the same card from the selected columns as from the whole row', () => {
+    for (const row of variants) {
+      expect(toEventSummary(projected(row, EVENT_SUMMARY_SELECT), options)).toEqual(
+        toEventSummary(row, options),
+      )
+      expect(toEventSummary(projected(row, EVENT_SUMMARY_SELECT))).toEqual(toEventSummary(row))
+    }
+  })
+
+  it('loads none of the long or private columns a card never shows', () => {
+    const loaded = selectedPaths(EVENT_SUMMARY_SELECT)
+
+    for (const path of [
+      'description',
+      'contactEmail',
+      'moderationNote',
+      'onlineUrl',
+      'faq',
+      'performers',
+      'runningOrder',
+      'sponsors',
+      'socialLinks',
+      'publicContactEmail',
+      'venue.description',
+      'venue.addressLine1',
+      'organization.contactEmail',
+      'organization.payoutCurrency',
+      'ticketTypes[].description',
+    ]) {
+      expect(loaded.has(path), path).toBe(false)
+    }
+  })
+
+  it('is what GET /v1/events and the review queue ask the database for', async () => {
+    const { app, prisma } = await createTestApp()
+    const asked = []
+    const findMany = prisma.event.findMany
+
+    prisma.event.findMany = (args) => {
+      asked.push(args)
+
+      return findMany(args)
+    }
+
+    await list(app, 'q=garba')
+    await app.inject({
+      method: 'GET',
+      url: '/v1/moderation/events',
+      headers: bearer(await signIn(app, 'maya@desi-event.example')),
+    })
+
+    const listings = asked.filter((args) => args?.select === EVENT_SUMMARY_SELECT)
+
+    expect(listings).toHaveLength(2)
+    expect(listings.every((args) => args.include === undefined)).toBe(true)
+
+    await app.close()
   })
 })
 

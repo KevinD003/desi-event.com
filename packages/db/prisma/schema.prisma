@@ -161,7 +161,8 @@ model Organization {
   @@index([suspendedAt])
   @@index([createdById, createdAt])
   /// Substring search on the organiser's name ("garba" in "Bay Lights Garba
-  /// Co."), which a B-tree cannot serve. Needs the pg_trgm extension.
+  /// Co."), which a B-tree cannot serve. Needs the pg_trgm extension. Built
+  /// with `fastupdate = off` (migration 20260929110000_search_index_upkeep).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Organization_name_trgm_idx")
 }
 
@@ -279,6 +280,7 @@ model Venue {
   @@index([organizationId])
   @@index([mergedIntoVenueId])
   /// Substring search on the venue's name and city, for the listing search.
+  /// Built with `fastupdate = off` (migration 20260929110000_search_index_upkeep).
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_name_trgm_idx")
   @@index([city(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_city_trgm_idx")
 }
@@ -377,9 +379,16 @@ model Event {
   @@index([status, startsAt])
   @@index([category, startsAt])
   @@index([organizationId])
+  /// The venue branch of the listing search's OR (`venueId IN (...)`), and the
+  /// foreign key. The partial facet index covers PUBLISHED rows only, which the
+  /// listing's four statuses cannot use.
+  @@index([venueId])
   /// Substring search on the event's own text, for the listing search. With
   /// these every branch of the search's OR can use an index, so Postgres
-  /// answers it with one bitmap scan instead of reading every event.
+  /// answers it with one bitmap scan instead of reading every event. Built
+  /// with `fastupdate = off` (migration 20260929110000_search_index_upkeep),
+  /// which this schema language cannot express: a pending list left to grow
+  /// made the planner read every event instead.
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_title_trgm_idx")
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_summary_trgm_idx")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_description_trgm_idx")

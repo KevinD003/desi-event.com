@@ -370,3 +370,42 @@ describe('the version decided on', () => {
     expect(screen.queryByText(/this event is now/i)).toBeNull()
   })
 })
+
+describe('once the event has left review', () => {
+  it('keeps the announcement in the same live region when the event comes back decided', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'APPROVED' } }))
+
+    const { rerender } = render(<ModerationDecision event={event} />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    const region = (await screen.findByText(/approve — this event is now APPROVED/i)).closest(
+      '[role="status"]',
+    )
+
+    // The page's refresh hands the same component the event as it now is.
+    rerender(<ModerationDecision event={{ ...event, status: 'APPROVED' }} />)
+
+    expect(region).toBeInTheDocument()
+    expect(region).toHaveTextContent('Approve — this event is now APPROVED.')
+    expect(screen.getByText('Nothing to decide')).toBeInTheDocument()
+    expect(screen.getByText(/this event is approved, not public\./i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+  })
+
+  it('offers no decision on an event that is not waiting for review', () => {
+    render(<ModerationDecision event={{ ...event, status: 'PUBLISHED' }} />)
+
+    expect(screen.getByText('Nothing to decide')).toBeInTheDocument()
+    expect(
+      screen.getByText(/a decision can only be taken on something waiting for review/i),
+    ).toBeInTheDocument()
+
+    for (const name of ['Request changes', 'Approve', 'Reject']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+  })
+})

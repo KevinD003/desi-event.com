@@ -19,13 +19,8 @@ import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { httpError } from '../lib/errors.js'
 import { loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
-import {
-  EVENT_COVER_INCLUDE,
-  EVENT_MEDIA_INCLUDE,
-  approvePendingEventMedia,
-  decideMedia,
-} from '../lib/event-media.js'
-import { toEventDetail, toEventSummary } from '../lib/presenters.js'
+import { EVENT_MEDIA_INCLUDE, approvePendingEventMedia, decideMedia } from '../lib/event-media.js'
+import { EVENT_SUMMARY_SELECT, toEventDetail, toEventSummary } from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
 import { defineRoute } from '../lib/register.js'
 
@@ -35,14 +30,6 @@ const EVENT_INCLUDE = Object.freeze({
   organization: true,
   ticketTypes: true,
   ...EVENT_MEDIA_INCLUDE,
-})
-
-/** Relations a queue row carries: the approved cover, if any. */
-const QUEUE_INCLUDE = Object.freeze({
-  venue: true,
-  organization: true,
-  ticketTypes: true,
-  ...EVENT_COVER_INCLUDE,
 })
 
 /**
@@ -99,7 +86,8 @@ export function registerModerationRoutes(app, { prisma, env }) {
       const [rows, total] = await Promise.all([
         prisma.event.findMany({
           where,
-          include: QUEUE_INCLUDE,
+          // A queue row is a card: the summary's columns and the approved cover.
+          select: EVENT_SUMMARY_SELECT,
           orderBy: [{ reviewSubmittedAt: 'asc' }, { id: 'asc' }],
           skip,
           take,

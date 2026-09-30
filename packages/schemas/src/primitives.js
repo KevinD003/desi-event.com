@@ -66,18 +66,43 @@ function trimmedUpper(value) {
 }
 
 /**
+ * The most zone names {@link isKnownTimeZone} remembers.
+ *
+ * About 600 IANA names exist. `Intl` also accepts other spellings of them,
+ * such as `asia/kolkata`, so the cache has a bound: a caller who sends every
+ * spelling of every name fills it, and later names are then checked by `Intl`
+ * each time again.
+ */
+const KNOWN_TIME_ZONE_CACHE_LIMIT = 2_000
+
+/** Zone names `Intl` has already accepted. Refusals are never cached. */
+const knownTimeZones = new Set()
+
+/**
  * True when the runtime recognises `value` as an IANA time zone name.
+ *
+ * Remembers each name `Intl` accepts. The check builds an
+ * `Intl.DateTimeFormat`, which is slow, and every event summary carries a zone:
+ * a page of twenty listing cards built twenty formatters. In a CPU profile of
+ * the load suite's search for "garba" that was 22% of the API's time. The
+ * runtime's zone data does not change while it runs, so neither does the
+ * answer for a name.
  *
  * @param {string} value Candidate zone name, e.g. `Asia/Kolkata`.
  * @returns {boolean} Whether `Intl` accepts the zone.
  */
 function isKnownTimeZone(value) {
+  if (knownTimeZones.has(value)) return true
+
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value })
-    return true
   } catch {
     return false
   }
+
+  if (knownTimeZones.size < KNOWN_TIME_ZONE_CACHE_LIMIT) knownTimeZones.add(value)
+
+  return true
 }
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/

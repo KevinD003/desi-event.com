@@ -23,7 +23,7 @@ import {
   changedFields,
   sessionProblems,
 } from '../lib/event-authoring.js'
-import { EVENT_COVER_INCLUDE, EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
+import { EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
 import { cancellationWork } from '../lib/event-cancellation.js'
 import {
   classifyChanges,
@@ -33,7 +33,12 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
-import { isPublicTier, toEventDetail, toEventSummary } from '../lib/presenters.js'
+import {
+  EVENT_SUMMARY_SELECT,
+  isPublicTier,
+  toEventDetail,
+  toEventSummary,
+} from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
 import { loadEventFacets } from '../lib/facets.js'
 import { defineRoute } from '../lib/register.js'
@@ -147,14 +152,6 @@ async function reservedSeatAvailability(prisma, event, { insider, now }) {
 
   return { bySession, byTier }
 }
-
-/** Relations a listing card carries: the approved cover only, never the gallery. */
-const EVENT_LIST_INCLUDE = Object.freeze({
-  venue: true,
-  organization: true,
-  ticketTypes: true,
-  ...EVENT_COVER_INCLUDE,
-})
 
 /** Query `sort` value to a Prisma `orderBy`. */
 const ORDER_BY = Object.freeze({
@@ -632,8 +629,9 @@ export function registerEventRoutes(app, { prisma, env }) {
         search,
       })
 
+      // The card's columns only, and the approved cover: see EVENT_SUMMARY_SELECT.
       const [events, total] = await Promise.all([
-        prisma.event.findMany({ where, orderBy, skip, take, include: EVENT_LIST_INCLUDE }),
+        prisma.event.findMany({ where, orderBy, skip, take, select: EVENT_SUMMARY_SELECT }),
         prisma.event.count({ where }),
       ])
 

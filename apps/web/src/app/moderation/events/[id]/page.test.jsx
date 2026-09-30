@@ -247,3 +247,62 @@ describe('what the listing says, as the moderator reads it', () => {
     expect(screen.getByText(/General — \$35\.00/)).toBeInTheDocument()
   })
 })
+
+describe('the decision, once it is taken', () => {
+  it('keeps the outcome on screen when the refresh it asks for brings the approved event back', async () => {
+    const user = userEvent.setup()
+    const params = { params: Promise.resolve({ id: EVENT.id }) }
+
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    apiFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { status: 'APPROVED' } }),
+    })
+
+    const { rerender } = render(await ReviewEventPage(params))
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(screen.getByRole('button', { name: /yes, approve/i }))
+
+    const said = await screen.findByText('Approve — this event is now APPROVED.')
+    const region = said.closest('[role="status"]')
+
+    // What `router.refresh()` does: the server renders the page again, now
+    // with the event approved, and React reconciles it into the tree on
+    // screen. Before, the page swapped the decision form for a notice here —
+    // and the live region announcing the outcome went with it, about a
+    // quarter of a second after it spoke.
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, status: 'APPROVED', revision: 7 })
+    rerender(await ReviewEventPage(params))
+
+    expect(region).toBeInTheDocument()
+    expect(region).toHaveTextContent('Approve — this event is now APPROVED.')
+    expect(screen.getByText('Nothing to decide')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This event is approved, not public. A decision can only be taken on something waiting for review.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull()
+    expect(screen.queryByText(/approving also approves every picture/i)).toBeNull()
+  })
+
+  it('offers no decision on an event that is not waiting for review, and says why', async () => {
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, status: 'APPROVED' })
+
+    await renderPage()
+
+    expect(screen.getByText('Nothing to decide')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This event is approved, not public. A decision can only be taken on something waiting for review.',
+      ),
+    ).toBeInTheDocument()
+
+    for (const name of ['Request changes', 'Approve', 'Reject']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+  })
+})
