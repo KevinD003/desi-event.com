@@ -51,6 +51,20 @@ export const CAPTURE_OUTCOMES = Object.freeze({
 })
 
 /**
+ * Order two order lines by their tier's id, as `lockTicketTypes` sorts ids.
+ *
+ * @param {{ticketTypeId: string}} left One line.
+ * @param {{ticketTypeId: string}} right Another.
+ * @returns {number} Negative, zero or positive, for `Array.prototype.sort`.
+ */
+function byTicketTypeId(left, right) {
+  if (left.ticketTypeId < right.ticketTypeId) return -1
+  if (left.ticketTypeId > right.ticketTypeId) return 1
+
+  return 0
+}
+
+/**
  * Call the payment provider. No transaction may be open when this runs.
  *
  * Never throws for a payment outcome — a decline and a timeout are results, not
@@ -393,7 +407,15 @@ export async function settleCheckout(
         now,
       })
     }
+  }
 
+  // The sold counts last, one tier at a time in id order: the order
+  // `lockTicketTypes` takes tier locks in. The lines come back in whatever
+  // order the database finds them, and incrementing each line's tier as the
+  // loop above reached it let two settlements of two-tier orders lock the same
+  // two tiers the opposite way round, so PostgreSQL ended one of them as a
+  // deadlock and a captured payment was left on an unpaid order.
+  for (const item of [...items].sort(byTicketTypeId)) {
     await tx.ticketType.update({
       where: { id: item.ticketTypeId },
       data: { quantitySold: { increment: item.quantity } },
