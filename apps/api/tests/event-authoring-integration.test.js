@@ -207,6 +207,13 @@ async function publishedMapVersion(venueId, label) {
 /**
  * A paid order against an event, so cancellation has something to owe.
  *
+ * Its totals add up — face value, fee and tax to the total — as every order
+ * checkout writes does. Cancellation now asks for the refund through the
+ * refund service, which works out its split from those parts and refuses an
+ * order whose parts do not add up (`ORDER_TOTALS_INCONSISTENT`), so an order
+ * of 1,499.00 charged 1,580.00 with no fee recorded is no longer one it can
+ * refund.
+ *
  * @param {object} event The event.
  * @param {string} label Distinguishes the reference.
  * @returns {Promise<object>} The order.
@@ -221,6 +228,7 @@ async function paidOrder(event, label) {
       status: 'PAID',
       currency: 'INR',
       subtotalCents: 149_900,
+      feesCents: 8_100,
       totalCents: 158_000,
       policySnapshot: { refund: 'Refundable up to 48 hours before.' },
     },
@@ -471,7 +479,7 @@ when('two people cancelling the same event', () => {
     })
 
     // One business result. Two refund rows against one order would be a
-    // double refund waiting for a worker to execute it.
+    // double refund waiting for somebody to approve and send it.
     expect(refunds).toHaveLength(1)
     expect(refunds[0].status).toBe('REQUESTED')
     expect(notices).toHaveLength(1)
@@ -505,9 +513,10 @@ when('two people cancelling the same event', () => {
 
     const [refund] = await prisma.refund.findMany({ where: { orderId: order.id } })
 
-    // No refund service exists in this repository. The row is the first state
-    // of `RefundStatus`, meaning somebody asked; nothing has been sent
-    // anywhere, and nothing here claims money moved.
+    // The row is the first state of `RefundStatus`, meaning somebody asked:
+    // cancellation asks the refund service for it (reserved, with its lines
+    // and split — asserted in `refund-fees-integration.test.js`), and sends
+    // nothing anywhere. Nothing here claims money moved.
     expect(refund.status).toBe('REQUESTED')
     expect(refund.providerRefundId ?? null).toBeNull()
     expect(refund.settledAt ?? null).toBeNull()

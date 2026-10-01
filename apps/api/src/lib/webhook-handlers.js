@@ -22,9 +22,11 @@
  * @module @desi-event/api/lib/webhook-handlers
  */
 
+import { ACCOUNTS, BATCH_KINDS, CREDIT, DEBIT, composeBatch, entry } from '@desi-event/ledger'
 import { HANDLED_EVENTS } from '@desi-event/providers'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
+import { ledgerIdempotencyKey, postBatch } from './ledger.js'
 
 /**
  * Amount and currency drift beyond which an event is refused.
@@ -166,11 +168,117 @@ export function checkForDrift(payment, intent, accountContext) {
  */
 
 /**
+ * Run a handler's writes in one transaction when the client can open one.
+ *
+ * The dispatcher hands handlers the bare client; a payment marked paid, the
+ * order that follows it, a reconciliation task and the audit row belong
+ * together or not at all.
+ *
+ * @param {object} prisma A Prisma client, or a transaction client already open.
+ * @param {function(object): Promise<*>} work The writes.
+ * @returns {Promise<*>} Whatever the work returned.
+ */
+function inTransaction(prisma, work) {
+  return typeof prisma.$transaction === 'function' ? prisma.$transaction(work) : work(prisma)
+}
+
+/**
+ * What the reconciliation task says when money arrives for a closed order.
+ *
+ * @type {string}
+ */
+export const SUCCEEDED_AFTER_CLOSE_ERROR =
+  'A payment succeeded for an order that was no longer waiting for one. The money was taken: refund it from the order, then note this task.'
+
+/** Distinguishes the batch a capture on a closed order posts. */
+const LATE_CAPTURE_DISCRIMINATOR = 'captured-after-close'
+
+/**
+ * The idempotency key of the batch a payment captured on a closed order posts.
+ *
+ * A refund of that payment looks for it by this key: its money was recorded
+ * as owed back to the buyer when it arrived, and was never the organiser's.
+ *
+ * @param {string} paymentId Which payment.
+ * @returns {string} The key.
+ */
+export function lateCaptureLedgerKey(paymentId) {
+  return ledgerIdempotencyKey(BATCH_KINDS.REFUND, 'PAYMENT', paymentId, LATE_CAPTURE_DISCRIMINATOR)
+}
+
+/**
+ * Record money captured on a closed order: taken, and owed back to the buyer.
+ *
+ * Checkout's settlement posts `ORDER_PAID`, crediting the organiser, the fee
+ * and the tax. An order that was no longer waiting for the payment is never
+ * settled, so none of them was credited — and a refund's usual batch, which
+ * takes back the organiser's face value, the fee and the tax, would debit them
+ * for money they never had. So the capture is posted here as what it is:
+ * processor clearing up by the amount, refund clearing owing it to the buyer.
+ * The refund's settlement then pays that debt (`refundSettledBatch`) and posts
+ * nothing against the organiser.
+ *
+ * @param {object} db A transaction client.
+ * @param {object} params Inputs.
+ * @param {object} params.payment The payment.
+ * @param {string|null} params.organizationId Whose event the order was for.
+ * @param {Date} params.now The instant.
+ * @returns {Promise<void>} Nothing.
+ */
+async function postLateCapture(db, { payment, organizationId, now }) {
+  if (!Number.isInteger(payment.amountCents) || payment.amountCents <= 0) return
+
+  const reference = payment.providerRef ?? payment.id
+
+  await postBatch(
+    db,
+    composeBatch({
+      kind: BATCH_KINDS.REFUND,
+      currency: payment.currency,
+      entries: [
+        entry(
+          ACCOUNTS.PROCESSOR_CLEARING,
+          DEBIT,
+          payment.amountCents,
+          `Payment ${reference} captured after its order closed`,
+          organizationId,
+        ),
+        entry(
+          ACCOUNTS.REFUND_CLEARING,
+          CREDIT,
+          payment.amountCents,
+          `Payment ${reference} owed back to the buyer`,
+          organizationId,
+        ),
+      ],
+    }),
+    {
+      sourceType: 'PAYMENT',
+      sourceId: payment.id,
+      discriminator: LATE_CAPTURE_DISCRIMINATOR,
+      reference: `LC-${payment.id}`,
+      orderId: payment.orderId,
+      paymentId: payment.id,
+      now,
+    },
+  )
+}
+
+/**
  * Mark a payment paid, once.
  *
  * The update is conditional on the payment *not* already being paid, so a
  * duplicate delivery, a replay and an out-of-order arrival all write nothing and
  * report success. That is what makes acknowledging a delivery safe.
+ *
+ * The order follows only from PENDING. An order that was cancelled or expired
+ * meanwhile — or one another attempt already paid — does not become paid; but
+ * the money was taken, so a `PROVIDER_MISMATCH` reconciliation task is opened
+ * and `payment.succeeded_after_close` recorded instead of `order.paid`. The
+ * capture is posted as owed back to the buyer (`postLateCapture`), since it
+ * was never credited to the organiser. The refund goes through
+ * `refunds.request` on that order: its payment is SUCCEEDED and its whole
+ * total is refundable, and its settlement debits nobody's payable.
  *
  * @param {object} prisma A Prisma client.
  * @param {object} context The context.
@@ -184,47 +292,99 @@ export async function applyPaymentSucceeded(
   prisma,
   { payment, intent, webhookEventId, now = new Date() },
 ) {
-  const { count } = await prisma.payment.updateMany({
-    where: { id: payment.id, status: { notIn: ['SUCCEEDED', 'REFUNDED', 'PARTIALLY_REFUNDED'] } },
-    data: {
-      status: 'SUCCEEDED',
-      settledAt: now,
-      reconciliationRequired: false,
-      rawProviderStatus: intent.status ?? null,
-      failureCode: null,
-    },
-  })
+  return inTransaction(prisma, async (db) => {
+    const { count } = await db.payment.updateMany({
+      where: { id: payment.id, status: { notIn: ['SUCCEEDED', 'REFUNDED', 'PARTIALLY_REFUNDED'] } },
+      data: {
+        status: 'SUCCEEDED',
+        settledAt: now,
+        reconciliationRequired: false,
+        rawProviderStatus: intent.status ?? null,
+        failureCode: null,
+      },
+    })
 
-  if (count === 0) {
-    // Already settled. Nothing to do and nothing wrong: this is the duplicate
-    // and replay path, and it must be quiet.
-    return {
-      outcome: 'processed',
-      orderId: payment.orderId,
-      paymentId: payment.id,
-      reason: 'already settled',
+    if (count === 0) {
+      // Already settled. Nothing to do and nothing wrong: this is the duplicate
+      // and replay path, and it must be quiet.
+      return {
+        outcome: 'processed',
+        orderId: payment.orderId,
+        paymentId: payment.id,
+        reason: 'already settled',
+      }
     }
-  }
 
-  // The order follows the payment, and only from a state where money was still
-  // expected. An order somebody cancelled in the meantime does not become paid
-  // because a late webhook arrived.
-  // Only from PENDING. An order somebody cancelled, or one that expired, does
-  // not become paid because a late webhook arrived — it becomes a reconciliation
-  // item, which is what the drift and no-match paths above are for.
-  await prisma.order.updateMany({
-    where: { id: payment.orderId, status: 'PENDING' },
-    data: { status: 'PAID', paidAt: now },
+    // The order follows the payment, and only from a state where money was
+    // still expected.
+    const moved = await db.order.updateMany({
+      where: { id: payment.orderId, status: 'PENDING' },
+      data: { status: 'PAID', paidAt: now },
+    })
+
+    if (moved.count === 0) {
+      // Money captured on an order that is closed. Not resurrected — somebody
+      // closed it — and not ignored either: nothing else would ever notice
+      // the money, so it becomes a task with the refund named as the fix.
+      const order = await db.order.findUnique({
+        where: { id: payment.orderId },
+        include: { event: { select: { organizationId: true } } },
+      })
+
+      await openReconciliation(db, {
+        kind: 'PROVIDER_MISMATCH',
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        webhookEventId,
+        providerRef: payment.providerRef ?? null,
+        organizationId: order?.event?.organizationId ?? null,
+        localState: {
+          orderStatus: order?.status ?? null,
+          paymentStatus: 'SUCCEEDED',
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+        },
+        lastError: SUCCEEDED_AFTER_CLOSE_ERROR,
+      })
+
+      await postLateCapture(db, {
+        payment,
+        organizationId: order?.event?.organizationId ?? null,
+        now,
+      })
+
+      await recordAudit(db, {
+        action: AUDIT_ACTIONS.PAYMENT_SUCCEEDED_AFTER_CLOSE,
+        entityType: 'Payment',
+        entityId: payment.id,
+        metadata: {
+          source: 'webhook',
+          webhookEventId,
+          providerStatus: intent.status ?? null,
+          orderId: payment.orderId,
+          orderStatus: order?.status ?? null,
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+        },
+      })
+
+      return {
+        outcome: 'processed',
+        orderId: payment.orderId,
+        paymentId: payment.id,
+        reason: 'the order was no longer waiting for a payment',
+      }
+    }
+
+    await recordAudit(db, {
+      action: AUDIT_ACTIONS.ORDER_PAID,
+      entityType: 'Payment',
+      entityId: payment.id,
+      metadata: { source: 'webhook', webhookEventId, providerStatus: intent.status ?? null },
+    })
+
+    return { outcome: 'processed', orderId: payment.orderId, paymentId: payment.id }
   })
-
-  await recordAudit(prisma, {
-    action: AUDIT_ACTIONS.ORDER_PAID,
-    entityType: 'Payment',
-    entityId: payment.id,
-    metadata: { source: 'webhook', webhookEventId, providerStatus: intent.status ?? null },
-  })
-
-  return { outcome: 'processed', orderId: payment.orderId, paymentId: payment.id }
 }
 
 /**

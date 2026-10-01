@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import { CANCELLATION_BUDGET } from '../src/lib/event-cancellation.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { minutesFromNow } from './helpers/fixtures.js'
+import { cuid } from './helpers/prisma-stub.js'
 
 /**
  * The event lifecycle: what the status column is allowed to mean.
@@ -430,8 +432,9 @@ describe('cancellation creates the work it owes, exactly once', () => {
       expect(JSON.stringify(notice.payload)).not.toMatch(/token|secret|card|cvc/i)
     }
 
-    // Nothing claims a refund has happened. REQUESTED is the first state, and
-    // no refund service exists to move it.
+    // Nothing claims a refund has happened. REQUESTED is the first state:
+    // cancellation asks for the refund and calls no provider; finance approves
+    // and sends it.
     for (const refund of prisma._store.refund ?? []) {
       expect(refund.status).toBe('REQUESTED')
       expect(refund.providerRefundId ?? null).toBeNull()
@@ -463,6 +466,124 @@ describe('cancellation creates the work it owes, exactly once', () => {
     const second = await cancel()
     expect(second.statusCode).toBe(409)
     expect(second.json().error.message).toMatch(/final state/i)
+
+    await app.close()
+  })
+
+  it('is given a transaction budget sized to the orders it reserves refunds for', async () => {
+    // A refund is reserved for every paid order inside the cancellation's one
+    // transaction; Prisma's default of five seconds ran out at a few hundred.
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'owner@rangoli.example')
+    const headers = bearer(token)
+
+    await stepUp(app, 'owner@rangoli.example', headers)
+
+    // Two orders nobody has paid for yet: each is owed a notice.
+    for (const reference of ['DE-BUDGET1', 'DE-BUDGET2']) {
+      prisma._store.order.push({
+        id: cuid(),
+        reference,
+        eventId: ids.publishedEvent.id,
+        eventSessionId: null,
+        userId: null,
+        buyerEmail: `${reference.toLowerCase()}@buyers.example`,
+        buyerName: 'Budget Buyer',
+        status: 'PENDING',
+        currency: 'INR',
+        subtotalCents: 0,
+        discountCents: 0,
+        feesCents: 0,
+        taxCents: 0,
+        totalCents: 0,
+        refundedCents: 0,
+        refundPendingCents: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+    }
+
+    const orders = prisma._store.order.filter(
+      (order) =>
+        order.eventId === ids.publishedEvent.id && ['PENDING', 'PAID'].includes(order.status),
+    ).length
+    const budgets = []
+    const original = prisma.$transaction
+
+    prisma.$transaction = (fn, options) => {
+      budgets.push(options)
+
+      return original(fn, options)
+    }
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/cancel`,
+      headers,
+      payload: { reasonCode: 'VENUE_UNAVAILABLE', reason: 'The hall flooded.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(orders).toBeGreaterThan(0)
+    expect(budgets).toContainEqual({
+      timeout: CANCELLATION_BUDGET.baseMs + CANCELLATION_BUDGET.perOrderMs * orders,
+      maxWait: CANCELLATION_BUDGET.maxWaitMs,
+    })
+
+    await app.close()
+  })
+
+  it('answers 503 and changes nothing when the transaction outruns its budget', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'owner@rangoli.example')
+    const headers = bearer(token)
+
+    await stepUp(app, 'owner@rangoli.example', headers)
+
+    const statusBefore = prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status
+    const expired = Object.assign(
+      new Error('Transaction API error: A query cannot be executed on an expired transaction.'),
+      { code: 'P2028' },
+    )
+    const original = prisma.$transaction
+
+    // What Prisma throws when the interactive transaction's timeout passes
+    // part-way through the work: the next query inside it is refused.
+    prisma.$transaction = (fn, options) =>
+      original(
+        typeof fn === 'function'
+          ? (tx) =>
+              fn(
+                new Proxy(tx, {
+                  get: (target, property) =>
+                    property === 'eventModerationAction'
+                      ? {
+                          ...target.eventModerationAction,
+                          create: async () => {
+                            throw expired
+                          },
+                        }
+                      : target[property],
+                }),
+              )
+          : fn,
+        options,
+      )
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/cancel`,
+      headers,
+      payload: { reasonCode: 'VENUE_UNAVAILABLE', reason: 'The hall flooded.' },
+    })
+
+    expect(response.statusCode, response.body).toBe(503)
+    expect(response.json().error.code).toBe('SERVICE_UNAVAILABLE')
+    expect(response.json().error.message).toMatch(/nothing was changed/)
+    expect(response.body).not.toMatch(/P2028|expired transaction/)
+    expect(prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status).toBe(
+      statusBefore,
+    )
 
     await app.close()
   })

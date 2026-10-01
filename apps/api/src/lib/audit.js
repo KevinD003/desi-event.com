@@ -107,6 +107,13 @@ export const AUDIT_ACTIONS = Object.freeze({
   REFUND_FAILED: 'refund.failed',
   REFUND_TIMEOUT: 'refund.timeout',
   REFUND_CANCELLED: 'refund.cancelled',
+  // A refund row written before refunds reserved anything (event cancellation
+  // wrote them with `createMany`), reserved or replaced on first touch.
+  REFUND_RESERVATION_REPAIRED: 'refund.reservation_repaired',
+  // A payment the provider says succeeded for an order that was no longer
+  // waiting for one. Recorded instead of `order.paid`, beside a
+  // PROVIDER_MISMATCH task, because the money was taken.
+  PAYMENT_SUCCEEDED_AFTER_CLOSE: 'payment.succeeded_after_close',
   VERIFICATION_SUBMITTED: 'organization.verification_submitted',
   // Read at apps/api/src/routes/organizers.js and absent from this map until
   // Phase 3, so that call site passed `action: undefined` to a NOT NULL column.

@@ -279,6 +279,7 @@ export function registerReconciliationRoutes(app, { prisma, providers, env }) {
         payment,
         order,
         refund,
+        otherRefunds: context.otherRefunds,
       })
 
       await prisma.$transaction(async (tx) => {
@@ -344,6 +345,7 @@ export function registerReconciliationRoutes(app, { prisma, providers, env }) {
         payment,
         order,
         refund,
+        otherRefunds: context.otherRefunds,
       })
 
       const allowed = RESOLUTIONS_FOR_VERDICT[verdict] ?? []

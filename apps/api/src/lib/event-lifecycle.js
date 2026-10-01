@@ -54,7 +54,14 @@ import { ACTORS, GATES, findTransition, transitionsFrom } from '@desi-event/sche
 
 import { recordAudit } from './audit.js'
 import { bindReservedSeatsAudited } from './event-authoring.js'
-import { conflict, forbidden, notFound, unprocessable } from './errors.js'
+import {
+  conflict,
+  databaseErrorCode,
+  exposedServerError,
+  forbidden,
+  notFound,
+  unprocessable,
+} from './errors.js'
 
 /**
  * Organisation verification states from which an event may be published.
@@ -408,12 +415,21 @@ export async function availableTransitions(prisma, event, actor) {
  * @param {object} options.actor The request actor.
  * @param {string} [options.reason] Why, for the audit trail and the attendee notice.
  * @param {object} [options.requestedChanges] What a moderator wants changed.
- * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event)`.
+ * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event)`. It may return `{ auditMetadata }`, which the transition's audit record carries beside `from`, `to` and `reason`.
+ * @param {{timeout: number, maxWait: number}} [options.transactionOptions] The transaction's budget, when `onCommit` does work that grows with the event (a cancellation reserves a refund per paid order). Prisma's default of five seconds otherwise.
  * @returns {Promise<object>} The updated event.
- * @throws {Error} 403, 404, 409 or 422, each meaning something different.
+ * @throws {Error} 403, 404, 409 or 422, each meaning something different; 503 when the transaction outran its budget and nothing was changed.
  */
 export async function transitionEvent(prisma, options) {
-  const { event, to, actor, reason = null, requestedChanges = null, onCommit = null } = options
+  const {
+    event,
+    to,
+    actor,
+    reason = null,
+    requestedChanges = null,
+    onCommit = null,
+    transactionOptions = undefined,
+  } = options
   const from = event.status
 
   // 1. Is the move in the table at all?
@@ -472,51 +488,85 @@ export async function transitionEvent(prisma, options) {
   }
 
   // 4. Write it, naming the status we expect to be replacing.
-  return prisma.$transaction(async (tx) => {
-    const { count } = await tx.event.updateMany({
-      where: { id: event.id, status: from },
-      data: stampsFor({ to, reason, event }),
-    })
-
-    if (count !== 1) {
-      // Somebody moved first. Tell the caller what it is now rather than what
-      // they thought it was.
-      const current = await tx.event.findUnique({
-        where: { id: event.id },
-        select: { status: true },
+  return prisma
+    .$transaction(async (tx) => {
+      const { count } = await tx.event.updateMany({
+        where: { id: event.id, status: from },
+        data: stampsFor({ to, reason, event }),
       })
 
-      throw conflict(
-        `This event is no longer ${from}; it is ${current?.status ?? 'gone'}. Reload and try again.`,
-        { from, to, currentStatus: current?.status ?? null, code: 'STALE_STATUS' },
-      )
-    }
+      if (count !== 1) {
+        // Somebody moved first. Tell the caller what it is now rather than what
+        // they thought it was.
+        const current = await tx.event.findUnique({
+          where: { id: event.id },
+          select: { status: true },
+        })
 
-    await tx.eventModerationAction.create({
-      data: {
-        eventId: event.id,
+        throw conflict(
+          `This event is no longer ${from}; it is ${current?.status ?? 'gone'}. Reload and try again.`,
+          { from, to, currentStatus: current?.status ?? null, code: 'STALE_STATUS' },
+        )
+      }
+
+      await tx.eventModerationAction.create({
+        data: {
+          eventId: event.id,
+          actorId: actor?.id ?? null,
+          fromStatus: from,
+          toStatus: to,
+          reason,
+          requestedChanges,
+        },
+      })
+
+      const updated = await tx.event.findUnique({ where: { id: event.id } })
+
+      // The work first, then the record of the move, so the record can say what
+      // the work did — a cancellation's refunds, and the orders it left to the
+      // finance team — rather than only that it happened. Both are in this
+      // transaction, so neither is written without the other.
+      const work = onCommit ? await onCommit(tx, updated) : null
+
+      await recordAudit(tx, {
+        action: `event.${to.toLowerCase()}`,
+        entityType: 'Event',
+        entityId: event.id,
         actorId: actor?.id ?? null,
-        fromStatus: from,
-        toStatus: to,
-        reason,
-        requestedChanges,
-      },
+        metadata: { ...(work?.auditMetadata ?? {}), from, to, reason },
+      })
+
+      return updated
+    }, transactionOptions)
+    .catch((error) => {
+      throw outranBudget(error, { from, to })
     })
+}
 
-    await recordAudit(tx, {
-      action: `event.${to.toLowerCase()}`,
-      entityType: 'Event',
-      entityId: event.id,
-      actorId: actor?.id ?? null,
-      metadata: { from, to, reason },
-    })
+/**
+ * The refusal for a transition whose transaction ran out of time.
+ *
+ * Prisma rolls an interactive transaction back once it outlives its timeout
+ * (`P2028`), so nothing of the move was kept: the event is still what it was,
+ * and no work it would have raised exists. Said so, as a 503 the caller can
+ * retry, rather than as a 500 carrying the driver's message. Anything else is
+ * passed through untouched.
+ *
+ * @param {unknown} error Whatever the transaction threw.
+ * @param {object} move The move.
+ * @param {string} move.from The status the event still has.
+ * @param {string} move.to The status it did not reach.
+ * @returns {unknown} The error to throw.
+ */
+function outranBudget(error, { from, to }) {
+  if (databaseErrorCode(error) !== 'P2028') return error
 
-    const updated = await tx.event.findUnique({ where: { id: event.id } })
-
-    if (onCommit) await onCommit(tx, updated)
-
-    return updated
-  })
+  return exposedServerError(
+    503,
+    'SERVICE_UNAVAILABLE',
+    `This event could not become ${to} in time, so nothing was changed: it is still ${from}. Try again in a moment.`,
+    { from, to },
+  )
 }
 
 /**

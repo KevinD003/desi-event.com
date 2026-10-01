@@ -14,7 +14,7 @@
  */
 
 /** The tables a test may hold a row of. Named, because a table is an identifier. */
-const TABLES = new Set(['Membership', 'Invitation'])
+const TABLES = new Set(['Membership', 'Invitation', 'Order', 'OrderItem'])
 
 /**
  * Hold one row locked until told to let go.

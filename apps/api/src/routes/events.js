@@ -24,7 +24,7 @@ import {
   sessionProblems,
 } from '../lib/event-authoring.js'
 import { EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
-import { cancellationWork } from '../lib/event-cancellation.js'
+import { cancellationTransactionOptions, cancellationWork } from '../lib/event-cancellation.js'
 import {
   classifyChanges,
   materialChangeWork,
@@ -1215,8 +1215,10 @@ export function registerEventRoutes(app, { prisma, env }) {
             reasonCode,
             reason,
             actorId: request.actor?.id ?? null,
+            requestId: request.id,
           })
         },
+        transactionOptions: await cancellationTransactionOptions(prisma, request.params.id),
       })
     },
   })
@@ -1234,19 +1236,29 @@ export function registerEventRoutes(app, { prisma, env }) {
          * together: an event cancelled with no refund work owed is worse than
          * one that is not cancelled at all.
          *
+         * What it did goes into the cancellation's own audit record: the
+         * refunds reserved, the orders with nothing left to refund, and the
+         * disputed orders left to the finance team, by id.
+         *
          * @param {object} tx The transaction client.
          * @param {object} updated The cancelled event.
-         * @returns {Promise<void>} Resolves when done.
+         * @returns {Promise<{auditMetadata: object}>} What the audit record carries.
          */
         onCommit: async (tx, updated) => {
-          await cancellationWork(tx, {
+          const work = await cancellationWork(tx, {
             event: updated,
             kind: 'CANCELLED',
             reasonCode,
             reason,
             actorId: request.actor?.id ?? null,
+            requestId: request.id,
           })
+
+          return { auditMetadata: { refundWork: work } }
         },
+        // A refund is reserved for every paid order in this transaction, so its
+        // budget grows with the orders rather than being Prisma's five seconds.
+        transactionOptions: await cancellationTransactionOptions(prisma, request.params.id),
       })
     },
   })

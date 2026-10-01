@@ -325,6 +325,7 @@
                                 "SUPPORT",
                                 "MODERATOR",
                                 "FINANCE_ADMIN",
+                                "ADMIN",
                                 "SUPER_ADMIN"
                               ]
                             },
@@ -571,6 +572,7 @@
                                 "SUPPORT",
                                 "MODERATOR",
                                 "FINANCE_ADMIN",
+                                "ADMIN",
                                 "SUPER_ADMIN"
                               ]
                             },
@@ -843,6 +845,7 @@
                                 "SUPPORT",
                                 "MODERATOR",
                                 "FINANCE_ADMIN",
+                                "ADMIN",
                                 "SUPER_ADMIN"
                               ]
                             },
@@ -5890,6 +5893,7 @@
                               "SUPPORT",
                               "MODERATOR",
                               "FINANCE_ADMIN",
+                              "ADMIN",
                               "SUPER_ADMIN"
                             ]
                           },
@@ -6068,6 +6072,7 @@
                       "SUPPORT",
                       "MODERATOR",
                       "FINANCE_ADMIN",
+                      "ADMIN",
                       "SUPER_ADMIN"
                     ]
                   },
@@ -6133,6 +6138,7 @@
                             "SUPPORT",
                             "MODERATOR",
                             "FINANCE_ADMIN",
+                            "ADMIN",
                             "SUPER_ADMIN"
                           ]
                         },
@@ -6144,6 +6150,7 @@
                             "SUPPORT",
                             "MODERATOR",
                             "FINANCE_ADMIN",
+                            "ADMIN",
                             "SUPER_ADMIN"
                           ]
                         },
@@ -6258,6 +6265,7 @@
                       "SUPPORT",
                       "MODERATOR",
                       "FINANCE_ADMIN",
+                      "ADMIN",
                       "SUPER_ADMIN"
                     ]
                   },
@@ -29115,6 +29123,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -32083,7 +32101,7 @@
       "post": {
         "operationId": "events.cancel",
         "summary": "Cancel an event",
-        "description": "Terminal. Records the actor, a reason code and prose, writes an audit event, and creates notification work and pending refund work exactly once per order. The refund work is created PENDING and stays that way until a refund service exists to perform it; nothing here claims money has moved. Requires `event:cancel` for the owning organisation, asserted in the handler, and a recent step-up.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "description": "Terminal. Records the actor, a reason code and prose, writes an audit event, and creates notification work exactly once per order. For every paid order with something left to refund and no dispute blocking its payment, it asks for a refund of everything left and reserves it against the order: the refund is REQUESTED, and finance approves and sends it; nothing here calls a payment provider or claims money has moved. The audit event counts the refunds, the orders with nothing left to refund and the disputed orders, which are named and each get a reconciliation task. Requires `event:cancel` for the owning organisation, asserted in the handler, and a recent step-up.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
         "tags": [
           "events"
         ],
@@ -33449,6 +33467,16 @@
           },
           "422": {
             "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A dependency (database or Redis) is unreachable.",
             "content": {
               "application/json": {
                 "schema": {

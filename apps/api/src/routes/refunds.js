@@ -39,23 +39,19 @@
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
-import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
+import { conflict, databaseErrorCode, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { toRefund } from '../lib/presenters.js'
 import {
   PENDING_STATES,
-  REFUND_OUTCOMES,
   REFUND_STATES,
   approveRefund,
   cancelRefund,
   loadRefundContext,
-  markSubmitted,
   pendingQuantitiesByLine,
-  recordRefundFailure,
-  recordRefundTimeout,
   refundableCents,
+  repairUnreservedRefund,
   requestRefund,
-  settleRefund,
-  submitOutsideTransaction,
+  submitRefund,
 } from '../lib/refunds.js'
 import { readRankedPage } from '../lib/ranked-page.js'
 import { defineRoute } from '../lib/register.js'
@@ -138,6 +134,41 @@ async function present(prisma, id) {
   if (!row) throw notFound('No such refund.')
 
   return toRefund(row)
+}
+
+/**
+ * Answer a duplicate request with the refund the first copy made.
+ *
+ * `requestRefund` looks the key up again under the order's lock, so two copies
+ * of one request for the same order meet there. What reaches here is the rest:
+ * a copy that lost the race on the key's unique index some other way. It is a
+ * retry, and it is answered as one — 200 with the refund — rather than as a
+ * 500. A key already used for a different order is not a retry of this
+ * request, and is refused as a conflict rather than answered with somebody
+ * else's refund.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {unknown} error What the transaction threw.
+ * @param {object} context The request.
+ * @param {string} context.idempotencyKey Its key.
+ * @param {object} context.order The order it is for.
+ * @returns {Promise<{refund: object, created: boolean}>} The first copy's refund.
+ * @throws {Error} The original error for anything else; 409 for a key used on another order.
+ */
+async function replayOnDuplicateKey(prisma, error, { idempotencyKey, order }) {
+  if (databaseErrorCode(error) !== 'P2002') throw error
+
+  const existing = await prisma.refund.findUnique({ where: { idempotencyKey } })
+
+  if (!existing) throw error
+
+  if (existing.orderId !== order.id) {
+    throw conflict('That idempotency key was already used for a refund of another order.', {
+      orderId: order.id,
+    })
+  }
+
+  return { refund: existing, created: false }
 }
 
 /**
@@ -233,28 +264,26 @@ export function registerRefundRoutes(app, { prisma, providers }) {
         })
       }
 
-      const outcome = await prisma.$transaction(async (tx) => {
-        const pendingByLine = lines ? await pendingQuantitiesByLine(tx, order.id) : new Map()
-
-        // Re-read inside the transaction. The counters the reservation is
-        // conditional on have to be the ones this decision was made against,
-        // and the copy above was read outside it.
-        const current = await tx.order.findUnique({ where: { id: order.id } })
-
-        return requestRefund(tx, {
-          order: { ...current, items: order.items },
-          payment,
-          amountCents,
-          lines: lines ?? null,
-          pendingByLine,
-          reason,
-          reasonNote,
-          idempotencyKey,
-          actorId: request.actor.id,
-          requestId: request.id,
-          now,
-        })
-      })
+      // `requestRefund` takes the order's row lock and reads the order, its
+      // lines and what other refunds hold on them again under it: the copy
+      // above was read outside the transaction, and deciding from it let two
+      // requests for the last ticket on a line both be reserved.
+      const outcome = await prisma
+        .$transaction(async (tx) =>
+          requestRefund(tx, {
+            order,
+            payment,
+            amountCents,
+            lines: lines ?? null,
+            reason,
+            reasonNote,
+            idempotencyKey,
+            actorId: request.actor.id,
+            requestId: request.id,
+            now,
+          }),
+        )
+        .catch((error) => replayOnDuplicateKey(prisma, error, { idempotencyKey, order }))
 
       // A retry that found the first request's refund is not a creation, and
       // answering 201 would tell the client it made a second one.
@@ -340,9 +369,35 @@ export function registerRefundRoutes(app, { prisma, providers }) {
         )
       }
 
-      const applied = await prisma.$transaction((tx) =>
-        approveRefund(tx, {
+      // A cancellation refund written before refunds reserved anything is
+      // repaired first, in its own transaction: the repair is right whatever
+      // the approval then decides, and a refusal below must not undo it.
+      const repaired = await prisma.$transaction((tx) =>
+        repairUnreservedRefund(tx, {
           refund,
+          actorId: request.actor.id,
+          requestId: request.id,
+          now,
+        }),
+      )
+      const target = repaired.refund
+
+      // Withdrawn because the order had nothing left, or an approved row now
+      // reserved in place: nothing is left to approve, and the row says why.
+      if (
+        repaired.mode === 'CANCELLED_NOTHING_LEFT' ||
+        (repaired.mode === 'RESERVED' && target.status === REFUND_STATES.APPROVED)
+      ) {
+        return { data: await present(prisma, target.id) }
+      }
+
+      // The order is read inside the approval, which takes the reservation
+      // again (under the order's row lock) when the refund was declined or
+      // failed, or refuses with REFUND_BALANCE_GONE.
+      const applied = await prisma.$transaction(async (tx) =>
+        approveRefund(tx, {
+          refund: target,
+          order: await tx.order.findUnique({ where: { id: target.orderId } }),
           actorId: request.actor.id,
           requestId: request.id,
           now,
@@ -354,11 +409,11 @@ export function registerRefundRoutes(app, { prisma, providers }) {
       // first between the read and the write.
       if (!applied) {
         throw conflict('Somebody else moved that refund on. Read it again.', {
-          status: refund.status,
+          status: target.status,
         })
       }
 
-      return { data: await present(prisma, refund.id) }
+      return { data: await present(prisma, target.id) }
     },
   })
 
@@ -376,70 +431,51 @@ export function registerRefundRoutes(app, { prisma, providers }) {
         })
       }
 
-      // Step one: SUBMITTED, in its own transaction, before anything is sent.
-      // A process that dies during the call below leaves this row behind, which
-      // is the evidence reconciliation needs that a refund may exist.
-      const claimed = await prisma.$transaction((tx) => markSubmitted(tx, { refund, now }))
-
-      // Same as approval: an unsubmittable state raises from the transition
-      // table, so `false` here is a lost race — and losing it matters, because
-      // the winner is talking to a provider right now.
-      if (!claimed) {
-        throw conflict('That refund is already being submitted. Read it again.', {
-          status: refund.status,
-        })
-      }
-
-      // Step two: the provider, with nothing open. The transaction above has
-      // committed and the one below has not started.
-      const result = await submitOutsideTransaction(providers.payments, refund, payment)
-
-      // Step three: a short transaction recording what it said. Conditional on
-      // the refund still being SUBMITTED, so a webhook that arrived while the
-      // call was in flight and this handler cannot both settle it.
-      const submitted = { ...refund, status: REFUND_STATES.SUBMITTED }
-
-      await prisma.$transaction(async (tx) => {
-        if (result.outcome === REFUND_OUTCOMES.SUCCEEDED) {
-          return settleRefund(tx, {
-            refund: submitted,
-            order,
-            result,
-            organizationId,
-            seatPolicy: request.body.seatPolicy,
-            eventStartsAt,
-            actorId: request.actor.id,
-            requestId: request.id,
-            now: new Date(),
-          })
-        }
-
-        if (result.outcome === REFUND_OUTCOMES.TIMEOUT) {
-          return recordRefundTimeout(tx, {
-            refund: submitted,
-            order,
-            result,
-            organizationId,
-            actorId: request.actor.id,
-            requestId: request.id,
-            now: new Date(),
-          })
-        }
-
-        return recordRefundFailure(tx, {
-          refund: submitted,
-          order,
-          result,
+      // A cancellation refund written before refunds reserved anything is
+      // reserved (or replaced) first, in its own transaction. A replacement
+      // of an approved row is approved with it, so it stays in the state the
+      // old row was in.
+      const target = await prisma.$transaction(async (tx) => {
+        const repaired = await repairUnreservedRefund(tx, {
+          refund,
           actorId: request.actor.id,
           requestId: request.id,
-          now: new Date(),
+          now,
         })
+
+        if (repaired.mode !== 'REPLACED' || refund.status !== REFUND_STATES.APPROVED) {
+          return repaired.refund
+        }
+
+        await approveRefund(tx, {
+          refund: repaired.refund,
+          order: await tx.order.findUnique({ where: { id: refund.orderId } }),
+          actorId: request.actor.id,
+          requestId: request.id,
+          now,
+          via: 'reservation_repair',
+        })
+
+        return tx.refund.findUnique({ where: { id: repaired.refund.id } })
+      })
+
+      // SUBMITTED in its own transaction, the provider with nothing open, a
+      // short transaction recording what it said: `submitRefund`.
+      const { refund: after } = await submitRefund(prisma, providers, {
+        refund: target,
+        order,
+        payment,
+        organizationId,
+        eventStartsAt,
+        seatPolicy: request.body.seatPolicy,
+        actorId: request.actor.id,
+        requestId: request.id,
       })
 
       // Whatever the outcome, the answer is the refund as it now stands. A
       // declined refund is a 200 describing a declined refund, not a 4xx: the
       // request succeeded, and it is the money that did not move.
-      return { data: await present(prisma, refund.id) }
+      return { data: await present(prisma, after.id) }
     },
   })
 

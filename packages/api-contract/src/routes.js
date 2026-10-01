@@ -2019,6 +2019,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.unprocessable,
+        // The move and its work are one transaction with a budget sized to the
+        // event's orders; one that outruns it is rolled back whole.
+        API_ERRORS.unavailable,
       ],
     },
     {
@@ -2072,7 +2075,7 @@ export const apiRoutes = Object.freeze(
       path: '/v1/events/:id/cancel',
       summary: 'Cancel an event',
       description:
-        'Terminal. Records the actor, a reason code and prose, writes an audit event, and creates notification work and pending refund work exactly once per order. The refund work is created PENDING and stays that way until a refund service exists to perform it; nothing here claims money has moved. Requires `event:cancel` for the owning organisation, asserted in the handler, and a recent step-up.',
+        'Terminal. Records the actor, a reason code and prose, writes an audit event, and creates notification work exactly once per order. For every paid order with something left to refund and no dispute blocking its payment, it asks for a refund of everything left and reserves it against the order: the refund is REQUESTED, and finance approves and sends it; nothing here calls a payment provider or claims money has moved. The audit event counts the refunds, the orders with nothing left to refund and the disputed orders, which are named and each get a reconciliation task. Requires `event:cancel` for the owning organisation, asserted in the handler, and a recent step-up.',
       tags: ['events'],
       auth: 'session',
       stepUp: 'EVENT_CANCEL',
@@ -2088,6 +2091,9 @@ export const apiRoutes = Object.freeze(
         API_ERRORS.notFound,
         API_ERRORS.conflict,
         API_ERRORS.unprocessable,
+        // The move and its work are one transaction with a budget sized to the
+        // event's orders; one that outruns it is rolled back whole.
+        API_ERRORS.unavailable,
       ],
     },
     {

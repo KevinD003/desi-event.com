@@ -23,6 +23,10 @@ import {
   allocateAcrossLines,
   allocateNamedLines,
   canTransition,
+  isUnreservedLegacyRefund,
+  orderParts,
+  partsLeft,
+  refundPartsFor,
   refundableCents,
   seatPolicyFor,
   splitRefund,
@@ -247,6 +251,31 @@ describe('allocateNamedLines', () => {
       }),
     ).toThrowError(/worth nothing/u)
   })
+
+  it('asks a line for no more than it has left, when an older refund gave it more', () => {
+    // Line a: one ticket gone, and 500 more than its price put on the line
+    // beside it. Its other two tickets are worth 40,000; the line has 39,500.
+    const { allocation, amountCents } = allocateNamedLines({
+      items: [
+        line({ ...items[0], refundedQuantity: 1, refundedCents: 20_500 }),
+        line({ ...items[1] }),
+      ],
+      lines: [
+        { orderItemId: 'a', quantity: 2 },
+        { orderItemId: 'b', quantity: 1 },
+      ],
+      roomByLine: new Map([
+        ['a', 39_500],
+        ['b', 45_000],
+      ]),
+    })
+
+    expect(allocation).toEqual([
+      { orderItemId: 'a', amountCents: 39_500, quantity: 2 },
+      { orderItemId: 'b', amountCents: 45_000, quantity: 1 },
+    ])
+    expect(amountCents).toBe(84_500)
+  })
 })
 
 describe('allocateNamedLines on a discounted order', () => {
@@ -369,5 +398,211 @@ describe('canTransition', () => {
 
   it('treats a state it has never heard of as going nowhere', () => {
     expect(canTransition('MADE_UP', REFUND_STATES.APPROVED)).toBe(false)
+  })
+})
+
+/**
+ * The fee order every refund suite uses: 2 × $50 Floor and 1 × $20 Balcony,
+ * 50 % off, 5.9 % + 99¢ a ticket of fee and 8.25 % tax — $72.00
+ * (`helpers/fee-orders.js`).
+ */
+const FEE_ORDER = Object.freeze({
+  id: 'fee-order',
+  subtotalCents: 12_000,
+  discountCents: 6_000,
+  feesCents: 651,
+  taxCents: 549,
+  totalCents: 7_200,
+})
+
+/** Its two lines, with the discount shared 5,000 and 1,000. */
+const FEE_LINES = Object.freeze([
+  line({ id: 'floor', quantity: 2, unitPriceCents: 5_000, subtotalCents: 10_000 }),
+  line({ id: 'balcony', quantity: 1, unitPriceCents: 2_000, subtotalCents: 2_000 }),
+])
+
+describe('orderParts', () => {
+  it('splits an order into face value net of the discount, fee and tax', () => {
+    expect(orderParts(FEE_ORDER)).toEqual({ faceValueCents: 6_000, feeCents: 651, taxCents: 549 })
+  })
+
+  it('refuses an order whose parts do not add up to its total', () => {
+    expect(() => orderParts({ ...FEE_ORDER, totalCents: 7_201 })).toThrowError(
+      expect.objectContaining({ statusCode: 409, code: 'ORDER_TOTALS_INCONSISTENT' }),
+    )
+  })
+})
+
+describe('refundPartsFor', () => {
+  const parts = orderParts(FEE_ORDER)
+
+  it('gives back everything left on a whole refund', () => {
+    const left = { faceValueCents: 5_000, feeCents: 543, taxCents: 458 }
+
+    expect(refundPartsFor({ parts, left, form: 'whole', amountCents: 6_001 })).toEqual(left)
+  })
+
+  it('splits a partial amount in proportion, the parts adding up to it', () => {
+    // Half the order: half of 651 and of 549, each rounded (325.5 and 274.5
+    // round up), and the face value is the rest.
+    const split = refundPartsFor({ parts, left: parts, form: 'amount', amountCents: 3_600 })
+
+    expect(split).toEqual({ faceValueCents: 2_999, feeCents: 326, taxCents: 275 })
+    expect(split.faceValueCents + split.feeCents + split.taxCents).toBe(3_600)
+  })
+
+  it('never makes the face value negative when fee and tax both round up', () => {
+    // Face value 0, fee 1, tax 1, refunded 1 cent: each share is half a cent,
+    // and rounding both up would give back 2 cents of fee and tax from 1.
+    const tiny = { faceValueCents: 0, feeCents: 1, taxCents: 1 }
+    const split = refundPartsFor({ parts: tiny, left: tiny, form: 'amount', amountCents: 1 })
+
+    expect(split).toEqual({ faceValueCents: 0, feeCents: 1, taxCents: 0 })
+  })
+
+  it('moves face value it cannot take into fee and tax, within what is left of them', () => {
+    const left = { faceValueCents: 100, feeCents: 651, taxCents: 549 }
+    const split = refundPartsFor({ parts, left, form: 'amount', amountCents: 1_000 })
+
+    expect(split.faceValueCents).toBe(100)
+    expect(split.faceValueCents + split.feeCents + split.taxCents).toBe(1_000)
+    expect(split.feeCents).toBeLessThanOrEqual(651)
+    expect(split.taxCents).toBeLessThanOrEqual(549)
+  })
+
+  it('adds each line refund’s share of fee and tax up to exactly the order’s', () => {
+    // Three tickets refunded one line at a time: 1,000, 2,500 and 2,500 of the
+    // 6,000 of face value.
+    let left = parts
+    const splits = [1_000, 2_500, 2_500].map((lineFaceCents) => {
+      const split = refundPartsFor({ parts, left, form: 'lines', lineFaceCents })
+
+      left = partsLeft(left, split)
+
+      return split
+    })
+
+    expect(splits[0]).toEqual({ faceValueCents: 1_000, feeCents: 108, taxCents: 91 })
+    expect(splits.reduce((sum, split) => sum + split.feeCents, 0)).toBe(651)
+    expect(splits.reduce((sum, split) => sum + split.taxCents, 0)).toBe(549)
+    expect(left).toEqual({ faceValueCents: 0, feeCents: 0, taxCents: 0 })
+  })
+})
+
+describe('allocateAcrossLines, face value only', () => {
+  it('puts each line’s face value net of its discount share on it, and no fee or tax', () => {
+    const allocation = allocateAcrossLines({
+      items: FEE_LINES,
+      amountCents: 6_000,
+      discountCents: 6_000,
+      whole: true,
+    })
+
+    expect(allocation).toEqual([
+      { orderItemId: 'floor', amountCents: 5_000, quantity: 2 },
+      { orderItemId: 'balcony', amountCents: 1_000, quantity: 1 },
+    ])
+  })
+
+  it('withdraws every ticket on a whole refund, a free line included', () => {
+    const allocation = allocateAcrossLines({
+      items: [
+        line({ id: 'paid', quantity: 2, unitPriceCents: 5_000, subtotalCents: 10_000 }),
+        line({ id: 'free', quantity: 3, unitPriceCents: 0, subtotalCents: 0 }),
+      ],
+      amountCents: 10_000,
+      whole: true,
+    })
+
+    expect(allocation).toEqual([
+      { orderItemId: 'paid', amountCents: 10_000, quantity: 2 },
+      { orderItemId: 'free', amountCents: 0, quantity: 3 },
+    ])
+  })
+
+  it('counts a discounted ticket at what was paid for it, ticket by ticket', () => {
+    // Floor tickets were paid $25.00 each after the discount. Face value
+    // alone would say $25.00 buys back none of a $50.00 ticket.
+    const [floor] = allocateAcrossLines({
+      items: [FEE_LINES[0]],
+      amountCents: 2_500,
+      discountCents: 5_000,
+    })
+
+    expect(floor).toEqual({ orderItemId: 'floor', amountCents: 2_500, quantity: 1 })
+  })
+
+  it('withdraws nothing for a share that pays for no whole ticket', () => {
+    const allocation = allocateAcrossLines({
+      items: FEE_LINES,
+      amountCents: 83,
+      discountCents: 6_000,
+    })
+
+    expect(allocation.every((item) => item.quantity === 0)).toBe(true)
+    expect(allocation.reduce((sum, item) => sum + item.amountCents, 0)).toBe(83)
+  })
+
+  it('sends the rounding remainder on to the next line when the biggest has no room', () => {
+    // Three lines of 3 cents and 8 cents to place: 2 each by proportion, and
+    // the 2 left over cannot both go on the first line.
+    const allocation = allocateAcrossLines({
+      items: ['a', 'b', 'c'].map((id) =>
+        line({ id, quantity: 1, unitPriceCents: 3, subtotalCents: 3 }),
+      ),
+      amountCents: 8,
+    })
+
+    expect(allocation.map((item) => item.amountCents)).toEqual([3, 3, 2])
+  })
+
+  it('places no more than the lines have room for, whatever it is asked', () => {
+    // Only reachable when older rows put fee or tax on a line: what does not
+    // fit stays on the order rather than breaking the line CHECK.
+    const allocation = allocateAcrossLines({
+      items: FEE_LINES,
+      amountCents: 14_078,
+      whole: true,
+    })
+
+    expect(allocation).toEqual([
+      { orderItemId: 'floor', amountCents: 10_000, quantity: 2 },
+      { orderItemId: 'balcony', amountCents: 2_000, quantity: 1 },
+    ])
+  })
+
+  it('never gives a line more than it has left, and counts what refunds already hold', () => {
+    const allocation = allocateAcrossLines({
+      items: FEE_LINES,
+      amountCents: 1_000,
+      discountCents: 6_000,
+      pendingByLine: new Map([['floor', 2]]),
+      pendingCentsByLine: new Map([['floor', 5_000]]),
+      whole: true,
+    })
+
+    expect(allocation).toEqual([{ orderItemId: 'balcony', amountCents: 1_000, quantity: 1 }])
+  })
+})
+
+describe('isUnreservedLegacyRefund', () => {
+  const legacy = {
+    reason: 'EVENT_CANCELLED',
+    allocation: null,
+    status: REFUND_STATES.REQUESTED,
+  }
+
+  it('recognises a cancellation refund written with no reservation, lines or split', () => {
+    expect(isUnreservedLegacyRefund(legacy, 0)).toBe(true)
+    expect(isUnreservedLegacyRefund({ ...legacy, status: REFUND_STATES.APPROVED }, 0)).toBe(true)
+  })
+
+  it.each([
+    ['one with lines', { ...legacy }, 1],
+    ['one with a split', { ...legacy, allocation: { faceValueCents: 1 } }, 0],
+    ['one asked for by a customer', { ...legacy, reason: 'CUSTOMER_REQUEST' }, 0],
+    ['one already sent', { ...legacy, status: REFUND_STATES.SUBMITTED }, 0],
+  ])('does not count %s', (_name, refund, items) => {
+    expect(isUnreservedLegacyRefund(refund, items)).toBe(false)
   })
 })
