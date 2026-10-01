@@ -17,6 +17,13 @@
 /**
  * Whether this session holds a capability, optionally in one organisation.
  *
+ * Asked the way `can()` in `@desi-event/permissions` decides it: a capability
+ * the platform role holds holds in every organisation, and one the
+ * organisation's membership holds holds there. So a platform administrator with
+ * `report:view` holds it in each organisation, as the API agrees, and a
+ * finance administrator holds `finance:view` in each organisation, as well as
+ * a super administrator through `platform:admin` as before.
+ *
  * Used only to decide what a screen *offers*. Every action is authorised again
  * by the API, which is the check that counts — this one exists so a person is
  * not shown a button that will refuse them, not to keep anybody out.
@@ -29,16 +36,18 @@
 export function sessionCan(session, capability, organizationId) {
   if (!session) return false
 
-  if (!organizationId) return (session.capabilities ?? []).includes(capability)
+  if ((session.capabilities ?? []).includes(capability)) return true
+  if (!organizationId) return false
+
+  // `platform:admin` is the power to grant oneself any membership, so it still
+  // answers for every organisation, as it always did here.
+  if ((session.capabilities ?? []).includes('platform:admin')) return true
 
   const membership = (session.memberships ?? []).find(
     (candidate) => candidate.organizationId === organizationId,
   )
 
-  return (
-    (membership?.capabilities ?? []).includes(capability) ||
-    (session.capabilities ?? []).includes('platform:admin')
-  )
+  return (membership?.capabilities ?? []).includes(capability)
 }
 
 /**

@@ -11,18 +11,28 @@
 export {
   CAPABILITIES,
   ALL_CAPABILITIES,
+  EVENT_AUTHORITY_CAPABILITIES,
+  EVENT_POSTING_CAPABILITIES,
+  EVENT_POSTING_ORG_ROLES,
   ORG_ROLE_CAPABILITIES,
   ORG_ROLE_INHERITS,
   ORG_ROLE_ORDER,
+  OWNER_GRANTABLE_ORG_ROLES,
+  PLATFORM_ADMINISTRATOR_CAPABILITIES,
   PLATFORM_ONLY_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   PLATFORM_ROLE_ORDER,
   assertAcyclic,
+  assertPlatformAdministratorBounds,
+  assertPostingPolicy,
   canAssignOrgRole,
+  canIssueOrgRole,
+  canMoveOrgRole,
   findRoleCycle,
   isCapability,
   orgRoleRank,
   platformRoleRank,
+  postsEvents,
 } from './capabilities.js'
 
 export {

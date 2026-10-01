@@ -173,6 +173,7 @@ describe('platform door authority', () => {
       'SUPPORT',
       'MODERATOR',
       'FINANCE_ADMIN',
+      'ADMIN',
       undefined,
       null,
       '',
@@ -183,8 +184,10 @@ describe('platform door authority', () => {
   })
 
   it('names the platform roles that hold capabilities but are refused at the door', () => {
+    // ADMIN, the platform administrator, holds capabilities and no door
+    // authority, so the derived list takes it in with no edit to admission.js.
     expect([...REFUSED_PLATFORM_ADMISSION_ROLES].sort()).toEqual(
-      ['FINANCE_ADMIN', 'MODERATOR', 'SUPPORT'].sort(),
+      ['ADMIN', 'FINANCE_ADMIN', 'MODERATOR', 'SUPPORT'].sort(),
     )
 
     for (const role of REFUSED_PLATFORM_ADMISSION_ROLES) {

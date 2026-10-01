@@ -24,9 +24,9 @@ datasource db {
 
 /// A person's platform-wide role. Organisation-scoped authority lives on
 /// `Membership.role`; this enum is only for authority that spans the whole
-/// platform. `ADMIN` was Phase 1's single catch-all and is migrated to
-/// `SUPER_ADMIN`; the four narrower roles exist so that support, moderation
-/// and finance work does not require the key to everything.
+/// platform. Phase 1's catch-all `ADMIN` was migrated to `SUPER_ADMIN`; the
+/// narrower roles exist so that support, moderation, finance and platform
+/// administration work does not require the key to everything.
 enum UserRole {
   ATTENDEE
   ORGANIZER
@@ -36,6 +36,12 @@ enum UserRole {
   MODERATOR
   /// Refunds, reconciliation, transfers and payouts. No moderation.
   FINANCE_ADMIN
+  /// The platform administrator: invites organisers, reviews events, pictures
+  /// and organisations, switches an event's website link on and off, and reads
+  /// every event's figures. Cannot change platform roles, move money or admit
+  /// anybody at a door. Not Phase 1's catch-all ADMIN, which became
+  /// SUPER_ADMIN (migration `20260930090000_platform_admin_role`).
+  ADMIN
   SUPER_ADMIN
 }
 
@@ -104,6 +110,10 @@ model User {
   exportArtifactsRequested ExportArtifact[]
   exportArtifactSubjects   ExportArtifactSubject[]
   organizationsCreated     Organization[]           @relation("OrganizationCreatedBy")
+  organizerInvitesSent     OrganizerInvitation[]    @relation("OrganizerInvitationInvitedBy")
+  organizerInvitesAccepted OrganizerInvitation[]    @relation("OrganizerInvitationAcceptedBy")
+  organizerInvitesRevoked  OrganizerInvitation[]    @relation("OrganizerInvitationRevokedBy")
+  eventWebsiteDecisions    Event[]                  @relation("EventWebsiteRedirectChangedBy")
 
   @@index([role])
   @@index([suspendedAt])
@@ -137,24 +147,25 @@ model Organization {
   /// Set when the organisation is suspended: no publishing, no payouts.
   suspendedAt           DateTime?
   suspendedReason       String?
-  /// Who created it from the site, for the per-account creation cap and
-  /// provenance. Null for an organisation created any other way. Never
+  /// Who accepted the organiser invitation that created it, or who created it
+  /// from the site before invitations; null otherwise. Provenance only. Never
   /// returned by any route.
   createdById           String?
 
-  createdBy           User?                           @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  memberships         Membership[]
-  events              Event[]
-  promoCodes          PromoCode[]
-  invitations         Invitation[]
-  venues              Venue[]
-  connectedAccount    ConnectedAccount?
-  transfers           Transfer[]
-  payouts             Payout[]
-  verificationHistory OrganizationVerificationEvent[]
-  privacyRequests     PrivacyRequest[]
-  privacyHolds        PrivacyHold[]
-  exportArtifacts     ExportArtifact[]
+  createdBy            User?                           @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  memberships          Membership[]
+  events               Event[]
+  promoCodes           PromoCode[]
+  invitations          Invitation[]
+  venues               Venue[]
+  connectedAccount     ConnectedAccount?
+  transfers            Transfer[]
+  payouts              Payout[]
+  verificationHistory  OrganizationVerificationEvent[]
+  privacyRequests      PrivacyRequest[]
+  privacyHolds         PrivacyHold[]
+  exportArtifacts      ExportArtifact[]
+  organizerInvitations OrganizerInvitation[]
 
   @@index([verified])
   @@index([verificationStatus])
@@ -167,19 +178,23 @@ model Organization {
 }
 
 model Membership {
-  id             String   @id @default(cuid())
-  userId         String
-  organizationId String
-  role           OrgRole  @default(VIEWER)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String
+  organizationId        String
+  role                  OrgRole  @default(VIEWER)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
   /// Which invitation produced this membership, when one did.
-  invitationId   String?  @unique
+  invitationId          String?  @unique
+  /// Which organiser invitation produced this membership, when one did: the
+  /// founding OWNER of an organisation started from an invitation.
+  organizerInvitationId String?  @unique
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  invitation    Invitation?    @relation(fields: [invitationId], references: [id], onDelete: SetNull)
-  scannerScopes ScannerScope[]
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitation          Invitation?          @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+  organizerInvitation OrganizerInvitation? @relation(fields: [organizerInvitationId], references: [id], onDelete: SetNull)
+  scannerScopes       ScannerScope[]
 
   @@unique([userId, organizationId])
   @@index([organizationId, role])
@@ -285,6 +300,21 @@ model Venue {
   @@index([city(ops: raw("gin_trgm_ops"))], type: Gin, map: "Venue_city_trgm_idx")
 }
 
+// Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
+// trigger `desi_event_status_requires_review`, which refuses (constraint
+// `event_public_requires_review`, SQLSTATE 23514) any move into APPROVED except
+// from REVIEW_PENDING, and any move from a non-public status into a publicly
+// visible one except from APPROVED. INSERTs are not covered: only seeds and
+// tests insert anything but DRAFT.
+//
+// Hand-written in `20260930120000_event_website_link`: the CHECKs
+// `event_website_url_shape` (on `websiteUrl` and `websiteDecidedUrl`) and
+// `event_website_redirect_consistency`, `event_social_links_shape` refusing a
+// `website` key, the trigger `desi_event_website_change` (BEFORE INSERT OR
+// UPDATE OF "websiteUrl"), which keeps `websiteDecisionPending` and
+// `websiteSubmittedAt` in step with the address, and the partial indexes
+// `Event_website_pending_idx` and `Event_website_redirect_on_idx`. An INSERT can
+// create an ON row; only seeds do.
 model Event {
   id             String        @id @default(cuid())
   organizationId String
@@ -353,8 +383,10 @@ model Event {
   runningOrder       Json?
   /// Sponsors: `[{name, url?, level?}]`, at most 30.
   sponsors           Json?
-  /// Social links: `{website?, instagram?, facebook?, youtube?, x?, whatsapp?}`,
-  /// https only.
+  /// Social links: `{instagram?, facebook?, youtube?, x?, whatsapp?}`, https
+  /// only. The website has its own column, `websiteUrl`, behind an
+  /// administrator's switch; CHECK `event_social_links_shape` refuses a
+  /// `website` key here.
   socialLinks        Json?
   dressCode          String?
   /// This event's parking and arrival notes, layered over `Venue.directions`.
@@ -364,17 +396,51 @@ model Event {
   /// A contact number the organiser chose to publish. Public.
   publicContactPhone String?
 
-  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  venue             Venue?                  @relation(fields: [venueId], references: [id], onDelete: SetNull)
-  ticketTypes       TicketType[]
-  orders            Order[]
-  promoCodes        PromoCode[]
-  waitlist          WaitlistEntry[]
-  sessions          EventSession[]
-  moderationHistory EventModerationAction[]
-  media             MediaAsset[]
+  // The organiser's website and the switch only a platform administrator turns
+  // (migration `20260930120000_event_website_link`). Only
+  // `apps/api/src/lib/website-redirect.js` writes the switch columns.
+
+  /// The organiser's current website address: an https address on a public
+  /// host with no sign-in, port or key in it (`@desi-event/schemas/website`),
+  /// stored as `new URL(...).href`. Shown to nobody until an administrator
+  /// turns the link on for it.
+  websiteUrl                 String?
+  /// Whether the public page links to `websiteDecidedUrl` through the tracked
+  /// redirect `/events/{slug}/website`. An organiser's edit never moves it.
+  websiteRedirectEnabled     Boolean   @default(false)
+  /// The address the last administrator decision was about. While the switch
+  /// is on, the link goes here, even after the organiser changes `websiteUrl`.
+  websiteDecidedUrl          String?
+  /// True while `websiteUrl` differs from `websiteDecidedUrl` and there is
+  /// something to decide (an address, or a switch that is on).
+  websiteDecisionPending     Boolean   @default(false)
+  /// When the decision last became pending. Null when nothing is pending.
+  websiteSubmittedAt         DateTime?
+  /// When an administrator last decided.
+  websiteRedirectChangedAt   DateTime?
+  /// The administrator who last decided. Null once the account is gone.
+  websiteRedirectChangedById String?
+  /// The administrator's reason, 1 to 500 characters. Shown to the organiser
+  /// with the administrator's name.
+  websiteRedirectReason      String?
+
+  organization             Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  venue                    Venue?                  @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  ticketTypes              TicketType[]
+  orders                   Order[]
+  promoCodes               PromoCode[]
+  waitlist                 WaitlistEntry[]
+  sessions                 EventSession[]
+  moderationHistory        EventModerationAction[]
+  media                    MediaAsset[]
   /// The door scanners whose authority names this event.
-  scannerScopes     ScannerScope[]
+  scannerScopes            ScannerScope[]
+  /// The administrator who last decided the website link.
+  websiteRedirectChangedBy User?                   @relation("EventWebsiteRedirectChangedBy", fields: [websiteRedirectChangedById], references: [id], onDelete: SetNull)
+  /// Counted visits, kept for two days after their day. See `TrafficEvent`.
+  trafficEvents            TrafficEvent[]
+  /// Daily visit totals. See `TrafficDaily`.
+  trafficDaily             TrafficDaily[]
 
   @@index([status, startsAt])
   @@index([category, startsAt])
@@ -392,6 +458,7 @@ model Event {
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_title_trgm_idx")
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_summary_trgm_idx")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_description_trgm_idx")
+  @@index([websiteRedirectChangedById])
 }
 
 // ---------------------------------------------------------------------------
@@ -1180,6 +1247,12 @@ enum InvitationDelivery {
 // because Prisma's schema language cannot express it: the partial unique index
 // `Invitation_one_pending_per_address` on ("organizationId", lower("email"))
 // WHERE "status" = 'PENDING'. One live code per address per organisation.
+//
+// Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
+// CHECK `invitation_pending_role_is_owner_grantable`. A waiting team invitation
+// offers only FINANCE, STAFF, SCANNER or VIEWER; roles that create or publish
+// events come from the Desi-Event team (an organiser invitation, or a super
+// administrator's direct grant).
 /// An invitation to join an organisation with a named role.
 ///
 /// The token is hashed and single-use, and the role is fixed at issue. An
@@ -1213,6 +1286,64 @@ model Invitation {
 
   @@index([organizationId, status])
   @@index([email, status])
+  @@index([expiresAt])
+}
+
+// Hand-written in `20260930100000_organiser_invitations_and_review_gate`: the
+// partial unique index `OrganizerInvitation_one_pending_per_address` on
+// (lower("email")) WHERE "status" = 'PENDING', and the CHECKs
+// `organizer_invitation_email_lower`, `_name_length`, `_description_length`,
+// `_website_shape`, `_note_length`, `_token_is_digest`,
+// `_expires_after_creation`, `_accepted_shape`, `_revoked_shape` and
+// `_org_only_when_accepted`.
+/// An invitation from the Desi-Event team to start an organisation here, as
+/// its owner.
+///
+/// Apart from a super administrator's direct grant, the only way anybody comes
+/// to hold an organisation role that creates or publishes events. The code is
+/// hashed and single-use; the address it was issued to must be the address of
+/// the account that accepts it. The organisation's public description and
+/// website are written by the administrator here, never by the recipient.
+model OrganizerInvitation {
+  id                      String             @id @default(cuid())
+  /// Lower-cased. The accepting account's address must match it.
+  email                   String
+  /// The name the organisation is created with.
+  organizationName        String
+  /// The organisation's public description, written by the administrator.
+  organizationDescription String?
+  /// The organisation's website, written by the administrator: the event
+  /// website's address rules.
+  organizationWebsiteUrl  String?
+  /// Written by the inviting administrator for the recipient only. Never public.
+  note                    String?
+  /// Null until accepted, then the organisation it created.
+  organizationId          String?
+  tokenHash               String             @unique
+  invitedById             String
+  status                  InvitationStatus   @default(PENDING)
+  deliveryMode            InvitationDelivery
+  expiresAt               DateTime
+  acceptedAt              DateTime?
+  acceptedByUserId        String?
+  revokedAt               DateTime?
+  revokedById             String?
+  /// The invitation this one replaced when a new code was issued.
+  supersedesId            String?            @unique
+  createdAt               DateTime           @default(now())
+
+  organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  invitedBy    User                 @relation("OrganizerInvitationInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+  acceptedBy   User?                @relation("OrganizerInvitationAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  revokedBy    User?                @relation("OrganizerInvitationRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+  supersedes   OrganizerInvitation? @relation("OrganizerInvitationReissue", fields: [supersedesId], references: [id], onDelete: SetNull)
+  supersededBy OrganizerInvitation? @relation("OrganizerInvitationReissue")
+  membership   Membership?
+
+  @@index([status, createdAt])
+  @@index([email, status])
+  @@index([organizationId])
+  @@index([invitedById])
   @@index([expiresAt])
 }
 
@@ -1630,6 +1761,134 @@ model MediaBlob {
   createdAt  DateTime @default(now())
 
   asset MediaAsset @relation(fields: [storageKey], references: [storageKey], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Visits to event pages
+//
+// Migration `20260930130000_event_traffic_analytics`. Nothing here holds an
+// address, a browser string, a URL, a referring site, an account or a time of
+// day. The CHECKs are hand-written there: `traffic_event_source_only_on_views`,
+// `traffic_event_placement_fits_kind`, `traffic_event_visitor_hash_shape`,
+// `traffic_event_dedupe_key_shape`, `traffic_daily_counts_not_negative`,
+// `traffic_daily_sources_add_up`, `traffic_daily_placements_add_up`,
+// `traffic_daily_visitors_within_views`,
+// `traffic_daily_click_visitors_within_clicks`,
+// `traffic_daily_redirect_visitors_within_redirects`, `traffic_salt_shape`,
+// `traffic_rollup_state_singleton` and `traffic_rollup_state_lease_pair`.
+// ---------------------------------------------------------------------------
+
+/// What one counted moment on or towards an event's page was.
+enum TrafficEventKind {
+  /// The event's public page was opened (a browser beacon).
+  PAGE_VIEW
+  /// The event's card was clicked on the home page, the events list or search.
+  CARD_CLICK
+  /// "Choose tickets" on the event page.
+  TICKETS_CLICK
+  /// "Choose seats" on the event page.
+  SEATS_CLICK
+  /// Somebody followed "Visit the organiser's website" (counted by the server).
+  WEBSITE_REDIRECT
+}
+
+/// Where the moment happened.
+enum TrafficPlacement {
+  HOME
+  LISTING
+  SEARCH
+  EVENT_PAGE
+}
+
+/// Where a page view came from, as a category. Never the referring address.
+enum TrafficSource {
+  DIRECT
+  INTERNAL
+  SEARCH
+  SOCIAL
+  OTHER
+}
+
+/// One counted moment, kept for at most two days after its UTC day and then
+/// deleted by the traffic roll-up, once it has been added up.
+///
+/// `visitorHash` is a keyed digest of the event and an in-memory fingerprint
+/// under that day's random salt, truncated; it is null when the browser sent
+/// Global Privacy Control or Do Not Track. A moment with no address at all is
+/// not stored. `dedupeKey` is keyed by the day's salt too, so it cannot be
+/// recomputed from the row's columns. The id is a random UUID v4 because a
+/// cuid carries its creation time.
+model TrafficEvent {
+  id          String           @id @default(uuid(4))
+  eventId     String
+  kind        TrafficEventKind
+  placement   TrafficPlacement
+  /// Set for PAGE_VIEW only.
+  source      TrafficSource?
+  /// The UTC calendar day it happened on.
+  day         DateTime         @db.Date
+  visitorHash String?          @db.Char(32)
+  /// One row per visitor per slot. Null exactly when `visitorHash` is null.
+  dedupeKey   String?          @unique @db.Char(64)
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([day, eventId])
+  @@index([eventId])
+}
+
+/// One event's visits on one UTC day, recomputed from `TrafficEvent` by the
+/// roll-up (values are set, never added to). The only visits table a screen reads.
+model TrafficDaily {
+  eventId                 String
+  day                     DateTime @db.Date
+  views                   Int      @default(0)
+  /// Distinct visitor codes among the day's page views.
+  visitors                Int      @default(0)
+  /// Page views with no visitor code (a privacy signal).
+  anonymousViews          Int      @default(0)
+  viewsDirect             Int      @default(0)
+  viewsInternal           Int      @default(0)
+  viewsSearch             Int      @default(0)
+  viewsSocial             Int      @default(0)
+  viewsOther              Int      @default(0)
+  cardClicks              Int      @default(0)
+  cardClicksHome          Int      @default(0)
+  cardClicksListing       Int      @default(0)
+  cardClicksSearch        Int      @default(0)
+  ticketClicks            Int      @default(0)
+  seatClicks              Int      @default(0)
+  /// Distinct visitor codes among the day's ticket and seat clicks.
+  ticketClickVisitors     Int      @default(0)
+  websiteRedirects        Int      @default(0)
+  websiteRedirectVisitors Int      @default(0)
+  /// True for figures the development seed wrote to show how a page looks.
+  /// The roll-up always writes false. Screens say so when any summed row is.
+  demonstration           Boolean  @default(false)
+  computedAt              DateTime
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@id([eventId, day])
+  @@index([day])
+}
+
+/// The random salt for one UTC day's visitor codes. Deleted from the live
+/// database once the day is over; backups taken during the day keep it for as
+/// long as they are kept.
+model TrafficSalt {
+  day       DateTime @id @db.Date
+  salt      String   @db.Char(64)
+  createdAt DateTime @default(now())
+}
+
+/// The roll-up's lease and its last completion, in one row (`id = 'traffic-rollup'`,
+/// inserted by the migration).
+model TrafficRollupState {
+  id              String    @id
+  leaseOwner      String?
+  leaseExpiresAt  DateTime?
+  lastCompletedAt DateTime?
 }
 
 // ---------------------------------------------------------------------------

@@ -33,17 +33,25 @@
 import { sessionCan } from './capabilities.js'
 
 /**
- * Whether any of this session's memberships holds a capability, asked the way
- * `sessionCan` asks it per organisation (a platform administrator holds it in
- * every organisation they belong to).
+ * Whether any of this session's memberships holds a capability, or the session
+ * holds `platform:admin` and belongs to some organisation.
+ *
+ * Membership-first on purpose, and not `sessionCan` per organisation: since
+ * `sessionCan` counts every platform capability in every organisation, asking it
+ * here would admit a platform role that holds the capability as soon as its
+ * account belonged to any organisation at all, which is a different question
+ * from "is one of my organisations' roles allowed this". The platform question
+ * is asked separately where an area wants it.
  *
  * @param {object|null} session The session payload.
  * @param {string} capability The capability name.
  * @returns {boolean} True when some membership holds it.
  */
 function inSomeMembership(session, capability) {
-  return (session?.memberships ?? []).some((membership) =>
-    sessionCan(session, capability, membership.organizationId),
+  const platformAdmin = (session?.capabilities ?? []).includes('platform:admin')
+
+  return (session?.memberships ?? []).some(
+    (membership) => platformAdmin || (membership.capabilities ?? []).includes(capability),
   )
 }
 

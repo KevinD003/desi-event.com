@@ -11,11 +11,13 @@
  * @module @desi-event/schemas/env
  */
 
+import { isIP } from 'node:net'
+
 import { z } from 'zod'
 
 import { NODE_ENVS, logLevelSchema, nodeEnvSchema } from './enums.js'
 import { parseOrThrow } from './errors.js'
-import { urlSchema } from './primitives.js'
+import { emailSchema, urlSchema } from './primitives.js'
 
 /** Shortest JWT signing secret accepted anywhere. */
 export const MIN_JWT_SECRET_LENGTH = 32
@@ -160,6 +162,76 @@ const rateLimitFields = {
   RATE_LIMIT_WINDOW: z.string().trim().min(2).max(32).default('1 minute'),
 }
 
+/** The web servers' loopback addresses, which the API believes by default. */
+export const DEFAULT_TRAFFIC_TRUSTED_FORWARDERS = Object.freeze([
+  '127.0.0.1',
+  '::1',
+  '::ffff:127.0.0.1',
+])
+
+/**
+ * The SMTP server that emails show-once codes when `DELIVERY_MODE=EMAIL`.
+ *
+ * All optional: email is opt-in and never inferred, so SMTP settings with
+ * `DELIVERY_MODE` unset still mean MANUAL. What EMAIL needs together is checked
+ * in the API schema's refinement below.
+ */
+const smtpEnvFields = {
+  SMTP_HOST: z
+    .preprocess(blankAsAbsent, z.string().trim().min(1).max(253).optional())
+    .describe('The SMTP server that emails invitation and ticket-transfer codes.'),
+  SMTP_PORT: z.preprocess(blankAsAbsent, portSchema.default(587)),
+  SMTP_SECURE: envBoolean(false).describe('Implicit TLS from the first byte (usually port 465).'),
+  SMTP_REQUIRE_TLS: envBoolean(true).describe(
+    'Refuse to send unless STARTTLS succeeds. Ignored when SMTP_SECURE is true.',
+  ),
+  SMTP_USER: z.preprocess(blankAsAbsent, z.string().min(1).max(320).optional()),
+  SMTP_PASSWORD: z.preprocess(blankAsAbsent, z.string().min(1).max(512).optional()),
+  SMTP_FROM: z
+    .preprocess(blankAsAbsent, emailSchema.optional())
+    .describe('The address codes are sent from.'),
+}
+
+/**
+ * Visit counting in the API.
+ *
+ * `TRAFFIC_TRUSTED_FORWARDERS` lists the addresses whose `x-desi-client-address`
+ * header is believed: the web servers. Exact IPv4 or IPv6 literals,
+ * comma-separated; anything else that connects is counted as its own address.
+ * Normalised to a list in `preprocess`, so parsing the result again (the API
+ * parses its environment twice) gives the same list.
+ */
+const trafficEnvFields = {
+  TRAFFIC_TRUSTED_FORWARDERS: z
+    .preprocess(
+      (value) => {
+        const supplied = blankAsAbsent(value)
+
+        if (supplied === undefined) return [...DEFAULT_TRAFFIC_TRUSTED_FORWARDERS]
+        if (typeof supplied !== 'string') return supplied
+
+        return supplied
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      },
+      z
+        .array(
+          z
+            .string()
+            .refine(
+              (entry) => isIP(entry) !== 0,
+              'TRAFFIC_TRUSTED_FORWARDERS must list IP addresses',
+            ),
+        )
+        .min(1, 'TRAFFIC_TRUSTED_FORWARDERS must list IP addresses'),
+    )
+    .describe('Addresses whose x-desi-client-address header is believed: the web servers.'),
+  TRAFFIC_BEACON_MAX_PER_MINUTE: z
+    .preprocess(blankAsAbsent, z.coerce.number().int().min(1).max(10_000).default(60))
+    .describe('Visit beacons one visitor may send a minute.'),
+}
+
 /** `process.env` for the Fastify API. */
 export const apiEnvSchema = z.preprocess(
   /**
@@ -254,8 +326,10 @@ export const apiEnvSchema = z.preprocess(
       DELIVERY_MODE: z
         .preprocess(blankAsAbsent, z.enum(['MANUAL', 'EMAIL']).optional())
         .describe(
-          'How single-use codes reach people. MANUAL shows an invitation code once to the inviter. EMAIL needs a configured provider, which this build does not have.',
+          'How single-use codes reach people. MANUAL shows each code once to whoever issued it. EMAIL sends it through the SMTP server named by SMTP_HOST (or a provider wired in by code).',
         ),
+      ...smtpEnvFields,
+      ...trafficEnvFields,
     })
     .superRefine((env, ctx) => {
       // Only when it was supplied on purpose. When it was filled from JWT_SECRET
@@ -293,8 +367,68 @@ export const apiEnvSchema = z.preprocess(
             'JWT_SECRET is the development placeholder. Generate a real secret before deploying to production.',
         })
       }
+
+      // Emailing codes through SMTP: what has to be set together. Checked only
+      // when EMAIL was asked for and an SMTP server named, because SMTP settings
+      // without DELIVERY_MODE=EMAIL change nothing.
+      if (env.DELIVERY_MODE === 'EMAIL' && env.SMTP_HOST) {
+        if (!env.SMTP_FROM) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['SMTP_FROM'],
+            message: 'SMTP_FROM is required to email codes: the address they are sent from.',
+          })
+        }
+
+        if (!absoluteOrigin(env.WEB_ORIGIN, env.NODE_ENV === 'production')) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['WEB_ORIGIN'],
+            message:
+              env.NODE_ENV === 'production'
+                ? 'WEB_ORIGIN is required to email codes, and must be an https address in production: each letter links to the page where the code is typed.'
+                : 'WEB_ORIGIN is required to email codes, as an absolute address: each letter links to the page where the code is typed.',
+          })
+        }
+
+        if (Boolean(env.SMTP_USER) !== Boolean(env.SMTP_PASSWORD)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [env.SMTP_USER ? 'SMTP_PASSWORD' : 'SMTP_USER'],
+            message: 'Set SMTP_USER and SMTP_PASSWORD together, or neither.',
+          })
+        }
+
+        if (env.NODE_ENV === 'production' && !env.SMTP_SECURE && !env.SMTP_REQUIRE_TLS) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['SMTP_REQUIRE_TLS'],
+            message:
+              'This server refuses to send codes over an unencrypted connection in production: set SMTP_SECURE or SMTP_REQUIRE_TLS.',
+          })
+        }
+      }
     }),
 )
+
+/**
+ * Whether a value is an absolute http(s) origin, https only when required.
+ *
+ * @param {unknown} value The configured origin.
+ * @param {boolean} httpsOnly Whether only https is acceptable.
+ * @returns {boolean} True when it is one.
+ */
+function absoluteOrigin(value, httpsOnly) {
+  if (typeof value !== 'string' || value.trim() === '') return false
+
+  try {
+    const { protocol } = new URL(value)
+
+    return httpsOnly ? protocol === 'https:' : protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
 
 /** `process.env` for the BullMQ worker. */
 export const workerEnvSchema = z.object({
@@ -321,6 +455,10 @@ export const workerEnvSchema = z.object({
   RETENTION_ENFORCEMENT_ACTIVATED: envBoolean(false).describe(
     'Let this environment run a retention rehearsal. Off means it records SKIPPED_DISABLED and counts nothing.',
   ),
+  /** How often the traffic roll-up adds visits up: ten minutes by default. */
+  TRAFFIC_ROLLUP_INTERVAL_MS: z
+    .preprocess(blankAsAbsent, z.coerce.number().int().min(60_000).max(3_600_000).default(600_000))
+    .describe('How often visits to event pages are added up into daily totals.'),
   ...feeEnvFields,
   ...holdTtlField,
 })
@@ -331,6 +469,14 @@ export const webEnvSchema = z.object({
   NEXT_PUBLIC_API_URL: urlSchema.default('http://127.0.0.1:4000'),
   NEXT_PUBLIC_SITE_URL: urlSchema.default('http://127.0.0.1:3000'),
   WEB_PORT: portSchema.default(3000),
+  /**
+   * How many proxies in front of the web server append to `x-forwarded-for`,
+   * so the visitor's address is that many entries from the end. Zero takes the
+   * address from the connection, which behind a proxy is the proxy's.
+   */
+  TRAFFIC_TRUSTED_PROXY_HOPS: z
+    .preprocess(blankAsAbsent, z.coerce.number().int().min(0).max(5).default(0))
+    .describe('Proxies in front of the web server that append to x-forwarded-for.'),
 })
 
 /**

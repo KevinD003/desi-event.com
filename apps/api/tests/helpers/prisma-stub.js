@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 /**
  * A small in-memory stand-in for the Prisma client.
  *
@@ -29,6 +31,16 @@ const RELATIONS = {
     // The cover and the gallery. Nested `where`/`orderBy`/`take` on an include
     // are not honoured here (see `hydrate`), so a presenter filters in JS too.
     media: { kind: 'many', model: 'mediaAsset', from: 'id', to: 'eventId' },
+    // The administrator who last decided the website link, for the name an
+    // insider is shown.
+    websiteRedirectChangedBy: {
+      kind: 'one',
+      model: 'user',
+      from: 'websiteRedirectChangedById',
+      to: 'id',
+    },
+    trafficEvents: { kind: 'many', model: 'trafficEvent', from: 'id', to: 'eventId' },
+    trafficDaily: { kind: 'many', model: 'trafficDaily', from: 'id', to: 'eventId' },
   },
   eventModerationAction: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -144,6 +156,26 @@ const RELATIONS = {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
     scannerScopes: { kind: 'many', model: 'scannerScope', from: 'id', to: 'membershipId' },
+    organizerInvitation: {
+      kind: 'one',
+      model: 'organizerInvitation',
+      from: 'organizerInvitationId',
+      to: 'id',
+    },
+  },
+  organizerInvitation: {
+    organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
+    invitedBy: { kind: 'one', model: 'user', from: 'invitedById', to: 'id' },
+    acceptedBy: { kind: 'one', model: 'user', from: 'acceptedByUserId', to: 'id' },
+    revokedBy: { kind: 'one', model: 'user', from: 'revokedById', to: 'id' },
+    supersedes: { kind: 'one', model: 'organizerInvitation', from: 'supersedesId', to: 'id' },
+    membership: { kind: 'one', model: 'membership', from: 'id', to: 'organizerInvitationId' },
+  },
+  trafficEvent: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+  },
+  trafficDaily: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
   },
   session: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
@@ -216,7 +248,7 @@ const RELATIONS = {
 /** Columns the database fills in, mirrored so rows look like real rows. */
 const DEFAULTS = {
   user: { locale: 'en-IN', role: 'ATTENDEE', emailVerified: false, phone: null },
-  membership: { role: 'VIEWER' },
+  membership: { role: 'VIEWER', organizerInvitationId: null },
   organization: {
     verified: false,
     payoutCurrency: 'INR',
@@ -270,6 +302,17 @@ const DEFAULTS = {
     directions: null,
     publicContactEmail: null,
     publicContactPhone: null,
+    // The organiser's website and the administrators' switch. The database's
+    // trigger keeps `websiteDecisionPending` and `websiteSubmittedAt` in step;
+    // the stub runs no triggers, so the API computes them itself.
+    websiteUrl: null,
+    websiteRedirectEnabled: false,
+    websiteDecidedUrl: null,
+    websiteDecisionPending: false,
+    websiteSubmittedAt: null,
+    websiteRedirectChangedAt: null,
+    websiteRedirectChangedById: null,
+    websiteRedirectReason: null,
   },
   ticketType: {
     currency: 'INR',
@@ -445,6 +488,43 @@ const DEFAULTS = {
     revokedAt: null,
     deliveryMode: null,
   },
+  organizerInvitation: {
+    status: 'PENDING',
+    organizationDescription: null,
+    organizationWebsiteUrl: null,
+    note: null,
+    organizationId: null,
+    acceptedAt: null,
+    acceptedByUserId: null,
+    revokedAt: null,
+    revokedById: null,
+    supersedesId: null,
+  },
+  // Visits. A counted moment's id is a random UUID (see UUID_IDS); the daily
+  // totals and the salt are keyed by their natural columns (see NATURAL_KEYS).
+  trafficEvent: { source: null, visitorHash: null, dedupeKey: null },
+  trafficDaily: {
+    views: 0,
+    visitors: 0,
+    anonymousViews: 0,
+    viewsDirect: 0,
+    viewsInternal: 0,
+    viewsSearch: 0,
+    viewsSocial: 0,
+    viewsOther: 0,
+    cardClicks: 0,
+    cardClicksHome: 0,
+    cardClicksListing: 0,
+    cardClicksSearch: 0,
+    ticketClicks: 0,
+    seatClicks: 0,
+    ticketClickVisitors: 0,
+    websiteRedirects: 0,
+    websiteRedirectVisitors: 0,
+    demonstration: false,
+  },
+  trafficSalt: {},
+  trafficRollupState: { leaseOwner: null, leaseExpiresAt: null, lastCompletedAt: null },
   scannerScope: {},
   venueMap: { notes: null, archivedAt: null },
   venueMapVersion: { publishedAt: null, seatCount: 0, revision: 0 },
@@ -684,6 +764,14 @@ const UNIQUE_FIELDS = {
   groupPass: ['orderId', 'credentialHash', 'codeHash'],
   mediaAsset: ['storageKey'],
   mediaBlob: ['storageKey'],
+  // A digest names one organiser invitation, and an invitation replaces at most
+  // one other.
+  organizerInvitation: ['tokenHash', 'supersedesId'],
+  // One membership per organiser invitation: the organisation's founding owner.
+  membership: ['organizerInvitationId'],
+  // One counted moment per visitor per slot, and one salt per day.
+  trafficEvent: ['dedupeKey'],
+  trafficSalt: ['day'],
 }
 
 /**
@@ -715,6 +803,8 @@ const COMPOUND_UNIQUE = {
   // A code is unique within its organisation; two organisations may both
   // offer SAVE10.
   promoCode: [['organizationId', 'code']],
+  // One row of totals per event per day: the roll-up's upsert key.
+  trafficDaily: [['eventId', 'day']],
 }
 
 /** Ticket states that still admit, or may again: the rows the seat index counts. */
@@ -794,6 +884,14 @@ const PARTIAL_UNIQUE = {
       when: (row) => row.kind === 'EVENT_COVER',
     },
   ],
+  // One waiting organiser invitation per address, whatever its case.
+  organizerInvitation: [
+    {
+      name: 'OrganizerInvitation_one_pending_per_address',
+      key: (row) => [typeof row.email === 'string' ? row.email.toLowerCase() : row.email],
+      when: (row) => row.status === 'PENDING',
+    },
+  ],
 }
 
 /**
@@ -804,7 +902,48 @@ const PARTIAL_UNIQUE = {
  *
  * @type {Record<string, string>}
  */
-const NATURAL_KEYS = { mediaBlob: 'storageKey' }
+const NATURAL_KEYS = {
+  mediaBlob: 'storageKey',
+  trafficDaily: ['eventId', 'day'],
+  trafficSalt: 'day',
+}
+
+/**
+ * Models whose generated id is a random UUID v4 rather than a cuid.
+ *
+ * A counted visit's id must not carry the time it was made, which a cuid does.
+ *
+ * @type {Set<string>}
+ */
+const UUID_IDS = new Set(['trafficEvent'])
+
+/**
+ * A generated id for a new row of one model.
+ *
+ * @param {string} model The model.
+ * @returns {object} `{ id }`, or nothing for a model keyed by its own columns.
+ */
+function generatedId(model) {
+  if (NATURAL_KEYS[model]) return {}
+
+  return { id: UUID_IDS.has(model) ? randomUUID() : cuid() }
+}
+
+/**
+ * Whether two stored values are the same key value.
+ *
+ * Dates compare by instant: two `Date` objects for one day are one key, as
+ * they are in PostgreSQL, though they are different objects here.
+ *
+ * @param {unknown} left A stored value.
+ * @param {unknown} right Another.
+ * @returns {boolean} True when they collide.
+ */
+function sameKey(left, right) {
+  if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime()
+
+  return left === right
+}
 
 /** Models that carry `createdAt`/`updatedAt`. */
 const TIMESTAMPED = new Set([
@@ -850,6 +989,8 @@ const CREATED_ONLY = new Set([
   'authToken',
   'loginAttempt',
   'invitation',
+  'organizerInvitation',
+  'trafficSalt',
   'scannerScope',
   'venueMap',
   'venueMapVersion',
@@ -1460,7 +1601,7 @@ export function createPrismaStub(seed = {}) {
         }
 
         const row = {
-          ...(NATURAL_KEYS[model] ? {} : { id: cuid() }),
+          ...generatedId(model),
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
           ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
@@ -1487,7 +1628,7 @@ export function createPrismaStub(seed = {}) {
         for (const field of UNIQUE_FIELDS[model] ?? []) {
           if (!present(row[field])) continue
 
-          if (tables[model].some((existing) => existing[field] === row[field])) {
+          if (tables[model].some((existing) => sameKey(existing[field], row[field]))) {
             throw uniqueViolation(model, field)
           }
         }
@@ -1496,7 +1637,7 @@ export function createPrismaStub(seed = {}) {
           if (!fields.every((field) => present(row[field]))) continue
 
           const clash = tables[model].some((existing) =>
-            fields.every((field) => existing[field] === row[field]),
+            fields.every((field) => sameKey(existing[field], row[field])),
           )
 
           if (clash) throw uniqueViolation(model, fields.join('_'))
@@ -1580,7 +1721,7 @@ export function createPrismaStub(seed = {}) {
 
         const now = new Date()
         const created = {
-          ...(NATURAL_KEYS[model] ? {} : { id: cuid() }),
+          ...generatedId(model),
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
           ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
@@ -1620,11 +1761,15 @@ export function createPrismaStub(seed = {}) {
         return { count }
       },
       /**
-       * `groupBy`, supporting the one shape the API uses: group by columns and
-       * count. Enough to exercise the query the device list depends on, and
+       * `groupBy`, supporting the shapes the API uses: group by columns, then
+       * count and sum; order by a grouped column or by a sum; and page with
+       * `skip` and `take`. Enough for the device list and the visit totals, and
        * deliberately not a general implementation — a stub that pretends to
        * support more of the query language than it does is worse than one that
        * throws.
+       *
+       * A sum over a group whose values are all null is null, as Prisma
+       * returns it; callers write `?? 0`.
        *
        * @param {object} args Prisma `groupBy` arguments.
        * @returns {Promise<object[]>} One row per distinct combination.
@@ -1633,38 +1778,115 @@ export function createPrismaStub(seed = {}) {
         const by = toArray(args.by)
 
         if (by.length === 0) throw new Error('groupBy needs at least one column')
-        if (!args._count) throw new Error('the stub only implements groupBy with _count')
+        if (!args._count && !args._sum) {
+          throw new Error('the stub only implements groupBy with _count or _sum')
+        }
+
+        for (const key of Object.keys(args)) {
+          if (['by', 'where', '_count', '_sum', 'orderBy', 'skip', 'take'].includes(key)) continue
+
+          throw new Error(`prisma-stub: groupBy does not implement ${key}`)
+        }
 
         const rows = (tables[model] ?? []).filter((row) => matches(model, row, args.where))
-        /** @type {Map<string, {row: object, count: number}>} */
+        const sumFields = Object.keys(args._sum ?? {})
+        /** @type {Map<string, {row: object, members: object[]}>} */
         const groups = new Map()
 
         for (const row of rows) {
-          const key = JSON.stringify(by.map((column) => row[column] ?? null))
+          const key = JSON.stringify(
+            by.map((column) =>
+              row[column] instanceof Date ? row[column].getTime() : (row[column] ?? null),
+            ),
+          )
           const existing = groups.get(key)
 
           if (existing) {
-            existing.count += 1
+            existing.members.push(row)
             continue
           }
 
           groups.set(key, {
             row: Object.fromEntries(by.map((column) => [column, row[column] ?? null])),
-            count: 1,
+            members: [row],
           })
         }
 
-        return [...groups.values()].map((group) => ({
-          ...group.row,
-          _count: { _all: group.count },
-        }))
+        const results = [...groups.values()].map(({ row, members }) => {
+          const sums = Object.fromEntries(
+            sumFields.map((field) => {
+              const present = members.filter(
+                (member) => member[field] !== null && member[field] !== undefined,
+              )
+
+              return [
+                field,
+                present.length === 0
+                  ? null
+                  : present.reduce((total, member) => total + member[field], 0),
+              ]
+            }),
+          )
+
+          return {
+            ...row,
+            ...(args._count ? { _count: { _all: members.length } } : {}),
+            ...(args._sum ? { _sum: sums } : {}),
+          }
+        })
+
+        if (args.orderBy) {
+          const clauses = toArray(args.orderBy)
+
+          results.sort((left, right) => {
+            for (const clause of clauses) {
+              const [field, direction] = Object.entries(clause)[0]
+              let a
+              let b
+
+              if (field === '_sum') {
+                const [sumField, sumDirection] = Object.entries(direction)[0]
+                a = left._sum?.[sumField] ?? null
+                b = right._sum?.[sumField] ?? null
+
+                if (a === b) continue
+
+                const order = a === null ? 1 : b === null ? -1 : a < b ? -1 : 1
+                return sumDirection === 'desc' ? -order : order
+              }
+
+              if (!by.includes(field)) {
+                throw new Error(`prisma-stub: groupBy orders only by a grouped column or a sum`)
+              }
+
+              a = toComparable(left[field])
+              b = toComparable(right[field])
+
+              if (a === b) continue
+
+              const order = a < b ? -1 : 1
+              return direction === 'desc' ? -order : order
+            }
+
+            return 0
+          })
+        }
+
+        const start = args.skip ?? 0
+        const end = args.take === undefined ? undefined : start + args.take
+
+        return results.slice(start, end)
       },
     }
   }
 
+  /** @type {Array<{sql: string, values: unknown[]}>} */
+  const rawStatements = []
+
   const client = {
     _store: tables,
     _rawQueries: rawQueries,
+    _rawStatements: rawStatements,
 
     /**
      * Record a raw query. Real PostgreSQL takes the row lock here.
@@ -1676,6 +1898,21 @@ export function createPrismaStub(seed = {}) {
     $queryRaw: async (strings, ...values) => {
       rawQueries.push({ sql: Array.from(strings).join('?'), values })
       return []
+    },
+
+    /**
+     * Record a raw statement, which changes nothing here.
+     *
+     * Kept apart from `$queryRaw`'s record, so a test can tell a statement that
+     * would have written from a query that only locked.
+     *
+     * @param {TemplateStringsArray|string[]} strings Template literal chunks.
+     * @param {...unknown} values Interpolated values.
+     * @returns {Promise<number>} Zero rows affected.
+     */
+    $executeRaw: async (strings, ...values) => {
+      rawStatements.push({ sql: Array.from(strings).join('?'), values })
+      return 0
     },
 
     /**

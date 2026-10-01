@@ -10,13 +10,17 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { websiteUrlProblem } from '@desi-event/schemas/website'
+
 import {
   applyBps,
   buildSeedData,
   computeSeedOrderTotals,
+  eventStatusPath,
   localTime,
   offset,
   onOrAfterWeekday,
+  settleEventStatus,
   startOfUtcDay,
 } from '../scripts/seed.mjs'
 
@@ -258,12 +262,23 @@ describe('buildSeedData shape', () => {
     })
   })
 
-  it('uses unique emails and includes attendees, organisers, an admin and a moderator', () => {
+  it('uses unique emails and includes attendees, organisers, both administrators and a moderator', () => {
     const emails = data.users.map((user) => user.email)
     expect(new Set(emails).size).toBe(emails.length)
 
     const roles = new Set(data.users.map((user) => user.role))
-    expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'SUPER_ADMIN', 'MODERATOR']))
+    expect(roles).toEqual(new Set(['ATTENDEE', 'ORGANIZER', 'SUPER_ADMIN', 'ADMIN', 'MODERATOR']))
+  })
+
+  it('seeds exactly one platform administrator, who belongs to no organisation', () => {
+    const administrators = data.users.filter((user) => user.role === 'ADMIN')
+    const members = new Set(
+      data.organizations.flatMap((org) => org.members.map((member) => member.email)),
+    )
+
+    expect(administrators.map((user) => user.email)).toEqual(['platform-admin@desi-event.example'])
+    expect(administrators[0].displayName).toBe('Desi-Event Platform Administrator')
+    expect(members.has('platform-admin@desi-event.example')).toBe(false)
   })
 
   it('seeds one moderator, who belongs to no organisation', () => {
@@ -631,7 +646,10 @@ describe('seeded event content', () => {
       'Can I dance in the balcony?',
       'Can I bring food onto the dance floor?',
     ])
-    expect(content.socialLinks).toEqual({ website: 'https://mirrorwork.example' })
+    // The website moved out of the social links into its own column, behind
+    // the administrators' switch: see the website tests below.
+    expect(content.socialLinks).toEqual({})
+    expect(content).not.toHaveProperty('websiteUrl')
     expect(content.dressCode).toBe(
       'Whatever you can dance in. Traditional dress is welcome and never required.',
     )
@@ -655,7 +673,101 @@ describe('seeded event content', () => {
       expect(new URL(href).protocol).toBe('https:')
       expect(new URL(href).hostname).toMatch(/\.example$/)
     }
+    expect(content).not.toHaveProperty('website')
     expect(content.publicContactEmail).toMatch(/\.example$/)
+  })
+})
+
+describe('seeded website links', () => {
+  const withWebsite = data.events.filter((event) => event.website !== null)
+
+  it('gives the concert a link that is on and one Chaniya night an address that waits, and nothing else', () => {
+    expect(withWebsite.map((event) => [event.slug, event.website.on])).toEqual([
+      ['dandiya-kids-hour-houston', false],
+      ['mirrorwork-live-band-night', true],
+    ])
+  })
+
+  it('records who turned the concert’s link on, when and why', () => {
+    const { website } = data.events.find((event) => event.slug === 'mirrorwork-live-band-night')
+
+    expect(website).toEqual({
+      url: 'https://mirrorwork.example/',
+      on: true,
+      reason: 'Mirrorwork Events’ own site, checked by the platform team.',
+      decidedByEmail: 'platform-admin@desi-event.example',
+      decidedAt: offset(startOfUtcDay(NOW), -35, 12),
+      submittedAt: null,
+    })
+    expect(data.users.find((user) => user.email === website.decidedByEmail).role).toBe('ADMIN')
+  })
+
+  it('leaves the Chaniya address waiting for a decision, since a fixed time', () => {
+    const { website } = data.events.find((event) => event.slug === 'dandiya-kids-hour-houston')
+
+    expect(website).toEqual({
+      url: 'https://chaniya.example/',
+      on: false,
+      reason: null,
+      decidedByEmail: null,
+      decidedAt: null,
+      submittedAt: offset(startOfUtcDay(NOW), -3, 12),
+    })
+  })
+
+  it('stores each address in the normalised https form the database CHECK expects', () => {
+    for (const { website } of withWebsite) {
+      expect(new URL(website.url).protocol).toBe('https:')
+      expect(new URL(website.url).hostname).toMatch(/\.example$/)
+      expect(website.url).toBe(new URL(website.url).href)
+      expect(websiteUrlProblem(website.url)).toBeNull()
+    }
+  })
+})
+
+describe('re-seeding an event status past the review gate', () => {
+  it.each([
+    ['DRAFT', 'ON_SALE', ['REVIEW_PENDING', 'APPROVED', 'ON_SALE']],
+    ['CHANGES_REQUIRED', 'PUBLISHED', ['REVIEW_PENDING', 'APPROVED', 'PUBLISHED']],
+    ['REJECTED', 'CANCELLED', ['REVIEW_PENDING', 'APPROVED', 'CANCELLED']],
+    ['REVIEW_PENDING', 'SOLD_OUT', ['APPROVED', 'SOLD_OUT']],
+    ['APPROVED', 'ON_SALE', ['ON_SALE']],
+    ['SALES_PAUSED', 'ON_SALE', ['ON_SALE']],
+    ['ON_SALE', 'DRAFT', ['DRAFT']],
+    ['DRAFT', 'APPROVED', ['REVIEW_PENDING', 'APPROVED']],
+    ['REVIEW_PENDING', 'APPROVED', ['APPROVED']],
+    ['ON_SALE', 'ON_SALE', []],
+  ])('walks %s to %s through %j', (current, target, path) => {
+    expect(eventStatusPath(current, target)).toEqual(path)
+  })
+
+  it('writes each step to the event in order, and nothing when it is already there', async () => {
+    const writes = []
+    let status = 'DRAFT'
+    const prisma = {
+      event: {
+        findUnique: async () => ({ status }),
+        update: async ({ where, data: next }) => {
+          writes.push([where.id, next.status])
+          status = next.status
+        },
+      },
+    }
+
+    expect(await settleEventStatus(prisma, 'evt_1', 'ON_SALE')).toEqual([
+      'REVIEW_PENDING',
+      'APPROVED',
+      'ON_SALE',
+    ])
+    expect(writes).toEqual([
+      ['evt_1', 'REVIEW_PENDING'],
+      ['evt_1', 'APPROVED'],
+      ['evt_1', 'ON_SALE'],
+    ])
+
+    writes.length = 0
+    expect(await settleEventStatus(prisma, 'evt_1', 'ON_SALE')).toEqual([])
+    expect(writes).toEqual([])
   })
 })
 

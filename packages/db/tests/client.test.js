@@ -335,14 +335,19 @@ describe('exported enums', () => {
     expect(Object.values(exported).sort()).toEqual([...declared[name]].sort())
   })
 
-  it('no longer names a platform role the schema dropped', () => {
-    // Phase 1's catch-all ADMIN became SUPER_ADMIN, and the narrower staff
-    // roles exist so the ordinary platform jobs do not need it.
-    expect(Object.values(UserRole)).not.toContain('ADMIN')
-    expect(Object.values(UserRole)).toContain('SUPER_ADMIN')
-    expect(Object.values(UserRole)).toContain('MODERATOR')
-    expect(Object.values(UserRole)).toContain('FINANCE_ADMIN')
-    expect(Object.values(UserRole)).toContain('SUPPORT')
+  it('names ADMIN again, as the platform administrator narrower than SUPER_ADMIN', () => {
+    // Phase 1's catch-all ADMIN became SUPER_ADMIN (the Phase 2 migration, whose
+    // mapping verify-populated-upgrade still proves), and the name came back in
+    // 20260930090000_platform_admin_role for a narrower role: it invites
+    // organisers and reviews, and cannot change platform roles or move money.
+    const roles = Object.values(UserRole)
+
+    expect(roles).toContain('ADMIN')
+    expect(roles).toContain('SUPER_ADMIN')
+    expect(roles).toContain('MODERATOR')
+    expect(roles).toContain('FINANCE_ADMIN')
+    expect(roles).toContain('SUPPORT')
+    expect(declared.UserRole.indexOf('ADMIN')).toBe(declared.UserRole.indexOf('SUPER_ADMIN') - 1)
   })
 
   it('keeps ADMIN as an organisation role, which is a different thing', () => {

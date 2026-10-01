@@ -112,6 +112,9 @@ const MIRRORS = {
   ExportArtifactState: 'EXPORT_ARTIFACT_STATES',
   RetentionSweepMode: 'RETENTION_SWEEP_MODES',
   RetentionSweepState: 'RETENTION_SWEEP_STATES',
+  TrafficEventKind: 'TRAFFIC_EVENT_KIND_VALUES',
+  TrafficPlacement: 'TRAFFIC_PLACEMENTS',
+  TrafficSource: 'TRAFFIC_SOURCES',
 }
 
 /**
@@ -174,6 +177,9 @@ const SCHEMAS = {
   EXPORT_ARTIFACT_STATES: 'exportArtifactStateSchema',
   RETENTION_SWEEP_MODES: 'retentionSweepModeSchema',
   RETENTION_SWEEP_STATES: 'retentionSweepStateSchema',
+  TRAFFIC_EVENT_KIND_VALUES: 'trafficEventKindSchema',
+  TRAFFIC_PLACEMENTS: 'trafficPlacementSchema',
+  TRAFFIC_SOURCES: 'trafficSourceSchema',
 }
 
 const prismaSource = readFileSync(schemaPath, 'utf8')
@@ -258,6 +264,17 @@ describe('the states this guard was written for', () => {
     // post-efda577 corrective cycle and never reached the mirror.
     expect(enums.paymentStatusSchema.safeParse('PENDING').success).toBe(true)
     expect(enums.paymentStatusSchema.safeParse('TIMEOUT').success).toBe(true)
+  })
+
+  it('names the platform administrator, ADMIN, just below SUPER_ADMIN', () => {
+    expect(enums.USER_ROLES).toContain('ADMIN')
+    expect(enums.USER_ROLES.indexOf('ADMIN')).toBe(enums.USER_ROLES.indexOf('SUPER_ADMIN') - 1)
+    expect(enums.userRoleSchema.parse('ADMIN')).toBe('ADMIN')
+  })
+
+  it('places a counted visit on a card or the event page, never an organiser page', () => {
+    expect([...enums.TRAFFIC_PLACEMENTS]).toEqual(['HOME', 'LISTING', 'SEARCH', 'EVENT_PAGE'])
+    expect(enums.trafficPlacementSchema.safeParse('ORGANISER_PAGE').success).toBe(false)
   })
 })
 

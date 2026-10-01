@@ -3,17 +3,28 @@ import { describe, it, expect } from 'vitest'
 import {
   ALL_CAPABILITIES,
   CAPABILITIES,
+  EVENT_AUTHORITY_CAPABILITIES,
+  EVENT_POSTING_CAPABILITIES,
+  EVENT_POSTING_ORG_ROLES,
   ORG_ROLE_CAPABILITIES,
   ORG_ROLE_INHERITS,
   ORG_ROLE_ORDER,
+  OWNER_GRANTABLE_ORG_ROLES,
+  PLATFORM_ADMINISTRATOR_CAPABILITIES,
   PLATFORM_ONLY_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   PLATFORM_ROLE_ORDER,
   assertAcyclic,
+  assertPlatformAdministratorBounds,
+  assertPostingPolicy,
   canAssignOrgRole,
+  canIssueOrgRole,
+  canMoveOrgRole,
   findRoleCycle,
   isCapability,
   orgRoleRank,
+  platformRoleRank,
+  postsEvents,
 } from './capabilities.js'
 
 /** The capability vocabulary the cross-package contract requires. */
@@ -56,6 +67,7 @@ const REQUIRED_CAPABILITIES = [
   // Promotions and reporting
   'promo:manage',
   'report:view',
+  'analytics:view_all',
   // Personal data
   'privacy:redact',
   // Platform scope
@@ -64,6 +76,8 @@ const REQUIRED_CAPABILITIES = [
   'reconciliation:manage',
   'ledger:manage',
   'retention:view',
+  'organizer:invite',
+  'website_redirect:manage',
   'platform:admin',
 ]
 
@@ -212,8 +226,9 @@ describe('ORG_ROLE_CAPABILITIES', () => {
 })
 
 describe('PLATFORM_ROLE_CAPABILITIES', () => {
-  it('covers exactly the six UserRole values', () => {
+  it('covers exactly the seven UserRole values, ADMIN just below SUPER_ADMIN', () => {
     const expected = [
+      'ADMIN',
       'ATTENDEE',
       'FINANCE_ADMIN',
       'MODERATOR',
@@ -224,6 +239,8 @@ describe('PLATFORM_ROLE_CAPABILITIES', () => {
 
     expect(Object.keys(PLATFORM_ROLE_CAPABILITIES).sort()).toEqual(expected)
     expect([...PLATFORM_ROLE_ORDER].sort()).toEqual(expected)
+    expect(platformRoleRank('ADMIN')).toBe(platformRoleRank('SUPER_ADMIN') - 1)
+    expect(platformRoleRank('FINANCE_ADMIN')).toBeLessThan(platformRoleRank('ADMIN'))
   })
 
   it('grants SUPER_ADMIN every capability', () => {
@@ -240,7 +257,7 @@ describe('PLATFORM_ROLE_CAPABILITIES', () => {
     expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).not.toContain('moderation:review')
     expect(PLATFORM_ROLE_CAPABILITIES.FINANCE_ADMIN).not.toContain('event:publish')
 
-    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN']) {
+    for (const role of ['SUPPORT', 'MODERATOR', 'FINANCE_ADMIN', 'ADMIN']) {
       expect(PLATFORM_ROLE_CAPABILITIES[role]).not.toContain('platform:admin')
     }
   })
@@ -458,6 +475,192 @@ describe('privacy:redact', () => {
       if (role === 'OWNER') continue
 
       expect(capabilities).not.toContain(CAPABILITIES.PRIVACY_REDACT)
+    }
+  })
+})
+
+describe('the platform administrator (ADMIN)', () => {
+  it('holds exactly the allow-list: review, drafts, venues, invitations, reports, website links, visits', () => {
+    expect([...PLATFORM_ADMINISTRATOR_CAPABILITIES]).toEqual(
+      [
+        'analytics:view_all',
+        'event:view_draft',
+        'moderation:review',
+        'organizer:invite',
+        'report:view',
+        'venue:manage',
+        'website_redirect:manage',
+      ].sort(),
+    )
+    expect([...PLATFORM_ROLE_CAPABILITIES.ADMIN]).toEqual([...PLATFORM_ADMINISTRATOR_CAPABILITIES])
+  })
+
+  it('is a superset of the moderator and holds nothing that posts events, moves money or admits', () => {
+    for (const capability of PLATFORM_ROLE_CAPABILITIES.MODERATOR) {
+      expect(PLATFORM_ROLE_CAPABILITIES.ADMIN).toContain(capability)
+    }
+
+    for (const capability of [
+      'platform:admin',
+      'ticket:check_in',
+      ...EVENT_POSTING_CAPABILITIES,
+      'finance:view',
+      'order:refund',
+      'order:refund_approve',
+      'order:refund_request',
+      'payout:manage',
+      'connect:manage',
+      'ledger:manage',
+      'reconciliation:manage',
+      'privacy:redact',
+      'retention:view',
+      'attendee:export',
+      'promo:manage',
+      'team:invite',
+    ]) {
+      expect(PLATFORM_ROLE_CAPABILITIES.ADMIN, capability).not.toContain(capability)
+    }
+  })
+
+  it('passes the load-time bound on the shipped table', () => {
+    expect(assertPlatformAdministratorBounds(PLATFORM_ROLE_CAPABILITIES)).toBe(
+      PLATFORM_ROLE_CAPABILITIES,
+    )
+  })
+
+  it.each(['platform:admin', 'event:publish', 'attendee:export', 'promo:manage'])(
+    'refuses a doctored table that gives ADMIN %s',
+    (capability) => {
+      const doctored = {
+        ...PLATFORM_ROLE_CAPABILITIES,
+        ADMIN: [...PLATFORM_ROLE_CAPABILITIES.ADMIN, capability],
+      }
+
+      expect(() => assertPlatformAdministratorBounds(doctored)).toThrow(capability)
+    },
+  )
+
+  it('refuses a doctored table that takes a capability away, so the bound is an equality', () => {
+    const doctored = {
+      ...PLATFORM_ROLE_CAPABILITIES,
+      ADMIN: PLATFORM_ROLE_CAPABILITIES.ADMIN.filter((c) => c !== 'organizer:invite'),
+    }
+
+    expect(() => assertPlatformAdministratorBounds(doctored)).toThrow('organizer:invite')
+  })
+})
+
+describe('the three platform capabilities of invitations, website links and visits', () => {
+  const NEW = ['organizer:invite', 'website_redirect:manage', 'analytics:view_all']
+
+  it.each(NEW)('%s is platform-only and held by ADMIN and SUPER_ADMIN alone', (capability) => {
+    expect(PLATFORM_ONLY_CAPABILITIES).toContain(capability)
+
+    const holders = Object.entries(PLATFORM_ROLE_CAPABILITIES)
+      .filter(([, capabilities]) => capabilities.includes(capability))
+      .map(([role]) => role)
+      .sort()
+
+    expect(holders).toEqual(['ADMIN', 'SUPER_ADMIN'])
+
+    for (const [role, capabilities] of Object.entries(ORG_ROLE_CAPABILITIES)) {
+      expect(capabilities, role).not.toContain(capability)
+    }
+  })
+
+  it('names them by their constants', () => {
+    expect(CAPABILITIES.ORGANIZER_INVITE).toBe('organizer:invite')
+    expect(CAPABILITIES.WEBSITE_REDIRECT_MANAGE).toBe('website_redirect:manage')
+    expect(CAPABILITIES.ANALYTICS_VIEW_ALL).toBe('analytics:view_all')
+  })
+})
+
+describe('roles that post events', () => {
+  it('are event manager, manager, administrator and owner; the rest are the owner-grantable ones', () => {
+    expect([...EVENT_POSTING_ORG_ROLES]).toEqual(['EVENT_MANAGER', 'MANAGER', 'ADMIN', 'OWNER'])
+    expect([...OWNER_GRANTABLE_ORG_ROLES]).toEqual(['VIEWER', 'SCANNER', 'STAFF', 'FINANCE'])
+
+    for (const role of ORG_ROLE_ORDER) {
+      expect(postsEvents(role), role).toBe(EVENT_POSTING_ORG_ROLES.includes(role))
+    }
+    expect(postsEvents('NOT_A_ROLE')).toBe(false)
+    expect(postsEvents(undefined)).toBe(false)
+  })
+
+  it('keep all event authority away from the owner-grantable roles', () => {
+    for (const role of OWNER_GRANTABLE_ORG_ROLES) {
+      for (const capability of EVENT_AUTHORITY_CAPABILITIES) {
+        expect(ORG_ROLE_CAPABILITIES[role], `${role} holds ${capability}`).not.toContain(capability)
+      }
+    }
+  })
+
+  it('pass the load-time posting policy on the shipped table', () => {
+    expect(assertPostingPolicy(ORG_ROLE_CAPABILITIES)).toBe(ORG_ROLE_CAPABILITIES)
+  })
+
+  it('refuse a doctored table where FINANCE holds promo:manage', () => {
+    const doctored = {
+      ...ORG_ROLE_CAPABILITIES,
+      FINANCE: [...ORG_ROLE_CAPABILITIES.FINANCE, 'promo:manage'],
+    }
+
+    expect(() => assertPostingPolicy(doctored)).toThrow(/FINANCE.*promo:manage/)
+  })
+
+  it('refuse a doctored table where VIEWER gains event:create', () => {
+    const doctored = {
+      ...ORG_ROLE_CAPABILITIES,
+      VIEWER: [...ORG_ROLE_CAPABILITIES.VIEWER, 'event:create'],
+    }
+
+    expect(() => assertPostingPolicy(doctored)).toThrow(/FINANCE, SCANNER, STAFF and VIEWER/)
+  })
+})
+
+describe('canIssueOrgRole', () => {
+  it('lets an owner offer exactly the roles that do not post events', () => {
+    expect(ORG_ROLE_ORDER.filter((role) => canIssueOrgRole('OWNER', role))).toEqual([
+      ...OWNER_GRANTABLE_ORG_ROLES,
+    ])
+    expect(canIssueOrgRole('OWNER', 'EVENT_MANAGER')).toBe(false)
+    expect(canIssueOrgRole('OWNER', 'FINANCE')).toBe(true)
+  })
+
+  it('still refuses what the assigner does not hold', () => {
+    expect(canIssueOrgRole('MANAGER', 'FINANCE')).toBe(false)
+    expect(canIssueOrgRole('MANAGER', 'STAFF')).toBe(true)
+  })
+})
+
+describe('canMoveOrgRole', () => {
+  it.each([
+    ['OWNER', 'ADMIN', 'EVENT_MANAGER', true, 'a poster moved down'],
+    ['OWNER', 'MANAGER', 'EVENT_MANAGER', true, 'a poster moved down'],
+    ['OWNER', 'ADMIN', 'VIEWER', true, 'a poster moved to a non-posting role'],
+    ['OWNER', 'VIEWER', 'FINANCE', true, 'between non-posting roles'],
+    ['OWNER', 'EVENT_MANAGER', 'ADMIN', false, 'an upward posting move'],
+    ['OWNER', 'EVENT_MANAGER', 'MANAGER', false, 'an upward posting move'],
+    ['OWNER', 'VIEWER', 'EVENT_MANAGER', false, 'a non-poster made a poster'],
+    ['OWNER', 'FINANCE', 'MANAGER', false, 'a non-poster made a poster'],
+    ['ADMIN', 'EVENT_MANAGER', 'OWNER', false, 'ownership is handed over, never assigned'],
+    ['OWNER', 'ADMIN', 'OWNER', false, 'ownership is handed over, never assigned'],
+    ['MANAGER', 'EVENT_MANAGER', 'FINANCE', false, 'a role the assigner does not hold'],
+  ])('%s moving %s to %s is %s (%s)', (assigner, from, to, expected) => {
+    expect(canMoveOrgRole(assigner, from, to)).toBe(expected)
+  })
+
+  it('allows a posting move only to a subset of the capabilities the member holds', () => {
+    for (const from of EVENT_POSTING_ORG_ROLES) {
+      for (const to of EVENT_POSTING_ORG_ROLES) {
+        if (!canMoveOrgRole('OWNER', from, to)) continue
+
+        for (const capability of ORG_ROLE_CAPABILITIES[to]) {
+          expect(ORG_ROLE_CAPABILITIES[from], `${from} to ${to} adds ${capability}`).toContain(
+            capability,
+          )
+        }
+      }
     }
   })
 })

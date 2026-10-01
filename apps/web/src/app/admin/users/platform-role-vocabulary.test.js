@@ -46,4 +46,22 @@ describe('the platform role vocabulary', () => {
     expect([...PRIVILEGED_PLATFORM_ROLES].sort()).toEqual([...SESSION_PLATFORM_ROLES].sort())
     expect([...PRIVILEGED_ORG_ROLES].sort()).toEqual([...SESSION_ORG_ROLES].sort())
   })
+
+  it('names the platform administrator, below the super administrator, and marks it privileged', () => {
+    expect(PLATFORM_ROLES.indexOf('ADMIN')).toBe(PLATFORM_ROLES.indexOf('SUPER_ADMIN') - 1)
+    expect(platformRoleLabel('ADMIN')).toBe('Platform administrator')
+    expect(PLATFORM_ROLE_DESCRIPTIONS.ADMIN).toBe(
+      'Invites organisers, reviews events, pictures and organisations, switches an event’s website link on and off, and reads every event’s figures. Cannot change anybody’s platform role, move money, or admit anybody at a door. Needs two-step sign-in.',
+    )
+    expect(PRIVILEGED_PLATFORM_ROLES).toContain('ADMIN')
+  })
+
+  it('never says soon, yet or planned', () => {
+    for (const text of [
+      ...Object.values(PLATFORM_ROLE_LABELS),
+      ...Object.values(PLATFORM_ROLE_DESCRIPTIONS),
+    ]) {
+      expect(text).not.toMatch(/\b(soon|yet|planned)\b/i)
+    }
+  })
 })

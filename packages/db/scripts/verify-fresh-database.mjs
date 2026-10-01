@@ -47,6 +47,7 @@ import {
 } from './disposable-database.mjs'
 import { runMediaProbes } from './media-probes.mjs'
 import { runPhase2Probes } from './phase2-probes.mjs'
+import { runPlatformFeatureProbes } from './platform-feature-probes.mjs'
 import { runSeatConcurrencyProbes } from './seat-concurrency.mjs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
@@ -61,11 +62,13 @@ loadDotenv({ path: path.join(REPO_ROOT, '.env'), override: false, quiet: true })
  *
  * The chart of accounts is structure rather than sample data: without it a
  * payment cannot be recorded at all, so it is created by the migration that
- * creates the ledger. Every other table must be empty on a fresh database.
+ * creates the ledger. The traffic roll-up's state row is structure for the same
+ * reason: it is the one lease the roll-up takes, and a second row would be a
+ * second lease. Every other table must be empty on a fresh database.
  *
  * @type {Readonly<Record<string, number>>}
  */
-const STRUCTURAL_ROWS = Object.freeze({ LedgerAccount: 10 })
+const STRUCTURAL_ROWS = Object.freeze({ LedgerAccount: 10, TrafficRollupState: 1 })
 
 /** Sentinel used to roll a probe's transaction back once it has proved its point. */
 const ROLLBACK = Symbol('rollback')
@@ -1197,6 +1200,11 @@ async function main() {
     // bytes going with their picture. Each runs in a rolled-back transaction.
     ok = (await runMediaProbes(prisma, { probe, record })) && ok
 
+    // Invite-only organisers, the review gate, the event website switch and
+    // visit counting: triggers, CHECKs and partial unique indexes, each in a
+    // rolled-back transaction.
+    ok = (await runPlatformFeatureProbes(prisma, { probe, record })) && ok
+
     // Concurrency, against real transactions rather than a stub that agrees with
     // whoever wrote it. These commit, so they run last among the probes and
     // before the row comparison is done with.
@@ -1224,6 +1232,11 @@ async function main() {
         'tests/ledger-integration.test.js',
         'tests/reserved-seat-concurrency.test.js',
         'tests/refund-concurrency.test.js',
+        // Refunds of orders carrying the USD fee, tax and a promo code: whole,
+        // partial and line refunds against the line CHECK, retries that
+        // reserve again, cancellation refunds reserved and legacy ones
+        // repaired, a late payment on a closed order, and disputed payments.
+        'tests/refund-fees-integration.test.js',
         'tests/ticket-concurrency.test.js',
         'tests/privacy-redaction-integration.test.js',
         'tests/privacy-lifecycle-integration.test.js',
@@ -1270,6 +1283,17 @@ async function main() {
         // free text into JSON columns, audit rows and outbox payloads, and
         // PostgreSQL's own refusal of it in jsonb (22P05) answered as a 400.
         'tests/unstorable-character-integration.test.js',
+        // Invite-only organisers and the review gate: the one-waiting-invitation
+        // index, the posting-role CHECK and the gate's 23514 answered as a 4xx;
+        // codes emailed through a local SMTP sink; the event website switch
+        // against its trigger and CHECKs; and visits counted against their
+        // CHECKs, dedupe index and cascade. Written by SPEC2 Stages B1 and B2,
+        // named here from Stage A so each runs from the moment it exists.
+        'tests/organizer-invitation-integration.test.js',
+        'tests/email-delivery-integration.test.js',
+        'tests/event-review-gate-integration.test.js',
+        'tests/website-redirect-integration.test.js',
+        'tests/traffic-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

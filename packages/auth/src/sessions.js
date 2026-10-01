@@ -195,6 +195,10 @@ export function stepUpWindowFor(policy) {
  * Platform roles whose sessions get the short lifetime and require a second
  * factor.
  *
+ * `ADMIN`, the platform administrator, is here because it reviews events,
+ * pictures and organisations and invites organisers: what it approves goes
+ * public, and whom it invites can post events.
+ *
  * Membership in an organisation is handled separately — see
  * {@link sessionPolicyFor} — because an organiser's authority comes from a
  * membership rather than from a platform role.
@@ -205,6 +209,7 @@ export const PRIVILEGED_PLATFORM_ROLES = new Set([
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 

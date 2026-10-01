@@ -42,6 +42,11 @@ export const SENSITIVE_HEADER_KEYS = Object.freeze([
   'x-webhook-signature',
   'stripe-signature',
   'x-razorpay-signature',
+  // A visitor's address as the web server forwards it to the API for visit
+  // counting, and the proxy chain it was read from. The API keeps neither; this
+  // is the net for the handler that logs a whole request by accident.
+  'x-desi-client-address',
+  'x-forwarded-for',
 ])
 
 /**
@@ -111,6 +116,22 @@ export const SENSITIVE_FIELD_KEYS = Object.freeze([
   'attendees',
   'attendeeName',
   'attendeeNames',
+  // SMTP credentials: the password the mail server is signed in to with, as
+  // nodemailer's `auth.pass`, under the name this codebase gives it, and as the
+  // environment variable.
+  'pass',
+  'smtpPassword',
+  'SMTP_PASSWORD',
+  // A visit's pseudonymous code, its digest, its in-memory fingerprint, the
+  // address it was made from, the referring host and the day's salt. None is
+  // logged; this is the net for the handler that logs a whole row or request
+  // by accident.
+  'visitorHash',
+  'dedupeKey',
+  'fingerprint',
+  'clientAddress',
+  'referrerHost',
+  'salt',
 ])
 
 /**
@@ -151,6 +172,20 @@ export const WILDCARD_KEYS = Object.freeze([
   'attendees',
   'attendeeName',
   'attendeeNames',
+  // `{ auth: { pass } }`, nodemailer's transport options; `{ smtp: { smtpPassword } }`;
+  // `{ env: { SMTP_PASSWORD } }`, an environment logged whole.
+  'pass',
+  'smtpPassword',
+  'SMTP_PASSWORD',
+  // `{ visitor: { fingerprint, clientAddress } }`, `{ row: { visitorHash, dedupeKey } }`,
+  // `{ beacon: { referrerHost } }` and `{ state: { salt } }`: the shapes a visit
+  // takes one level down.
+  'visitorHash',
+  'dedupeKey',
+  'fingerprint',
+  'clientAddress',
+  'referrerHost',
+  'salt',
 ])
 
 /**

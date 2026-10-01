@@ -68,6 +68,15 @@ describe('apiEnvSchema', () => {
       // Off by default: charging illustrative tax rates in production has to
       // be a deliberate decision somebody owns.
       ALLOW_DEMO_TAX_IN_PRODUCTION: false,
+      // No SMTP server is named, so nothing is emailed; the transport defaults
+      // only matter once one is.
+      SMTP_PORT: 587,
+      SMTP_SECURE: false,
+      SMTP_REQUIRE_TLS: true,
+      // The web servers on this machine, and nobody else, are believed about a
+      // visitor's address.
+      TRAFFIC_TRUSTED_FORWARDERS: ['127.0.0.1', '::1', '::ffff:127.0.0.1'],
+      TRAFFIC_BEACON_MAX_PER_MINUTE: 60,
     })
   })
 
@@ -220,6 +229,119 @@ describe('apiEnvSchema', () => {
   })
 })
 
+describe('apiEnvSchema: emailing codes through SMTP', () => {
+  const SMTP = Object.freeze({
+    DELIVERY_MODE: 'EMAIL',
+    SMTP_HOST: 'smtp.example.test',
+    SMTP_FROM: 'codes@desi-event.example',
+    WEB_ORIGIN: 'https://desi-event.example',
+  })
+
+  it('accepts a complete set, with or without a sign-in', () => {
+    const parsed = apiEnvSchema.parse(apiEnv({ ...SMTP, SMTP_PORT: '465', SMTP_SECURE: 'true' }))
+
+    expect(parsed).toMatchObject({ SMTP_HOST: 'smtp.example.test', SMTP_PORT: 465 })
+    expect(parsed.SMTP_SECURE).toBe(true)
+    expect(
+      apiEnvSchema.safeParse(apiEnv({ ...SMTP, SMTP_USER: 'mailer', SMTP_PASSWORD: 'pw' })).success,
+    ).toBe(true)
+  })
+
+  it('refuses EMAIL with a server but no sender address', () => {
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ ...SMTP, SMTP_FROM: undefined })))).toEqual([
+      'SMTP_FROM',
+    ])
+  })
+
+  it('refuses EMAIL with a server but no web origin, or one that is not absolute', () => {
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ ...SMTP, WEB_ORIGIN: undefined })))).toEqual([
+      'WEB_ORIGIN',
+    ])
+    expect(
+      issuePaths(apiEnvSchema.safeParse(apiEnv({ ...SMTP, WEB_ORIGIN: 'desi-event.example' }))),
+    ).toEqual(['WEB_ORIGIN'])
+  })
+
+  it('refuses a plain-http web origin in production only', () => {
+    const http = { ...SMTP, WEB_ORIGIN: 'http://localhost:3000' }
+
+    expect(apiEnvSchema.safeParse(apiEnv({ ...http, NODE_ENV: 'development' })).success).toBe(true)
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ ...http, NODE_ENV: 'production' })))).toEqual(
+      ['WEB_ORIGIN'],
+    )
+  })
+
+  it('refuses a user without a password, and a password without a user', () => {
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ ...SMTP, SMTP_USER: 'mailer' })))).toEqual([
+      'SMTP_PASSWORD',
+    ])
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ ...SMTP, SMTP_PASSWORD: 'pw' })))).toEqual([
+      'SMTP_USER',
+    ])
+  })
+
+  it('refuses an unencrypted connection in production', () => {
+    const plain = { ...SMTP, SMTP_SECURE: 'false', SMTP_REQUIRE_TLS: 'false' }
+
+    expect(
+      issuePaths(apiEnvSchema.safeParse(apiEnv({ ...plain, NODE_ENV: 'production' }))),
+    ).toEqual(['SMTP_REQUIRE_TLS'])
+    expect(apiEnvSchema.safeParse(apiEnv({ ...plain, NODE_ENV: 'development' })).success).toBe(true)
+  })
+
+  it('checks nothing about SMTP unless EMAIL was asked for with a server named', () => {
+    // Email is opt-in and never inferred: SMTP settings alone change nothing.
+    expect(apiEnvSchema.safeParse(apiEnv({ SMTP_HOST: 'smtp.example.test' })).success).toBe(true)
+    expect(apiEnvSchema.safeParse(apiEnv({ DELIVERY_MODE: 'EMAIL' })).success).toBe(true)
+  })
+
+  it('treats blank SMTP values as absent', () => {
+    const parsed = apiEnvSchema.parse(
+      apiEnv({ SMTP_HOST: ' ', SMTP_USER: '', SMTP_PASSWORD: '', SMTP_FROM: '', SMTP_PORT: '' }),
+    )
+
+    expect(parsed.SMTP_HOST).toBeUndefined()
+    expect(parsed.SMTP_USER).toBeUndefined()
+    expect(parsed.SMTP_PASSWORD).toBeUndefined()
+    expect(parsed.SMTP_FROM).toBeUndefined()
+    expect(parsed.SMTP_PORT).toBe(587)
+  })
+})
+
+describe('apiEnvSchema: visit counting', () => {
+  it('believes the loopback web servers by default, and takes a list of addresses', () => {
+    expect(apiEnvSchema.parse(apiEnv()).TRAFFIC_TRUSTED_FORWARDERS).toEqual([
+      '127.0.0.1',
+      '::1',
+      '::ffff:127.0.0.1',
+    ])
+    expect(
+      apiEnvSchema.parse(apiEnv({ TRAFFIC_TRUSTED_FORWARDERS: ' 10.0.0.5, fd00::1 ,' }))
+        .TRAFFIC_TRUSTED_FORWARDERS,
+    ).toEqual(['10.0.0.5', 'fd00::1'])
+  })
+
+  it.each(['localhost', '10.0.0.0/8', 'web.internal'])(
+    'refuses a forwarder that is not an address: %s',
+    (entry) => {
+      expect(
+        issuePaths(apiEnvSchema.safeParse(apiEnv({ TRAFFIC_TRUSTED_FORWARDERS: entry }))),
+      ).toEqual(['TRAFFIC_TRUSTED_FORWARDERS.0'])
+    },
+  )
+
+  it('bounds the beacons a visitor may send a minute', () => {
+    expect(apiEnvSchema.parse(apiEnv({ TRAFFIC_BEACON_MAX_PER_MINUTE: '600' }))).toMatchObject({
+      TRAFFIC_BEACON_MAX_PER_MINUTE: 600,
+    })
+    for (const value of ['0', '10001', '2.5']) {
+      expect(
+        issuePaths(apiEnvSchema.safeParse(apiEnv({ TRAFFIC_BEACON_MAX_PER_MINUTE: value }))),
+      ).toEqual(['TRAFFIC_BEACON_MAX_PER_MINUTE'])
+    }
+  })
+})
+
 describe('isInsecureJwtSecret', () => {
   it('flags every known placeholder', () => {
     for (const secret of INSECURE_JWT_SECRETS) {
@@ -292,10 +414,27 @@ describe('workerEnvSchema', () => {
       WORKER_CONCURRENCY: 5,
       EXPIRE_HOLDS_INTERVAL_MS: 30_000,
       RETENTION_ENFORCEMENT_ACTIVATED: false,
+      // Ten minutes between roll-ups unless an operator says otherwise.
+      TRAFFIC_ROLLUP_INTERVAL_MS: 600_000,
       PLATFORM_FEE_BPS: 590,
       PLATFORM_FEE_FLAT_CENTS: 99,
       TICKET_HOLD_TTL_SECONDS: 600,
     })
+  })
+
+  it('bounds the traffic roll-up interval between a minute and an hour', () => {
+    const parse = (value) =>
+      workerEnvSchema.safeParse({
+        DATABASE_URL: DB_URL,
+        REDIS_URL: REDIS,
+        TRAFFIC_ROLLUP_INTERVAL_MS: value,
+      })
+
+    expect(parse('60000').data.TRAFFIC_ROLLUP_INTERVAL_MS).toBe(60_000)
+    expect(parse('3600000').data.TRAFFIC_ROLLUP_INTERVAL_MS).toBe(3_600_000)
+    expect(parse('').data.TRAFFIC_ROLLUP_INTERVAL_MS).toBe(600_000)
+    expect(parse('59999').success).toBe(false)
+    expect(parse('3600001').success).toBe(false)
   })
 
   it('leaves retention enforcement off unless an operator says otherwise', () => {
@@ -344,7 +483,18 @@ describe('webEnvSchema', () => {
       NEXT_PUBLIC_API_URL: 'http://127.0.0.1:4000',
       NEXT_PUBLIC_SITE_URL: 'http://127.0.0.1:3000',
       WEB_PORT: 3000,
+      // No proxy in front unless an operator says so: the visitor's address is
+      // the connection's.
+      TRAFFIC_TRUSTED_PROXY_HOPS: 0,
     })
+  })
+
+  it('bounds the trusted proxy hops between none and five', () => {
+    expect(webEnvSchema.parse({ TRAFFIC_TRUSTED_PROXY_HOPS: '2' }).TRAFFIC_TRUSTED_PROXY_HOPS).toBe(
+      2,
+    )
+    expect(webEnvSchema.safeParse({ TRAFFIC_TRUSTED_PROXY_HOPS: '6' }).success).toBe(false)
+    expect(webEnvSchema.safeParse({ TRAFFIC_TRUSTED_PROXY_HOPS: '-1' }).success).toBe(false)
   })
 
   it('rejects a malformed public API URL', () => {
@@ -424,6 +574,13 @@ describe('parsing an environment twice', () => {
 
     expect(twice.success).toBe(true)
     expect(twice.data).toEqual(once)
+  })
+
+  it('is idempotent for the trusted forwarders, which become a list', () => {
+    const once = apiEnvSchema.parse({ ...MINIMAL, TRAFFIC_TRUSTED_FORWARDERS: '10.0.0.5' })
+
+    expect(once.TRAFFIC_TRUSTED_FORWARDERS).toEqual(['10.0.0.5'])
+    expect(apiEnvSchema.parse(once)).toEqual(once)
   })
 
   it('is idempotent for an explicitly supplied boolean', () => {

@@ -15,6 +15,7 @@ import {
   PRIVILEGED_PLATFORM_ROLES,
   SCRYPT_PARAMETERS,
   hashPassword,
+  issueToken,
   seal,
 } from '@desi-event/auth'
 
@@ -297,6 +298,21 @@ export async function makeWorld(overrides = {}) {
     contactEmail: 'hello@dhol.example',
   }
 
+  // An organisation made from the site before organisers joined by invitation:
+  // never verified, no members of its own in this world. Kept so the
+  // verification flow, which grandfathered organisations still use, has one.
+  const grandfatheredOrganization = {
+    ...organization,
+    id: cuid(),
+    name: 'Saffron Steps',
+    slug: 'saffron-steps',
+    contactEmail: 'hello@saffron.example',
+    verified: false,
+    verificationStatus: 'UNVERIFIED',
+    verificationUpdatedAt: null,
+    refundPolicy: null,
+  }
+
   const venue = {
     id: cuid(),
     name: 'Nehru Centre',
@@ -365,6 +381,11 @@ export async function makeWorld(overrides = {}) {
   // account that holds both would prove nothing about which one was doing the
   // work.
   const moderator = user('maya@desi-event.example', 'Maya Moderator', 'MODERATOR')
+  // The platform administrator (ADMIN): invites organisers, reviews, switches
+  // website links and reads every event's figures. No membership anywhere, and
+  // not `platformAdmin` above, which is the SUPER_ADMIN. Privileged, so the
+  // harness gives it a confirmed second factor like every other staff account.
+  const platformAdministrator = user('anil@desi-event.example', 'Anil Administrator', 'ADMIN')
 
   /**
    * Build a membership row.
@@ -587,7 +608,17 @@ export async function makeWorld(overrides = {}) {
   const staffMembership = membership(staff, organization, 'STAFF')
 
   const seed = {
-    user: [attendee, owner, manager, staff, viewer, outsider, platformAdmin, moderator],
+    user: [
+      attendee,
+      owner,
+      manager,
+      staff,
+      viewer,
+      outsider,
+      platformAdmin,
+      moderator,
+      platformAdministrator,
+    ],
     membership: [
       membership(owner, organization, 'OWNER'),
       membership(manager, organization, 'MANAGER'),
@@ -603,7 +634,7 @@ export async function makeWorld(overrides = {}) {
         createdAt: new Date('2025-02-01T00:00:00.000Z'),
       },
     ],
-    organization: [organization, otherOrganization],
+    organization: [organization, otherOrganization, grandfatheredOrganization],
     venue: [venue, otherVenue],
     event: [
       publishedEvent,
@@ -639,6 +670,7 @@ export async function makeWorld(overrides = {}) {
     ids: {
       organization,
       otherOrganization,
+      grandfatheredOrganization,
       venue,
       otherVenue,
       attendee,
@@ -649,6 +681,7 @@ export async function makeWorld(overrides = {}) {
       outsider,
       platformAdmin,
       moderator,
+      platformAdministrator,
       publishedEvent,
       draftEvent,
       reviewPendingEvent,
@@ -660,6 +693,58 @@ export async function makeWorld(overrides = {}) {
       pausedTier,
       draftTier,
       promoCode,
+    },
+  }
+}
+
+/** How long an organiser invitation lasts: fourteen days, like a team invitation. */
+const ORGANIZER_INVITATION_LIFETIME_MS = 14 * 24 * 60 * 60 * 1000
+
+/**
+ * A waiting organiser invitation row, and the code that opens it.
+ *
+ * The code is made at run time and only its digest goes into the row, as the
+ * issuing route stores it: no code is written into the repository, and a test
+ * that needs to accept the invitation types the code it was handed here.
+ *
+ * @param {object} options What the invitation is.
+ * @param {string} options.invitedById The inviting administrator's user id.
+ * @param {string} [options.email] The recipient's address, stored lower-cased.
+ * @param {string} [options.organizationName] The organisation it starts.
+ * @param {object} [options.overrides] Any other column.
+ * @returns {{row: object, code: string}} The row to seed, and the code.
+ */
+export function organizerInvitationFixture({
+  invitedById,
+  email = 'new-organiser@example.com',
+  organizationName = 'Kathiawar Folk Nights',
+  ...overrides
+}) {
+  const { secret, hash } = issueToken()
+  const createdAt = new Date()
+
+  return {
+    code: secret,
+    row: {
+      id: cuid(),
+      email: email.toLowerCase(),
+      organizationName,
+      organizationDescription: null,
+      organizationWebsiteUrl: null,
+      note: null,
+      organizationId: null,
+      tokenHash: hash,
+      invitedById,
+      status: 'PENDING',
+      deliveryMode: 'MANUAL',
+      expiresAt: new Date(createdAt.getTime() + ORGANIZER_INVITATION_LIFETIME_MS),
+      acceptedAt: null,
+      acceptedByUserId: null,
+      revokedAt: null,
+      revokedById: null,
+      supersedesId: null,
+      createdAt,
+      ...overrides,
     },
   }
 }

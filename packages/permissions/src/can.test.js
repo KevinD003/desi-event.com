@@ -5,6 +5,7 @@ import {
   ORG_ROLE_CAPABILITIES,
   ORG_ROLE_INHERITS,
   ORG_ROLE_ORDER,
+  OWNER_GRANTABLE_ORG_ROLES,
   PLATFORM_ROLE_ORDER,
   canAssignOrgRole,
 } from './capabilities.js'
@@ -169,7 +170,8 @@ const EXPECTED_ORG_MATRIX = {
  *
  * The narrow staff roles exist so that the common platform jobs do not need
  * SUPER_ADMIN, and the interesting assertions are the absences — a moderator
- * cannot refund, a finance administrator cannot approve an event.
+ * cannot refund, a finance administrator cannot approve an event, a platform
+ * administrator cannot publish, refund, admit at a door or change a role.
  */
 const EXPECTED_PLATFORM_MATRIX = {
   ATTENDEE: [],
@@ -185,6 +187,16 @@ const EXPECTED_PLATFORM_MATRIX = {
     'payout:manage',
     'reconciliation:manage',
     'support:view_order',
+  ],
+  // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand.
+  ADMIN: [
+    'analytics:view_all',
+    'event:view_draft',
+    'moderation:review',
+    'organizer:invite',
+    'report:view',
+    'venue:manage',
+    'website_redirect:manage',
   ],
   SUPER_ADMIN: null, // everything; asserted separately
 }
@@ -674,11 +686,42 @@ describe('role inheritance is a graph, and it holds', () => {
 })
 
 describe('granting a role', () => {
-  it('lets an owner grant anything, including another owner', () => {
+  it('lets an owner grant exactly the roles that do not post events', () => {
     const owner = memberOfA('OWNER')
-    for (const role of ORG_ROLE_ORDER) {
-      expect(canGrantOrgRole(owner, role, { organizationId: ORG_A })).toBe(true)
+    const granted = ORG_ROLE_ORDER.filter((role) =>
+      canGrantOrgRole(owner, role, { organizationId: ORG_A }),
+    )
+
+    expect(granted).toEqual([...OWNER_GRANTABLE_ORG_ROLES])
+    expect(granted).toEqual(['VIEWER', 'SCANNER', 'STAFF', 'FINANCE'])
+
+    // Owner, administrator, manager and event manager all create or publish
+    // events: the Desi-Event team gives those, not the organisation.
+    for (const role of ['OWNER', 'ADMIN', 'MANAGER', 'EVENT_MANAGER']) {
+      expect(canGrantOrgRole(owner, role, { organizationId: ORG_A }), role).toBe(false)
     }
+  })
+
+  it('refuses an owner a posting role with the reason that names the platform', () => {
+    let thrown = null
+
+    try {
+      assertCanGrantOrgRole(memberOfA('OWNER'), 'EVENT_MANAGER', { organizationId: ORG_A })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(PermissionError)
+    expect(thrown.details?.reason ?? thrown.reason).toBe('posting_role_needs_platform')
+  })
+
+  it('lets a manager grant only its non-posting subset', () => {
+    const manager = memberOfA('MANAGER')
+    const granted = ORG_ROLE_ORDER.filter((role) =>
+      canGrantOrgRole(manager, role, { organizationId: ORG_A }),
+    )
+
+    expect(granted).toEqual(['VIEWER', 'SCANNER', 'STAFF'])
   })
 
   it('does not let an admin mint an owner', () => {
@@ -705,9 +748,22 @@ describe('granting a role', () => {
     expect(canGrantOrgRole(memberOfA('MANAGER'), 'VIEWER', { organizationId: ORG_B })).toBe(false)
   })
 
-  it('lets a platform administrator grant anything', () => {
+  it('lets a super administrator (platform:admin) grant anything', () => {
     const root = { id: 'usr_root', role: 'SUPER_ADMIN', memberships: [] }
-    expect(canGrantOrgRole(root, 'OWNER', { organizationId: ORG_B })).toBe(true)
+
+    for (const role of ORG_ROLE_ORDER) {
+      expect(canGrantOrgRole(root, role, { organizationId: ORG_B }), role).toBe(true)
+    }
+  })
+
+  it('lets a platform administrator who is not a member grant nothing', () => {
+    // ADMIN holds organizer:invite, not platform:admin: it brings organisers in
+    // through invitations and puts nobody into an existing organisation.
+    const admin = { id: 'usr_platform_admin', role: 'ADMIN', memberships: [] }
+
+    for (const role of ORG_ROLE_ORDER) {
+      expect(canGrantOrgRole(admin, role, { organizationId: ORG_B }), role).toBe(false)
+    }
   })
 
   it('throws a PermissionError naming the escalation', () => {

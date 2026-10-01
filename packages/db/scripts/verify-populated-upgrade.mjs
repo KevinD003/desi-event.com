@@ -147,6 +147,17 @@ const PHASE3_MIGRATIONS = Object.freeze([
   // The listing search's upkeep: Event.venueId indexed, and the six trigram indexes set to
   // fastupdate = off with their pending lists merged, over rows already queued in them.
   '20260929110000_search_index_upkeep',
+  // SPEC2: the platform ADMIN role, an enum label on its own because a transaction
+  // cannot use a label it added. No row is changed.
+  '20260930090000_platform_admin_role',
+  // OrganizerInvitation and Membership.organizerInvitationId; waiting team invitations
+  // to roles that post events withdrawn, then refused by a CHECK; the review-gate trigger.
+  '20260930100000_organiser_invitations_and_review_gate',
+  // The event's website and its switch: socialLinks.website carried into websiteUrl
+  // (or dropped) over existing rows, the CHECKs and the trigger that keeps "waiting" in step.
+  '20260930120000_event_website_link',
+  // Visits to event pages: four tables, three enums, and the roll-up's one state row.
+  '20260930130000_event_traffic_analytics',
 ])
 
 /**
@@ -159,6 +170,111 @@ const PHASE3_MIGRATIONS = Object.freeze([
  * {@link checkLegacyBackfills} checks what the migrations made of them.
  */
 const FIRST_FEATURE_MIGRATION = '20260928090000_event_authoring_content_and_tier_rules'
+
+/**
+ * Rows put in immediately before one migration, because that migration
+ * rewrites them.
+ *
+ * {@link seedLegacyRows} runs once, before the first feature migration, which
+ * is right for the backfills written against the schema of that moment. A later
+ * migration that rewrites a column added after that moment needs its rows put
+ * in against the schema just before it runs, and nothing else can: the column
+ * it reads did not exist earlier, and the generic filler gives every column its
+ * default. Each fixture receives a fresh client connected to the upgrading
+ * database, writes with SQL against the schema as it stands, and returns the
+ * rows it added per table so the row-count comparison can expect them. What the
+ * migration made of them is checked by {@link checkSpec2Backfills}.
+ *
+ * @type {Readonly<Record<string, function(object): Promise<Record<string, number>>>>}
+ */
+const BEFORE_MIGRATION_FIXTURES = Object.freeze({
+  // Two waiting team invitations for the filler's organisation: one to a role
+  // that posts events, which the migration withdraws, and one it leaves alone.
+  '20260930100000_organiser_invitations_and_review_gate': async (prisma) => {
+    for (const [id, role, email] of LEGACY_TEAM_INVITATIONS) {
+      await prisma.$executeRawUnsafe(
+        'INSERT INTO "Invitation" ("id", "organizationId", "email", "role", "tokenHash", ' +
+          '"invitedById", "status", "deliveryMode", "createdAt", "expiresAt") VALUES (' +
+          `'${id}', 'upgrade-fixture-Organization', '${email}', '${role}', '${id}-digest', ` +
+          "'upgrade-fixture-User', 'PENDING', 'MANUAL', '2026-09-20T10:00:00Z', " +
+          "'2026-10-04T10:00:00Z')",
+      )
+    }
+
+    return { Invitation: LEGACY_TEAM_INVITATIONS.length }
+  },
+  // The filler's event cloned once per legacy website value, each with its own
+  // id and slug, carrying the socialLinks the case is about.
+  '20260930120000_event_website_link': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'Event' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+
+    for (const legacy of LEGACY_WEBSITES) {
+      const literal = (text) => `'${text.replaceAll("'", "''")}'`
+      const values = columns.map((column) => {
+        if (column === 'id' || column === 'slug') return literal(legacy.id)
+        if (column === 'socialLinks') return `${literal(JSON.stringify(legacy.socialLinks))}::jsonb`
+
+        return `"${column}"`
+      })
+
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "Event" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+          `SELECT ${values.join(', ')} FROM "Event" WHERE "id" = 'upgrade-fixture-Event'`,
+      )
+    }
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "Event" WHERE "id" LIKE 'legacy-website-%'`,
+    )
+    if (n !== LEGACY_WEBSITES.length) {
+      throw new Error(`expected ${LEGACY_WEBSITES.length} cloned events, found ${n}`)
+    }
+
+    return { Event: LEGACY_WEBSITES.length }
+  },
+})
+
+/** Waiting team invitations before the posting-role rule: id, role, address. */
+const LEGACY_TEAM_INVITATIONS = Object.freeze([
+  ['upgrade-invite-admin', 'ADMIN', 'posting.role@example.test'],
+  ['upgrade-invite-staff', 'STAFF', 'staff.role@example.test'],
+])
+
+/**
+ * Legacy `socialLinks.website` values, and what the website migration must make
+ * of each: the stored address, or null when the value is dropped.
+ */
+const LEGACY_WEBSITES = Object.freeze([
+  {
+    id: 'legacy-website-mixed-case',
+    socialLinks: { website: 'HTTPS://Example.ORG', instagram: 'https://instagram.com/x' },
+    carried: 'https://example.org/',
+  },
+  {
+    id: 'legacy-website-sign-in',
+    socialLinks: { website: 'https://u:p@a.example/' },
+    carried: null,
+  },
+  { id: 'legacy-website-port', socialLinks: { website: 'https://a.example:8443/' }, carried: null },
+  { id: 'legacy-website-ip', socialLinks: { website: 'https://1.2.3.4/' }, carried: null },
+  { id: 'legacy-website-null', socialLinks: { website: null }, carried: null },
+  {
+    id: 'legacy-website-token',
+    socialLinks: { website: 'https://a.example/?token=x' },
+    carried: 'https://a.example/?token=x',
+  },
+  { id: 'legacy-website-pipe', socialLinks: { website: 'https://a.example/a|b' }, carried: null },
+  {
+    id: 'legacy-website-dot-segment',
+    socialLinks: { website: 'https://a.example/x/../y' },
+    carried: null,
+  },
+])
 
 /**
  * Rows the generic filler cannot produce, because a CHECK constraint means the
@@ -1172,6 +1288,147 @@ async function checkLegacyAdmissions(prisma) {
 }
 
 /**
+ * Check what the SPEC2 migrations made of the rows {@link BEFORE_MIGRATION_FIXTURES}
+ * put in, and what they left behind on a database that holds rows.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkSpec2Backfills(prisma) {
+  let ok = true
+
+  const labels = (
+    await prisma.$queryRawUnsafe(
+      'SELECT label.enumlabel AS label FROM pg_enum label JOIN pg_type type ON type.oid = label.enumtypid ' +
+        `WHERE type.typname = 'UserRole' ORDER BY label.enumsortorder`,
+    )
+  ).map((row) => row.label)
+  ok =
+    record(
+      'UserRole names ADMIN again, just below SUPER_ADMIN',
+      labels.includes('ADMIN') && labels.indexOf('ADMIN') === labels.indexOf('SUPER_ADMIN') - 1,
+      { note: labels.join(', ') },
+    ) && ok
+
+  const invitations = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "status"::text AS status, "revokedAt" IS NOT NULL AS revoked ' +
+          `FROM "Invitation" WHERE "id" LIKE 'upgrade-invite-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const [rule] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM pg_constraint ' +
+      `WHERE conname = 'invitation_pending_role_is_owner_grantable'`,
+  )
+  const [posting] = await prisma.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM "Invitation" WHERE "status" = 'PENDING' ` +
+      `AND "role" IN ('OWNER', 'ADMIN', 'MANAGER', 'EVENT_MANAGER')`,
+  )
+  ok =
+    record(
+      'a waiting team invitation to a role that posts events is withdrawn, and a STAFF one is not',
+      invitations['upgrade-invite-admin']?.status === 'REVOKED' &&
+        invitations['upgrade-invite-admin']?.revoked === true &&
+        invitations['upgrade-invite-staff']?.status === 'PENDING' &&
+        invitations['upgrade-invite-staff']?.revoked === false &&
+        rule.n === 1 &&
+        posting.n === 0,
+      {
+        note:
+          `ADMIN ${invitations['upgrade-invite-admin']?.status}, ` +
+          `STAFF ${invitations['upgrade-invite-staff']?.status}, ` +
+          `CHECK ${rule.n === 1 ? 'present' : 'missing'}, ${posting.n} waiting posting-role invitations`,
+      },
+    ) && ok
+
+  const websites = Object.fromEntries(
+    (
+      await prisma.$queryRawUnsafe(
+        'SELECT "id", "websiteUrl", "websiteDecisionPending" AS pending, ' +
+          '"websiteSubmittedAt" IS NOT NULL AS submitted, "websiteRedirectEnabled" AS enabled, ' +
+          `"socialLinks" FROM "Event" WHERE "id" LIKE 'legacy-website-%'`,
+      )
+    ).map((row) => [row.id, row]),
+  )
+  const wrong = LEGACY_WEBSITES.filter((legacy) => {
+    const row = websites[legacy.id]
+    const carried = legacy.carried !== null
+
+    return (
+      !row ||
+      row.websiteUrl !== legacy.carried ||
+      row.pending !== carried ||
+      row.submitted !== carried ||
+      row.enabled !== false ||
+      row.socialLinks === null ||
+      'website' in row.socialLinks
+    )
+  }).map((legacy) => legacy.id)
+  const mixed = websites['legacy-website-mixed-case']
+  ok =
+    record(
+      'legacy website links are carried normalised and waiting, or dropped, and the key is gone',
+      wrong.length === 0 &&
+        JSON.stringify(mixed?.socialLinks) ===
+          JSON.stringify({ instagram: 'https://instagram.com/x' }),
+      {
+        wrong,
+        note: LEGACY_WEBSITES.map(
+          (legacy) =>
+            `${legacy.id.replace('legacy-website-', '')}: ${websites[legacy.id]?.websiteUrl ?? 'dropped'}`,
+        ).join('; '),
+      },
+    ) && ok
+
+  const [switchedOn] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "Event" WHERE "websiteRedirectEnabled"',
+  )
+  ok =
+    record("no event's website link is on after the upgrade", switchedOn.n === 0, {
+      note: `${switchedOn.n} on`,
+    }) && ok
+
+  const triggers = (
+    await prisma.$queryRawUnsafe(
+      'SELECT tgname FROM pg_trigger WHERE NOT tgisinternal ' +
+        `AND tgname IN ('desi_event_status_requires_review', 'desi_event_website_change') ORDER BY tgname`,
+    )
+  ).map((row) => row.tgname)
+  ok =
+    record('the review-gate and website triggers exist', triggers.length === 2, {
+      note: triggers.join(', '),
+    }) && ok
+
+  const state = await prisma.$queryRawUnsafe(
+    'SELECT "id", "leaseOwner", "leaseExpiresAt", "lastCompletedAt" FROM "TrafficRollupState"',
+  )
+  const [visits] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "TrafficEvent")::int AS events, ' +
+      '(SELECT count(*) FROM "TrafficDaily")::int AS daily, ' +
+      '(SELECT count(*) FROM "TrafficSalt")::int AS salts',
+  )
+  ok =
+    record(
+      'the traffic roll-up has exactly one state row with no lease, and nothing is counted',
+      state.length === 1 &&
+        state[0].id === 'traffic-rollup' &&
+        state[0].leaseOwner === null &&
+        state[0].leaseExpiresAt === null &&
+        state[0].lastCompletedAt === null &&
+        visits.events === 0 &&
+        visits.daily === 0 &&
+        visits.salts === 0,
+      {
+        note: `${state.length} state row(s); ${visits.events} events, ${visits.daily} daily, ${visits.salts} salts`,
+      },
+    ) && ok
+
+  return ok
+}
+
+/**
  * Everything about a database's structure, and nothing about its contents.
  *
  * Six catalogues, because a migration can go wrong in six different places: a
@@ -1412,6 +1669,8 @@ async function main() {
     }
 
     let legacy = null
+    /** @type {Record<string, number>} Rows the per-migration fixtures added, per table. */
+    const fixtureRows = {}
 
     for (const migration of phase3) {
       if (migration === FIRST_FEATURE_MIGRATION) {
@@ -1432,6 +1691,37 @@ async function main() {
                 .join(', '),
             },
           ) && ok
+      }
+
+      const fixture = BEFORE_MIGRATION_FIXTURES[migration]
+
+      if (fixture) {
+        prisma = createPrismaClient({ connectionString: target })
+
+        try {
+          const added = await fixture(prisma)
+
+          for (const [table, count] of Object.entries(added)) {
+            fixtureRows[table] = (fixtureRows[table] ?? 0) + count
+          }
+          ok =
+            record(`the rows ${migration} rewrites are in place before it`, true, {
+              added,
+              note: Object.entries(added)
+                .map(([table, count]) => `${count} ${table}`)
+                .join(', '),
+            }) && ok
+        } catch (error) {
+          ok =
+            record(`the rows ${migration} rewrites are in place before it`, false, {
+              note: String(error?.message ?? error)
+                .replace(/\s+/g, ' ')
+                .slice(0, 300),
+            }) && ok
+        } finally {
+          await prisma.$disconnect()
+          prisma = null
+        }
       }
 
       const applied = await applyMigration(target, migration)
@@ -1458,6 +1748,9 @@ async function main() {
     for (const [table, count] of Object.entries(legacy?.added ?? {})) {
       if (table in expected) expected[table] += count
     }
+    for (const [table, count] of Object.entries(fixtureRows)) {
+      if (table in expected) expected[table] += count
+    }
     // Two for the covers the media migration drops, and one for each legacy
     // admission the per-night migration gives a night.
     if ('AuditLog' in expected) expected.AuditLog += 2 + LEGACY_ADMISSION_AUDITS
@@ -1474,6 +1767,8 @@ async function main() {
     } else {
       ok = (await checkLegacyBackfills(prisma)) && ok
     }
+
+    ok = (await checkSpec2Backfills(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

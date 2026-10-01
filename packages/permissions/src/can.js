@@ -22,6 +22,7 @@ import {
   canAssignOrgRole,
   isCapability,
   orgRoleRank,
+  postsEvents,
 } from './capabilities.js'
 import { PermissionError } from './errors.js'
 
@@ -36,7 +37,7 @@ import { PermissionError } from './errors.js'
  * @typedef {object} Actor
  * @property {string} id The user's id.
  * @property {string} [role] The platform-wide `UserRole`: ATTENDEE, ORGANIZER,
- *   SUPPORT, MODERATOR, FINANCE_ADMIN or SUPER_ADMIN.
+ *   SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN or SUPER_ADMIN.
  * @property {Membership[]} [memberships] Organisation memberships held by the user.
  */
 
@@ -204,19 +205,49 @@ export function capabilitiesFor(actor, organizationId) {
 }
 
 /**
+ * Decide whether this actor may grant `targetRole` inside this organisation,
+ * and when not, why.
+ *
+ * @param {Actor|null|undefined} actor The granting actor.
+ * @param {string} targetRole The `OrgRole` being granted.
+ * @param {PermissionContext} context Scope; `organizationId` is required.
+ * @returns {{allowed: boolean, reason: string|null}} The decision.
+ */
+function grantDecision(actor, targetRole, context = {}) {
+  if (can(actor, 'platform:admin')) return { allowed: true, reason: null }
+  if (!can(actor, 'team:invite', context)) return { allowed: false, reason: 'role_escalation' }
+
+  const actorRole = orgRoleFor(actor, context?.organizationId)
+  if (!actorRole || !canAssignOrgRole(actorRole, targetRole)) {
+    return { allowed: false, reason: 'role_escalation' }
+  }
+
+  // Within what the granter holds, a role that creates or publishes events is
+  // still not theirs to give: the Desi-Event team gives it.
+  if (postsEvents(targetRole)) return { allowed: false, reason: 'posting_role_needs_platform' }
+
+  return { allowed: true, reason: null }
+}
+
+/**
  * May this actor grant `targetRole` inside this organisation?
  *
- * Three rules, all of which have to hold:
+ * Four rules, all of which have to hold:
  *
- *  1. The actor must be able to invite or remove at all — a VIEWER cannot hand
- *     out any role, however junior.
+ *  1. The actor must be able to invite at all — a VIEWER cannot hand out any
+ *     role, however junior.
  *  2. The role being granted must be a capability subset of the actor's own, so
  *     nobody can mint authority they do not hold. This is what closes
  *     self-escalation, and it does not depend on a seniority order.
  *  3. Only an OWNER may create another OWNER.
+ *  4. The role must not create or publish events. An owner may grant exactly
+ *     `OWNER_GRANTABLE_ORG_ROLES`; posting roles come from the Desi-Event team,
+ *     through an organiser invitation or a super administrator's direct grant.
  *
- * A platform administrator bypasses all three, which is what `platform:admin`
- * is for.
+ * A super administrator bypasses all four, which is what `platform:admin` is
+ * for. A platform administrator (`ADMIN`) does not: it holds no `team:invite`
+ * and no `platform:admin`, and joins nobody to an organisation except through
+ * an organiser invitation.
  *
  * @param {Actor|null|undefined} actor The granting actor.
  * @param {string} targetRole The `OrgRole` being granted.
@@ -224,17 +255,15 @@ export function capabilitiesFor(actor, organizationId) {
  * @returns {boolean} `true` when the grant is permitted.
  */
 export function canGrantOrgRole(actor, targetRole, context = {}) {
-  if (can(actor, 'platform:admin')) return true
-  if (!can(actor, 'team:invite', context)) return false
-
-  const actorRole = orgRoleFor(actor, context?.organizationId)
-  if (!actorRole) return false
-
-  return canAssignOrgRole(actorRole, targetRole)
+  return grantDecision(actor, targetRole, context).allowed
 }
 
 /**
  * Assert that an actor may grant a role, throwing if they may not.
+ *
+ * The error's `reason` is `posting_role_needs_platform` when the role is one the
+ * actor could otherwise hand out but that creates or publishes events, and
+ * `role_escalation` for every other refusal.
  *
  * @param {Actor|null|undefined} actor The granting actor.
  * @param {string} targetRole The `OrgRole` being granted.
@@ -243,12 +272,13 @@ export function canGrantOrgRole(actor, targetRole, context = {}) {
  * @throws {PermissionError} With `statusCode` 403 when it is not.
  */
 export function assertCanGrantOrgRole(actor, targetRole, context = {}) {
-  if (canGrantOrgRole(actor, targetRole, context)) return
+  const { allowed, reason } = grantDecision(actor, targetRole, context)
+  if (allowed) return
 
   throw new PermissionError(`Actor is not permitted to grant the role ${targetRole}.`, {
     capability: 'team:invite',
     organizationId: context?.organizationId ?? null,
     actorId: actor?.id ?? null,
-    reason: 'role_escalation',
+    reason,
   })
 }

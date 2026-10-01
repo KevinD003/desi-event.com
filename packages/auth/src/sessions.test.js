@@ -61,6 +61,22 @@ describe('sessionPolicyFor', () => {
     })
   })
 
+  it('names every platform staff role as privileged, the platform administrator included', () => {
+    expect([...PRIVILEGED_PLATFORM_ROLES].sort()).toEqual(
+      ['ADMIN', 'FINANCE_ADMIN', 'MODERATOR', 'SUPER_ADMIN', 'SUPPORT'].sort(),
+    )
+  })
+
+  it('makes a platform administrator with no membership set up a second factor', () => {
+    // ADMIN approves events and invites organisers: its session is as short,
+    // and as guarded, as any other platform staff role's.
+    expect(sessionPolicyFor({ role: 'ADMIN', memberships: [] })).toEqual({
+      privileged: true,
+      lifetimes: SESSION_LIFETIMES.privileged,
+      mfaRequired: true,
+    })
+  })
+
   it.each(['ATTENDEE', 'ORGANIZER'])(
     'does not treat the platform role %s as privileged',
     (role) => {

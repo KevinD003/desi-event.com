@@ -317,10 +317,10 @@ export function computeSeedOrderTotals({ lines, promo = null, taxBps }) {
 // ---------------------------------------------------------------------------
 
 /**
- * Users: one platform admin and one moderator, the owners and staff of eleven
- * organisations, and attendees.
+ * Users: one super administrator, one platform administrator and one
+ * moderator, the owners and staff of eleven organisations, and attendees.
  *
- * No account is seeded with a second factor. The two platform accounts and
+ * No account is seeded with a second factor. The three platform accounts and
  * every organiser with a privileged membership (owner, administrator, manager)
  * must have one, so the API makes each of them set up two-step sign-in the
  * first time they sign in, before any privileged page answers — a second
@@ -335,6 +335,18 @@ const USERS = [
     role: 'SUPER_ADMIN',
     locale: 'en-US',
     phone: '+1 201 555 0100',
+    emailVerified: true,
+  },
+  // The platform administrator (ADMIN): invites organisers, reviews events,
+  // pictures and organisations, and switches event website links. Belongs to no
+  // organisation, and enrols a second factor at first sign-in.
+  {
+    key: 'platformAdmin',
+    email: 'platform-admin@desi-event.example',
+    displayName: 'Desi-Event Platform Administrator',
+    role: 'ADMIN',
+    locale: 'en-US',
+    phone: null,
     emailVerified: true,
   },
   // The verification queue and event reviews: moderation, and nothing else.
@@ -1038,6 +1050,9 @@ const EVENTS = [
     id: seedId('seed-event-dandiya-kids-hour-houston'),
     slug: 'dandiya-kids-hour-houston',
     orgKey: 'chaniya',
+    // An address the organiser gave and nobody has decided about yet, so the
+    // administrators' list of website links has something waiting.
+    website: { url: 'https://chaniya.example/', on: false, reason: null },
     venueKey: 'lantern-row',
     title: 'Dandiya Kids’ Hour',
     summary:
@@ -1426,6 +1441,13 @@ const EVENTS = [
     id: seedId('seed-event-mirrorwork-live-band-night'),
     slug: 'mirrorwork-live-band-night',
     orgKey: 'mirrorwork',
+    // The organiser's website, beside `content` rather than in it: the switch
+    // needs the deciding administrator's id, which static data cannot hold.
+    website: {
+      url: 'https://mirrorwork.example/',
+      on: true,
+      reason: 'Mirrorwork Events’ own site, checked by the platform team.',
+    },
     venueKey: 'lamplight',
     title: 'Live Garba Band Night with the Mirrorwork Ensemble',
     summary:
@@ -1474,7 +1496,9 @@ const EVENTS = [
           answer: 'Food and drink are served in the lobby and stay off the dance floor.',
         },
       ],
-      socialLinks: { website: 'https://mirrorwork.example' },
+      // The website has its own column now, behind an administrator's switch;
+      // see `website` above.
+      socialLinks: {},
       dressCode: 'Whatever you can dance in. Traditional dress is welcome and never required.',
       publicContactEmail: 'tickets@mirrorwork.example',
     },
@@ -2605,6 +2629,19 @@ export function buildSeedData(now = new Date()) {
       // JSON column is never written as null here, because Prisma would store
       // JSON's `null` rather than no value, and the shape CHECKs refuse that.
       content: event.content ? { ...event.content } : null,
+      // The organiser's website and the switch, as the administrators' screens
+      // leave them: on with the deciding administrator and their reason, or
+      // waiting for a decision since a fixed time. Null for an event with none.
+      website: event.website
+        ? {
+            url: event.website.url,
+            on: event.website.on,
+            reason: event.website.reason,
+            decidedByEmail: event.website.on ? userByKey.get('platformAdmin').email : null,
+            decidedAt: event.website.on ? offset(anchor, -35, 12) : null,
+            submittedAt: event.website.on ? null : offset(anchor, -3, 12),
+          }
+        : null,
     }
   })
   const eventByKey = new Map(events.map((event) => [event.key, event]))
@@ -3166,6 +3203,107 @@ async function writeSeatMap(prisma, plan) {
   })
 }
 
+/** Statuses the public can see, as the review gate (`desi_event_status_requires_review`) lists them. */
+const PUBLIC_EVENT_STATUSES = Object.freeze([
+  'PUBLISHED',
+  'ON_SALE',
+  'SALES_PAUSED',
+  'SOLD_OUT',
+  'COMPLETED',
+  'POSTPONED',
+  'CANCELLED',
+])
+
+/**
+ * The statuses an event has to pass through to reach `target` from `current`
+ * by moves the review gate allows.
+ *
+ * The gate refuses APPROVED except from REVIEW_PENDING, and a public status
+ * except from APPROVED or another public status. A row a developer moved back
+ * to DRAFT is walked through review again; every other move is direct.
+ *
+ * @param {string} current The status the row holds.
+ * @param {string} target The status the seed wants.
+ * @returns {string[]} The statuses to write, in order, ending with `target`.
+ */
+export function eventStatusPath(current, target) {
+  if (current === target) return []
+
+  const publicNow = PUBLIC_EVENT_STATUSES.includes(current)
+  const toReview = current === 'REVIEW_PENDING' ? [] : ['REVIEW_PENDING']
+
+  if (PUBLIC_EVENT_STATUSES.includes(target) && !publicNow && current !== 'APPROVED') {
+    return [...toReview, 'APPROVED', target]
+  }
+
+  if (target === 'APPROVED' && current !== 'REVIEW_PENDING') return [...toReview, 'APPROVED']
+
+  return [target]
+}
+
+/**
+ * Bring an existing event to the seed's status by moves the review gate allows.
+ *
+ * Only the re-seed path needs it: a first seed inserts each event in its
+ * status, which the gate does not cover. A seed is not a user path, and this
+ * walk is what keeps it from needing a way round the gate that the API could
+ * one day use too.
+ *
+ * @param {object} prisma A Prisma client.
+ * @param {string} eventId The event.
+ * @param {string} target The status the seed wants.
+ * @returns {Promise<string[]>} The statuses written, in order.
+ */
+export async function settleEventStatus(prisma, eventId, target) {
+  const row = await prisma.event.findUnique({ where: { id: eventId }, select: { status: true } })
+  const path = eventStatusPath(row.status, target)
+
+  for (const status of path) {
+    await prisma.event.update({ where: { id: eventId }, data: { status } })
+  }
+
+  return path
+}
+
+/**
+ * The website columns for one event, written explicitly on every seed so a
+ * re-seed puts the switch back where the dataset says.
+ *
+ * The database's trigger recomputes whether a decision is waiting from these
+ * same values, so what is written here and what it would derive agree.
+ *
+ * @param {object|null} website The event's `website`, from {@link buildSeedData}.
+ * @param {Map<string, string>} userIdByEmail Seeded user ids by email.
+ * @returns {object} The `Event` columns.
+ */
+function websiteColumns(website, userIdByEmail) {
+  if (!website) {
+    return {
+      websiteUrl: null,
+      websiteRedirectEnabled: false,
+      websiteDecidedUrl: null,
+      websiteDecisionPending: false,
+      websiteSubmittedAt: null,
+      websiteRedirectChangedAt: null,
+      websiteRedirectChangedById: null,
+      websiteRedirectReason: null,
+    }
+  }
+
+  return {
+    websiteUrl: website.url,
+    websiteRedirectEnabled: website.on,
+    websiteDecidedUrl: website.on ? website.url : null,
+    websiteDecisionPending: !website.on,
+    websiteSubmittedAt: website.submittedAt,
+    websiteRedirectChangedAt: website.decidedAt,
+    websiteRedirectChangedById: website.decidedByEmail
+      ? userIdByEmail.get(website.decidedByEmail)
+      : null,
+    websiteRedirectReason: website.reason,
+  }
+}
+
 /**
  * Write the dataset produced by {@link buildSeedData} to PostgreSQL.
  *
@@ -3332,13 +3470,20 @@ export async function writeSeedData(prisma, data) {
       cancelledAt: event.cancelledAt,
       cancellationReason: event.cancellationReason,
       ...(event.content ?? {}),
+      ...websiteColumns(event.website, userIdByEmail),
     }
+    // The status goes in with the row on a first seed, and is walked there
+    // separately on a re-seed, because the review gate refuses a jump from a
+    // status a developer left the row in straight to a public one.
+    const { status, ...unchanging } = fields
     const eventRow = await prisma.event.upsert({
       where: { slug: event.slug },
-      update: fields,
+      update: unchanging,
       create: { id: event.id, slug: event.slug, ...fields },
-      select: { id: true },
+      select: { id: true, status: true },
     })
+
+    if (eventRow.status !== status) await settleEventStatus(prisma, eventRow.id, status)
 
     // Same reasoning as organizations: the slug matched an existing row, whose
     // id is authoritative regardless of what this run computed.

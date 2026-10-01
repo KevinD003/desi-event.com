@@ -20,6 +20,8 @@ export const QUEUE_NAMES = Object.freeze({
   TICKETS: 'tickets',
   SEARCH: 'search',
   RETENTION: 'retention',
+  /** Visits to event pages, added up into daily totals. */
+  ANALYTICS: 'analytics',
 })
 
 /** Job names within those queues. */
@@ -30,6 +32,7 @@ export const JOB_NAMES = Object.freeze({
   INDEX_EVENT: 'index-event',
   DRAIN_OUTBOX: 'drain-outbox',
   SWEEP_RETENTION: 'sweep-retention',
+  ROLL_UP_TRAFFIC: 'roll-up-traffic',
 })
 
 /** Transactional email templates the worker knows how to render. */
@@ -109,6 +112,18 @@ export const sweepRetentionJobSchema = z.object({
   retentionClass: nonEmptyStringSchema.optional(),
 })
 
+/**
+ * Add up visits into daily totals, and delete the raw visit rows that have been
+ * added up and are two days old.
+ *
+ * `now` is the business instant: which day is today and which days may be
+ * purged. It is never the lease clock, which the roll-up reads for itself.
+ */
+export const rollUpTrafficJobSchema = z.object({
+  now: timestampSchema.optional(),
+  leaseMs: z.coerce.number().int().min(10_000).max(900_000).default(300_000),
+})
+
 /** Map of job name to payload schema, for a worker's dispatch table. */
 export const JOB_SCHEMAS = Object.freeze({
   [JOB_NAMES.SEND_EMAIL]: sendEmailJobSchema,
@@ -117,6 +132,7 @@ export const JOB_SCHEMAS = Object.freeze({
   [JOB_NAMES.INDEX_EVENT]: indexEventJobSchema,
   [JOB_NAMES.DRAIN_OUTBOX]: drainOutboxJobSchema,
   [JOB_NAMES.SWEEP_RETENTION]: sweepRetentionJobSchema,
+  [JOB_NAMES.ROLL_UP_TRAFFIC]: rollUpTrafficJobSchema,
 })
 
 /**

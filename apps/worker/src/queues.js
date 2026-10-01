@@ -37,6 +37,9 @@ export const QUEUE_FOR_JOB = Object.freeze({
   // job name, and so that an operator looking at the retention queue sees
   // exactly what was asked for and nothing else.
   [JOB_NAMES.SWEEP_RETENTION]: QUEUE_NAMES.RETENTION,
+  // Visits added up into daily totals, on a queue of its own so one slow
+  // roll-up never holds up email or tickets.
+  [JOB_NAMES.ROLL_UP_TRAFFIC]: QUEUE_NAMES.ANALYTICS,
 })
 
 /**

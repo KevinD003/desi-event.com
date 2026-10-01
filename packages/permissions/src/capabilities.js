@@ -155,6 +155,18 @@ export const CAPABILITIES = deepFreeze({
    */
   PROMO_MANAGE: 'promo:manage',
   REPORT_VIEW: 'report:view',
+  /**
+   * Read every event's visit counts and paid-order counts across all
+   * organisations (`GET /v1/traffic/events`). Never money: the list carries
+   * counts only, and an event's money stays behind `finance:view` and its
+   * step-up on the per-organisation view.
+   *
+   * Platform-only. `report:view` is an organisation capability and cannot be
+   * asserted without an organisation (NF-05), so a list spanning every
+   * organisation needs a platform capability of its own. Held by ADMIN and by
+   * SUPER_ADMIN through ALL_CAPABILITIES.
+   */
+  ANALYTICS_VIEW_ALL: 'analytics:view_all',
 
   // --- Personal data --------------------------------------------------------
   /**
@@ -215,6 +227,25 @@ export const CAPABILITIES = deepFreeze({
    * made: only `SUPER_ADMIN` holds it, through `ALL_CAPABILITIES`.
    */
   RETENTION_VIEW: 'retention:view',
+  /**
+   * Invite somebody to start an organisation here, and read, withdraw and
+   * reissue those invitations.
+   *
+   * Platform-only: an organisation cannot vouch for itself, which is the whole
+   * point of the invitation. Held by ADMIN and by SUPER_ADMIN through
+   * ALL_CAPABILITIES.
+   */
+  ORGANIZER_INVITE: 'organizer:invite',
+  /**
+   * Turn an event's "Visit the organiser's website" link on or off, and read
+   * the list of website links waiting for a decision.
+   *
+   * Platform-only, and deliberately not `moderation:review`: a moderator
+   * decides whether a listing is fit to publish; whether the platform sends
+   * its visitors to somebody else's site is a separate call, held by platform
+   * administrators (ADMIN, and SUPER_ADMIN through ALL_CAPABILITIES).
+   */
+  WEBSITE_REDIRECT_MANAGE: 'website_redirect:manage',
   PLATFORM_ADMIN: 'platform:admin',
 })
 
@@ -242,6 +273,9 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.RECONCILIATION_MANAGE,
   CAPABILITIES.LEDGER_MANAGE,
   CAPABILITIES.RETENTION_VIEW,
+  CAPABILITIES.ORGANIZER_INVITE,
+  CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
+  CAPABILITIES.ANALYTICS_VIEW_ALL,
   CAPABILITIES.PLATFORM_ADMIN,
 ])
 
@@ -270,9 +304,10 @@ export const ORG_ROLE_ORDER = deepFreeze([
 /**
  * Platform-wide user roles, least to most senior, mirroring `UserRole`.
  *
- * Phase 1's single `ADMIN` became `SUPER_ADMIN`, and the three narrower roles
- * exist so that support, moderation and finance work does not require the key
- * to everything.
+ * Phase 1's single `ADMIN` became `SUPER_ADMIN`. The narrower roles exist so
+ * that support, moderation, finance and platform administration work does not
+ * require the key to everything. Today's `ADMIN` is the platform administrator
+ * (see {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}), not Phase 1's catch-all.
  *
  * @type {ReadonlyArray<string>}
  */
@@ -282,6 +317,7 @@ export const PLATFORM_ROLE_ORDER = deepFreeze([
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 
@@ -512,6 +548,37 @@ function resolveAll(grants, inherits) {
 export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_ROLE_INHERITS))
 
 /**
+ * Everything the platform administrator (`ADMIN`) holds, and nothing else.
+ *
+ * An allow-list rather than a list of exclusions: the role reviews events,
+ * pictures and organisations, invites organisers, switches an event's website
+ * link, and reads every event's figures, and a later edit that hands it one
+ * more capability — a door, a refund, an event of its own to publish — has to
+ * change this list and its test on purpose. A reviewer who could also write
+ * and publish events would be the self-review hole the review gate exists to
+ * close, and one who could move money or change platform roles would be a
+ * second SUPER_ADMIN. {@link assertPlatformAdministratorBounds} holds the role
+ * table to exactly this list when the module loads.
+ *
+ * `report:view` is platform-wide here, so `can(admin, 'report:view',
+ * {organizationId})` answers yes for every organisation; the money on those
+ * reports stays behind `finance:view`, which ADMIN does not hold.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
+  [
+    CAPABILITIES.MODERATION_REVIEW,
+    CAPABILITIES.EVENT_VIEW_DRAFT,
+    CAPABILITIES.VENUE_MANAGE,
+    CAPABILITIES.ORGANIZER_INVITE,
+    CAPABILITIES.REPORT_VIEW,
+    CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
+    CAPABILITIES.ANALYTICS_VIEW_ALL,
+  ].sort(),
+)
+
+/**
  * Capabilities granted by the platform-wide `User.role`, independent of any
  * organisation membership.
  *
@@ -520,9 +587,11 @@ export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_
  * organisation on the platform, which is exactly the cross-tenant leak this
  * module exists to prevent.
  *
- * The three narrow staff roles exist so that the common platform jobs do not
- * need `SUPER_ADMIN`. A moderator cannot refund; a finance administrator
- * cannot approve an event; support can read an order and change nothing.
+ * The narrow staff roles exist so that the common platform jobs do not need
+ * `SUPER_ADMIN`. A moderator cannot refund; a finance administrator cannot
+ * approve an event; support can read an order and change nothing; a platform
+ * administrator reviews, invites organisers and switches website links, and
+ * cannot change anybody's platform role, move money or admit anybody at a door.
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}
  */
@@ -545,8 +614,40 @@ export const PLATFORM_ROLE_CAPABILITIES = deepFreeze({
     CAPABILITIES.LEDGER_MANAGE,
     CAPABILITIES.SUPPORT_VIEW_ORDER,
   ].sort(),
+  ADMIN: [...PLATFORM_ADMINISTRATOR_CAPABILITIES],
   SUPER_ADMIN: [...ALL_CAPABILITIES],
 })
+
+/**
+ * Throw unless the platform administrator's capabilities are exactly
+ * {@link PLATFORM_ADMINISTRATOR_CAPABILITIES}: nothing missing, nothing extra.
+ *
+ * An equality rather than a check for a few forbidden names, so nothing is
+ * added silently: a capability invented next year is outside the list until
+ * somebody puts it there.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} table A platform role table.
+ * @returns {Record<string, ReadonlyArray<string>>} The same table, when it holds.
+ * @throws {Error} Naming what is extra and what is missing.
+ */
+export function assertPlatformAdministratorBounds(table) {
+  const held = new Set(table?.ADMIN ?? [])
+  const allowed = new Set(PLATFORM_ADMINISTRATOR_CAPABILITIES)
+  const extra = [...held].filter((capability) => !allowed.has(capability)).sort()
+  const missing = [...allowed].filter((capability) => !held.has(capability)).sort()
+
+  if (extra.length > 0 || missing.length > 0) {
+    throw new Error(
+      'The platform administrator (ADMIN) must hold exactly PLATFORM_ADMINISTRATOR_CAPABILITIES' +
+        `${extra.length ? `; it also holds ${extra.join(', ')}` : ''}` +
+        `${missing.length ? `; it lacks ${missing.join(', ')}` : ''}`,
+    )
+  }
+
+  return table
+}
+
+assertPlatformAdministratorBounds(PLATFORM_ROLE_CAPABILITIES)
 
 // An organisation membership must never be able to grant platform-wide
 // authority. Asserted at load rather than tested only, so a bad edit fails the
@@ -622,4 +723,166 @@ export function canAssignOrgRole(assignerRole, targetRole) {
   if (targetRole === 'OWNER') return assignerRole === 'OWNER'
 
   return targetCapabilities.every((capability) => assignerCapabilities.includes(capability))
+}
+
+/**
+ * The capabilities that create or publish events.
+ *
+ * Holding one of them is what "posts events" means. The Desi-Event team
+ * decides who does: an organiser invitation makes somebody the owner of a new
+ * organisation, and a super administrator may grant any role directly. An
+ * organisation cannot hand one of these to somebody new on its own.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EVENT_POSTING_CAPABILITIES = deepFreeze([
+  CAPABILITIES.EVENT_CREATE,
+  CAPABILITIES.EVENT_UPDATE,
+  CAPABILITIES.EVENT_SUBMIT_REVIEW,
+  CAPABILITIES.EVENT_PUBLISH,
+])
+
+/**
+ * Everything that shapes an event or what it sells: posting, plus pausing,
+ * cancelling and deleting, tiers, inventory, venues, seating and promo codes.
+ *
+ * No role an owner may hand out holds any of these, so an owner-issued role can
+ * read, scan, staff the door or handle money, and cannot change an event.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EVENT_AUTHORITY_CAPABILITIES = deepFreeze([
+  ...EVENT_POSTING_CAPABILITIES,
+  CAPABILITIES.EVENT_PAUSE_SALES,
+  CAPABILITIES.EVENT_CANCEL,
+  CAPABILITIES.EVENT_DELETE,
+  CAPABILITIES.TICKET_TYPE_MANAGE,
+  CAPABILITIES.INVENTORY_MANAGE,
+  CAPABILITIES.VENUE_MANAGE,
+  CAPABILITIES.VENUE_MAP_MANAGE,
+  CAPABILITIES.PROMO_MANAGE,
+])
+
+/**
+ * The organisation roles that post events, in {@link ORG_ROLE_ORDER} order.
+ *
+ * Derived from the role table rather than listed, so a grant that gave another
+ * role a posting capability would move it here — and then fail
+ * {@link assertPostingPolicy}, which pins the other half.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EVENT_POSTING_ORG_ROLES = deepFreeze(
+  ORG_ROLE_ORDER.filter((role) =>
+    ORG_ROLE_CAPABILITIES[role].some((capability) =>
+      EVENT_POSTING_CAPABILITIES.includes(capability),
+    ),
+  ),
+)
+
+/**
+ * The organisation roles an owner may give somebody new: the ones that do not
+ * post events, in {@link ORG_ROLE_ORDER} order.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const OWNER_GRANTABLE_ORG_ROLES = deepFreeze(
+  ORG_ROLE_ORDER.filter((role) => !EVENT_POSTING_ORG_ROLES.includes(role)),
+)
+
+/**
+ * Whether an organisation role creates or publishes events.
+ *
+ * @param {unknown} role An `OrgRole`.
+ * @returns {boolean} True for EVENT_MANAGER, MANAGER, ADMIN and OWNER.
+ */
+export function postsEvents(role) {
+  return typeof role === 'string' && EVENT_POSTING_ORG_ROLES.includes(role)
+}
+
+/**
+ * Throw unless the organisation role table keeps event authority away from the
+ * roles an owner may hand out.
+ *
+ * Three rules. The owner-grantable roles are exactly FINANCE, SCANNER, STAFF and
+ * VIEWER, so a role-table change must also change this on purpose. None of them
+ * holds any of {@link EVENT_AUTHORITY_CAPABILITIES}: a future grant of
+ * `promo:manage` to FINANCE, say, fails every process rather than quietly
+ * widening what owners can give. And OWNER posts events.
+ *
+ * @param {Record<string, ReadonlyArray<string>>} [table] An organisation role table.
+ * @returns {Record<string, ReadonlyArray<string>>} The same table, when it holds.
+ * @throws {Error} Naming the rule broken.
+ */
+export function assertPostingPolicy(table = ORG_ROLE_CAPABILITIES) {
+  const posts = (role) =>
+    (table[role] ?? []).some((capability) => EVENT_POSTING_CAPABILITIES.includes(capability))
+  const grantable = Object.keys(table)
+    .filter((role) => !posts(role))
+    .sort()
+
+  if (JSON.stringify(grantable) !== JSON.stringify(['FINANCE', 'SCANNER', 'STAFF', 'VIEWER'])) {
+    throw new Error(
+      `The roles that do not post events must be FINANCE, SCANNER, STAFF and VIEWER; they are ${grantable.join(', ')}`,
+    )
+  }
+
+  for (const role of grantable) {
+    const authority = (table[role] ?? []).filter((capability) =>
+      EVENT_AUTHORITY_CAPABILITIES.includes(capability),
+    )
+
+    if (authority.length > 0) {
+      throw new Error(
+        `The owner-grantable role "${role}" holds event authority: ${authority.join(', ')}`,
+      )
+    }
+  }
+
+  if (!posts('OWNER')) throw new Error('OWNER must post events')
+
+  return table
+}
+
+assertPostingPolicy(ORG_ROLE_CAPABILITIES)
+
+/**
+ * May a member holding `assignerRole` give somebody new `targetRole`, by a team
+ * invitation?
+ *
+ * {@link canAssignOrgRole}, and the role must not post events: those are given
+ * by the Desi-Event team.
+ *
+ * @param {string} assignerRole The granting member's role.
+ * @param {string} targetRole The role offered.
+ * @returns {boolean} True when the invitation may offer it.
+ */
+export function canIssueOrgRole(assignerRole, targetRole) {
+  return canAssignOrgRole(assignerRole, targetRole) && !postsEvents(targetRole)
+}
+
+/**
+ * May a member holding `assignerRole` move a member from `fromRole` to `toRole`?
+ *
+ * Never to OWNER (ownership is handed over, not assigned), only to a role the
+ * assigner could grant ({@link canAssignOrgRole}), and a move to a role that
+ * posts events only downwards: the member must already post events, and the new
+ * role's capabilities must be a subset of the old one's. An upward move to a
+ * posting role, or any move that makes a non-poster a poster, is the Desi-Event
+ * team's to make.
+ *
+ * @param {string} assignerRole The acting member's role.
+ * @param {string} fromRole The member's current role.
+ * @param {string} toRole The role asked for.
+ * @returns {boolean} True when the move is allowed.
+ */
+export function canMoveOrgRole(assignerRole, fromRole, toRole) {
+  if (toRole === 'OWNER') return false
+  if (!canAssignOrgRole(assignerRole, toRole)) return false
+  if (!postsEvents(toRole)) return true
+  if (!postsEvents(fromRole)) return false
+
+  const from = ORG_ROLE_CAPABILITIES[fromRole] ?? []
+
+  return (ORG_ROLE_CAPABILITIES[toRole] ?? []).every((capability) => from.includes(capability))
 }

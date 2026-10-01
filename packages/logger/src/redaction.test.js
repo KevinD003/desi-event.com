@@ -271,3 +271,87 @@ describe('promo codes and guests’ names', () => {
     expect(output).toContain('"quantity":2')
   })
 })
+
+describe('SMTP credentials and visit-counting values', () => {
+  /**
+   * What a logger writes for one object.
+   *
+   * @param {object} fields The log object.
+   * @returns {Promise<string>} The serialised line.
+   */
+  async function line(fields) {
+    const chunks = []
+    const logger = createLogger({
+      name: 'traffic-redaction',
+      level: 'info',
+      pretty: false,
+      destination: { write: (chunk) => chunks.push(String(chunk)) },
+    })
+    logger.info(fields, 'counted')
+    logger.flush?.()
+    return chunks.join('')
+  }
+
+  const FIELDS = [
+    'pass',
+    'smtpPassword',
+    'SMTP_PASSWORD',
+    'visitorHash',
+    'dedupeKey',
+    'fingerprint',
+    'clientAddress',
+    'referrerHost',
+    'salt',
+  ]
+
+  it('names each field at the root and one level down, and both headers', () => {
+    for (const key of FIELDS) {
+      expect(SENSITIVE_FIELD_KEYS, key).toContain(key)
+      expect(WILDCARD_KEYS, key).toContain(key)
+      expect(REDACT_PATHS, key).toContain(key)
+      expect(REDACT_PATHS, key).toContain(`*.${key}`)
+    }
+
+    for (const header of ['x-desi-client-address', 'x-forwarded-for']) {
+      expect(SENSITIVE_HEADER_KEYS, header).toContain(header)
+      expect(REDACT_PATHS, header).toContain(`req.headers["${header}"]`)
+    }
+  })
+
+  it('never writes an SMTP password, at the top level or one level down', async () => {
+    const output = await line({
+      SMTP_PASSWORD: 'smtp-secret-one',
+      smtpPassword: 'smtp-secret-two',
+      auth: { user: 'mailer', pass: 'smtp-secret-three' },
+    })
+
+    for (const secret of ['smtp-secret-one', 'smtp-secret-two', 'smtp-secret-three']) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain('"user":"mailer"')
+  })
+
+  it('never writes a visitor code, a digest, an address, a referring host or a salt', async () => {
+    const output = await line({
+      salt: 'f'.repeat(64),
+      visitor: { fingerprint: 'fp-203.0.113.9', clientAddress: '203.0.113.9' },
+      row: { visitorHash: 'a'.repeat(32), dedupeKey: 'b'.repeat(64), kind: 'PAGE_VIEW' },
+      beacon: { referrerHost: 'www.google.com' },
+      req: { headers: { 'x-desi-client-address': '198.51.100.7', 'x-forwarded-for': '192.0.2.1' } },
+    })
+
+    for (const secret of [
+      'f'.repeat(64),
+      'fp-203.0.113.9',
+      '203.0.113.9',
+      'a'.repeat(32),
+      'b'.repeat(64),
+      'www.google.com',
+      '198.51.100.7',
+      '192.0.2.1',
+    ]) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain('"kind":"PAGE_VIEW"')
+  })
+})

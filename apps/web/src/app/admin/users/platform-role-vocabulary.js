@@ -21,6 +21,7 @@ export const PLATFORM_ROLES = Object.freeze([
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 
@@ -35,6 +36,7 @@ export const PLATFORM_ROLE_LABELS = Object.freeze({
   SUPPORT: 'Support',
   MODERATOR: 'Moderator',
   FINANCE_ADMIN: 'Finance administrator',
+  ADMIN: 'Platform administrator',
   SUPER_ADMIN: 'Super administrator',
 })
 
@@ -50,6 +52,8 @@ export const PLATFORM_ROLE_DESCRIPTIONS = Object.freeze({
   SUPPORT: 'Reads orders to help people with them. Changes nothing.',
   MODERATOR: 'Reviews events and decides organisation verification.',
   FINANCE_ADMIN: 'Works payment reconciliation and the platform’s money records.',
+  ADMIN:
+    'Invites organisers, reviews events, pictures and organisations, switches an event’s website link on and off, and reads every event’s figures. Cannot change anybody’s platform role, move money, or admit anybody at a door. Needs two-step sign-in.',
   SUPER_ADMIN:
     'Everything on the platform, including changing anybody’s platform role and organisation membership.',
 })
@@ -63,6 +67,7 @@ export const PRIVILEGED_PLATFORM_ROLES = Object.freeze([
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 

@@ -21,6 +21,8 @@
 
 import { z } from 'zod'
 
+import { TRAFFIC_EVENT_KINDS, TRAFFIC_PLACEMENTS, TRAFFIC_SOURCES } from './traffic-vocabulary.js'
+
 /**
  * Event statuses that are visible to the public.
  *
@@ -41,12 +43,18 @@ export const PUBLIC_EVENT_STATUSES = Object.freeze([
   'SOLD_OUT',
 ])
 
+/**
+ * Platform roles. `ADMIN` is the platform administrator (it invites organisers,
+ * reviews, and switches website links), not Phase 1's catch-all, which became
+ * `SUPER_ADMIN`.
+ */
 export const USER_ROLES = Object.freeze([
   'ATTENDEE',
   'ORGANIZER',
   'SUPPORT',
   'MODERATOR',
   'FINANCE_ADMIN',
+  'ADMIN',
   'SUPER_ADMIN',
 ])
 
@@ -457,6 +465,24 @@ export const RECONCILIATION_KINDS = Object.freeze([
 
 /** `USER_ROLES` as a Zod enum. */
 export const userRoleSchema = z.enum([...USER_ROLES])
+
+/**
+ * The kinds of counted visit, as a list. The vocabulary itself, with the
+ * placements, sources and their words, lives in `./traffic-vocabulary.js`,
+ * which the browser imports without zod.
+ */
+export const TRAFFIC_EVENT_KIND_VALUES = Object.freeze(Object.values(TRAFFIC_EVENT_KINDS))
+
+export { TRAFFIC_PLACEMENTS, TRAFFIC_SOURCES }
+
+/** `TRAFFIC_EVENT_KIND_VALUES` as a Zod enum. */
+export const trafficEventKindSchema = z.enum([...TRAFFIC_EVENT_KIND_VALUES])
+
+/** `TRAFFIC_PLACEMENTS` as a Zod enum. */
+export const trafficPlacementSchema = z.enum([...TRAFFIC_PLACEMENTS])
+
+/** `TRAFFIC_SOURCES` as a Zod enum. */
+export const trafficSourceSchema = z.enum([...TRAFFIC_SOURCES])
 
 /** `ORG_ROLES` as a Zod enum. */
 export const orgRoleSchema = z.enum([...ORG_ROLES])
