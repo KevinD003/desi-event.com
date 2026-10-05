@@ -86,6 +86,16 @@ describe('job option policy', () => {
       expect(Object.values(QUEUE_NAMES)).toContain(QUEUE_FOR_JOB[jobName])
     }
   })
+
+  it('adds visits up on a queue of its own, retried once and not kept long', () => {
+    expect(QUEUE_FOR_JOB[JOB_NAMES.ROLL_UP_TRAFFIC]).toBe(QUEUE_NAMES.ANALYTICS)
+    expect(QUEUE_NAMES.ANALYTICS).toBe('analytics')
+    expect(jobOptionsFor(QUEUE_NAMES.ANALYTICS)).toMatchObject({
+      attempts: 2,
+      backoff: { type: 'fixed', delay: 30_000 },
+      removeOnComplete: { age: 3600, count: 50 },
+    })
+  })
 })
 
 describe('validateJobPayload', () => {

@@ -44,8 +44,9 @@
  * and again inside the confirming transaction together with `suspendedAt` — so
  * a demotion between preview and confirmation refuses the confirmation. Every
  * platform lookup and admission also writes `ticket.admission_platform_authority`
- * on the Event, so the organisation's own record shows it. SUPPORT, MODERATOR
- * and FINANCE_ADMIN admit nobody, and a refused attempt is audited.
+ * on the Event, so the organisation's own record shows it. SUPPORT, MODERATOR,
+ * FINANCE_ADMIN and ADMIN (the platform administrator, who reviews events and
+ * invites organisers) admit nobody, and a refused attempt is audited.
  *
  * Locks are taken in one order everywhere: the ticket, then the membership, then
  * the scope. The team routes lock the membership before touching its scopes, so
@@ -382,7 +383,7 @@ export function holdsDoorAuthority(actor) {
  * Refuse, before any lookup, a caller who could not admit anybody.
  *
  * A platform role that holds capabilities but not door authority — SUPPORT,
- * MODERATOR, FINANCE_ADMIN — is refused like anybody else, and, because
+ * MODERATOR, FINANCE_ADMIN, ADMIN — is refused like anybody else, and, because
  * somebody with platform powers trying the door is worth knowing about, the
  * refusal is written to the audit log against the account.
  *

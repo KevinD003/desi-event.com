@@ -47,6 +47,10 @@
 
 import { stepUpSatisfied, stepUpWindowFor } from '@desi-event/auth'
 import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
+import {
+  CARD_PLACEMENT_LABELS,
+  TRAFFIC_SOURCE_LABELS,
+} from '@desi-event/schemas/traffic-vocabulary'
 
 import { organizerAnalytics } from '../lib/analytics.js'
 import { csvFilename, toCsv } from '../lib/csv.js'
@@ -89,6 +93,88 @@ function withoutValues(sales) {
 }
 
 /**
+ * Each visit total in words, in the order an export lists them.
+ *
+ * @type {ReadonlyArray<Array<string>>}
+ */
+const VISIT_TOTAL_LABELS = Object.freeze([
+  ['views', 'Page views'],
+  ['visitors', 'Visitors'],
+  ['anonymousViews', 'Page views without a visitor code'],
+  ['cardClicks', 'Event card clicks'],
+  ['ticketClicks', 'Ticket clicks'],
+  ['seatClicks', 'Seat clicks'],
+  ['ticketClickVisitors', 'Visitors who chose tickets or seats'],
+  ['websiteRedirects', 'Visits to the organiser’s website'],
+  ['websiteRedirectVisitors', 'Visitors sent to the organiser’s website'],
+])
+
+/**
+ * The rows an export carries for visits: counts in `quantity` only, and never
+ * a visitor code, a digest or a referring site.
+ *
+ * @param {object} traffic The payload's `traffic` branch.
+ * @returns {Array<object>} Rows ready for {@link EXPORT_COLUMNS}.
+ */
+function trafficRows(traffic) {
+  const rows = [
+    {
+      section: 'About',
+      label: 'Visits counted',
+      code: 'UTC',
+      note: `Whole UTC days; robots, the organisation’s own team and Desi-Event staff are not counted; brought up to date at ${
+        traffic.updatedAt ? new Date(traffic.updatedAt).toISOString() : 'never'
+      }${traffic.includesDemonstration ? '; includes demonstration figures written by the development seed, which are not counted visits' : ''}`,
+    },
+  ]
+
+  for (const [code, label] of VISIT_TOTAL_LABELS) {
+    rows.push({ section: 'Visits', label, code, quantity: traffic.totals[code] })
+  }
+
+  for (const { source, views } of traffic.sources) {
+    rows.push({
+      section: 'Visit sources',
+      label: TRAFFIC_SOURCE_LABELS[source],
+      code: source,
+      quantity: views,
+    })
+  }
+
+  for (const { placement, clicks } of traffic.cardPlacements) {
+    rows.push({
+      section: 'Card clicks by place',
+      label: CARD_PLACEMENT_LABELS[placement],
+      code: placement,
+      quantity: clicks,
+    })
+  }
+
+  for (const day of traffic.byDay) {
+    rows.push({
+      section: 'Visits by day',
+      label: day.day,
+      code: 'views',
+      quantity: day.views,
+      note: `${day.visitors} visitors, ${day.ticketClicks + day.seatClicks} ticket and seat clicks, ${day.websiteRedirects} website visits, ${day.ordersPaid} orders paid on this day`,
+    })
+  }
+
+  rows.push({
+    section: 'Conversion',
+    label: 'Paid orders per 100 visitors',
+    code: 'percent',
+    quantity: null,
+    note:
+      traffic.conversion.visitorToOrderPercent === null
+        ? 'No visitors counted'
+        : `${traffic.conversion.visitorToOrderPercent}%`,
+  })
+
+  return rows
+}
+
+/**
  * Turn an analytics payload into the rows an export carries.
  *
  * Every row names its section, so a spreadsheet of forty rows from six
@@ -118,6 +204,7 @@ function exportRows(view) {
           ? 'Omitted: this account holds finance:view but has not confirmed a second factor recently enough'
           : 'Omitted: this account does not hold finance:view in this organisation',
     },
+    ...trafficRows(view.traffic),
   ]
 
   if (view.moneyVisible && view.money) {
@@ -230,7 +317,7 @@ function exportRows(view) {
   }
 
   for (const missing of view.funnel.missing) {
-    rows.push({ section: 'Funnel', label: 'Not recorded', note: missing })
+    rows.push({ section: 'Funnel', label: 'Not counted', note: missing })
   }
 
   return rows
@@ -268,20 +355,29 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
     const moneyVisible = moneyWithheld === null
     const mock = providers.payments.name === 'in-memory-payments'
 
-    const analytics = await organizerAnalytics(prisma, {
-      organizationId,
-      currency,
-      eventId: eventId ?? null,
-      eventSessionId: eventSessionId ?? null,
-      from: from ? new Date(from) : null,
-      to: to ? new Date(to) : null,
-      now: new Date(),
-    })
+    const [analytics, organization] = await Promise.all([
+      organizerAnalytics(prisma, {
+        organizationId,
+        currency,
+        eventId: eventId ?? null,
+        eventSessionId: eventSessionId ?? null,
+        from: from ? new Date(from) : null,
+        to: to ? new Date(to) : null,
+        now: new Date(),
+        // Area W's switch state names who last decided only for those who
+        // decide; it is the one thing this flag changes.
+        administrator: can(request.actor, CAPABILITIES.WEBSITE_REDIRECT_MANAGE),
+      }),
+      // Named in the payload so a platform administrator reading somebody
+      // else's figures can see whose they are.
+      prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } }),
+    ])
 
     const { money, sales, ...rest } = analytics
 
     return {
       organizationId,
+      organizationName: organization?.name ?? null,
       currency,
       eventId: eventId ?? null,
       eventSessionId: eventSessionId ?? null,

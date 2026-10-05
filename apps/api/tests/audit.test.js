@@ -186,9 +186,32 @@ describe('AUDIT_ACTIONS', () => {
   })
 
   it('spells every action as a dotted subject and verb phrase', () => {
+    // A subject may be one snake_case phrase (`organizer_invitation`), as the
+    // SPEC2 organiser-invitation actions are; it is still one subject, a dot,
+    // and one verb phrase.
     for (const [name, value] of Object.entries(AUDIT_ACTIONS)) {
-      expect(value, `${name} is not dotted`).toMatch(/^[a-z][A-Za-z0-9]*\.[a-z][a-z0-9_]*$/)
+      expect(value, `${name} is not dotted`).toMatch(
+        /^[a-z][A-Za-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9_]*$/,
+      )
     }
+
+    // Still refused: no dot, two dots, a leading capital, a trailing underscore.
+    for (const bad of ['organizer', 'a.b.c', 'Organizer_invitation.issued', 'organizer_.issued']) {
+      expect(bad).not.toMatch(/^[a-z][A-Za-z0-9]*(?:_[a-z0-9]+)*\.[a-z][a-z0-9_]*$/)
+    }
+  })
+
+  it('names the organiser-invitation and code-delivery actions exactly as SPEC2 does', () => {
+    expect(AUDIT_ACTIONS).toMatchObject({
+      ORGANIZER_INVITATION_ISSUED: 'organizer_invitation.issued',
+      ORGANIZER_INVITATION_REISSUED: 'organizer_invitation.reissued',
+      ORGANIZER_INVITATION_REVOKED: 'organizer_invitation.revoked',
+      ORGANIZER_INVITATION_ACCEPTED: 'organizer_invitation.accepted',
+      ORGANIZER_INVITATION_DELIVERY_FAILED: 'organizer_invitation.delivery_failed',
+      ORGANIZATION_VERIFIED_BY_INVITATION: 'organization.verified_by_invitation',
+      TEAM_INVITATION_DELIVERY_FAILED: 'team.invitation_delivery_failed',
+      TICKET_TRANSFER_DELIVERY_FAILED: 'ticket.transfer_delivery_failed',
+    })
   })
 
   it('has no two names sharing one action string', () => {

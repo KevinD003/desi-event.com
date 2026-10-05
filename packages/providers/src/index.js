@@ -7,10 +7,13 @@
  * implementation, and reached through a registry that validates every slot at
  * construction.
  *
- * Nothing in this package performs I/O. The in-memory providers are not throwaway
- * mocks — they are the substrate the API and worker suites run against, so they
- * model real lifecycles (authorise → capture → refund) and fail in the same
- * shapes a real adapter would, with a distinct `ProviderError.code` per failure.
+ * The in-memory providers perform no I/O. They are not throwaway mocks — they
+ * are the substrate the API and worker suites run against, so they model real
+ * lifecycles (authorise → capture → refund) and fail in the same shapes a real
+ * adapter would, with a distinct `ProviderError.code` per failure. Two adapters
+ * here do perform I/O: the Stripe test-mode adapter (`stripe.js`) and the SMTP
+ * email adapter (`smtp.js`), which sends show-once codes when a deployment sets
+ * `DELIVERY_MODE=EMAIL` and names a mail server.
  *
  * ```js
  * import { createInMemoryProviderRegistry } from '@desi-event/providers'
@@ -106,7 +109,19 @@ export {
   ticketNoticeFor,
 } from './payment-mode.js'
 
-export { createInMemoryEmailProvider, EMAIL_BOUNCE_ADDRESS, DEFAULT_EMAIL_FROM } from './email.js'
+export {
+  createInMemoryEmailProvider,
+  EMAIL_BOUNCE_ADDRESS,
+  DEFAULT_EMAIL_FROM,
+  normaliseEmailMessage,
+} from './email.js'
+
+export {
+  createSmtpEmailProvider,
+  SMTP_CONNECTION_TIMEOUT_MS,
+  SMTP_GREETING_TIMEOUT_MS,
+  SMTP_SOCKET_TIMEOUT_MS,
+} from './smtp.js'
 
 export { createInMemorySmsProvider, SMS_FAILURE_NUMBER, DEFAULT_SMS_SENDER } from './sms.js'
 

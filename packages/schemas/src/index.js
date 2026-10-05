@@ -32,9 +32,11 @@ export * from './retention.js'
 export * from './connect.js'
 export * from './media.js'
 export * from './organizations.js'
+export * from './organizer-invitations.js'
 export * from './platform.js'
 export * from './event-content.js'
 export * from './website.js'
+export * from './traffic.js'
 
 // `env.js` and `jobs.js` are deliberately NOT re-exported here — finding NF-16.
 //

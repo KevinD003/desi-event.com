@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ACCOUNTS, CREDIT, DEBIT } from '@desi-event/ledger'
 
-import { LIVE_TICKET_STATES } from '../src/lib/analytics.js'
+import { FUNNEL_NOT_COUNTED, LIVE_TICKET_STATES } from '../src/lib/analytics.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
 import { expectNoNeedles } from './helpers/payloads.js'
 import { LEDGER_ACCOUNTS, makeWorld } from './helpers/fixtures.js'
@@ -40,6 +40,26 @@ const OUTSIDER = 'rival@dhol.example'
 
 /** An attendee, with no membership at all. */
 const ATTENDEE = 'priya@example.com'
+
+/**
+ * A payload with the event-card click counts' own words taken out.
+ *
+ * The needle `card` below stands for a payment card, and every other "card" in
+ * a payload still fails it. The visit counts name event cards — the tiles on
+ * the home page and the events list — under exactly these words, which are
+ * removed before the scan rather than the needle being dropped.
+ *
+ * @param {string} body A JSON or CSV payload.
+ * @returns {string} The same payload without the event-card count names.
+ */
+function withoutEventCardCounts(body) {
+  return body
+    .replaceAll('"cardClicks"', '"tileClicks"')
+    .replaceAll('"cardPlacements"', '"tilePlacements"')
+    .replaceAll('Event card clicks', 'Event tile clicks')
+    .replaceAll('Card clicks by place', 'Tile clicks by place')
+    .replaceAll(',cardClicks,', ',tileClicks,')
+}
 
 /**
  * The id of a ledger account by its code.
@@ -415,7 +435,7 @@ describe('GET /v1/analytics/summary', () => {
     expect(response.body).not.toContain(String(COLLECTED_CENTS))
   })
 
-  it('says which mode the figures describe, and names the funnel step it cannot show', async () => {
+  it('says which mode the figures describe, and names what the funnel does not count', async () => {
     const { app, ids } = await worldWithSales()
 
     const response = await app.inject({
@@ -429,12 +449,18 @@ describe('GET /v1/analytics/summary', () => {
     expect(view.mode).toBe('MOCK')
     expect(view.modeNotice).toMatch(/no money moved/i)
     expect(view.timeZone).toBe('UTC')
-    expect(view.funnel.missing.join(' ')).toMatch(/page views/i)
+    // Visitors now exist as data, so the funnel starts from them — and says
+    // what it does not count instead of naming a step it cannot show.
     expect(view.funnel.steps.map((step) => step.key)).toEqual([
+      'visitors',
+      'ticketClickVisitors',
       'holds',
       'ordersCreated',
       'ordersPaid',
     ])
+    expect(view.funnel.missing).toEqual([...FUNNEL_NOT_COUNTED])
+    expect(view.funnel.missing).toHaveLength(3)
+    expect(view.funnel.missing[0]).toMatch(/robots/i)
   })
 
   it('carries no buyer, no card and no provider identifier', async () => {
@@ -446,7 +472,7 @@ describe('GET /v1/analytics/summary', () => {
       headers: await asUser(app, OWNER),
     })
 
-    expectNoNeedles(expect, response.body, [
+    expectNoNeedles(expect, withoutEventCardCounts(response.body), [
       'priya',
       'buyeremail',
       'buyername',
@@ -515,7 +541,7 @@ describe('GET /v1/analytics/export.csv', () => {
     // the CSV are held to one standard rather than two, plus the three this
     // fixture makes specific: the buyer's own values and the order reference
     // that would identify their purchase.
-    expectNoNeedles(expect, response.body, [
+    expectNoNeedles(expect, withoutEventCardCounts(response.body), [
       'priya',
       'buyeremail',
       'buyername',
@@ -527,6 +553,9 @@ describe('GET /v1/analytics/export.csv', () => {
       '@example.com',
       'DE-ANALYT',
     ])
+    // Visits are exported as counts, and never with a visitor code.
+    expect(response.body).toContain('Visits,Page views,views,')
+    expect(response.body).not.toMatch(/visitorHash|dedupeKey|salt/iu)
   })
 
   it('exports the aggregate that the buyer is inside, so the scan is not vacuous', async () => {

@@ -7,7 +7,11 @@ import { ProviderError } from '@desi-event/providers'
 import { ValidationError } from '@desi-event/schemas'
 
 import {
+  DATABASE_REFUSALS,
+  POSTING_ROLE_SENTENCE,
+  REVIEW_REQUIRED_SENTENCE,
   UNSTORABLE_CHARACTER_MESSAGE,
+  databaseRefusal,
   exposedServerError,
   httpError,
   normaliseError,
@@ -200,6 +204,92 @@ describe('normaliseError', () => {
     expect(normaliseError(Object.assign(new Error('x'), { statusCode: 999 })).statusCode).toBe(500)
     expect(normaliseError(Object.assign(new Error('x'), { statusCode: 200 })).statusCode).toBe(500)
     expect(normaliseError('a string, thrown by something careless').statusCode).toBe(500)
+  })
+})
+
+describe('databaseRefusal', () => {
+  /**
+   * A refusal shaped the way Prisma's driver adapter reports a raised
+   * exception: a known request error whose cause carries the SQLSTATE and the
+   * database's own message.
+   *
+   * @param {string} message The database's message.
+   * @param {string} [code] The SQLSTATE.
+   * @returns {Error} The error.
+   */
+  function adapterError(message, code = '23514') {
+    return Object.assign(new Error('Invalid `prisma.event.update()` invocation'), {
+      code: 'P2010',
+      meta: { driverAdapterError: { cause: { originalCode: code, originalMessage: message } } },
+    })
+  }
+
+  it('answers 409 REVIEW_REQUIRED when the review gate refuses a status', () => {
+    const refusal = databaseRefusal(
+      adapterError('event_public_requires_review: an event becomes public only after review'),
+    )
+
+    expect(refusal).toMatchObject({
+      statusCode: 409,
+      code: 'REVIEW_REQUIRED',
+      message: REVIEW_REQUIRED_SENTENCE,
+    })
+  })
+
+  it('answers 403 POSTING_ROLE_NEEDS_PLATFORM when a team invitation offers a posting role', () => {
+    const refusal = databaseRefusal(
+      Object.assign(new Error('violates check constraint'), {
+        code: 'P2004',
+        meta: { constraint: 'invitation_pending_role_is_owner_grantable' },
+      }),
+    )
+
+    expect(refusal).toMatchObject({
+      statusCode: 403,
+      code: 'POSTING_ROLE_NEEDS_PLATFORM',
+      message: POSTING_ROLE_SENTENCE,
+    })
+  })
+
+  it('reads a raw driver error too: a SQLSTATE and the constraint in its message', () => {
+    const raw = Object.assign(new Error('new row violates event_public_requires_review'), {
+      code: '23514',
+    })
+
+    expect(databaseRefusal(raw)?.code).toBe('REVIEW_REQUIRED')
+  })
+
+  it('needs both the check SQLSTATE and a known name: anything else stays a fault', () => {
+    // A known name with another SQLSTATE.
+    expect(databaseRefusal(adapterError('event_public_requires_review', '23505'))).toBeNull()
+    // A check violation nobody has a sentence for.
+    expect(databaseRefusal(adapterError('ticket_quantity_positive'))).toBeNull()
+    expect(databaseRefusal(null)).toBeNull()
+    expect(databaseRefusal('event_public_requires_review')).toBeNull()
+    expect(databaseRefusal(new Error('event_public_requires_review'))).toBeNull()
+  })
+
+  it('is applied by normaliseError, so a refusal is never a 500 and carries no SQL', () => {
+    const normalised = normaliseError(
+      adapterError(
+        'ERROR: event_public_requires_review (status PUBLISHED) on relation "Event" row 42',
+      ),
+      { exposeInternals: false },
+    )
+
+    expect(normalised).toMatchObject({ statusCode: 409, code: 'REVIEW_REQUIRED' })
+    expect(JSON.stringify(toErrorBody(normalised))).not.toMatch(/relation|row 42|ERROR:/u)
+  })
+
+  it('names each refusal once, with a 4xx', () => {
+    const names = DATABASE_REFUSALS.map((refusal) => refusal.constraint)
+
+    expect(new Set(names).size).toBe(names.length)
+
+    for (const refusal of DATABASE_REFUSALS) {
+      expect(refusal.statusCode).toBeGreaterThanOrEqual(400)
+      expect(refusal.statusCode).toBeLessThan(500)
+    }
   })
 })
 

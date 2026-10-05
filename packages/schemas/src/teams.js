@@ -32,7 +32,12 @@ import { cuidSchema, emailSchema, nonEmptyStringSchema, timestampSchema } from '
  * with two owners who each think the other is responsible. The only other ways
  * to an `OWNER` membership are creating an organisation, and an audited grant
  * by a platform super administrator (`platform.grantMembership`), which names
- * its reason.
+ * its reason. Accepting an organiser invitation from the Desi-Event team makes
+ * somebody the owner of a new organisation.
+ *
+ * The schema still accepts a role that posts events (event manager and up), so
+ * an API client is told plainly why it cannot have one — 403
+ * `POSTING_ROLE_NEEDS_PLATFORM` — rather than handed a validation error.
  *
  * @type {object}
  */
@@ -101,6 +106,19 @@ export const memberSummarySchema = z.object({
   // True for the caller's own membership, so a UI can grey out the controls
   // that would remove them from their own organisation.
   self: z.boolean(),
+  /**
+   * Whether this member's role creates or publishes events (event manager,
+   * manager, administrator, owner). Those roles are given by the Desi-Event
+   * team, not by the organisation.
+   */
+  postsEvents: z.boolean(),
+  /**
+   * The roles this caller may move this member to, decided by the server: a
+   * role the caller could grant, never OWNER, and a role that posts events
+   * only downwards, for somebody who already posts. Empty for the caller
+   * themselves and for an owner. A screen offers exactly these.
+   */
+  roleChoices: z.array(orgRoleSchema),
 })
 
 /** An invitation that has not yet been accepted. */
@@ -174,9 +192,10 @@ export const memberListResponseSchema = z.object({
       emailVisibility: z.literal('FULL'),
       members: z.array(memberSummarySchema),
       invitations: z.array(invitationSummarySchema),
-      // The roles this caller may grant, computed from what they hold. A UI
-      // that renders the full list and lets the server refuse is a UI that
-      // teaches people the product is broken.
+      // The roles this caller may grant by invitation, computed from what they
+      // hold: only roles that neither create nor publish events. A UI that
+      // renders the full list and lets the server refuse is a UI that teaches
+      // people the product is broken.
       assignableRoles: z.array(orgRoleSchema),
     }),
     z.object({
@@ -212,9 +231,10 @@ export const invitationCodeSchema = z
  * How an invitation's code reached the person, as the one response that
  * carries it says.
  *
- * `MANUAL` carries the code, once: this build has no delivery provider, so
- * the only way the invitee can get it is from whoever issued it. `EMAIL`
- * carries `null` and cannot carry anything else — the provider delivered it,
+ * `MANUAL` (the default) carries the code, once: nothing sends it, so the
+ * only way the invitee can get it is from whoever issued it. `EMAIL`
+ * (DELIVERY_MODE=EMAIL with an SMTP server) carries `null` and cannot carry
+ * anything else — the mail server delivered it,
  * and handing it to the inviter as well would make them a second holder for no
  * reason. A presenter that put a code on the EMAIL branch makes the response
  * fail its contract rather than leak.
@@ -258,7 +278,7 @@ export const reissuedInvitationResponseSchema = z.object({
 /**
  * What the caller's session now requires, after they gained authority.
  *
- * Accepting an invitation or creating an organisation can make an account
+ * Accepting a team or organiser invitation can make an account
  * privileged, and a privileged account must hold a second factor before any
  * guarded route will answer it. Saying so here lets a screen send the person to
  * set one up, rather than letting the next page refuse them without context.

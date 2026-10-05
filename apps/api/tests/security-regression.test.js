@@ -144,14 +144,21 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
 
   it('demands SECURITY_ROLE on every platform-tag command, and on handing ownership on', () => {
     // Every write on the platform surface changes who can do what, across the
-    // whole platform or inside an organisation from outside it. The one POST
+    // whole platform or inside an organisation from outside it — an organiser
+    // invitation is the grant of a new organisation's ownership. The one POST
     // that is not a write is the account search, which takes its query in a
     // body only so that an email address never lands in a URL, a log line or
-    // a browser's history.
+    // a browser's history. The one write without a step-up is withdrawing an
+    // organiser invitation, which only reduces what is on offer.
     const readsOverPost = new Set(['platform.searchUsers'])
+    const reducesOnly = new Set(['organizerInvitations.revoke'])
     const platform = apiRoutes.filter((route) => route.tags.includes('platform'))
 
     expect(platform.map((route) => route.id).sort()).toEqual([
+      'organizerInvitations.create',
+      'organizerInvitations.list',
+      'organizerInvitations.reissue',
+      'organizerInvitations.revoke',
       'platform.grantMembership',
       'platform.searchOrganizations',
       'platform.searchUsers',
@@ -159,10 +166,23 @@ describe('NF-11: every step-up window is a named policy the server owns', () => 
     ])
 
     for (const route of platform) {
-      expect(route.capability, `${route.id} is not held by platform:admin`).toBe('platform:admin')
+      // Super administrators hold the platform surface; organiser invitations
+      // are also held by platform administrators, and by nobody else.
+      expect(
+        ['platform:admin', 'organizer:invite'],
+        `${route.id} is held by ${route.capability}`,
+      ).toContain(route.capability)
+      expect(route.id.startsWith('organizerInvitations.'), route.id).toBe(
+        route.capability === 'organizer:invite',
+      )
 
       if (route.method === 'GET' || readsOverPost.has(route.id)) {
         expect(route.stepUp ?? null, `${route.id} is a read`).toBeNull()
+        continue
+      }
+
+      if (reducesOnly.has(route.id)) {
+        expect(route.stepUp ?? null, `${route.id} only withdraws`).toBeNull()
         continue
       }
 
@@ -905,7 +925,13 @@ describe('the surfaces added for feature completion', () => {
     csrfToken: ['auth.login', 'auth.register'],
     groupCode: ['orders.groupPass'],
     guestToken: ['holds.create', 'sessions.hold'],
-    invitationCode: ['teams.invite', 'teams.reissueInvitation', 'tickets.startTransfer'],
+    invitationCode: [
+      'organizerInvitations.create',
+      'organizerInvitations.reissue',
+      'teams.invite',
+      'teams.reissueInvitation',
+      'tickets.startTransfer',
+    ],
     recoveryCodes: ['auth.confirmTotp'],
     secret: ['auth.enrollTotp'],
     token: ['auth.login', 'auth.register'],
@@ -1024,10 +1050,21 @@ describe('the surfaces added for feature completion', () => {
   })
 
   it('never lets the creator of an organisation name its state, its owner or its contact', () => {
-    const route = apiRoutes.find((candidate) => candidate.id === 'organizations.create')
-    const keys = Object.keys(route.body.shape)
+    // Nobody creates one from a body any more: the self-service route takes no
+    // body at all, and an organisation is made by accepting an organiser
+    // invitation, whose body names only the code, the web address and the
+    // time zone. What goes public, and what the platform decides, is sealed.
+    expect(apiRoutes.find((candidate) => candidate.id === 'organizations.create').body).toBeNull()
+
+    const accept = apiRoutes.find((candidate) => candidate.id === 'organizerInvitations.accept')
+    const acceptKeys = Object.keys(accept.body.shape)
+
+    expect(acceptKeys.sort()).toEqual(['slug', 'timezone', 'token'])
 
     for (const sealed of [
+      'name',
+      'description',
+      'websiteUrl',
       'verificationStatus',
       'verified',
       'suspendedAt',
@@ -1040,7 +1077,24 @@ describe('the surfaces added for feature completion', () => {
       'contactEmail',
       'payoutCurrency',
     ]) {
-      expect(keys, `organizations.create accepts ${sealed}`).not.toContain(sealed)
+      expect(acceptKeys, `organizerInvitations.accept accepts ${sealed}`).not.toContain(sealed)
+    }
+
+    // And the administrator issuing one names the organisation and its public
+    // face, never the role, the state, the digest or an existing organisation.
+    const create = apiRoutes.find((candidate) => candidate.id === 'organizerInvitations.create')
+    const createKeys = Object.keys(create.body.shape)
+
+    for (const sealed of [
+      'role',
+      'kind',
+      'status',
+      'tokenHash',
+      'organizationId',
+      'invitedById',
+      'verificationStatus',
+    ]) {
+      expect(createKeys, `organizerInvitations.create accepts ${sealed}`).not.toContain(sealed)
     }
   })
 

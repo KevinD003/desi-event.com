@@ -16,6 +16,7 @@
     "./event-content": "./src/event-content.js",
     "./website": "./src/website.js",
     "./traffic-vocabulary": "./src/traffic-vocabulary.js",
+    "./code-letters": "./src/code-letters.js",
     "./package.json": "./package.json"
   },
   "files": [

@@ -14,11 +14,16 @@
  * @module @desi-event/api/tests/teams
  */
 
-import { hashToken } from '@desi-event/auth'
+import { hashToken, issueToken } from '@desi-event/auth'
 import { createLogger } from '@desi-event/logger'
 import { describe, expect, it } from 'vitest'
 
-import { PASSWORD, makeWorld, minutesFromNow } from './helpers/fixtures.js'
+import {
+  PASSWORD,
+  makeWorld,
+  minutesFromNow,
+  organizerInvitationFixture,
+} from './helpers/fixtures.js'
 import { bearer, createTestApp, mfaCodeFor, signIn, stepUp } from './helpers/app.js'
 import { cuid } from './helpers/prisma-stub.js'
 
@@ -155,9 +160,57 @@ describe('GET /v1/organizations/:id/members', () => {
     const { data } = response.json()
     expect(data.members.length).toBeGreaterThanOrEqual(6)
     expect(data.members.find((member) => member.role === 'OWNER').self).toBe(true)
-    // OWNER can grant everything except OWNER, which transfers separately.
-    expect(data.assignableRoles).not.toContain('OWNER')
-    expect(data.assignableRoles).toContain('ADMIN')
+    // An owner invites only roles that neither create nor publish events,
+    // most senior first: posting roles come from the Desi-Event team, and
+    // OWNER transfers separately.
+    expect(data.assignableRoles).toEqual(['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'])
+
+    await app.close()
+  })
+
+  it('says of each member whether they post events, and the roles the caller may move them to', async () => {
+    const { app, ids, team } = await createTeamApp()
+    const token = await signIn(app, 'owner@rangoli.example')
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/v1/organizations/${org(ids)}/members`,
+      headers: bearer(token),
+    })
+
+    expect(response.statusCode).toBe(200)
+
+    const members = new Map(response.json().data.members.map((member) => [member.id, member]))
+    const byRole = (role) => response.json().data.members.find((member) => member.role === role)
+
+    // The owner is the caller: nothing to choose for themselves.
+    expect(byRole('OWNER')).toMatchObject({ postsEvents: true, roleChoices: [] })
+    // An administrator posts events, and may be moved only downwards.
+    expect(members.get(team.admin.membershipId)).toMatchObject({
+      postsEvents: true,
+      roleChoices: ['ADMIN', 'MANAGER', 'FINANCE', 'EVENT_MANAGER', 'STAFF', 'SCANNER', 'VIEWER'],
+    })
+    // An event manager may stay one, or move to a role that does not post.
+    expect(members.get(team.eventManager.membershipId)).toMatchObject({
+      postsEvents: true,
+      roleChoices: ['FINANCE', 'EVENT_MANAGER', 'STAFF', 'SCANNER', 'VIEWER'],
+    })
+    // Somebody who does not post is never offered a role that does.
+    expect(members.get(team.finance.membershipId)).toMatchObject({
+      postsEvents: false,
+      roleChoices: ['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'],
+    })
+
+    // A member who manages nothing is offered nothing for anybody.
+    const asViewer = await app.inject({
+      method: 'GET',
+      url: `/v1/organizations/${org(ids)}/members`,
+      headers: bearer(await signIn(app, 'finance@rangoli.example')),
+    })
+
+    expect(asViewer.json().data.members.every((member) => member.roleChoices.length === 0)).toBe(
+      true,
+    )
 
     await app.close()
   })
@@ -181,6 +234,10 @@ describe('GET /v1/organizations/:id/members', () => {
 
     expect(adminRoles.length).toBeGreaterThan(managerRoles.length)
     expect(managerRoles).not.toContain('ADMIN')
+    // A manager offers its non-posting subset: no finance, which it does not
+    // hold, and no posting role, which the Desi-Event team gives.
+    expect(adminRoles).toEqual(['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'])
+    expect(managerRoles).toEqual(['STAFF', 'SCANNER', 'VIEWER'])
 
     await app.close()
   })
@@ -254,24 +311,44 @@ describe('GET /v1/organizations/:id/members', () => {
 })
 
 describe('escalation through an invitation', () => {
-  it('lets an owner invite an admin', async () => {
+  it('lets an owner invite finance, and refuses an administrator with the platform sentence', async () => {
     const { app, ids, prisma } = await createTeamApp()
     const token = await signIn(app, 'owner@rangoli.example')
+
+    // Roles that create or publish events come from the Desi-Event team: an
+    // owner asking for one is told so, and nothing is written.
+    for (const role of ['ADMIN', 'MANAGER', 'EVENT_MANAGER']) {
+      const refused = await app.inject({
+        method: 'POST',
+        url: `/v1/organizations/${org(ids)}/invitations`,
+        headers: bearer(token),
+        payload: { email: `new-${role.toLowerCase()}@example.com`, role },
+      })
+
+      expect(refused.statusCode, role).toBe(403)
+      expect(refused.json().error).toMatchObject({
+        code: 'POSTING_ROLE_NEEDS_PLATFORM',
+        message:
+          'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.',
+      })
+    }
+
+    expect(prisma._store.invitation).toHaveLength(0)
 
     const response = await app.inject({
       method: 'POST',
       url: `/v1/organizations/${org(ids)}/invitations`,
       headers: bearer(token),
-      payload: { email: 'new-admin@example.com', role: 'ADMIN' },
+      payload: { email: 'new-finance@example.com', role: 'FINANCE' },
     })
 
     expect(response.statusCode).toBe(201)
-    expect(response.json().data.role).toBe('ADMIN')
+    expect(response.json().data.role).toBe('FINANCE')
 
-    // With no delivery provider (MANUAL, this build) the code is handed back
-    // to the person who created it, exactly once, because nobody else can
-    // give it to the invitee. Only its digest is stored, and the digest is
-    // never in the response.
+    // With no delivery provider (MANUAL, the mode this test app runs in) the
+    // code is handed back to the person who created it, exactly once, because
+    // nobody else can give it to the invitee. Only its digest is stored, and
+    // the digest is never in the response.
     const { delivery } = response.json().data
 
     expect(delivery.mode).toBe('MANUAL')
@@ -298,8 +375,23 @@ describe('escalation through an invitation', () => {
     })
 
     // The attack: invite an accomplice above yourself, then ask them for what
-    // you could not grant yourself.
+    // you could not grant yourself. An administrator also posts events, so the
+    // refusal names the Desi-Event team.
     expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+    expect(prisma._store.invitation).toHaveLength(0)
+
+    // The same escalation with a role that does not post: a manager holds no
+    // finance powers, so cannot hand them to an accomplice either.
+    const finance = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${org(ids)}/invitations`,
+      headers: bearer(token),
+      payload: { email: 'accomplice@example.com', role: 'FINANCE' },
+    })
+
+    expect(finance.statusCode).toBe(403)
+    expect(finance.json().error.code).toBe('FORBIDDEN')
     expect(prisma._store.invitation).toHaveLength(0)
 
     await app.close()
@@ -727,21 +819,104 @@ describe('accepting an invitation', () => {
 })
 
 describe('changing a role', () => {
-  it('lets an owner change a member role', async () => {
-    const { app, ids, prisma, team } = await createTeamApp()
-    const token = await signIn(app, 'owner@rangoli.example')
-
-    const response = await app.inject({
+  /**
+   * Ask, as the owner, for a member's role to change.
+   *
+   * @param {object} app The instance.
+   * @param {object} ids The fixture ids.
+   * @param {string} membershipId Whose role.
+   * @param {string} role The role asked for.
+   * @returns {Promise<object>} The inject result.
+   */
+  async function moveAsOwner(app, ids, membershipId, role) {
+    return app.inject({
       method: 'PATCH',
-      url: `/v1/organizations/${org(ids)}/members/${team.finance.membershipId}`,
-      headers: bearer(token),
-      payload: { role: 'EVENT_MANAGER' },
+      url: `/v1/organizations/${org(ids)}/members/${membershipId}`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+      payload: { role },
     })
+  }
+
+  /**
+   * A member's role as stored.
+   *
+   * @param {object} prisma The stub.
+   * @param {string} membershipId Whose.
+   * @returns {string} The role.
+   */
+  const roleOf = (prisma, membershipId) =>
+    prisma._store.membership.find((row) => row.id === membershipId).role
+
+  it('lets an owner change a member role between roles that do not post events', async () => {
+    const { app, ids, prisma, team } = await createTeamApp()
+
+    const response = await moveAsOwner(app, ids, team.finance.membershipId, 'STAFF')
 
     expect(response.statusCode).toBe(200)
-    expect(prisma._store.membership.find((row) => row.id === team.finance.membershipId).role).toBe(
-      'EVENT_MANAGER',
+    expect(roleOf(prisma, team.finance.membershipId)).toBe('STAFF')
+
+    await app.close()
+  })
+
+  it('refuses making somebody who does not post events a poster, with the platform sentence', async () => {
+    const { app, ids, prisma, team } = await createTeamApp()
+    const viewer = prisma._store.membership.find(
+      (row) => row.organizationId === org(ids) && row.role === 'VIEWER',
     )
+
+    for (const [membershipId, from] of [
+      [viewer.id, 'VIEWER'],
+      [team.finance.membershipId, 'FINANCE'],
+    ]) {
+      const response = await moveAsOwner(app, ids, membershipId, 'EVENT_MANAGER')
+
+      expect(response.statusCode, from).toBe(403)
+      expect(response.json().error.code, from).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+      expect(roleOf(prisma, membershipId), from).toBe(from)
+    }
+
+    expect(prisma._store.auditLog.some((row) => row.action === 'team.role_changed')).toBe(false)
+
+    await app.close()
+  })
+
+  it('refuses moving an event poster upwards, to an administrator', async () => {
+    const { app, ids, prisma, team } = await createTeamApp()
+
+    const response = await moveAsOwner(app, ids, team.eventManager.membershipId, 'ADMIN')
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+    expect(roleOf(prisma, team.eventManager.membershipId)).toBe('EVENT_MANAGER')
+
+    await app.close()
+  })
+
+  it('moves an administrator down to event manager, and down to viewer', async () => {
+    const { app, ids, prisma, team } = await createTeamApp()
+
+    const down = await moveAsOwner(app, ids, team.admin.membershipId, 'EVENT_MANAGER')
+
+    expect(down.statusCode).toBe(200)
+    expect(roleOf(prisma, team.admin.membershipId)).toBe('EVENT_MANAGER')
+
+    // And once an event manager, back up is the Desi-Event team's to decide.
+    const back = await moveAsOwner(app, ids, team.admin.membershipId, 'ADMIN')
+
+    expect(back.statusCode).toBe(403)
+    expect(back.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+
+    const viewer = await moveAsOwner(app, ids, team.admin.membershipId, 'VIEWER')
+
+    expect(viewer.statusCode).toBe(200)
+    expect(roleOf(prisma, team.admin.membershipId)).toBe('VIEWER')
+
+    const audit = prisma._store.auditLog.filter((row) => row.action === 'team.role_changed')
+
+    expect(audit.map((row) => [row.metadata.from, row.metadata.to])).toEqual([
+      ['ADMIN', 'EVENT_MANAGER'],
+      ['EVENT_MANAGER', 'VIEWER'],
+    ])
 
     await app.close()
   })
@@ -891,7 +1066,7 @@ describe('changing a role', () => {
 
     // MANAGER, STAFF and SCANNER admit only where a scope says so, so a scope
     // given to any of them is kept.
-    for (const role of ['MANAGER', 'STAFF', 'SCANNER']) {
+    for (const role of ['STAFF', 'SCANNER']) {
       const response = await app.inject({
         method: 'PATCH',
         url,
@@ -903,26 +1078,45 @@ describe('changing a role', () => {
       expect(scopesNow(), role).toHaveLength(1)
     }
 
-    // ADMIN admits everywhere and VIEWER nowhere; a scope would mean nothing
-    // for either, and left behind it would be re-inherited on a later demotion.
-    for (const role of ['ADMIN', 'VIEWER']) {
-      await app.inject({
-        method: 'PATCH',
-        url,
-        headers: bearer(token),
-        payload: { role: 'SCANNER', eventIds: [ids.publishedEvent.id] },
-      })
+    // VIEWER admits nowhere; a scope would mean nothing, and left behind it
+    // would be re-inherited on a later change.
+    const viewer = await app.inject({
+      method: 'PATCH',
+      url,
+      headers: bearer(token),
+      payload: { role: 'VIEWER', eventIds: [ids.publishedEvent.id] },
+    })
 
-      const response = await app.inject({
-        method: 'PATCH',
-        url,
-        headers: bearer(token),
-        payload: { role, eventIds: [ids.publishedEvent.id] },
-      })
+    expect(viewer.statusCode).toBe(200)
+    expect(scopesNow()).toHaveLength(0)
 
-      expect(response.statusCode, role).toBe(200)
-      expect(scopesNow(), role).toHaveLength(0)
-    }
+    // MANAGER and ADMIN post events, so only somebody who already posts is
+    // moved to them, and only downwards. The administrator shows both halves:
+    // ADMIN admits everywhere, so a scope given to one is dropped; MANAGER, a
+    // step down, keeps it.
+    const adminUrl = `/v1/organizations/${org(ids)}/members/${team.admin.membershipId}`
+    const adminScopes = () =>
+      prisma._store.scannerScope.filter((scope) => scope.membershipId === team.admin.membershipId)
+
+    const asAdmin = await app.inject({
+      method: 'PATCH',
+      url: adminUrl,
+      headers: bearer(token),
+      payload: { role: 'ADMIN', eventIds: [ids.publishedEvent.id] },
+    })
+
+    expect(asAdmin.statusCode).toBe(200)
+    expect(adminScopes()).toHaveLength(0)
+
+    const asManager = await app.inject({
+      method: 'PATCH',
+      url: adminUrl,
+      headers: bearer(token),
+      payload: { role: 'MANAGER', eventIds: [ids.publishedEvent.id] },
+    })
+
+    expect(asManager.statusCode).toBe(200)
+    expect(adminScopes()).toHaveLength(1)
 
     await app.close()
   })
@@ -1402,16 +1596,71 @@ describe('issuing a new code for an invitation', () => {
 
   it('refuses a manager a code for an invitation to a role they cannot grant', async () => {
     const { app, ids, prisma } = await createTeamApp()
-    const original = await issued(app, ids, 'ADMIN')
+    const original = await issued(app, ids, 'FINANCE')
     const before = JSON.stringify(prisma._store.invitation)
 
     const response = await reissue(app, ids, original.id, 'arun@rangoli.example')
 
     // Holding the code is holding the invitation, so the bound is the same one
-    // that stops a MANAGER inviting an ADMIN.
+    // that stops a MANAGER inviting somebody to FINANCE.
     expect(response.statusCode).toBe(403)
     expect(response.body).not.toContain('invitationCode')
     expect(JSON.stringify(prisma._store.invitation)).toBe(before)
+
+    await app.close()
+  })
+
+  it('refuses a new code, and the old one, for a waiting invitation to a role that posts events', async () => {
+    const { app, ids, prisma, team } = await createTeamApp()
+    // Written before such invitations were withdrawn: the database refuses a
+    // new one, so it is planted straight into the store.
+    const { secret, hash } = issueToken()
+    const grandfathered = {
+      id: cuid(),
+      organizationId: org(ids),
+      email: 'priya@example.com',
+      role: 'ADMIN',
+      tokenHash: hash,
+      invitedById: team.owner.userId,
+      status: 'PENDING',
+      deliveryMode: 'MANUAL',
+      expiresAt: minutesFromNow(60 * 24),
+      acceptedAt: null,
+      acceptedByUserId: null,
+      revokedAt: null,
+      createdAt: new Date(),
+    }
+
+    prisma._store.invitation.push(grandfathered)
+
+    const before = JSON.stringify(prisma._store.invitation)
+    const again = await reissue(app, ids, grandfathered.id)
+
+    expect(again.statusCode).toBe(403)
+    expect(again.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+    expect(again.body).not.toContain('invitationCode')
+    expect(JSON.stringify(prisma._store.invitation)).toBe(before)
+
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/v1/invitations/accept',
+      headers: bearer(await signIn(app, 'priya@example.com')),
+      payload: { token: secret },
+    })
+
+    expect(accepted.statusCode).toBe(403)
+    expect(accepted.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+    // Not spent, and nobody joined.
+    expect(prisma._store.invitation.find((row) => row.id === grandfathered.id).status).toBe(
+      'PENDING',
+    )
+    const priya = prisma._store.user.find((row) => row.email === 'priya@example.com')
+
+    expect(
+      prisma._store.membership.some(
+        (row) => row.userId === priya.id && row.organizationId === org(ids),
+      ),
+    ).toBe(false)
 
     await app.close()
   })
@@ -1516,7 +1765,7 @@ describe('accepting an invitation changes the session, finding NF-10', () => {
   }
 
   it.each([
-    ['ADMIN', true],
+    ['FINANCE', true],
     ['VIEWER', false],
   ])('says whether a %s needs a second factor now', async (role, mfaRequired) => {
     const { app, code } = await invitedAs(role)
@@ -1600,7 +1849,7 @@ describe('accepting an invitation changes the session, finding NF-10', () => {
   })
 
   it('shortens the session to the privileged lifetime when the new role is privileged', async () => {
-    const { app, prisma, code } = await invitedAs('ADMIN')
+    const { app, prisma, code } = await invitedAs('FINANCE')
     const token = await signIn(app, 'priya@example.com')
     const session = prisma._store.session.find((row) => row.tokenHash === hashToken(token))
 
@@ -1819,6 +2068,239 @@ describe('handing ownership on', () => {
     })
 
     expect(response.statusCode).toBe(400)
+
+    await app.close()
+  })
+
+  it('hands ownership only to somebody who already creates events here', async () => {
+    const { app, ids, prisma, ownerMembership } = await createOwnershipApp()
+    const viewer = prisma._store.membership.find(
+      (row) => row.organizationId === org(ids) && row.role === 'VIEWER',
+    )
+    const sessionsBefore = prisma._store.session.filter((row) => row.revokedAt).length
+
+    const response = await transfer(
+      app,
+      ids,
+      bearer(await signIn(app, 'owner@rangoli.example')),
+      viewer.id,
+    )
+
+    expect(response.statusCode).toBe(422)
+    expect(response.json().error).toMatchObject({
+      code: 'HEIR_MUST_POST_EVENTS',
+      message:
+        'Ownership can go only to somebody who already creates events here — an event manager, manager or administrator.',
+    })
+    // Nothing moved: a transfer never makes somebody new a poster of events.
+    expect(prisma._store.membership.find((row) => row.id === viewer.id).role).toBe('VIEWER')
+    expect(prisma._store.membership.find((row) => row.id === ownerMembership.id).role).toBe('OWNER')
+    expect(prisma._store.auditLog.some((row) => row.action === 'team.ownership_transferred')).toBe(
+      false,
+    )
+    expect(prisma._store.session.filter((row) => row.revokedAt).length).toBe(sessionsBefore)
+
+    await app.close()
+  })
+
+  it('hands ownership to an event manager, who already posts events', async () => {
+    const { app, ids, prisma, ownerMembership } = await createOwnershipApp()
+    const heir = prisma._store.membership.find(
+      (row) => row.organizationId === org(ids) && row.role === 'VIEWER',
+    )
+
+    // An event manager, as the Desi-Event team would have made them.
+    heir.role = 'EVENT_MANAGER'
+
+    const response = await transfer(
+      app,
+      ids,
+      bearer(await signIn(app, 'owner@rangoli.example')),
+      heir.id,
+    )
+
+    expect(response.statusCode).toBe(200)
+    expect(prisma._store.membership.find((row) => row.id === heir.id).role).toBe('OWNER')
+    // The old owner becomes an administrator: a step down, not a new poster.
+    expect(prisma._store.membership.find((row) => row.id === ownerMembership.id).role).toBe('ADMIN')
+
+    await app.close()
+  })
+})
+
+describe('codes from the other kind of invitation', () => {
+  it('tells somebody with an organiser invitation code where to type it, and does not spend it', async () => {
+    const { app, ids, prisma } = await createTeamApp()
+    const { row, code } = organizerInvitationFixture({
+      invitedById: ids.platformAdministrator.id,
+      email: 'priya@example.com',
+    })
+
+    prisma._store.organizerInvitation.push(row)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/invitations/accept',
+      headers: bearer(await signIn(app, 'priya@example.com')),
+      payload: { token: code },
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error).toMatchObject({
+      code: 'WRONG_INVITATION_KIND',
+      message:
+        'That is an organiser invitation code. Enter it at Your account → Accept an organiser invitation (/account/organizations/new).',
+    })
+    expect(prisma._store.organizerInvitation.find((entry) => entry.id === row.id).status).toBe(
+      'PENDING',
+    )
+
+    await app.close()
+  })
+})
+
+describe('emailing a team invitation (EMAIL mode)', () => {
+  /**
+   * A team harness whose codes go to a provider hook.
+   *
+   * @param {function(object): Promise<void>} deliver The hook.
+   * @returns {Promise<object>} The harness.
+   */
+  async function emailingTeam(deliver) {
+    const world = await makeWorld()
+
+    return createTestApp({ seed: world.seed, ids: world.ids, deliver })
+  }
+
+  /**
+   * Invite an address as the owner.
+   *
+   * @param {object} app The instance.
+   * @param {object} ids The fixture ids.
+   * @param {string} email Who.
+   * @returns {Promise<object>} The inject result.
+   */
+  async function inviteAsOwner(app, ids, email) {
+    return app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${org(ids)}/invitations`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+      payload: { email, role: 'STAFF' },
+    })
+  }
+
+  it('sends the letter fields the mailer needs: expiry, verification and role', async () => {
+    const delivered = []
+    const { app, ids } = await emailingTeam(async (message) => delivered.push(message))
+
+    const response = await inviteAsOwner(app, ids, 'door2@example.com')
+
+    expect(response.statusCode).toBe(201)
+    expect(delivered.at(-1)).toMatchObject({
+      purpose: 'TEAM_INVITATION',
+      email: 'door2@example.com',
+      organizationName: 'Rangoli Collective',
+      organizationVerified: true,
+      role: 'STAFF',
+      expiresAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/u),
+    })
+
+    await app.close()
+  })
+
+  it('withdraws the invitation and answers 503 when the mail server refuses it', async () => {
+    const { app, ids, prisma } = await emailingTeam(async () => {
+      throw Object.assign(new Error('The mail server did not accept the message'), {
+        code: 'SEND_FAILED',
+      })
+    })
+
+    const response = await inviteAsOwner(app, ids, 'bounce-me@example.com')
+
+    expect(response.statusCode).toBe(503)
+    expect(response.json().error).toMatchObject({
+      code: 'DELIVERY_FAILED',
+      message:
+        'The email could not be sent, so the invitation was withdrawn and nothing reached them. Try again in a few minutes.',
+    })
+
+    const [invitation] = prisma._store.invitation
+
+    expect(invitation.status).toBe('REVOKED')
+    expect(invitation.revokedAt).toBeInstanceOf(Date)
+
+    const failure = prisma._store.auditLog.find(
+      (row) => row.action === 'team.invitation_delivery_failed',
+    )
+
+    expect(failure).toMatchObject({ entityId: invitation.id })
+    expect(failure.metadata).toEqual({ organizationId: org(ids), deliveryMode: 'EMAIL' })
+
+    await app.close()
+  })
+
+  it('sends one address at most three codes a day, then answers 429 with Retry-After', async () => {
+    const delivered = []
+    const { app, ids, prisma } = await emailingTeam(async (message) => delivered.push(message))
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect((await inviteAsOwner(app, ids, 'popular@example.com')).statusCode).toBe(201)
+    }
+
+    const fourth = await inviteAsOwner(app, ids, 'Popular@Example.com')
+
+    expect(fourth.statusCode).toBe(429)
+    expect(fourth.json().error).toMatchObject({
+      code: 'RECIPIENT_DAILY_LIMIT',
+      message:
+        'This address has already been sent three codes from Desi-Event today. Try again tomorrow.',
+    })
+    expect(Number(fourth.headers['retry-after'])).toBeGreaterThan(23 * 60 * 60)
+    expect(Number(fourth.headers['retry-after'])).toBeLessThanOrEqual(24 * 60 * 60)
+    expect(delivered).toHaveLength(3)
+    expect(prisma._store.invitation).toHaveLength(3)
+
+    // Another address is unaffected.
+    expect((await inviteAsOwner(app, ids, 'other@example.com')).statusCode).toBe(201)
+
+    // A new code for the capped address is held to the same limit.
+    const waiting = prisma._store.invitation.find(
+      (row) => row.email === 'popular@example.com' && row.status === 'PENDING',
+    )
+    const reissued = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${org(ids)}/invitations/${waiting.id}/reissue`,
+      headers: bearer(await signIn(app, 'owner@rangoli.example')),
+    })
+
+    expect(reissued.statusCode).toBe(429)
+    expect(reissued.json().error.code).toBe('RECIPIENT_DAILY_LIMIT')
+
+    await app.close()
+  })
+
+  it('counts a day: codes sent more than twenty-four hours ago do not count', async () => {
+    const { app, ids, prisma } = await emailingTeam(async () => {})
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect((await inviteAsOwner(app, ids, 'yesterday@example.com')).statusCode).toBe(201)
+    }
+
+    for (const row of prisma._store.invitation) {
+      row.createdAt = new Date(Date.now() - 25 * 60 * 60 * 1000)
+    }
+
+    expect((await inviteAsOwner(app, ids, 'yesterday@example.com')).statusCode).toBe(201)
+
+    await app.close()
+  })
+
+  it('has no such limit in MANUAL mode, where nothing is emailed', async () => {
+    const { app, ids } = await createTeamApp()
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect((await inviteAsOwner(app, ids, 'popular@example.com')).statusCode).toBe(201)
+    }
 
     await app.close()
   })

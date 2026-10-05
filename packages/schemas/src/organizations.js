@@ -1,18 +1,23 @@
 /**
- * Organisations somebody creates for themselves, and the profile its members
- * read.
+ * Organisations: the profile their members read, and the few fields an
+ * organiser chooses when an organiser invitation starts one.
  *
- * Anybody with an account may create an organisation, and that is safe only
- * because of what a new one cannot do. It starts `UNVERIFIED`, so it may draft
- * events but cannot publish them or be paid until a moderator has verified it,
- * and nothing in the request can say otherwise:
+ * Nobody creates an organisation for themselves here. An organisation comes
+ * into being when somebody accepts an organiser invitation from the
+ * Desi-Event team (`organizer-invitations.js`), and almost everything about it
+ * is decided by the server or by the administrator who sent the invitation:
  *
- *   - the body carries no verification state, badge, suspension, payout
- *     currency or contact address — the server sets every one of them;
- *   - the contact address is the creator's own account email, recorded for the
- *     platform and never shown publicly;
- *   - the creator becomes its `OWNER`, which is a privileged role and therefore
- *     needs a second factor before the workspace will answer.
+ *   - its name, public description and website are the ones the administrator
+ *     wrote on the invitation, so what goes public under a Verified badge is
+ *     what the team vouched for;
+ *   - it starts VERIFIED, with the inviting administrator recorded as its
+ *     verifier;
+ *   - the contact address is the accepting account's own email, recorded for
+ *     the platform and never shown publicly, and the payout currency is USD;
+ *   - the accepting account becomes its `OWNER`, a privileged role that needs a
+ *     second factor before the workspace will answer.
+ *
+ * The organiser picks only its web address (`slug`) and time zone, here.
  *
  * @module @desi-event/schemas/organizations
  */
@@ -21,14 +26,7 @@ import { z } from 'zod'
 
 import { addressFree } from './addresses.js'
 import { verificationStatusSchema } from './enums.js'
-import {
-  cuidSchema,
-  nonEmptyStringSchema,
-  slugSchema,
-  timestampSchema,
-  urlSchema,
-} from './primitives.js'
-import { privilegeSessionSchema } from './teams.js'
+import { cuidSchema, nonEmptyStringSchema, slugSchema, timestampSchema } from './primitives.js'
 
 /**
  * The time zones an organisation created on this site may run in.
@@ -48,9 +46,6 @@ export const US_ORGANIZATION_TIMEZONES = Object.freeze([
   'America/Anchorage',
   'Pacific/Honolulu',
 ])
-
-/** How many organisations one account may create in a day. */
-export const ORGANIZATIONS_PER_ACCOUNT_PER_DAY = 3
 
 /**
  * Trim a string, leaving any other value for the wrapped schema to refuse.
@@ -83,21 +78,19 @@ function trimmedOrAbsent(value) {
 export const organizationNameSchema = addressFree(z.preprocess(trimmed, z.string().min(2).max(120)))
 
 /**
- * `POST /v1/organizations`.
+ * What the organiser chooses when their invitation starts an organisation.
  *
- * Deliberately short. The fields a moderator verifies, the address the
- * platform writes to and the currency it pays in are not the creator's to type
- * here: an object schema strips every key it does not name, so a request that
- * sends `verificationStatus`, `verified`, `payoutCurrency` or `contactEmail`
- * has them removed before the handler sees it.
+ * Deliberately short. The name, description and website come from the
+ * invitation; the verification state, badge, suspension, payout currency and
+ * contact address are the server's. An object schema strips every key it does
+ * not name, so a request that sends `name`, `description`, `websiteUrl`,
+ * `verificationStatus`, `verified`, `payoutCurrency` or `contactEmail` has them
+ * removed before the handler sees it.
  */
-export const createOrganizationRequestSchema = z.object({
-  name: organizationNameSchema,
+export const organizationProfileInputSchema = z.object({
   /** Derived from the name when absent. A taken slug is refused rather than altered. */
   slug: z.preprocess(trimmedOrAbsent, slugSchema.optional()),
   timezone: z.enum([...US_ORGANIZATION_TIMEZONES]).default('America/New_York'),
-  description: z.preprocess(trimmedOrAbsent, z.string().min(1).max(2000).optional()),
-  websiteUrl: z.preprocess(trimmedOrAbsent, urlSchema.optional()),
 })
 
 /**
@@ -123,11 +116,3 @@ export const organizationProfileSchema = z.object({
 
 /** `GET /v1/organizations/:id`. */
 export const organizationProfileResponseSchema = z.object({ data: organizationProfileSchema })
-
-/** `POST /v1/organizations`. */
-export const organizationCreatedResponseSchema = z.object({
-  data: organizationProfileSchema.extend({
-    role: z.literal('OWNER'),
-    session: privilegeSessionSchema,
-  }),
-})

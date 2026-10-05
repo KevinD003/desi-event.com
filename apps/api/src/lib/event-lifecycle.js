@@ -57,11 +57,13 @@ import { bindReservedSeatsAudited } from './event-authoring.js'
 import {
   conflict,
   databaseErrorCode,
+  databaseRefusal,
   exposedServerError,
   forbidden,
   notFound,
   unprocessable,
 } from './errors.js'
+import { assertIndependentReviewer, reviewIndependence } from './review-independence.js'
 
 /**
  * Organisation verification states from which an event may be published.
@@ -387,13 +389,29 @@ export async function availableTransitions(prisma, event, actor) {
   for (const move of moves) {
     if (move.actor === ACTORS.SYSTEM) continue
 
-    const entitled =
+    let entitled =
       move.actor === ACTORS.MODERATOR
         ? can(actor, MODERATION_CAPABILITY)
         : can(actor, capabilityFor(move.to), { organizationId: event.organizationId })
 
     /** @type {string[]} */
     const blockers = []
+
+    // A reviewer who belongs to the organisation, or who sent the event for
+    // review, holds the capability and still may not decide: the move is shown
+    // as not theirs, with the reason.
+    if (entitled && move.actor === ACTORS.MODERATOR) {
+      const { independent, reason } = await reviewIndependence(prisma, {
+        actor,
+        organizationId: event.organizationId,
+        eventId: event.id,
+      })
+
+      if (!independent) {
+        entitled = false
+        blockers.push(reason)
+      }
+    }
 
     if (entitled) {
       for (const gate of move.gates) blockers.push(...(await checkGate(gate, prisma, event)))
@@ -456,8 +474,18 @@ export async function transitionEvent(prisma, options) {
     })
   }
 
-  // 2. Is this actor entitled to it?
+  // 2. Is this actor entitled to it? A moderator decision also needs a
+  // reviewer independent of the event: not a member of its organisation, and
+  // not the person who sent it for review.
   assertEntitled(move, actor, event)
+
+  if (move.actor === ACTORS.MODERATOR) {
+    await assertIndependentReviewer(prisma, {
+      actor,
+      organizationId: event.organizationId,
+      eventId: event.id,
+    })
+  }
 
   // Opening sales binds every seated session's free seats to the reserved tier
   // pricing their zone first, so the sellable gate below counts seats that can
@@ -539,7 +567,10 @@ export async function transitionEvent(prisma, options) {
       return updated
     }, transactionOptions)
     .catch((error) => {
-      throw outranBudget(error, { from, to })
+      // The review gate in the database (`desi_event_status_requires_review`)
+      // refusing a move the table above should never have offered: a 409
+      // `REVIEW_REQUIRED`, not a 500.
+      throw databaseRefusal(error) ?? outranBudget(error, { from, to })
     })
 }
 

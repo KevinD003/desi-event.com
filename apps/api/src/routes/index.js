@@ -23,6 +23,7 @@ import { registerEventAuthoringRoutes } from './event-authoring.js'
 import { registerModerationRoutes } from './moderation.js'
 import { registerOrganizerRoutes } from './organizers.js'
 import { registerOrganizationRoutes } from './organizations.js'
+import { registerOrganizerInvitationRoutes } from './organizer-invitations.js'
 import { registerPlatformRoutes } from './platform.js'
 import { registerPublicVenueRoutes, registerVenueMapRoutes, registerVenueRoutes } from './venues.js'
 import { registerOrderRoutes } from './orders.js'
@@ -35,6 +36,7 @@ import { registerRetentionRoutes } from './retention.js'
 import { registerRefundRoutes } from './refunds.js'
 import { registerTicketRoutes } from './tickets.js'
 import { registerTicketTypeRoutes } from './ticket-types.js'
+import { registerTrafficRoutes } from './traffic.js'
 import { registerWaitlistRoutes } from './waitlist.js'
 
 /**
@@ -51,21 +53,30 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {{max?: number, timeWindow?: string|number}} [deps.authLimit] Overrides for the credential-endpoint rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit, shared by a ticket's pass and an order's group pass.
  * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door (preview and check-in, single and group) rate limit.
- * @param {function(object): Promise<void>} [deps.deliver] Where a single-use link is sent.
+ * @param {function(object): Promise<void>} [deps.deliver] Where the auth routes' single-use links are sent: only an injected hook, never the mailer.
+ * @param {function(object): Promise<void>} [deps.codeDeliver] Where show-once codes are sent in EMAIL mode: the injected hook, or the SMTP mailer.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.organizerInviteLimit] Overrides for the organiser-invitation budget.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.transferMailLimit] Overrides for the ticket-transfer mail budget.
  * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How single-use codes reach people, resolved once by `buildApp`.
  * @param {object} [deps.mediaStorage] Where picture bytes live; see `lib/media-storage.js`.
  * @param {{max?: number, timeWindow?: string|number}} [deps.mediaUploadLimit] Overrides for the picture-upload rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.mediaReadLimit] Overrides for the picture-read rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.quoteLimit] Overrides for the checkout-quote rate limit.
+ * @param {{max?: number, sharedMax?: number, timeWindow?: string|number, processMax?: number}} [deps.trafficBeaconLimit] Overrides for the visit-beacon limits.
  * @returns {void} Nothing.
  */
 export function registerRoutes(app, deps) {
+  // The routes that issue show-once codes send them through `codeDeliver`;
+  // the auth routes keep `deliver`, which only a caller injects.
+  const codeDeps = { ...deps, deliver: deps.codeDeliver ?? deps.deliver }
+
   registerHealthRoutes(app, deps)
   registerAuthRoutes(app, deps)
-  registerTeamRoutes(app, deps)
+  registerTeamRoutes(app, codeDeps)
   registerOrganizerRoutes(app, deps)
   registerOrganizationRoutes(app, deps)
   registerPlatformRoutes(app, deps)
+  registerOrganizerInvitationRoutes(app, codeDeps)
   registerVenueRoutes(app, deps)
   registerVenueMapRoutes(app, deps)
   registerPublicVenueRoutes(app, deps)
@@ -83,6 +94,7 @@ export function registerRoutes(app, deps) {
   registerReconciliationRoutes(app, deps)
   registerFinanceRoutes(app, deps)
   registerAnalyticsRoutes(app, deps)
+  registerTrafficRoutes(app, deps)
   registerPrivacyRoutes(app, deps)
   registerRetentionRoutes(app, deps)
   registerConnectRoutes(app, deps)
@@ -102,6 +114,6 @@ export function registerRoutes(app, deps) {
     registerMediaRoutes(scope, deps)
   })
 
-  registerTicketRoutes(app, deps)
+  registerTicketRoutes(app, codeDeps)
   registerWaitlistRoutes(app, deps)
 }

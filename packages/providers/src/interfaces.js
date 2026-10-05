@@ -97,7 +97,7 @@ export const PROVIDER_METHODS = Object.freeze({
 /**
  * @typedef {object} EmailProvider
  * @property {string} name Human-readable adapter name.
- * @property {function(EmailMessage): EmailReceipt} send Deliver one message.
+ * @property {function(EmailMessage): (EmailReceipt|Promise<EmailReceipt>)} send Deliver one message. The in-memory provider answers synchronously; the SMTP adapter returns a Promise, so a caller always awaits it.
  * @property {object[]} [sent] Test affordance: every message the fake accepted.
  */
 

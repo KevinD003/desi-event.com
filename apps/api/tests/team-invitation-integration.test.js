@@ -405,3 +405,77 @@ describeWhen('an invitation code, in the database', () => {
     ).toBe(0)
   })
 })
+
+describeWhen('posting roles, in the database', () => {
+  it('lets the owner invite a finance member, and refuses a posting role with no row written', async () => {
+    const finance = await invite(`finance.${RUN}@${DOMAIN}`, 'FINANCE')
+
+    expect(finance.statusCode).toBe(201)
+    expect(finance.json().data.role).toBe('FINANCE')
+
+    const email = `poster.${RUN}@${DOMAIN}`
+    const posting = await invite(email, 'EVENT_MANAGER')
+
+    expect(posting.statusCode).toBe(403)
+    expect(posting.json().error.code).toBe('POSTING_ROLE_NEEDS_PLATFORM')
+    expect(await pendingTo(email)).toHaveLength(0)
+  })
+
+  it('refuses a waiting invitation to a posting role however it is written (23514)', async () => {
+    for (const role of ['EVENT_MANAGER', 'MANAGER', 'ADMIN', 'OWNER']) {
+      const email = `raw-${role.toLowerCase()}.${RUN}@${DOMAIN}`
+
+      await expect(
+        prisma.$executeRaw`
+          INSERT INTO "Invitation" ("id", "organizationId", "email", "role", "tokenHash", "invitedById", "status", "expiresAt")
+          VALUES (${id('raw')}, ${world.organization.id}, ${email}, ${role}::"OrgRole", ${sha256(id('raw-hash'))},
+                  ${world.owner.id}, 'PENDING', now() + interval '1 day')`,
+      ).rejects.toMatchObject({
+        message: expect.stringMatching(/invitation_pending_role_is_owner_grantable|23514/u),
+      })
+
+      expect(await pendingTo(email), role).toHaveLength(0)
+    }
+  })
+
+  it('maps the database refusal, in the shape Prisma really throws it, to 403 POSTING_ROLE_NEEDS_PLATFORM', async () => {
+    const { databaseRefusal } = await import('../src/lib/errors.js')
+
+    const error = await prisma.invitation
+      .create({
+        data: {
+          id: id('prisma'),
+          organizationId: world.organization.id,
+          email: `prisma-shape.${RUN}@${DOMAIN}`,
+          role: 'EVENT_MANAGER',
+          tokenHash: sha256(id('prisma-hash')),
+          invitedById: world.owner.id,
+          status: 'PENDING',
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      })
+      .catch((thrown) => thrown)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(databaseRefusal(error)).toMatchObject({
+      statusCode: 403,
+      code: 'POSTING_ROLE_NEEDS_PLATFORM',
+    })
+  })
+
+  it('still lets a posting role be recorded on an invitation that is no longer waiting', async () => {
+    // The rule is about what can be accepted: history keeps its roles.
+    const email = `history.${RUN}@${DOMAIN}`
+
+    await prisma.$executeRaw`
+      INSERT INTO "Invitation" ("id", "organizationId", "email", "role", "tokenHash", "invitedById", "status", "expiresAt", "revokedAt")
+      VALUES (${id('history')}, ${world.organization.id}, ${email}, 'ADMIN'::"OrgRole", ${sha256(id('history-hash'))},
+              ${world.owner.id}, 'REVOKED', now() + interval '1 day', now())`
+
+    const rows = await prisma.$queryRaw`
+      SELECT "role"::text AS "role", "status"::text AS "status" FROM "Invitation"
+       WHERE "organizationId" = ${world.organization.id} AND "email" = ${email}`
+
+    expect(rows).toEqual([{ role: 'ADMIN', status: 'REVOKED' }])
+  })
+})

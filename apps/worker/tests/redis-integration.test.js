@@ -24,6 +24,7 @@ import { closeWorkers, createWorkers } from '../src/workers.js'
 import {
   DRAIN_OUTBOX_SCHEDULER_ID,
   EXPIRE_HOLDS_SCHEDULER_ID,
+  TRAFFIC_ROLLUP_SCHEDULER_ID,
   listRepeatableJobs,
   registerRepeatableJobs,
   removeRepeatableJobs,
@@ -256,7 +257,7 @@ when('worker against live Redis', () => {
   )
 
   it(
-    'registers both repeatable jobs, and upserting again does not duplicate them',
+    'registers the three repeatable jobs, and upserting again does not duplicate them',
     async () => {
       await registerRepeatableJobs({ queues, intervalMs: 60_000 })
       await registerRepeatableJobs({ queues, intervalMs: 60_000 })
@@ -266,9 +267,10 @@ when('worker against live Redis', () => {
 
       expect(names).toContain(EXPIRE_HOLDS_SCHEDULER_ID)
       expect(names).toContain(DRAIN_OUTBOX_SCHEDULER_ID)
-      // Two, not four: the upsert is keyed by id, which is what stops a rolling
+      expect(names).toContain(TRAFFIC_ROLLUP_SCHEDULER_ID)
+      // Three, not six: the upsert is keyed by id, which is what stops a rolling
       // restart accumulating one sweep per deploy.
-      expect(schedulers).toHaveLength(2)
+      expect(schedulers).toHaveLength(3)
 
       await removeRepeatableJobs({ queues })
       expect(await listRepeatableJobs({ queues })).toHaveLength(0)

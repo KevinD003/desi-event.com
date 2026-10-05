@@ -16,7 +16,12 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { PASSWORD, legacyPasswordHash, makeWorld } from './helpers/fixtures.js'
+import {
+  PASSWORD,
+  legacyPasswordHash,
+  makeWorld,
+  organizerInvitationFixture,
+} from './helpers/fixtures.js'
 import { bearer, createTestApp, mfaCodeFor, signIn } from './helpers/app.js'
 
 /** A valid registration payload. */
@@ -175,27 +180,46 @@ describe('POST /v1/auth/register', () => {
     await app.close()
   })
 
-  it('lets a caller register as an organiser but not as a privileged role', async () => {
-    const { app } = await createTestApp()
+  it('registers attendees only: an organiser and every staff role are refused', async () => {
+    const { app, prisma } = await createTestApp()
+    const accounts = prisma._store.user.length
 
-    const organiser = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      payload: { ...registration, role: 'ORGANIZER' },
-    })
-    expect(organiser.statusCode).toBe(201)
-    expect(organiser.json().user.role).toBe('ORGANIZER')
-
-    for (const role of ['SUPER_ADMIN', 'FINANCE_ADMIN', 'MODERATOR', 'SUPPORT']) {
+    for (const role of [
+      'ORGANIZER',
+      'ADMIN',
+      'SUPER_ADMIN',
+      'FINANCE_ADMIN',
+      'MODERATOR',
+      'SUPPORT',
+    ]) {
       const escalation = await app.inject({
         method: 'POST',
         url: '/v1/auth/register',
-        payload: { ...registration, email: `${role}@example.com`, role },
+        payload: { ...registration, email: `${role.toLowerCase()}@example.com`, role },
       })
 
-      // Refused by schema rather than by a handler remembering to check.
-      expect(escalation.statusCode).toBe(400)
+      // Refused by schema rather than by a handler remembering to check, with
+      // the sentence that says how organisers do join.
+      expect(escalation.statusCode, role).toBe(400)
+      expect(escalation.json().error.issues).toEqual([
+        expect.objectContaining({
+          path: 'role',
+          message:
+            'Accounts are created as attendees. Organisers join by invitation from the Desi-Event team.',
+        }),
+      ])
     }
+
+    expect(prisma._store.user).toHaveLength(accounts)
+
+    const attendee = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: registration,
+    })
+
+    expect(attendee.statusCode).toBe(201)
+    expect(attendee.json().user.role).toBe('ATTENDEE')
 
     await app.close()
   })
@@ -418,6 +442,38 @@ describe('Phase 1 passwords', () => {
 })
 
 describe('GET /v1/auth/me', () => {
+  it('says how show-once codes go out here: MANUAL by default, EMAIL with a provider', async () => {
+    const manual = await createTestApp()
+    const asManual = await manual.app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(await signIn(manual.app, 'priya@example.com')),
+    })
+
+    expect(asManual.statusCode).toBe(200)
+    expect(asManual.json().data.deliveryMode).toBe('MANUAL')
+
+    await manual.app.close()
+
+    const emailing = await createTestApp({ deliver: async () => {} })
+    const asEmail = await emailing.app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: bearer(await signIn(emailing.app, 'priya@example.com')),
+    })
+
+    expect(asEmail.json().data.deliveryMode).toBe('EMAIL')
+    expect(Object.keys(asEmail.json().data).sort()).toEqual([
+      'capabilities',
+      'deliveryMode',
+      'memberships',
+      'session',
+      'user',
+    ])
+
+    await emailing.app.close()
+  })
+
   it('resolves the session to its user, capabilities and memberships', async () => {
     const { app, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
@@ -840,6 +896,10 @@ describe('email verification', () => {
     expect(unknown.statusCode).toBe(202)
     expect(known.statusCode).toBe(202)
     expect(unknown.json()).toEqual(known.json())
+    expect(known.json().data.message).toBe(
+      'If that address needs confirming, a confirmation has been started. This site does not email confirmation links: see the limitations page.',
+    )
+    expect(known.body).not.toMatch(/on its way|check your inbox/iu)
 
     await app.close()
   })
@@ -907,6 +967,42 @@ describe('password reset', () => {
     expect(known.statusCode).toBe(202)
     expect(unknown.statusCode).toBe(202)
     expect(known.json()).toEqual(unknown.json())
+    // Honest in every configuration: the link is not emailed, so the answer
+    // says so rather than promising one is on its way.
+    expect(known.json().data.message).toBe(
+      'If that address has an account, a password reset has been started. This site does not email reset links, so it cannot reach you from here: see the limitations page.',
+    )
+    expect(known.body).not.toMatch(/on its way/u)
+
+    await app.close()
+  })
+
+  it('emails no reset or confirmation link even when show-once codes are emailed', async () => {
+    // An SMTP server is named, so codes go to the mailer. Nothing listens on
+    // port 1: a link handed to the mailer would fail (or, as an unknown
+    // letter, be refused) and these would not answer 202.
+    const { app } = await createTestApp({
+      env: {
+        DELIVERY_MODE: 'EMAIL',
+        SMTP_HOST: '127.0.0.1',
+        SMTP_PORT: 1,
+        SMTP_REQUIRE_TLS: 'false',
+        SMTP_FROM: 'no-reply@desi-event.test',
+        WEB_ORIGIN: 'http://127.0.0.1:3000',
+      },
+    })
+
+    expect(app.deliveryMode).toBe('EMAIL')
+
+    for (const url of ['/v1/auth/forgot-password', '/v1/auth/resend-verification']) {
+      const response = await app.inject({
+        method: 'POST',
+        url,
+        payload: { email: 'priya@example.com' },
+      })
+
+      expect(response.statusCode, url).toBe(202)
+    }
 
     await app.close()
   })
@@ -1860,21 +1956,30 @@ describe('rotation on a privilege change, finding NF-10', () => {
     await app.close()
   })
 
-  it('replaces the secret when the caller creates an organisation', async () => {
-    // Creating one makes the caller its OWNER, a privileged role their session
-    // was not opened under.
-    const { app, prisma } = await createTestApp()
+  it('replaces the secret when the caller accepts an organiser invitation', async () => {
+    // Accepting one makes the caller the OWNER of a new organisation, a
+    // privileged role their session was not opened under.
+    const { app, prisma, ids } = await createTestApp()
+    const { row, code } = organizerInvitationFixture({
+      invitedById: ids.platformAdministrator.id,
+      email: 'priya@example.com',
+      organizationName: 'Priya Presents',
+    })
+
+    prisma._store.organizerInvitation.push(row)
+
     const signedIn = await signInAsBrowser(app, 'priya@example.com')
     const other = await signInAsBrowser(app, 'priya@example.com')
 
     const created = await app.inject({
       method: 'POST',
-      url: '/v1/organizations',
+      url: '/v1/organizer-invitations/accept',
       headers: signedIn.headers,
-      payload: { name: 'Priya Presents' },
+      payload: { token: code },
     })
 
-    expect(created.statusCode).toBe(201)
+    expect(created.statusCode).toBe(200)
+    expect(created.json().data.role).toBe('OWNER')
 
     const rotated = (created.cookies ?? []).find((c) => c.name === '__Host-desi_session')
 

@@ -154,7 +154,10 @@ describe('apiRoutes', () => {
       'events.addMedia',
       'teams.invite',
       'teams.reissueInvitation',
+      // Kept in the contract, documented as always 403: see the describe below.
       'organizations.create',
+      'organizerInvitations.create',
+      'organizerInvitations.reissue',
     ]
 
     for (const id of created) {
@@ -289,5 +292,118 @@ describe('routesByTag', () => {
 
   it('returns an empty array for an unused tag', () => {
     expect(routesByTag('nope')).toEqual([])
+  })
+})
+
+describe('organiser onboarding routes', () => {
+  /** id → [method, path, tag, capability, step-up]. */
+  const EXPECTED = {
+    'organizerInvitations.list': [
+      'GET',
+      '/v1/platform/organizer-invitations',
+      'platform',
+      'organizer:invite',
+      undefined,
+    ],
+    'organizerInvitations.create': [
+      'POST',
+      '/v1/platform/organizer-invitations',
+      'platform',
+      'organizer:invite',
+      'SECURITY_ROLE',
+    ],
+    'organizerInvitations.revoke': [
+      'POST',
+      '/v1/platform/organizer-invitations/:id/revoke',
+      'platform',
+      'organizer:invite',
+      undefined,
+    ],
+    'organizerInvitations.reissue': [
+      'POST',
+      '/v1/platform/organizer-invitations/:id/reissue',
+      'platform',
+      'organizer:invite',
+      'SECURITY_ROLE',
+    ],
+    'organizerInvitations.accept': [
+      'POST',
+      '/v1/organizer-invitations/accept',
+      'organizers',
+      null,
+      undefined,
+    ],
+  }
+
+  it.each(Object.entries(EXPECTED))(
+    '%s has its method, path, tag, capability and step-up',
+    (id, [method, path, tag, capability, stepUp]) => {
+      const route = routeById(id)
+
+      expect(route.method).toBe(method)
+      expect(route.path).toBe(path)
+      expect(route.tags).toEqual([tag])
+      expect(route.auth).toBe('session')
+      expect(route.capability ?? null).toBe(capability)
+      expect(route.stepUp).toBe(stepUp)
+      expect(route.mfaExempt).toBeUndefined()
+    },
+  )
+
+  it('documents a failed email on the routes that send codes, and only there', () => {
+    const sending = [
+      'organizerInvitations.create',
+      'organizerInvitations.reissue',
+      'teams.invite',
+      'teams.reissueInvitation',
+      'tickets.startTransfer',
+    ]
+
+    for (const route of apiRoutes) {
+      expect(route.errors.includes(API_ERRORS.deliveryFailed), route.id).toBe(
+        sending.includes(route.id),
+      )
+    }
+    expect(API_ERRORS.deliveryFailed).toMatchObject({ status: 503, code: 'DELIVERY_FAILED' })
+  })
+
+  it('keeps the platform organisation search on platform:admin', () => {
+    expect(routeById('platform.searchOrganizations').capability).toBe('platform:admin')
+  })
+
+  it('keeps organizations.create, which takes no body and is documented as refused', () => {
+    const route = routeById('organizations.create')
+
+    expect(route.body).toBeNull()
+    expect(route.errors).toEqual([API_ERRORS.unauthorized, API_ERRORS.forbidden])
+    expect(route.description).toMatch(/ORGANIZER_INVITATION_REQUIRED/u)
+  })
+
+  it('requires the reviewed revision on an approval, and says reviewers are independent', () => {
+    const decide = routeById('moderation.decide')
+
+    expect(decide.body.safeParse({ decision: 'approve' }).success).toBe(false)
+    expect(decide.body.safeParse({ decision: 'approve', revision: 2 }).success).toBe(true)
+    expect(decide.description).toMatch(/CONFLICT_OF_INTEREST/u)
+    expect(decide.description).toMatch(/SELF_REVIEW/u)
+  })
+
+  it('registers attendees only', () => {
+    const register = routeById('auth.register')
+
+    expect(
+      register.body.safeParse({
+        email: 'a@example.com',
+        password: 'garba-nights-2026',
+        displayName: 'A',
+        role: 'ORGANIZER',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('names the platform tag after what it now holds', () => {
+    expect(API_TAGS.find((tag) => tag.name === 'platform').description).toMatch(
+      /organiser invitations/u,
+    )
   })
 })

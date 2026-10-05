@@ -114,7 +114,7 @@ describe('a moderator deciding', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers,
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     // NF-11: the window comes from the route's contract entry, server-side,
@@ -135,7 +135,7 @@ describe('a moderator deciding', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers,
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     expect(response.statusCode).toBe(200)
@@ -259,7 +259,7 @@ describe('a moderator deciding', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.publishedEvent.id}/decision`,
       headers,
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.publishedEvent.revision },
     })
 
     expect(response.statusCode).toBe(409)
@@ -275,10 +275,85 @@ describe('a moderator deciding', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers: bearer(token),
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     expect(response.statusCode).toBe(403)
+
+    await app.close()
+  })
+})
+
+describe('an approval names the version it approves', () => {
+  it('refuses an approval that does not say which revision was reviewed, and decides nothing', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = await asModerator(app)
+
+    await stepUp(app, 'maya@desi-event.example', headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
+      headers,
+      payload: { decision: 'approve' },
+    })
+
+    expect(response.statusCode).toBe(400)
+    expect(response.json().error.issues).toEqual([
+      expect.objectContaining({
+        path: 'revision',
+        message:
+          'Send the revision you reviewed, so a version you have not seen cannot be approved.',
+      }),
+    ])
+    expect(prisma._store.event.find((row) => row.id === ids.reviewPendingEvent.id).status).toBe(
+      'REVIEW_PENDING',
+    )
+
+    await app.close()
+  })
+
+  it('refuses an approval of a revision that is no longer the event, and decides nothing', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = await asModerator(app)
+    const event = prisma._store.event.find((row) => row.id === ids.reviewPendingEvent.id)
+
+    // The organiser changed it after the moderator's page was loaded.
+    event.revision = 3
+
+    await stepUp(app, 'maya@desi-event.example', headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/moderation/events/${event.id}/decision`,
+      headers,
+      payload: { decision: 'approve', revision: 2 },
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('STALE_REVISION')
+    expect(event.status).toBe('REVIEW_PENDING')
+
+    await app.close()
+  })
+
+  it('keeps the revision optional for a request for changes or a rejection', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const headers = await asModerator(app)
+
+    await stepUp(app, 'maya@desi-event.example', headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
+      headers,
+      payload: { decision: 'request_changes', reason: 'Add the venue address.' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(prisma._store.event.find((row) => row.id === ids.reviewPendingEvent.id).status).toBe(
+      'CHANGES_REQUIRED',
+    )
 
     await app.close()
   })

@@ -40,6 +40,7 @@ import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { authorChange } from './event-authoring.js'
 import { httpError, notFound } from './errors.js'
 import { STRUCTURAL_SCAN_NOTE } from './media-storage.js'
+import { assertIndependentReviewer } from './review-independence.js'
 
 /** The conditions a picture must meet, besides its event's status, to be public. */
 export const PUBLIC_MEDIA_WHERE = Object.freeze({
@@ -737,6 +738,13 @@ export async function decideMedia(prisma, { mediaId, decision, reason = null, ac
   })
 
   if (!asset || !asset.event) throw notFound('No such picture.')
+
+  // A reviewer who belongs to the event's organisation does not decide its
+  // pictures: somebody else on the Desi-Event team does.
+  await assertIndependentReviewer(prisma, {
+    actor,
+    organizationId: asset.event.organizationId,
+  })
 
   const rule = DECISIONS[decision]
 

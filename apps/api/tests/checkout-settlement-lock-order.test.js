@@ -26,7 +26,7 @@ import { settleCheckout } from '../src/lib/checkout.js'
 import { makeWorld } from './helpers/fixtures.js'
 import { createPrismaStub } from './helpers/prisma-stub.js'
 
-const SECRET = 'checkout-lock-order-secret-that-is-long-enough'
+const SECRET = 'test-only-fake-value-for-deriving-passes-0123456789'
 
 /**
  * A stub world with a PENDING two-tier order whose lines were written with the

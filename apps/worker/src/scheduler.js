@@ -1,10 +1,10 @@
 /**
  * Repeatable jobs.
  *
- * Two things happen on a clock rather than in response to an event: the hold
- * sweep, and the notification outbox drain. Everything else in this worker is
- * enqueued by something that just happened — an order was paid, an event was
- * published.
+ * Three things happen on a clock rather than in response to an event: the hold
+ * sweep, the notification outbox drain and the traffic roll-up. Everything else
+ * in this worker is enqueued by something that just happened — an order was
+ * paid, an event was published.
  *
  * The outbox drain is on a clock for a specific reason. The rows it sends are
  * written inside the transactions that justify them, so there is no moment at
@@ -19,6 +19,13 @@
  * an operator who has decided to run one, through `enqueueSweepRetention`, and
  * by nothing else. If a scheduler for it ever seems warranted, the durations
  * have to be approved first.
+ *
+ * The traffic roll-up is on a clock, and it does delete: raw visit rows it has
+ * already added up into daily totals, once they are two days old. Those rows
+ * hold no address, browser string or account, and their salt is already gone;
+ * deleting them is data minimisation, not a retention decision about personal
+ * data. That is exactly why the retention rehearsal is still not on a clock:
+ * its durations are about people's records, and they are not approved.
  *
  * BullMQ 6 expresses this as a *job scheduler*: a named record that mints one
  * job per interval. Schedulers are upserted by id, so restarting the worker
@@ -72,6 +79,16 @@ export const DEFAULT_DRAIN_OUTBOX_INTERVAL_MS = 10_000
 /** Messages one drain pass may send. */
 export const DEFAULT_DRAIN_OUTBOX_LIMIT = 50
 
+/** Scheduler id for the traffic roll-up. Stable across deploys, like the others. */
+export const TRAFFIC_ROLLUP_SCHEDULER_ID = 'traffic-rollup'
+
+/**
+ * How often visits are added up when the environment does not say: ten
+ * minutes. The screens say when the figures run to rather than promising a
+ * cadence, and call them stale after two hours without a finished run.
+ */
+export const DEFAULT_TRAFFIC_ROLLUP_INTERVAL_MS = 600_000
+
 /**
  * Register (or update) every repeatable job.
  *
@@ -87,6 +104,7 @@ export const DEFAULT_DRAIN_OUTBOX_LIMIT = 50
  * @param {number} [options.batchSize] Holds per sweep.
  * @param {number} [options.drainIntervalMs] How often to drain the outbox.
  * @param {number} [options.drainLimit] Messages per drain pass.
+ * @param {number} [options.trafficRollupIntervalMs] How often to add visits up.
  * @param {object} [options.logger] Logger for the registration line.
  * @returns {Promise<Array<{id: string, queue: string, everyMs: number}>>} One entry per registered scheduler.
  * @throws {TypeError} When a required queue is missing.
@@ -98,6 +116,7 @@ export async function registerRepeatableJobs({
   batchSize = DEFAULT_SWEEP_BATCH_SIZE,
   drainIntervalMs = DEFAULT_DRAIN_OUTBOX_INTERVAL_MS,
   drainLimit = DEFAULT_DRAIN_OUTBOX_LIMIT,
+  trafficRollupIntervalMs = DEFAULT_TRAFFIC_ROLLUP_INTERVAL_MS,
   logger,
 }) {
   const queue = queues?.[QUEUE_NAMES.HOLDS]
@@ -110,6 +129,12 @@ export async function registerRepeatableJobs({
 
   if (!emailQueue) {
     throw new TypeError(`registerRepeatableJobs requires the "${QUEUE_NAMES.EMAIL}" queue`)
+  }
+
+  const analyticsQueue = queues?.[QUEUE_NAMES.ANALYTICS]
+
+  if (!analyticsQueue) {
+    throw new TypeError(`registerRepeatableJobs requires the "${QUEUE_NAMES.ANALYTICS}" queue`)
   }
 
   // Validate the template the same way an ad-hoc enqueue would be, so a typo
@@ -151,9 +176,33 @@ export async function registerRepeatableJobs({
     'repeatable outbox drain registered',
   )
 
+  // No `now` in the template, for the hold sweep's reason: a baked-in instant
+  // would make every run add up the day the worker booted, and never purge.
+  const rollupData = validateJobPayload(JOB_NAMES.ROLL_UP_TRAFFIC, {})
+
+  await analyticsQueue.upsertJobScheduler(
+    TRAFFIC_ROLLUP_SCHEDULER_ID,
+    { every: trafficRollupIntervalMs },
+    {
+      name: JOB_NAMES.ROLL_UP_TRAFFIC,
+      data: rollupData,
+      opts: { removeOnComplete: { age: 3600, count: 12 }, removeOnFail: { count: 200 } },
+    },
+  )
+
+  logger?.info?.(
+    { scheduler: TRAFFIC_ROLLUP_SCHEDULER_ID, everyMs: trafficRollupIntervalMs },
+    'repeatable traffic roll-up registered',
+  )
+
   return [
     { id: EXPIRE_HOLDS_SCHEDULER_ID, queue: QUEUE_NAMES.HOLDS, everyMs: intervalMs },
     { id: DRAIN_OUTBOX_SCHEDULER_ID, queue: QUEUE_NAMES.EMAIL, everyMs: drainIntervalMs },
+    {
+      id: TRAFFIC_ROLLUP_SCHEDULER_ID,
+      queue: QUEUE_NAMES.ANALYTICS,
+      everyMs: trafficRollupIntervalMs,
+    },
   ]
 }
 
@@ -178,6 +227,7 @@ export async function removeRepeatableJobs({ queues }) {
   for (const [id, queueName] of [
     [EXPIRE_HOLDS_SCHEDULER_ID, QUEUE_NAMES.HOLDS],
     [DRAIN_OUTBOX_SCHEDULER_ID, QUEUE_NAMES.EMAIL],
+    [TRAFFIC_ROLLUP_SCHEDULER_ID, QUEUE_NAMES.ANALYTICS],
   ]) {
     const queue = queues?.[queueName]
     if (!queue) continue
@@ -198,7 +248,7 @@ export async function removeRepeatableJobs({ queues }) {
 export async function listRepeatableJobs({ queues }) {
   const listed = []
 
-  for (const queueName of [QUEUE_NAMES.HOLDS, QUEUE_NAMES.EMAIL]) {
+  for (const queueName of [QUEUE_NAMES.HOLDS, QUEUE_NAMES.EMAIL, QUEUE_NAMES.ANALYTICS]) {
     const queue = queues?.[queueName]
     if (!queue) continue
 

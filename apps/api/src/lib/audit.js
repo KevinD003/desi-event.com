@@ -177,6 +177,23 @@ export const AUDIT_ACTIONS = Object.freeze({
   PLATFORM_ROLE_CHANGED: 'platform.role_changed',
   PLATFORM_MEMBERSHIP_GRANTED: 'platform.membership_granted',
 
+  // --- Organiser invitations and code delivery -------------------------------
+  //
+  // An organiser invitation is how anybody comes to post events. Metadata
+  // carries how the code went out (`deliveryMode`) and identifiers; never the
+  // address, the note, the code or its digest. `ORGANIZATION_VERIFIED_BY_INVITATION`
+  // is written with the inviting administrator as its actor: they vouched for
+  // the organisation. A `*_DELIVERY_FAILED` row is written in the transaction
+  // that withdrew what a failed email had issued.
+  ORGANIZER_INVITATION_ISSUED: 'organizer_invitation.issued',
+  ORGANIZER_INVITATION_REISSUED: 'organizer_invitation.reissued',
+  ORGANIZER_INVITATION_REVOKED: 'organizer_invitation.revoked',
+  ORGANIZER_INVITATION_ACCEPTED: 'organizer_invitation.accepted',
+  ORGANIZER_INVITATION_DELIVERY_FAILED: 'organizer_invitation.delivery_failed',
+  ORGANIZATION_VERIFIED_BY_INVITATION: 'organization.verified_by_invitation',
+  TEAM_INVITATION_DELIVERY_FAILED: 'team.invitation_delivery_failed',
+  TICKET_TRANSFER_DELIVERY_FAILED: 'ticket.transfer_delivery_failed',
+
   // --- Event pictures ----------------------------------------------------------
   //
   // Metadata carries the asset id, kind, type, size, dimensions, checksum and

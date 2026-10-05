@@ -12,8 +12,16 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { POST, GET, PROXY_BODY_LIMIT_BYTES, readBoundedBody, withoutBearerSecret } =
-  await import('./route.js')
+const {
+  POST,
+  GET,
+  PROXY_BODY_LIMIT_BYTES,
+  SERVER_ONLY_API_PATHS,
+  isBeacon,
+  isServerOnlyPath,
+  readBoundedBody,
+  withoutBearerSecret,
+} = await import('./route.js')
 
 /** A cookie the API sets alongside a sign-in's answer. */
 const SESSION_COOKIE = '__Host-desi_session=opaque-secret-value; Path=/; HttpOnly; Secure'
@@ -341,5 +349,183 @@ describe('withoutBearerSecret', () => {
     const response = new Response('id,total\n1,100', { headers: { 'content-type': 'text/csv' } })
 
     expect(await withoutBearerSecret(response, ['auth', 'export'])).toBe(response.body)
+  })
+})
+
+describe('visits through the proxy', () => {
+  /** Everything a signed-in browser would attach to a request. */
+  const SIGNED_IN = {
+    cookie: '__Host-desi_session=opaque-secret-value; desi_csrf=csrf-value',
+    authorization: 'Bearer leaked-bearer-secret',
+    'x-desi-csrf': 'csrf-value',
+    'idempotency-key': 'k-123',
+    'if-none-match': '"etag"',
+    'user-agent': 'Mozilla/5.0 Chrome/130',
+    'x-forwarded-for': '198.51.100.7',
+    'sec-gpc': '1',
+    dnt: '1',
+  }
+
+  /**
+   * A beacon as a browser on this site sends it.
+   *
+   * @param {object} [headers] Request headers.
+   * @returns {Request} The request.
+   */
+  function beaconRequest(headers = SIGNED_IN) {
+    return new Request('http://web.test/api/v1/traffic/beacons', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({
+        eventId: 'cevent0000000001',
+        kind: 'PAGE_VIEW',
+        placement: 'EVENT_PAGE',
+      }),
+    })
+  }
+
+  it('forwards a beacon with no session, and with the visitor’s address and privacy signals', async () => {
+    fetchMock.mockResolvedValue(upstream({ data: { accepted: true } }, { status: 202 }))
+
+    const response = await POST(beaconRequest(), context(['traffic', 'beacons']))
+    const [target, init] = fetchMock.mock.calls[0]
+
+    expect(response.status).toBe(202)
+    expect(target).toMatch(/\/v1\/traffic\/beacons$/u)
+
+    for (const name of [
+      'cookie',
+      'authorization',
+      'x-desi-csrf',
+      'idempotency-key',
+      'if-none-match',
+    ]) {
+      expect(init.headers.get(name), name).toBeNull()
+    }
+
+    expect(init.headers.get('x-desi-client-address')).toBe('198.51.100.7')
+    expect(init.headers.get('sec-gpc')).toBe('1')
+    expect(init.headers.get('dnt')).toBe('1')
+    expect(init.headers.get('user-agent')).toBe('Mozilla/5.0 Chrome/130')
+    expect(init.headers.get('referer')).toBeNull()
+  })
+
+  it('hands the API an overlong agent still over 512 characters, so it is not counted', async () => {
+    fetchMock.mockResolvedValue(upstream({ data: { accepted: true } }, { status: 202 }))
+
+    const response = await POST(
+      beaconRequest({ ...SIGNED_IN, 'user-agent': `Mozilla/5.0 ${'x'.repeat(600)}` }),
+      context(['traffic', 'beacons']),
+    )
+    const forwarded = fetchMock.mock.calls[0][1].headers.get('user-agent')
+
+    expect(response.status).toBe(202)
+    // The API refuses an agent over 512 characters as a robot's; one cut to
+    // exactly 512 would be counted as a visitor.
+    expect(forwarded.length).toBeGreaterThan(512)
+    expect(forwarded.length).toBeLessThanOrEqual(513)
+  })
+
+  it('never lets a beacon set a cookie', async () => {
+    fetchMock.mockResolvedValue(
+      upstream({ data: { accepted: true } }, { status: 202, cookies: [SESSION_COOKIE] }),
+    )
+
+    const response = await POST(beaconRequest(), context(['traffic', 'beacons']))
+
+    expect(response.headers.getSetCookie()).toEqual([])
+  })
+
+  it('replaces an address the browser claims for itself with the one this server read', async () => {
+    fetchMock.mockResolvedValue(upstream({ data: { accepted: true } }, { status: 202 }))
+
+    await POST(
+      beaconRequest({ ...SIGNED_IN, 'x-desi-client-address': '203.0.113.250' }),
+      context(['traffic', 'beacons']),
+    )
+    await POST(
+      beaconRequest({ 'x-desi-client-address': '203.0.113.250', 'user-agent': 'Mozilla/5.0' }),
+      context(['traffic', 'beacons']),
+    )
+
+    expect(fetchMock.mock.calls[0][1].headers.get('x-desi-client-address')).toBe('198.51.100.7')
+    // No forwarded-for at all: no address, rather than the browser's claim.
+    expect(fetchMock.mock.calls[1][1].headers.get('x-desi-client-address')).toBeNull()
+  })
+
+  it('never forwards a browser-supplied visitor address, or the privacy signals, on any other path', async () => {
+    fetchMock.mockResolvedValue(upstream({ ok: true }))
+
+    await GET(
+      new Request('http://web.test/api/v1/events', {
+        headers: { 'x-desi-client-address': '203.0.113.250', 'sec-gpc': '1', dnt: '1' },
+      }),
+      context(['events']),
+    )
+
+    const [, init] = fetchMock.mock.calls[0]
+
+    expect(init.headers.get('x-desi-client-address')).toBeNull()
+    expect(init.headers.get('sec-gpc')).toBeNull()
+  })
+
+  it('forwards the platform’s list of every event’s visits as the session route it is', async () => {
+    fetchMock.mockResolvedValue(upstream({ data: { events: [] } }, { cookies: [SESSION_COOKIE] }))
+
+    const response = await GET(
+      new Request('http://web.test/api/v1/traffic/events?scope=all', {
+        headers: { cookie: 'a=b', 'x-forwarded-for': '198.51.100.7' },
+      }),
+      context(['traffic', 'events']),
+    )
+    const [target, init] = fetchMock.mock.calls[0]
+
+    expect(target).toMatch(/\/v1\/traffic\/events\?scope=all$/u)
+    expect(init.headers.get('cookie')).toBe('a=b')
+    expect(init.headers.get('x-desi-client-address')).toBeNull()
+    expect(response.headers.getSetCookie()).toEqual([SESSION_COOKIE])
+  })
+
+  it('treats a beacon sent with the wrong method as an ordinary request, adding nothing', async () => {
+    fetchMock.mockResolvedValue(upstream({ error: { code: 'NOT_FOUND' } }, { status: 404 }))
+
+    await GET(
+      new Request('http://web.test/api/v1/traffic/beacons', { headers: SIGNED_IN }),
+      context(['traffic', 'beacons']),
+    )
+
+    expect(fetchMock.mock.calls[0][1].headers.get('x-desi-client-address')).toBeNull()
+  })
+
+  it.each([
+    ['POST', ['traffic', 'website-visits']],
+    ['GET', ['traffic', 'website-visits']],
+    ['POST', ['traffic', 'website-visits', 'extra']],
+  ])('refuses %s %j with a 404 and never asks the API', async (method, path) => {
+    const handler = method === 'POST' ? POST : GET
+    const response = await handler(
+      new Request(`http://web.test/api/v1/${path.join('/')}`, {
+        method,
+        ...(method === 'POST' ? { body: '{"slug":"x","counted":true}' } : {}),
+      }),
+      context(path),
+    )
+
+    expect(response.status).toBe(404)
+    expect((await response.json()).error.code).toBe('NOT_FOUND')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('the proxy’s path rules', () => {
+  it('knows which paths are this server’s alone and which request is a beacon', () => {
+    expect(SERVER_ONLY_API_PATHS).toEqual([['traffic', 'website-visits']])
+    expect(isServerOnlyPath(['traffic', 'website-visits'])).toBe(true)
+    expect(isServerOnlyPath(['traffic', 'beacons'])).toBe(false)
+    expect(isServerOnlyPath(['traffic'])).toBe(false)
+    expect(isBeacon('POST', ['traffic', 'beacons'])).toBe(true)
+    expect(isBeacon('GET', ['traffic', 'beacons'])).toBe(false)
+    expect(isBeacon('POST', ['traffic', 'beacons', 'x'])).toBe(false)
+    expect(isBeacon('POST', ['traffic', 'events'])).toBe(false)
   })
 })

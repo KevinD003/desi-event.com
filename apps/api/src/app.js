@@ -24,6 +24,7 @@ import { registerSecurity } from './plugins/security.js'
 import { registerValidation } from './plugins/validation.js'
 import { registerRoutes } from './routes/index.js'
 import { generateOrderReference } from './lib/identifiers.js'
+import { codeMailerFromEnv } from './lib/code-mailer.js'
 import { resolveDeliveryMode } from './lib/delivery.js'
 import { createPostgresMediaStorage } from './lib/media-storage.js'
 
@@ -39,10 +40,10 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {object} [redis] An ioredis-compatible client, probed by `GET /health`.
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
- * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizationCreate?: object, quote?: object}} [rateLimit] Rate-limit overrides.
+ * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizerInvite?: object, transferMail?: object, quote?: object, trafficBeacon?: object}} [rateLimit] Rate-limit overrides. `trafficBeacon` takes `max` (per visitor, from `TRAFFIC_BEACON_MAX_PER_MINUTE` in `server.js`), `sharedMax`, `timeWindow` and `processMax`.
  * @property {object} [mediaStorage] Where picture bytes live. Defaults to the PostgreSQL adapter; see `lib/media-storage.js`.
  * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
- * @property {function(object): Promise<void>} [deliver] A delivery provider for single-use codes. Absent in this build, which therefore runs `DELIVERY_MODE` MANUAL — see `lib/delivery.js`.
+ * @property {function(object): Promise<void>} [deliver] A delivery hook injected by a caller (tests). It receives the auth routes' single-use links and the show-once codes alike. Without one, codes are emailed only when `DELIVERY_MODE=EMAIL` names an SMTP server (`lib/code-mailer.js`), and auth links are never emailed — see `lib/delivery.js`.
  */
 
 /**
@@ -74,10 +75,17 @@ export async function buildApp(options) {
 
   const env = parseOrThrow(apiEnvSchema, rawEnv ?? {}, 'Invalid API environment')
 
-  // How single-use codes reach people, decided once. EMAIL named with no
-  // provider throws here, before anything listens: an invitation nobody can
+  // How show-once codes reach people, decided once. An injected hook wins;
+  // otherwise EMAIL with an SMTP server builds the mailer. EMAIL named with no
+  // way to send throws here, before anything listens: an invitation nobody can
   // receive is worse than a deployment that will not start.
-  const deliveryMode = resolveDeliveryMode({ env, deliver })
+  //
+  // Only the code routes (teams, tickets, organiser invitations) get the
+  // mailer. Account-confirmation and password-reset links are links carrying
+  // a token, and a credential never goes in a URL, so they are not emailed in
+  // any mode: the auth routes keep only an injected hook.
+  const codeDeliver = deliver ?? codeMailerFromEnv(env)
+  const deliveryMode = resolveDeliveryMode({ env, deliver: codeDeliver })
 
   // Before anything is built: decide the payment mode, or refuse to start.
   // Two modes are permitted and neither moves real money; a live credential, a
@@ -124,7 +132,10 @@ export async function buildApp(options) {
   app.decorate('mediaStorage', mediaStorage)
 
   // The mode and nothing else: no code exists yet, and none is ever logged.
-  app.log.info({ deliveryMode }, 'single-use codes are delivered in this mode')
+  app.log.info(
+    { deliveryMode, smtp: Boolean(!deliver && codeDeliver) },
+    'single-use codes are delivered in this mode',
+  )
 
   await registerValidation(app)
   await registerErrorHandler(app, { nodeEnv: env.NODE_ENV })
@@ -142,15 +153,18 @@ export async function buildApp(options) {
     version,
     payments,
     authLimit: rateLimit.auth,
-    organizationCreateLimit: rateLimit.organizationCreate,
+    organizerInviteLimit: rateLimit.organizerInvite,
+    transferMailLimit: rateLimit.transferMail,
     passLimit: rateLimit.pass,
     admissionLimit: rateLimit.admission,
     deliver,
+    codeDeliver,
     deliveryMode,
     mediaStorage,
     mediaUploadLimit: rateLimit.mediaUpload,
     mediaReadLimit: rateLimit.mediaRead,
     quoteLimit: rateLimit.quote,
+    trafficBeaconLimit: rateLimit.trafficBeacon,
     processInline,
   })
 

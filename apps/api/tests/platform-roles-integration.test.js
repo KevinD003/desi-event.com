@@ -437,7 +437,9 @@ describeWhen('two owners at once, against PostgreSQL', () => {
   it('refuses to hand ownership on for an owner demoted while the hand-on waited', async () => {
     const world = await twoOwners('DemotedWhileWaiting')
     const heir = await user('demotedwhilewaiting.heir')
-    const heirMembership = await member(heir, world.organization, 'STAFF')
+    // An heir who posts events, as ownership now requires (422
+    // HEIR_MUST_POST_EVENTS otherwise), so what is tried is the race.
+    const heirMembership = await member(heir, world.organization, 'EVENT_MANAGER')
 
     const [demoted, handedOn] = await oneAfterTheOther(
       world.first,
@@ -478,7 +480,7 @@ describeWhen('two owners at once, against PostgreSQL', () => {
     expect(roles).toEqual({
       [world.oneMembership.id]: 'MANAGER',
       [world.twoMembership.id]: 'OWNER',
-      [heirMembership.id]: 'STAFF',
+      [heirMembership.id]: 'EVENT_MANAGER',
     })
     expect(
       await prisma.auditLog.count({

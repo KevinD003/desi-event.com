@@ -12,6 +12,19 @@
  * differ only in what they write. Three routes would mean three places to
  * forget the audit record.
  *
+ * Two more rules hold every decision to what was actually reviewed, by someone
+ * other than the people running the event:
+ *
+ *   - an approval must name the revision the moderator's page showed (the
+ *     schema refuses one without it), and a decision on any other revision is
+ *     409 `STALE_REVISION`;
+ *   - a reviewer who belongs to the event's organisation, or who sent the event
+ *     for review, is refused (`lib/review-independence.js`, applied by
+ *     `transitionEvent`).
+ *
+ * Approval makes an event APPROVED, never public. Its organiser publishes it,
+ * and the database refuses any other way into a public status.
+ *
  * @module @desi-event/api/routes/moderation
  */
 

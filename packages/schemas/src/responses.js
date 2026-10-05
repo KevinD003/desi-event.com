@@ -42,6 +42,9 @@ import {
 import { invitationDeliverySchema } from './teams.js'
 import { PAYMENT_MODES } from './payments.js'
 import { publicMediaSchema } from './media.js'
+import { utcDaySchema } from './traffic.js'
+import { CARD_PLACEMENTS, TRAFFIC_SOURCES } from './traffic-vocabulary.js'
+import { websiteRedirectStateSchema } from './website.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -523,10 +526,10 @@ export const ticketTransferResponseSchema = z.object({
 /**
  * `POST /tickets/:id/transfers` — the offer, and how its code went out.
  *
- * The same `delivery` block as a team invitation. With no delivery provider
- * (`MANUAL`, this build) the one-time `invitationCode` is here exactly once,
- * sent `no-store`, and only its digest is kept; the recipient must also be
- * signed in at the offered address to use it. With a provider (`EMAIL`) the
+ * The same `delivery` block as a team invitation. In `MANUAL` (the default)
+ * the one-time `invitationCode` is here exactly once, sent `no-store`, and only
+ * its digest is kept; the recipient must also be signed in at the offered
+ * address to use it. In `EMAIL` (DELIVERY_MODE=EMAIL with an SMTP server) the
  * code went to the recipient and this carries `null`.
  */
 export const startedTicketTransferResponseSchema = z.object({
@@ -1162,6 +1165,148 @@ const seatGroupSchema = z.object({
   byStatus: z.record(z.string(), z.number().int()),
 })
 
+/** A count of visits or clicks. */
+const trafficCountSchema = z.int().min(0)
+
+/** `POST /v1/traffic/beacons`: the same answer whether or not the visit was counted. */
+export const trafficBeaconResponseSchema = z.object({
+  data: z.object({ accepted: z.literal(true) }),
+})
+
+/**
+ * Visit totals over a window.
+ *
+ * `ticketClicks` are presses of "Choose tickets" and `seatClicks` presses of
+ * "Choose seats"; a screen that shows them together adds the two.
+ */
+export const trafficTotalsSchema = z.object({
+  views: trafficCountSchema,
+  visitors: trafficCountSchema,
+  /** Page views with no visitor code: the browser asked not to be tracked. */
+  anonymousViews: trafficCountSchema,
+  cardClicks: trafficCountSchema,
+  ticketClicks: trafficCountSchema,
+  seatClicks: trafficCountSchema,
+  /** Distinct visitors per event per day among the ticket and seat clicks. */
+  ticketClickVisitors: trafficCountSchema,
+  websiteRedirects: trafficCountSchema,
+  websiteRedirectVisitors: trafficCountSchema,
+})
+
+/** One UTC day of visits, zero-filled. */
+export const trafficDaySchema = z.object({
+  day: utcDaySchema,
+  views: trafficCountSchema,
+  visitors: trafficCountSchema,
+  cardClicks: trafficCountSchema,
+  ticketClicks: trafficCountSchema,
+  seatClicks: trafficCountSchema,
+  websiteRedirects: trafficCountSchema,
+  /** Orders paid on this day (`paidAt`), still paid; one refunded later is not counted. */
+  ordersPaid: trafficCountSchema,
+})
+
+/**
+ * One event's visits over a window.
+ *
+ * Deleted events are listed too, with `deleted` set, because they were seen
+ * and sold before they were taken down.
+ */
+export const trafficEventSummaryRowSchema = z.object({
+  eventId: cuidSchema,
+  title: z.string(),
+  slug: z.string(),
+  status: z.string(),
+  deleted: z.boolean(),
+  startsAt: timestampSchema,
+  views: trafficCountSchema,
+  visitors: trafficCountSchema,
+  cardClicks: trafficCountSchema,
+  ticketClicks: trafficCountSchema,
+  seatClicks: trafficCountSchema,
+  websiteRedirects: trafficCountSchema,
+  /** Whether a Desi-Event administrator has the event's website link turned on. */
+  websiteLinkOn: z.boolean(),
+  /** Orders paid in the window's days, still paid. */
+  ordersPaid: trafficCountSchema,
+})
+
+/** A row of the platform list: the event's figures and whose it is. */
+export const trafficPlatformRowSchema = trafficEventSummaryRowSchema.extend({
+  organization: z.object({ id: cuidSchema, name: z.string(), slug: z.string() }),
+})
+
+/**
+ * How fresh the figures are. Shared by the organiser branch and the platform
+ * list, so the two cannot describe the same roll-up differently.
+ */
+const trafficFreshnessShape = {
+  /** Always UTC: days are UTC days. */
+  timeZone: z.literal('UTC'),
+  /** First day counted; null when no `from` was given and nothing was recorded. */
+  firstDay: utcDaySchema.nullable(),
+  lastDay: utcDaySchema,
+  /** When the daily totals were last brought up to date; null before the first roll-up. */
+  updatedAt: timestampSchema.nullable(),
+  /** The roll-up has not finished for over two hours, so later visits are missing. */
+  stale: z.boolean(),
+  /** Some summed rows were written by the development seed, not counted. */
+  includesDemonstration: z.boolean(),
+}
+
+/**
+ * The `traffic` branch of `GET /analytics/summary`: visits to one
+ * organisation's event pages, or to one of them. Counts only — never a visitor
+ * code, an address or a referring site.
+ */
+export const analyticsTrafficSchema = z.object({
+  ...trafficFreshnessShape,
+  totals: trafficTotalsSchema,
+  sources: z
+    .array(z.object({ source: z.enum([...TRAFFIC_SOURCES]), views: trafficCountSchema }))
+    .length(TRAFFIC_SOURCES.length),
+  cardPlacements: z
+    .array(z.object({ placement: z.enum([...CARD_PLACEMENTS]), clicks: trafficCountSchema }))
+    .length(CARD_PLACEMENTS.length),
+  byDay: z.array(trafficDaySchema).max(366),
+  /** Only the latest 366 days are in `byDay`; the totals cover the whole window. */
+  seriesTruncated: z.boolean(),
+  /** The organisation's events (latest 200 by start), with window sums. Empty when `eventId` narrowed. */
+  byEvent: z.array(trafficEventSummaryRowSchema).max(200),
+  conversion: z.object({
+    visitors: trafficCountSchema,
+    ticketClickVisitors: trafficCountSchema,
+    ordersPaid: trafficCountSchema,
+    /** Paid orders per hundred visitors over the same days; null with no visitors. */
+    visitorToOrderPercent: z.number().min(0).nullable(),
+  }),
+  /** The narrowed-to event, when `eventId` named one of this organisation's. */
+  event: z
+    .object({
+      id: cuidSchema,
+      title: z.string(),
+      slug: z.string(),
+      status: z.string(),
+      deleted: z.boolean(),
+      startsAt: timestampSchema,
+      websiteLinkOn: z.boolean(),
+      /** The website switch as its own team and the Desi-Event team read it, when known. */
+      websiteRedirect: websiteRedirectStateSchema.nullable(),
+    })
+    .nullable(),
+})
+
+/** `GET /v1/traffic/events`: every event's visits, for platform administrators. */
+export const trafficEventListResponseSchema = z.object({
+  data: z.object({
+    ...trafficFreshnessShape,
+    /** The ten most viewed events in the window, across the platform. */
+    top: z.array(trafficPlatformRowSchema).max(10),
+    events: z.array(trafficPlatformRowSchema),
+  }),
+  pagination: paginationMetaSchema,
+})
+
 /**
  * `GET /analytics/summary`.
  *
@@ -1172,6 +1317,8 @@ const seatGroupSchema = z.object({
 export const analyticsSummaryResponseSchema = z.object({
   data: z.object({
     organizationId: cuidSchema,
+    /** The organisation's name; null when no organisation has that reference. */
+    organizationName: z.string().nullable(),
     currency: z.string(),
     eventId: cuidSchema.nullable(),
     eventSessionId: cuidSchema.nullable(),
@@ -1256,6 +1403,8 @@ export const analyticsSummaryResponseSchema = z.object({
       transfers: z.array(z.object({ status: z.string(), count: z.number().int() })),
       revoked: z.number().int(),
     }),
+    /** Visits to the organisation's event pages, in whole UTC days. */
+    traffic: analyticsTrafficSchema,
     notifications: z.array(z.object({ status: z.string(), count: z.number().int() })),
     exceptions: z.object({
       open: z.number().int(),
@@ -1265,7 +1414,7 @@ export const analyticsSummaryResponseSchema = z.object({
     }),
     funnel: z.object({
       steps: z.array(z.object({ key: z.string(), label: z.string(), count: z.number().int() })),
-      /** What this system does not record, named so nobody reads the funnel as complete. */
+      /** What this system does not count, named so nobody reads the funnel as complete. */
       missing: z.array(z.string()),
     }),
     limits: z.object({ breakdownRows: z.number().int() }),

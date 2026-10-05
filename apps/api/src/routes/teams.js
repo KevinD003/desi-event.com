@@ -21,15 +21,24 @@
  *      somebody else. Closed by a conditional update on `status: PENDING`, and by
  *      requiring the accepting session to be signed in as the invited address.
  *
- * The code itself is a bearer-ish secret bound to an address. With no delivery
- * provider (`DELIVERY_MODE` MANUAL, this build) it is returned once, in the 201
- * that minted it, to whoever issued it; it is never logged, audited or stored —
- * only its digest is. `lib/delivery.js` holds that rule.
+ * The code itself is a bearer-ish secret bound to an address. In
+ * `DELIVERY_MODE` MANUAL (the default) it is returned once, in the 201 that
+ * minted it, to whoever issued it; in EMAIL (DELIVERY_MODE=EMAIL with an SMTP
+ * server) it is emailed and never returned. Either way it is never logged,
+ * audited or stored — only its digest is. `lib/delivery.js` holds that rule.
  *
  * A fifth, quieter one runs through every route: **cross-tenant access.** Every
  * query is scoped by `organizationId` in the same `where` clause that finds the
  * row, so a membership id from another organisation is not found rather than
  * found-and-refused. The difference matters: 403 confirms the id exists.
+ *
+ * And a sixth: **who posts events is decided by the Desi-Event team.** A role
+ * that creates or publishes events (event manager, manager, administrator,
+ * owner) is never offered by a team invitation, and a member is moved to one
+ * only downwards, from a role that already posts. The new posters come from an
+ * organiser invitation or a super administrator's direct grant. Every refusal
+ * of that kind is 403 `POSTING_ROLE_NEEDS_PLATFORM`, decided again on locked
+ * rows, and the database refuses a waiting team invitation for such a role.
  *
  * @module @desi-event/api/routes/teams
  */
@@ -46,16 +55,31 @@ import {
   ORG_ROLE_ORDER,
   assertCan,
   canAssignOrgRole,
+  canMoveOrgRole,
   orgCapabilitiesFor,
   orgRoleFor,
+  postsEvents,
   CAPABILITIES,
   can,
 } from '@desi-event/permissions'
 import { withoutAddresses } from '@desi-event/schemas'
 
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
-import { DELIVERY_MODES, deliverCode } from '../lib/delivery.js'
-import { conflict, databaseErrorCode, forbidden, notFound } from '../lib/errors.js'
+import {
+  DELIVERY_MODES,
+  addressCandidates,
+  assertRecipientDailyCap,
+  deliverOrWithdraw,
+  isSameAddress,
+} from '../lib/delivery.js'
+import {
+  POSTING_ROLE_SENTENCE,
+  conflict,
+  databaseErrorCode,
+  forbidden,
+  httpError,
+  notFound,
+} from '../lib/errors.js'
 import { assertNotLastOwner, lockMembership, setScannerScopes } from '../lib/memberships.js'
 import {
   revokeAllSessionsOf,
@@ -94,7 +118,7 @@ export const MEMBER_EMAIL_STEP_UP = 'MEMBER_EMAIL_VIEW'
  *
  * Everybody else who may read the list gets `HIDDEN`: no address field at
  * all. That is VIEWER, STAFF, EVENT_MANAGER, FINANCE and MANAGER, and a
- * platform administrator who is not a member. A VIEWER or STAFF session needs
+ * platform super administrator who is not a member. A VIEWER or STAFF session needs
  * no second factor and lives longer than a privileged one, and a roster of
  * addresses is the most useful thing on this page to whoever takes one over.
  *
@@ -199,13 +223,23 @@ function isUniqueViolation(error) {
 const CONCURRENT_INVITATION =
   'Another invitation to that address was issued at the same moment. Reload the team page to see it.'
 
+/** The refusal for an organiser invitation code typed where a team code goes. */
+export const WRONG_INVITATION_KIND_SENTENCE =
+  'That is an organiser invitation code. Enter it at Your account → Accept an organiser invitation (/account/organizations/new).'
+
+/** The refusal for handing ownership to somebody who does not create events here. */
+export const HEIR_MUST_POST_EVENTS_SENTENCE =
+  'Ownership can go only to somebody who already creates events here — an event manager, manager or administrator.'
+
 /**
- * The roles a caller may grant in an organisation.
+ * The roles a caller may grant in an organisation by a team invitation.
  *
  * Computed rather than listed, from `canAssignOrgRole` — which answers the
  * question by capability containment, not by position in a seniority list. That
  * matters here because Phase 2's roles do not nest: `FINANCE` and `EVENT_MANAGER`
- * are peers with disjoint powers, and neither may grant the other.
+ * are peers with disjoint powers, and neither may grant the other. Roles that
+ * create or publish events are never in it: those come from the Desi-Event
+ * team, so an owner can offer exactly FINANCE, STAFF, SCANNER and VIEWER.
  *
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
@@ -216,19 +250,82 @@ export function assignableRoles(actor, organizationId) {
 
   if (!held) return []
 
-  return ORG_ROLE_ORDER.filter((role) => role !== 'OWNER' && canAssignOrgRole(held, role)).reverse()
+  return ORG_ROLE_ORDER.filter(
+    (role) => role !== 'OWNER' && !postsEvents(role) && canAssignOrgRole(held, role),
+  ).reverse()
 }
 
 /**
- * Refuse a role the caller may not grant.
+ * The refusal for a role that creates or publishes events.
+ *
+ * @returns {Error} A 403 `POSTING_ROLE_NEEDS_PLATFORM`.
+ */
+function postingRoleRefusal() {
+  return httpError(403, 'POSTING_ROLE_NEEDS_PLATFORM', POSTING_ROLE_SENTENCE)
+}
+
+/**
+ * The roles a caller may move one member to.
+ *
+ * Empty for the caller themselves and for an owner (ownership is handed over,
+ * not reassigned), and for a caller who does not manage roles here through
+ * their own membership or has no power over the member's role. Otherwise every
+ * role {@link canMoveOrgRole} allows: one the caller could grant, and a role
+ * that posts events only downwards, for somebody who already posts. It includes
+ * the member's current role, so a screen can show it selected.
+ *
+ * @param {object} actor The request actor.
+ * @param {string} organizationId Which organisation.
+ * @param {{userId: string, role: string}} membership The member.
+ * @returns {string[]} The roles, most senior first.
+ */
+export function roleChoicesFor(actor, organizationId, membership) {
+  if (membership.userId === actor.id || membership.role === 'OWNER') return []
+
+  const held = orgRoleFor(actor, organizationId)
+
+  if (!held) return []
+  if (!orgCapabilitiesFor(actor, organizationId).includes(CAPABILITIES.TEAM_ROLE_MANAGE)) return []
+  if (!canAssignOrgRole(held, membership.role)) return []
+
+  return ORG_ROLE_ORDER.filter((role) => canMoveOrgRole(held, membership.role, role)).reverse()
+}
+
+/**
+ * Refuse a move the caller may not make.
+ *
+ * @param {object} actor The request actor.
+ * @param {string} organizationId Which organisation.
+ * @param {string} fromRole The member's role now.
+ * @param {string} toRole The role asked for.
+ * @returns {void}
+ * @throws {Error} 403 `POSTING_ROLE_NEEDS_PLATFORM` for a refused move to a role that posts events, a 403 otherwise.
+ */
+function assertMayMove(actor, organizationId, fromRole, toRole) {
+  const held = orgRoleFor(actor, organizationId)
+
+  if (held && canMoveOrgRole(held, fromRole, toRole)) return
+
+  if (postsEvents(toRole)) throw postingRoleRefusal()
+
+  throw forbidden(
+    `Your role in this organisation cannot grant ${toRole}. You can grant: ` +
+      `${assignableRoles(actor, organizationId).join(', ') || 'no roles'}.`,
+  )
+}
+
+/**
+ * Refuse a role the caller may not grant by invitation.
  *
  * @param {object} actor The request actor.
  * @param {string} organizationId Which organisation.
  * @param {string} role The role being granted.
  * @returns {void}
- * @throws {Error} A 403 when the caller may not grant it.
+ * @throws {Error} 403 `POSTING_ROLE_NEEDS_PLATFORM` for a role that posts events; a 403 when the caller may not grant it.
  */
 function assertMayGrant(actor, organizationId, role) {
+  if (postsEvents(role)) throw postingRoleRefusal()
+
   if (assignableRoles(actor, organizationId).includes(role)) return
 
   throw forbidden(
@@ -312,27 +409,64 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
   }
 
   /**
+   * Take back a team invitation whose code could not be emailed.
+   *
+   * @param {string} invitationId The invitation just issued.
+   * @param {string} organizationId Its organisation.
+   * @param {string} actorId Who issued it.
+   * @returns {Promise<void>}
+   */
+  function withdrawAfterFailedDelivery(invitationId, organizationId, actorId) {
+    return prisma.$transaction(async (tx) => {
+      const { count } = await tx.invitation.updateMany({
+        where: { id: invitationId, status: 'PENDING' },
+        data: { status: 'REVOKED', revokedAt: new Date() },
+      })
+
+      if (count !== 1) return
+
+      await recordAudit(tx, {
+        actorId,
+        action: AUDIT_ACTIONS.TEAM_INVITATION_DELIVERY_FAILED,
+        entityType: 'Invitation',
+        entityId: invitationId,
+        metadata: { organizationId, deliveryMode: DELIVERY_MODES.EMAIL },
+      })
+    })
+  }
+
+  /**
    * Hand a freshly minted code to whoever should have it, and say how.
    *
+   * In EMAIL mode a send the mail server refuses withdraws the invitation and
+   * answers 503 `DELIVERY_FAILED`, so no live code is left that nobody holds.
+   *
    * @param {object} options Options.
+   * @param {object} options.request The request, for the log and the actor.
    * @param {string} options.secret The code, which exists only in memory.
    * @param {object} options.reply The reply, for the cache headers.
    * @param {object} options.organization The organisation, for the provider's message.
    * @param {object} options.invitation The invitation row.
    * @returns {Promise<{mode: string, invitationCode: string|null}>} The `delivery` block.
    */
-  function handOver({ secret, reply, organization, invitation }) {
-    return deliverCode({
+  function handOver({ request, secret, reply, organization, invitation }) {
+    return deliverOrWithdraw({
       mode,
       secret,
       reply,
       deliver,
+      log: request.log,
       message: {
         purpose: 'TEAM_INVITATION',
         email: invitation.email,
         organizationName: organization.name,
+        // The letter says so when the Desi-Event team has not verified the
+        // organisation the invitation comes from.
+        organizationVerified: organization.verificationStatus === 'VERIFIED',
         role: invitation.role,
+        expiresAt: invitation.expiresAt.toISOString(),
       },
+      withdraw: () => withdrawAfterFailedDelivery(invitation.id, organization.id, request.actor.id),
     })
   }
 
@@ -378,6 +512,8 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
             scopedEventIds: (membership.scannerScopes ?? []).map((scope) => scope.eventId),
             joinedAt: membership.createdAt.toISOString(),
             self: membership.userId === request.actor.id,
+            postsEvents: postsEvents(membership.role),
+            roleChoices: roleChoicesFor(request.actor, organization.id, membership),
           })),
           invitations: invitations.map((invitation) =>
             toInvitationSummary(invitation, emailVisibility),
@@ -408,8 +544,13 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         if (member) throw conflict('That person is already in this organisation.')
       }
 
-      const { secret, hash } = issueToken()
       const now = new Date()
+
+      // In EMAIL mode, one address is sent at most three codes a day, so this
+      // form cannot be used to fill a stranger's inbox.
+      if (mode === DELIVERY_MODES.EMAIL) await assertRecipientDailyCap(prisma, { email, now })
+
+      const { secret, hash } = issueToken()
 
       let invitation
 
@@ -419,16 +560,28 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
           // is two ways in, and revoking one would leave the other working. The
           // database holds the same rule (`Invitation_one_pending_per_address`),
           // which is what decides between two invitations issued at once.
-          await tx.invitation.updateMany({
+          // Case-insensitive, as the index is: a row written before addresses
+          // were lower-cased is still the same address. The filter can also
+          // find look-alikes (`_` matches any one character in it), so only
+          // the rows that are this address are superseded.
+          const waiting = await tx.invitation.findMany({
             where: {
               organizationId: organization.id,
-              // Case-insensitive, as the index is: a row written before
-              // addresses were lower-cased is still the same address.
-              email: { equals: email, mode: 'insensitive' },
+              email: addressCandidates(email),
               status: 'PENDING',
             },
-            data: { status: 'REVOKED', revokedAt: now },
+            select: { id: true, email: true },
           })
+          const superseded = waiting
+            .filter((row) => isSameAddress(row.email, email))
+            .map((row) => row.id)
+
+          if (superseded.length > 0) {
+            await tx.invitation.updateMany({
+              where: { id: { in: superseded }, status: 'PENDING' },
+              data: { status: 'REVOKED', revokedAt: now },
+            })
+          }
 
           const created = await tx.invitation.create({
             data: {
@@ -468,7 +621,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         throw error
       }
 
-      const delivery = await handOver({ secret, reply, organization, invitation })
+      const delivery = await handOver({ request, secret, reply, organization, invitation })
 
       // Identifiers and the mode, never the code: this line is read by
       // whoever is on call, and a code in it would be a way in for them.
@@ -505,8 +658,13 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       // the invitation.
       assertMayGrant(request.actor, organization.id, current.role)
 
-      const { secret, hash } = issueToken()
       const now = new Date()
+
+      if (mode === DELIVERY_MODES.EMAIL) {
+        await assertRecipientDailyCap(prisma, { email: current.email, now })
+      }
+
+      const { secret, hash } = issueToken()
 
       let invitation
 
@@ -560,7 +718,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         throw error
       }
 
-      const delivery = await handOver({ secret, reply, organization, invitation })
+      const delivery = await handOver({ request, secret, reply, organization, invitation })
 
       request.log.info(
         {
@@ -609,6 +767,19 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         { purpose: 'TEAM_INVITATION' },
       )
 
+      if (!invitation) {
+        // An organiser invitation's code typed in the wrong place. Whoever
+        // holds it learns only what they already have, and it is not spent.
+        const organizerInvitation = await prisma.organizerInvitation.findUnique({
+          where: { tokenHash: hashToken(request.body.token) },
+          select: { id: true },
+        })
+
+        if (organizerInvitation) {
+          throw forbidden(WRONG_INVITATION_KIND_SENTENCE, 'WRONG_INVITATION_KIND')
+        }
+      }
+
       if (!invitation || !usable || invitation.status !== 'PENDING') {
         throw forbidden('This invitation is not valid any more. Ask for a new one.')
       }
@@ -623,6 +794,11 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
           'This invitation was sent to a different address. Sign in with the address it was sent to, then enter the code again.',
         )
       }
+
+      // An invitation written before the database refused them, offering a
+      // role that creates or publishes events: refused, and not spent. Such a
+      // role comes from the Desi-Event team.
+      if (postsEvents(invitation.role)) throw postingRoleRefusal()
 
       const now = new Date()
 
@@ -793,7 +969,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       // transaction. The decision that counts is made again below, from the
       // row as it is once locked.
       assertMayActOn(request.actor, organization.id, membership.role)
-      assertMayGrant(request.actor, organization.id, role)
+      assertMayMove(request.actor, organization.id, membership.role, role)
 
       await prisma.$transaction(async (tx) => {
         // Locked, then read again: an ownership transfer that committed since
@@ -803,6 +979,9 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         if (!current) throw notFound('No such member.')
 
         assertMayActOn(request.actor, organization.id, current.role)
+        // Decided again from the locked row: a move that was downwards when
+        // read may not be once another change has landed.
+        assertMayMove(request.actor, organization.id, current.role, role)
 
         if (current.role === 'OWNER' && role !== 'OWNER') {
           // The owner rows are locked before they are counted. Counting alone,
@@ -911,7 +1090,7 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
       const organization = await organizationFor(request, CAPABILITIES.ORGANIZATION_MANAGE)
 
       // Held through the caller's own membership, not through a platform role
-      // that answers yes everywhere. A platform administrator moving ownership
+      // that answers yes everywhere. A platform super administrator moving ownership
       // uses the audited direct grant, which names its reason; this route is
       // an owner handing on what is theirs.
       if (
@@ -943,6 +1122,13 @@ export function registerTeamRoutes(app, { prisma, authLimit, deliver, deliveryMo
         const heir = await lockMembership(tx, organization.id, { id: target.id })
 
         if (!heir) throw notFound('No such member.')
+
+        // Ownership goes only to somebody who already creates events here, so
+        // a transfer never makes somebody new a poster of events. Decided from
+        // the locked row.
+        if (!postsEvents(heir.role)) {
+          throw httpError(422, 'HEIR_MUST_POST_EVENTS', HEIR_MUST_POST_EVENTS_SENTENCE)
+        }
 
         const mine = await tx.membership.findFirst({
           where: { userId: request.actor.id, organizationId: organization.id },

@@ -2,10 +2,16 @@
  * Platform staff administration: finding an account, changing its platform
  * role, and putting somebody into an organisation directly.
  *
- * Everything here is held by `platform:admin`, which only `SUPER_ADMIN` has.
- * A narrower capability was considered and rejected: whoever can grant
- * `SUPER_ADMIN` effectively holds everything, so a smaller name would be a
- * false promise about how much this surface can do.
+ * Everything here is held by `platform:admin`, which only `SUPER_ADMIN` has —
+ * the organisation search included. A narrower capability was considered and
+ * rejected: whoever can grant `SUPER_ADMIN` effectively holds everything, so a
+ * smaller name would be a false promise about how much this surface can do.
+ * The platform administrator (`ADMIN`) holds none of it: it invites organisers
+ * (`routes/organizer-invitations.js`, on `organizer:invite`) and reviews, and
+ * cannot change roles, search accounts or put anybody into an organisation.
+ *
+ * `platform.setUserRole` takes any of the seven platform roles: ATTENDEE,
+ * ORGANIZER, SUPPORT, MODERATOR, FINANCE_ADMIN, ADMIN and SUPER_ADMIN.
  *
  * The two writes share the same guard rails, and each is there for a reason:
  *

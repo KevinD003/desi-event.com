@@ -36,18 +36,20 @@
  * need the venue's zone per row; doing it in UTC and *saying* UTC is honest,
  * and doing it in local time silently would not be.
  *
- * ## What is not here
+ * ## Visits
  *
- * A view-to-purchase conversion funnel. Nothing in this repository records a
- * page view or an anonymous session, so the top of that funnel does not exist
- * and cannot be inferred. What {@link conversionFunnel} reports instead is the
- * part that *is* recorded — holds taken, orders created, orders paid — and it
- * is labelled as that rather than as a funnel with a missing first step.
+ * Visits are counted since migration `20260930130000_event_traffic_analytics`,
+ * first-party and without cookies (`lib/traffic.js`); this module reads their
+ * daily totals through `traffic-report.js`, never the raw rows. The funnel
+ * starts from visitors because they now exist as data, and it names what it
+ * does not count ({@link FUNNEL_NOT_COUNTED}) rather than reading as complete.
  *
  * @module @desi-event/api/lib/analytics
  */
 
 import { financeSummary } from './finance-reporting.js'
+import { dayDate } from './traffic.js'
+import { trafficSummary, trafficWindow } from './traffic-report.js'
 
 /**
  * Ticket states that mean a ticket exists and has not been given up.
@@ -593,26 +595,52 @@ export async function reconciliationExceptions(prisma, { organizationId, now }) 
 }
 
 /**
- * The part of the funnel this repository actually records.
+ * What the funnel does not count, in the order a reader needs it.
  *
- * **There is no view-to-purchase funnel here, and there cannot be one.** Nothing
- * records a page view or an anonymous browsing session, so the step everybody
- * means by "conversion" — people who looked — does not exist as data. Inventing
- * it from order counts would be inventing a metric.
+ * Named rather than omitted: a funnel with silently missing people is a funnel
+ * somebody will read as complete.
  *
- * What is recorded is what somebody did once they committed to something: a
- * hold taken, an order created against it, and an order paid. Three real
- * counts over three real tables, labelled as what they are.
+ * @type {ReadonlyArray<string>}
+ */
+export const FUNNEL_NOT_COUNTED = Object.freeze([
+  'Robots, people whose browser asks not to be tracked, and the organisation’s own team and Desi-Event staff while signed in are not counted as visitors.',
+  'A visitor is counted once a day for each event, so somebody who comes back on another day is counted again, and an order can come from somebody whose visit was not counted.',
+  'Visitors are counted in whole UTC days; holds and orders are counted from the exact start of the window.',
+])
+
+/**
+ * From visit to payment.
+ *
+ * Five real counts over four real tables: visitors and visitors who chose
+ * tickets or seats (from the daily visit totals, in whole UTC days), tickets
+ * held, orders started and orders paid (created in the window, now paid). It
+ * says what it does not count, because a visit is a weaker fact than a payment
+ * and the two should not be read as one measurement.
  *
  * @param {object} prisma A Prisma client.
- * @param {object} params Inputs, as {@link eventScope} plus a window.
- * @returns {Promise<{steps: Array<{key: string, label: string, count: number}>, missing: Array<string>}>} The funnel and what it cannot show.
+ * @param {object} params Inputs, as {@link eventScope} plus a window and `now`.
+ * @returns {Promise<{steps: Array<{key: string, label: string, count: number}>, missing: Array<string>}>} The funnel and what it does not count.
  */
 export async function conversionFunnel(prisma, params) {
   const scope = eventScope(params)
   const window = createdWithin(params)
+  const days = trafficWindow({
+    from: params.from ?? null,
+    to: params.to ?? null,
+    now: params.now ?? new Date(),
+  })
 
-  const [holds, ordersCreated, ordersPaid] = await Promise.all([
+  const [visits, holds, ordersCreated, ordersPaid] = await Promise.all([
+    prisma.trafficDaily.aggregate({
+      where: {
+        event: scope,
+        day: {
+          ...(days.firstDay ? { gte: dayDate(days.firstDay) } : {}),
+          lte: dayDate(days.lastDay),
+        },
+      },
+      _sum: { visitors: true, ticketClickVisitors: true },
+    }),
     prisma.ticketHold.count({ where: { ticketType: { event: scope }, ...window } }),
     prisma.order.count({ where: { event: scope, ...window } }),
     prisma.order.count({ where: { event: scope, status: 'PAID', ...window } }),
@@ -620,15 +648,17 @@ export async function conversionFunnel(prisma, params) {
 
   return {
     steps: [
+      { key: 'visitors', label: 'Visitors', count: Number(visits._sum?.visitors ?? 0) },
+      {
+        key: 'ticketClickVisitors',
+        label: 'Visitors who chose tickets or seats',
+        count: Number(visits._sum?.ticketClickVisitors ?? 0),
+      },
       { key: 'holds', label: 'Tickets held', count: holds },
       { key: 'ordersCreated', label: 'Orders started', count: ordersCreated },
       { key: 'ordersPaid', label: 'Orders paid', count: ordersPaid },
     ],
-    // Named rather than omitted. A funnel with a silently missing first step is
-    // a funnel somebody will read as complete.
-    missing: [
-      'Page views and browsing sessions are not recorded anywhere in this system, so the step before a hold cannot be counted and is not estimated.',
-    ],
+    missing: [...FUNNEL_NOT_COUNTED],
   }
 }
 
@@ -644,6 +674,8 @@ export async function conversionFunnel(prisma, params) {
  * @param {Date|null} [params.from] Window start, UTC.
  * @param {Date|null} [params.to] Window end, UTC.
  * @param {Date} params.now For ageing.
+ * @param {boolean} [params.administrator] Whether the reader decides on website links
+ *   (`website_redirect:manage`); passed through to `trafficSummary`.
  * @returns {Promise<object>} Money, inventory, attendance and operations.
  */
 export async function organizerAnalytics(prisma, params) {
@@ -664,6 +696,7 @@ export async function organizerAnalytics(prisma, params) {
     notifications,
     exceptions,
     funnel,
+    traffic,
   ] = await Promise.all([
     moneyTotals(prisma, params),
     ticketCounts(prisma, params),
@@ -675,6 +708,7 @@ export async function organizerAnalytics(prisma, params) {
     notificationDelivery(prisma, params),
     reconciliationExceptions(prisma, params),
     conversionFunnel(prisma, params),
+    trafficSummary(prisma, params),
   ])
 
   return {
@@ -684,6 +718,7 @@ export async function organizerAnalytics(prisma, params) {
     sales,
     checkIns,
     movement,
+    traffic,
     notifications,
     exceptions,
     funnel,

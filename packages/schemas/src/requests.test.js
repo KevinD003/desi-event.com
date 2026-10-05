@@ -80,9 +80,26 @@ describe('registerRequestSchema', () => {
     })
   })
 
-  it('allows an organizer to self-register but not an admin', () => {
-    expect(registerRequestSchema.parse({ ...base(), role: 'ORGANIZER' }).role).toBe('ORGANIZER')
-    expect(registerRequestSchema.safeParse({ ...base(), role: 'SUPER_ADMIN' }).success).toBe(false)
+  it('registers attendees only: an organiser, an administrator or any staff role is refused', () => {
+    expect(registerRequestSchema.parse({ ...base(), role: 'ATTENDEE' }).role).toBe('ATTENDEE')
+    expect(registerRequestSchema.parse(base()).role).toBe('ATTENDEE')
+
+    for (const role of [
+      'ORGANIZER',
+      'ADMIN',
+      'SUPER_ADMIN',
+      'MODERATOR',
+      'SUPPORT',
+      'FINANCE_ADMIN',
+    ]) {
+      const result = registerRequestSchema.safeParse({ ...base(), role })
+
+      expect(result.success, role).toBe(false)
+      expect(result.error.issues[0].path).toEqual(['role'])
+      expect(result.error.issues[0].message).toBe(
+        'Accounts are created as attendees. Organisers join by invitation from the Desi-Event team.',
+      )
+    }
   })
 
   it('rejects a short password and a malformed email', () => {

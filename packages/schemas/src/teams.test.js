@@ -27,6 +27,9 @@ const MEMBER = {
   scopedEventIds: [],
   joinedAt: '2026-01-01T00:00:00.000Z',
   self: false,
+  // An owner posts events, and nobody may move an owner from the team page.
+  postsEvents: true,
+  roleChoices: [],
 }
 
 const INVITATION = {
@@ -54,6 +57,56 @@ const HOSTILE = {
 const WITHOUT_ADDRESSES = ['STEP_UP_REQUIRED', 'HIDDEN']
 
 describe('memberListResponseSchema', () => {
+  it.each(['FULL', ...WITHOUT_ADDRESSES])(
+    'carries postsEvents and roleChoices on every member under %s',
+    (emailVisibility) => {
+      const viewer = {
+        ...MEMBER,
+        id: 'ckl1a2b3c4d5e6f7g8h9i0jd',
+        role: 'VIEWER',
+        postsEvents: false,
+        roleChoices: ['FINANCE', 'STAFF', 'SCANNER'],
+      }
+      const parsed = memberListResponseSchema.parse({
+        data: {
+          emailVisibility,
+          members: [
+            emailVisibility === 'FULL' ? { ...MEMBER, email: 'meera@rangoli.example' } : MEMBER,
+            emailVisibility === 'FULL' ? { ...viewer, email: 'viewer@rangoli.example' } : viewer,
+          ],
+          invitations: [],
+          assignableRoles: ['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'],
+        },
+      })
+
+      expect(parsed.data.members.map((member) => member.postsEvents)).toEqual([true, false])
+      expect(parsed.data.members.map((member) => member.roleChoices)).toEqual([
+        [],
+        ['FINANCE', 'STAFF', 'SCANNER'],
+      ])
+
+      const { postsEvents: _postsEvents, ...withoutPosting } = viewer
+      const { roleChoices: _roleChoices, ...withoutChoices } = viewer
+
+      for (const member of [withoutPosting, withoutChoices, { ...viewer, roleChoices: ['GOD'] }]) {
+        expect(
+          memberListResponseSchema.safeParse({
+            data: {
+              emailVisibility,
+              members: [
+                emailVisibility === 'FULL'
+                  ? { ...member, email: 'viewer@rangoli.example' }
+                  : member,
+              ],
+              invitations: [],
+              assignableRoles: [],
+            },
+          }).success,
+        ).toBe(false)
+      }
+    },
+  )
+
   it('knows exactly three visibilities, and MASKED is no longer one of them', () => {
     expect(EMAIL_VISIBILITIES).toEqual(['FULL', 'STEP_UP_REQUIRED', 'HIDDEN'])
     expect(

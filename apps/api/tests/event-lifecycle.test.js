@@ -153,8 +153,9 @@ describe('the publish route is not a status setter, finding NF-18', () => {
 describe('the generic PATCH still cannot move the status', () => {
   it('rejects a status field outright', async () => {
     // This one already held before this cycle, and the test exists so it keeps
-    // holding: `updateEventRequestSchema` omits `status`, so an extra field is
-    // a validation error rather than a silent write.
+    // holding: `updateEventRequestSchema` omits `status`, so it is stripped,
+    // and a body with nothing else in it is an empty update, refused as such
+    // rather than written.
     const { app, ids } = await createTestApp()
     const token = await signIn(app, 'arun@rangoli.example')
 
@@ -174,6 +175,31 @@ describe('the generic PATCH still cannot move the status', () => {
     })
 
     expect(after.json().data.status).toBe('DRAFT')
+
+    await app.close()
+  })
+
+  it('saves the other fields of an update that carries a status, and leaves the status alone', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.draftEvent.id}`,
+      headers: bearer(token),
+      payload: { title: 'Bollywood Night, Renamed', status: 'PUBLISHED' },
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+    expect(response.json().data).toMatchObject({
+      title: 'Bollywood Night, Renamed',
+      status: 'DRAFT',
+    })
+
+    const stored = prisma._store.event.find((row) => row.id === ids.draftEvent.id)
+
+    expect(stored).toMatchObject({ title: 'Bollywood Night, Renamed', status: 'DRAFT' })
+    expect(stored.publishedAt ?? null).toBeNull()
 
     await app.close()
   })
@@ -265,7 +291,7 @@ describe('who may make a moderator decision', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers: bearer(token),
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     expect(response.statusCode).toBe(403)
@@ -299,7 +325,7 @@ describe('who may make a moderator decision', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers,
-      payload: { decision: 'approve' },
+      payload: { decision: 'approve', revision: ids.reviewPendingEvent.revision },
     })
 
     expect(response.statusCode).toBe(200)

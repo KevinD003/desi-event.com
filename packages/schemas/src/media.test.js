@@ -260,18 +260,49 @@ describe('request schemas', () => {
     expect(moderateMediaRequestSchema.safeParse({ decision: 'delete' }).success).toBe(false)
   })
 
-  it('lets an event decision name the revision the moderator reviewed, optionally', () => {
+  it('requires an approval to name the revision the moderator reviewed', () => {
     expect(moderationDecisionRequestSchema.parse({ decision: 'approve', revision: 7 })).toEqual({
       decision: 'approve',
       revision: 7,
     })
-    expect(moderationDecisionRequestSchema.safeParse({ decision: 'approve' }).success).toBe(true)
+
+    // An approval with no revision could approve a version nobody looked at.
+    const unpinned = moderationDecisionRequestSchema.safeParse({ decision: 'approve' })
+
+    expect(unpinned.success).toBe(false)
+    expect(unpinned.error.issues).toEqual([
+      expect.objectContaining({
+        path: ['revision'],
+        message:
+          'Send the revision you reviewed, so a version you have not seen cannot be approved.',
+      }),
+    ])
 
     for (const revision of [-1, 1.5, '7', null]) {
       expect(
         moderationDecisionRequestSchema.safeParse({ decision: 'approve', revision }).success,
       ).toBe(false)
     }
+  })
+
+  it('keeps the revision optional for a request for changes or a rejection', () => {
+    expect(
+      moderationDecisionRequestSchema.safeParse({
+        decision: 'request_changes',
+        reason: 'Add the venue address.',
+      }).success,
+    ).toBe(true)
+    expect(
+      moderationDecisionRequestSchema.safeParse({ decision: 'reject', reason: 'Not an event.' })
+        .success,
+    ).toBe(true)
+    expect(
+      moderationDecisionRequestSchema.parse({
+        decision: 'reject',
+        reason: 'Not an event.',
+        revision: 3,
+      }).revision,
+    ).toBe(3)
   })
 })
 

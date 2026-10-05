@@ -252,7 +252,11 @@ describe('deciding on the event decides its waiting pictures', () => {
       method: 'POST',
       url: `/v1/moderation/events/${ids.reviewPendingEvent.id}/decision`,
       headers,
-      payload: { decision: 'approve' },
+      payload: {
+        decision: 'approve',
+        // The revision the review page showed, as the store holds it now.
+        revision: prisma._store.event.find((row) => row.id === ids.reviewPendingEvent.id).revision,
+      },
     })
 
     expect(response.statusCode).toBe(200)

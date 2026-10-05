@@ -67,11 +67,12 @@ export async function start() {
   // The in-memory providers are the default wiring. A deployment swaps them
   // for real adapters here — the one place that knows they are not real.
   //
-  // No delivery provider is wired in either, so single-use codes run in
-  // DELIVERY_MODE MANUAL: an invitation code is shown once to whoever issues
-  // it, to hand over themselves. A provider passed to buildApp as `deliver`
-  // here is what would make EMAIL possible; naming EMAIL without one refuses
-  // to boot.
+  // Single-use codes (invitations, ticket transfers) run in DELIVERY_MODE
+  // MANUAL by default: each code is shown once to whoever issues it, to hand
+  // over themselves. EMAIL is switched on by DELIVERY_MODE=EMAIL with SMTP_HOST
+  // and SMTP_FROM (and WEB_ORIGIN for the join links); buildApp builds the
+  // mailer from those, so nothing is passed as `deliver` here. Naming EMAIL
+  // without an SMTP server refuses to boot.
   const providers = createProcessProviders()
 
   const app = await buildApp({
@@ -82,7 +83,12 @@ export async function start() {
     // The budget is the deployment's to set: behind a shared egress address a
     // hundred real visitors arrive as one caller, and the default would
     // throttle them. The default itself is unchanged.
-    rateLimit: { global: { max: env.RATE_LIMIT_MAX, timeWindow: env.RATE_LIMIT_WINDOW } },
+    rateLimit: {
+      global: { max: env.RATE_LIMIT_MAX, timeWindow: env.RATE_LIMIT_WINDOW },
+      // How many visit beacons one visitor may send a minute; the browser
+      // suites raise it, because every test shares one address.
+      trafficBeacon: { max: env.TRAFFIC_BEACON_MAX_PER_MINUTE },
+    },
   })
 
   await app.listen({ port: env.API_PORT, host: env.API_HOST })

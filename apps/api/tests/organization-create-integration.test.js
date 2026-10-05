@@ -1,13 +1,17 @@
 /**
- * Creating an organisation and having it verified, against PostgreSQL.
+ * Organisations are not created from an account, and the verification path
+ * still works for the ones that were, against PostgreSQL.
  *
- * What only the real database can answer: that the rows are written as the
- * route says (including the provenance foreign key), that the per-account cap
- * holds when several creations race — the creator's user row is locked so they
- * count one after another — and that the whole path from creation to a
- * moderator's decision works on real rows, including the audit action the
- * decision writes, which went unrecorded for two phases because no suite
- * covered it against PostgreSQL.
+ * `POST /v1/organizations` answers 403 `ORGANIZER_INVITATION_REQUIRED` to every
+ * signed-in caller, platform staff included, and writes nothing — checked here
+ * on real rows, and with requests racing, because the old route's per-account
+ * cap was a race this suite used to prove. Organisers now join by invitation
+ * (`organizer-invitation-integration.test.js`).
+ *
+ * The verification flow is kept, on a grandfathered organisation inserted
+ * directly — one made before invitations, still UNVERIFIED — from the owner's
+ * submission to a moderator's decision, including the audit action the
+ * decision writes.
  *
  * Runs against `TEST_DATABASE_URL`. With `REQUIRE_DATABASE` set it fails rather
  * than skips.
@@ -55,8 +59,8 @@ function id(kind) {
 /**
  * A user with a confirmed second factor.
  *
- * A factor, because creating an organisation makes the account an OWNER, and
- * every later guarded request of an owner without one is refused.
+ * A factor, because an organisation's owner is privileged, and every guarded
+ * request of an owner without one is refused.
  *
  * @param {string} local The address's local part.
  * @param {string} [role] The platform role.
@@ -116,12 +120,7 @@ beforeAll(async () => {
     env: testEnv(),
     docs: false,
     processEnv: {},
-    // The per-address budget is not what these tests are about, and every
-    // request here comes from one address.
-    rateLimit: {
-      global: { max: 10_000, timeWindow: '1 minute' },
-      organizationCreate: { max: 1000 },
-    },
+    rateLimit: { global: { max: 10_000, timeWindow: '1 minute' } },
   })
   await app.ready()
 })
@@ -133,59 +132,80 @@ afterAll(async () => {
 
 const describeWhen = when()
 
-describeWhen('creating an organisation, against PostgreSQL', () => {
-  it('writes the organisation, its owner and its provenance as the route says', async () => {
-    const creator = await user('bay.creator')
-    const headers = await sessionFor(creator)
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/v1/organizations',
-      headers,
-      payload: {
-        name: `Bay Lights ${RUN}`,
-        timezone: 'America/Los_Angeles',
-        payoutCurrency: 'INR',
-        contactEmail: `attacker.${RUN}@${DOMAIN}`,
-        verificationStatus: 'VERIFIED',
-      },
-    })
-
-    expect(response.statusCode).toBe(201)
-    expect(response.json().data.session).toEqual({ mfaRequired: true, mfaEnrolled: true })
-
-    const [row] = await prisma.$queryRaw`
-      SELECT o."verificationStatus", o."verified", o."payoutCurrency", o."contactEmail",
-             o."createdById", o."timezone", u."id" AS "creatorId"
-        FROM "Organization" o
-        JOIN "User" u ON u."id" = o."createdById"
-       WHERE o."id" = ${response.json().data.id}`
-
-    expect(row).toMatchObject({
+/**
+ * A grandfathered organisation: made before invitations, still UNVERIFIED,
+ * with its owner. Inserted directly, as the rows already in a database are.
+ *
+ * @param {object} owner The owner.
+ * @param {string} name The organisation's name.
+ * @returns {Promise<object>} The organisation row.
+ */
+async function grandfathered(owner, name) {
+  const organization = await prisma.organization.create({
+    data: {
+      id: id('organization'),
+      name,
+      slug: `grandfathered-${id('slug').slice(1, 13)}`,
+      timezone: 'America/Chicago',
+      contactEmail: owner.email,
+      payoutCurrency: 'USD',
       verificationStatus: 'UNVERIFIED',
       verified: false,
-      payoutCurrency: 'USD',
-      contactEmail: creator.email,
-      createdById: creator.id,
-      creatorId: creator.id,
-      timezone: 'America/Los_Angeles',
-    })
-
-    const membership = await prisma.membership.findFirst({
-      where: { organizationId: response.json().data.id },
-    })
-
-    expect(membership).toMatchObject({ userId: creator.id, role: 'OWNER' })
-
-    const audit = await prisma.auditLog.findFirst({
-      where: { action: 'organization.created', entityId: response.json().data.id },
-    })
-
-    expect(audit.actorId).toBe(creator.id)
-    expect(JSON.stringify(audit.metadata)).not.toContain(creator.email)
+      createdById: owner.id,
+    },
   })
 
-  it('never lets one account past three a day, however many requests race', async () => {
+  await prisma.membership.create({
+    data: {
+      id: id('membership'),
+      userId: owner.id,
+      organizationId: organization.id,
+      role: 'OWNER',
+    },
+  })
+
+  return organization
+}
+
+describeWhen('creating an organisation, against PostgreSQL', () => {
+  it('refuses every signed-in caller, platform staff included, and writes nothing', async () => {
+    const callers = [
+      await user('bay.attendee'),
+      await user('bay.organiser', 'ORGANIZER'),
+      await user('bay.administrator', 'ADMIN'),
+      await user('bay.super', 'SUPER_ADMIN'),
+    ]
+
+    for (const caller of callers) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/organizations',
+        headers: await sessionFor(caller),
+        payload: {
+          name: `Bay Lights ${RUN}`,
+          timezone: 'America/Los_Angeles',
+          payoutCurrency: 'INR',
+          contactEmail: `attacker.${RUN}@${DOMAIN}`,
+          verificationStatus: 'VERIFIED',
+        },
+      })
+
+      expect(response.statusCode, caller.role).toBe(403)
+      expect(response.json().error.code, caller.role).toBe('ORGANIZER_INVITATION_REQUIRED')
+    }
+
+    const ids = callers.map((caller) => caller.id)
+
+    expect(await prisma.organization.count({ where: { createdById: { in: ids } } })).toBe(0)
+    expect(await prisma.membership.count({ where: { userId: { in: ids } } })).toBe(0)
+    expect(
+      await prisma.auditLog.count({
+        where: { action: 'organization.created', actorId: { in: ids } },
+      }),
+    ).toBe(0)
+  })
+
+  it('refuses requests that race, every one of them', async () => {
     const creator = await user('racing.creator')
     const headers = await sessionFor(creator)
 
@@ -200,38 +220,21 @@ describeWhen('creating an organisation, against PostgreSQL', () => {
       ),
     )
 
-    const statuses = results.map((response) => response.statusCode)
-
-    for (const status of statuses) expect([201, 429]).toContain(status)
-    expect(statuses.filter((status) => status === 201)).toHaveLength(3)
-
-    for (const refused of results.filter((response) => response.statusCode === 429)) {
-      expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0)
-    }
-
-    expect(await prisma.organization.count({ where: { createdById: creator.id } })).toBe(3)
+    expect(results.map((response) => response.statusCode)).toEqual(Array(6).fill(403))
+    expect(await prisma.organization.count({ where: { createdById: creator.id } })).toBe(0)
   })
 
-  it('goes from creation to a moderator’s decision, and records the decision', async () => {
-    const creator = await user('verified.creator')
+  it('takes a grandfathered organisation from submission to a moderator’s decision, and records it', async () => {
+    const owner = await user('verified.owner', 'ORGANIZER')
     const moderator = await user('queue.moderator', 'MODERATOR')
-    const creatorHeaders = await sessionFor(creator)
-
-    const created = await app.inject({
-      method: 'POST',
-      url: '/v1/organizations',
-      headers: creatorHeaders,
-      payload: { name: `Verified Path ${RUN}` },
-    })
-
-    expect(created.statusCode).toBe(201)
-
-    const organizationId = created.json().data.id
+    const organization = await grandfathered(owner, `Verified Path ${RUN}`)
+    const organizationId = organization.id
+    const ownerHeaders = await sessionFor(owner)
 
     const submitted = await app.inject({
       method: 'POST',
       url: `/v1/organizations/${organizationId}/verification`,
-      headers: creatorHeaders,
+      headers: ownerHeaders,
       payload: { note: `We have run four nights a year since 2019 ${RUN}` },
     })
 
@@ -255,7 +258,7 @@ describeWhen('creating an organisation, against PostgreSQL', () => {
       eventCount: 0,
       organiserNote: `We have run four nights a year since 2019 ${RUN}`,
     })
-    expect(queue.body).not.toContain(creator.email)
+    expect(queue.body).not.toContain(owner.email)
 
     const decided = await app.inject({
       method: 'POST',
@@ -270,7 +273,7 @@ describeWhen('creating an organisation, against PostgreSQL', () => {
     const profile = await app.inject({
       method: 'GET',
       url: `/v1/organizations/${organizationId}`,
-      headers: creatorHeaders,
+      headers: ownerHeaders,
     })
 
     expect(profile.json().data).toMatchObject({ verificationStatus: 'VERIFIED', eligible: true })
@@ -281,5 +284,37 @@ describeWhen('creating an organisation, against PostgreSQL', () => {
 
     expect(audit).not.toBeNull()
     expect(audit.actorId).toBe(moderator.id)
+  })
+
+  it('refuses a moderator who belongs to the organisation, on real rows', async () => {
+    const owner = await user('conflicted.owner', 'ORGANIZER')
+    const moderator = await user('conflicted.moderator', 'MODERATOR')
+    const organization = await grandfathered(owner, `Conflicted ${RUN}`)
+
+    await prisma.organization.update({
+      where: { id: organization.id },
+      data: { verificationStatus: 'PENDING' },
+    })
+    await prisma.membership.create({
+      data: {
+        id: id('membership'),
+        userId: moderator.id,
+        organizationId: organization.id,
+        role: 'VIEWER',
+      },
+    })
+
+    const decided = await app.inject({
+      method: 'POST',
+      url: `/v1/organizations/${organization.id}/verification/decision`,
+      headers: await sessionFor(moderator),
+      payload: { decision: 'VERIFIED', reason: 'Looks fine to me' },
+    })
+
+    expect(decided.statusCode).toBe(403)
+    expect(decided.json().error.code).toBe('CONFLICT_OF_INTEREST')
+    expect(
+      (await prisma.organization.findUnique({ where: { id: organization.id } })).verificationStatus,
+    ).toBe('PENDING')
   })
 })

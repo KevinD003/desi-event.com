@@ -41,9 +41,14 @@ import { HIDDEN_EMAIL, buildPaginationMeta, toSkipTake } from '@desi-event/schem
 import { EVENT_COVER_INCLUDE, publicCover } from '../lib/event-media.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
-import { admissionRateLimit, passRateLimit } from '../plugins/rate-limit.js'
+import { admissionRateLimit, passRateLimit, transferMailRateLimit } from '../plugins/rate-limit.js'
 import { credentialMatches, mintTicketCredential } from '../lib/ticket-credentials.js'
-import { DELIVERY_MODES, deliverCode } from '../lib/delivery.js'
+import {
+  DELIVERY_MODES,
+  TRANSFER_DELIVERY_FAILED_SENTENCE,
+  assertRecipientDailyCap,
+  deliverOrWithdraw,
+} from '../lib/delivery.js'
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import {
   SESSION_SUMMARY_SELECT,
@@ -134,11 +139,12 @@ function toTicketTransfer(row, { party = true } = {}) {
  * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How codes reach people, resolved once by `buildApp`.
  * @param {{max?: number, timeWindow?: string|number}} [deps.passLimit] Overrides for the admission-pass rate limit; supplied by tests.
  * @param {{max?: number, timeWindow?: string|number}} [deps.admissionLimit] Overrides for the door rate limit; supplied by tests and the load suite.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.transferMailLimit] Overrides for the transfer mail budget (EMAIL mode only); supplied by tests.
  * @returns {void} Nothing.
  */
 export function registerTicketRoutes(
   app,
-  { prisma, env, deliver, deliveryMode, passLimit, admissionLimit },
+  { prisma, env, deliver, deliveryMode, passLimit, admissionLimit, transferMailLimit },
 ) {
   const mode = deliveryMode ?? app.deliveryMode ?? DELIVERY_MODES.MANUAL
 
@@ -428,6 +434,9 @@ export function registerTicketRoutes(
   })
 
   defineRoute(app, 'tickets.startTransfer', {
+    // In EMAIL mode a sender may email five transfer codes an hour; in MANUAL
+    // nothing is emailed and the budget does not apply.
+    config: { rateLimit: transferMailRateLimit(transferMailLimit, { deliveryMode: mode }) },
     handler: async (request, reply) => {
       const now = new Date()
       const toEmail = request.body.toEmail.toLowerCase()
@@ -443,6 +452,11 @@ export function registerTicketRoutes(
       if (!ticket) throw notFound('No such ticket.')
 
       assertHolds(request.actor, ticket)
+
+      // In EMAIL mode, one address is sent at most three codes a day.
+      if (mode === DELIVERY_MODES.EMAIL) {
+        await assertRecipientDailyCap(prisma, { email: toEmail, now })
+      }
 
       const { token, tokenHash } = mintTransferToken()
       const expiresAt = new Date(now.getTime() + TRANSFER_TTL_HOURS * 3_600_000)
@@ -467,17 +481,47 @@ export function registerTicketRoutes(
       }
 
       // The code reaches the recipient one way or the other, and never goes
-      // anywhere else. With a provider (EMAIL) the provider gets it and this
-      // response carries null. Without one (MANUAL, this build) this response
-      // is the only place it ever exists: the sender is shown it once and
-      // passes it on themselves, and the database keeps only its digest, so it
-      // cannot be shown again. Either way the response is `no-store`, and the
+      // anywhere else. In EMAIL (DELIVERY_MODE=EMAIL with an SMTP server) the
+      // mailer gets it and this response carries null. In MANUAL (the default)
+      // this response is the only place it ever exists: the sender is shown it
+      // once and passes it on themselves, and the database keeps only its
+      // digest, so it cannot be shown again. Either way the response is `no-store`, and the
       // code never reaches a log line, an audit row or the outbox payload.
-      const delivery = await deliverCode({
+      const delivery = await deliverOrWithdraw({
         mode,
         secret: token,
         reply,
         deliver,
+        log: request.log,
+        failureMessage: TRANSFER_DELIVERY_FAILED_SENTENCE,
+        // A code that could not be emailed is a code nobody holds: the offer is
+        // withdrawn and the ticket is the holder's again, with the record of
+        // why in the same transaction.
+        withdraw: () =>
+          prisma.$transaction(async (tx) => {
+            const ended = await endTransfer(tx, {
+              transfer: outcome.transfer,
+              ticket,
+              outcome: 'CANCELLED',
+              actorId: request.actor.id,
+              requestId: request.id,
+              now: new Date(),
+            })
+
+            if (!ended) return
+
+            await recordAudit(tx, {
+              action: AUDIT_ACTIONS.TICKET_TRANSFER_DELIVERY_FAILED,
+              entityType: 'Ticket',
+              entityId: ticket.id,
+              actorId: request.actor.id,
+              metadata: {
+                requestId: request.id,
+                transferId: outcome.transfer.id,
+                deliveryMode: DELIVERY_MODES.EMAIL,
+              },
+            })
+          }),
         message: {
           purpose: 'ticket-transfer',
           to: toEmail,

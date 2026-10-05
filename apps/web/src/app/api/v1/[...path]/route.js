@@ -31,12 +31,26 @@
  * rewriting of who the request is from. A proxy that authenticated on the
  * browser's behalf would be a hole in every rule the API enforces.
  *
+ * Traffic beacons are forwarded without a session. On `POST traffic/beacons`
+ * the cookie, the bearer secret, the CSRF token, any idempotency key and any
+ * entity tag are dropped, nothing the API sets as a cookie comes back, and the
+ * only things added are the visitor's address, user agent and privacy signals
+ * (`lib/traffic-forwarding.js`), which the API believes only from this server
+ * and keeps only as a one-day code. A browser-supplied `x-desi-client-address`
+ * is never forwarded on any path. `traffic/events`, the platform's list, is a
+ * session route like any other.
+ *
+ * Some API routes are for this server alone and are never forwarded
+ * (`SERVER_ONLY_API_PATHS`): counting a visit to an organiser's website is done
+ * by the web's own redirect route, so a browser cannot count one by posting it.
+ *
  * @module app/api/v1/path/route
  */
 
 import { MEDIA_LIMITS } from '@desi-event/schemas/media'
 
 import { getApiBaseUrl } from '../../../../lib/api-client.js'
+import { trafficForwardHeaders } from '../../../../lib/traffic-forwarding.js'
 
 /** Never cached: every request here is somebody's session. */
 export const dynamic = 'force-dynamic'
@@ -64,6 +78,70 @@ const FORWARD_REQUEST_HEADERS = [
   // who is asking, whether a 304 is the answer.
   'if-none-match',
 ]
+
+/**
+ * API paths this proxy never forwards, whatever the method: routes only this
+ * server calls. Each is the path's leading segments.
+ *
+ * @type {ReadonlyArray<ReadonlyArray<string>>}
+ */
+export const SERVER_ONLY_API_PATHS = Object.freeze([Object.freeze(['traffic', 'website-visits'])])
+
+/**
+ * Request headers a visit beacon never carries upstream: the session, the
+ * bearer secret, the CSRF token and anything that would tie one beacon to
+ * another request.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const BEACON_STRIPPED_HEADERS = Object.freeze([
+  'cookie',
+  'authorization',
+  'x-desi-csrf',
+  'idempotency-key',
+  'if-none-match',
+])
+
+/**
+ * Whether a path is a route only this server may call.
+ *
+ * @param {string[]} path The proxied path segments.
+ * @returns {boolean} True when it is never forwarded.
+ */
+export function isServerOnlyPath(path) {
+  return SERVER_ONLY_API_PATHS.some((prefix) =>
+    prefix.every((segment, index) => path[index] === segment),
+  )
+}
+
+/**
+ * Whether a request is a visit beacon.
+ *
+ * @param {string} method The HTTP method.
+ * @param {string[]} path The proxied path segments.
+ * @returns {boolean} True for `POST traffic/beacons`.
+ */
+export function isBeacon(method, path) {
+  return method === 'POST' && path.length === 2 && path[0] === 'traffic' && path[1] === 'beacons'
+}
+
+/**
+ * The answer for a server-only path: the API's own not-found, without asking it.
+ *
+ * @returns {Response} A 404 in the API's error shape.
+ */
+function notFound() {
+  return Response.json(
+    {
+      error: {
+        code: 'NOT_FOUND',
+        message: 'There is nothing at this address.',
+        statusCode: 404,
+      },
+    },
+    { status: 404, headers: { 'cache-control': 'no-store' } },
+  )
+}
 
 /**
  * Response headers worth forwarding back.
@@ -215,6 +293,10 @@ export async function withoutBearerSecret(upstream, path) {
  */
 async function forward(request, context) {
   const { path } = await context.params
+
+  if (isServerOnlyPath(path)) return notFound()
+
+  const beacon = isBeacon(request.method, path)
   const incoming = new URL(request.url)
   const target = `${getApiBaseUrl()}/v1/${path.map(encodeURIComponent).join('/')}${incoming.search}`
 
@@ -229,6 +311,18 @@ async function forward(request, context) {
   // browser's origin unchanged keeps that check meaningful rather than making
   // every proxied request look like it came from the server itself.
   if (!headers.has('origin') && incoming.origin) headers.set('origin', incoming.origin)
+
+  // A visit is counted without a session: the cookie, the bearer secret and
+  // the CSRF token never travel with a beacon, and the only things added are
+  // the visitor's address and privacy signals, which the API believes only
+  // from this server's address and keeps only as a one-day code.
+  if (beacon) {
+    for (const name of BEACON_STRIPPED_HEADERS) headers.delete(name)
+
+    for (const [name, value] of Object.entries(trafficForwardHeaders(request))) {
+      headers.set(name, value)
+    }
+  }
 
   let body
 
@@ -289,8 +383,9 @@ async function forward(request, context) {
 
   // Several Set-Cookie headers are normal here — a session and its CSRF token
   // arrive together — and they have to stay separate all the way to the
-  // browser, so `getSetCookie` is used rather than `get`.
-  for (const cookie of upstream.headers.getSetCookie?.() ?? []) {
+  // browser, so `getSetCookie` is used rather than `get`. A beacon sets none:
+  // whatever the API said, a visit leaves nothing behind in the browser.
+  for (const cookie of beacon ? [] : (upstream.headers.getSetCookie?.() ?? [])) {
     responseHeaders.append('set-cookie', cookie)
   }
 

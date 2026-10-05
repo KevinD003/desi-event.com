@@ -118,6 +118,103 @@ export const UNSTORABLE_CHARACTER_MESSAGE =
   'The request contains a character that cannot be stored, such as a NUL. Remove it and try again.'
 
 /**
+ * What a caller is told when the database refuses to make an unreviewed event
+ * public (the `desi_event_status_requires_review` trigger).
+ *
+ * @type {string}
+ */
+export const REVIEW_REQUIRED_SENTENCE =
+  'This event has not been approved by the Desi-Event team, so it cannot be made public.'
+
+/**
+ * What a member is told when they try to give somebody a role that creates or
+ * publishes events.
+ *
+ * @type {string}
+ */
+export const POSTING_ROLE_SENTENCE =
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+
+/**
+ * Database refusals the API answers with a sentence instead of a 500.
+ *
+ * Each is a rule the service already keeps, held again by the database for a
+ * code path that forgets it: a trigger or CHECK raising SQLSTATE `23514`. The
+ * driver adapter passes on the SQLSTATE and the message but not the constraint
+ * field, so the constraint is recognised by its name, which the migration
+ * writes into the message as well (`event_public_requires_review`).
+ *
+ * @type {ReadonlyArray<{constraint: string, statusCode: number, code: string, message: string}>}
+ */
+export const DATABASE_REFUSALS = Object.freeze([
+  Object.freeze({
+    constraint: 'event_public_requires_review',
+    statusCode: 409,
+    code: 'REVIEW_REQUIRED',
+    message: REVIEW_REQUIRED_SENTENCE,
+  }),
+  Object.freeze({
+    constraint: 'invitation_pending_role_is_owner_grantable',
+    statusCode: 403,
+    code: 'POSTING_ROLE_NEEDS_PLATFORM',
+    message: POSTING_ROLE_SENTENCE,
+  }),
+])
+
+/**
+ * The SQLSTATE and the text a database refusal arrived with, wherever the
+ * driver adapter and Prisma put them.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {{codes: Set<string>, text: string}} Every code found, and every message joined.
+ */
+function databaseRefusalParts(error) {
+  const cause = /** @type {any} */ (error)?.meta?.driverAdapterError?.cause
+  const codes = new Set(
+    [
+      /** @type {any} */ (error)?.code,
+      cause?.originalCode,
+      cause?.code,
+      /** @type {any} */ (error)?.cause?.code,
+    ].filter((code) => typeof code === 'string'),
+  )
+  const text = [
+    /** @type {any} */ (error)?.message,
+    cause?.originalMessage,
+    cause?.constraint,
+    typeof cause?.constraint === 'object' ? JSON.stringify(cause.constraint) : null,
+    /** @type {any} */ (error)?.meta?.constraint,
+    /** @type {any} */ (error)?.constraint,
+  ]
+    .filter((part) => typeof part === 'string')
+    .join('\n')
+
+  return { codes, text }
+}
+
+/**
+ * The refusal a database error means, or null when it is not one of ours.
+ *
+ * `23514` (a CHECK or a trigger raising it, which Prisma may also report as
+ * `P2004`) together with one of {@link DATABASE_REFUSALS}' constraint names.
+ * Both are required, so an unrelated check violation is still a fault.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {Error|null} A 4xx carrying the refusal's code and sentence, or null.
+ */
+export function databaseRefusal(error) {
+  if (!error || typeof error !== 'object') return null
+
+  const { codes, text } = databaseRefusalParts(error)
+
+  if (!codes.has('23514') && !codes.has('P2004')) return null
+
+  const refusal = DATABASE_REFUSALS.find((candidate) => text.includes(candidate.constraint))
+
+  return refusal ? httpError(refusal.statusCode, refusal.code, refusal.message) : null
+}
+
+/**
  * Pick a sensible status for a thrown value.
  *
  * @param {unknown} error The thrown value.
@@ -159,6 +256,20 @@ export function normaliseError(error, options = {}) {
       statusCode: 400,
       code: 'VALIDATION_ERROR',
       message: UNSTORABLE_CHARACTER_MESSAGE,
+      expected: true,
+    }
+  }
+
+  // A rule the database holds for the service — the review gate, the posting-
+  // role rule on team invitations — refusing a write a code path forgot to
+  // check. The caller hears the rule, not a 500.
+  const refusal = databaseRefusal(error)
+
+  if (refusal) {
+    return {
+      statusCode: refusal.statusCode,
+      code: refusal.code,
+      message: refusal.message,
       expected: true,
     }
   }

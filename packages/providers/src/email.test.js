@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 
-import { createInMemoryEmailProvider, EMAIL_BOUNCE_ADDRESS, DEFAULT_EMAIL_FROM } from './email.js'
+import {
+  createInMemoryEmailProvider,
+  EMAIL_BOUNCE_ADDRESS,
+  DEFAULT_EMAIL_FROM,
+  normaliseEmailMessage,
+} from './email.js'
 import { assertEmailProvider } from './interfaces.js'
 
 const NOW = '2026-09-14T10:00:00.000Z'
@@ -325,5 +330,74 @@ describe('lastSent and reset', () => {
     expect(log).toBe(provider.sent)
     expect(log).toHaveLength(0)
     expect(provider.send(VALID).id).toBe('email_000002')
+  })
+})
+
+describe('normaliseEmailMessage', () => {
+  const options = { name: 'shared', defaultFrom: 'no-reply@desi-event.test' }
+
+  it('normalises what the in-memory provider records, field for field', () => {
+    const message = {
+      to: ['A@Example.com', 'a@example.com'],
+      cc: 'C@example.com',
+      replyTo: 'Reply@example.com',
+      subject: '  Your tickets  ',
+      text: '  Enjoy the show  ',
+      metadata: { orderId: 'o1' },
+    }
+    const normalised = normaliseEmailMessage(message, options)
+    const provider = makeProvider({ from: 'no-reply@desi-event.test' })
+
+    provider.send(message)
+
+    const recorded = provider.lastSent()
+
+    for (const field of ['from', 'to', 'cc', 'bcc', 'replyTo', 'subject', 'text', 'html']) {
+      expect(normalised[field], field).toEqual(recorded[field])
+    }
+    expect(normalised.metadata).toEqual({ orderId: 'o1' })
+    expect(normalised.bounced).toEqual([])
+  })
+
+  it('refuses the same messages in the same words as the provider', () => {
+    const provider = makeProvider()
+    const cases = [
+      null,
+      { subject: 'x', text: 'y' },
+      { to: 'nope', subject: 'x', text: 'y' },
+      { to: 'a@example.com', subject: '', text: 'y' },
+      { to: 'a@example.com', subject: 'x' },
+      { to: 'a@example.com', from: 'nope', subject: 'x', text: 'y' },
+    ]
+
+    for (const message of cases) {
+      let shared
+      let own
+
+      try {
+        normaliseEmailMessage(message, { ...options, name: 'in-memory-email' })
+      } catch (error) {
+        shared = error
+      }
+
+      try {
+        provider.send(message)
+      } catch (error) {
+        own = error
+      }
+
+      expect(shared, JSON.stringify(message)).toBeDefined()
+      expect(shared.code).toBe(own.code)
+      expect(shared.message).toBe(own.message)
+    }
+  })
+
+  it('lists bounced recipients only when a bounce address is given', () => {
+    const message = { to: ['a@example.com', EMAIL_BOUNCE_ADDRESS], subject: 'x', text: 'y' }
+
+    expect(normaliseEmailMessage(message, options).bounced).toEqual([])
+    expect(
+      normaliseEmailMessage(message, { ...options, bounceAddress: EMAIL_BOUNCE_ADDRESS }).bounced,
+    ).toEqual([EMAIL_BOUNCE_ADDRESS])
   })
 })

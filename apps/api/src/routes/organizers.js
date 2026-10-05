@@ -15,7 +15,8 @@
  *   - **Submit**, for an organiser. The body names no target state: `PENDING` is
  *     the only place they can go.
  *   - **Decide**, for platform staff holding `moderation:review`, with a recent
- *     second factor and a recorded reason.
+ *     second factor and a recorded reason — and never by a member of the
+ *     organisation being decided (`CONFLICT_OF_INTEREST`).
  *   - **Queue and review**, for the same staff: which organisations are waiting,
  *     and everything one decision is made from. Neither carries the contact
  *     address — a queue is read on a shared screen, and a decision does not
@@ -36,6 +37,7 @@ import { PUBLIC_EVENT_STATUSES, buildPaginationMeta, toSkipTake } from '@desi-ev
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { notFound } from '../lib/errors.js'
 import { defineRoute } from '../lib/register.js'
+import { assertIndependentReviewer } from '../lib/review-independence.js'
 import {
   ACTORS,
   BADGED_STATES,
@@ -333,6 +335,13 @@ export function registerOrganizerRoutes(app, { prisma }) {
   defineRoute(app, 'organizers.moderateVerification', {
     handler: async (request) => {
       const { decision, reason, note } = request.body
+
+      // A reviewer who belongs to the organisation does not decide its
+      // verification: somebody else on the Desi-Event team does.
+      await assertIndependentReviewer(prisma, {
+        actor: request.actor,
+        organizationId: request.params.id,
+      })
 
       const { organization, history, from } = await prisma.$transaction(async (tx) => {
         const current = await tx.organization.findUnique({ where: { id: request.params.id } })

@@ -19,6 +19,7 @@ import { createSendEmailProcessor } from './send-email.js'
 import { createIndexEventProcessor } from './index-event.js'
 import { createDrainOutboxProcessor } from './drain-outbox.js'
 import { createRetentionSweepProcessor } from './sweep-retention.js'
+import { createRollUpTrafficProcessor } from './roll-up-traffic.js'
 
 export { createExpireHoldsProcessor } from './expire-holds.js'
 export { createIssueTicketsProcessor } from './issue-tickets.js'
@@ -26,6 +27,7 @@ export { createSendEmailProcessor } from './send-email.js'
 export { createIndexEventProcessor } from './index-event.js'
 export { createDrainOutboxProcessor } from './drain-outbox.js'
 export { createRetentionSweepProcessor } from './sweep-retention.js'
+export { createRollUpTrafficProcessor } from './roll-up-traffic.js'
 
 /**
  * @typedef {object} ProcessorDeps
@@ -33,7 +35,7 @@ export { createRetentionSweepProcessor } from './sweep-retention.js'
  * @property {object} providers A provider registry, or at least `{ email }`.
  * @property {object} [logger] Logger; each processor gets a child bound to its job name.
  * @property {object} [index] A search index implementation, when one exists.
- * @property {string} [workerId] Who this process is, for the outbox leases it takes.
+ * @property {string} [workerId] Who this process is, for the outbox leases and the traffic roll-up's lease it takes.
  * @property {boolean} [retentionActivated] Whether this environment may run a retention rehearsal. Defaults to false.
  */
 
@@ -98,6 +100,13 @@ export function createProcessors({
       // `process.env`, and this is the field most worth keeping that way.
       activated: retentionActivated,
       logger: childFor(JOB_NAMES.SWEEP_RETENTION),
+    }),
+    [JOB_NAMES.ROLL_UP_TRAFFIC]: createRollUpTrafficProcessor({
+      prisma,
+      // The name on the roll-up's lease, distinct per process for the same
+      // reason as the outbox drain's.
+      workerId: workerId ?? `worker-${process.pid}`,
+      logger: childFor(JOB_NAMES.ROLL_UP_TRAFFIC),
     }),
   }
 }

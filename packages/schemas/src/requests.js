@@ -48,6 +48,7 @@ import {
   ticketTypeVisibilitySchema,
 } from './enums.js'
 import { addressFree } from './addresses.js'
+import { ATTENDEE_ONLY_MESSAGE } from './auth.js'
 import { connectActionSchema } from './connect.js'
 import { eventPoliciesSchema } from './entities.js'
 import {
@@ -72,14 +73,18 @@ export const EVENT_SORT_OPTIONS = Object.freeze([
   'title:asc',
 ])
 
-/** Self-service registration. Only attendee/organizer roles may be requested. */
+/**
+ * Self-service registration (the legacy shape). Attendee accounts only:
+ * organisers join by invitation from the Desi-Event team, so any other role is
+ * refused with the same sentence `registerAccountRequestSchema` uses.
+ */
 export const registerRequestSchema = z.object({
   email: emailSchema,
   password: passwordSchema,
   displayName: nonEmptyStringSchema,
   phone: phoneSchema.optional(),
   locale: localeSchema.default('en-IN'),
-  role: z.enum(['ATTENDEE', 'ORGANIZER']).default('ATTENDEE'),
+  role: z.literal('ATTENDEE', { error: ATTENDEE_ONLY_MESSAGE }).default('ATTENDEE'),
 })
 
 /** Email/password sign-in. The password is only checked for presence here. */
@@ -998,16 +1003,27 @@ export const moderationDecisionRequestSchema = z
     /** Field-level notes, for the organiser's editor to link to. */
     requestedChanges: z.record(z.string(), z.string().max(1000)).optional(),
     /**
-     * The event revision the moderator's page showed. When given, the decision
-     * applies only to that version: if the organiser withdrew the event,
-     * changed it or added a picture, and resubmitted it, the answer is 409
-     * `STALE_REVISION` rather than a decision on something nobody reviewed.
-     * The review page always sends it.
+     * The event revision the moderator's page showed. The decision applies
+     * only to that version: if the organiser withdrew the event, changed it or
+     * added a picture, and resubmitted it, the answer is 409 `STALE_REVISION`
+     * rather than a decision on something nobody reviewed. Required to
+     * approve, so a version nobody looked at can never be approved; optional
+     * for a request for changes or a rejection, which make nothing public.
      */
     revision: z.int().min(0).max(2147483647).optional(),
   })
   .superRefine((value, ctx) => {
-    if (value.decision === 'approve') return
+    if (value.decision === 'approve') {
+      if (value.revision === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['revision'],
+          message:
+            'Send the revision you reviewed, so a version you have not seen cannot be approved.',
+        })
+      }
+      return
+    }
 
     const notes = Object.keys(value.requestedChanges ?? {}).length
 
@@ -1282,16 +1298,20 @@ export const financeSummaryQuerySchema = z.object({
 /**
  * Organiser analytics, and the export of it.
  *
- * `organizationId` is **required**, unlike the finance summary's. There is no
- * platform-wide analytics view and there should not be one: these figures mix
- * money with inventory and attendance, and the only reading of "everybody's
- * tickets sold" that means anything is a per-organisation list. Making the
- * field required is also what keeps the capability check scoped — an optional
- * organisation is how an organisation capability silently becomes a platform
- * one.
+ * `organizationId` is **required**, unlike the finance summary's. This view is
+ * always one organisation's: its figures mix money with inventory and
+ * attendance, and the only reading of "everybody's tickets sold" that means
+ * anything is a per-organisation list. The platform-wide list of events and
+ * their visits is a different route, `traffic.events`, held by
+ * `analytics:view_all`, and it carries no money. Making the field required is
+ * also what keeps the capability check scoped — an optional organisation is how
+ * an organisation capability silently becomes a platform one.
  *
  * `eventId` and `eventSessionId` narrow; neither widens, and neither carries the
  * organisation. An event belonging to somebody else simply matches nothing.
+ *
+ * Visits (`traffic`) are counted in whole UTC days: `from` is the day it falls
+ * on, `to` the day before it when it is a midnight.
  */
 export const analyticsQuerySchema = z.object({
   organizationId: cuidSchema,

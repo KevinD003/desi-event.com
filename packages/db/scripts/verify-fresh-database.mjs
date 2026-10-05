@@ -1301,6 +1301,20 @@ async function main() {
       },
     )
     ok = record('the API database integration suite passes against it', apiSuite.code === 0) && ok
+
+    // The traffic roll-up: exact sums within every TrafficDaily CHECK, a purged
+    // day never zeroed, one lease holder at a time, and a run that lost its
+    // lease stopping before it writes or deletes more. Written in SPEC2 Stage
+    // B1 (§5: "the worker adds traffic-rollup-postgres.test.js").
+    const workerSuite = await run(
+      'npx',
+      ['vitest', 'run', 'tests/traffic-rollup-postgres.test.js'],
+      {
+        cwd: path.join(REPO_ROOT, 'apps', 'worker'),
+        env: { ...childEnv, REQUIRE_DATABASE: '1' },
+      },
+    )
+    ok = record('the worker traffic roll-up suite passes against it', workerSuite.code === 0) && ok
   } catch (error) {
     ok = record('the verification ran to completion', false, {
       note: String(error?.message ?? error).slice(0, 300),
