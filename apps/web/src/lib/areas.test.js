@@ -146,15 +146,60 @@ describe('membership questions are not answered by a platform role', () => {
     expect(canInAnyOrganization(session, 'ticket:check_in')).toBe(true)
   })
 
-  it('admits a platform administrator who scans tickets somewhere to analytics only through its own rule', () => {
+  it('admits a platform administrator to analytics through the platform list, not through a scanner membership', () => {
     // ADMIN holds report:view platform-wide; a SCANNER membership does not.
-    // The analytics area asks per membership, and that answer is unchanged.
-    expect(admits(both('ADMIN', 'SCANNER'), 'analytics')).toBe(false)
+    // The membership question is unchanged: it still says no for the scanner
+    // membership. ADMIN is admitted by the platform list's own capability,
+    // `analytics:view_all`, which no organisation role carries.
+    expect(admits(both('ADMIN', 'SCANNER'), 'analytics')).toBe(true)
     expect(admits(both('ADMIN', 'VIEWER'), 'analytics')).toBe(true)
+
+    // A moderator who scans tickets somewhere holds neither question's answer.
+    expect(admits(both('MODERATOR', 'SCANNER'), 'analytics')).toBe(false)
+
+    // The membership rule alone, without the platform list: still refused.
+    const scannerWithReportViewPlatformOnly = {
+      ...member('SCANNER'),
+      capabilities: ['report:view'],
+    }
+
+    expect(admits(scannerWithReportViewPlatformOnly, 'analytics')).toBe(false)
   })
 
   it('still lets a super administrator in wherever it belongs, as before', () => {
     expect(canInAnyOrganization(both('SUPER_ADMIN', 'SCANNER'), 'venue:manage')).toBe(true)
     expect(admits(both('SUPER_ADMIN', 'SCANNER'), 'analytics')).toBe(true)
+  })
+})
+
+describe('the analytics area', () => {
+  it('admits, without any membership, a platform administrator and a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(admits(platform(role), 'analytics'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN',
+      )
+    }
+  })
+
+  it('admits every organisation role that holds report:view, and not a scanner', () => {
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(admits(member(role), 'analytics'), role).toBe(
+        ORG_ROLE_CAPABILITIES[role].includes('report:view'),
+      )
+    }
+
+    expect(admits(member('SCANNER'), 'analytics')).toBe(false)
+  })
+
+  it('does not take the platform list’s capability from inside a membership', () => {
+    const scoped = {
+      user: { id: 'u4' },
+      capabilities: [],
+      memberships: [
+        { organizationId: 'org_1', role: 'SCANNER', capabilities: ['analytics:view_all'] },
+      ],
+    }
+
+    expect(admits(scoped, 'analytics')).toBe(false)
   })
 })

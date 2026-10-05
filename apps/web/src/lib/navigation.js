@@ -153,6 +153,14 @@ export const WORKSPACE_GROUPS = Object.freeze([
         label: 'Analytics',
         offered: (session) => admits(session, 'analytics'),
       },
+      {
+        href: '/analytics/events',
+        label: 'Every event’s visits',
+        // Platform administrators and super administrators: the list of every
+        // event's visits on the platform, inside the analytics area.
+        offered: (session) =>
+          sessionCan(session, 'analytics:view_all') && admits(session, 'analytics'),
+      },
     ],
   },
   {

@@ -27,6 +27,8 @@
  * @module @desi-event/api/lib/privacy-holds
  */
 
+import { addressCandidates, isSameAddress } from './delivery.js'
+
 /**
  * The hold decision vocabulary, mirroring the `PrivacyHoldDecision` enum.
  *
@@ -227,19 +229,30 @@ export async function findOpenProcess(
   // (`apps/worker/src/outbox/dispatcher.js:167`), so scrubbing a row that has
   // not been sent does not redact a person — it sends them a message with holes
   // in it, or fails delivery outright.
-  const undelivered = await prisma.notificationOutbox.findFirst({
+  //
+  // The address only narrows: PostgreSQL runs the case-insensitive compare as
+  // an unescaped `ILIKE`, so `a_b@example.com` would also find a message
+  // waiting for `axb@example.com` — somebody else's mail, refusing this
+  // subject's erasure. The rows found are compared exactly before they count.
+  const undelivered = await prisma.notificationOutbox.findMany({
     where: {
       status: { in: [...NOTIFICATION_UNDELIVERED] },
       organizationId,
       OR: [
         { userId: subjectUserId },
-        ...(subjectEmail ? [{ recipient: { equals: subjectEmail, mode: 'insensitive' } }] : []),
+        ...(subjectEmail ? [{ recipient: addressCandidates(subjectEmail) }] : []),
       ],
     },
-    select: { id: true },
+    select: { userId: true, recipient: true },
   })
 
-  if (undelivered) return OPEN_PROCESS_CODES.NOTIFICATION_UNDELIVERED
+  if (
+    undelivered.some(
+      (row) => row.userId === subjectUserId || isSameAddress(row.recipient, subjectEmail),
+    )
+  ) {
+    return OPEN_PROCESS_CODES.NOTIFICATION_UNDELIVERED
+  }
 
   return null
 }

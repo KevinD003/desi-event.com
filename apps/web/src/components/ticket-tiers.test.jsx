@@ -327,6 +327,33 @@ describe('seated tiers and nights', () => {
     )
   })
 
+  it('marks the seat link so a click on it is counted, only when the page asks', () => {
+    const { unmount } = render(
+      <TicketTiers
+        ticketTypes={[stalls]}
+        sessions={[night]}
+        eventSlug="garba-night"
+        traffic={{ eventId: 'cevtgarba00000000000001', organizationId: 'corgalpha00000000000001' }}
+      />,
+    )
+
+    const link = screen.getByRole('link', { name: 'Choose seats for Stalls' })
+
+    expect(link).toHaveAttribute('data-traffic-kind', 'SEATS_CLICK')
+    expect(link).toHaveAttribute('data-traffic-placement', 'EVENT_PAGE')
+    expect(link).toHaveAttribute('data-traffic-event', 'cevtgarba00000000000001')
+    expect(link).toHaveAttribute('data-traffic-organization', 'corgalpha00000000000001')
+    unmount()
+
+    render(<TicketTiers ticketTypes={[stalls]} sessions={[night]} eventSlug="garba-night" />)
+
+    expect(
+      screen
+        .getByRole('link', { name: 'Choose seats for Stalls' })
+        .hasAttribute('data-traffic-kind'),
+    ).toBe(false)
+  })
+
   it('groups tiers under their nights, with a pass for every night last', () => {
     const second = {
       ...night,

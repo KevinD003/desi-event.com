@@ -134,9 +134,12 @@ export const AREAS = Object.freeze({
     key: 'analytics',
     label: 'Analytics',
     href: '/analytics',
-    // `report:view` asked per membership. The unscoped question consults the
-    // platform list, and `report:view` is an organisation capability.
-    admits: (session) => inSomeMembership(session, 'report:view'),
+    // `report:view` asked per membership (an organisation capability: the
+    // unscoped question consults the platform list), or the platform list of
+    // every event's visits, whose own capability only platform administrators
+    // and super administrators hold.
+    admits: (session) =>
+      inSomeMembership(session, 'report:view') || sessionCan(session, 'analytics:view_all'),
     refusal:
       'Analytics is not something this account can open. If you think it should be, ask whoever runs the organisation — nothing on this page can grant it to you.',
   },

@@ -1032,6 +1032,42 @@ export function cuid() {
 }
 
 /**
+ * Whether a value matches a `LIKE` pattern, as PostgreSQL reads one.
+ *
+ * Prisma runs `contains`, `startsWith` and `endsWith` as `LIKE` (`ILIKE` with
+ * `mode: 'insensitive'`), and a case-insensitive `equals` as `ILIKE`, passing
+ * the value through unescaped. So `%` is any run of characters, `_` is any one,
+ * and `\` makes the character after it literal. The stub reads the operand the
+ * same way, so a route that escapes a person's search (`likeLiteral`) finds
+ * here exactly what it finds on PostgreSQL, and one that forgets over-matches
+ * here too.
+ *
+ * @param {string} value The stored text.
+ * @param {string} pattern The whole pattern, `%` around it already where the operator adds one.
+ * @param {boolean} insensitive Compare ignoring case.
+ * @returns {boolean} Whether the whole value matches.
+ */
+function likeMatches(value, pattern, insensitive) {
+  const fold = (text) => (insensitive ? text.toLowerCase() : text)
+  const literal = (character) => character.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  const characters = [...fold(pattern)]
+  let source = ''
+
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index]
+
+    if (character === '\\' && index + 1 < characters.length) {
+      index += 1
+      source += literal(characters[index])
+    } else if (character === '%') source += '[\\s\\S]*'
+    else if (character === '_') source += '[\\s\\S]'
+    else source += literal(character)
+  }
+
+  return new RegExp(`^${source}$`, 'u').test(fold(value))
+}
+
+/**
  * Compare a stored value against one `where` condition.
  *
  * @param {unknown} value The stored value.
@@ -1056,7 +1092,10 @@ function matchesCondition(value, condition) {
 
     switch (operator) {
       case 'equals':
-        if (!matchesCondition(fold(value), fold(operand))) return false
+        // Case-insensitive equality is `ILIKE` on PostgreSQL: a pattern.
+        if (insensitive && typeof operand === 'string') {
+          if (typeof value !== 'string' || !likeMatches(value, operand, true)) return false
+        } else if (!matchesCondition(fold(value), fold(operand))) return false
         break
       case 'not':
         if (matchesCondition(fold(value), fold(operand))) return false
@@ -1068,13 +1107,19 @@ function matchesCondition(value, condition) {
         if (operand.map(fold).includes(fold(value))) return false
         break
       case 'contains':
-        if (typeof value !== 'string' || !fold(value).includes(fold(operand))) return false
+        if (typeof value !== 'string' || !likeMatches(value, `%${operand}%`, insensitive)) {
+          return false
+        }
         break
       case 'startsWith':
-        if (typeof value !== 'string' || !fold(value).startsWith(fold(operand))) return false
+        if (typeof value !== 'string' || !likeMatches(value, `${operand}%`, insensitive)) {
+          return false
+        }
         break
       case 'endsWith':
-        if (typeof value !== 'string' || !fold(value).endsWith(fold(operand))) return false
+        if (typeof value !== 'string' || !likeMatches(value, `%${operand}`, insensitive)) {
+          return false
+        }
         break
       case 'gt':
         if (!(toComparable(value) > toComparable(operand))) return false

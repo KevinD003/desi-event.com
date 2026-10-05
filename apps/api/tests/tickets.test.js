@@ -1353,7 +1353,10 @@ describe('the group door, over the routes', () => {
       expiresAt: new Date(Date.now() + PREVIEW_TTL_MS),
     }
     const [body, mac] = byQr.previewReference.split('.')
-    const flipped = `${body}.${mac.at(-1) === 'A' ? `${mac.slice(0, -1)}B` : `${mac.slice(0, -1)}A`}`
+    // Change the first character: every bit of it is MAC data. The last character of a
+    // 32-byte MAC in base64url carries two padding bits, so changing it there can decode
+    // to the very same bytes and be (rightly) accepted.
+    const flipped = `${body}.${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`
 
     // A second order of the same buyer, with a group pass of its own.
     const second = await app.inject({

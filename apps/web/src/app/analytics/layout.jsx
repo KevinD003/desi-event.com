@@ -1,7 +1,9 @@
 /**
  * The analytics area.
  *
- * Signed in and holding `report:view` **in some organisation**. The unscoped
+ * Signed in and holding `report:view` **in some organisation**, or holding
+ * `analytics:view_all`, the platform list of every event's visits, which only
+ * platform administrators and super administrators hold. The unscoped
  * question — `sessionCan(session, 'report:view')` with no organisation — asks
  * the *platform* capability list, and `report:view` is an organisation
  * capability, so that question refuses every organiser and passes every
@@ -20,6 +22,7 @@
 
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
+import { analyticsTabs } from '../../lib/area-tabs.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,8 +44,12 @@ export default async function AnalyticsLayout({ children }) {
 
   if (!admitted) return <AreaRefusal area="analytics" />
 
+  // "Your organisations" and "Every event", shown only to somebody who has
+  // both; `lib/area-tabs.js` says which.
+  const tabs = analyticsTabs(session)
+
   return (
-    <WorkspaceShell session={session} area="analytics">
+    <WorkspaceShell session={session} area="analytics" tabs={tabs}>
       {children}
     </WorkspaceShell>
   )

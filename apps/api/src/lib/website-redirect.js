@@ -46,6 +46,7 @@ import { websiteHost, websiteUrlProblem } from '@desi-event/schemas/website'
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { httpError, notFound } from './errors.js'
 import { maySeeDrafts } from './event-insiders.js'
+import { likeLiteral } from './like-pattern.js'
 
 /** The relation the deciding administrator's name is read through. */
 export const WEBSITE_REDIRECT_INCLUDE = Object.freeze({
@@ -467,16 +468,9 @@ export function isTransactionClient(db) {
   return typeof db.$disconnect !== 'function'
 }
 
-/**
- * A search term with the LIKE wildcards (`%`, `_`) and the escape character
- * (`\`) escaped, so PostgreSQL matches it character for character.
- *
- * @param {string} text The search.
- * @returns {string} The escaped term.
- */
-export function likeLiteral(text) {
-  return text.replace(/[\\%_]/gu, (character) => `\\${character}`)
-}
+// Kept exported from here for the callers and tests that already import it;
+// the one definition lives in `like-pattern.js`, beside the other searches'.
+export { likeLiteral }
 
 /**
  * The Prisma `where` for one filter of the administrators' list.

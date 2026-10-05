@@ -425,6 +425,51 @@ export async function getAnalytics(options) {
   return body.data
 }
 
+/** The fields `GET /v1/traffic/events` takes, and nothing else. */
+const PLATFORM_TRAFFIC_KEYS = Object.freeze([
+  'q',
+  'scope',
+  'organizationId',
+  'from',
+  'to',
+  'page',
+  'perPage',
+])
+
+/**
+ * Every event's visits, for platform administrators (`GET /v1/traffic/events`).
+ *
+ * Only the fields the endpoint's query schema names are sent, so a page cannot
+ * widen the request by passing a key through; the API refuses the whole list
+ * to anybody without the platform capability that reads it.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.q] Matches the title, the web address or the organiser's name.
+ * @param {string} [options.scope] `public` (the API's default) or `all`.
+ * @param {string} [options.organizationId] One organisation's events.
+ * @param {string} [options.from] Window start, ISO.
+ * @param {string} [options.to] Window end, ISO.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] How many to a page.
+ * @returns {Promise<{data: object, pagination: object|null}>} The list and its counters.
+ */
+export async function getPlatformTraffic(options = {}) {
+  const query = new URLSearchParams()
+
+  for (const key of PLATFORM_TRAFFIC_KEYS) {
+    const value = options[key]
+
+    if (value === undefined || value === null || value === '') continue
+
+    query.set(key, String(value))
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/traffic/events${suffix}`)
+
+  return { data: body.data, pagination: body.pagination ?? null }
+}
+
 /**
  * One reconciliation item, with everything a decision about it needs.
  *

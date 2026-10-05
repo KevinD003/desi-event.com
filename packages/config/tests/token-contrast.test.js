@@ -179,12 +179,14 @@ function contrast(foreground, background) {
  *
  * `kind` sets the bar. `text` is WCAG 1.4.3, 4.5:1 for text under 18.66px.
  * `focus` is a focus indicator and `boundary` is the edge that identifies a
- * control; both are WCAG 1.4.11, 3:1 against what they are drawn on.
+ * control; both are WCAG 1.4.11, 3:1 against what they are drawn on. `graphic`
+ * is a mark a chart needs to be understood (a bar, a line, a marker), WCAG
+ * 1.4.11 again at 3:1.
  *
  * Every pairing is measured in both registers unless `registers` says
  * otherwise. `hover` marks the ones axe cannot see.
  *
- * @type {ReadonlyArray<{foreground: string, background: string, where: string, kind: 'text'|'focus'|'boundary', hover?: boolean, registers?: string[]}>}
+ * @type {ReadonlyArray<{foreground: string, background: string, where: string, kind: 'text'|'focus'|'boundary'|'graphic', hover?: boolean, registers?: string[]}>}
  */
 const PAIRINGS = Object.freeze([
   // Text on the grounds.
@@ -405,6 +407,17 @@ const PAIRINGS = Object.freeze([
     hover: true,
   },
 
+  // The visits chart: page views as bars, visitors as a line with markers,
+  // drawn on a raised panel inside the page. Marks only; no text wears them.
+  ...['chart-views', 'chart-visitors'].flatMap((series) =>
+    ['surface-raised', 'page'].map((background) => ({
+      foreground: series,
+      background,
+      where: `the visits chart's ${series === 'chart-views' ? 'bars' : 'line and markers'}`,
+      kind: 'graphic',
+    })),
+  ),
+
   // Focus, on every ground a focusable thing can sit on.
   ...[
     'page',
@@ -428,7 +441,7 @@ const PAIRINGS = Object.freeze([
 ])
 
 /** WCAG 2 AA thresholds, by kind of pairing. */
-const MINIMUM = Object.freeze({ text: 4.5, focus: 3, boundary: 3 })
+const MINIMUM = Object.freeze({ text: 4.5, focus: 3, boundary: 3, graphic: 3 })
 
 /**
  * Headroom every pairing must keep above its threshold.
@@ -539,6 +552,33 @@ describe('the semantic token layer', () => {
       .map(({ name, ratio }) => `${name} is ${ratio.toFixed(2)}:1`)
 
     expect(tight).toEqual([])
+  })
+
+  it('declares the two chart series, and the courtyard leaves them alone', () => {
+    // A series is the same colour on every screen it is drawn on, so the
+    // courtyard register must not redefine either one.
+    const series = ['chart-views', 'chart-visitors']
+
+    expect(series.filter((name) => !theme.has(name))).toEqual([])
+    expect(series.filter((name) => courtyardOverrides.has(name))).toEqual([])
+    expect(
+      PAIRINGS.filter((pairing) => series.includes(pairing.foreground)).map((p) => p.kind),
+    ).toEqual(['graphic', 'graphic', 'graphic', 'graphic'])
+  })
+
+  it('keeps the two chart series apart for a full-colour reader', () => {
+    // Bars and a line already differ in shape; the colours must differ too.
+    // OKLab distance ×100, the data-visualisation validator's normal-vision
+    // floor of 15.
+    const oklab = ({ l, c, h }) => [
+      l,
+      c * Math.cos((h * Math.PI) / 180),
+      c * Math.sin((h * Math.PI) / 180),
+    ]
+    const [views, visitors] = [theme.get('chart-views'), theme.get('chart-visitors')].map(oklab)
+    const distance = Math.hypot(...views.map((value, index) => value - visitors[index])) * 100
+
+    expect(distance).toBeGreaterThanOrEqual(15)
   })
 
   it('covers hover grounds, which axe never reaches', () => {

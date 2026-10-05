@@ -33,6 +33,7 @@ import { EVENT_STATUSES, buildPaginationMeta, toSkipTake } from '@desi-event/sch
 import { PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import { CARD_PLACEMENTS, TRAFFIC_SOURCES } from '@desi-event/schemas/traffic-vocabulary'
 
+import { likeLiteral } from './like-pattern.js'
 import { dayDate, utcDay } from './traffic.js'
 import { WEBSITE_REDIRECT_SELECT, websiteRedirectState } from './website-redirect.js'
 
@@ -494,12 +495,14 @@ export async function platformTraffic(
   const where = {
     ...(scope === 'public' ? { status: { in: publicListStatuses() } } : {}),
     ...(organizationId ? { organizationId } : {}),
+    // Prisma sends `contains` as LIKE without escaping it, so a typed `_` or
+    // `%` would otherwise match any character: the term is matched as written.
     ...(q
       ? {
           OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { slug: { contains: q.toLowerCase() } },
-            { organization: { name: { contains: q, mode: 'insensitive' } } },
+            { title: { contains: likeLiteral(q), mode: 'insensitive' } },
+            { slug: { contains: likeLiteral(q.toLowerCase()) } },
+            { organization: { name: { contains: likeLiteral(q), mode: 'insensitive' } } },
           ],
         }
       : {}),

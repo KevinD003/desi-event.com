@@ -20,6 +20,7 @@ import { Badge } from './ui.jsx'
 import { tierSalesWindow } from '../lib/event-availability.js'
 import { formatPrice, priceSelection } from '../lib/pricing.js'
 import { groupTiersBySession, sessionForTier, sessionSellsSeats } from '../lib/sessions.js'
+import { trafficAttributes } from '../lib/traffic-client.js'
 import { TEXT_LINK } from './link-classes.js'
 
 /** At or below this many remaining, the exact count is worth showing. */
@@ -175,6 +176,7 @@ export function tierAllIn(tier, place, feeTerms) {
  * @property {string} [timezone] The event's zone, for the sales-window sentence.
  * @property {object[]} [sessions] The event's nights; with more than one, tiers are grouped under them.
  * @property {string|null} [eventSlug] The event's slug, to link a seated tier to its seat map.
+ * @property {{eventId: string, organizationId?: string}|null} [traffic] The event, when a click on "Choose seats" is counted; null counts nothing.
  */
 
 /**
@@ -191,6 +193,7 @@ export function TicketTiers({
   timezone = 'UTC',
   sessions = [],
   eventSlug = null,
+  traffic = null,
 }) {
   const groups = groupTiersBySession(ticketTypes, sessions)
 
@@ -204,6 +207,7 @@ export function TicketTiers({
         timezone={timezone}
         sessions={sessions}
         eventSlug={eventSlug}
+        traffic={traffic}
       />
     )
   }
@@ -222,6 +226,7 @@ export function TicketTiers({
               timezone={timezone}
               sessions={sessions}
               eventSlug={eventSlug}
+              traffic={traffic}
             />
           </div>
         </div>
@@ -241,9 +246,10 @@ export function TicketTiers({
  * @param {string} props.timezone The event's zone.
  * @param {object[]} props.sessions The event's nights.
  * @param {string|null} props.eventSlug The event's slug.
+ * @param {{eventId: string, organizationId?: string}|null} props.traffic The event, when seat clicks are counted.
  * @returns {JSX.Element} The list.
  */
-function TierList({ tiers, label, place, feeTerms, timezone, sessions, eventSlug }) {
+function TierList({ tiers, label, place, feeTerms, timezone, sessions, eventSlug, traffic }) {
   return (
     <ul aria-label={label} className="divide-y divide-line">
       {tiers.map((tier) => {
@@ -276,7 +282,17 @@ function TierList({ tiers, label, place, feeTerms, timezone, sessions, eventSlug
               {salesWindow ? <p className="mt-1 text-sm text-ink-muted">{salesWindow}</p> : null}
               {seatLink ? (
                 <p className="mt-2 text-sm">
-                  <Link href={seatLink} className={TEXT_LINK}>
+                  <Link
+                    href={seatLink}
+                    {...(traffic
+                      ? trafficAttributes({
+                          kind: 'SEATS_CLICK',
+                          ...traffic,
+                          placement: 'EVENT_PAGE',
+                        })
+                      : {})}
+                    className={TEXT_LINK}
+                  >
                     Choose seats for {tier.name}
                   </Link>
                 </p>

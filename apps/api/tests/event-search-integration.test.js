@@ -11,9 +11,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createPrismaClient } from '@desi-event/db'
+import { createInMemoryProviderRegistry } from '@desi-event/providers'
 import { listEventsQuerySchema } from '@desi-event/schemas'
 
+import { testEnv } from './helpers/app.js'
 import { requireDatabaseOrWarn } from './helpers/database.js'
+
+import { buildApp } from '../src/app.js'
 
 import { EVENT_COVER_INCLUDE } from '../src/lib/event-media.js'
 import { databaseErrorCode, normaliseError } from '../src/lib/errors.js'
@@ -280,5 +284,176 @@ describe('what the listing asks PostgreSQL for', () => {
     for (const name of Object.keys(byName).filter((name) => name.endsWith('_trgm_idx'))) {
       expect(byName[name].options, name).toEqual(['fastupdate=off'])
     }
+  })
+})
+
+describe('what a visitor types is matched character for character, never as a pattern', () => {
+  // Prisma sends `contains` as `LIKE '%' || $1 || '%'` and a case-insensitive
+  // `equals` as `ILIKE $1`, and escapes neither. Unescaped, an `_` in a city,
+  // a region or a search word matches any one character and a `%` matches any
+  // run: a filter for `Snake_town` also found `SnakeXtown`, and `%` found every
+  // city there is. Each pair below differs only where a pattern is loose.
+  const WILD = 'wildcardtest'
+
+  let app = null
+
+  /**
+   * Run a listing query the way `GET /v1/events` does, narrowed to this
+   * block's organiser.
+   *
+   * @param {object} input The raw query.
+   * @returns {Promise<string[]>} The slugs found, sorted.
+   */
+  async function list(input) {
+    const query = listEventsQuerySchema.parse({ perPage: '100', ...input })
+    const resolved = await resolveSearchTerms(prisma, query.q)
+    const { where } = buildEventQuery(query, null, { search: resolved })
+    const rows = await prisma.event.findMany({
+      where: { AND: [where, { organization: { slug: `${WILD}-org` } }] },
+      select: { slug: true },
+    })
+
+    return rows.map((row) => row.slug).sort()
+  }
+
+  /**
+   * The venue list through the real route, narrowed to this block's venues.
+   *
+   * @param {string} search The query string.
+   * @returns {Promise<string[]>} The venue ids found, sorted.
+   */
+  async function venues(search) {
+    const response = await app.inject({ method: 'GET', url: `/v1/venues?perPage=100&${search}` })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    return response
+      .json()
+      .data.map((venue) => venue.id)
+      .filter((id) => id.startsWith(VENUE_PREFIX))
+      .sort()
+  }
+
+  // Venue ids are read back through the route, whose contract wants a CUID.
+  const VENUE_PREFIX = 'cwildcard'
+  const EXACT = `${VENUE_PREFIX}exact00000000000`
+  const LOOSE = `${VENUE_PREFIX}loose00000000000`
+
+  beforeAll(async () => {
+    if (!reachable) return
+
+    app = await buildApp({
+      prisma,
+      providers: createInMemoryProviderRegistry(),
+      env: testEnv(),
+      docs: false,
+      processEnv: {},
+      rateLimit: { global: { max: 10_000, timeWindow: '1 minute' } },
+    })
+    await app.ready()
+
+    const organization = await prisma.organization.upsert({
+      where: { slug: `${WILD}-org` },
+      update: {},
+      create: {
+        name: 'Wildcard Fixture Society',
+        slug: `${WILD}-org`,
+        contactEmail: 'wild@example.com',
+      },
+    })
+
+    const places = [
+      { id: EXACT, name: 'Hall 100% Plaza', city: 'Snake_town', region: 'Re_gion' },
+      { id: LOOSE, name: 'Hall 1000 Plaza', city: 'SnakeXtown', region: 'ReXgion' },
+    ]
+
+    for (const place of places) {
+      await prisma.venue.upsert({
+        where: { id: place.id },
+        update: {},
+        create: { ...place, addressLine1: '1 Pattern Road', postalCode: '77002', country: 'US' },
+      })
+    }
+
+    const base = new Date('2031-11-01T00:00:00.000Z').getTime()
+    const events = [
+      { slug: `${WILD}-exact`, title: 'Snake_case Raas', venueId: EXACT },
+      { slug: `${WILD}-loose`, title: 'SnakeXcase Raas', venueId: LOOSE },
+    ]
+
+    for (const [index, event] of events.entries()) {
+      await prisma.event.upsert({
+        where: { slug: event.slug },
+        update: {},
+        create: {
+          organizationId: organization.id,
+          venueId: event.venueId,
+          isOnline: false,
+          title: event.title,
+          slug: event.slug,
+          summary: 'Fixture',
+          description: 'Fixture event for the pattern characters.',
+          category: 'GARBA_DANDIYA',
+          status: 'PUBLISHED',
+          startsAt: new Date(base + index * 86_400_000),
+          endsAt: new Date(base + index * 86_400_000 + 7_200_000),
+          publishedAt: new Date(base),
+        },
+      })
+    }
+  }, 120_000)
+
+  afterAll(async () => {
+    if (app) await app.close()
+    if (!prisma || !reachable) return
+
+    await prisma.event.deleteMany({ where: { slug: { startsWith: `${WILD}-` } } })
+    await prisma.venue.deleteMany({ where: { id: { in: [EXACT, LOOSE] } } })
+    await prisma.organization.deleteMany({ where: { slug: `${WILD}-org` } })
+  })
+
+  it('filters the listing by a city with an underscore in it, and only that city', async () => {
+    if (!reachable) return
+
+    // Both rows exist, so the loose one is there to be wrongly found.
+    expect(await list({})).toEqual([`${WILD}-exact`, `${WILD}-loose`])
+
+    expect(await list({ city: 'Snake_town' })).toEqual([`${WILD}-exact`])
+    // Still a case-insensitive match.
+    expect(await list({ city: 'SNAKE_TOWN' })).toEqual([`${WILD}-exact`])
+    // A city that is only a pattern matches no city.
+    expect(await list({ city: 'snake%' })).toEqual([])
+    expect(await list({ city: '%' })).toEqual([])
+  })
+
+  it('takes a search word literally, through the resolved ids and through the relations', async () => {
+    if (!reachable) return
+
+    expect(await list({ q: 'snake_case' })).toEqual([`${WILD}-exact`])
+    expect(await list({ q: 'snake_town' })).toEqual([`${WILD}-exact`])
+    expect(await list({ q: '100%' })).toEqual([`${WILD}-exact`])
+
+    // The relation path, which a word naming too many venues falls back to.
+    const query = listEventsQuerySchema.parse({ q: 'snake_town', perPage: '100' })
+    const { where } = buildEventQuery(query, null, { search: [] })
+    const rows = await prisma.event.findMany({
+      where: { AND: [where, { organization: { slug: `${WILD}-org` } }] },
+      select: { slug: true },
+    })
+
+    expect(rows.map((row) => row.slug)).toEqual([`${WILD}-exact`])
+  })
+
+  it('filters the venue list by city, region and name character for character', async () => {
+    if (!reachable) return
+
+    expect(await venues('city=Snake_town')).toEqual([EXACT])
+    expect(await venues('city=snake_TOWN')).toEqual([EXACT])
+    expect(await venues('region=Re_gion')).toEqual([EXACT])
+    expect(await venues('q=100%25')).toEqual([EXACT])
+    expect(await venues('city=%25')).toEqual([])
+    expect(await venues('region=%25')).toEqual([])
+    // And the loose one is still found by its own name.
+    expect(await venues('city=SnakeXtown')).toEqual([LOOSE])
   })
 })

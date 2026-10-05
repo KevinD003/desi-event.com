@@ -22,6 +22,7 @@ import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { EventEditor } from '../../../../components/event-editor.jsx'
+import { sessionCan } from '../../../../lib/capabilities.js'
 import { mediaReadFailure } from '../../../../lib/media.js'
 import {
   getEventReadiness,
@@ -158,6 +159,11 @@ export default async function EditEventPage({ params }) {
     hiddenOnSale && BOOKABLE_STATUSES.has(event.status) && event.slug
       ? mayBookTeamTiers(await readSession(), event)
       : false
+  // The event's own visits and sales, offered to somebody who may read the
+  // organisation's reports: its members from a viewer up, and the Desi-Event
+  // team's platform administrators, as the API agrees. The session read is the
+  // request's own, shared with the line above.
+  const reports = sessionCan(await readSession(), 'report:view', event.organizationId)
 
   return (
     <div>
@@ -177,6 +183,20 @@ export default async function EditEventPage({ params }) {
           </li>
         </ol>
       </nav>
+
+      {reports ? (
+        <p className="mt-2 text-sm">
+          <Link
+            href={`/analytics?${new URLSearchParams({
+              organizationId: event.organizationId,
+              eventId: event.id,
+            }).toString()}`}
+            className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            Visits and sales for this event
+          </Link>
+        </p>
+      ) : null}
 
       <h1 className="mt-4 text-h2 font-semibold text-ink">{event.title}</h1>
 

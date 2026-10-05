@@ -2,10 +2,11 @@
  * Where an end-to-end spec may show an invitation code.
  *
  * An invitation code is a credential: whoever types it first, signed in as the
- * invited address, joins the organisation in the role it names. This build
- * sends no email, so the code is shown once, in the page, to whoever invited
- * somebody (`components/one-time-code-panel.jsx`), and the API answers it in
- * the response body as `delivery.invitationCode`. A spec that invites
+ * invited address, joins the organisation in the role it names. In the
+ * default delivery mode (MANUAL, the one the end-to-end runs use) the code is
+ * shown once, in the page, to whoever invited somebody
+ * (`components/one-time-code-panel.jsx`), and the API answers it in the
+ * response body as `delivery.invitationCode`. A spec that invites
  * somebody against the real API therefore draws a working code on the screen
  * and holds it in a response.
  *
@@ -26,6 +27,11 @@
  * field, an `/invitations` path (the invite and reissue routes, and the page
  * where a code is typed), or a control that issues or shows one: **Invite
  * them**, **Issue a new code**, **Copy the code**, **I have handed it over**.
+ * An organiser invitation (SPEC2 §4.P) is the same credential one step up — it
+ * makes its holder an organisation's owner — and is reached by the
+ * administrators' `organizer-invitations` page and routes, by its own name
+ * ("organiser invitation code"), or by **Copy the message**, which copies a
+ * letter with the code in it.
  *
  * The words "invitation code" alone are not enough, because a ticket transfer
  * has an invitation code of its own, with its own rule, and the transfer specs
@@ -46,9 +52,12 @@ import { describe, expect, it } from 'vitest'
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const e2e = join(webRoot, 'e2e')
 
-/** What means a spec reaches a team invitation code: the API field, the paths, the controls. */
+/**
+ * What means a spec reaches a team or organiser invitation code: the API field,
+ * the paths, the controls, and the organiser code's own name and letter.
+ */
 const NAMES_THE_CODE =
-  /invitationCode|\/invitations\b|invite them|issue a new code|copy the code|i have handed it over/iu
+  /invitationCode|\/invitations\b|invite them|issue a new code|copy the code|i have handed it over|organizer-invitations|organiser invitation code|copy the message/iu
 
 /** A `test.use({ … })` at the top level of the file, where worker options may go. */
 const FILE_LEVEL_USE = /^test\.use\(\s*\{([^}]*)\}\s*\)/gmu
@@ -111,6 +120,18 @@ describe('invitation codes in end-to-end specs', () => {
     expect(read(...team, 'team-vocabulary.js')).toContain("ACCEPT_PATH = '/account/invitations'")
     expect(read('..', '..', 'packages', 'schemas', 'src', 'teams.js')).toMatch(
       /invitationCode: invitationCodeSchema/u,
+    )
+
+    // The organiser invitation's names, where the screens use them.
+    const invitations = ['src', 'app', 'admin', 'organizer-invitations']
+
+    expect(read('src', 'components', 'one-time-code-panel.jsx')).toContain('Copy the message')
+    expect(read(...invitations, 'page.jsx')).toContain("'/admin/organizer-invitations'")
+    expect(read(...invitations, 'organizer-invite-form.jsx')).toContain(
+      "'/v1/platform/organizer-invitations'",
+    )
+    expect(read(...invitations, 'organizer-invite-form.jsx')).toContain(
+      'Organiser invitation code for',
     )
   })
 })
@@ -185,6 +206,29 @@ describe('the invariant itself', () => {
     )
 
     expect(leavesCodeInArtefacts(raw)).toBe(true)
+  })
+
+  it.each([
+    ['the administrators’ page', "  await page.goto('/admin/organizer-invitations')"],
+    ['the API route', "  await request.post('/api/v1/platform/organizer-invitations', { data })"],
+    [
+      'the code’s name',
+      '  await expect(page.getByText(/organiser invitation code/i)).toBeVisible()',
+    ],
+    ['the letter', "  await page.getByRole('button', { name: 'Copy the message' }).click()"],
+  ])('treats an organiser invitation reached by %s as a code', (_label, line) => {
+    const unguarded = spec(
+      "test('invites an organiser', async ({ page, request }) => {",
+      line,
+      '})',
+    )
+
+    expect(leavesCodeInArtefacts(unguarded)).toBe(true)
+    expect(
+      leavesCodeInArtefacts(
+        spec("test.use({ screenshot: 'off', trace: 'off', video: 'off' })", unguarded),
+      ),
+    ).toBe(false)
   })
 
   it('does not take a ticket transfer’s invitation code for a team one', () => {

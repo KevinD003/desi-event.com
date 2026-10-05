@@ -156,6 +156,28 @@ describe('the list of nights', () => {
     expect(links[0]).toHaveAttribute('href', '/events/nine-nights/seats/snnighttwoxxx')
   })
 
+  it('marks a night’s seat link so a click on it is counted, only when the page asks', () => {
+    const { unmount } = render(
+      <SessionList
+        sessions={[night(), SEATED]}
+        eventSlug="nine-nights"
+        now={NOW}
+        traffic={{ eventId: 'cevtnights0000000000001', organizationId: 'corgalpha00000000000001' }}
+      />,
+    )
+
+    const [link] = screen.getAllByRole('link')
+
+    expect(link).toHaveAttribute('data-traffic-kind', 'SEATS_CLICK')
+    expect(link).toHaveAttribute('data-traffic-placement', 'EVENT_PAGE')
+    expect(link).toHaveAttribute('data-traffic-event', 'cevtnights0000000000001')
+    unmount()
+
+    render(<SessionList sessions={[night(), SEATED]} eventSlug="nine-nights" now={NOW} />)
+
+    expect(screen.getAllByRole('link')[0].hasAttribute('data-traffic-kind')).toBe(false)
+  })
+
   it('offers no seats when the event itself is not selling', () => {
     render(<SessionList sessions={[SEATED]} eventSlug="nine-nights" buyable={false} now={NOW} />)
 

@@ -37,6 +37,7 @@
 
 import { REVOCATION_REASONS } from '@desi-event/auth'
 
+import { addressCandidates, isSameAddress } from './delivery.js'
 import { countExportsContaining, invalidateExportsForSubject } from './export-register.js'
 import { PRIVACY_CATEGORIES } from './privacy.js'
 import { redactedEmail, redactedName, scrubPayload } from './privacy-placeholders.js'
@@ -80,6 +81,13 @@ const OUTBOX_SETTLED = Object.freeze(['SENT', 'CANCELLED', 'FAILED', 'DEAD_LETTE
  * smaller than what it did. One function means the confirmation screen and the
  * write can no longer disagree.
  *
+ * These clauses only **narrow** the rows. PostgreSQL runs Prisma's
+ * case-insensitive `equals` as an `ILIKE` whose value is not escaped, so an `_`
+ * in the subject's address matches any one character there: an erasure for
+ * `a_b@example.com` would also reach `axb@example.com`, somebody else entirely.
+ * Every reader therefore selects `userId` and the address column and keeps only
+ * the rows {@link belongsToSubject} accepts, which compares the address exactly.
+ *
  * @param {string} subjectUserId The data subject.
  * @param {string|null} subjectEmail Their address, lower-cased, or null.
  * @param {string} field Which column on this model holds the address.
@@ -88,8 +96,50 @@ const OUTBOX_SETTLED = Object.freeze(['SENT', 'CANCELLED', 'FAILED', 'DEAD_LETTE
 export function subjectMatchers(subjectUserId, subjectEmail, field) {
   return [
     { userId: subjectUserId },
-    ...(subjectEmail ? [{ [field]: { equals: subjectEmail, mode: 'insensitive' } }] : []),
+    ...(subjectEmail ? [{ [field]: addressCandidates(subjectEmail) }] : []),
   ]
+}
+
+/**
+ * Whether a row {@link subjectMatchers} found really is the subject's.
+ *
+ * Linked to the subject's account, or carrying the subject's own address once
+ * both are lower-cased, and nothing looser: a look-alike address that the
+ * database's pattern match let through is somebody else's row.
+ *
+ * @param {object} row The row, with `userId` and the address column selected.
+ * @param {string} subjectUserId The data subject.
+ * @param {string|null} subjectEmail Their address, lower-cased, or null.
+ * @param {string} field Which column on this model holds the address.
+ * @returns {boolean} True when the row belongs to the subject.
+ */
+export function belongsToSubject(row, subjectUserId, subjectEmail, field) {
+  return row.userId === subjectUserId || isSameAddress(row[field], subjectEmail)
+}
+
+/**
+ * The rows of one model that belong to the subject, and only those.
+ *
+ * {@link subjectMatchers} narrows in the database, {@link belongsToSubject}
+ * decides here. The preview and the writers both go through this, so the number
+ * an operator confirms is the number of rows the redaction then touches.
+ *
+ * @param {object} delegate The Prisma model delegate (`tx.order`, …).
+ * @param {object} options Inputs.
+ * @param {object} options.where The rest of the `where`, without the subject clauses.
+ * @param {object} options.select The columns the caller needs; `userId` and the address are added.
+ * @param {string} options.subjectUserId The data subject.
+ * @param {string|null} options.subjectEmail Their address, lower-cased, or null.
+ * @param {string} options.field Which column on this model holds the address.
+ * @returns {Promise<Array<object>>} The subject's rows.
+ */
+export async function subjectRows(delegate, { where, select, subjectUserId, subjectEmail, field }) {
+  const rows = await delegate.findMany({
+    where: { ...where, OR: subjectMatchers(subjectUserId, subjectEmail, field) },
+    select: { ...select, userId: true, [field]: true },
+  })
+
+  return rows.filter((row) => belongsToSubject(row, subjectUserId, subjectEmail, field))
 }
 
 /**
@@ -250,12 +300,12 @@ export async function redactBuyerIdentity(tx, { organizationId, subjectUserId, s
   // before they registered — or without registering — is reachable only through
   // the address on it. Matching on both is what stops a redaction from leaving a
   // person's name on the order they bought as a guest.
-  const orders = await tx.order.findMany({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'buyerEmail'),
-    },
+  const orders = await subjectRows(tx.order, {
+    where: { event: { organizationId } },
     select: { id: true, buyerEmail: true, buyerName: true },
+    subjectUserId,
+    subjectEmail,
+    field: 'buyerEmail',
   })
 
   if (orders.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
@@ -414,12 +464,12 @@ export async function redactTicketHolderIdentity(
  * @returns {Promise<{status: string, count: number}>} What happened.
  */
 export async function redactWaitlistEntries(tx, { organizationId, subjectUserId, subjectEmail }) {
-  const entries = await tx.waitlistEntry.findMany({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'email'),
-    },
+  const entries = await subjectRows(tx.waitlistEntry, {
+    where: { event: { organizationId } },
     select: { id: true, email: true },
+    subjectUserId,
+    subjectEmail,
+    field: 'email',
   })
 
   if (entries.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
@@ -467,13 +517,12 @@ export async function redactNotificationDelivery(
   tx,
   { organizationId, subjectUserId, subjectEmail },
 ) {
-  const rows = await tx.notificationOutbox.findMany({
-    where: {
-      organizationId,
-      status: { in: [...OUTBOX_SETTLED] },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'recipient'),
-    },
+  const rows = await subjectRows(tx.notificationOutbox, {
+    where: { organizationId, status: { in: [...OUTBOX_SETTLED] } },
     select: { id: true, recipient: true, payload: true },
+    subjectUserId,
+    subjectEmail,
+    field: 'recipient',
   })
 
   if (rows.length === 0) return { status: CATEGORY_STATUSES.NOTHING_TO_DO, count: 0 }
@@ -645,19 +694,27 @@ export async function previewScope(prisma, { organizationId, subjectUserId }) {
   const subjectEmail = await subjectAddress(prisma, subjectUserId)
   const elsewhere = await subjectBelongsElsewhere(prisma, { organizationId, subjectUserId })
 
-  const orders = await prisma.order.count({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'buyerEmail'),
-    },
-  })
+  // Rows rather than a `count()`: the database's pattern match only narrows,
+  // and the operator must confirm the number the redaction will really touch.
+  const subject = { subjectUserId, subjectEmail }
 
-  const waitlisted = await prisma.waitlistEntry.count({
-    where: {
-      event: { organizationId },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'email'),
-    },
-  })
+  const orders = (
+    await subjectRows(prisma.order, {
+      where: { event: { organizationId } },
+      select: { id: true },
+      ...subject,
+      field: 'buyerEmail',
+    })
+  ).length
+
+  const waitlisted = (
+    await subjectRows(prisma.waitlistEntry, {
+      where: { event: { organizationId } },
+      select: { id: true },
+      ...subject,
+      field: 'email',
+    })
+  ).length
 
   const tickets = await prisma.ticket.count({
     where: {
@@ -679,13 +736,14 @@ export async function previewScope(prisma, { organizationId, subjectUserId }) {
     },
   })
 
-  const notifications = await prisma.notificationOutbox.count({
-    where: {
-      organizationId,
-      status: { in: [...OUTBOX_SETTLED] },
-      OR: subjectMatchers(subjectUserId, subjectEmail, 'recipient'),
-    },
-  })
+  const notifications = (
+    await subjectRows(prisma.notificationOutbox, {
+      where: { organizationId, status: { in: [...OUTBOX_SETTLED] } },
+      select: { id: true },
+      ...subject,
+      field: 'recipient',
+    })
+  ).length
 
   const contacts = await countContactAddresses(prisma, { organizationId, subjectEmail })
   // Counted through the join rather than by opening anything: the register

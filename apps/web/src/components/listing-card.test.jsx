@@ -255,3 +255,53 @@ describe('EventGrid', () => {
     expect(within(list).getByRole('listitem').className).toContain('snap-start')
   })
 })
+
+describe('counting a click on a card', () => {
+  const counted = {
+    ...garba,
+    id: 'cevtnavratri000000000001',
+    organizationId: 'corgalpha00000000000001',
+  }
+
+  it('marks the title link with the event, its organisation and the place, when asked', () => {
+    render(<EventCard event={counted} trafficPlacement="HOME" />)
+
+    const link = screen.getByRole('link')
+
+    expect(link).toHaveAttribute('data-traffic-kind', 'CARD_CLICK')
+    expect(link).toHaveAttribute('data-traffic-event', 'cevtnavratri000000000001')
+    expect(link).toHaveAttribute('data-traffic-organization', 'corgalpha00000000000001')
+    expect(link).toHaveAttribute('data-traffic-placement', 'HOME')
+  })
+
+  it('marks nothing when the page does not ask, or for an event that cannot be counted', () => {
+    const { unmount } = render(<EventCard event={counted} />)
+
+    expect(
+      Object.keys(screen.getByRole('link').dataset).filter((key) => key.startsWith('traffic')),
+    ).toEqual([])
+    unmount()
+
+    // Sample data's ids are not the database's, so a card built from them
+    // carries no attributes even when the page asks.
+    render(<EventCard event={{ ...garba, id: 'Sample Event 1' }} trafficPlacement="LISTING" />)
+
+    expect(
+      Object.keys(screen.getByRole('link').dataset).filter((key) => key.startsWith('traffic')),
+    ).toEqual([])
+  })
+
+  it('passes the place to every card in a grid', () => {
+    render(
+      <EventGrid
+        events={[counted, { ...counted, id: 'cevtnavratri000000000002', slug: 'night-two' }]}
+        label="Matching events"
+        trafficPlacement="SEARCH"
+      />,
+    )
+
+    expect(
+      screen.getAllByRole('link').map((link) => link.getAttribute('data-traffic-placement')),
+    ).toEqual(['SEARCH', 'SEARCH'])
+  })
+})

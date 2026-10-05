@@ -379,6 +379,59 @@ when()('visits against real PostgreSQL', () => {
     expect(longAgo.data.lastDay).toBe('2001-01-01')
   })
 
+  // Prisma sends `contains` as `LIKE '%' || $1 || '%'` and escapes nothing, so
+  // before the search was escaped a `_` matched any one character and `%` any
+  // run: `Snake_town` also found `SnakeXtown`, and `%` found everything.
+  it('matches the administrators’ search character for character, with no wildcards', async () => {
+    const now = new Date()
+    const exact = await prisma.event.create({
+      data: {
+        organizationId: ids.orgB,
+        title: `Snake_town ${TAG}`,
+        slug: `snake-exact-${TAG}`,
+        summary: 'A test event.',
+        description: 'A test event for the search.',
+        category: 'MUSIC_CONCERT',
+        status: 'DRAFT',
+        startsAt: new Date(now.getTime() + 50 * 86_400_000),
+        endsAt: new Date(now.getTime() + 50 * 86_400_000 + 3_600_000),
+      },
+    })
+    const loose = await prisma.event.create({
+      data: {
+        organizationId: ids.orgB,
+        title: `SnakeXtown ${TAG}`,
+        slug: `snake-loose-${TAG}`,
+        summary: 'A test event.',
+        description: 'A test event for the search.',
+        category: 'MUSIC_CONCERT',
+        status: 'DRAFT',
+        startsAt: new Date(now.getTime() + 51 * 86_400_000),
+        endsAt: new Date(now.getTime() + 51 * 86_400_000 + 3_600_000),
+      },
+    })
+    const found = async (q) =>
+      (await platformTraffic(prisma, { q, scope: 'all', perPage: 100, now })).data.events.map(
+        (row) => row.eventId,
+      )
+
+    try {
+      // The title: only the one with the underscore.
+      expect(await found(`Snake_town ${TAG}`)).toEqual([exact.id])
+      expect(await found(`SnakeXtown ${TAG}`)).toEqual([loose.id])
+      // `%` is a percent sign, which no title, address or name here has.
+      expect(await found(`%${TAG}`)).toEqual([])
+      // The web address: `snake_loose` is not `snake-loose`.
+      expect(await found(`snake_loose-${TAG}`)).toEqual([])
+      expect(await found(`snake-loose-${TAG}`)).toEqual([loose.id])
+      // The organiser's name: `_` is not the space in `Visits Org B`.
+      expect(await found(`Visits_Org_B ${TAG}`)).toEqual([])
+      expect(await found(`Visits Org B ${TAG}`)).toContain(exact.id)
+    } finally {
+      await prisma.event.deleteMany({ where: { id: { in: [exact.id, loose.id] } } })
+    }
+  })
+
   it('deletes an event’s visits with it', async () => {
     const doomed = await event(ids.orgB, 'doomed', 'PUBLISHED', 5)
 

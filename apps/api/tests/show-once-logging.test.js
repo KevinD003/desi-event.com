@@ -24,10 +24,13 @@
  * prove the log was being written at all.
  */
 
+import { hashToken } from '@desi-event/auth'
 import { createLogger } from '@desi-event/logger'
 import { describe, expect, it } from 'vitest'
 
-import { bearer, claim, createTestApp, signIn } from './helpers/app.js'
+import { resetTrafficMemory } from '../src/lib/traffic.js'
+import { bearer, claim, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { makeWorld } from './helpers/fixtures.js'
 import { expectNoSecret } from './helpers/payloads.js'
 
 /** The attendee who buys, offers, and is invited to the team. */
@@ -285,6 +288,320 @@ describe('show-once codes and the logs', () => {
     for (const code of Object.values(codes)) {
       expectNoSecret(expect, JSON.stringify(prisma._store.auditLog), code)
       expectNoSecret(expect, JSON.stringify(prisma._store.notificationOutbox ?? []), code)
+    }
+  })
+})
+
+/** The platform administrator who invites organisers (fixtures: ADMIN, with a second factor). */
+const PLATFORM_ADMIN = 'anil@desi-event.example'
+
+/** Where organiser invitations are issued, listed, withdrawn and reissued. */
+const ORGANIZER_INVITATIONS = '/v1/platform/organizer-invitations'
+
+/** Where an organiser invitation's code is spent. */
+const ORGANIZER_ACCEPT = '/v1/organizer-invitations/accept'
+
+/**
+ * Sign the platform administrator in with a fresh second factor, as issuing
+ * and reissuing need.
+ *
+ * @param {object} app The application.
+ * @returns {Promise<{token: string, headers: object}>} The session.
+ */
+async function platformAdmin(app) {
+  const token = await signIn(app, PLATFORM_ADMIN)
+  const headers = bearer(token)
+
+  await stepUp(app, PLATFORM_ADMIN, headers)
+
+  return { token, headers }
+}
+
+describe('organiser invitation codes and the logs', () => {
+  it('writes no organiser invitation code, or its digest, to any log line, response or record', async () => {
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    const { app, prisma } = await createTestApp({ logger })
+    const admin = await platformAdmin(app)
+
+    /** @type {Record<string, string>} */
+    const codes = {}
+
+    // Issued, with a note only the recipient should read.
+    const issued = await post(app, admin.token, ORGANIZER_INVITATIONS, {
+      email: HOLDER,
+      organizationName: 'Kathiawar Folk Nights',
+      note: 'A private word for the recipient.',
+    })
+
+    expect(issued.statusCode, issued.body).toBe(201)
+    codes.issued = issued.json().data.delivery.invitationCode
+
+    // The shared queue lists it without the code or anything derived from it.
+    const listed = await app.inject({
+      method: 'GET',
+      url: ORGANIZER_INVITATIONS,
+      headers: admin.headers,
+    })
+
+    expect(listed.statusCode, listed.body).toBe(200)
+    expectNoSecret(expect, listed.body, codes.issued)
+    expectNoSecret(expect, listed.body, hashToken(codes.issued))
+    expect(listed.body).not.toContain('tokenHash')
+
+    // Reissued: the old code dies, a new one is shown once.
+    const reissued = await post(
+      app,
+      admin.token,
+      `${ORGANIZER_INVITATIONS}/${issued.json().data.id}/reissue`,
+    )
+
+    expect(reissued.statusCode, reissued.body).toBe(201)
+    codes.reissued = reissued.json().data.delivery.invitationCode
+    expectNoSecret(expect, reissued.body, codes.issued)
+
+    const holder = await signIn(app, HOLDER)
+    const recipient = await signIn(app, RECIPIENT)
+
+    await sendMalformed(app, holder, ORGANIZER_ACCEPT, codes.reissued)
+
+    // The superseded code, and the live one from somebody it was not for.
+    const superseded = await post(app, holder, ORGANIZER_ACCEPT, { token: codes.issued })
+    const notYours = await post(app, recipient, ORGANIZER_ACCEPT, { token: codes.reissued })
+
+    expect(superseded.statusCode).toBe(403)
+    expect(notYours.statusCode).toBe(403)
+
+    const accepted = await post(app, holder, ORGANIZER_ACCEPT, { token: codes.reissued })
+
+    expect(accepted.statusCode, accepted.body).toBe(200)
+    expectNoSecret(expect, accepted.body, codes.reissued)
+
+    // Spent: a second use is refused.
+    const again = await post(app, holder, ORGANIZER_ACCEPT, { token: codes.reissued })
+
+    expect(again.statusCode).toBe(403)
+
+    // Issued to somebody else and withdrawn: the withdrawal answers without it,
+    // and the code is dead.
+    const another = await post(app, admin.token, ORGANIZER_INVITATIONS, {
+      email: RECIPIENT,
+      organizationName: 'Dhol Collective',
+    })
+
+    expect(another.statusCode, another.body).toBe(201)
+    codes.withdrawn = another.json().data.delivery.invitationCode
+
+    const revoked = await post(
+      app,
+      admin.token,
+      `${ORGANIZER_INVITATIONS}/${another.json().data.id}/revoke`,
+    )
+
+    expect(revoked.statusCode, revoked.body).toBe(200)
+    expectNoSecret(expect, revoked.body, codes.withdrawn)
+    expectNoSecret(expect, revoked.body, hashToken(codes.withdrawn))
+
+    const dead = await post(app, recipient, ORGANIZER_ACCEPT, { token: codes.withdrawn })
+
+    expect(dead.statusCode).toBe(403)
+
+    const listedAfter = await app.inject({
+      method: 'GET',
+      url: `${ORGANIZER_INVITATIONS}?status=REVOKED`,
+      headers: admin.headers,
+    })
+
+    expect(listedAfter.statusCode, listedAfter.body).toBe(200)
+
+    await app.close()
+
+    const lines = capture.lines()
+
+    // The log was being written, at the level a careless body dump would use.
+    expect(lines.some((line) => line.msg === 'issued an organiser invitation')).toBe(true)
+    expect(lines.some((line) => line.msg === 'accepted an organiser invitation')).toBe(true)
+    expect(lines.filter((line) => line.msg === 'request rejected').length).toBeGreaterThanOrEqual(
+      malformed('x').length,
+    )
+    expect(new Set(Object.values(codes)).size).toBe(3)
+
+    const raw = capture.raw()
+
+    expectNoSecret(expect, raw, 'A private word for the recipient.')
+
+    for (const [name, code] of Object.entries(codes)) {
+      expect(code, name).toEqual(expect.any(String))
+      expectNoSecret(expect, raw, code)
+      expectNoSecret(expect, raw, hashToken(code))
+      expectNoSecret(expect, listedAfter.body, code)
+      // Nor the audit trail or the outbox, which outlive a log.
+      expectNoSecret(expect, JSON.stringify(prisma._store.auditLog), code)
+      expectNoSecret(expect, JSON.stringify(prisma._store.notificationOutbox ?? []), code)
+    }
+  })
+
+  it('logs no code when the mail server refuses one, issued or reissued', async () => {
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    /** @type {string[]} */
+    const handedOver = []
+    let refuse = false
+    const world = await makeWorld()
+    const { app, prisma } = await createTestApp({
+      seed: world.seed,
+      ids: world.ids,
+      logger,
+      // EMAIL mode: the code goes to the mail server and to nobody else. The
+      // server refuses with a message that quotes the letter, as a real one
+      // may, so a log of the error would carry the code.
+      deliver: async (message) => {
+        handedOver.push(message.token)
+
+        if (refuse) {
+          throw Object.assign(new Error(`550 rejected: ${message.token}`), {
+            code: 'EENVELOPE',
+            response: `550 5.7.1 message refused: ${message.token}`,
+          })
+        }
+      },
+    })
+    const admin = await platformAdmin(app)
+
+    const sent = await post(app, admin.token, ORGANIZER_INVITATIONS, {
+      email: HOLDER,
+      organizationName: 'Kathiawar Folk Nights',
+    })
+
+    expect(sent.statusCode, sent.body).toBe(201)
+    expect(sent.json().data.delivery).toEqual({ mode: 'EMAIL', invitationCode: null })
+
+    refuse = true
+
+    const failedReissue = await post(
+      app,
+      admin.token,
+      `${ORGANIZER_INVITATIONS}/${sent.json().data.id}/reissue`,
+    )
+    const failedIssue = await post(app, admin.token, ORGANIZER_INVITATIONS, {
+      email: RECIPIENT,
+      organizationName: 'Dhol Collective',
+    })
+
+    expect(failedReissue.statusCode).toBe(503)
+    expect(failedIssue.statusCode).toBe(503)
+
+    await app.close()
+
+    // Three codes went to the mail server; two were refused and withdrawn.
+    expect(handedOver).toHaveLength(3)
+
+    const raw = capture.raw()
+
+    expect(raw).toContain('a code could not be emailed')
+
+    for (const code of handedOver) {
+      expectNoSecret(expect, raw, code)
+      expectNoSecret(expect, raw, hashToken(code))
+      expectNoSecret(expect, sent.body + failedReissue.body + failedIssue.body, code)
+      expectNoSecret(expect, JSON.stringify(prisma._store.auditLog), code)
+      expectNoSecret(expect, JSON.stringify(prisma._store.notificationOutbox ?? []), code)
+    }
+  })
+})
+
+describe('a visit and the logs', () => {
+  it('logs no address, browser, referring site, visitor code or destination, counted or not', async () => {
+    resetTrafficMemory()
+
+    const capture = captureStream()
+    const logger = createLogger({ name: 'api', level: 'debug', destination: capture })
+    const { app, prisma, ids } = await createTestApp({ logger })
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+    const agent = 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0 DistinctiveVisitorAgent/7'
+    const destination = 'https://rangoli.example/a-distinctive-destination'
+
+    // The organiser's website, switched on by an administrator.
+    Object.assign(event, {
+      websiteUrl: destination,
+      websiteRedirectEnabled: true,
+      websiteDecidedUrl: destination,
+      websiteDecisionPending: false,
+      websiteSubmittedAt: null,
+      websiteRedirectChangedAt: new Date('2026-09-30T10:00:00.000Z'),
+      websiteRedirectChangedById: ids.platformAdministrator.id,
+      websiteRedirectReason: 'Checked: the organiser’s own site.',
+    })
+
+    const send = (url, payload, address) =>
+      app.inject({
+        method: 'POST',
+        url,
+        headers: {
+          'user-agent': agent,
+          'content-type': 'application/json',
+          'x-desi-client-address': address,
+        },
+        payload,
+      })
+    const view = {
+      eventId: event.id,
+      kind: 'PAGE_VIEW',
+      placement: 'EVENT_PAGE',
+      referrer: 'news.distinctive-referrer.example',
+    }
+
+    // Counted: a page view and a visit through the website link.
+    expect((await send('/v1/traffic/beacons', view, '198.51.100.31')).statusCode).toBe(202)
+    expect(
+      (
+        await send(
+          '/v1/traffic/website-visits',
+          { slug: event.slug, counted: true },
+          '198.51.100.32',
+        )
+      ).statusCode,
+    ).toBe(200)
+
+    const stored = [...prisma._store.trafficEvent]
+
+    expect(stored).toHaveLength(2)
+
+    // Then the store fails, and both still answer.
+    prisma.trafficEvent.createMany = async () => {
+      throw Object.assign(new Error('connection reset'), { code: 'P1017' })
+    }
+
+    expect((await send('/v1/traffic/beacons', view, '198.51.100.33')).statusCode).toBe(202)
+    expect(
+      (
+        await send(
+          '/v1/traffic/website-visits',
+          { slug: event.slug, counted: true },
+          '198.51.100.34',
+        )
+      ).statusCode,
+    ).toBe(200)
+
+    await app.close()
+
+    const raw = capture.raw()
+
+    // The failures were logged, so the absences below are about what was said.
+    expect(raw).toContain('traffic beacon not counted')
+    expect(raw).toContain('website visit not counted')
+
+    for (const needle of [
+      '198.51.100.31',
+      '198.51.100.32',
+      '198.51.100.33',
+      '198.51.100.34',
+      'DistinctiveVisitorAgent',
+      'distinctive-referrer',
+      'a-distinctive-destination',
+      ...stored.flatMap((row) => [row.visitorHash, row.dedupeKey].filter(Boolean)),
+    ]) {
+      expectNoSecret(expect, raw, needle)
     }
   })
 })

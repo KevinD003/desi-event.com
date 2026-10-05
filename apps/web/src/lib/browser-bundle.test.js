@@ -18,7 +18,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   FORBIDDEN,
+  FORBIDDEN_CLIENT_LITERALS,
   declaresUseClient,
+  forbiddenLiteralsIn,
   forbiddenReason,
   reachableFrom,
   resolveSpecifier,
@@ -143,6 +145,62 @@ describe('what reaches the browser', () => {
     for (const [prefix, reason] of Object.entries(FORBIDDEN)) {
       expect(reason.length, prefix).toBeGreaterThan(20)
     }
+  })
+
+  it('gives no client module a privileged capability name', () => {
+    // SPEC2 §0.2: client components receive booleans. A capability name in a
+    // module the browser loads is in the bundle, comments aside.
+    const entries = [...browserEntryPoints(), 'apps/web/src/lib/api-client.js']
+    const carriers = []
+
+    for (const file of reachableFrom(entries).keys()) {
+      const found = forbiddenLiteralsIn(readFileSync(resolve(ROOT, file), 'utf8'))
+
+      if (found.length > 0) carriers.push(`${file}: ${found.join(', ')}`)
+    }
+
+    expect(carriers).toEqual([])
+  })
+
+  it('finds a capability name in code and not in a comment', () => {
+    // The adversarial half, so the rule above cannot pass by matching nothing.
+    expect(forbiddenLiteralsIn("const can = session.can('organizer:invite')")).toEqual([
+      'organizer:invite',
+    ])
+    expect(
+      forbiddenLiteralsIn(
+        "/** For `analytics:view_all` holders. */\n// website_redirect:manage decides this\nconst url = 'https://a.example/'",
+      ),
+    ).toEqual([])
+    expect(Object.keys(FORBIDDEN_CLIENT_LITERALS)).toEqual(
+      expect.arrayContaining([
+        'platform:admin',
+        'organizer:invite',
+        'website_redirect:manage',
+        'analytics:view_all',
+      ]),
+    )
+  })
+
+  it('keeps the invitation, mail and visitor-address code on the server, and allows the letter', () => {
+    // The letter a code panel shows is built from `code-letters`, which imports
+    // nothing; the schemas and the sender behind it are the server's.
+    expect(forbiddenReason('packages/schemas/src/organizer-invitations.js')).toMatch(/invitation/)
+    expect(forbiddenReason('packages/providers/src/smtp.js')).toMatch(/SMTP/)
+    expect(forbiddenReason('apps/api/src/lib/code-mailer.js')).toMatch(/email/)
+    expect(forbiddenReason('apps/web/src/lib/traffic-forwarding.js')).toMatch(/address/)
+    expect(forbiddenReason('packages/schemas/src/code-letters.js')).toBeNull()
+
+    const reached = reachableFrom([
+      'apps/web/src/app/admin/organizer-invitations/organizer-invite-form.jsx',
+    ])
+
+    expect([...reached.keys()]).toContain('packages/schemas/src/code-letters.js')
+    expect(
+      [...reachableFrom(['packages/schemas/src/code-letters.js']).keys()].filter(
+        (file) => file !== 'packages/schemas/src/code-letters.js',
+      ),
+    ).toEqual([])
   })
 })
 

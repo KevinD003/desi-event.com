@@ -13,7 +13,10 @@ import {
   freshness,
   periodFor,
   periodFrom,
+  excludesEvent,
   trafficExclusion,
+  trafficStatusLabel,
+  websiteLinkLine,
 } from './traffic.js'
 
 const HONEST = /\b(soon|yet|planned|coming)\b/iu
@@ -147,5 +150,176 @@ describe('the counting notes', () => {
       body: 'Some of these figures were written by the development seed to show how this page looks. They are not counted visits.',
     })
     expect(REFUNDED_ORDERS_NOTE).toBe('An order refunded later is not counted as paid.')
+  })
+})
+
+describe('excludesEvent', () => {
+  const ORG = 'corga000000000000000001'
+
+  it('leaves staff out of every event, and a member out of their own organisation’s', () => {
+    expect(excludesEvent({ excludeAll: true, excludedOrganizationIds: [] }, ORG)).toBe(true)
+    expect(excludesEvent({ excludeAll: false, excludedOrganizationIds: [ORG] }, ORG)).toBe(true)
+  })
+
+  it('counts everybody else, and an event whose organisation is not known', () => {
+    expect(
+      excludesEvent({ excludeAll: false, excludedOrganizationIds: [ORG] }, 'corgb0000000000000002'),
+    ).toBe(false)
+    expect(excludesEvent({ excludeAll: false, excludedOrganizationIds: [ORG] }, null)).toBe(false)
+    expect(excludesEvent(trafficExclusion(null), ORG)).toBe(false)
+  })
+})
+
+describe('trafficStatusLabel', () => {
+  it('says Deleted for a deleted event, whatever its status reads', () => {
+    expect(trafficStatusLabel({ status: 'DELETED', deleted: true })).toBe('Deleted')
+    expect(trafficStatusLabel({ status: 'ON_SALE', deleted: true })).toBe('Deleted')
+    expect(trafficStatusLabel({ status: 'DELETED' })).toBe('Deleted')
+  })
+
+  it('uses the organiser’s word for every other status', () => {
+    expect(trafficStatusLabel({ status: 'ON_SALE', deleted: false })).toBe('On sale')
+    expect(trafficStatusLabel({ status: 'CANCELLED', deleted: false })).toBe('Cancelled')
+  })
+})
+
+describe('websiteLinkLine', () => {
+  const when = () => 'Oct 1, 2026, 9:00 AM UTC'
+  const state = (overrides = {}) => ({
+    enabled: false,
+    pending: false,
+    decidedUrl: null,
+    submittedAt: null,
+    changedAt: null,
+    reason: null,
+    changedByName: null,
+    websiteProblem: null,
+    ...overrides,
+  })
+
+  it('says on or off from the summary row when the switch state is not known', () => {
+    expect(websiteLinkLine({ websiteLinkOn: true, websiteRedirect: null })).toBe(
+      'Website link: On. Only the Desi-Event team can turn it on or off.',
+    )
+    expect(websiteLinkLine({ websiteLinkOn: false, websiteRedirect: null })).toBe(
+      'Website link: Off. Only the Desi-Event team can turn it on or off.',
+    )
+  })
+
+  it('uses the organiser’s sentence for a link that is on, naming who turned it on', () => {
+    const line = websiteLinkLine(
+      {
+        websiteLinkOn: true,
+        websiteRedirect: state({
+          enabled: true,
+          decidedUrl: 'https://mirrorwork.example/',
+          changedAt: '2026-10-01T09:00:00.000Z',
+          changedByName: 'Anil Administrator',
+        }),
+      },
+      { formatInstant: when },
+    )
+
+    expect(line).toMatch(
+      /^Website link: On since Oct 1, 2026, 9:00 AM UTC\. Anil Administrator of the Desi-Event team turned it on\./u,
+    )
+    expect(line).toMatch(/goes to mirrorwork\.example/u)
+    expect(line).toMatch(/Only the Desi-Event team can turn this link on or off\.$/u)
+  })
+
+  it('does not guess whether a waiting change while on was a new address or a cleared one', () => {
+    const line = websiteLinkLine(
+      {
+        websiteLinkOn: true,
+        websiteRedirect: state({
+          enabled: true,
+          pending: true,
+          decidedUrl: 'https://mirrorwork.example/',
+          changedAt: '2026-10-01T09:00:00.000Z',
+        }),
+      },
+      { formatInstant: when },
+    )
+
+    expect(line).toMatch(/keeps going to mirrorwork\.example/u)
+    expect(line).not.toMatch(/You removed your address|Your new address/u)
+  })
+
+  it('does not point at a field that is not on this page', () => {
+    const never = websiteLinkLine({ websiteLinkOn: false, websiteRedirect: state() })
+    const problem = websiteLinkLine({
+      websiteLinkOn: false,
+      websiteRedirect: state({ pending: true, websiteProblem: 'It has a password in it.' }),
+    })
+
+    expect(never).toBe(
+      'Website link: Off. This event has no website address for the Desi-Event team to link to; one can be added in the event’s editor. Only the Desi-Event team can turn this link on or off.',
+    )
+    expect(`${never} ${problem}`).not.toMatch(/above/u)
+    expect(problem).toMatch(/^Website link: Off\. Your address is on the Desi-Event team’s list/u)
+  })
+
+  it('keeps the waiting sentence when a decided-off link has a new address', () => {
+    const line = websiteLinkLine(
+      {
+        websiteLinkOn: false,
+        websiteRedirect: state({
+          pending: true,
+          decidedUrl: 'https://old.example/',
+          changedAt: '2026-10-01T09:00:00.000Z',
+          changedByName: 'Anil Administrator',
+          reason: 'Not the organiser’s site.',
+        }),
+      },
+      { formatInstant: when },
+    )
+
+    expect(line).toMatch(
+      /Off since Oct 1, 2026, 9:00 AM UTC\. Anil Administrator of the Desi-Event team turned it off, with this note: “Not the organiser’s site\.”/u,
+    )
+    expect(line).toMatch(/Your new address is on the Desi-Event team’s list to look at\./u)
+    expect(line.match(/Only the Desi-Event team/gu)).toHaveLength(1)
+  })
+
+  it('tells a platform administrator from outside the organisation in the administrators’ words', () => {
+    const on = {
+      websiteLinkOn: true,
+      websiteRedirect: state({
+        enabled: true,
+        decidedUrl: 'https://mirrorwork.example/',
+        changedAt: '2026-10-01T09:00:00.000Z',
+        changedByName: 'Anil Administrator',
+        reason: 'Checked with the organiser.',
+      }),
+    }
+    const off = {
+      websiteLinkOn: false,
+      websiteRedirect: state({
+        pending: true,
+        submittedAt: '2026-10-01T09:00:00.000Z',
+        decidedUrl: 'https://old.example/',
+        changedAt: '2026-10-01T09:00:00.000Z',
+        changedByName: 'Anil Administrator',
+      }),
+    }
+    const lines = [on, off].map((event) =>
+      websiteLinkLine(event, { formatInstant: when, reader: 'administrator' }),
+    )
+
+    expect(lines[0]).toBe(
+      'Website link: On since Oct 1, 2026, 9:00 AM UTC, going to mirrorwork.example. Turned on by Anil Administrator. Reason: Checked with the organiser. Only the Desi-Event team can turn this link on or off.',
+    )
+    expect(lines[1]).toBe(
+      'Website link: Off since Oct 1, 2026, 9:00 AM UTC. Turned off by Anil Administrator. Waiting since Oct 1, 2026, 9:00 AM UTC. Only the Desi-Event team can turn this link on or off.',
+    )
+    for (const line of lines) expect(line).not.toMatch(/\b[Yy]our?\b/u)
+    // The organiser still reads their own sentence.
+    expect(websiteLinkLine(on, { formatInstant: when })).toMatch(/Your event page shows/u)
+  })
+
+  it('never uses a word that promises what this build does not do', () => {
+    const line = websiteLinkLine({ websiteLinkOn: false, websiteRedirect: state() })
+
+    expect(line).not.toMatch(HONEST)
   })
 })

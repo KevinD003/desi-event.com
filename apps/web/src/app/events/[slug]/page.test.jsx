@@ -4,8 +4,20 @@ import { render, screen, within } from '@testing-library/react'
 vi.mock('../../../lib/api.js', () => ({
   loadEventBySlug: vi.fn(),
 }))
+// Who is reading decides whether a website visit is counted. Signed out by
+// default; the counting tests below sign somebody in.
+vi.mock('../../../lib/session.js', () => ({ readSession: vi.fn(async () => null) }))
+// The visit counting reads the session, which only a request has; it is
+// tested on its own (`components/traffic-scope.test.jsx`). Here it is a marker
+// carrying the event it was given.
+vi.mock('../../../components/traffic-scope.jsx', () => ({
+  TrafficScope: ({ view = null }) => (
+    <span data-testid="traffic-scope" data-view={JSON.stringify(view)} />
+  ),
+}))
 
 const { loadEventBySlug } = await import('../../../lib/api.js')
+const { readSession } = await import('../../../lib/session.js')
 const { default: EventDetailPage, generateMetadata } = await import('./page.jsx')
 
 /** A slug that resolves to nothing, whatever the reason. */
@@ -938,5 +950,98 @@ describe('the event detail page and the organiser’s website', () => {
     expect(screen.getByRole('link', { name: 'Instagram' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Website' })).not.toBeInTheDocument()
     expect(document.body.innerHTML).not.toContain('https://swar-sadhana.example/')
+  })
+})
+
+describe('counting visits to the event page', () => {
+  /** A public event with database-shaped ids, as the API sends one. */
+  const countable = {
+    ...selling,
+    id: 'cevtqawwali000000000001',
+    organizationId: 'corgswar000000000000001',
+    websiteLink: { host: 'swar-sadhana.example' },
+  }
+
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+    readSession.mockReset()
+    readSession.mockResolvedValue(null)
+  })
+
+  it('sends the page view of a public event, once, and counts “Choose tickets”', async () => {
+    await renderEvent(countable)
+
+    const [scope] = screen.getAllByTestId('traffic-scope')
+
+    expect(screen.getAllByTestId('traffic-scope')).toHaveLength(1)
+    expect(JSON.parse(scope.dataset.view)).toEqual({
+      eventId: 'cevtqawwali000000000001',
+      organizationId: 'corgswar000000000000001',
+    })
+
+    const tickets = screen.getByRole('link', { name: 'Choose tickets' })
+
+    expect(tickets).toHaveAttribute('data-traffic-kind', 'TICKETS_CLICK')
+    expect(tickets).toHaveAttribute('data-traffic-placement', 'EVENT_PAGE')
+    expect(tickets).toHaveAttribute('data-traffic-event', 'cevtqawwali000000000001')
+    expect(tickets).toHaveAttribute('data-traffic-organization', 'corgswar000000000000001')
+  })
+
+  it('counts nothing on sample data, or on a page the public cannot see', async () => {
+    loadEventBySlug.mockResolvedValue({ event: countable, usedFallback: true })
+    const { unmount } = render(
+      await EventDetailPage({ params: Promise.resolve({ slug: countable.slug }) }),
+    )
+
+    expect(screen.getByTestId('traffic-scope').dataset.view).toBe('null')
+    expect(document.querySelectorAll('[data-traffic-kind]')).toHaveLength(0)
+    unmount()
+
+    await renderEvent({ ...countable, status: 'REVIEW_PENDING' })
+
+    expect(screen.getByTestId('traffic-scope').dataset.view).toBe('null')
+    expect(document.querySelectorAll('[data-traffic-kind]')).toHaveLength(0)
+  })
+
+  it('counts a stranger’s website visit, and says so', async () => {
+    await renderEvent(countable)
+
+    const link = screen.getByRole('link', { name: 'Visit the organiser’s website' })
+
+    expect(link).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website')
+  })
+
+  it.each([
+    [
+      'a member of the event’s own organisation',
+      {
+        capabilities: [],
+        memberships: [{ organizationId: 'corgswar000000000000001', role: 'SCANNER' }],
+      },
+    ],
+    ['Desi-Event staff', { capabilities: ['moderation:review'], memberships: [] }],
+  ])('marks the website link uncounted for %s', async (_name, session) => {
+    readSession.mockResolvedValue(session)
+    await renderEvent(countable)
+
+    const link = screen.getByRole('link', { name: 'Visit the organiser’s website' })
+
+    expect(link).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website?count=no')
+    expect(link).toHaveAccessibleDescription(
+      'Opens swar-sadhana.example, which Desi-Event does not run. Visits by the event’s own team and Desi-Event staff are not counted.',
+    )
+  })
+
+  it('counts the website visit of a member of another organisation', async () => {
+    readSession.mockResolvedValue({
+      capabilities: [],
+      memberships: [{ organizationId: 'corgother00000000000002', role: 'OWNER' }],
+    })
+    await renderEvent(countable)
+
+    expect(screen.getByRole('link', { name: 'Visit the organiser’s website' })).toHaveAttribute(
+      'href',
+      '/events/qawwali-under-the-banyan/website',
+    )
   })
 })

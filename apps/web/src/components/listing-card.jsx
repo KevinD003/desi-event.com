@@ -30,6 +30,15 @@
  * there; the shadow still deepens on hover, because that is a change of state
  * rather than movement.
  *
+ * ## Counting a click
+ *
+ * Where a page passes `trafficPlacement` (the home page, the events list,
+ * search results), the title link carries `data-traffic-*` attributes naming
+ * the event, its organisation and the place. One listener on the page reads
+ * them and sends a beacon when the card is clicked: no cookie, and the click is
+ * counted without who made it. The card stays a server component. A card from
+ * sample data carries none, because its event does not exist.
+ *
  * @module components/listing-card
  */
 
@@ -39,6 +48,7 @@ import { categoryLabel } from '../lib/catalog.js'
 import { eventAvailability, startingPrice } from '../lib/event-availability.js'
 import { formatEventStart, toDateTimeAttribute } from '../lib/format.js'
 import { formatPrice } from '../lib/pricing.js'
+import { trafficAttributes } from '../lib/traffic-client.js'
 import { PersonIcon, PinIcon } from './icons.jsx'
 import { HoverLift, HoverZoom, Reveal } from './motion.jsx'
 import { EventArt } from './event-art.jsx'
@@ -105,6 +115,7 @@ function placeOf(event) {
  * @property {number} [index] Position in the grid, used to stagger the entrance.
  * @property {'h2'|'h3'} [headingLevel] Heading element for the title. Pick the level that keeps the page outline correct.
  * @property {string} [className] Classes for the list item, for a grid that sizes its items itself.
+ * @property {'HOME'|'LISTING'|'SEARCH'|null} [trafficPlacement] Where the card is shown, so a click on it is counted; null counts nothing.
  */
 
 /**
@@ -113,7 +124,13 @@ function placeOf(event) {
  * @param {EventCardProps} props Component props.
  * @returns {JSX.Element} The rendered card.
  */
-export function EventCard({ event, index = 0, headingLevel: Heading = 'h3', className = '' }) {
+export function EventCard({
+  event,
+  index = 0,
+  headingLevel: Heading = 'h3',
+  className = '',
+  trafficPlacement = null,
+}) {
   const price = startingPrice(event, formatPrice)
   const availability = eventAvailability(event)
   const free = price.amount === 'Free'
@@ -147,6 +164,14 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3', clas
             <Heading className="mt-2 text-h3 font-semibold text-ink">
               <Link
                 href={`/events/${event.slug}`}
+                {...(trafficPlacement
+                  ? trafficAttributes({
+                      kind: 'CARD_CLICK',
+                      eventId: event.id,
+                      organizationId: event.organizationId,
+                      placement: trafficPlacement,
+                    })
+                  : {})}
                 className="transition-colors duration-(--duration-fast) group-hover:text-accent-strong after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
               >
                 {event.title}
@@ -196,6 +221,7 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3', clas
  * @property {string} label Accessible name for the list, e.g. `Upcoming events`.
  * @property {'h2'|'h3'} [headingLevel] Heading element used inside each card.
  * @property {'grid'|'rail'} [layout] A wrapping grid (the default), or — for a short featured row — a rail that scrolls sideways on a phone and becomes a four-up grid on a wide screen.
+ * @property {'HOME'|'LISTING'|'SEARCH'|null} [trafficPlacement] Where the grid is shown, passed to every card; null counts nothing.
  */
 
 /**
@@ -211,7 +237,13 @@ export function EventCard({ event, index = 0, headingLevel: Heading = 'h3', clas
  * @param {EventGridProps} props Component props.
  * @returns {JSX.Element} The rendered grid.
  */
-export function EventGrid({ events, label, headingLevel = 'h3', layout = 'grid' }) {
+export function EventGrid({
+  events,
+  label,
+  headingLevel = 'h3',
+  layout = 'grid',
+  trafficPlacement = null,
+}) {
   const rail = layout === 'rail'
 
   return (
@@ -230,6 +262,7 @@ export function EventGrid({ events, label, headingLevel = 'h3', layout = 'grid' 
           index={index}
           headingLevel={headingLevel}
           className={rail ? 'w-[82%] max-w-80 shrink-0 snap-start sm:w-auto sm:max-w-none' : ''}
+          trafficPlacement={trafficPlacement}
         />
       ))}
     </ul>

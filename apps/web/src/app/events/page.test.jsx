@@ -15,6 +15,13 @@ vi.mock('../../lib/api.js', () => ({
   loadEventList: vi.fn(),
   loadCatalogueFacets: vi.fn(),
 }))
+// The visit counting reads the session, which only a request has; it is
+// tested on its own (`components/traffic-scope.test.jsx`). Here it is a marker.
+vi.mock('../../components/traffic-scope.jsx', () => ({
+  TrafficScope: ({ view = null }) => (
+    <span data-testid="traffic-scope" data-view={JSON.stringify(view)} />
+  ),
+}))
 
 const { loadCatalogueFacets, loadEventList } = await import('../../lib/api.js')
 const { sampleEventSummaries } = await import('../../lib/sample-data.js')
@@ -179,5 +186,48 @@ describe('the listing', () => {
   it('describes the catalogue as it is now', () => {
     expect(metadata.title).toBe('All events')
     expect(metadata.description).toMatch(/garba/i)
+  })
+})
+
+describe('counting clicks on the listing', () => {
+  /**
+   * Summaries with database-shaped ids, as the API sends them.
+   *
+   * @returns {object[]} The summaries.
+   */
+  const counted = () =>
+    sampleEventSummaries()
+      .slice(0, 3)
+      .map((event, index) => ({
+        ...event,
+        id: `clistevent${String(index).padStart(14, '0')}`,
+        organizationId: 'corgalpha00000000000001',
+      }))
+
+  it('counts a card click as from the events list, scoped once for the page', async () => {
+    await draw({ events: counted() })
+
+    const links = within(screen.getByRole('list', { name: 'Matching events' })).getAllByRole('link')
+
+    expect(links.map((link) => link.dataset.trafficPlacement)).toEqual([
+      'LISTING',
+      'LISTING',
+      'LISTING',
+    ])
+    expect(screen.getAllByTestId('traffic-scope')).toHaveLength(1)
+  })
+
+  it('counts a card click as from search results when the visitor searched', async () => {
+    await draw({ events: counted(), query: { q: 'garba' } })
+
+    const links = within(screen.getByRole('list', { name: 'Matching events' })).getAllByRole('link')
+
+    expect(links.every((link) => link.dataset.trafficPlacement === 'SEARCH')).toBe(true)
+  })
+
+  it('counts nothing on sample data', async () => {
+    await draw({ events: counted(), usedFallback: true })
+
+    expect(document.querySelectorAll('[data-traffic-kind]')).toHaveLength(0)
   })
 })

@@ -71,11 +71,58 @@ export const FORBIDDEN = Object.freeze({
     'the role-to-capability tables, platform and organisation: which role may refund, pay out, moderate or change a platform role. A screen that needs a role\u2019s name gets it from a narrow schemas subpath, and what a role may do from the API\u2019s answer.',
   'packages/permissions/src/index.js':
     'the permissions barrel, which re-exports the capability tables above and the door-authority policy. Client code never decides what somebody may do; the API does, and says so.',
+  'packages/schemas/src/organizer-invitations.js':
+    'the organiser-invitation schemas: the administrators\u2019 whole form contract, the private note to the recipient included. The letter a screen shows comes from @desi-event/schemas/code-letters, which imports nothing and is allowed.',
+  'packages/providers/src/smtp.js':
+    'the SMTP adapter: nodemailer, the mail server\u2019s address and the credentials used to sign in to it.',
+  'apps/api/src/lib/code-mailer.js':
+    'composes and sends show-once codes by email. A code reaches the recipient\u2019s mailbox and nowhere else.',
+  'apps/web/src/lib/traffic-forwarding.js':
+    'derives a visitor\u2019s address from the trusted proxy hops (TRAFFIC_TRUSTED_PROXY_HOPS) and forwards it to the API. It runs on the web server only; in a browser it would hand the address to whoever reads the bundle.',
   'packages/db/': 'Prisma, the schema, and anything that can open a connection.',
   'packages/providers/': 'payment provider adapters, which hold secret-key handling.',
   'packages/ledger/': 'double-entry posting rules. Server-side money, never client-side.',
   'apps/api/': 'the API server itself.',
 })
+
+/**
+ * Capability names a browser must never carry, with why.
+ *
+ * A capability *name* in a client module is the shape of the administrative
+ * surface drawn for anybody who opens devtools: which privileged routes exist
+ * and what each wants. Client components are given booleans ("may this person
+ * invite?") by the Server Component that decided, never the name it decided by.
+ * The artefact scan (`scripts/scan-browser-bundle.mjs`) forbids the same names
+ * in a build; this refuses them in the source, before one.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
+  'platform:admin': 'the super administrators\u2019 capability.',
+  'organizer:invite': 'who may invite an organiser to post events (SPEC2 \u00a70.2).',
+  'website_redirect:manage':
+    'who may switch an event\u2019s website link on or off (SPEC2 \u00a70.2).',
+  'analytics:view_all':
+    'who may read every event\u2019s visits across the platform (SPEC2 \u00a70.2).',
+  'moderation:review': 'who decides whether an event is published.',
+  'payout:manage': 'who moves an organiser\u2019s money.',
+  'ledger:manage': 'who may adjust the ledger.',
+})
+
+/**
+ * The forbidden capability names a module's code (comments aside) contains.
+ *
+ * Comments are left out because a minifier drops them: a docstring explaining
+ * that a page is for `organizer:invite` holders ships nothing.
+ *
+ * @param {string} source The module's text.
+ * @returns {string[]} The names found, in {@link FORBIDDEN_CLIENT_LITERALS} order.
+ */
+export function forbiddenLiteralsIn(source) {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1')
+
+  return Object.keys(FORBIDDEN_CLIENT_LITERALS).filter((literal) => code.includes(literal))
+}
 
 /** Where a bare workspace specifier resolves to. */
 const WORKSPACE_PACKAGES = Object.freeze({

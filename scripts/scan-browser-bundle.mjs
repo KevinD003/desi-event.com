@@ -104,6 +104,16 @@ const FORBIDDEN = [
       ['TICKET_HOLD_TTL_SECONDS', 'TICKET_HOLD_TTL_SECONDS'],
       ['ALLOW_DEMO_TAX_IN_PRODUCTION', 'ALLOW_DEMO_TAX_IN_PRODUCTION'],
       ['rate-limit budget', 'RATE_LIMIT_MAX'],
+      // The mail server the API emails codes through, and its credentials.
+      ['SMTP_PASSWORD', 'SMTP_PASSWORD'],
+      ['SMTP_HOST', 'SMTP_HOST'],
+      ['SMTP_USER', 'SMTP_USER'],
+      ['SMTP_REQUIRE_TLS', 'SMTP_REQUIRE_TLS'],
+      // Who the API believes about a visitor's address, and how many proxies
+      // the web tier trusts: the trust chain of visit counting.
+      ['TRAFFIC_TRUSTED_FORWARDERS', 'TRAFFIC_TRUSTED_FORWARDERS'],
+      ['TRAFFIC_TRUSTED_PROXY_HOPS', 'TRAFFIC_TRUSTED_PROXY_HOPS'],
+      ['TRAFFIC_BEACON_MAX_PER_MINUTE', 'TRAFFIC_BEACON_MAX_PER_MINUTE'],
     ],
   },
   {
@@ -115,6 +125,7 @@ const FORBIDDEN = [
       ['job: issue-tickets', 'issue-tickets'],
       ['notification template: event.changed', 'event.changed:'],
       ['notification template: event.cancelled', 'event.cancelled:'],
+      ['job: roll-up-traffic', 'roll-up-traffic'],
     ],
   },
   {
@@ -132,6 +143,10 @@ const FORBIDDEN = [
       ['capability: payout:manage', 'payout:manage'],
       ['capability: ledger:manage', 'ledger:manage'],
       ['capability: platform:admin', 'platform:admin'],
+      // SPEC2 §0.2: client components are given booleans, never these names.
+      ['capability: organizer:invite', 'organizer:invite'],
+      ['capability: website_redirect:manage', 'website_redirect:manage'],
+      ['capability: analytics:view_all', 'analytics:view_all'],
       ['step-up policy name on a route', 'capabilityScope'],
     ],
   },
@@ -218,6 +233,10 @@ const FORBIDDEN = [
       // secret scanner looks for.
       ['Stripe secret key prefix', new RegExp(['sk', 'live'].join('_'))],
       ['Stripe webhook secret prefix', new RegExp(['whsec', ''].join('_'))],
+      // The mail adapter. The browser never sends mail; a code is shown once
+      // in a response or reaches the recipient's mailbox, nowhere else.
+      ['SMTP adapter', 'createSmtpEmailProvider'],
+      ['nodemailer', 'nodemailer'],
     ],
   },
   {
@@ -337,6 +356,53 @@ const FORBIDDEN = [
       ['promo quote limiter', 'quoteRateLimit'],
     ],
   },
+  {
+    /*
+     * Invite-only organisers and the review gate (SPEC2 §4.P). Which roles post
+     * events, who may review whom, and the database's own refusal are the
+     * server's rules; a screen is told the answer ("roleChoices", a 403) and
+     * never the rule. The letter beside a show-once code is allowed: it is
+     * built by `@desi-event/schemas/code-letters`, which imports nothing.
+     */
+    group: 'organiser onboarding (server-only)',
+    markers: [
+      ['posting-role derivation', 'EVENT_POSTING_ORG_ROLES'],
+      ['owner-grantable roles table', 'OWNER_GRANTABLE_ORG_ROLES'],
+      ['platform administrator bound', 'PLATFORM_ADMINISTRATOR_CAPABILITIES'],
+      ['review independence', 'assertIndependentReviewer'],
+      ['review gate constraint', 'event_public_requires_review'],
+    ],
+  },
+  {
+    /*
+     * Visit counting (SPEC2 §4.N). How a visitor code is made, how repeats are
+     * folded, and where the API learns an address are what somebody gaming the
+     * figures would want to read. The beacon helper in the browser knows the
+     * vocabulary and the path, and nothing else.
+     */
+    group: 'visit counting internals (server-only)',
+    markers: [
+      ['visitor code column', 'visitorHash'],
+      ['repeat-visit digest', 'dedupeKey'],
+      ['forwarded visitor address header', 'x-desi-client-address'],
+      ['visit recorder', 'recordTrafficEvent'],
+      ['per-visitor rate key', 'visitorRateKey'],
+      ['visit roll-up', 'runTrafficRollup'],
+    ],
+  },
+  {
+    /*
+     * The website link (SPEC2 §4.W). The one writer of the switch, and the
+     * server-to-server lookup a browser is refused (the proxy answers 404 for
+     * it); the web route alone asks where a link goes, and re-checks the
+     * answer before it sends anybody there.
+     */
+    group: 'website link decision (server-only)',
+    markers: [
+      ['switch writer', 'decideWebsiteRedirect'],
+      ['server-only lookup path', '/v1/traffic/website-visits'],
+    ],
+  },
 ]
 
 /**
@@ -411,6 +477,15 @@ const REQUIRED = [
   ['group door lookup path', '/v1/tickets/admission/group/preview'],
   ['group door admission path', '/v1/tickets/admission/group/check-in'],
   ['platform account search path', '/v1/platform/users/search'],
+  // Invite-only organisers: the administrators' invite, withdraw and reissue,
+  // and the recipient's accept. Each is issued by a client component.
+  ['organiser invitation path', '/v1/platform/organizer-invitations'],
+  ['organiser invitation acceptance path', '/v1/organizer-invitations/accept'],
+  // The administrators' website-link switch, posted from the review page.
+  ['website link decision path', '/website-redirect'],
+  // Visit counting: a build without the beacon path counts nothing and would
+  // still pass every check above.
+  ['visit beacon path', '/v1/traffic/beacons'],
 ]
 
 /**

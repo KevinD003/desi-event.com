@@ -15,6 +15,7 @@
  */
 
 import { cookies, headers } from 'next/headers'
+import { cache } from 'react'
 
 import { getApiBaseUrl } from './api-client.js'
 
@@ -30,9 +31,15 @@ const TIMEOUT_MS = 2500
  * would only tempt a caller into rendering something for a case it cannot
  * actually serve.
  *
+ * Wrapped in React's `cache`, so every server component that asks during one
+ * request — the area layout, the header, the page, the visit counting — shares
+ * one answer and the API is asked once. The memo lives for that request only
+ * and is never shared between requests, so one person's session cannot be
+ * served to another.
+ *
  * @returns {Promise<object|null>} The session payload, or null when there is none.
  */
-export async function readSession() {
+export const readSession = cache(async function readSession() {
   const jar = await cookies()
   const cookieHeader = jar
     .getAll()
@@ -56,7 +63,7 @@ export async function readSession() {
   } catch {
     return null
   }
-}
+})
 
 export {
   authoringOrganizations,

@@ -84,6 +84,7 @@ const AREA_OF = Object.freeze({
   '/organizer/team': 'organizer',
   '/organizer/promo-codes': 'organizer',
   '/analytics': 'analytics',
+  '/analytics/events': 'analytics',
   '/finance': 'finance',
   '/operations': 'operations',
   '/operations/notifications': 'operations',
@@ -356,6 +357,33 @@ describe('workspace offers, by role', () => {
 
     expect(trust.items.find((item) => item.href === '/moderation/websites').label).toBe(
       'Website links',
+    )
+  })
+
+  it('offers analytics and every event’s visits to a platform administrator and a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      const items = offered(platform(role))
+      const platformViewer = role === 'ADMIN' || role === 'SUPER_ADMIN'
+
+      expect(items.includes('/analytics'), role).toBe(platformViewer)
+      expect(items.includes('/analytics/events'), role).toBe(platformViewer)
+    }
+
+    // An organisation's people see their own analytics and never the platform list.
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/analytics/events')
+    }
+
+    expect(offered(member('VIEWER'))).toContain('/analytics')
+  })
+
+  it('lists every event’s visits right after analytics, by its name', () => {
+    const events = workspaceGroups(platform('ADMIN')).find((group) => group.id === 'events')
+    const hrefs = events.items.map((item) => item.href)
+
+    expect(hrefs.indexOf('/analytics/events')).toBe(hrefs.indexOf('/analytics') + 1)
+    expect(events.items.find((item) => item.href === '/analytics/events').label).toBe(
+      'Every event’s visits',
     )
   })
 

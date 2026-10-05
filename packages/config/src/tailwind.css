@@ -333,6 +333,18 @@
   --color-opsnav-active-ink: oklch(0.24 0.07 305);
   --color-opsnav-marker: oklch(0.62 0.15 62);
   --color-opsnav-line: oklch(0.922 0.008 305);
+
+  /*
+   * Chart series: the visits chart's page views (bars) and visitors (a line
+   * with markers). Validated as a pair with the data-visualisation palette
+   * validator against white and both page grounds: inside the lightness band,
+   * above the chroma floor, colour-blind separation ΔE 20 and normal-vision
+   * ΔE 28, and at least 3:1 against what they are drawn on (WCAG 1.4.11).
+   * Marks only: text never wears a series colour. Not redefined by the
+   * courtyard register, so a series is the same colour wherever it is drawn.
+   */
+  --color-chart-views: oklch(0.52 0.13 230);
+  --color-chart-visitors: oklch(0.62 0.16 60);
   /*
    * Motion. Three durations and one easing, and nothing else — a product with
    * a dozen timings reads as a dozen products. The range is 120-250ms because

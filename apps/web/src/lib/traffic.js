@@ -13,6 +13,15 @@
  * @module lib/traffic
  */
 
+import { statusReading } from './event-status.js'
+import {
+  ONLY_THE_TEAM,
+  administratorSummary,
+  formatDecisionInstant,
+  organiserSummary,
+} from './website-redirect.js'
+import { websiteHost } from './website.js'
+
 /** The periods a screen offers, latest days first. */
 export const PERIODS = Object.freeze([
   Object.freeze({ key: '7', label: 'Last 7 days', days: 7 }),
@@ -170,4 +179,90 @@ export function freshness({ updatedAt = null, stale = false } = {}) {
   }
 
   return { tone: 'fresh', sentence: runsTo }
+}
+
+/**
+ * Whether a page leaves a view or a click on one organisation's event
+ * uncounted for this reader.
+ *
+ * @param {{excludeAll: boolean, excludedOrganizationIds: string[]}} exclusion From {@link trafficExclusion}.
+ * @param {string|null|undefined} organizationId Whose event it is.
+ * @returns {boolean} True when nothing about this event is counted for this reader.
+ */
+export function excludesEvent(exclusion, organizationId) {
+  if (exclusion?.excludeAll) return true
+
+  return (
+    typeof organizationId === 'string' &&
+    (exclusion?.excludedOrganizationIds ?? []).includes(organizationId)
+  )
+}
+
+/**
+ * An event's state in a visits table: "Deleted" for a deleted event, which is
+ * listed because it was seen and sold before it was taken down, and otherwise
+ * the organiser's word for its status.
+ *
+ * @param {{status: string, deleted?: boolean}} row A row of the API's visit lists.
+ * @returns {string} The word.
+ */
+export function trafficStatusLabel(row) {
+  if (row?.deleted === true || row?.status === 'DELETED') return 'Deleted'
+
+  return statusReading(row?.status).label
+}
+
+/**
+ * The website link's state in one line, for an event's analytics.
+ *
+ * The organiser's own sentence where it reads true without the address in
+ * front of the reader (the analytics payload carries the switch, not the
+ * address the organiser typed): "on, with a change waiting" does not say
+ * whether the address was changed or cleared, and "never decided, no address"
+ * does not point at a field that is not on this page.
+ *
+ * A platform administrator reading another organisation's event is not told
+ * about "your event page": they get the administrators' wording, the one the
+ * review page and the list of website links use.
+ *
+ * @param {{websiteLinkOn: boolean, websiteRedirect: object|null}|null} event The analytics' narrowed event.
+ * @param {object} [options] Options.
+ * @param {function(string): string} [options.formatInstant] How an instant is shown.
+ * @param {'organiser'|'administrator'} [options.reader] Who reads the line: the
+ *   organisation's own team, or a platform administrator from outside it.
+ * @returns {string} The line, starting "Website link:".
+ */
+export function websiteLinkLine(
+  event,
+  { formatInstant = formatDecisionInstant, reader = 'organiser' } = {},
+) {
+  const state = event?.websiteRedirect ?? null
+
+  if (!state) {
+    return `Website link: ${event?.websiteLinkOn ? 'On' : 'Off'}. Only the Desi-Event team can turn it on or off.`
+  }
+
+  if (state.enabled && state.pending) {
+    const decidedHost = websiteHost(state.decidedUrl) ?? 'the approved address'
+
+    return `Website link: On since ${formatInstant(state.changedAt)}, going to ${decidedHost}. A change to the event’s website address is on the Desi-Event team’s list to look at; until an administrator decides on it, the link keeps going to ${decidedHost}. ${ONLY_THE_TEAM}`
+  }
+
+  if (!state.enabled && !state.pending && !state.changedAt) {
+    return `Website link: Off. This event has no website address for the Desi-Event team to link to; one can be added in the event’s editor. ${ONLY_THE_TEAM}`
+  }
+
+  // The cases left never reach the administrators' sentence about a changed
+  // or removed address (that is the on-with-a-change-waiting case above).
+  if (reader === 'administrator') {
+    return `Website link: ${[...administratorSummary(state, { formatInstant }).sentences, ONLY_THE_TEAM].join(' ')}`
+  }
+
+  // Every sentence but the one about the address rules, which points at the
+  // editor's field ("change it above"), and the closing line, said once here.
+  const sentences = organiserSummary(state, { formatInstant }).sentences.filter(
+    (sentence) => sentence !== ONLY_THE_TEAM && !sentence.startsWith('Your address does not pass'),
+  )
+
+  return `Website link: ${[...sentences, ONLY_THE_TEAM].join(' ')}`
 }

@@ -19,6 +19,14 @@ vi.mock('../lib/api.js', () => ({
   loadCatalogueOverview: vi.fn(),
   loadCatalogueFacets: vi.fn(),
 }))
+// The visit counting reads the session, which only a request has; it is
+// tested on its own (`components/traffic-scope.test.jsx`). Here it is a marker,
+// so the page can be checked for rendering it, once.
+vi.mock('../components/traffic-scope.jsx', () => ({
+  TrafficScope: ({ view = null }) => (
+    <span data-testid="traffic-scope" data-view={JSON.stringify(view)} />
+  ),
+}))
 
 const { loadCatalogueFacets, loadCatalogueOverview } = await import('../lib/api.js')
 const { sampleEventSummaries } = await import('../lib/sample-data.js')
@@ -267,5 +275,38 @@ describe('the home page', () => {
 
     expect(screen.getByText(/Nothing is listed right now/)).toBeInTheDocument()
     expect(screen.queryByRole('list', { name: 'Upcoming events' })).toBeNull()
+  })
+})
+
+describe('counting clicks on the home page', () => {
+  it('counts the cards and the next night, scoped once for the page', async () => {
+    const events = sampleEventSummaries().map((event, index) => ({
+      ...event,
+      id: `chomeevent${String(index).padStart(14, '0')}`,
+      organizationId: 'corgalpha00000000000001',
+    }))
+
+    await draw({ events })
+
+    expect(screen.getAllByTestId('traffic-scope')).toHaveLength(1)
+    expect(screen.getByTestId('traffic-scope').dataset.view).toBe('null')
+
+    const rail = screen.getByRole('list', { name: 'Upcoming events' })
+    const cardLinks = within(rail).getAllByRole('link')
+
+    expect(cardLinks.length).toBeGreaterThan(0)
+    expect(cardLinks.every((link) => link.dataset.trafficPlacement === 'HOME')).toBe(true)
+    expect(cardLinks.every((link) => link.dataset.trafficKind === 'CARD_CLICK')).toBe(true)
+
+    // The hero's "next night" link is a card click on the home page too.
+    const marked = [...document.querySelectorAll('a[data-traffic-kind]')]
+
+    expect(marked.length).toBe(cardLinks.length + 1)
+  })
+
+  it('counts nothing on sample data, whose events do not exist', async () => {
+    await draw({ usedFallback: true })
+
+    expect(document.querySelectorAll('[data-traffic-kind]')).toHaveLength(0)
   })
 })

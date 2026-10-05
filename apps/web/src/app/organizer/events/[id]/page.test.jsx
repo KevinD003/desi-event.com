@@ -207,3 +207,57 @@ describe('booking from a hidden tier, on the editor page', () => {
     expect(screen.queryByTestId('team-booking-panel')).toBeNull()
   })
 })
+
+describe('the link to the event’s visits and sales', () => {
+  beforeEach(() => {
+    readSession.mockReset()
+    api.getOrganizerEvent.mockResolvedValue(EVENT)
+    api.getEventMedia.mockResolvedValue({ data: [], meta: { revision: 3 } })
+  })
+
+  /**
+   * Render the editor page for a session.
+   *
+   * @param {object|null} session The session.
+   * @returns {Promise<void>} Resolves once rendered.
+   */
+  async function renderFor(session) {
+    readSession.mockResolvedValue(session)
+    render(await EditEventPage({ params: Promise.resolve({ id: EVENT.id }) }))
+  }
+
+  it('links a member who may read the organisation’s reports to this event’s figures', async () => {
+    await renderFor({
+      user: { id: 'u1' },
+      capabilities: [],
+      memberships: [{ organizationId: EVENT.organizationId, capabilities: ['report:view'] }],
+    })
+
+    expect(screen.getByRole('link', { name: 'Visits and sales for this event' })).toHaveAttribute(
+      'href',
+      '/analytics?organizationId=org1&eventId=evtqawwalibanyan',
+    )
+  })
+
+  it('links a platform administrator too, whose report:view holds in every organisation', async () => {
+    await renderFor({
+      user: { id: 'u2' },
+      capabilities: ['report:view', 'analytics:view_all', 'moderation:review'],
+      memberships: [],
+    })
+
+    expect(
+      screen.getByRole('link', { name: 'Visits and sales for this event' }),
+    ).toBeInTheDocument()
+  })
+
+  it('offers nothing to a member who may not read reports, such as a scanner', async () => {
+    await renderFor({
+      user: { id: 'u3' },
+      capabilities: [],
+      memberships: [{ organizationId: EVENT.organizationId, capabilities: ['ticket:check_in'] }],
+    })
+
+    expect(screen.queryByRole('link', { name: 'Visits and sales for this event' })).toBeNull()
+  })
+})

@@ -34,6 +34,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from '../lib/audit.js'
 import { conflict, httpError, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug, slugify } from '../lib/identifiers.js'
+import { equalsIgnoringCase, likeLiteral } from '../lib/like-pattern.js'
 import {
   EVENT_SUMMARY_SELECT,
   isPublicTier,
@@ -255,7 +256,7 @@ export function searchTerms(q) {
 export async function resolveSearchTerms(prisma, q) {
   return Promise.all(
     searchTerms(q).map(async (term) => {
-      const contains = { contains: term, mode: 'insensitive' }
+      const contains = { contains: likeLiteral(term), mode: 'insensitive' }
       const [venues, organizations] = await Promise.all([
         prisma.venue.findMany({
           where: { OR: [{ name: contains }, { city: contains }] },
@@ -288,7 +289,9 @@ export async function resolveSearchTerms(prisma, q) {
  * @returns {object} A Prisma `where` fragment.
  */
 function searchCondition(term, resolved) {
-  const contains = { contains: term, mode: 'insensitive' }
+  // A LIKE pattern underneath, so the word's own `_` and `%` are escaped:
+  // a search for `100%` is a search for those four characters.
+  const contains = { contains: likeLiteral(term), mode: 'insensitive' }
   const venue = resolved?.venueIds
     ? { venueId: { in: resolved.venueIds } }
     : { venue: { OR: [{ name: contains }, { city: contains }] } }
@@ -324,7 +327,8 @@ export function buildEventQuery(query, actor, { search = [] } = {}) {
   if (query.category) conditions.push({ category: query.category })
   if (query.organizationId) conditions.push({ organizationId: query.organizationId })
   if (query.isOnline !== undefined) conditions.push({ isOnline: query.isOnline })
-  if (query.city) conditions.push({ venue: { city: { equals: query.city, mode: 'insensitive' } } })
+  // Case-insensitive equality runs as ILIKE, so the city is escaped first.
+  if (query.city) conditions.push({ venue: { city: equalsIgnoringCase(query.city) } })
 
   // Every word has to turn up somewhere a visitor would describe the event
   // by: its own text, its venue, the venue's city or its organiser. So

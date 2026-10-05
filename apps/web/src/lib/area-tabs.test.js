@@ -9,7 +9,13 @@ import { describe, expect, it } from 'vitest'
 
 import { ORG_ROLE_CAPABILITIES, PLATFORM_ROLE_CAPABILITIES } from '@desi-event/permissions'
 
-import { adminTabs, financeTabs, moderationTabs, operationsTabs } from './area-tabs.js'
+import {
+  adminTabs,
+  analyticsTabs,
+  financeTabs,
+  moderationTabs,
+  operationsTabs,
+} from './area-tabs.js'
 
 /**
  * A session holding one organisation role.
@@ -146,5 +152,51 @@ describe('adminTabs', () => {
     }
 
     expect(adminTabs(null)).toEqual([])
+  })
+})
+
+describe('analyticsTabs', () => {
+  const BOTH = [
+    { href: '/analytics', label: 'Your organisations' },
+    { href: '/analytics/events', label: 'Every event' },
+  ]
+
+  it('offers both sections to a platform administrator who also belongs to an organisation', () => {
+    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
+      const session = { ...member('VIEWER'), capabilities: [...PLATFORM_ROLE_CAPABILITIES[role]] }
+
+      expect(analyticsTabs(session), role).toEqual(BOTH)
+    }
+  })
+
+  it('offers no tab bar to somebody with only one of the two', () => {
+    // An organiser has only their own figures.
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(analyticsTabs(member(role)), role).toEqual([])
+    }
+
+    // A platform administrator with no organisation has only the platform list.
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(analyticsTabs(platform(role)), role).toEqual([])
+    }
+
+    expect(analyticsTabs(null)).toEqual([])
+  })
+
+  it('counts an organisation the page would list, as the page’s picker does', () => {
+    // A platform administrator's report:view holds in every organisation, so a
+    // scanner membership is one whose figures the page lists for them.
+    const adminScanner = {
+      ...member('SCANNER'),
+      capabilities: [...PLATFORM_ROLE_CAPABILITIES.ADMIN],
+    }
+    // A moderator holds neither.
+    const moderatorScanner = {
+      ...member('SCANNER'),
+      capabilities: [...PLATFORM_ROLE_CAPABILITIES.MODERATOR],
+    }
+
+    expect(analyticsTabs(adminScanner)).toEqual(BOTH)
+    expect(analyticsTabs(moderatorScanner)).toEqual([])
   })
 })

@@ -88,6 +88,35 @@ export function moderationTabs(session) {
 }
 
 /**
+ * The analytics area's sections: the organisation's own figures and every
+ * event's visits.
+ *
+ * Shown only to somebody who has both. An organiser has only the first and a
+ * platform administrator with no organisation only the second; a tab bar with
+ * one tab in it would be a heading pretending to be a choice. The platform
+ * list's capability is held by platform administrators and super
+ * administrators alone; the literal stays in this server module.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Tab[]} The tabs, the organisation's own first; empty for one of the two.
+ */
+export function analyticsTabs(session) {
+  // The same question the page's organisation picker asks, so the tab is
+  // offered exactly when that picker has something in it.
+  const own = (session?.memberships ?? []).some((membership) =>
+    sessionCan(session, 'report:view', membership.organizationId),
+  )
+  const all = sessionCan(session, 'analytics:view_all')
+
+  return own && all
+    ? [
+        { href: '/analytics', label: 'Your organisations' },
+        { href: '/analytics/events', label: 'Every event' },
+      ]
+    : []
+}
+
+/**
  * The platform administration area's sections.
  *
  * Inviting organisers is held by `organizer:invite` (platform administrators

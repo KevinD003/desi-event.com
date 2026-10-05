@@ -17,6 +17,7 @@
 import Link from 'next/link'
 
 import { formatTimeZoneLabel, toDateTimeAttribute } from '../lib/format.js'
+import { trafficAttributes } from '../lib/traffic-client.js'
 import {
   formatNightTime,
   sessionDisplayLabel,
@@ -75,6 +76,7 @@ function withZone(reading, value, timezone, zoned) {
  * @property {boolean} [buyable] Whether the event itself is selling.
  * @property {object[]} [ticketTypes] The event's tiers, to tell a sold-out seated night from one not selling now.
  * @property {Date} [now] The moment in question.
+ * @property {{eventId: string, organizationId?: string}|null} [traffic] The event, when a click on "Choose seats" is counted; null counts nothing.
  */
 
 /**
@@ -89,6 +91,7 @@ export function SessionList({
   buyable = true,
   ticketTypes = [],
   now = new Date(),
+  traffic = null,
 }) {
   const zone = sessions[0]
     ? formatTimeZoneLabel({ startsAt: sessions[0].startsAt, timezone: sessions[0].timezone })
@@ -159,6 +162,13 @@ export function SessionList({
                 <p className="mt-3 text-sm">
                   <Link
                     href={`/events/${encodeURIComponent(eventSlug)}/seats/${encodeURIComponent(session.id)}`}
+                    {...(traffic
+                      ? trafficAttributes({
+                          kind: 'SEATS_CLICK',
+                          ...traffic,
+                          placement: 'EVENT_PAGE',
+                        })
+                      : {})}
                     className={TEXT_LINK}
                   >
                     Choose seats for {sessionDisplayLabel(session)}

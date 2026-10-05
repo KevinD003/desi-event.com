@@ -31,12 +31,28 @@ import { apiRoutes, buildOpenApiDocument } from '@desi-event/api-contract'
 import { apiRouteManifest } from '@desi-event/api-contract/manifest'
 import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
+import { analyticsTrafficSchema, trafficEventListResponseSchema } from '@desi-event/schemas'
+import { ACTORS, PUBLICLY_VISIBLE_STATUSES, TRANSITIONS } from '@desi-event/schemas/lifecycle'
 
 import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
 import { toConnectStatus } from '../src/lib/connect.js'
 import { toDispute, toEvidence, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
 import { mediaReadRateLimit, mediaUploadRateLimit } from '../src/plugins/rate-limit.js'
 import { bearer, createTestApp, signIn } from './helpers/app.js'
+import {
+  WRITE_OPERATIONS,
+  delegateCalls,
+  functionRange,
+  namesColumn,
+  rawWrites,
+  readCode,
+  relationsTo,
+  routeRegistrations,
+  sourceFiles,
+  withoutComments,
+  writesTo,
+  writtenFields,
+} from './helpers/source-scan.js'
 
 /** The organisation's owner, who holds `finance:view`. */
 const OWNER = 'owner@rangoli.example'
@@ -905,6 +921,17 @@ describe('the surfaces added for feature completion', () => {
     'teams.transferOwnership',
     'tickets.checkInGroup',
     'tickets.previewGroupAdmission',
+    // Invite-only organisers, the website link and visit counting (SPEC2 §3.3).
+    'moderation.setWebsiteRedirect',
+    'moderation.websiteLinks',
+    'organizerInvitations.accept',
+    'organizerInvitations.create',
+    'organizerInvitations.list',
+    'organizerInvitations.reissue',
+    'organizerInvitations.revoke',
+    'traffic.beacon',
+    'traffic.events',
+    'traffic.websiteVisit',
   ]
 
   /**
@@ -1117,5 +1144,954 @@ describe('the surfaces added for feature completion', () => {
         id,
       ).toContain('RATE_LIMITED')
     }
+  })
+})
+
+/**
+ * Every key a zod schema can produce, at any depth.
+ *
+ * Walks the definition generically — object shapes, and every child schema a
+ * wrapper, an array, a union or a pipe holds — so a key added three levels down
+ * in a nullable array of objects is still seen.
+ *
+ * @param {unknown} schema A zod schema.
+ * @param {Set<string>} [keys] Where to collect.
+ * @param {Set<unknown>} [seen] Schemas already walked.
+ * @returns {Set<string>} The keys.
+ */
+function schemaKeys(schema, keys = new Set(), seen = new Set()) {
+  if (!schema || typeof schema !== 'object' || seen.has(schema)) return keys
+
+  seen.add(schema)
+
+  const definition = schema._zod?.def ?? schema._def
+
+  if (!definition) return keys
+
+  const shape = typeof definition.shape === 'function' ? definition.shape() : definition.shape
+
+  if (shape) {
+    for (const [key, child] of Object.entries(shape)) {
+      keys.add(key)
+      schemaKeys(child, keys, seen)
+    }
+  }
+
+  for (const [name, value] of Object.entries(definition)) {
+    if (name === 'shape') continue
+
+    for (const child of Array.isArray(value) ? value : [value]) {
+      if (child && typeof child === 'object' && (child._zod || child._def)) {
+        schemaKeys(child, keys, seen)
+      }
+    }
+  }
+
+  if (typeof definition.getter === 'function') schemaKeys(definition.getter(), keys, seen)
+
+  return keys
+}
+
+/**
+ * A contract route by id.
+ *
+ * @param {string} id The route id.
+ * @returns {object} The route.
+ */
+function routeById(id) {
+  const route = apiRoutes.find((candidate) => candidate.id === id)
+
+  expect(route, `${id} is not in the contract`).toBeDefined()
+
+  return route
+}
+
+describe('the source scans themselves', () => {
+  // A scan that silently matches nothing passes forever. Each detector is fed
+  // the mistake it exists for, and the read it must not mistake for a write.
+  it('finds a write, with the columns in its data, and not a read', () => {
+    const code = withoutComments(`
+      // prisma.event.create({ data: { status: 'PUBLISHED' } }) in a comment is no call.
+      await tx.event.update({ where: { status: 'DRAFT' }, data: { websiteRedirectEnabled: true } })
+      await prisma.event.findUnique({ where: { id }, select: { websiteRedirectEnabled: true } })
+      await db.event.upsert({ where: { slug }, create: { status }, update: { title: '(x)' } })
+    `)
+    const writes = delegateCalls(code, 'event', WRITE_OPERATIONS)
+
+    expect(writes.map((call) => call.operation)).toEqual(['update', 'upsert'])
+    expect([...writtenFields(writes[0].args).fields]).toEqual(['websiteRedirectEnabled'])
+    // `where: { status }` is a read; `create: { status }` (shorthand) is a write.
+    expect(writtenFields(writes[1].args).fields.has('status')).toBe(true)
+    expect(writtenFields(writes[1].args).fields.has('slug')).toBe(false)
+  })
+
+  it('says when a write is built elsewhere, rather than guessing', () => {
+    const [call] = delegateCalls(
+      'tx.event.updateMany({ where: { id }, data: stampsFor({ to }) })',
+      'event',
+      WRITE_OPERATIONS,
+    )
+
+    expect(writtenFields(call.args)).toEqual({ fields: new Set(), opaque: true })
+  })
+
+  it('takes a shorthand row, a spread, a computed key or an argument that is no literal as built elsewhere', () => {
+    for (const code of [
+      'tx.event.update({ where: { id }, data })',
+      'prisma.event.create({ data, include: EVENT_INCLUDE })',
+      "db.event.upsert({ where: { slug }, create, update: { title: 'x' } })",
+      "tx.event.update({ where: { id }, data: { ...changes, title: 'x' } })",
+      "tx.event.update({ where: { id }, data: { [column]: 'PUBLISHED' } })",
+      'tx.event.update(params)',
+      'tx.event.update({ ...params })',
+      'tx.event.createMany({ data: rows })',
+      "tx.event.createMany({ data: [first, { title: 'x' }] })",
+    ]) {
+      const [call] = delegateCalls(code, 'event', WRITE_OPERATIONS)
+
+      expect(writtenFields(call.args).opaque, code).toBe(true)
+    }
+
+    // A spread in what is read, and an array of literal rows, are not.
+    for (const code of [
+      "tx.event.updateMany({ where: { ...scope }, data: { title: 'x' } })",
+      "tx.event.createMany({ data: [{ title: 'a' }, { title: 'b', status: 'DRAFT' }] })",
+    ]) {
+      const [call] = delegateCalls(code, 'event', WRITE_OPERATIONS)
+
+      expect(writtenFields(call.args).opaque, code).toBe(false)
+    }
+  })
+
+  it('finds a call on a delegate named in brackets', () => {
+    const [call] = delegateCalls(
+      "tx['event'].update({ where: { id }, data: { status: 'PUBLISHED' } })",
+      'event',
+      WRITE_OPERATIONS,
+    )
+
+    expect([call.model, call.operation]).toEqual(['event', 'update'])
+    expect(writtenFields(call.args).fields.has('status')).toBe(true)
+  })
+
+  it('follows a relation into the rows a nested write makes, and not into a JSON column', () => {
+    const code = withoutComments(`
+      await tx.organization.update({ where: { id }, data: { events: { create: { title: 'x', status: 'PUBLISHED' } } } })
+      await tx.organization.update({ where: { id }, data: { events: { updateMany: { where: { status: 'DRAFT' }, data: { status: 'PUBLISHED' } } } } })
+      await tx.eventSession.update({ where: { id }, data: { event: { update: { websiteRedirectEnabled: true } } } })
+      await tx.venue.update({ where: { id }, data: { organization: { update: { events: { create: rows } } } } })
+      await tx.order.create({ data: { event: { connect: { id } }, buyerEmail } })
+      await tx.auditLog.create({ data: { metadata: { event: { update: { status: 'PUBLISHED' } } } } })
+    `)
+    const writes = writesTo(code, 'Event')
+
+    expect(writes.map((write) => [write.via, write.operation, write.opaque])).toEqual([
+      ['organization.events', 'create', false],
+      ['organization.events', 'updateMany', false],
+      ['eventSession.event', 'update', false],
+      ['venue.organization.update.events', 'create', true],
+    ])
+    expect(writes[0].fields.has('status')).toBe(true)
+    // `where: { status: 'DRAFT' }` is a read; `data: { status }` is the write.
+    expect([...writes[1].fields]).toEqual(['status'])
+    expect(writes[2].fields.has('websiteRedirectEnabled')).toBe(true)
+    // The relations come from the schema, so the walk has something to follow.
+    expect(relationsTo('Event')).toEqual(expect.arrayContaining(['event', 'events']))
+    expect(relationsTo('TrafficEvent')).toEqual(['trafficEvents'])
+  })
+
+  it('finds a raw write however its table and columns are spelled, and reads only its statement', () => {
+    const code = withoutComments(`
+      await tx.$executeRaw\`UPDATE public."Event" SET status = \${to} WHERE id = \${id}\`
+      await tx.$executeRawUnsafe('UPDATE ONLY "Event" SET "Status" = $1', to)
+      await tx.$executeRaw\`INSERT INTO "public"."Event" (id, title) VALUES (\${id}, 'x')\`
+      await tx.$executeRaw\`MERGE INTO "Event" e USING x ON true WHEN MATCHED THEN UPDATE SET "websiteRedirectEnabled" = true\`
+      const status = 'not a column'
+    `)
+    const writes = rawWrites(code)
+
+    expect(
+      writes.map((write) => [write.verb, write.table, namesColumn(write.text, 'status')]),
+    ).toEqual([
+      ['UPDATE', 'Event', true],
+      ['UPDATE', 'Event', true],
+      // The statement ends with its template: the name on the next line is not in it.
+      ['INSERT INTO', 'Event', false],
+      ['MERGE INTO', 'Event', false],
+    ])
+    expect(namesColumn(writes[3].text, 'websiteRedirectEnabled')).toBe(true)
+  })
+
+  it('reads past strings, templates and regular expressions that hold brackets', () => {
+    const code = withoutComments(
+      "tx.event.update({ data: { title: ')', note: `${'}'}`, slug: s.replace(/[)}]/g, '') }, where: { id } })",
+    )
+    const [call] = delegateCalls(code, 'event', WRITE_OPERATIONS)
+
+    expect([...writtenFields(call.args).fields].sort()).toEqual(['note', 'slug', 'title'])
+  })
+
+  it('finds a raw write and the route a call sits in', () => {
+    expect(rawWrites('await tx.$executeRaw`UPDATE "Event" SET "status" = ${to}`')).toMatchObject([
+      { verb: 'UPDATE', table: 'Event' },
+    ])
+
+    const routes = routeRegistrations(
+      "defineRoute(app, 'a.one', { handler: () => command(request, 'X') })\ndefineRoute(app, 'a.two', { handler: () => 1 })",
+    )
+
+    expect(routes.map((route) => [route.id, /command\(/u.test(route.body)])).toEqual([
+      ['a.one', true],
+      ['a.two', false],
+    ])
+  })
+
+  it('reads the application, the worker and the web, and leaves tests and seeds out', () => {
+    const files = sourceFiles({ packages: true })
+
+    expect(files).toContain('apps/api/src/routes/events.js')
+    expect(files).toContain('apps/worker/src/main.js')
+    expect(files).toContain('packages/db/src/traffic-rollup.js')
+    expect(files.some((file) => /\.(test|spec)\./u.test(file))).toBe(false)
+    expect(files.some((file) => file.includes('/scripts/') || file.includes('/e2e/'))).toBe(false)
+  })
+})
+
+/**
+ * Every write to event rows whose columns are built away from the call, each
+ * read and pinned (SPEC2 §6).
+ *
+ * The scans read the columns a literal row names; they cannot see into a row
+ * built elsewhere. So each such write is listed here with why it can carry
+ * neither a status nor the website switch, its argument is pinned to the shape
+ * that was read, and a new one fails the status and switch scans until
+ * somebody has read it and added it.
+ */
+const OPAQUE_EVENT_WRITES = {
+  'apps/api/src/routes/events.js create': {
+    why: 'events.create spreads the parsed body and the website columns, then writes DRAFT after both',
+    args: /^\s*\{\s*data:\s*\{\s*\.\.\.data,\s*\.\.\.websiteColumnsFor\(null,[\s\S]*?\),\s*status:\s*'DRAFT',\s*publishedAt:\s*null,?\s*\},\s*include:\s*EVENT_INCLUDE,?\s*\}\s*$/u,
+  },
+  'apps/api/src/routes/events.js update': {
+    why: 'events.update writes the parsed body, which has no status, publication time or switch, and the website columns',
+    args: /^\s*\{\s*where:\s*\{\s*id:\s*existing\.id\s*\},\s*data:\s*\{\s*\.\.\.data,\s*\.\.\.website\s*\}\s*\}\s*$/u,
+  },
+  'apps/api/src/lib/event-lifecycle.js updateMany': {
+    why: 'the lifecycle’s compare-and-set, whose stampsFor sets the target status',
+    args: /^\s*\{\s*where:\s*\{\s*id:\s*event\.id,\s*status:\s*from\s*\},\s*data:\s*stampsFor\(\{\s*to,\s*reason,\s*event\s*\}\),?\s*\}\s*$/u,
+  },
+  'apps/api/src/lib/privacy-redaction.js update': {
+    why: 'an erasure replaces the subject’s contact addresses, and nothing else',
+    args: /^\s*\{\s*where:\s*\{\s*id:\s*event\.id\s*\},\s*data\s*\}\s*$/u,
+  },
+}
+
+/**
+ * Every write to event rows under `apps/<app>/src`: the delegate's own calls
+ * and the nested writes another model's write makes through a relation.
+ *
+ * @returns {Array<object>} The writes, each with its file and a label.
+ */
+function eventWrites() {
+  return sourceFiles().flatMap((file) =>
+    writesTo(readCode(file), 'Event').map((write) => ({
+      ...write,
+      file,
+      label: write.via ? `${file} ${write.via}.${write.operation}` : `${file} ${write.operation}`,
+    })),
+  )
+}
+
+/**
+ * The keys a function body assigns on its `data` object.
+ *
+ * @param {string} body The body's text.
+ * @returns {string[]} The keys, sorted and unique.
+ */
+function assignedKeys(body) {
+  return [
+    ...new Set([...body.matchAll(/\bdata\.(\w+)\s*=(?!=)/gu)].map((match) => match[1])),
+  ].sort()
+}
+
+describe('every path to a public event (SPEC2 §6)', () => {
+  /**
+   * Every route that moves an event's status. A duplicate, a copy, an import
+   * or any new command fails here until it has been checked against the review
+   * gate and named.
+   */
+  const STATUS_ROUTES = [
+    'events.cancel',
+    'events.openSales',
+    'events.pauseSales',
+    'events.postpone',
+    'events.publish',
+    'events.reschedule',
+    'events.rework',
+    'events.submitReview',
+    'events.withdrawReview',
+    'moderation.decide',
+  ]
+
+  /**
+   * Every place the application creates event rows, with the tests that prove
+   * each one makes a draft whatever it is sent (SPEC2 §6, binding rule).
+   * SPEC2-XI O11 adds the importer here, with its own DRAFT test, when it lands.
+   */
+  const EVENT_CREATORS = {
+    'apps/api/src/routes/events.js': {
+      calls: 1,
+      provedBy: {
+        'apps/api/tests/event-lifecycle.test.js':
+          'ignores a status the caller supplies and always starts in DRAFT',
+        'apps/api/tests/event-review-gate-integration.test.js':
+          'makes a create that asks to be public a draft',
+      },
+    },
+  }
+
+  it('makes a hidden event public only from APPROVED, and APPROVED only by a moderator from review', () => {
+    for (const [from, moves] of Object.entries(TRANSITIONS)) {
+      for (const move of moves) {
+        const label = `${from} -> ${move.to}`
+
+        if (PUBLICLY_VISIBLE_STATUSES.has(move.to) && !PUBLICLY_VISIBLE_STATUSES.has(from)) {
+          expect(from, label).toBe('APPROVED')
+          expect(move.actor, label).toBe(ACTORS.ORGANIZER)
+        }
+
+        if (move.to === 'APPROVED') {
+          expect(from, label).toBe('REVIEW_PENDING')
+          expect(move.actor, label).toBe(ACTORS.MODERATOR)
+        }
+      }
+    }
+  })
+
+  it('moves an event’s status from exactly these routes', () => {
+    const found = []
+
+    for (const file of sourceFiles().filter((path) => path.startsWith('apps/api/src/routes/'))) {
+      for (const route of routeRegistrations(readCode(file))) {
+        if (/\bcommand\(\s*request\b|\btransitionEvent\s*\(/u.test(route.body)) found.push(route.id)
+      }
+    }
+
+    expect(found.sort()).toEqual(STATUS_ROUTES)
+  })
+
+  it('calls the lifecycle move only from the two route modules that own it', () => {
+    // A library calling `transitionEvent` would make every route that calls the
+    // library a status route the list above cannot see.
+    const callers = []
+
+    for (const file of sourceFiles()) {
+      const calls = [...readCode(file).matchAll(/(?<!function\s+)\btransitionEvent\s*\(/gu)]
+
+      if (calls.length > 0) callers.push(file)
+    }
+
+    expect(callers).toEqual(['apps/api/src/routes/events.js', 'apps/api/src/routes/moderation.js'])
+  })
+
+  it('guards each status route in the contract, and approves only the revision the reviewer saw', () => {
+    for (const id of STATUS_ROUTES) {
+      expect(routeById(id).auth, id).toBe('session')
+      expect(routeById(id).method, id).toBe('POST')
+      expect(routeById(id).tags, id).not.toContain('platform')
+    }
+
+    expect(routeById('moderation.decide').capability).toBe('moderation:review')
+    expect(routeById('moderation.decide').stepUp).toBe('MODERATION')
+
+    for (const id of ['events.publish', 'events.openSales', 'events.reschedule']) {
+      expect(routeById(id).stepUp, id).toBe('EVENT_PUBLISH')
+    }
+
+    const decide = routeById('moderation.decide').body
+    const unseen = decide.safeParse({ decision: 'approve' })
+
+    expect(unseen.success).toBe(false)
+    expect(unseen.error.issues.map((issue) => issue.path.join('.'))).toContain('revision')
+    expect(decide.safeParse({ decision: 'approve', revision: 4 }).success).toBe(true)
+  })
+
+  it('creates event rows only at the allowed call sites, each writing DRAFT last', () => {
+    /** @type {Record<string, number>} */
+    const found = {}
+    // Every write that can make a row: the delegate's own, and a relation's
+    // nested ones (`organization.update({ data: { events: { create } } })`).
+    // A relation whose value is built elsewhere (operation null) might.
+    const creating = new Set([
+      'create',
+      'createMany',
+      'createManyAndReturn',
+      'upsert',
+      'connectOrCreate',
+      null,
+    ])
+
+    for (const file of sourceFiles()) {
+      const calls = writesTo(readCode(file), 'Event').filter((write) =>
+        creating.has(write.operation),
+      )
+
+      if (calls.length === 0) continue
+
+      found[file] = calls.length
+
+      for (const call of calls) {
+        const at = `${file}:${call.line}${call.via ? ` (${call.via})` : ''}`
+        const { fields, opaque } = call
+
+        // A row built elsewhere could carry any status, so it needs an
+        // explicit DRAFT after its last spread: the key written last wins. A
+        // row that is only a name or a call has no DRAFT at all and fails.
+        if (opaque) {
+          const status = call.args.search(/\bstatus\s*:\s*'DRAFT'/u)
+          const lastSpread = call.args.lastIndexOf('...')
+
+          expect(status, `${at} builds its row elsewhere with no DRAFT after it`).toBeGreaterThan(
+            lastSpread,
+          )
+        } else if (fields.has('status')) {
+          expect(call.args, at).toMatch(/\bstatus\s*:\s*'DRAFT'/u)
+        }
+      }
+    }
+
+    expect(found).toEqual(
+      Object.fromEntries(
+        Object.entries(EVENT_CREATORS).map(([file, entry]) => [file, entry.calls]),
+      ),
+    )
+
+    for (const entry of Object.values(EVENT_CREATORS)) {
+      for (const [file, title] of Object.entries(entry.provedBy)) {
+        expect(readCode(file), `${file} no longer proves the call site writes a draft`).toContain(
+          `'${title}'`,
+        )
+      }
+    }
+  })
+
+  it('writes an event’s status after creation in one place: the lifecycle’s compare-and-set', () => {
+    const writers = []
+    const opaque = []
+
+    // The delegate's own writes and every relation's nested ones.
+    for (const write of eventWrites()) {
+      if (write.fields.has('status')) writers.push(write.label)
+      if (write.opaque) opaque.push(write.label)
+    }
+
+    // Raw SQL, however the table and the column are spelled.
+    for (const file of sourceFiles()) {
+      for (const write of rawWrites(readCode(file))) {
+        if (
+          write.table === 'Event' &&
+          write.verb !== 'DELETE FROM' &&
+          namesColumn(write.text, 'status')
+        ) {
+          writers.push(`${file} raw ${write.verb}`)
+        }
+      }
+    }
+
+    // The create above (always DRAFT), and nothing else names the column.
+    expect(writers).toEqual(['apps/api/src/routes/events.js create'])
+    // A row built elsewhere could carry a status the list above cannot see,
+    // so each one has been read and is pinned (see OPAQUE_EVENT_WRITES).
+    expect(opaque.sort()).toEqual(Object.keys(OPAQUE_EVENT_WRITES).sort())
+
+    // Every move is the lifecycle's: one `updateMany` that names the status it
+    // expects to replace and takes its data from `stampsFor`, which is where
+    // the target status is set. The worker writes no event at all.
+    const lifecycle = readCode('apps/api/src/lib/event-lifecycle.js')
+    const moves = delegateCalls(lifecycle, 'event', WRITE_OPERATIONS)
+
+    expect(moves.map((call) => call.operation)).toEqual(['updateMany'])
+    expect(moves[0].args).toMatch(/where:\s*\{\s*id:\s*event\.id,\s*status:\s*from\s*\}/u)
+    expect(moves[0].args).toMatch(/data:\s*stampsFor\(/u)
+
+    for (const file of sourceFiles().filter((path) => path.startsWith('apps/worker/'))) {
+      const writes = writesTo(readCode(file), 'Event')
+
+      expect(
+        writes.map((write) => `${write.via ?? 'event'}.${write.operation}`),
+        file,
+      ).toEqual([])
+    }
+  })
+
+  it('builds an event’s columns away from the write only where each has been read and pinned', () => {
+    const opaque = Object.fromEntries(
+      eventWrites()
+        .filter((write) => write.opaque)
+        .map((write) => [write.label, write]),
+    )
+
+    expect(Object.keys(opaque).sort()).toEqual(Object.keys(OPAQUE_EVENT_WRITES).sort())
+
+    // Each still has the shape that was read: a spread, a shorthand or a
+    // helper added to one of them fails here until it is read again.
+    for (const [label, { args }] of Object.entries(OPAQUE_EVENT_WRITES)) {
+      expect(opaque[label].args, label).toMatch(args)
+    }
+
+    // events.update: the parsed body (the schema drops status and publication
+    // times, below, and the switch, in the website block) and the website
+    // columns, which `websiteColumnsFor` is pinned to give.
+    expect(readCode('apps/api/src/routes/events.js')).toMatch(
+      /const website =\s*data\.websiteUrl === undefined\s*\?\s*\{\}\s*:\s*await applyWebsiteChange\(/u,
+    )
+
+    // The lifecycle: the status is the move's own target.
+    const lifecycle = readCode('apps/api/src/lib/event-lifecycle.js')
+    const stamps = functionRange(lifecycle, 'stampsFor')
+
+    expect(lifecycle.slice(stamps.start, stamps.end)).toMatch(/const data = \{ status: to \}/u)
+    expect(assignedKeys(lifecycle.slice(stamps.start, stamps.end))).not.toContain('status')
+
+    // The erasure: a row built from nothing, holding the two contact columns.
+    const privacy = readCode('apps/api/src/lib/privacy-redaction.js')
+    const erasure = functionRange(privacy, 'redactContactAddresses')
+    const body = privacy.slice(erasure.start, erasure.end)
+
+    expect(body).toMatch(/const data = \{\}/u)
+    expect(assignedKeys(body)).toEqual(['contactEmail', 'publicContactEmail'])
+    expect(body).not.toMatch(/\bdata\s*\[|Object\.assign\(\s*data\b|\.\.\.\s*data\b/u)
+  })
+
+  it('never lets an event write carry a status or a publication time', () => {
+    const update = routeById('events.update').body
+    const parsed = update.safeParse({
+      title: 'A title',
+      status: 'PUBLISHED',
+      publishedAt: '2026-01-01T00:00:00.000Z',
+      approvedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    expect(parsed.success).toBe(true)
+    expect(Object.keys(parsed.data)).toEqual(['title'])
+    // A body that is nothing but a status is an empty update.
+    expect(update.safeParse({ status: 'PUBLISHED' }).success).toBe(false)
+  })
+})
+
+describe('the website link (SPEC2 §4.W, §6)', () => {
+  /** The columns an administrator's decision writes, and nothing else may. */
+  const SWITCH_COLUMNS = [
+    'websiteRedirectEnabled',
+    'websiteDecidedUrl',
+    'websiteRedirectReason',
+    'websiteRedirectChangedAt',
+    'websiteRedirectChangedById',
+  ]
+
+  const OWNER = 'apps/api/src/lib/website-redirect.js'
+
+  it('moves the switch in one place: decideWebsiteRedirect, inside its transaction', () => {
+    const writers = []
+
+    for (const file of sourceFiles()) {
+      const code = readCode(file)
+
+      for (const call of delegateCalls(code, '[a-z][A-Za-z]*', WRITE_OPERATIONS)) {
+        const { fields } = writtenFields(call.args)
+
+        if (SWITCH_COLUMNS.some((column) => fields.has(column))) {
+          writers.push({ file, index: call.index, fields })
+        }
+      }
+
+      for (const write of rawWrites(code)) {
+        if (SWITCH_COLUMNS.some((column) => namesColumn(write.text, column))) {
+          writers.push({ file, raw: write.verb })
+        }
+      }
+    }
+
+    expect(writers.map((writer) => writer.file)).toEqual([OWNER])
+
+    // A row built elsewhere could carry the switch where the scan above cannot
+    // see it: each such event write has been read and is pinned, and the
+    // lifecycle's stamps never name a switch column.
+    expect(
+      eventWrites()
+        .filter((write) => write.opaque)
+        .map((write) => write.label)
+        .sort(),
+    ).toEqual(Object.keys(OPAQUE_EVENT_WRITES).sort())
+
+    const lifecycle = readCode('apps/api/src/lib/event-lifecycle.js')
+    const stamps = functionRange(lifecycle, 'stampsFor')
+
+    for (const column of SWITCH_COLUMNS) {
+      expect(namesColumn(lifecycle.slice(stamps.start, stamps.end), column), column).toBe(false)
+    }
+    // All five together: a decision is never half-written.
+    expect(SWITCH_COLUMNS.every((column) => writers[0].fields.has(column))).toBe(true)
+
+    // The write sits in the private function that only `decideWebsiteRedirect`
+    // calls, so there is one door to the switch.
+    const code = readCode(OWNER)
+    const inner = functionRange(code, 'decideInTransaction')
+    const entry = functionRange(code, 'decideWebsiteRedirect')
+
+    expect(writers[0].index).toBeGreaterThan(inner.start)
+    expect(writers[0].index).toBeLessThan(inner.end)
+
+    const calls = [...code.matchAll(/(?<!function\s+)\bdecideInTransaction\s*\(/gu)]
+
+    expect(calls.length).toBeGreaterThan(0)
+
+    for (const call of calls) {
+      expect(call.index).toBeGreaterThan(entry.start)
+      expect(call.index).toBeLessThan(entry.end)
+    }
+  })
+
+  it('is decided only from the administrators’ route', () => {
+    const callers = []
+
+    for (const file of sourceFiles()) {
+      const code = readCode(file)
+
+      if (!/(?<!function\s+)\bdecideWebsiteRedirect\s*\(/u.test(code)) continue
+
+      const routes = routeRegistrations(code)
+        .filter((route) => /\bdecideWebsiteRedirect\s*\(/u.test(route.body))
+        .map((route) => route.id)
+
+      callers.push([file, routes])
+    }
+
+    expect(callers).toEqual([
+      ['apps/api/src/routes/website-redirect.js', ['moderation.setWebsiteRedirect']],
+    ])
+
+    const route = routeById('moderation.setWebsiteRedirect')
+
+    expect(route.capability).toBe('website_redirect:manage')
+    expect(route.stepUp).toBe('MODERATION')
+    expect(Object.keys(route.body.shape).sort()).toEqual(['enabled', 'reason', 'websiteUrl'])
+    expect(
+      route.body.safeParse({
+        enabled: true,
+        reason: 'Checked by hand.',
+        websiteUrl: 'https://a.example/',
+        websiteDecidedUrl: 'https://b.example/',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('declares website_redirect:manage on exactly the two administrators’ routes, unscoped and off the platform tag', () => {
+    const holders = apiRoutes.filter((route) => route.capability === 'website_redirect:manage')
+
+    expect(holders.map((route) => route.id).sort()).toEqual([
+      'moderation.setWebsiteRedirect',
+      'moderation.websiteLinks',
+    ])
+    expect(PLATFORM_ONLY_CAPABILITIES).toContain('website_redirect:manage')
+
+    for (const route of holders) {
+      expect(route.capabilityScope, route.id).toBeUndefined()
+      expect(route.tags, route.id).not.toContain('platform')
+      expect(route.auth, route.id).toBe('session')
+    }
+
+    expect(routeById('moderation.websiteLinks').method).toBe('GET')
+    expect(routeById('moderation.websiteLinks').stepUp ?? null).toBeNull()
+  })
+
+  it('answers the lookup from the slug alone: no query, a strict body, its own ceiling, forged origins refused', () => {
+    const route = routeById('traffic.websiteVisit')
+
+    expect(route.auth).toBe('none')
+    expect(route.capability ?? null).toBeNull()
+    expect(route.query ?? null).toBeNull()
+    expect(route.params ?? null).toBeNull()
+    expect(Object.keys(route.body.shape).sort()).toEqual(['counted', 'slug'])
+    expect(route.body.safeParse({ slug: 'garba-night', counted: true }).success).toBe(true)
+    // The destination is never the caller's to name.
+    expect(
+      route.body.safeParse({ slug: 'garba-night', counted: true, url: 'https://evil.example/' })
+        .success,
+    ).toBe(false)
+    expect(route.errors.map((error) => error.code)).toContain('RATE_LIMITED')
+
+    const [registration] = routeRegistrations(
+      readCode('apps/api/src/routes/website-redirect.js'),
+    ).filter((candidate) => candidate.id === 'traffic.websiteVisit')
+
+    expect(registration.body).toMatch(/rateLimit:\s*websiteVisitRateLimit\(/u)
+    expect(registration.body).toMatch(/assertNotForged\(request\)/u)
+
+    // The browser cannot reach it: the web tier's proxy refuses the path, and
+    // only the web route that re-validates the destination calls it.
+    const proxy = readCode('apps/web/src/app/api/v1/[...path]/route.js')
+
+    expect(proxy).toMatch(/SERVER_ONLY_API_PATHS\s*=\s*Object\.freeze\(\[[^\]]*'website-visits'/u)
+  })
+
+  it('never lets an organiser’s write carry the switch', async () => {
+    const { websiteColumnsFor } = await import('../src/lib/website-redirect.js')
+    const create = routeById('events.create').body
+    const update = routeById('events.update').body
+    const valid = {
+      organizationId: 'cl0000000000000000000org1',
+      title: 'Garba Night',
+      summary: 'A night of garba.',
+      description: 'A long description of a night of garba and dandiya.',
+      category: 'GARBA_DANDIYA',
+      startsAt: '2031-10-01T18:00:00.000Z',
+      endsAt: '2031-10-01T23:00:00.000Z',
+    }
+
+    expect(create.safeParse(valid).success, JSON.stringify(create.safeParse(valid).error)).toBe(
+      true,
+    )
+
+    for (const schema of [create, update]) {
+      const base = schema === create ? valid : { title: 'Garba Night' }
+
+      // Refused outright, with a sentence saying who decides.
+      for (const key of ['websiteRedirectEnabled', 'websiteRedirect', 'websiteDecidedUrl']) {
+        expect(schema.safeParse({ ...base, [key]: true }).success, key).toBe(false)
+      }
+
+      // Stripped: never reaches a column.
+      const parsed = schema.safeParse({
+        ...base,
+        websiteRedirectReason: 'Mine now.',
+        websiteRedirectChangedAt: '2026-01-01T00:00:00.000Z',
+        websiteRedirectChangedById: 'cl0000000000000000000usr1',
+        websiteDecisionPending: false,
+        websiteSubmittedAt: null,
+        websiteRedirectCause: 'ORGANISER',
+      })
+
+      expect(parsed.success).toBe(true)
+      expect(Object.keys(parsed.data).filter((key) => key.startsWith('website'))).toEqual([])
+    }
+
+    // What an organiser's save spreads into its write: the address and whether
+    // it waits, never the switch, whatever state the row was in.
+    for (const current of [
+      null,
+      { websiteRedirectEnabled: true, websiteDecidedUrl: 'https://a.example/' },
+      {
+        websiteRedirectEnabled: false,
+        websiteDecisionPending: true,
+        websiteSubmittedAt: new Date(),
+      },
+    ]) {
+      for (const next of [null, 'https://a.example/', 'https://b.example/']) {
+        expect(Object.keys(websiteColumnsFor(current, next, new Date())).sort()).toEqual([
+          'websiteDecisionPending',
+          'websiteSubmittedAt',
+          'websiteUrl',
+        ])
+      }
+    }
+  })
+})
+
+describe('visit counting (SPEC2 §4.N, §6)', () => {
+  it('takes a beacon from anybody, but only these four fields, none of them about the visitor', () => {
+    const route = routeById('traffic.beacon')
+    const keys = Object.keys(route.body._zod?.def?.shape ?? route.body.shape ?? {})
+
+    expect(route.auth).toBe('none')
+    expect(route.capability ?? null).toBeNull()
+    expect(route.method).toBe('POST')
+    expect(keys.sort()).toEqual(['eventId', 'kind', 'placement', 'referrer'])
+
+    for (const key of keys) expect(key).not.toMatch(/url|ip|address|agent|account|user/iu)
+
+    const beacon = { eventId: 'cevent00000001', kind: 'PAGE_VIEW', placement: 'EVENT_PAGE' }
+
+    expect(route.body.safeParse(beacon).success).toBe(true)
+
+    for (const extra of [
+      { userAgent: 'x' },
+      { ip: '203.0.113.9' },
+      { userId: 'u1' },
+      { url: '/' },
+    ]) {
+      expect(route.body.safeParse({ ...beacon, ...extra }).success, JSON.stringify(extra)).toBe(
+        false,
+      )
+    }
+
+    const [registration] = routeRegistrations(readCode('apps/api/src/routes/traffic.js')).filter(
+      (candidate) => candidate.id === 'traffic.beacon',
+    )
+
+    expect(registration.body).toMatch(/rateLimit:\s*trafficBeaconRateLimit\(/u)
+    expect(registration.body).toMatch(/assertNotForged\(request\)/u)
+  })
+
+  it('shows every event’s visits only to a platform capability, never scoped and never money-tagged', () => {
+    const list = routeById('traffic.events')
+
+    expect(list.method).toBe('GET')
+    expect(list.auth).toBe('session')
+    expect(list.capability).toBe('analytics:view_all')
+    expect(PLATFORM_ONLY_CAPABILITIES).toContain('analytics:view_all')
+    expect(list.capabilityScope).toBeUndefined()
+    expect(list.tags).not.toContain('platform')
+
+    for (const id of ['traffic.beacon', 'traffic.events', 'traffic.websiteVisit']) {
+      expect(
+        routeById(id).tags.some((tag) => MONEY_TAGS.has(tag)),
+        `${id} carries a money tag`,
+      ).toBe(false)
+    }
+  })
+
+  it('answers counts only: no key that could carry a visitor code, an address, an agent or money', () => {
+    const forbidden = /hash|dedupe|salt|address|agent|referrer|email|cents|amount/iu
+
+    for (const [name, schema] of [
+      ['analyticsTrafficSchema', analyticsTrafficSchema],
+      ['trafficEventListResponseSchema', trafficEventListResponseSchema],
+    ]) {
+      const keys = schemaKeys(schema)
+
+      // The walk really walks: keys from nested rows and a nullable object.
+      expect(keys.has('websiteLinkOn'), name).toBe(true)
+
+      for (const key of keys) expect(key, `${name} carries "${key}"`).not.toMatch(forbidden)
+    }
+
+    expect(schemaKeys(analyticsTrafficSchema).has('changedByName')).toBe(true)
+  })
+
+  it('writes raw visits in one place, and reads them only there and in the roll-up', () => {
+    const recorder = 'apps/api/src/lib/traffic.js'
+    const rollUp = 'packages/db/src/traffic-rollup.js'
+    /** @type {Record<string, string[]>} */
+    const touches = {}
+    // Through a relation too: a nested write, or an `include`, `select`,
+    // `_count` or `where` naming the relation, writes or reads raw rows.
+    const relations = relationsTo('TrafficEvent')
+    const viaRelation = new RegExp(String.raw`(?<![\w$.])(?:${relations.join('|')})\b`, 'u')
+    const table = String.raw`(?:(?:"\w+"|\w+)\s*\.\s*)?"TrafficEvent"`
+    const deletes = new RegExp(String.raw`\bDELETE\s+FROM\s+${table}`, 'giu')
+    const reads = new RegExp(String.raw`\b(?:FROM|JOIN)\s+${table}`, 'iu')
+
+    expect(relations).toEqual(['trafficEvents'])
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+      const uses = [
+        ...delegateCalls(code, 'trafficEvent').map((call) => call.operation),
+        ...(viaRelation.test(code) ? ['relation'] : []),
+        ...rawWrites(code)
+          .filter((write) => write.table === 'TrafficEvent')
+          .map((write) => `raw ${write.verb}`),
+        ...(reads.test(code.replace(deletes, '')) ? ['raw SELECT'] : []),
+      ]
+
+      if (uses.length > 0) touches[file] = [...new Set(uses)].sort()
+    }
+
+    expect(Object.keys(touches).sort()).toEqual([recorder, rollUp])
+    expect(touches[recorder]).toEqual(['createMany'])
+    // The roll-up reads the day's rows and deletes them once added up; it
+    // never writes one.
+    expect(touches[rollUp]).toEqual(['raw DELETE FROM', 'raw SELECT'])
+  })
+
+  it('keeps the day’s secret and the daily totals with their owners', () => {
+    /** @type {Record<string, string[]>} */
+    const salts = {}
+    /** @type {Record<string, string[]>} */
+    const dailyWriters = {}
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+      const saltUses = [
+        ...delegateCalls(code, 'trafficSalt').map((call) => call.operation),
+        ...(/"TrafficSalt"/u.test(code) ? ['raw'] : []),
+      ]
+
+      if (saltUses.length > 0) salts[file] = saltUses
+
+      const dailyWrites = [
+        ...delegateCalls(code, 'trafficDaily', WRITE_OPERATIONS).map((call) => call.operation),
+        ...writesTo(code, 'TrafficDaily')
+          .filter((write) => write.via)
+          .map((write) => `nested ${write.via}.${write.operation}`),
+        ...rawWrites(code)
+          .filter((write) => write.table === 'TrafficDaily' && write.verb !== 'DELETE FROM')
+          .map((write) => `raw ${write.verb}`),
+      ]
+
+      if (dailyWrites.length > 0) dailyWriters[file] = dailyWrites
+    }
+
+    // The salt that turns an address into a visitor code: made and read by the
+    // recorder, deleted by the recorder and the roll-up. Nothing else sees it.
+    expect(Object.keys(salts).sort()).toEqual([
+      'apps/api/src/lib/traffic.js',
+      'packages/db/src/traffic-rollup.js',
+    ])
+    expect(salts['packages/db/src/traffic-rollup.js']).toEqual(['deleteMany'])
+    // Daily totals are written by the roll-up alone; the API only reads them.
+    expect(Object.keys(dailyWriters)).toEqual(['packages/db/src/traffic-rollup.js'])
+  })
+})
+
+describe('organiser invitations (SPEC2 §4.P)', () => {
+  it('spends one budget on issuing and reissuing, and limits accepting', () => {
+    const registrations = routeRegistrations(
+      readCode('apps/api/src/routes/organizer-invitations.js'),
+    )
+    const byId = Object.fromEntries(registrations.map((route) => [route.id, route.body]))
+    const code = readCode('apps/api/src/routes/organizer-invitations.js')
+
+    expect(code).toMatch(/const issueBudget = organizerInviteRateLimit\(/u)
+
+    for (const id of ['organizerInvitations.create', 'organizerInvitations.reissue']) {
+      expect(byId[id], id).toMatch(/preHandler:\s*\[issueBudget\]/u)
+      expect(
+        routeById(id).errors.map((error) => error.code),
+        id,
+      ).toContain('RATE_LIMITED')
+    }
+
+    expect(byId['organizerInvitations.accept']).toMatch(/rateLimit:\s*organizerAcceptRateLimit\(/u)
+    expect(routeById('organizerInvitations.accept').errors.map((error) => error.code)).toContain(
+      'RATE_LIMITED',
+    )
+  })
+
+  it('lets anybody signed in accept, off the platform surface, and nobody choose what they become', () => {
+    const accept = routeById('organizerInvitations.accept')
+
+    expect(accept.auth).toBe('session')
+    expect(accept.capability ?? null).toBeNull()
+    expect(accept.mfaExempt ?? false).toBe(false)
+    expect(accept.tags).not.toContain('platform')
+
+    // A role, an organisation, a state or the organisation's public face in the
+    // body is dropped, never honoured: the invitation decides all of them.
+    const parsed = accept.body.safeParse({
+      token: 'A'.repeat(32),
+      role: 'OWNER',
+      organizationId: 'cl0000000000000000000org1',
+      verificationStatus: 'VERIFIED',
+      name: 'Chosen By Me',
+      description: 'Written by the recipient.',
+      websiteUrl: 'https://mine.example/',
+    })
+
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true)
+    expect(
+      Object.keys(parsed.data).filter((key) => !['slug', 'timezone', 'token'].includes(key)),
+    ).toEqual([])
   })
 })

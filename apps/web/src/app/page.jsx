@@ -53,6 +53,7 @@ import { EventGrid } from '../components/listing-card.jsx'
 import { FadeIn, Reveal, Stagger, StaggerItem } from '../components/motion.jsx'
 import { EventArt } from '../components/event-art.jsx'
 import { SampleDataNotice } from '../components/sample-data-notice.jsx'
+import { TrafficScope } from '../components/traffic-scope.jsx'
 import { Input, Select } from '../components/ui.jsx'
 import { loadCatalogueFacets, loadCatalogueOverview } from '../lib/api.js'
 import { describeCategories } from '../lib/catalog.js'
@@ -64,6 +65,7 @@ import {
   organisersWithNext,
 } from '../lib/home-sections.js'
 import { buildEventsHref } from '../lib/search-params.js'
+import { trafficAttributes } from '../lib/traffic-client.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -209,11 +211,15 @@ function HeroSearch({ cities }) {
  * The next event, as the hero shows it: its poster in a glowing frame, and a
  * small card underneath that says when and where and leads to its page.
  *
+ * A click on its link is counted as a click on the event's card on the home
+ * page when `counted` is set; never for sample data, whose events do not exist.
+ *
  * @param {object} props Component props.
  * @param {object} props.event The next garba night on the listing, or the next night of any kind.
+ * @param {boolean} [props.counted] Whether a click on it is counted.
  * @returns {JSX.Element} The figure.
  */
-function NextUp({ event }) {
+function NextUp({ event, counted = false }) {
   const leaf = calendarLeaf(event)
   const label = event.category === 'GARBA_DANDIYA' ? 'Next garba night' : 'Next up'
 
@@ -226,6 +232,14 @@ function NextUp({ event }) {
       </div>
       <Link
         href={`/events/${event.slug}`}
+        {...(counted
+          ? trafficAttributes({
+              kind: 'CARD_CLICK',
+              eventId: event.id,
+              organizationId: event.organizationId,
+              placement: 'HOME',
+            })
+          : {})}
         className="group absolute right-4 bottom-0 left-4 flex items-center gap-3.5 rounded-2xl bg-surface-raised p-3.5 text-ink shadow-dialog transition duration-(--duration-base) ease-standard hover:shadow-card-hover motion-safe:hover:-translate-y-1 sm:right-auto sm:left-[-1.5rem] sm:w-[22rem] lg:left-[-2.75rem]"
       >
         {leaf ? (
@@ -261,9 +275,10 @@ function NextUp({ event }) {
  * @param {string[]} props.cities Every listed city.
  * @param {number|null} props.listed How many events the listing holds, when known.
  * @param {object|null} props.lead The soonest event, for the poster.
+ * @param {boolean} [props.counted] Whether a click on the poster's link is counted.
  * @returns {JSX.Element} The hero.
  */
-function Hero({ cities, listed, lead }) {
+function Hero({ cities, listed, lead, counted = false }) {
   const facts = [
     cities.length > 0
       ? { Icon: PinIcon, text: `${cities.length} ${cities.length === 1 ? 'city' : 'cities'}` }
@@ -316,7 +331,7 @@ function Hero({ cities, listed, lead }) {
 
         {lead ? (
           <FadeIn delay={0.2} className="mx-auto w-full max-w-xl lg:max-w-none">
-            <NextUp event={lead} />
+            <NextUp event={lead} counted={counted} />
           </FadeIn>
         ) : null}
       </div>
@@ -385,7 +400,7 @@ export default async function HomePage() {
 
   return (
     <div className="pb-4">
-      <Hero cities={cityNames} listed={listed} lead={lead} />
+      <Hero cities={cityNames} listed={listed} lead={lead} counted={!overview.usedFallback} />
 
       {usedFallback ? (
         <div className="mx-auto max-w-content px-4 sm:px-6">
@@ -417,7 +432,12 @@ export default async function HomePage() {
 
         <div className="mt-9">
           {featured.length > 0 ? (
-            <EventGrid events={featured} label="Upcoming events" layout="rail" />
+            <EventGrid
+              events={featured}
+              label="Upcoming events"
+              layout="rail"
+              trafficPlacement={overview.usedFallback ? null : 'HOME'}
+            />
           ) : (
             <p className="rounded-card bg-surface-subtle p-6 text-ink-muted">
               Nothing is listed right now. The listing fills up the moment an organiser publishes a
@@ -660,6 +680,10 @@ export default async function HomePage() {
           ) : null}
         </Reveal>
       </section>
+
+      {/* Counts clicks on the event cards above; a signed-in organiser's own
+          events and Desi-Event staff are left out. */}
+      <TrafficScope />
     </div>
   )
 }

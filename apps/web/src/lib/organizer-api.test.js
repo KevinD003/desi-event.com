@@ -16,7 +16,7 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({ getAll: () => [{ name: 'desi_session', value: 'opaque' }] }),
 }))
 
-const { callApi, getWebsiteLinks } = await import('./organizer-api.js')
+const { callApi, getPlatformTraffic, getWebsiteLinks } = await import('./organizer-api.js')
 
 const fetch = vi.fn()
 
@@ -110,5 +110,52 @@ describe('getWebsiteLinks', () => {
 
     expect(await getWebsiteLinks()).toEqual({ links: [], pagination: null })
     expect(fetch.mock.calls[0][0]).toMatch(/\/v1\/moderation\/website-links$/u)
+  })
+})
+
+describe('getPlatformTraffic', () => {
+  it('sends only the fields the platform list takes, and gives the list and the counters', async () => {
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { top: [], events: [] }, pagination: { page: 2, total: 51 } }),
+        { status: 200 },
+      ),
+    )
+
+    const result = await getPlatformTraffic({
+      q: 'garba',
+      scope: 'all',
+      from: '2026-09-06T00:00:00.000Z',
+      page: 2,
+      perPage: 50,
+      organizationId: '',
+      sneaky: 'widen',
+    })
+
+    expect(result).toEqual({ data: { top: [], events: [] }, pagination: { page: 2, total: 51 } })
+
+    const url = new URL(fetch.mock.calls[0][0])
+
+    expect(url.pathname).toBe('/v1/traffic/events')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: 'garba',
+      scope: 'all',
+      from: '2026-09-06T00:00:00.000Z',
+      page: '2',
+      perPage: '50',
+    })
+  })
+
+  it('throws the API’s refusal for the page to draw', async () => {
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'No.' } }), {
+        status: 403,
+      }),
+    )
+
+    const error = await getPlatformTraffic().catch((caught) => caught)
+
+    expect(error.status).toBe(403)
+    expect(fetch.mock.calls[0][0]).toMatch(/\/v1\/traffic\/events$/u)
   })
 })

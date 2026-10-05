@@ -25,6 +25,7 @@ import { Breadcrumbs } from '../../components/page-state.jsx'
 import { PageHero } from '../../components/page-hero.jsx'
 import { EventArt } from '../../components/event-art.jsx'
 import { SampleDataNotice } from '../../components/sample-data-notice.jsx'
+import { TrafficScope } from '../../components/traffic-scope.jsx'
 
 export const dynamic = 'force-dynamic'
 
@@ -169,7 +170,14 @@ export default async function EventsPage({ searchParams }) {
               }
             />
           ) : (
-            <EventGrid events={events} label="Matching events" headingLevel="h2" />
+            <EventGrid
+              events={events}
+              label="Matching events"
+              headingLevel="h2"
+              // A click on a card is counted as from search results when the
+              // visitor searched, and from the events list otherwise.
+              trafficPlacement={usedFallback ? null : filters.q ? 'SEARCH' : 'LISTING'}
+            />
           )}
         </div>
 
@@ -212,6 +220,10 @@ export default async function EventsPage({ searchParams }) {
           </>
         ) : null}
       </div>
+
+      {/* Counts clicks on the cards above; a signed-in organiser's own events
+          and Desi-Event staff are left out. */}
+      <TrafficScope />
     </div>
   )
 }

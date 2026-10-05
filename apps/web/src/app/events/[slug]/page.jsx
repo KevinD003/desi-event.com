@@ -24,6 +24,15 @@
  * organiser's contact address ends up inside a `<script>` tag after having been
  * kept out of the visible page.
  *
+ * ## Counting visits
+ *
+ * A public event's page sends one page view, and "Choose tickets" and each
+ * "Choose seats" link carry the attributes a click is counted by
+ * (`TrafficScope`). Nothing is counted for sample data, for a page that is not
+ * public, for Desi-Event staff, or for the event's own team; for those readers
+ * the website link carries `?count=no`, which can only stop a visit being
+ * counted. The session is read once per request, however many components ask.
+ *
  * @module app/events/slug/page
  */
 
@@ -53,6 +62,9 @@ import {
 import { initialOf } from '../../../lib/initial.js'
 import { formatPrice, priceSelection, taxLabelForPlace } from '../../../lib/pricing.js'
 import { buildEventsHref } from '../../../lib/search-params.js'
+import { readSession } from '../../../lib/session.js'
+import { trafficAttributes } from '../../../lib/traffic-client.js'
+import { excludesEvent, trafficExclusion } from '../../../lib/traffic.js'
 import {
   Diamond,
   MirrorBand,
@@ -95,6 +107,7 @@ import { Breadcrumbs } from '../../../components/page-state.jsx'
 import { SampleDataNotice } from '../../../components/sample-data-notice.jsx'
 import { SessionList } from '../../../components/session-list.jsx'
 import { TicketTiers } from '../../../components/ticket-tiers.jsx'
+import { TrafficScope } from '../../../components/traffic-scope.jsx'
 
 export const dynamic = 'force-dynamic'
 
@@ -298,6 +311,17 @@ export default async function EventDetailPage({ params }) {
   const structuredData = PUBLICLY_VISIBLE_STATUSES.has(event.status)
     ? eventJsonLd(event, { siteUrl })
     : null
+
+  // Visits are counted only to a real, public event: never to sample data,
+  // and never to a draft or review preview, which only its own team sees.
+  const traffic =
+    !usedFallback && PUBLICLY_VISIBLE_STATUSES.has(event.status)
+      ? { eventId: event.id, organizationId: event.organizationId }
+      : null
+  // The event's own team and Desi-Event staff are not counted: their website
+  // visits are marked so on the link, as their page views and clicks are left
+  // out by the beacons.
+  const uncounted = excludesEvent(trafficExclusion(await readSession()), event.organizationId)
 
   return (
     <article>
@@ -549,6 +573,7 @@ export default async function EventDetailPage({ params }) {
                     eventSlug={event.slug}
                     buyable={BUYABLE_STATUSES.has(event.status)}
                     ticketTypes={ticketTypes}
+                    traffic={traffic}
                   />
                 </div>
               ) : (
@@ -737,7 +762,11 @@ export default async function EventDetailPage({ params }) {
             {/* Only while a Desi-Event administrator has the link on and the
                 page is public; the API sends no host otherwise. It goes through
                 this site's redirect, never straight to the address. */}
-            <EventWebsiteLink slug={event.slug} link={event.websiteLink ?? null} />
+            <EventWebsiteLink
+              slug={event.slug}
+              link={event.websiteLink ?? null}
+              uncounted={uncounted}
+            />
 
             <EventContact email={event.publicEmail} phone={event.publicPhone} />
             <EventSocialLinks links={event.socialLinks} />
@@ -832,6 +861,7 @@ export default async function EventDetailPage({ params }) {
                         timezone={event.timezone}
                         sessions={sessions}
                         eventSlug={BUYABLE_STATUSES.has(event.status) ? event.slug : null}
+                        traffic={traffic}
                       />
                     </div>
 
@@ -866,6 +896,13 @@ export default async function EventDetailPage({ params }) {
                         {buyable ? (
                           <Link
                             href={`/events/${event.slug}/checkout`}
+                            {...(traffic
+                              ? trafficAttributes({
+                                  kind: 'TICKETS_CLICK',
+                                  ...traffic,
+                                  placement: 'EVENT_PAGE',
+                                })
+                              : {})}
                             className={`${PRIMARY_LINK} mt-5 w-full`}
                           >
                             Choose tickets
@@ -914,6 +951,9 @@ export default async function EventDetailPage({ params }) {
           </aside>
         </div>
       </div>
+
+      {/* The page view, and the clicks on "Choose tickets" and "Choose seats". */}
+      <TrafficScope view={traffic} />
     </article>
   )
 }
