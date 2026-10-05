@@ -114,11 +114,23 @@ model User {
   organizerInvitesAccepted OrganizerInvitation[]    @relation("OrganizerInvitationAcceptedBy")
   organizerInvitesRevoked  OrganizerInvitation[]    @relation("OrganizerInvitationRevokedBy")
   eventWebsiteDecisions    Event[]                  @relation("EventWebsiteRedirectChangedBy")
+  eventsDeleted            Event[]                  @relation("EventDeletedBy")
+  platformEdits            EventPlatformEdit[]      @relation("EventPlatformEditActor")
+  eventImportRunsCreated   EventImportRun[]         @relation("EventImportRunCreatedBy")
+  eventImportRunsApplied   EventImportRun[]         @relation("EventImportRunAppliedBy")
+  eventImportsImported     EventImportItem[]        @relation("EventImportItemImportedBy")
+  eventImportsApproved     EventImportItem[]        @relation("EventImportItemApprovedBy")
+  eventImportsReassigned   EventImportItem[]        @relation("EventImportItemReassignedBy")
 
   @@index([role])
   @@index([suspendedAt])
 }
 
+// Hand-written in `20260930160000_event_imports`: the trigger
+// `desi_platform_held_has_no_members()`, fired BEFORE INSERT OR UPDATE OF
+// "organizationId" on `Membership` and on `Invitation`, which refuses (SQLSTATE
+// 23514, constraint `platform_held_organization_has_no_members`) a membership or
+// a team invitation into an organisation whose `platformHeldSource` is set.
 model Organization {
   id             String   @id @default(cuid())
   name           String
@@ -151,6 +163,12 @@ model Organization {
   /// from the site before invitations; null otherwise. Provenance only. Never
   /// returned by any route.
   createdById           String?
+  /// Set on the one organisation that holds events imported from this source
+  /// for the Desi-Event team ("Sulekha Events"). It has no members and takes
+  /// no team invitations (trigger `desi_platform_held_has_no_members`), and one
+  /// organisation per source (unique). Only `lib/event-import.js` and
+  /// `lib/organization-provisioning.js` write it.
+  platformHeldSource    EventImportSource? @unique
 
   createdBy            User?                           @relation("OrganizationCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   memberships          Membership[]
@@ -166,6 +184,8 @@ model Organization {
   privacyHolds         PrivacyHold[]
   exportArtifacts      ExportArtifact[]
   organizerInvitations OrganizerInvitation[]
+  importsMovedOut      EventImportItem[]               @relation("EventImportItemReassignedFrom")
+  importsMovedIn       EventImportItem[]               @relation("EventImportItemReassignedTo")
 
   @@index([verified])
   @@index([verificationStatus])
@@ -228,7 +248,9 @@ enum EventCategory {
 /// button does anything — see `PUBLIC_EVENT_STATUSES` in
 /// `@desi-event/schemas`, which is the single list every public query reads.
 /// Everything else is invisible to the public, and that is enforced in queries
-/// rather than assumed.
+/// rather than assumed. `DELETED` is on none of the allow-lists (public,
+/// bookable, indexable, live, editable), so a deleted event is off every public
+/// and sale surface without a filter of its own.
 enum EventStatus {
   DRAFT
   /// Submitted by the organiser, waiting for a moderator.
@@ -247,6 +269,80 @@ enum EventStatus {
   CANCELLED
   REJECTED
   ARCHIVED
+  /// Taken off the site by its organiser or the Desi-Event team. The row, its
+  /// orders, refunds, pictures and history stay; nothing public or for sale
+  /// reads this status. Left only by a platform restore, to the status
+  /// `desi_event_restore_target(statusBeforeDeletion)` names (trigger
+  /// `desi_event_deletion_moves`). Its own migration,
+  /// `20260930140000_event_deleted_status`.
+  DELETED
+}
+
+/// What deleting an event did, decided by what had been sold.
+enum EventDeletionOutcome {
+  /// Nobody held a paid order.
+  REMOVED
+  /// It was cancelled and every paid order refunded, then removed.
+  CANCELLED_AND_REFUNDED
+  /// It had taken place; orders and tickets were left as they were.
+  REMOVED_AFTER_EVENT
+}
+
+/// Whose authority a change to an event was made under.
+enum EventAuthority {
+  ORGANIZATION
+  PLATFORM
+}
+
+/// What a ticket holder is told changed.
+enum EventChangeKind {
+  MATERIAL_CHANGE
+  SESSION_CHANGE
+  RESCHEDULED
+  POSTPONED
+  CANCELLED
+  SESSION_CANCELLED
+  DELETED
+}
+
+/// How a platform edit sitting ended.
+enum PlatformEditEnd {
+  /// "Stop editing".
+  CLOSED
+  /// The same administrator opened a new sitting on the event while this one
+  /// was still running.
+  SUPERSEDED
+  /// The event was deleted.
+  EVENT_DELETED
+  /// It ran past `expiresAt` and was closed afterwards (by a reopen). Reads
+  /// show an unclosed expired sitting as EXPIRED too.
+  EXPIRED
+}
+
+/// Where an imported event was listed first. One platform-held organisation
+/// per source (`Organization.platformHeldSource`, unique).
+enum EventImportSource {
+  SULEKHA
+}
+
+/// An import run: planned, then applied once, or left to expire.
+enum EventImportRunStatus {
+  PREVIEWED
+  APPLIED
+  EXPIRED
+}
+
+/// Whether an imported event's picture has been copied yet.
+enum EventImportImageStatus {
+  WAITING
+  STORED
+  FAILED
+}
+
+/// What the source listed a picture as.
+enum EventImportImageRole {
+  COVER
+  GALLERY
 }
 
 model Venue {
@@ -276,7 +372,7 @@ model Venue {
   /// accessible toilets. A JSON column because the vocabulary is still moving.
   accessibility     Json?
   /// Who told us about this venue: an organiser, a moderator, an import.
-  /// Nothing here is scraped from a third-party site.
+  /// An import records its source here (for example `import:sulekha`).
   provenance        String?
   organizationId    String?
   /// Set when an administrator merges a duplicate into another row. The merged
@@ -315,6 +411,17 @@ model Venue {
 // `websiteSubmittedAt` in step with the address, and the partial indexes
 // `Event_website_pending_idx` and `Event_website_redirect_on_idx`. An INSERT can
 // create an ON row; only seeds do.
+//
+// Hand-written in `20260930150000_event_full_control`: the CHECK
+// `event_deletion_consistency`, which ties the deletion columns to status
+// DELETED (set together, cleared together); the trigger
+// `desi_event_deletion_moves` (constraints `event_deletion_records_prior_status`
+// and `event_restore_returns_prior_status`), which records the status the row
+// really had on entering DELETED, keeps it fixed while DELETED, and lets the row
+// leave DELETED only for `desi_event_restore_target(statusBeforeDeletion)`; the
+// same function in the review gate's restore clause
+// (`desi_event_status_requires_review`, replaced there); and the partial index
+// `Event_deleted_idx` ("deletedAt") WHERE "status" = 'DELETED'.
 model Event {
   id             String        @id @default(cuid())
   organizationId String
@@ -365,6 +472,24 @@ model Event {
   /// Set the first time the event went ON_SALE. Once set, the venue map version
   /// backing its sessions is frozen.
   salesOpenedAt      DateTime?
+
+  // Deletion (status DELETED). Only `apps/api/src/lib/event-deletion.js` writes
+  // these, and only its `restoreEvent` clears them. CHECK
+  // `event_deletion_consistency`; trigger `desi_event_deletion_moves`.
+
+  /// When it was deleted.
+  deletedAt            DateTime?
+  /// Who deleted it. Null once the account is gone.
+  deletedById          String?
+  /// Why, as the person deleting it wrote it (10-500 characters).
+  deletionReason       String?
+  deletionOutcome      EventDeletionOutcome?
+  deletionAuthority    EventAuthority?
+  /// The status it had when it was deleted. A restore returns it to
+  /// `desi_event_restore_target` of this.
+  statusBeforeDeletion EventStatus?
+  /// The slug it had, when deletion released it (never-public events only).
+  deletedSlug          String?
 
   // Public content. Everything below is PUBLIC by the organiser's choice and is
   // shown on the event page; it is distinct from the private `contactEmail`
@@ -441,6 +566,14 @@ model Event {
   trafficEvents            TrafficEvent[]
   /// Daily visit totals. See `TrafficDaily`.
   trafficDaily             TrafficDaily[]
+  /// Who deleted it, while it is deleted.
+  deletedBy                User?                   @relation("EventDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+  /// The Desi-Event team's editing sittings on it.
+  platformEdits            EventPlatformEdit[]
+  /// What ticket holders are shown changed about it.
+  changeNotices            EventChangeNotice[]
+  /// Where it was imported from, when it was.
+  importItem               EventImportItem?
 
   @@index([status, startsAt])
   @@index([category, startsAt])
@@ -459,6 +592,7 @@ model Event {
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_summary_trgm_idx")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "Event_description_trgm_idx")
   @@index([websiteRedirectChangedById])
+  @@index([deletedById])
 }
 
 // ---------------------------------------------------------------------------
@@ -1045,8 +1179,11 @@ model Session {
   /// escalation cannot be replayed after it.
   rotatedAt      DateTime?
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  device Device? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device        Device?             @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  /// Platform edit sittings opened in this browser session. A sitting answers
+  /// only the session that opened it.
+  platformEdits EventPlatformEdit[]
 
   @@index([userId, revokedAt])
   @@index([expiresAt])
@@ -1513,43 +1650,58 @@ enum EventSessionStatus {
 // trigger `desi_event_session_map_keeps_tier_zones` refuses moving a session to
 // another map version, or to general admission, while a ticket type on it
 // prices a zone of the version it has.
+//
+// Hand-written in `20260930150000_event_full_control`: the CHECK
+// `event_session_cancellation_stamped` (status CANCELLED exactly when
+// `cancelledAt` is set; a reason, when given, 1-500 characters) and the trigger
+// `desi_event_session_cancel_is_final` (constraint
+// `event_session_cancellation_final`): a cancelled night does not come back.
 /// One performance of an event: a date, a time, a door time, a sales window.
 ///
 /// Phase 1 events carried a single start and end on the event itself. Those
 /// columns remain and stay authoritative for single-session events; a session
 /// row is what makes a run of nine Navratri nights one listing.
 model EventSession {
-  id                String             @id @default(cuid())
-  eventId           String
+  id                 String             @id @default(cuid())
+  eventId            String
   /// Stored UTC; render with `timezone`.
-  startsAt          DateTime
-  endsAt            DateTime
-  doorsOpenAt       DateTime?
-  timezone          String             @default("Asia/Kolkata")
-  salesStartAt      DateTime?
-  salesEndAt        DateTime?
-  status            EventSessionStatus @default(SCHEDULED)
+  startsAt           DateTime
+  endsAt             DateTime
+  doorsOpenAt        DateTime?
+  timezone           String             @default("Asia/Kolkata")
+  salesStartAt       DateTime?
+  salesEndAt         DateTime?
+  status             EventSessionStatus @default(SCHEDULED)
   /// The frozen layout this session sells. Null for a general-admission
   /// session. Once anything is sold it may not change.
-  venueMapVersionId String?
+  venueMapVersionId  String?
   /// General-admission capacity, for a session with no seat map. Positive when
   /// set (CHECK `event_session_capacity_positive`).
-  capacity          Int?
-  sortOrder         Int                @default(0)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  capacity           Int?
+  sortOrder          Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
   /// Short organiser-facing name for this performance, e.g. "Night 1". Null
   /// means the date alone labels it. 1-60 characters once trimmed (CHECK
   /// `event_session_label_length`).
-  label             String?
+  label              String?
+  /// Set when the night was cancelled (status CANCELLED, which is final).
+  cancelledAt        DateTime?
+  /// Why, as the person cancelling it wrote it.
+  cancellationReason String?
+  /// False when the source of an imported event listed no end time, so
+  /// `endsAt` (and the event's) is a planning estimate (start + 3 hours) that
+  /// no public page, card, JSON-LD or social image shows.
+  endTimeListed      Boolean            @default(true)
 
-  event           Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  venueMapVersion VenueMapVersion? @relation(fields: [venueMapVersionId], references: [id], onDelete: Restrict)
+  event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  venueMapVersion VenueMapVersion?    @relation(fields: [venueMapVersionId], references: [id], onDelete: Restrict)
   eventSeats      EventSeat[]
   ticketTypes     TicketType[]
   holds           TicketHold[]
   orders          Order[]
   checkIns        CheckIn[]
+  changeNotices   EventChangeNotice[]
 
   @@index([eventId, startsAt])
   @@index([status, startsAt])
@@ -1690,12 +1842,21 @@ enum MediaKind {
 }
 
 // Hand-written in `20260928130000_event_media`, because Prisma's schema
-// language cannot express them: the partial unique index
-// `MediaAsset_one_cover_per_event_key` on ("eventId") WHERE "kind" =
-// 'EVENT_COVER'; the trigger `desi_media_gallery_cap` (at most eight gallery
-// pictures per event); and the CHECKs `media_asset_event_media_shape`,
-// `media_asset_position_by_kind`, `media_asset_approved_is_servable`,
-// `media_asset_rejection_has_note` and `media_asset_decision_is_stamped`.
+// language cannot express them: the trigger `desi_media_gallery_cap` (at most
+// eight gallery pictures per event); and the CHECKs
+// `media_asset_event_media_shape`, `media_asset_position_by_kind`,
+// `media_asset_approved_is_servable`, `media_asset_rejection_has_note` and
+// `media_asset_decision_is_stamped`.
+//
+// Hand-written in `20260930150000_event_full_control`: the partial unique index
+// `MediaAsset_one_current_cover_per_event_key` on ("eventId") WHERE "kind" =
+// 'EVENT_COVER' AND "replacesMediaId" IS NULL, which replaced
+// `MediaAsset_one_cover_per_event_key` (a waiting replacement cover is the
+// second cover row); the CHECK `media_asset_replacement_shape` (a replacement is
+// a cover, never APPROVED while it points, never itself); and the trigger
+// `desi_media_replacement_matches` (constraint
+// `media_asset_replacement_matches`): it replaces the current cover of its own
+// event.
 /// An uploaded image.
 ///
 /// The bytes live in `MediaBlob`, behind the `MediaStorage` adapter; this row
@@ -1737,11 +1898,20 @@ model MediaAsset {
   moderatedById    String?
   /// Why it was rejected. Shown to the organiser, never public.
   moderationNote   String?
+  /// A replacement cover waiting for review: the cover it will replace, which
+  /// stays public until this one is approved. Null for every other picture.
+  /// Unique (one waiting replacement per cover); cleared by ON DELETE SET NULL
+  /// when the replaced cover goes.
+  replacesMediaId  String?               @unique
 
-  event       Event?     @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  uploadedBy  User?      @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
-  moderatedBy User?      @relation("MediaModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
-  blob        MediaBlob?
+  event        Event?             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploadedBy   User?              @relation("MediaUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+  moderatedBy  User?              @relation("MediaModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+  blob         MediaBlob?
+  replaces     MediaAsset?        @relation("MediaReplacement", fields: [replacesMediaId], references: [id], onDelete: SetNull)
+  replacedBy   MediaAsset?        @relation("MediaReplacement")
+  /// The import record this picture was copied for, when it was.
+  importImages EventImportImage[]
 
   @@index([ownerType, ownerId])
   @@index([moderationStatus, scanStatus])
@@ -1761,6 +1931,197 @@ model MediaBlob {
   createdAt  DateTime @default(now())
 
   asset MediaAsset @relation(fields: [storageKey], references: [storageKey], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// Full control of posted events
+//
+// Migration `20260930150000_event_full_control`.
+// ---------------------------------------------------------------------------
+
+// Hand-written in `20260930150000_event_full_control`: the partial unique index
+// `EventPlatformEdit_one_open_per_actor_key` ("eventId", "actorId") WHERE
+// "closedAt" IS NULL, and the CHECK `event_platform_edit_shape` (a reason of
+// 10-500 characters, at most two hours long, closed exactly when it has an
+// ending). Only `lib/event-authority.js` and `routes/event-control.js` write it.
+/// One sitting in which a Desi-Event administrator edits an organisation's
+/// posted event: a reason, a step-up, a time box, one browser session. Every
+/// write made under it is audited with its id.
+model EventPlatformEdit {
+  id        String           @id @default(cuid())
+  eventId   String
+  actorId   String?
+  /// The browser session that opened it. A write from any other session is
+  /// refused. Null once that session row is gone, which no request can match,
+  /// so the sitting is then effectively closed.
+  sessionId String?
+  /// Shown to the organiser, without the administrator's name.
+  reason    String
+  openedAt  DateTime         @default(now())
+  expiresAt DateTime
+  closedAt  DateTime?
+  endedBy   PlatformEditEnd?
+
+  event   Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  actor   User?    @relation("EventPlatformEditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, openedAt])
+  @@index([actorId])
+  @@index([sessionId])
+}
+
+// Hand-written in `20260930150000_event_full_control`: the CHECK
+// `event_change_notice_shape`. Only `lib/event-change-notices.js` writes it.
+/// What changed about an event after people bought tickets, as they are shown
+/// it on their order and ticket pages. One row per change, not per order (the
+/// outbox has those).
+model EventChangeNotice {
+  id             String          @id @default(cuid())
+  eventId        String
+  /// Set when the change was to one night only.
+  eventSessionId String?
+  kind           EventChangeKind
+  fields         String[]        @default([])
+  /// The sentences, frozen when written ("the start time").
+  changed        String[]        @default([])
+  before         Json?
+  after          Json?
+  reason         String?
+  byPlatform     Boolean         @default(false)
+  revision       Int?
+  createdAt      DateTime        @default(now())
+
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventSession EventSession? @relation(fields: [eventSessionId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, createdAt])
+  @@index([eventSessionId])
+}
+
+// ---------------------------------------------------------------------------
+// Events imported from another site
+//
+// Migration `20260930160000_event_imports`. The CHECKs are hand-written there:
+// `event_import_run_shape`, `event_import_item_shape` and
+// `event_import_image_shape`. Only `apps/api/src/lib/event-import.js` writes
+// these three tables.
+// ---------------------------------------------------------------------------
+
+/// One upload of an import file: the dataset, the plan an administrator read,
+/// and, once applied, who applied it. A run is applied at most once.
+model EventImportRun {
+  id            String               @id @default(cuid())
+  source        EventImportSource
+  status        EventImportRunStatus @default(PREVIEWED)
+  /// The uploaded file's name, 1-200 characters.
+  fileName      String
+  /// SHA-256 of the canonical dataset, lower-case hex.
+  datasetSha256 String
+  /// The dataset as uploaded, at most 2 MiB as text.
+  dataset       Json
+  /// What applying it does, row by row.
+  plan          Json
+  /// SHA-256 of the canonical plan, lower-case hex. Apply recomputes the plan
+  /// and refuses when it differs.
+  planDigest    String
+  /// 1-500 events.
+  eventCount    Int
+  createdById   String?
+  createdAt     DateTime             @default(now())
+  /// A plan is applied within an hour or not at all.
+  expiresAt     DateTime
+  appliedAt     DateTime?
+  appliedById   String?
+  /// Counts written when it was applied.
+  summary       Json?
+
+  createdBy User?             @relation("EventImportRunCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  appliedBy User?             @relation("EventImportRunAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+  items     EventImportItem[]
+
+  @@index([createdAt])
+  @@index([createdById])
+  @@index([appliedById])
+}
+
+/// One imported event and where it came from: the source's id and page, who
+/// imported it, who approved it, and where an administrator moved it. Unique
+/// per `(source, sourceId)`, so a re-import updates rather than duplicates.
+model EventImportItem {
+  id                           String            @id @default(cuid())
+  source                       EventImportSource
+  /// The source's own id for the listing, 1-12 digits.
+  sourceId                     String
+  /// The listing's https page.
+  sourceUrl                    String
+  eventId                      String            @unique
+  /// The run that last created or updated it.
+  lastRunId                    String?
+  importedById                 String?
+  importedAt                   DateTime          @default(now())
+  lastSyncedAt                 DateTime          @default(now())
+  /// When the source was read.
+  scrapedAt                    DateTime
+  /// The organiser the source names, shown as "Presented by".
+  presentedBy                  String?
+  /// The prices as the source listed them: `[{name, priceCents, currency,
+  /// note}]`, at most 20. No ticket type is made from them.
+  prices                       Json              @default("[]")
+  priceText                    String?
+  /// What the curator noted about the listing, shown to administrators only.
+  importNotes                  String[]          @default([])
+  approvedById                 String?
+  approvedAt                   DateTime?
+  reassignedAt                 DateTime?
+  reassignedById               String?
+  reassignedFromOrganizationId String?
+  reassignedToOrganizationId   String?
+
+  event                      Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  lastRun                    EventImportRun?    @relation(fields: [lastRunId], references: [id], onDelete: SetNull)
+  importedBy                 User?              @relation("EventImportItemImportedBy", fields: [importedById], references: [id], onDelete: SetNull)
+  approvedBy                 User?              @relation("EventImportItemApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  reassignedBy               User?              @relation("EventImportItemReassignedBy", fields: [reassignedById], references: [id], onDelete: SetNull)
+  reassignedFromOrganization Organization?      @relation("EventImportItemReassignedFrom", fields: [reassignedFromOrganizationId], references: [id], onDelete: SetNull)
+  reassignedToOrganization   Organization?      @relation("EventImportItemReassignedTo", fields: [reassignedToOrganizationId], references: [id], onDelete: SetNull)
+  images                     EventImportImage[]
+
+  @@unique([source, sourceId])
+  @@index([lastRunId])
+  @@index([importedById])
+  @@index([approvedById])
+  @@index([reassignedById])
+  @@index([reassignedFromOrganizationId])
+  @@index([reassignedToOrganizationId])
+}
+
+/// One picture the source listed for an imported event, and whether it has
+/// been copied. The URL is read by administrators only; no public page or
+/// payload names it. There is deliberately no coupling between STORED and
+/// `mediaAssetId`: the organiser may remove the picture later.
+model EventImportImage {
+  id           String                 @id @default(cuid())
+  itemId       String
+  /// The source's https address for it.
+  url          String
+  role         EventImportImageRole
+  /// The description the dataset gives, 1-300 characters.
+  alt          String
+  position     Int
+  status       EventImportImageStatus @default(WAITING)
+  /// Why the last attempt failed (`HOST_NOT_ALLOWED`, `TIMEOUT`, ...).
+  failureCode  String?
+  attempts     Int                    @default(0)
+  lastTriedAt  DateTime?
+  /// The stored picture, once copied.
+  mediaAssetId String?
+
+  item       EventImportItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset?     @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([itemId, url])
+  @@index([mediaAssetId])
 }
 
 // ---------------------------------------------------------------------------

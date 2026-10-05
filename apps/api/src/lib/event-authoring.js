@@ -130,6 +130,11 @@ function notEditableMessage(status) {
     return 'A moderator rejected this event. Rework it as a draft to change it and send it for review again.'
   }
 
+  // Not final: the Desi-Event team can restore a deleted event (SPEC2-XI X-12).
+  if (status === 'DELETED') {
+    return 'This event was deleted. Ask the Desi-Event team to restore it before changing it.'
+  }
+
   return `This event is ${String(status).toLowerCase().replace(/_/g, ' ')}, which is final, so its content cannot be edited.`
 }
 

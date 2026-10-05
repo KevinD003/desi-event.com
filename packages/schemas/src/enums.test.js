@@ -115,6 +115,14 @@ const MIRRORS = {
   TrafficEventKind: 'TRAFFIC_EVENT_KIND_VALUES',
   TrafficPlacement: 'TRAFFIC_PLACEMENTS',
   TrafficSource: 'TRAFFIC_SOURCES',
+  EventDeletionOutcome: 'EVENT_DELETION_OUTCOMES',
+  EventAuthority: 'EVENT_AUTHORITIES',
+  EventChangeKind: 'EVENT_CHANGE_KINDS',
+  PlatformEditEnd: 'PLATFORM_EDIT_ENDS',
+  EventImportSource: 'EVENT_IMPORT_SOURCES',
+  EventImportRunStatus: 'EVENT_IMPORT_RUN_STATUSES',
+  EventImportImageStatus: 'EVENT_IMPORT_IMAGE_STATUSES',
+  EventImportImageRole: 'EVENT_IMPORT_IMAGE_ROLES',
 }
 
 /**
@@ -180,6 +188,14 @@ const SCHEMAS = {
   TRAFFIC_EVENT_KIND_VALUES: 'trafficEventKindSchema',
   TRAFFIC_PLACEMENTS: 'trafficPlacementSchema',
   TRAFFIC_SOURCES: 'trafficSourceSchema',
+  EVENT_DELETION_OUTCOMES: 'eventDeletionOutcomeSchema',
+  EVENT_AUTHORITIES: 'eventAuthoritySchema',
+  EVENT_CHANGE_KINDS: 'eventChangeKindSchema',
+  PLATFORM_EDIT_ENDS: 'platformEditEndSchema',
+  EVENT_IMPORT_SOURCES: 'eventImportSourceSchema',
+  EVENT_IMPORT_RUN_STATUSES: 'eventImportRunStatusSchema',
+  EVENT_IMPORT_IMAGE_STATUSES: 'eventImportImageStatusSchema',
+  EVENT_IMPORT_IMAGE_ROLES: 'eventImportImageRoleSchema',
 }
 
 const prismaSource = readFileSync(schemaPath, 'utf8')
@@ -301,9 +317,18 @@ describe('public and private event statuses', () => {
       'REJECTED',
       'ARCHIVED',
       'CANCELLED',
+      'DELETED',
     ]) {
       expect(enums.PRIVATE_EVENT_STATUSES, `${status} must not be public`).toContain(status)
     }
+  })
+
+  it('names DELETED, private and last, and a sitting that EXPIRED', () => {
+    expect(enums.EVENT_STATUSES.at(-1)).toBe('DELETED')
+    expect(enums.PUBLIC_EVENT_STATUSES).not.toContain('DELETED')
+    expect(enums.eventStatusSchema.parse('DELETED')).toBe('DELETED')
+    expect(enums.PLATFORM_EDIT_ENDS).toContain('EXPIRED')
+    expect(enums.EVENT_IMPORT_SOURCES).toEqual(['SULEKHA'])
   })
 
   it('shows a sold-out or paused show rather than hiding it', () => {

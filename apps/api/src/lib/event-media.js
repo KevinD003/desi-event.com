@@ -17,7 +17,9 @@
  * because every new picture is reviewed with the event. A description and the
  * gallery order may change while it is editable or live. A picture may be
  * removed in every status except the two in which a moderator holds this
- * version. Every organiser write goes through `authorChange`, so each one takes
+ * version, and DELETED, whose pictures are kept for a restore (and so do not
+ * count toward the organisation's quota). Every organiser write goes through
+ * `authorChange`, so each one takes
  * the event revision as a precondition, bumps it, and is audited in the same
  * transaction.
  *
@@ -236,20 +238,37 @@ export const APPROVED_MEDIA_SENTENCE =
 const IN_REVIEW_SENTENCE =
   'This event is waiting for review. A moderator is looking at this version, so its pictures cannot change until they decide or you withdraw it from review.'
 
+/**
+ * Why a deleted event's pictures hold: nobody is reviewing it, and they stay
+ * as they were so a restore brings the event back whole (SPEC2-XI X-8).
+ */
+const DELETED_MEDIA_SENTENCE =
+  'This event was deleted. Its pictures stay as they were, so a restore by the Desi-Event team brings the event back whole.'
+
 /** Why a status refuses each kind of change, in the organiser's words. */
 const STATUS_REFUSALS = Object.freeze({
-  upload: (status) =>
-    status === 'REVIEW_PENDING'
-      ? 'This event is waiting for review, so no picture can be added. Withdraw it from review first.'
-      : `This event is ${status}. New pictures can be added only while it is a draft or has changes requested, because every new picture is reviewed with the event.`,
+  upload: (status) => {
+    if (status === 'DELETED') return DELETED_MEDIA_SENTENCE
+    if (status === 'REVIEW_PENDING') {
+      return 'This event is waiting for review, so no picture can be added. Withdraw it from review first.'
+    }
+
+    return `This event is ${status}. New pictures can be added only while it is a draft or has changes requested, because every new picture is reviewed with the event.`
+  },
   arrange: (status) => {
+    if (status === 'DELETED') return DELETED_MEDIA_SENTENCE
     if (status === 'APPROVED') return APPROVED_MEDIA_SENTENCE
     if (status === 'REVIEW_PENDING') return IN_REVIEW_SENTENCE
 
     return `This event is ${status}, so its pictures cannot be described again or reordered.`
   },
-  // Removal is refused in exactly these two statuses.
-  remove: (status) => (status === 'APPROVED' ? APPROVED_MEDIA_SENTENCE : IN_REVIEW_SENTENCE),
+  // Removal is refused in exactly three statuses: the two in which a moderator
+  // holds this version, and DELETED.
+  remove: (status) => {
+    if (status === 'DELETED') return DELETED_MEDIA_SENTENCE
+
+    return status === 'APPROVED' ? APPROVED_MEDIA_SENTENCE : IN_REVIEW_SENTENCE
+  },
 })
 
 /** Which statuses allow each kind of change. */
@@ -312,8 +331,11 @@ export async function assertGalleryRoom(client, eventId) {
  * @throws {Error} A 409 `MEDIA_QUOTA_EXCEEDED`.
  */
 export async function assertQuota(client, organizationId, adding) {
+  // A deleted event's pictures are kept for a restore and cannot be removed
+  // while it is deleted (`MEDIA_REMOVE_STATUSES`), so they do not count against
+  // the room the organisation can free.
   const { _sum: sum } = await client.mediaAsset.aggregate({
-    where: { event: { organizationId } },
+    where: { event: { organizationId, status: { not: 'DELETED' } } },
     _sum: { byteSize: true },
   })
   const used = sum?.byteSize ?? 0

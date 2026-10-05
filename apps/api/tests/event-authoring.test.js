@@ -292,6 +292,40 @@ describe('what may be edited, and when', () => {
     await app.close()
   })
 
+  // SPEC2-XI X-8 and X-12: a deleted event is not final, because the Desi-Event
+  // team can restore it; the refusal says what to do instead.
+  it('refuses authoring on a deleted event and says the Desi-Event team restores it, not that it is final', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const token = await signIn(app, 'arun@rangoli.example')
+
+    Object.assign(
+      prisma._store.event.find((row) => row.id === ids.publishedEvent.id),
+      {
+        status: 'DELETED',
+        deletedAt: new Date(),
+        deletionReason: 'The venue withdrew the booking before any ticket was sold.',
+        deletionOutcome: 'REMOVED',
+        deletionAuthority: 'ORGANIZATION',
+        statusBeforeDeletion: 'PUBLISHED',
+      },
+    )
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/tiers`,
+      headers: bearer(token),
+      payload: tier(0),
+    })
+
+    expect(response.statusCode).toBe(409)
+    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(response.json().error.message).toBe(
+      'This event was deleted. Ask the Desi-Event team to restore it before changing it.',
+    )
+
+    await app.close()
+  })
+
   it('refuses an outsider editing somebody else’s draft', async () => {
     const { app, ids } = await createTestApp()
     const token = await signIn(app, 'rival@dhol.example')

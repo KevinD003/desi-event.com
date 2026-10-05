@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
+import { restoreTarget } from '@desi-event/schemas/lifecycle'
+
 import { CANCELLATION_BUDGET } from '../src/lib/event-cancellation.js'
+import {
+  availableTransitions,
+  loadForTransition,
+  transitionEvent,
+} from '../src/lib/event-lifecycle.js'
 import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
-import { minutesFromNow } from './helpers/fixtures.js'
-import { cuid } from './helpers/prisma-stub.js'
+import { addRows, deletedEventFixture, makeWorld, minutesFromNow } from './helpers/fixtures.js'
+import { createPrismaStub, cuid } from './helpers/prisma-stub.js'
 
 /**
  * The event lifecycle: what the status column is allowed to mean.
@@ -612,5 +619,114 @@ describe('cancellation creates the work it owes, exactly once', () => {
     )
 
     await app.close()
+  })
+})
+
+describe('deletion and restore are commands of their own, never a transition (SPEC2-XI X-16)', () => {
+  /**
+   * The world's owner, as the lifecycle sees an organisation member.
+   *
+   * @param {object} ids `makeWorld().ids`.
+   * @returns {object} An actor.
+   */
+  function ownerActor(ids) {
+    return {
+      id: ids.owner.id,
+      role: 'USER',
+      memberships: [{ organizationId: ids.organization.id, role: 'OWNER' }],
+    }
+  }
+
+  /**
+   * The world's platform super administrator, with no membership.
+   *
+   * @param {object} ids `makeWorld().ids`.
+   * @returns {object} An actor.
+   */
+  function superAdministrator(ids) {
+    return { id: ids.platformAdmin.id, role: 'SUPER_ADMIN', memberships: [] }
+  }
+
+  it('refuses to move an event into DELETED, for its owner and for a super administrator alike', async () => {
+    // The table names the deletion move so it lists every way out of every
+    // status, but deleting has its own preview, confirmation and audit. A
+    // caller who reached `transitionEvent` with DELETED would skip all three.
+    const { seed, ids } = await makeWorld()
+    const prisma = createPrismaStub(seed)
+    const event = await loadForTransition(prisma, ids.publishedEvent.id)
+
+    for (const actor of [ownerActor(ids), superAdministrator(ids)]) {
+      await expect(transitionEvent(prisma, { event, to: 'DELETED', actor })).rejects.toMatchObject({
+        statusCode: 409,
+        message: expect.stringMatching(/commands of their own/),
+        details: { code: 'ILLEGAL_TRANSITION', from: 'PUBLISHED', to: 'DELETED' },
+      })
+    }
+
+    const after = await prisma.event.findUnique({ where: { id: ids.publishedEvent.id } })
+
+    expect(after.status).toBe('PUBLISHED')
+    expect(after.deletedAt).toBeNull()
+    expect(after.statusBeforeDeletion).toBeNull()
+  })
+
+  it('refuses to restore a deleted event, even to the status a restore would land on', async () => {
+    const { seed, ids } = await makeWorld()
+    const deleted = deletedEventFixture(ids, {
+      authority: 'PLATFORM',
+      deletedBy: ids.platformAdmin,
+    })
+    const prisma = createPrismaStub(addRows(seed, deleted.rows))
+    const event = await loadForTransition(prisma, deleted.event.id)
+    const to = restoreTarget(deleted.event.statusBeforeDeletion)
+
+    await expect(
+      transitionEvent(prisma, { event, to, actor: superAdministrator(ids) }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringMatching(/only the Desi-Event team restores one/),
+      details: { code: 'ILLEGAL_TRANSITION', from: 'DELETED', to },
+    })
+
+    const after = await prisma.event.findUnique({ where: { id: deleted.event.id } })
+
+    expect(after.status).toBe('DELETED')
+    expect(after.deletedAt).toEqual(deleted.event.deletedAt)
+  })
+
+  it('offers neither move among the transitions it lists', async () => {
+    const { seed, ids } = await makeWorld()
+    const deleted = deletedEventFixture(ids)
+    const prisma = createPrismaStub(addRows(seed, deleted.rows))
+    const published = await loadForTransition(prisma, ids.publishedEvent.id)
+    const gone = await loadForTransition(prisma, deleted.event.id)
+
+    for (const actor of [ownerActor(ids), superAdministrator(ids)]) {
+      const offered = (await availableTransitions(prisma, published, actor)).map((move) => move.to)
+
+      expect(offered.length).toBeGreaterThan(0)
+      expect(offered).not.toContain('DELETED')
+      expect(await availableTransitions(prisma, gone, actor)).toEqual([])
+    }
+  })
+
+  it('still calls CANCELLED a final state, naming no deletion as a way out of it', async () => {
+    const { seed, ids } = await makeWorld()
+    const cancelled = {
+      ...ids.publishedEvent,
+      id: cuid(),
+      slug: 'cancelled-garba-night',
+      status: 'CANCELLED',
+    }
+    const prisma = createPrismaStub(addRows(seed, { event: [cancelled] }))
+    const event = await loadForTransition(prisma, cancelled.id)
+
+    await expect(
+      transitionEvent(prisma, { event, to: 'PUBLISHED', actor: ownerActor(ids) }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: 'An event that is CANCELLED cannot become PUBLISHED. CANCELLED is a final state.',
+      details: { code: 'ILLEGAL_TRANSITION', available: [] },
+    })
   })
 })

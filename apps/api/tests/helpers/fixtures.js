@@ -758,3 +758,470 @@ export function organizerInvitationFixture({
     },
   }
 }
+
+// ---------------------------------------------------------------------------
+// SPEC2-XI §4.9: full control of posted events and the Sulekha import.
+//
+// Not in the default world. Each builder takes the world's ids and returns the
+// rows to add (`addRows(seed, fixture.rows)`) and the ones a test asserts
+// against, so the suites that count events, orders or organisations see the
+// world they were written for, and the ones about deletion, nights and imports
+// opt in to exactly the rows they need.
+// ---------------------------------------------------------------------------
+
+/** A reason of the length every SPEC2-XI reason box asks for (10-500 characters). */
+const FIXTURE_REASON = 'The venue withdrew the booking before any ticket was sold.'
+
+/**
+ * Append fixture rows to a world's seed, model by model.
+ *
+ * @param {object} seed `makeWorld().seed`.
+ * @param {Record<string, object[]>} rows Rows keyed by model.
+ * @returns {object} The same seed.
+ */
+export function addRows(seed, rows) {
+  for (const [model, list] of Object.entries(rows)) {
+    seed[model] = [...(seed[model] ?? []), ...list]
+  }
+
+  return seed
+}
+
+/**
+ * One general-admission night of an event.
+ *
+ * @param {object} event The event.
+ * @param {object} [overrides] Column overrides.
+ * @returns {object} An `EventSession` row with every column spelled out.
+ */
+function nightOf(event, overrides = {}) {
+  return {
+    id: cuid(),
+    eventId: event.id,
+    startsAt: event.startsAt,
+    endsAt: event.endsAt,
+    doorsOpenAt: null,
+    timezone: event.timezone,
+    salesStartAt: null,
+    salesEndAt: null,
+    status: 'SCHEDULED',
+    venueMapVersionId: null,
+    capacity: 500,
+    sortOrder: 0,
+    label: null,
+    cancelledAt: null,
+    cancellationReason: null,
+    endTimeListed: true,
+    createdAt: new Date('2025-02-01T00:00:00.000Z'),
+    updatedAt: new Date('2025-02-01T00:00:00.000Z'),
+    ...overrides,
+  }
+}
+
+/**
+ * A deleted event: deleted from ON_SALE with outcome REMOVED, its slug kept
+ * retired (it was public), as `lib/event-deletion.js` leaves one. The columns
+ * satisfy `event_deletion_consistency`.
+ *
+ * @param {object} ids `makeWorld().ids`.
+ * @param {object} [options] Options.
+ * @param {object} [options.deletedBy] Who deleted it; the organisation's owner by default.
+ * @param {'ORGANIZATION'|'PLATFORM'} [options.authority] Whose authority.
+ * @param {object} [options.overrides] Event column overrides.
+ * @returns {object} `{rows, event, session}`: the rows keyed by model, and the two named.
+ */
+export function deletedEventFixture(
+  ids,
+  { deletedBy = ids.owner, authority = 'ORGANIZATION', overrides = {} } = {},
+) {
+  const event = {
+    ...ids.publishedEvent,
+    id: cuid(),
+    title: 'Diwali Mela on the Lawn',
+    slug: 'diwali-mela-on-the-lawn',
+    summary: 'Stalls, lights and a dance floor under the stars.',
+    status: 'DELETED',
+    publishedAt: new Date('2025-02-03T00:00:00.000Z'),
+    startsAt: minutesFromNow(60 * 24 * 45),
+    endsAt: minutesFromNow(60 * 24 * 45 + 240),
+    revision: 3,
+    deletedAt: new Date('2025-03-01T00:00:00.000Z'),
+    deletedById: deletedBy.id,
+    deletionReason: FIXTURE_REASON,
+    deletionOutcome: 'REMOVED',
+    deletionAuthority: authority,
+    statusBeforeDeletion: 'ON_SALE',
+    deletedSlug: null,
+    ...overrides,
+  }
+  const session = nightOf(event)
+
+  return { rows: { event: [event], eventSession: [session] }, event, session }
+}
+
+/**
+ * A paid order of one line, its payment and its tickets, as settlement leaves
+ * them.
+ *
+ * @param {object} options What the order is.
+ * @param {object} options.event The event.
+ * @param {object} options.tier The ticket type bought.
+ * @param {object} options.buyer The buying user.
+ * @param {string|null} options.eventSessionId The night, for a single-night order.
+ * @param {number} options.quantity Tickets.
+ * @param {string} options.reference The order reference.
+ * @returns {{order: object, item: object, payment: object, tickets: object[]}} The rows.
+ */
+function paidOrderRows({ event, tier, buyer, eventSessionId, quantity, reference }) {
+  const paidAt = new Date('2025-02-10T10:00:00.000Z')
+  const totalCents = tier.priceCents * quantity
+  const order = {
+    id: cuid(),
+    reference,
+    idempotencyKey: null,
+    eventId: event.id,
+    eventSessionId,
+    userId: buyer.id,
+    buyerEmail: buyer.email,
+    buyerName: buyer.displayName,
+    status: 'PAID',
+    currency: tier.currency,
+    subtotalCents: totalCents,
+    discountCents: 0,
+    feesCents: 0,
+    taxCents: 0,
+    totalCents,
+    promoCodeId: null,
+    refundedCents: 0,
+    refundPendingCents: 0,
+    expiresAt: null,
+    paidAt,
+    cancelledAt: null,
+    createdAt: paidAt,
+    updatedAt: paidAt,
+  }
+  const item = {
+    id: cuid(),
+    orderId: order.id,
+    ticketTypeId: tier.id,
+    quantity,
+    unitPriceCents: tier.priceCents,
+    subtotalCents: totalCents,
+    refundedQuantity: 0,
+    refundedCents: 0,
+    attendeeNames: [],
+  }
+  const payment = {
+    id: cuid(),
+    orderId: order.id,
+    provider: 'in-memory-payments',
+    providerRef: `pi_${reference.toLowerCase().replace(/[^a-z0-9]/gu, '')}`,
+    status: 'SUCCEEDED',
+    amountCents: totalCents,
+    currency: tier.currency,
+    createdAt: paidAt,
+    updatedAt: paidAt,
+  }
+  const tickets = Array.from({ length: quantity }, (_, index) => ({
+    id: cuid(),
+    orderItemId: item.id,
+    code: `${reference}-${index + 1}`,
+    credentialHash: `${reference.toLowerCase()}-credential-${index + 1}`,
+    credentialVersion: 1,
+    credentialIssuedAt: paidAt,
+    attendeeName: null,
+    ownerUserId: buyer.id,
+    eventSeatId: null,
+    status: 'VALID',
+    checkedInAt: null,
+    revokedAt: null,
+    revokedReason: null,
+    supersedesTicketId: null,
+    createdAt: paidAt,
+    updatedAt: paidAt,
+  }))
+
+  return { order, item, payment, tickets }
+}
+
+/**
+ * A live three-night event of the world's organisation: a tier per night, an
+ * every-night pass, a paid order per night and one for the pass, all bought
+ * by the world's attendee.
+ *
+ * @param {object} ids `makeWorld().ids`.
+ * @param {object} [options] Options.
+ * @param {object} [options.overrides] Event column overrides.
+ * @returns {object} `{rows, event, nights, tiers, pass, orders, passOrder}`: the rows keyed by model, and the ones a test names.
+ */
+export function threeNightEventFixture(ids, { overrides = {} } = {}) {
+  const firstNight = minutesFromNow(60 * 24 * 20)
+  const event = {
+    ...ids.publishedEvent,
+    id: cuid(),
+    title: 'Navratri Nights at the Pavilion',
+    slug: 'navratri-nights-at-the-pavilion',
+    summary: 'Three nights of garba with a live band.',
+    status: 'ON_SALE',
+    publishedAt: new Date('2025-02-05T00:00:00.000Z'),
+    salesOpenedAt: new Date('2025-02-06T00:00:00.000Z'),
+    startsAt: firstNight,
+    endsAt: new Date(firstNight.getTime() + 2 * 86_400_000 + 4 * 3_600_000),
+    ...EVENT_DELETION_FIXTURE_COLUMNS,
+    ...overrides,
+  }
+  const nights = [0, 1, 2].map((day) => {
+    const startsAt = new Date(firstNight.getTime() + day * 86_400_000)
+
+    return nightOf(event, {
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 4 * 3_600_000),
+      sortOrder: day,
+      label: `Night ${day + 1}`,
+    })
+  })
+  const tier = (name, eventSessionId, sortOrder) => ({
+    id: cuid(),
+    eventId: event.id,
+    eventSessionId,
+    priceZoneId: null,
+    reserved: false,
+    complimentary: false,
+    name,
+    description: null,
+    priceCents: 80_000,
+    currency: 'INR',
+    quantityTotal: 50,
+    quantitySold: 1,
+    minPerOrder: 1,
+    maxPerOrder: 4,
+    salesStartAt: null,
+    salesEndAt: null,
+    status: 'ON_SALE',
+    sortOrder,
+    visibility: 'PUBLIC',
+    createdAt: new Date('2025-02-01T00:00:00.000Z'),
+    updatedAt: new Date('2025-02-01T00:00:00.000Z'),
+  })
+  const tiers = nights.map((night, index) => tier(`Night ${index + 1}`, night.id, index))
+  const pass = { ...tier('Every night', null, 3), priceCents: 200_000 }
+  const bought = [
+    ...tiers.map((nightTier, index) =>
+      paidOrderRows({
+        event,
+        tier: nightTier,
+        buyer: ids.attendee,
+        eventSessionId: nights[index].id,
+        quantity: 1,
+        reference: `DE-3N0${index + 1}`,
+      }),
+    ),
+    paidOrderRows({
+      event,
+      tier: pass,
+      buyer: ids.attendee,
+      eventSessionId: null,
+      quantity: 1,
+      reference: 'DE-3NPASS',
+    }),
+  ]
+
+  return {
+    rows: {
+      event: [event],
+      eventSession: nights,
+      ticketType: [...tiers, pass],
+      order: bought.map((rows) => rows.order),
+      orderItem: bought.map((rows) => rows.item),
+      payment: bought.map((rows) => rows.payment),
+      ticket: bought.flatMap((rows) => rows.tickets),
+    },
+    event,
+    nights,
+    tiers,
+    pass,
+    orders: bought.slice(0, 3).map((rows) => rows.order),
+    passOrder: bought[3].order,
+  }
+}
+
+/** The deletion columns of an event nobody has deleted. */
+const EVENT_DELETION_FIXTURE_COLUMNS = Object.freeze({
+  deletedAt: null,
+  deletedById: null,
+  deletionReason: null,
+  deletionOutcome: null,
+  deletionAuthority: null,
+  statusBeforeDeletion: null,
+  deletedSlug: null,
+})
+
+/** The Sulekha listing the import fixture copies. */
+const FIXTURE_LISTING = Object.freeze({
+  sourceId: '402059',
+  sourceUrl: 'https://events.sulekha.com/navratri-dandiya-night_event-in_irving-tx_402059',
+  imageUrl: 'https://usimg.sulekha.io/cdn/events/images/navratri-dandiya-night-cover.webp',
+})
+
+/**
+ * The platform-held organisation "Sulekha Events" with one imported event, as
+ * an import run leaves them: VERIFIED, no member, `platformHeldSource` SULEKHA;
+ * the event's one night has no listed end (stored as start + 3 hours); its
+ * import record carries the listed prices and the curator's notes; its cover
+ * is still waiting to be copied.
+ *
+ * @param {object} ids `makeWorld().ids`.
+ * @param {object} [options] Options.
+ * @param {string} [options.status] The imported event's status; REVIEW_PENDING by default.
+ * @param {object} [options.importedBy] The importing administrator; the world's ADMIN by default.
+ * @returns {object} `{rows, organization, venue, event, session, run, item, image}`: the rows keyed by model, and the ones a test names.
+ */
+export function platformHeldImportFixture(
+  ids,
+  { status = 'REVIEW_PENDING', importedBy = ids.platformAdministrator } = {},
+) {
+  const created = new Date('2026-09-30T12:00:00.000Z')
+  const organization = {
+    ...ids.organization,
+    id: cuid(),
+    name: 'Sulekha Events',
+    slug: 'sulekha-events',
+    description:
+      'Events listed on Sulekha.com and shown on Desi-Event by the Desi-Event team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+    contactEmail: 'imports@desi-event.example',
+    websiteUrl: null,
+    verified: true,
+    verificationStatus: 'VERIFIED',
+    verificationNote: 'Held by the Desi-Event team for imported events',
+    verificationUpdatedAt: created,
+    refundPolicy: null,
+    payoutCurrency: 'USD',
+    timezone: 'America/Chicago',
+    createdById: null,
+    platformHeldSource: 'SULEKHA',
+    createdAt: created,
+    updatedAt: created,
+  }
+  const venue = {
+    ...ids.venue,
+    id: cuid(),
+    name: 'Irving Convention Center',
+    addressLine1: '500 W Las Colinas Blvd',
+    city: 'Irving',
+    region: 'TX',
+    postalCode: '75039',
+    country: 'US',
+    slug: null,
+    timezone: 'America/Chicago',
+    accessibility: null,
+    provenance: 'import:sulekha',
+    organizationId: organization.id,
+  }
+  const startsAt = minutesFromNow(60 * 24 * 12)
+  // No listed end: start + 3 hours, never shown (SPEC2-XI §0.9).
+  const endsAt = new Date(startsAt.getTime() + 3 * 3_600_000)
+  const event = {
+    ...ids.publishedEvent,
+    ...EVENT_DELETION_FIXTURE_COLUMNS,
+    id: cuid(),
+    organizationId: organization.id,
+    venueId: venue.id,
+    title: 'Navratri Dandiya Night in Irving',
+    slug: 'navratri-dandiya-night-in-irving',
+    summary: 'A night of dandiya and garba with a live band.',
+    description: 'Dandiya and garba until late, with a live band and food stalls.',
+    status,
+    publishedAt: null,
+    reviewSubmittedAt: created,
+    startsAt,
+    endsAt,
+    timezone: 'America/Chicago',
+    languages: ['Gujarati', 'Hindi'],
+    policies: {
+      entry: 'Entry is run by the organiser. Check the Sulekha listing for their rules.',
+      refund:
+        "Tickets for this event are sold on Sulekha, not on Desi-Event. Refunds follow Sulekha's and the organiser's terms.",
+      conduct: "The organiser's and the venue's rules apply.",
+    },
+    websiteUrl: FIXTURE_LISTING.sourceUrl,
+    websiteDecisionPending: true,
+    websiteSubmittedAt: created,
+    createdAt: created,
+    updatedAt: created,
+  }
+  const session = nightOf(event, { endTimeListed: false, timezone: 'America/Chicago' })
+  const run = {
+    id: cuid(),
+    source: 'SULEKHA',
+    status: 'APPLIED',
+    fileName: 'sulekha-texas-2026.json',
+    datasetSha256: 'a'.repeat(64),
+    dataset: { format: 'desi-event-import/1', source: 'SULEKHA' },
+    plan: [{ sourceId: FIXTURE_LISTING.sourceId, action: 'CREATE' }],
+    planDigest: 'b'.repeat(64),
+    eventCount: 1,
+    createdById: importedBy.id,
+    createdAt: created,
+    expiresAt: new Date(created.getTime() + 3_600_000),
+    appliedAt: created,
+    appliedById: importedBy.id,
+    summary: { created: 1 },
+  }
+  const item = {
+    id: cuid(),
+    source: 'SULEKHA',
+    sourceId: FIXTURE_LISTING.sourceId,
+    sourceUrl: FIXTURE_LISTING.sourceUrl,
+    eventId: event.id,
+    lastRunId: run.id,
+    importedById: importedBy.id,
+    importedAt: created,
+    lastSyncedAt: created,
+    scrapedAt: new Date('2026-09-29T21:25:00.000Z'),
+    presentedBy: 'DFW Garba Collective',
+    prices: [
+      { name: 'Early Bird', priceCents: 2000, currency: 'USD', note: null },
+      { name: 'Child', priceCents: 0, currency: 'USD', note: 'Under 5' },
+    ],
+    priceText: '$20',
+    importNotes: ['Sulekha lists this event twice (402059 and 402060); only 402059 is imported.'],
+    approvedById: null,
+    approvedAt: null,
+    reassignedAt: null,
+    reassignedById: null,
+    reassignedFromOrganizationId: null,
+    reassignedToOrganizationId: null,
+  }
+  const image = {
+    id: cuid(),
+    itemId: item.id,
+    url: FIXTURE_LISTING.imageUrl,
+    role: 'COVER',
+    alt: 'Navratri Dandiya Night in Irving poster',
+    position: 0,
+    status: 'WAITING',
+    failureCode: null,
+    attempts: 0,
+    lastTriedAt: null,
+    mediaAssetId: null,
+  }
+
+  return {
+    rows: {
+      organization: [organization],
+      venue: [venue],
+      event: [event],
+      eventSession: [session],
+      eventImportRun: [run],
+      eventImportItem: [item],
+      eventImportImage: [image],
+    },
+    organization,
+    venue,
+    event,
+    session,
+    run,
+    item,
+    image,
+  }
+}

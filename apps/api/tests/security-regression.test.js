@@ -32,7 +32,13 @@ import { apiRouteManifest } from '@desi-event/api-contract/manifest'
 import { PLATFORM_ONLY_CAPABILITIES } from '@desi-event/permissions'
 import { STEP_UP_POLICIES } from '@desi-event/auth'
 import { analyticsTrafficSchema, trafficEventListResponseSchema } from '@desi-event/schemas'
-import { ACTORS, PUBLICLY_VISIBLE_STATUSES, TRANSITIONS } from '@desi-event/schemas/lifecycle'
+import {
+  ACTORS,
+  GATES,
+  PUBLICLY_VISIBLE_STATUSES,
+  TRANSITIONS,
+  restoreTarget,
+} from '@desi-event/schemas/lifecycle'
 
 import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
 import { toConnectStatus } from '../src/lib/connect.js'
@@ -1450,12 +1456,48 @@ describe('every path to a public event (SPEC2 §6)', () => {
     },
   }
 
-  it('makes a hidden event public only from APPROVED, and APPROVED only by a moderator from review', () => {
+  /**
+   * SPEC2-XI §7's one new way from a hidden status to a public one: a platform
+   * restore (`platformEvents.restore`) of an event that was public when it was
+   * deleted, to `restoreTarget` of that status (an on-sale one comes back
+   * paused). Held by the table's gates here, by `desi_event_restore_target` in
+   * the deletion trigger and the review gate on PostgreSQL, and proved by these.
+   */
+  const RESTORE_PROVED_BY = {
+    'packages/schemas/src/lifecycle.test.js': [
+      'leaves DELETED only by a platform restore, to restoreTarget',
+      'never restores to APPROVED or ON_SALE',
+      'gates every restore into a public status on a verified organiser',
+    ],
+    'packages/db/scripts/event-control-probes.mjs': [
+      'leaving DELETED from statusBeforeDeletion ON_SALE to ON_SALE is refused',
+      'a deleted draft cannot come back public',
+      'a restore to the public status an event had passes the review gate',
+    ],
+  }
+
+  it('makes a hidden event public only from APPROVED, or by a platform restore of what was public, and APPROVED only by a moderator from review', () => {
     for (const [from, moves] of Object.entries(TRANSITIONS)) {
       for (const move of moves) {
         const label = `${from} -> ${move.to}`
 
         if (PUBLICLY_VISIBLE_STATUSES.has(move.to) && !PUBLICLY_VISIBLE_STATUSES.has(from)) {
+          if (move.actor === ACTORS.RESTORE) {
+            expect(from, label).toBe('DELETED')
+            expect(move.gates, label).toContain(GATES.RESTORE_TARGET)
+            expect(move.gates, label).toContain(GATES.VERIFIED_ORGANIZER)
+
+            // Only an event that was public when deleted lands here.
+            const priors = Object.keys(TRANSITIONS).filter(
+              (prior) => prior !== 'DELETED' && restoreTarget(prior) === move.to,
+            )
+            expect(priors.length, label).toBeGreaterThan(0)
+            for (const prior of priors) {
+              expect(PUBLICLY_VISIBLE_STATUSES.has(prior), `${label} from ${prior}`).toBe(true)
+            }
+            continue
+          }
+
           expect(from, label).toBe('APPROVED')
           expect(move.actor, label).toBe(ACTORS.ORGANIZER)
         }
@@ -1464,6 +1506,12 @@ describe('every path to a public event (SPEC2 §6)', () => {
           expect(from, label).toBe('REVIEW_PENDING')
           expect(move.actor, label).toBe(ACTORS.MODERATOR)
         }
+      }
+    }
+
+    for (const [file, titles] of Object.entries(RESTORE_PROVED_BY)) {
+      for (const title of titles) {
+        expect(readCode(file), `${file} no longer proves the restore path`).toContain(`'${title}'`)
       }
     }
   })

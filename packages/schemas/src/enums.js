@@ -100,7 +100,56 @@ export const EVENT_STATUSES = Object.freeze([
   'CANCELLED',
   'REJECTED',
   'ARCHIVED',
+  // Taken off the site by its organiser or the Desi-Event team, and kept. On
+  // none of the allow-lists (public, bookable, indexable, live, editable), and
+  // private by derivation: PRIVATE_EVENT_STATUSES is everything not public.
+  'DELETED',
 ])
+
+/**
+ * What deleting an event did, as the database stores it. The wire names of the
+ * three outcomes are `DELETION_OUTCOMES` in `./lifecycle.js`
+ * (`REMOVE | CANCEL_AND_REFUND | REMOVE_AFTER_EVENT`).
+ */
+export const EVENT_DELETION_OUTCOMES = Object.freeze([
+  'REMOVED',
+  'CANCELLED_AND_REFUNDED',
+  'REMOVED_AFTER_EVENT',
+])
+
+/** Whose authority a change to an event was made under. */
+export const EVENT_AUTHORITIES = Object.freeze(['ORGANIZATION', 'PLATFORM'])
+
+/** What a ticket holder is told changed about an event. */
+export const EVENT_CHANGE_KINDS = Object.freeze([
+  'MATERIAL_CHANGE',
+  'SESSION_CHANGE',
+  'RESCHEDULED',
+  'POSTPONED',
+  'CANCELLED',
+  'SESSION_CANCELLED',
+  'DELETED',
+])
+
+/** How a platform edit sitting ended. */
+export const PLATFORM_EDIT_ENDS = Object.freeze([
+  'CLOSED',
+  'SUPERSEDED',
+  'EVENT_DELETED',
+  'EXPIRED',
+])
+
+/** Where an imported event was listed first. */
+export const EVENT_IMPORT_SOURCES = Object.freeze(['SULEKHA'])
+
+/** An import run: planned, applied once, or expired. */
+export const EVENT_IMPORT_RUN_STATUSES = Object.freeze(['PREVIEWED', 'APPLIED', 'EXPIRED'])
+
+/** Whether an imported event's picture has been copied yet. */
+export const EVENT_IMPORT_IMAGE_STATUSES = Object.freeze(['WAITING', 'STORED', 'FAILED'])
+
+/** What the source listed a picture as. */
+export const EVENT_IMPORT_IMAGE_ROLES = Object.freeze(['COVER', 'GALLERY'])
 
 export const TICKET_TYPE_STATUSES = Object.freeze([
   'DRAFT',
@@ -492,6 +541,30 @@ export const eventCategorySchema = z.enum([...EVENT_CATEGORIES])
 
 /** `EVENT_STATUSES` as a Zod enum. */
 export const eventStatusSchema = z.enum([...EVENT_STATUSES])
+
+/** `EVENT_DELETION_OUTCOMES` as a Zod enum. */
+export const eventDeletionOutcomeSchema = z.enum([...EVENT_DELETION_OUTCOMES])
+
+/** `EVENT_AUTHORITIES` as a Zod enum. */
+export const eventAuthoritySchema = z.enum([...EVENT_AUTHORITIES])
+
+/** `EVENT_CHANGE_KINDS` as a Zod enum. */
+export const eventChangeKindSchema = z.enum([...EVENT_CHANGE_KINDS])
+
+/** `PLATFORM_EDIT_ENDS` as a Zod enum. */
+export const platformEditEndSchema = z.enum([...PLATFORM_EDIT_ENDS])
+
+/** `EVENT_IMPORT_SOURCES` as a Zod enum. */
+export const eventImportSourceSchema = z.enum([...EVENT_IMPORT_SOURCES])
+
+/** `EVENT_IMPORT_RUN_STATUSES` as a Zod enum. */
+export const eventImportRunStatusSchema = z.enum([...EVENT_IMPORT_RUN_STATUSES])
+
+/** `EVENT_IMPORT_IMAGE_STATUSES` as a Zod enum. */
+export const eventImportImageStatusSchema = z.enum([...EVENT_IMPORT_IMAGE_STATUSES])
+
+/** `EVENT_IMPORT_IMAGE_ROLES` as a Zod enum. */
+export const eventImportImageRoleSchema = z.enum([...EVENT_IMPORT_IMAGE_ROLES])
 
 /** `TICKET_TYPE_STATUSES` as a Zod enum. */
 export const ticketTypeStatusSchema = z.enum([...TICKET_TYPE_STATUSES])

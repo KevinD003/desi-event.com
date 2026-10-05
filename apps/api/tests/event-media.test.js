@@ -874,6 +874,84 @@ describe('describing, reordering and removing', () => {
     await app.close()
   })
 
+  // SPEC2-XI X-8: a deleted event's pictures stay as they were, so a restore
+  // brings it back whole. The refusal says so; it is not the in-review
+  // sentence, because no moderator holds a deleted event.
+  it('refuses every picture change on a deleted event with the deleted sentence, never the review one', async () => {
+    const { app, ids, prisma } = await createTestApp()
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+
+    Object.assign(event, {
+      status: 'DELETED',
+      deletedAt: new Date(),
+      deletionReason: 'The venue withdrew the booking before any ticket was sold.',
+      deletionOutcome: 'REMOVED',
+      deletionAuthority: 'ORGANIZATION',
+      statusBeforeDeletion: 'PUBLISHED',
+    })
+
+    const picture = seedPicture(prisma, { event: ids.publishedEvent })
+    const headers = bearer(await signIn(app, MANAGER))
+    const removal = await app.inject({
+      method: 'DELETE',
+      url: `/v1/events/${ids.publishedEvent.id}/media/${picture.id}?revision=${event.revision}`,
+      headers,
+    })
+    const description = await app.inject({
+      method: 'PATCH',
+      url: `/v1/events/${ids.publishedEvent.id}/media/${picture.id}`,
+      headers,
+      payload: { revision: event.revision, altText: 'A new description' },
+    })
+    const added = await upload(
+      app,
+      headers,
+      uploadUrl(ids.publishedEvent.id, { kind: 'EVENT_GALLERY' }),
+      solidPng(1200, 630),
+    )
+
+    for (const response of [removal, description, added]) {
+      expect(response.statusCode).toBe(409)
+      expect(response.json().error.code).toBe('NOT_EDITABLE')
+      expect(response.json().error.message).toBe(
+        'This event was deleted. Its pictures stay as they were, so a restore by the Desi-Event team brings the event back whole.',
+      )
+      expect(response.json().error.message).not.toMatch(/review|moderator/iu)
+    }
+
+    expect(prisma._store.mediaAsset).toHaveLength(1)
+
+    await app.close()
+  })
+
+  // Nobody can remove a deleted event's pictures (MEDIA_REMOVE_STATUSES), so
+  // they cannot count against the room the organisation can free.
+  it('does not count a deleted event’s pictures toward the organisation quota', async () => {
+    const { app, ids, prisma } = await createTestApp()
+    const deleted = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+
+    Object.assign(deleted, {
+      status: 'DELETED',
+      deletedAt: new Date(),
+      deletionReason: 'The venue withdrew the booking before any ticket was sold.',
+      deletionOutcome: 'REMOVED',
+      deletionAuthority: 'ORGANIZATION',
+      statusBeforeDeletion: 'PUBLISHED',
+    })
+    seedPicture(prisma, {
+      event: ids.publishedEvent,
+      byteSize: MEDIA_LIMITS.organizationQuotaBytes - 100,
+    })
+
+    const headers = bearer(await signIn(app, MANAGER))
+    const response = await upload(app, headers, uploadUrl(ids.draftEvent.id), solidPng(1200, 630))
+
+    expect(response.statusCode).toBe(201)
+    expect(prisma._store.mediaAsset).toHaveLength(2)
+
+    await app.close()
+  })
+
   it('refuses describing or reordering a cancelled event', async () => {
     const { app, ids, prisma } = await createTestApp()
     const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)

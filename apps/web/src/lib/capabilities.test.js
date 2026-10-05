@@ -9,20 +9,28 @@
  * @module lib/capabilities.test
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import {
   ALL_CAPABILITIES,
   ORG_ROLE_CAPABILITIES,
   PLATFORM_ROLE_CAPABILITIES,
   can,
+  orgCapabilitiesFor,
 } from '@desi-event/permissions'
 import { describe, expect, it } from 'vitest'
 
 import {
   connectOrganizations,
+  membershipCan,
   membershipsWith,
   privacyOrganizations,
   sessionCan,
 } from './capabilities.js'
+
+const SOURCE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 const ORG_A = 'org_aaaaaaaaaaaaaaaaaaaaaaaa'
 const ORG_B = 'org_bbbbbbbbbbbbbbbbbbbbbbbb'
@@ -137,5 +145,93 @@ describe('the membership-scoped lists, which ignore platform capabilities', () =
       ORG_A,
       ORG_B,
     ])
+  })
+})
+
+describe('membershipCan', () => {
+  it('answers from the membership alone, as the API’s orgCapabilitiesFor does', () => {
+    const memberships = [[ORG_A, 'OWNER'], [ORG_A, 'EVENT_MANAGER'], [ORG_A, 'VIEWER'], []]
+
+    for (const platformRole of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      for (const pair of memberships) {
+        const { session, actor } = person(platformRole, pair.length ? [pair] : [])
+
+        for (const capability of ALL_CAPABILITIES) {
+          for (const organizationId of [ORG_A, ORG_B]) {
+            expect(
+              membershipCan(session, capability, organizationId),
+              `${platformRole} ${pair.join(' ')} ${capability} in ${organizationId}`,
+            ).toBe(orgCapabilitiesFor(actor, organizationId).includes(capability))
+          }
+        }
+      }
+    }
+  })
+
+  it('ignores the platform role: a super administrator who is not a member acts as nobody there', () => {
+    const { session } = person('SUPER_ADMIN')
+
+    expect(sessionCan(session, 'event:update', ORG_A)).toBe(true)
+    expect(membershipCan(session, 'event:update', ORG_A)).toBe(false)
+    expect(membershipCan(session, 'event:delete_unsold', ORG_A)).toBe(false)
+    expect(membershipCan(session, 'platform:admin', ORG_A)).toBe(false)
+  })
+
+  it('never counts a platform event capability, not even for the Desi-Event team', () => {
+    for (const platformRole of ['ADMIN', 'SUPER_ADMIN']) {
+      const { session } = person(platformRole, [[ORG_A, 'OWNER']])
+
+      for (const capability of ['event:platform_edit', 'event:platform_delete', 'event:import']) {
+        expect(sessionCan(session, capability, ORG_A), `${platformRole} ${capability}`).toBe(true)
+        expect(membershipCan(session, capability, ORG_A), `${platformRole} ${capability}`).toBe(
+          false,
+        )
+      }
+    }
+  })
+
+  it('lets a member super administrator act as the member, with that role’s capabilities only', () => {
+    const { session } = person('SUPER_ADMIN', [[ORG_A, 'EVENT_MANAGER']])
+
+    expect(membershipCan(session, 'event:delete_unsold', ORG_A)).toBe(true)
+    expect(membershipCan(session, 'event:delete', ORG_A)).toBe(false)
+    expect(membershipCan(session, 'event:cancel', ORG_A)).toBe(false)
+    expect(membershipCan(session, 'event:update', ORG_B)).toBe(false)
+  })
+
+  it('refuses without a session or an organisation', () => {
+    const { session } = person('ORGANIZER', [[ORG_A, 'OWNER']])
+
+    expect(membershipCan(null, 'event:update', ORG_A)).toBe(false)
+    expect(membershipCan(session, 'event:update')).toBe(false)
+    expect(membershipCan(session, 'event:update', '')).toBe(false)
+  })
+
+  it('is asked only on the server: no client module imports it', () => {
+    /** @type {string[]} */
+    const offenders = []
+    const walk = (directory) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const full = path.join(directory, entry.name)
+
+        if (entry.isDirectory()) {
+          walk(full)
+          continue
+        }
+        if (!/\.(?:js|jsx|mjs)$/u.test(entry.name) || /\.test\.(?:js|jsx)$/u.test(entry.name)) {
+          continue
+        }
+
+        const source = readFileSync(full, 'utf8')
+
+        if (/^\s*['"]use client['"]/mu.test(source) && /\bmembershipCan\b/u.test(source)) {
+          offenders.push(path.relative(SOURCE_ROOT, full))
+        }
+      }
+    }
+
+    walk(SOURCE_ROOT)
+
+    expect(offenders).toEqual([])
   })
 })

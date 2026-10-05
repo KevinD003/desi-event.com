@@ -339,6 +339,16 @@ function assertEntitled(move, actor, event) {
     throw forbidden('This transition is made by the platform, not by a caller.')
   }
 
+  if (isOwnCommand(move)) {
+    // Deletion and restore are in the table so it names every move, but each
+    // is a command of its own with its own preview, confirmation and audit
+    // (`lib/event-deletion.js`). `transitionEvent` never makes either.
+    throw conflict(
+      'Deletion and restore are commands of their own: delete an event with POST /v1/events/:id/delete; only the Desi-Event team restores one.',
+      { from: event.status, to: move.to, code: 'ILLEGAL_TRANSITION' },
+    )
+  }
+
   if (move.actor === ACTORS.MODERATOR) {
     assertCan(actor, MODERATION_CAPABILITY)
     return
@@ -349,6 +359,17 @@ function assertEntitled(move, actor, event) {
   const capability = capabilityFor(move.to)
 
   assertCan(actor, capability, { organizationId: event.organizationId })
+}
+
+/**
+ * Whether a move is deletion or restore, which are commands of their own and
+ * never offered or made here.
+ *
+ * @param {object} move The transition from the table.
+ * @returns {boolean} True for a DELETION or RESTORE move.
+ */
+function isOwnCommand(move) {
+  return move.actor === ACTORS.DELETION || move.actor === ACTORS.RESTORE
 }
 
 /**
@@ -387,7 +408,7 @@ export async function availableTransitions(prisma, event, actor) {
   const out = []
 
   for (const move of moves) {
-    if (move.actor === ACTORS.SYSTEM) continue
+    if (move.actor === ACTORS.SYSTEM || isOwnCommand(move)) continue
 
     let entitled =
       move.actor === ACTORS.MODERATOR
@@ -458,7 +479,7 @@ export async function transitionEvent(prisma, options) {
     // only "no" makes the caller guess, and the guesses are what produce the
     // next three support tickets.
     const ways = transitionsFrom(from)
-      .filter((candidate) => candidate.actor !== ACTORS.SYSTEM)
+      .filter((candidate) => candidate.actor !== ACTORS.SYSTEM && !isOwnCommand(candidate))
       .map((candidate) => candidate.to)
 
     const next =

@@ -37,6 +37,8 @@ export * from './platform.js'
 export * from './event-content.js'
 export * from './website.js'
 export * from './traffic.js'
+export * from './event-control.js'
+export * from './imports.js'
 
 // `env.js` and `jobs.js` are deliberately NOT re-exported here — finding NF-16.
 //

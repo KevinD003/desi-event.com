@@ -432,6 +432,86 @@ when()('visits against real PostgreSQL', () => {
     }
   })
 
+  // SPEC2-XI O8: a deleted event stays on the platform's list, marked deleted,
+  // because money was taken for it; a beacon for it is not recorded, because
+  // it is not public. Inserted DELETED (the deletion trigger covers updates,
+  // and only seeds and tests insert anything but a draft), with the columns
+  // event_deletion_consistency asks for.
+  it('lists a deleted event on the platform’s public list, marked deleted, and counts no visit to it', async () => {
+    const startsAt = new Date(Date.now() + 15 * 86_400_000)
+    const deleted = await prisma.event.create({
+      data: {
+        organizationId: ids.orgA,
+        title: `Visits deleted ${TAG}`,
+        slug: `visits-deleted-${TAG}`,
+        summary: 'A test event.',
+        description: 'A test event, deleted while it was on sale.',
+        category: 'MUSIC_CONCERT',
+        status: 'DELETED',
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + 3 * 3_600_000),
+        publishedAt: new Date(),
+        deletedAt: new Date(),
+        deletionReason: 'The organiser called it off before any ticket was sold.',
+        deletionOutcome: 'REMOVED',
+        deletionAuthority: 'ORGANIZATION',
+        statusBeforeDeletion: 'ON_SALE',
+      },
+    })
+    const app = await buildApp({
+      prisma,
+      providers: createInMemoryProviderRegistry(),
+      env: testEnv(),
+      rateLimit: { global: { max: 10_000, timeWindow: '1 minute' } },
+      processEnv: {},
+    })
+
+    try {
+      await expect(
+        recordTrafficEvent(prisma, {
+          eventId: deleted.id,
+          kind: 'PAGE_VIEW',
+          placement: 'EVENT_PAGE',
+          source: 'DIRECT',
+          visitor: visitorAt('203.0.113.41'),
+        }),
+      ).resolves.toEqual({ recorded: false, reason: 'NOT_PUBLIC' })
+
+      await app.ready()
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/traffic/beacons',
+        headers: {
+          'user-agent': CHROME,
+          'content-type': 'application/json',
+          [CLIENT_ADDRESS_HEADER]: '203.0.113.42',
+        },
+        payload: { eventId: deleted.id, kind: 'PAGE_VIEW', placement: 'EVENT_PAGE' },
+      })
+
+      // The beacon answers as it answers every beacon, and records nothing.
+      expect(response.statusCode).toBe(202)
+      expect(await prisma.trafficEvent.count({ where: { eventId: deleted.id } })).toBe(0)
+
+      const listed = await platformTraffic(prisma, {
+        q: `Visits deleted ${TAG}`,
+        scope: 'public',
+        now: new Date(),
+      })
+
+      expect(listed.data.events).toHaveLength(1)
+      expect(listed.data.events[0]).toMatchObject({
+        eventId: deleted.id,
+        status: 'DELETED',
+        deleted: true,
+        views: 0,
+      })
+    } finally {
+      await app.close()
+      await prisma.event.delete({ where: { id: deleted.id } })
+    }
+  })
+
   it('deletes an event’s visits with it', async () => {
     const doomed = await event(ids.orgB, 'doomed', 'PUBLISHED', 5)
 

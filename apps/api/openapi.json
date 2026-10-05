@@ -16319,7 +16319,8 @@
                               "POSTPONED",
                               "CANCELLED",
                               "REJECTED",
-                              "ARCHIVED"
+                              "ARCHIVED",
+                              "DELETED"
                             ]
                           },
                           "startsAt": {
@@ -16642,7 +16643,8 @@
                 "POSTPONED",
                 "CANCELLED",
                 "REJECTED",
-                "ARCHIVED"
+                "ARCHIVED",
+                "DELETED"
               ]
             }
           },
@@ -16826,7 +16828,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -18290,7 +18293,8 @@
                       "POSTPONED",
                       "CANCELLED",
                       "REJECTED",
-                      "ARCHIVED"
+                      "ARCHIVED",
+                      "DELETED"
                     ]
                   },
                   "startsAt": {
@@ -19007,7 +19011,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -20492,7 +20497,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -22771,7 +22777,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -24310,7 +24317,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -25813,7 +25821,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -27347,7 +27356,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -28881,7 +28891,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -30411,7 +30422,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -31985,7 +31997,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -33488,7 +33501,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -35128,7 +35142,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -50857,7 +50872,8 @@
                               "POSTPONED",
                               "CANCELLED",
                               "REJECTED",
-                              "ARCHIVED"
+                              "ARCHIVED",
+                              "DELETED"
                             ]
                           },
                           "startsAt": {
@@ -51279,7 +51295,8 @@
                             "POSTPONED",
                             "CANCELLED",
                             "REJECTED",
-                            "ARCHIVED"
+                            "ARCHIVED",
+                            "DELETED"
                           ]
                         },
                         "startsAt": {
@@ -53327,7 +53344,8 @@
                               "POSTPONED",
                               "CANCELLED",
                               "REJECTED",
-                              "ARCHIVED"
+                              "ARCHIVED",
+                              "DELETED"
                             ]
                           },
                           "organizationName": {
@@ -59928,7 +59946,8 @@
                                     "POSTPONED",
                                     "CANCELLED",
                                     "REJECTED",
-                                    "ARCHIVED"
+                                    "ARCHIVED",
+                                    "DELETED"
                                   ]
                                 },
                                 "startsAt": {
@@ -60862,7 +60881,8 @@
                                       "POSTPONED",
                                       "CANCELLED",
                                       "REJECTED",
-                                      "ARCHIVED"
+                                      "ARCHIVED",
+                                      "DELETED"
                                     ]
                                   },
                                   "startsAt": {
@@ -62032,7 +62052,8 @@
                                     "POSTPONED",
                                     "CANCELLED",
                                     "REJECTED",
-                                    "ARCHIVED"
+                                    "ARCHIVED",
+                                    "DELETED"
                                   ]
                                 },
                                 "startsAt": {
@@ -64401,7 +64422,8 @@
                                   "POSTPONED",
                                   "CANCELLED",
                                   "REJECTED",
-                                  "ARCHIVED"
+                                  "ARCHIVED",
+                                  "DELETED"
                                 ]
                               }
                             },

@@ -107,14 +107,20 @@ export const MEDIA_ARRANGE_STATUSES = Object.freeze(
 
 /**
  * Statuses in which a picture may be removed: every one except the two in
- * which a moderator holds this version of the event. Removal stays open for a
- * completed, cancelled or archived event so the storage quota can always be
- * freed.
+ * which a moderator holds this version of the event, and DELETED, whose
+ * pictures stay as they were so a restore brings the event back whole (and a
+ * deleted event's pictures do not count toward the storage quota). Removal
+ * stays open for a completed, cancelled or archived event so the quota can
+ * always be freed.
  *
  * @type {ReadonlySet<string>}
  */
 export const MEDIA_REMOVE_STATUSES = Object.freeze(
-  new Set(EVENT_STATUSES.filter((status) => status !== 'REVIEW_PENDING' && status !== 'APPROVED')),
+  new Set(
+    EVENT_STATUSES.filter(
+      (status) => status !== 'REVIEW_PENDING' && status !== 'APPROVED' && status !== 'DELETED',
+    ),
+  ),
 )
 
 /** A media URL as the API writes it: the asset id and nothing else. */

@@ -32,6 +32,16 @@
  * not take the schemas barrel and the deployment contract behind it. That is
  * finding NF-16 applied rather than repeated.
  *
+ * ## Deletion and restore
+ *
+ * Every status can be deleted, and `DELETED` is left only by a platform
+ * restore, to {@link restoreTarget} of the status the event had. Both moves are
+ * in the table so it still names every move, and both are commands of their
+ * own (`apps/api/src/lib/event-deletion.js`): the actors `deletion` and
+ * `restore` are never offered by `availableTransitions` and never made by
+ * `transitionEvent`. The database holds the same rule in the trigger
+ * `desi_event_deletion_moves` and the function `desi_event_restore_target`.
+ *
  * @module @desi-event/schemas/lifecycle
  */
 
@@ -50,6 +60,10 @@ export const ACTORS = Object.freeze({
   ORGANIZER: 'organizer',
   MODERATOR: 'moderator',
   SYSTEM: 'system',
+  /** Deleting an event: its own command, by its organisation or the platform. */
+  DELETION: 'deletion',
+  /** Restoring a deleted event: its own command, by the platform only. */
+  RESTORE: 'restore',
 })
 
 /**
@@ -70,6 +84,8 @@ export const GATES = Object.freeze({
   SELLABLE: 'sellable',
   /** Inventory rows exist for every session that needs them. */
   INVENTORY_PREPARED: 'inventory_prepared',
+  /** A restore lands only on {@link restoreTarget} of the status before deletion. */
+  RESTORE_TARGET: 'restore_target',
 })
 
 /**
@@ -81,7 +97,7 @@ export const GATES = Object.freeze({
  *
  * @type {Readonly<Record<string, ReadonlyArray<object>>>}
  */
-export const TRANSITIONS = Object.freeze({
+const LIFECYCLE_MOVES = Object.freeze({
   DRAFT: Object.freeze([
     Object.freeze({ to: 'REVIEW_PENDING', actor: ACTORS.ORGANIZER, gates: [GATES.PUBLISHABLE] }),
     Object.freeze({ to: 'ARCHIVED', actor: ACTORS.ORGANIZER, gates: [] }),
@@ -171,12 +187,77 @@ export const TRANSITIONS = Object.freeze({
 
   COMPLETED: Object.freeze([Object.freeze({ to: 'ARCHIVED', actor: ACTORS.ORGANIZER, gates: [] })]),
 
-  // Terminal. A cancelled event owes refunds and an archived one is filed;
-  // neither comes back, because "it was cancelled and then it was not" is not a
-  // thing an attendee who has been refunded can be told.
+  // Terminal but for deletion. A cancelled event owes refunds and an archived
+  // one is filed; neither comes back, because "it was cancelled and then it was
+  // not" is not a thing an attendee who has been refunded can be told.
   CANCELLED: Object.freeze([]),
   ARCHIVED: Object.freeze([]),
+
+  // Left only by a platform restore, to restoreTarget(statusBeforeDeletion):
+  // never APPROVED (only a review approves) and never ON_SALE or SOLD_OUT (the
+  // organiser reopens sales). A restore into a public status needs a verified
+  // organiser, as publishing does.
+  DELETED: Object.freeze([]),
 })
+
+/**
+ * The statuses a restore can land on: every value {@link restoreTarget} can
+ * return. Never APPROVED, ON_SALE, SOLD_OUT, REVIEW_PENDING or DELETED.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const RESTORE_DESTINATIONS = Object.freeze([
+  'DRAFT',
+  'CHANGES_REQUIRED',
+  'REJECTED',
+  'PUBLISHED',
+  'SALES_PAUSED',
+  'POSTPONED',
+  'COMPLETED',
+  'CANCELLED',
+  'ARCHIVED',
+])
+
+/** Restore destinations that are public, and so need a verified organiser. */
+const PUBLIC_RESTORE_DESTINATIONS = new Set([
+  'PUBLISHED',
+  'SALES_PAUSED',
+  'POSTPONED',
+  'COMPLETED',
+  'CANCELLED',
+])
+
+/**
+ * Every legal move, keyed by the status being left.
+ *
+ * {@link LIFECYCLE_MOVES}, plus a DELETION move out of every status but
+ * DELETED, and the RESTORE moves out of DELETED.
+ *
+ * @type {Readonly<Record<string, ReadonlyArray<object>>>}
+ */
+export const TRANSITIONS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(LIFECYCLE_MOVES).map(([from, moves]) => [
+      from,
+      from === 'DELETED'
+        ? Object.freeze(
+            RESTORE_DESTINATIONS.map((to) =>
+              Object.freeze({
+                to,
+                actor: ACTORS.RESTORE,
+                gates: PUBLIC_RESTORE_DESTINATIONS.has(to)
+                  ? [GATES.RESTORE_TARGET, GATES.VERIFIED_ORGANIZER]
+                  : [GATES.RESTORE_TARGET],
+              }),
+            ),
+          )
+        : Object.freeze([
+            ...moves,
+            Object.freeze({ to: 'DELETED', actor: ACTORS.DELETION, gates: [] }),
+          ]),
+    ]),
+  ),
+)
 
 /**
  * Statuses that appear in a listing, and in the sitemap.
@@ -268,6 +349,96 @@ export const EDITABLE_STATUSES = Object.freeze(new Set(['DRAFT', 'CHANGES_REQUIR
 export const LIVE_STATUSES = Object.freeze(
   new Set(['PUBLISHED', 'ON_SALE', 'SALES_PAUSED', 'SOLD_OUT', 'POSTPONED']),
 )
+
+/**
+ * Statuses in which only an event's words and pictures change: it has taken
+ * place, or it was called off, and what ticket holders were told about its
+ * date, place and terms stays as they were told it.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const CONTENT_ONLY_STATUSES = Object.freeze(new Set(['COMPLETED', 'CANCELLED']))
+
+/**
+ * Statuses in which the Desi-Event team may edit an organisation's event, in a
+ * sitting: posted events only. The same frozen set as
+ * {@link PUBLICLY_VISIBLE_STATUSES}, by reference, so the two cannot drift.
+ *
+ * @type {ReadonlySet<string>}
+ */
+export const PLATFORM_EDITABLE_STATUSES = PUBLICLY_VISIBLE_STATUSES
+
+/**
+ * What deleting an event does, by name on the wire. The database stores them
+ * as {@link DELETION_OUTCOME_COLUMN} maps them.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const DELETION_OUTCOMES = Object.freeze([
+  'REMOVE',
+  'CANCEL_AND_REFUND',
+  'REMOVE_AFTER_EVENT',
+])
+
+/**
+ * Each wire outcome as `Event.deletionOutcome` stores it.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const DELETION_OUTCOME_COLUMN = Object.freeze({
+  REMOVE: 'REMOVED',
+  CANCEL_AND_REFUND: 'CANCELLED_AND_REFUNDED',
+  REMOVE_AFTER_EVENT: 'REMOVED_AFTER_EVENT',
+})
+
+/**
+ * Where a restore takes a deleted event, from the status it had when deleted.
+ *
+ * REVIEW_PENDING and APPROVED come back as DRAFT: a review decision was about a
+ * version that was then deleted, and only a review approves. ON_SALE and
+ * SOLD_OUT come back as SALES_PAUSED: the organiser reopens sales. Anything
+ * else comes back as it was. Equal to the SQL `desi_event_restore_target`,
+ * which both the deletion trigger and the review gate call; the fresh-database
+ * verifier compares the two for every status.
+ *
+ * @param {string} prior `Event.statusBeforeDeletion`.
+ * @returns {string} The status a restore writes.
+ */
+export function restoreTarget(prior) {
+  if (prior === 'REVIEW_PENDING' || prior === 'APPROVED') return 'DRAFT'
+  if (prior === 'ON_SALE' || prior === 'SOLD_OUT') return 'SALES_PAUSED'
+
+  return prior
+}
+
+/**
+ * The four ways an event can be edited, by status.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+export const EDIT_MODES = Object.freeze(['draft', 'live', 'content', 'locked'])
+
+/**
+ * How an event in this status may be edited. One answer for the API's
+ * authoring rules and the web's editor, so the two cannot drift.
+ *
+ * - `draft`: DRAFT and CHANGES_REQUIRED — everything.
+ * - `live`: {@link LIVE_STATUSES} — everything, within what sold tickets
+ *   require; material changes need a reason.
+ * - `content`: {@link CONTENT_ONLY_STATUSES} — the words and the pictures.
+ * - `locked`: anything else (REVIEW_PENDING, APPROVED, REJECTED, ARCHIVED,
+ *   DELETED, or a status this module does not know) — nothing.
+ *
+ * @param {string} status The event's status.
+ * @returns {'draft'|'live'|'content'|'locked'} The mode.
+ */
+export function editModeFor(status) {
+  if (EDITABLE_STATUSES.has(status)) return 'draft'
+  if (LIVE_STATUSES.has(status)) return 'live'
+  if (CONTENT_ONLY_STATUSES.has(status)) return 'content'
+
+  return 'locked'
+}
 
 /**
  * Fields whose change after publication is material enough to need confirming.

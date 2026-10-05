@@ -158,6 +158,17 @@ const PHASE3_MIGRATIONS = Object.freeze([
   '20260930120000_event_website_link',
   // Visits to event pages: four tables, three enums, and the roll-up's one state row.
   '20260930130000_event_traffic_analytics',
+  // SPEC2-XI: the DELETED event status, an enum label on its own because a
+  // transaction cannot use a label it added. No row is changed.
+  '20260930140000_event_deleted_status',
+  // Full control of posted events: deletion columns and their guard, the review
+  // gate's restore clause, cancelled nights stamped over existing rows,
+  // replacement covers (the one-cover index swapped over existing pictures),
+  // platform edit sittings and change notices.
+  '20260930150000_event_full_control',
+  // Events imported from another site: the platform-held organisation column
+  // and its no-members trigger, nights with no listed end, and three tables.
+  '20260930160000_event_imports',
 ])
 
 /**
@@ -237,6 +248,47 @@ const BEFORE_MIGRATION_FIXTURES = Object.freeze({
 
     return { Event: LEGACY_WEBSITES.length }
   },
+  // A night cancelled before nights carried a cancellation stamp: the legacy
+  // first night cloned with status CANCELLED and a known updatedAt, which the
+  // migration's backfill must copy into cancelledAt before its CHECK goes on.
+  '20260930150000_event_full_control': async (prisma) => {
+    const columns = (
+      await prisma.$queryRawUnsafe(
+        'SELECT column_name FROM information_schema.columns ' +
+          "WHERE table_schema = 'public' AND table_name = 'EventSession' ORDER BY ordinal_position",
+      )
+    ).map((row) => row.column_name)
+    const values = columns.map((column) => {
+      if (column === 'id') return `'${LEGACY_CANCELLED_NIGHT.id}'`
+      if (column === 'status') return "'CANCELLED'"
+      if (column === 'updatedAt') return `'${LEGACY_CANCELLED_NIGHT.updatedAt}'`
+
+      return `"${column}"`
+    })
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "EventSession" (${columns.map((column) => `"${column}"`).join(', ')}) ` +
+        `SELECT ${values.join(', ')} FROM "EventSession" WHERE "id" = '${LEGACY_CANCELLED_NIGHT.from}'`,
+    )
+
+    const [{ n }] = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM "EventSession" WHERE "id" = '${LEGACY_CANCELLED_NIGHT.id}' ` +
+        `AND "status" = 'CANCELLED'`,
+    )
+    if (n !== 1) throw new Error(`expected the cancelled night to be cloned, found ${n}`)
+
+    return { EventSession: 1 }
+  },
+})
+
+/**
+ * The night cloned before the full-control migration with status CANCELLED, and
+ * the `updatedAt` its backfilled `cancelledAt` must equal.
+ */
+const LEGACY_CANCELLED_NIGHT = Object.freeze({
+  id: 'legacy-night-cancelled',
+  from: 'legacy-night-1',
+  updatedAt: '2026-09-20T12:34:56.000Z',
 })
 
 /** Waiting team invitations before the posting-role rule: id, role, address. */
@@ -1429,6 +1481,142 @@ async function checkSpec2Backfills(prisma) {
 }
 
 /**
+ * Check what the SPEC2-XI migrations (the DELETED status, full control of posted
+ * events, and imports) made of a database that holds rows.
+ *
+ * @param {object} prisma A client connected to the upgraded database.
+ * @returns {Promise<boolean>} Whether every check passed.
+ */
+async function checkFullControlAndImportBackfills(prisma) {
+  let ok = true
+
+  const statuses = (
+    await prisma.$queryRawUnsafe(
+      'SELECT label.enumlabel AS label FROM pg_enum label JOIN pg_type type ON type.oid = label.enumtypid ' +
+        `WHERE type.typname = 'EventStatus' ORDER BY label.enumsortorder`,
+    )
+  ).map((row) => row.label)
+  const [deleted] = await prisma.$queryRawUnsafe(
+    `SELECT count(*)::int AS n FROM "Event" WHERE "status" = 'DELETED' ` +
+      'OR "deletedAt" IS NOT NULL OR "statusBeforeDeletion" IS NOT NULL',
+  )
+  ok =
+    record(
+      'EventStatus names DELETED last, and no existing event is deleted by the upgrade',
+      statuses.at(-1) === 'DELETED' && deleted.n === 0,
+      { note: `${statuses.join(', ')}; ${deleted.n} deleted` },
+    ) && ok
+
+  const nights = await prisma.$queryRawUnsafe(
+    'SELECT "id", "status"::text AS status, "cancelledAt", "updatedAt" FROM "EventSession"',
+  )
+  const cancelled = nights.find((night) => night.id === LEGACY_CANCELLED_NIGHT.id)
+  const wronglyStamped = nights.filter(
+    (night) => (night.status === 'CANCELLED') !== (night.cancelledAt !== null),
+  )
+  ok =
+    record(
+      'a night cancelled before the upgrade is stamped cancelled when it last changed, and no other night is',
+      cancelled?.cancelledAt instanceof Date &&
+        cancelled.cancelledAt.getTime() === cancelled.updatedAt.getTime() &&
+        cancelled.cancelledAt.toISOString() === LEGACY_CANCELLED_NIGHT.updatedAt &&
+        wronglyStamped.length === 0,
+      {
+        note:
+          `cancelledAt ${cancelled?.cancelledAt?.toISOString() ?? 'missing'}, ` +
+          `updatedAt ${cancelled?.updatedAt?.toISOString() ?? 'missing'}; ` +
+          `${wronglyStamped.length} of ${nights.length} nights mis-stamped`,
+      },
+    ) && ok
+
+  const coverIndexes = (
+    await prisma.$queryRawUnsafe(
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname IN " +
+        "('MediaAsset_one_cover_per_event_key', 'MediaAsset_one_current_cover_per_event_key')",
+    )
+  ).map((row) => row.indexname)
+  ok =
+    record(
+      'the one-cover index is replaced by the one-current-cover index',
+      coverIndexes.length === 1 && coverIndexes[0] === 'MediaAsset_one_current_cover_per_event_key',
+      { note: coverIndexes.join(', ') || 'neither' },
+    ) && ok
+
+  const [gate] = await prisma.$queryRawUnsafe(
+    "SELECT pg_get_functiondef('desi_event_status_requires_review'::regproc) AS body",
+  )
+  const body = gate?.body ?? ''
+  ok =
+    record(
+      "the review gate keeps P's two refusals and restores only to desi_event_restore_target",
+      body.includes('only a review decision approves') &&
+        body.includes('it has not been approved') &&
+        body.includes('desi_event_restore_target'),
+      {
+        note: [
+          'only a review decision approves',
+          'it has not been approved',
+          'desi_event_restore_target',
+        ]
+          .map((phrase) => `${phrase}: ${body.includes(phrase) ? 'present' : 'missing'}`)
+          .join('; '),
+      },
+    ) && ok
+
+  const [held] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "Organization" WHERE "platformHeldSource" IS NOT NULL',
+  )
+  const [unlisted] = await prisma.$queryRawUnsafe(
+    'SELECT count(*)::int AS n FROM "EventSession" WHERE NOT "endTimeListed"',
+  )
+  ok =
+    record(
+      'no organisation is platform-held, and every night keeps the end time it was given',
+      held.n === 0 && unlisted.n === 0,
+      { note: `${held.n} platform-held organisations; ${unlisted.n} nights without a listed end` },
+    ) && ok
+
+  const memberGuards = (
+    await prisma.$queryRawUnsafe(
+      'SELECT tgrelid::regclass::text AS relation FROM pg_trigger WHERE NOT tgisinternal ' +
+        "AND tgname = 'desi_platform_held_has_no_members' ORDER BY 1",
+    )
+  ).map((row) => row.relation)
+  ok =
+    record(
+      'the platform-held no-members trigger guards memberships and team invitations',
+      memberGuards.length === 2 &&
+        memberGuards.includes('"Membership"') &&
+        memberGuards.includes('"Invitation"'),
+      { note: memberGuards.join(', ') || 'missing' },
+    ) && ok
+
+  const [imports] = await prisma.$queryRawUnsafe(
+    'SELECT (SELECT count(*) FROM "EventImportRun")::int AS runs, ' +
+      '(SELECT count(*) FROM "EventImportItem")::int AS items, ' +
+      '(SELECT count(*) FROM "EventImportImage")::int AS images, ' +
+      '(SELECT count(*) FROM "EventPlatformEdit")::int AS sittings, ' +
+      '(SELECT count(*) FROM "EventChangeNotice")::int AS notices',
+  )
+  ok =
+    record(
+      'the import tables, sittings and change notices start empty',
+      imports.runs === 0 &&
+        imports.items === 0 &&
+        imports.images === 0 &&
+        imports.sittings === 0 &&
+        imports.notices === 0,
+      {
+        note:
+          `${imports.runs} runs, ${imports.items} items, ${imports.images} images, ` +
+          `${imports.sittings} sittings, ${imports.notices} notices`,
+      },
+    ) && ok
+
+  return ok
+}
+
+/**
  * Everything about a database's structure, and nothing about its contents.
  *
  * Six catalogues, because a migration can go wrong in six different places: a
@@ -1769,6 +1957,7 @@ async function main() {
     }
 
     ok = (await checkSpec2Backfills(prisma)) && ok
+    ok = (await checkFullControlAndImportBackfills(prisma)) && ok
 
     const [adminAfter] = await prisma.$queryRawUnsafe(
       `SELECT "role"::text AS role FROM "User" WHERE id = 'upgrade-fixture-User'`,

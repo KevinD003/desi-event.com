@@ -45,6 +45,7 @@ import {
   resolveDisposableTarget,
   withDatabase,
 } from './disposable-database.mjs'
+import { runEventControlProbes } from './event-control-probes.mjs'
 import { runMediaProbes } from './media-probes.mjs'
 import { runPhase2Probes } from './phase2-probes.mjs'
 import { runPlatformFeatureProbes } from './platform-feature-probes.mjs'
@@ -1020,12 +1021,14 @@ async function probeConstraints(prisma) {
     ),
   )
 
-  // An event page shows one cover. A second would be a coin toss between two.
+  // An event page shows one cover. A second would be a coin toss between two. A
+  // replacement waiting for review is the one other cover row an event may have
+  // (it points at the cover it replaces), probed in event-control-probes.mjs.
   results.push(
     await probe(
       prisma,
-      'an event has at most one cover picture',
-      /MediaAsset_one_cover_per_event_key/,
+      'an event has at most one current cover picture',
+      /MediaAsset_one_current_cover_per_event_key/,
       async (tx) => {
         const cover = {
           ownerType: 'EVENT',
@@ -1205,6 +1208,13 @@ async function main() {
     // rolled-back transaction.
     ok = (await runPlatformFeatureProbes(prisma, { probe, record })) && ok
 
+    // Full control of posted events and the Sulekha import (SPEC2-XI §6):
+    // deletion and restore through desi_event_restore_target, cancelled nights,
+    // replacement covers, platform edit sittings, change notices, and the import
+    // tables with the platform-held organisation's no-members trigger. Each runs
+    // in a rolled-back transaction.
+    ok = (await runEventControlProbes(prisma, { probe, record })) && ok
+
     // Concurrency, against real transactions rather than a stub that agrees with
     // whoever wrote it. These commit, so they run last among the probes and
     // before the row comparison is done with.
@@ -1294,6 +1304,16 @@ async function main() {
         'tests/event-review-gate-integration.test.js',
         'tests/website-redirect-integration.test.js',
         'tests/traffic-integration.test.js',
+        // Full control of posted events and the Sulekha import (SPEC2-XI §6):
+        // the deletion, restore, night and sitting triggers against the API,
+        // the delete and cover-approval races, the platform-held trigger
+        // answered as a 409 through buildApp, and concurrent applies and
+        // approvals. Written by Stages B4-X and B5-I; named here from Stage AX
+        // so each runs from the moment it exists. Until then the filter
+        // matches no file and vitest runs the others (it fails only when no
+        // filter matches anything).
+        'tests/event-full-control-integration.test.js',
+        'tests/event-import-integration.test.js',
       ],
       {
         cwd: path.join(REPO_ROOT, 'apps', 'api'),

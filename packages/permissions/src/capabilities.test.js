@@ -37,7 +37,11 @@ const REQUIRED_CAPABILITIES = [
   'event:pause_sales',
   'event:cancel',
   'event:delete',
+  'event:delete_unsold',
   'event:view_draft',
+  'event:platform_edit',
+  'event:platform_delete',
+  'event:import',
   // Venues and seating
   'venue:manage',
   'venueMap:manage',
@@ -480,10 +484,13 @@ describe('privacy:redact', () => {
 })
 
 describe('the platform administrator (ADMIN)', () => {
-  it('holds exactly the allow-list: review, drafts, venues, invitations, reports, website links, visits', () => {
+  it('holds exactly the ten of the allow-list: review, drafts, venues, invitations, reports, website links, visits, editing and deleting posted events, imports', () => {
     expect([...PLATFORM_ADMINISTRATOR_CAPABILITIES]).toEqual(
       [
         'analytics:view_all',
+        'event:import',
+        'event:platform_delete',
+        'event:platform_edit',
         'event:view_draft',
         'moderation:review',
         'organizer:invite',
@@ -492,6 +499,7 @@ describe('the platform administrator (ADMIN)', () => {
         'website_redirect:manage',
       ].sort(),
     )
+    expect(PLATFORM_ADMINISTRATOR_CAPABILITIES).toHaveLength(10)
     expect([...PLATFORM_ROLE_CAPABILITIES.ADMIN]).toEqual([...PLATFORM_ADMINISTRATOR_CAPABILITIES])
   })
 
@@ -517,6 +525,12 @@ describe('the platform administrator (ADMIN)', () => {
       'attendee:export',
       'promo:manage',
       'team:invite',
+      // Deleting an organisation's unsold event as a member, or a sold one
+      // through `event:delete`, is the organisation's own authority; ADMIN
+      // deletes through `event:platform_delete`, in no organisation.
+      'event:delete',
+      'event:delete_unsold',
+      'event:cancel',
     ]) {
       expect(PLATFORM_ROLE_CAPABILITIES.ADMIN, capability).not.toContain(capability)
     }
@@ -547,6 +561,101 @@ describe('the platform administrator (ADMIN)', () => {
     }
 
     expect(() => assertPlatformAdministratorBounds(doctored)).toThrow('organizer:invite')
+  })
+
+  it.each(['event:platform_edit', 'event:platform_delete', 'event:import'])(
+    'refuses a doctored table that takes away %s',
+    (capability) => {
+      const doctored = {
+        ...PLATFORM_ROLE_CAPABILITIES,
+        ADMIN: PLATFORM_ROLE_CAPABILITIES.ADMIN.filter((c) => c !== capability),
+      }
+
+      expect(() => assertPlatformAdministratorBounds(doctored)).toThrow(capability)
+    },
+  )
+})
+
+describe('the three platform event capabilities: editing, deleting and importing', () => {
+  const PLATFORM_EVENT = ['event:platform_edit', 'event:platform_delete', 'event:import']
+
+  it.each(PLATFORM_EVENT)(
+    '%s is platform-only and held by ADMIN and SUPER_ADMIN alone',
+    (capability) => {
+      expect(PLATFORM_ONLY_CAPABILITIES).toContain(capability)
+
+      const holders = Object.entries(PLATFORM_ROLE_CAPABILITIES)
+        .filter(([, capabilities]) => capabilities.includes(capability))
+        .map(([role]) => role)
+        .sort()
+
+      expect(holders).toEqual(['ADMIN', 'SUPER_ADMIN'])
+
+      for (const [role, capabilities] of Object.entries(ORG_ROLE_CAPABILITIES)) {
+        expect(capabilities, role).not.toContain(capability)
+      }
+    },
+  )
+
+  it.each(['MODERATOR', 'SUPPORT', 'FINANCE_ADMIN', 'ORGANIZER', 'ATTENDEE'])(
+    '%s holds none of the three',
+    (role) => {
+      for (const capability of PLATFORM_EVENT) {
+        expect(PLATFORM_ROLE_CAPABILITIES[role], `${role} holds ${capability}`).not.toContain(
+          capability,
+        )
+      }
+    },
+  )
+
+  it('names them by their constants', () => {
+    expect(CAPABILITIES.EVENT_PLATFORM_EDIT).toBe('event:platform_edit')
+    expect(CAPABILITIES.EVENT_PLATFORM_DELETE).toBe('event:platform_delete')
+    expect(CAPABILITIES.EVENT_IMPORT).toBe('event:import')
+  })
+})
+
+describe('event:delete_unsold', () => {
+  it('is held from EVENT_MANAGER up: EVENT_MANAGER, MANAGER, ADMIN and OWNER, and nobody else', () => {
+    const holders = ORG_ROLE_ORDER.filter((role) =>
+      ORG_ROLE_CAPABILITIES[role].includes('event:delete_unsold'),
+    )
+
+    expect(holders).toEqual(['EVENT_MANAGER', 'MANAGER', 'ADMIN', 'OWNER'])
+    expect(CAPABILITIES.EVENT_DELETE_UNSOLD).toBe('event:delete_unsold')
+  })
+
+  it('is event authority, so no role an owner may hand out ever holds it', () => {
+    expect(EVENT_AUTHORITY_CAPABILITIES).toContain('event:delete_unsold')
+
+    for (const role of OWNER_GRANTABLE_ORG_ROLES) {
+      expect(ORG_ROLE_CAPABILITIES[role], role).not.toContain('event:delete_unsold')
+    }
+
+    const doctored = {
+      ...ORG_ROLE_CAPABILITIES,
+      FINANCE: [...ORG_ROLE_CAPABILITIES.FINANCE, 'event:delete_unsold'],
+    }
+
+    expect(() => assertPostingPolicy(doctored)).toThrow(/FINANCE.*event:delete_unsold/)
+  })
+
+  it('is an organisation capability, granted by no platform role but SUPER_ADMIN', () => {
+    expect(PLATFORM_ONLY_CAPABILITIES).not.toContain('event:delete_unsold')
+
+    const holders = Object.entries(PLATFORM_ROLE_CAPABILITIES)
+      .filter(([, capabilities]) => capabilities.includes('event:delete_unsold'))
+      .map(([role]) => role)
+
+    expect(holders).toEqual(['SUPER_ADMIN'])
+  })
+
+  it('leaves event:delete where it was: ADMIN and OWNER only', () => {
+    const holders = ORG_ROLE_ORDER.filter((role) =>
+      ORG_ROLE_CAPABILITIES[role].includes('event:delete'),
+    )
+
+    expect(holders).toEqual(['ADMIN', 'OWNER'])
   })
 })
 

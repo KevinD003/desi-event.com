@@ -120,15 +120,23 @@ describe('MEDIA_LIMITS and the status sets', () => {
     for (const status of ['DRAFT', 'CHANGES_REQUIRED', 'PUBLISHED', 'ON_SALE', 'POSTPONED']) {
       expect(MEDIA_ARRANGE_STATUSES.has(status), status).toBe(true)
     }
-    for (const status of ['REVIEW_PENDING', 'APPROVED', 'CANCELLED', 'COMPLETED', 'ARCHIVED']) {
+    for (const status of [
+      'REVIEW_PENDING',
+      'APPROVED',
+      'CANCELLED',
+      'COMPLETED',
+      'ARCHIVED',
+      'DELETED',
+    ]) {
       expect(MEDIA_ARRANGE_STATUSES.has(status), status).toBe(false)
     }
   })
 
-  it('removes in every status but the two a moderator holds', () => {
+  it('removes in every status but the two a moderator holds and DELETED', () => {
     expect(MEDIA_REMOVE_STATUSES.has('REVIEW_PENDING')).toBe(false)
     expect(MEDIA_REMOVE_STATUSES.has('APPROVED')).toBe(false)
-    expect(MEDIA_REMOVE_STATUSES.size).toBe(EVENT_STATUSES.length - 2)
+    expect(MEDIA_REMOVE_STATUSES.has('DELETED')).toBe(false)
+    expect(MEDIA_REMOVE_STATUSES.size).toBe(EVENT_STATUSES.length - 3)
     expect(MEDIA_REMOVE_STATUSES.has('ARCHIVED')).toBe(true)
     expect(MEDIA_REMOVE_STATUSES.has('CANCELLED')).toBe(true)
   })

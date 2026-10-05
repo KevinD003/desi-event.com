@@ -23,6 +23,7 @@ import { MEDIA_LIMITS } from '@desi-event/schemas/media'
 import { afterAll, beforeAll, expect, it } from 'vitest'
 
 import { buildApp } from '../src/app.js'
+import { assertQuota } from '../src/lib/event-media.js'
 import { createPostgresMediaStorage } from '../src/lib/media-storage.js'
 import { startSession } from '../src/lib/sessions.js'
 import { testEnv } from './helpers/app.js'
@@ -458,5 +459,37 @@ when()('through the real application', () => {
     expect(await prisma.mediaBlob.count({ where: { asset: { eventId: event.id } } })).toBe(
       await prisma.mediaAsset.count({ where: { eventId: event.id } }),
     )
+  })
+})
+
+when()('the organisation quota', () => {
+  // SPEC2-XI X-8: a deleted event's pictures are kept for a restore and nobody
+  // can remove them while it is deleted, so the quota does not count them. The
+  // relation filter is PostgreSQL's here, not the stub's.
+  it('counts a live event’s pictures and not a deleted event’s', async () => {
+    const live = await eventIn(`quota-live-${randomUUID().slice(0, 8)}`)
+    const gone = await eventIn(`quota-gone-${randomUUID().slice(0, 8)}`)
+
+    await prisma.mediaAsset.create({ data: asset(live.event, { byteSize: 1000 }) })
+    await prisma.mediaAsset.create({ data: asset(gone.event, { byteSize: 1000 }) })
+    await prisma.event.update({
+      where: { id: gone.event.id },
+      data: {
+        status: 'DELETED',
+        deletedAt: new Date(),
+        deletionReason: 'Taken down before any ticket was sold.',
+        deletionOutcome: 'REMOVED',
+        deletionAuthority: 'ORGANIZATION',
+        statusBeforeDeletion: 'DRAFT',
+      },
+    })
+
+    const adding = MEDIA_LIMITS.organizationQuotaBytes - 500
+
+    await expect(assertQuota(prisma, live.organization.id, adding)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'MEDIA_QUOTA_EXCEEDED',
+    })
+    await expect(assertQuota(prisma, gone.organization.id, adding)).resolves.toBeUndefined()
   })
 })

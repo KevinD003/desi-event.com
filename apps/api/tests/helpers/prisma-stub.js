@@ -41,6 +41,51 @@ const RELATIONS = {
     },
     trafficEvents: { kind: 'many', model: 'trafficEvent', from: 'id', to: 'eventId' },
     trafficDaily: { kind: 'many', model: 'trafficDaily', from: 'id', to: 'eventId' },
+    // Full control of posted events (SPEC2-XI X): who deleted it, the
+    // Desi-Event team's sittings on it, and what its ticket holders are told.
+    deletedBy: { kind: 'one', model: 'user', from: 'deletedById', to: 'id' },
+    platformEdits: { kind: 'many', model: 'eventPlatformEdit', from: 'id', to: 'eventId' },
+    changeNotices: { kind: 'many', model: 'eventChangeNotice', from: 'id', to: 'eventId' },
+    // Where it was imported from, when it was (SPEC2-XI I).
+    importItem: { kind: 'one', model: 'eventImportItem', from: 'id', to: 'eventId' },
+  },
+  eventPlatformEdit: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    actor: { kind: 'one', model: 'user', from: 'actorId', to: 'id' },
+    session: { kind: 'one', model: 'session', from: 'sessionId', to: 'id' },
+  },
+  eventChangeNotice: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    eventSession: { kind: 'one', model: 'eventSession', from: 'eventSessionId', to: 'id' },
+  },
+  eventImportRun: {
+    createdBy: { kind: 'one', model: 'user', from: 'createdById', to: 'id' },
+    appliedBy: { kind: 'one', model: 'user', from: 'appliedById', to: 'id' },
+    items: { kind: 'many', model: 'eventImportItem', from: 'id', to: 'lastRunId' },
+  },
+  eventImportItem: {
+    event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
+    lastRun: { kind: 'one', model: 'eventImportRun', from: 'lastRunId', to: 'id' },
+    importedBy: { kind: 'one', model: 'user', from: 'importedById', to: 'id' },
+    approvedBy: { kind: 'one', model: 'user', from: 'approvedById', to: 'id' },
+    reassignedBy: { kind: 'one', model: 'user', from: 'reassignedById', to: 'id' },
+    reassignedFromOrganization: {
+      kind: 'one',
+      model: 'organization',
+      from: 'reassignedFromOrganizationId',
+      to: 'id',
+    },
+    reassignedToOrganization: {
+      kind: 'one',
+      model: 'organization',
+      from: 'reassignedToOrganizationId',
+      to: 'id',
+    },
+    images: { kind: 'many', model: 'eventImportImage', from: 'id', to: 'itemId' },
+  },
+  eventImportImage: {
+    item: { kind: 'one', model: 'eventImportItem', from: 'itemId', to: 'id' },
+    mediaAsset: { kind: 'one', model: 'mediaAsset', from: 'mediaAssetId', to: 'id' },
   },
   eventModerationAction: {
     event: { kind: 'one', model: 'event', from: 'eventId', to: 'id' },
@@ -138,6 +183,10 @@ const RELATIONS = {
     blob: { kind: 'one', model: 'mediaBlob', from: 'storageKey', to: 'storageKey' },
     uploadedBy: { kind: 'one', model: 'user', from: 'uploadedById', to: 'id' },
     moderatedBy: { kind: 'one', model: 'user', from: 'moderatedById', to: 'id' },
+    // A replacement cover waiting beside the cover it replaces, both ways.
+    replaces: { kind: 'one', model: 'mediaAsset', from: 'replacesMediaId', to: 'id' },
+    replacedBy: { kind: 'one', model: 'mediaAsset', from: 'id', to: 'replacesMediaId' },
+    importImages: { kind: 'many', model: 'eventImportImage', from: 'id', to: 'mediaAssetId' },
   },
   mediaBlob: {
     asset: { kind: 'one', model: 'mediaAsset', from: 'storageKey', to: 'storageKey' },
@@ -180,6 +229,7 @@ const RELATIONS = {
   session: {
     user: { kind: 'one', model: 'user', from: 'userId', to: 'id' },
     device: { kind: 'one', model: 'device', from: 'deviceId', to: 'id' },
+    platformEdits: { kind: 'many', model: 'eventPlatformEdit', from: 'id', to: 'sessionId' },
   },
   invitation: {
     organization: { kind: 'one', model: 'organization', from: 'organizationId', to: 'id' },
@@ -191,6 +241,19 @@ const RELATIONS = {
     createdBy: { kind: 'one', model: 'user', from: 'createdById', to: 'id' },
     // The platform door list names the organisations with a door open now.
     events: { kind: 'many', model: 'event', from: 'id', to: 'organizationId' },
+    // Imported events moved out of and into an organisation.
+    importsMovedOut: {
+      kind: 'many',
+      model: 'eventImportItem',
+      from: 'id',
+      to: 'reassignedFromOrganizationId',
+    },
+    importsMovedIn: {
+      kind: 'many',
+      model: 'eventImportItem',
+      from: 'id',
+      to: 'reassignedToOrganizationId',
+    },
   },
   eventSeat: {
     seat: { kind: 'one', model: 'seat', from: 'seatId', to: 'id' },
@@ -210,6 +273,12 @@ const RELATIONS = {
       model: 'venueMapVersion',
       from: 'venueMapVersionId',
       to: 'id',
+    },
+    changeNotices: {
+      kind: 'many',
+      model: 'eventChangeNotice',
+      from: 'id',
+      to: 'eventSessionId',
     },
   },
   seat: {
@@ -245,6 +314,53 @@ const RELATIONS = {
   },
 }
 
+/**
+ * The deletion columns of an event (SPEC2-XI X): null until it is deleted.
+ *
+ * @type {Readonly<Record<string, null>>}
+ */
+const EVENT_DELETION_COLUMNS = Object.freeze({
+  deletedAt: null,
+  deletedById: null,
+  deletionReason: null,
+  deletionOutcome: null,
+  deletionAuthority: null,
+  statusBeforeDeletion: null,
+  deletedSlug: null,
+})
+
+/**
+ * A night's cancellation stamp and whether its end time was listed (SPEC2-XI X
+ * and I): not cancelled, and listed, as every night before them.
+ *
+ * @type {Readonly<Record<string, unknown>>}
+ */
+const EVENT_SESSION_CONTROL_COLUMNS = Object.freeze({
+  cancelledAt: null,
+  cancellationReason: null,
+  endTimeListed: true,
+})
+
+/**
+ * Columns added over existing rows by the SPEC2-XI migrations, with the value
+ * an `ADD COLUMN` gives every row already there.
+ *
+ * A seeded row bypasses {@link DEFAULTS}, so without this a fixture written
+ * before these columns existed would carry `undefined` where the database has
+ * null — and a query for "not deleted" (`deletedAt: null`) would miss every
+ * seeded event. Filled into seeded rows only where the key is absent, which is
+ * what the migration does to a populated table; nothing else about a seeded
+ * row is changed.
+ *
+ * @type {Readonly<Record<string, Readonly<Record<string, unknown>>>>}
+ */
+const SEEDED_COLUMN_DEFAULTS = Object.freeze({
+  event: EVENT_DELETION_COLUMNS,
+  eventSession: EVENT_SESSION_CONTROL_COLUMNS,
+  mediaAsset: Object.freeze({ replacesMediaId: null }),
+  organization: Object.freeze({ platformHeldSource: null }),
+})
+
 /** Columns the database fills in, mirrored so rows look like real rows. */
 const DEFAULTS = {
   user: { locale: 'en-IN', role: 'ATTENDEE', emailVerified: false, phone: null },
@@ -263,6 +379,7 @@ const DEFAULTS = {
     suspendedAt: null,
     suspendedReason: null,
     createdById: null,
+    platformHeldSource: null,
   },
   venue: {
     country: 'IN',
@@ -313,6 +430,7 @@ const DEFAULTS = {
     websiteRedirectChangedAt: null,
     websiteRedirectChangedById: null,
     websiteRedirectReason: null,
+    ...EVENT_DELETION_COLUMNS,
   },
   ticketType: {
     currency: 'INR',
@@ -551,6 +669,7 @@ const DEFAULTS = {
     capacity: null,
     sortOrder: 0,
     label: null,
+    ...EVENT_SESSION_CONTROL_COLUMNS,
   },
   eventSeat: {
     ticketTypeId: null,
@@ -628,6 +747,7 @@ const DEFAULTS = {
     moderatedAt: null,
     moderatedById: null,
     moderationNote: null,
+    replacesMediaId: null,
   },
   // The Postgres storage adapter's table. Keyed by `storageKey`, not `id`.
   mediaBlob: {},
@@ -697,6 +817,49 @@ const DEFAULTS = {
     holdReason: null,
   },
   refundItem: { ticketId: null },
+  // Full control of posted events (SPEC2-XI X). `openedAt` is filled at create
+  // time like a timestamp (see `create`).
+  eventPlatformEdit: { actorId: null, sessionId: null, closedAt: null, endedBy: null },
+  eventChangeNotice: {
+    eventSessionId: null,
+    fields: [],
+    changed: [],
+    before: null,
+    after: null,
+    reason: null,
+    byPlatform: false,
+    revision: null,
+  },
+  // Events imported from another site (SPEC2-XI I). `importedAt` and
+  // `lastSyncedAt` are filled at create time (see `create`).
+  eventImportRun: {
+    status: 'PREVIEWED',
+    createdById: null,
+    appliedAt: null,
+    appliedById: null,
+    summary: null,
+  },
+  eventImportItem: {
+    lastRunId: null,
+    importedById: null,
+    presentedBy: null,
+    prices: [],
+    priceText: null,
+    importNotes: [],
+    approvedById: null,
+    approvedAt: null,
+    reassignedAt: null,
+    reassignedById: null,
+    reassignedFromOrganizationId: null,
+    reassignedToOrganizationId: null,
+  },
+  eventImportImage: {
+    status: 'WAITING',
+    failureCode: null,
+    attempts: 0,
+    lastTriedAt: null,
+    mediaAssetId: null,
+  },
   ledgerAccount: { currency: null, active: true },
   ledgerBatch: {
     status: 'DRAFT',
@@ -762,7 +925,8 @@ const UNIQUE_FIELDS = {
   connectedAccount: ['organizationId'],
   // One group pass per order, and a digest names one pass.
   groupPass: ['orderId', 'credentialHash', 'codeHash'],
-  mediaAsset: ['storageKey'],
+  // One waiting replacement per cover.
+  mediaAsset: ['storageKey', 'replacesMediaId'],
   mediaBlob: ['storageKey'],
   // A digest names one organiser invitation, and an invitation replaces at most
   // one other.
@@ -772,6 +936,11 @@ const UNIQUE_FIELDS = {
   // One counted moment per visitor per slot, and one salt per day.
   trafficEvent: ['dedupeKey'],
   trafficSalt: ['day'],
+  // One platform-held organisation per import source; nulls are distinct, so
+  // every ordinary organisation passes.
+  organization: ['platformHeldSource'],
+  // One import record per event.
+  eventImportItem: ['eventId'],
 }
 
 /**
@@ -805,6 +974,10 @@ const COMPOUND_UNIQUE = {
   promoCode: [['organizationId', 'code']],
   // One row of totals per event per day: the roll-up's upsert key.
   trafficDaily: [['eventId', 'day']],
+  // A re-import of the same listing updates rather than duplicates, and a
+  // listing names each picture once.
+  eventImportItem: [['source', 'sourceId']],
+  eventImportImage: [['itemId', 'url']],
 }
 
 /** Ticket states that still admit, or may again: the rows the seat index counts. */
@@ -877,11 +1050,25 @@ const PARTIAL_UNIQUE = {
       when: (row) => row.status === 'PENDING',
     },
   ],
+  // One current cover per event; a replacement waiting for review (which
+  // points at the cover it replaces) is the one other cover row an event may
+  // have (`20260930150000_event_full_control`).
   mediaAsset: [
     {
-      name: 'MediaAsset_one_cover_per_event_key',
+      name: 'MediaAsset_one_current_cover_per_event_key',
       key: (row) => [row.eventId],
-      when: (row) => row.kind === 'EVENT_COVER',
+      when: (row) =>
+        row.kind === 'EVENT_COVER' &&
+        (row.replacesMediaId === null || row.replacesMediaId === undefined),
+    },
+  ],
+  // One open sitting per administrator per event: a double click is decided
+  // here, and the second open is answered with the first.
+  eventPlatformEdit: [
+    {
+      name: 'EventPlatformEdit_one_open_per_actor_key',
+      key: (row) => [row.eventId, row.actorId],
+      when: (row) => row.closedAt === null || row.closedAt === undefined,
     },
   ],
   // One waiting organiser invitation per address, whatever its case.
@@ -974,6 +1161,27 @@ const TIMESTAMPED = new Set([
 ])
 
 /**
+ * Foreign keys declared ON DELETE SET NULL whose clearing a caller relies on,
+ * keyed by the model whose row is deleted: the referencing model and column.
+ *
+ * The stub runs no other referential action. These are mirrored because code
+ * written for PostgreSQL leans on them (SPEC2-XI §5.X-P, §6): deleting the
+ * cover a replacement waits beside makes the replacement the current cover by
+ * clearing its `replacesMediaId`, and removing a picture an import stored
+ * leaves the import record without a link to it. A sitting whose browser
+ * session row is gone is one nothing can match.
+ *
+ * @type {Readonly<Record<string, ReadonlyArray<Readonly<{model: string, column: string}>>>>}
+ */
+const ON_DELETE_SET_NULL = Object.freeze({
+  mediaAsset: Object.freeze([
+    Object.freeze({ model: 'mediaAsset', column: 'replacesMediaId' }),
+    Object.freeze({ model: 'eventImportImage', column: 'mediaAssetId' }),
+  ]),
+  session: Object.freeze([Object.freeze({ model: 'eventPlatformEdit', column: 'sessionId' })]),
+})
+
+/**
  * Models whose rows carry only `createdAt`.
  *
  * Sessions, devices and tokens have their own more specific timestamps and no
@@ -1013,6 +1221,8 @@ const CREATED_ONLY = new Set([
   'privacyAuditEvent',
   'exportArtifactSubject',
   'mediaBlob',
+  'eventChangeNotice',
+  'eventImportRun',
 ])
 
 let idCounter = 0
@@ -1168,7 +1378,17 @@ export function createPrismaStub(seed = {}) {
   const tables = {}
   for (const model of Object.keys(DEFAULTS)) tables[model] = []
   for (const [model, rows] of Object.entries(seed)) {
-    tables[model] = rows.map((row) => ({ ...row }))
+    const added = SEEDED_COLUMN_DEFAULTS[model] ?? {}
+
+    tables[model] = rows.map((row) => {
+      const copy = { ...row }
+
+      for (const [column, value] of Object.entries(added)) {
+        if (!(column in copy)) copy[column] = value
+      }
+
+      return copy
+    })
   }
 
   /** @type {string[]} */
@@ -1460,6 +1680,27 @@ export function createPrismaStub(seed = {}) {
   }
 
   /**
+   * Clear the columns that point at deleted rows through a foreign key declared
+   * ON DELETE SET NULL ({@link ON_DELETE_SET_NULL}), as PostgreSQL does in the
+   * same statement.
+   *
+   * @param {string} model The model whose rows were deleted.
+   * @param {object[]} removed The deleted rows.
+   * @returns {void}
+   */
+  function clearReferencesTo(model, removed) {
+    const ids = new Set(removed.map((row) => row.id).filter((id) => id !== undefined))
+
+    if (ids.size === 0) return
+
+    for (const { model: referencing, column } of ON_DELETE_SET_NULL[model] ?? []) {
+      for (const row of tables[referencing] ?? []) {
+        if (ids.has(row[column])) row[column] = null
+      }
+    }
+  }
+
+  /**
    * Refuse a row that a partial unique index would refuse.
    *
    * @param {string} model The model.
@@ -1660,6 +1901,8 @@ export function createPrismaStub(seed = {}) {
           ...(model === 'privacyHold' ? { placedAt: now } : {}),
           ...(model === 'privacyAuditEvent' ? { occurredAt: now, recordedAt: now } : {}),
           ...(model === 'exportArtifact' ? { generatedAt: now } : {}),
+          ...(model === 'eventPlatformEdit' ? { openedAt: now } : {}),
+          ...(model === 'eventImportItem' ? { importedAt: now, lastSyncedAt: now } : {}),
           ...scalarData,
         }
 
@@ -1770,6 +2013,8 @@ export function createPrismaStub(seed = {}) {
           ...DEFAULTS[model],
           ...(TIMESTAMPED.has(model) ? { createdAt: now, updatedAt: now } : {}),
           ...(CREATED_ONLY.has(model) ? { createdAt: now } : {}),
+          ...(model === 'eventPlatformEdit' ? { openedAt: now } : {}),
+          ...(model === 'eventImportItem' ? { importedAt: now, lastSyncedAt: now } : {}),
           ...args.create,
         }
 
@@ -1782,6 +2027,7 @@ export function createPrismaStub(seed = {}) {
         const index = tables[model].findIndex((candidate) => matches(model, candidate, args.where))
         if (index < 0) throw new Error(`No ${model} found`)
         const [row] = tables[model].splice(index, 1)
+        clearReferencesTo(model, [row])
         return row
       },
       /**
@@ -1797,11 +2043,15 @@ export function createPrismaStub(seed = {}) {
         const rows = tables[model] ?? []
         let count = 0
 
+        const removed = []
+
         for (let index = rows.length - 1; index >= 0; index -= 1) {
           if (!matches(model, rows[index], args.where)) continue
-          rows.splice(index, 1)
+          removed.push(...rows.splice(index, 1))
           count += 1
         }
+
+        clearReferencesTo(model, removed)
 
         return { count }
       },

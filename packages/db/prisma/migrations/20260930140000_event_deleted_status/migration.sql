@@ -1,0 +1,13 @@
+-- A deleted event keeps its row: orders (ON DELETE RESTRICT), refunds, the
+-- ledger, the audit trail and its review history point at it, and a platform
+-- administrator can restore it. DELETED takes it off every public and sale
+-- surface because each of them reads an allow-list of statuses.
+--
+-- A migration of its own: PostgreSQL does not let a transaction use an enum
+-- label it added, and the next migration's CHECK, trigger and partial index
+-- use it. No row is changed here.
+--
+-- Rollback: PostgreSQL cannot drop an enum label. Recreate "EventStatus"
+-- without it, after restoring or removing every DELETED row (and after
+-- 20260930150000_event_full_control is rolled back).
+ALTER TYPE "EventStatus" ADD VALUE IF NOT EXISTS 'DELETED';

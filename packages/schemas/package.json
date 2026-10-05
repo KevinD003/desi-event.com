@@ -17,6 +17,8 @@
     "./website": "./src/website.js",
     "./traffic-vocabulary": "./src/traffic-vocabulary.js",
     "./code-letters": "./src/code-letters.js",
+    "./event-control": "./src/event-control.js",
+    "./imports": "./src/imports.js",
     "./package.json": "./package.json"
   },
   "files": [

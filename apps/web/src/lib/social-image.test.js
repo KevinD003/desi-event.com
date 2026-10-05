@@ -187,6 +187,8 @@ describe('publicEventForCard', () => {
     ['DRAFT', false],
     ['REVIEW_PENDING', false],
     ['ARCHIVED', false],
+    // Off every public surface without a filter of its own (SPEC2-XI X-8).
+    ['DELETED', false],
   ])('%s → card: %s', async (status, shown) => {
     const load = vi.fn(async () => ({ event: { ...EVENT, status } }))
     const event = await publicEventForCard(Promise.resolve({ slug: 'garba-night' }), { load })

@@ -77,7 +77,35 @@ export const CAPABILITIES = deepFreeze({
   /** Cancel or postpone a published event, which affects people who paid. */
   EVENT_CANCEL: 'event:cancel',
   EVENT_DELETE: 'event:delete',
+  /**
+   * Delete an event nobody holds a paid order for. Held from EVENT_MANAGER up,
+   * so whoever posts an event can take it down again. Deleting one with paid
+   * orders refunds them, which is `event:delete` and `event:cancel` (ADMIN,
+   * OWNER). Moves no money. In {@link EVENT_AUTHORITY_CAPABILITIES}, so no role
+   * an owner may hand out ever holds it.
+   */
+  EVENT_DELETE_UNSOLD: 'event:delete_unsold',
   EVENT_VIEW_DRAFT: 'event:view_draft',
+  /**
+   * Edit any organisation's published event as the Desi-Event team, in a
+   * sitting opened with a reason and a second factor, every write audited with
+   * both. Platform-only. Never a draft or a version under review.
+   */
+  EVENT_PLATFORM_EDIT: 'event:platform_edit',
+  /**
+   * Delete any organisation's event, cancel one of its nights, and restore a
+   * deleted event. Where tickets were sold this refunds every affected order in
+   * full to the payment it came from — no amount, recipient or order is chosen,
+   * which is why it is not a money capability. Platform-only.
+   */
+  EVENT_PLATFORM_DELETE: 'event:platform_delete',
+  /**
+   * Bring events listed on another site (Sulekha) onto Desi-Event: upload a
+   * file, read its plan, import it, retry its pictures, approve and publish the
+   * imported events (with `moderation:review`) and move one to an organiser's
+   * own organisation. Platform-only.
+   */
+  EVENT_IMPORT: 'event:import',
 
   // --- Venues and seating ---------------------------------------------------
   VENUE_MANAGE: 'venue:manage',
@@ -276,6 +304,9 @@ export const PLATFORM_ONLY_CAPABILITIES = deepFreeze([
   CAPABILITIES.ORGANIZER_INVITE,
   CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
   CAPABILITIES.ANALYTICS_VIEW_ALL,
+  CAPABILITIES.EVENT_PLATFORM_EDIT,
+  CAPABILITIES.EVENT_PLATFORM_DELETE,
+  CAPABILITIES.EVENT_IMPORT,
   CAPABILITIES.PLATFORM_ADMIN,
 ])
 
@@ -378,6 +409,8 @@ const ORG_ROLE_GRANTS = {
     CAPABILITIES.PROMO_MANAGE,
     CAPABILITIES.ATTENDEE_EXPORT,
     CAPABILITIES.TICKET_REVOKE,
+    // Take down an event nobody paid for. Deleting a sold one is ADMIN's.
+    CAPABILITIES.EVENT_DELETE_UNSOLD,
   ],
   // Handles money, and cannot publish or edit an event.
   FINANCE: [
@@ -564,6 +597,12 @@ export const ORG_ROLE_CAPABILITIES = deepFreeze(resolveAll(ORG_ROLE_GRANTS, ORG_
  * {organizationId})` answers yes for every organisation; the money on those
  * reports stays behind `finance:view`, which ADMIN does not hold.
  *
+ * ADMIN edits posted events only, in audited sittings (`event:platform_edit`),
+ * and deletes events (`event:platform_delete`), with the whole-order refunds
+ * that requires: no amount, recipient or order is chosen. It imports listed
+ * events onto the platform-held organisation (`event:import`). It still holds
+ * no discretionary money capability and no posting capability.
+ *
  * @type {ReadonlyArray<string>}
  */
 export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
@@ -575,6 +614,9 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
     CAPABILITIES.REPORT_VIEW,
     CAPABILITIES.WEBSITE_REDIRECT_MANAGE,
     CAPABILITIES.ANALYTICS_VIEW_ALL,
+    CAPABILITIES.EVENT_PLATFORM_EDIT,
+    CAPABILITIES.EVENT_PLATFORM_DELETE,
+    CAPABILITIES.EVENT_IMPORT,
   ].sort(),
 )
 
@@ -590,8 +632,11 @@ export const PLATFORM_ADMINISTRATOR_CAPABILITIES = deepFreeze(
  * The narrow staff roles exist so that the common platform jobs do not need
  * `SUPER_ADMIN`. A moderator cannot refund; a finance administrator cannot
  * approve an event; support can read an order and change nothing; a platform
- * administrator reviews, invites organisers and switches website links, and
- * cannot change anybody's platform role, move money or admit anybody at a door.
+ * administrator reviews, invites organisers, switches website links, edits and
+ * deletes posted events and imports listed ones, and cannot change anybody's
+ * platform role, move money at its own discretion or admit anybody at a door.
+ * MODERATOR, SUPPORT and FINANCE_ADMIN hold none of the three platform event
+ * capabilities (`event:platform_edit`, `event:platform_delete`, `event:import`).
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}
  */
@@ -756,6 +801,7 @@ export const EVENT_AUTHORITY_CAPABILITIES = deepFreeze([
   CAPABILITIES.EVENT_PAUSE_SALES,
   CAPABILITIES.EVENT_CANCEL,
   CAPABILITIES.EVENT_DELETE,
+  CAPABILITIES.EVENT_DELETE_UNSOLD,
   CAPABILITIES.TICKET_TYPE_MANAGE,
   CAPABILITIES.INVENTORY_MANAGE,
   CAPABILITIES.VENUE_MANAGE,

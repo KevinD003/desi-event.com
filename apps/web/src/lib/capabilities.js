@@ -51,6 +51,36 @@ export function sessionCan(session, capability, organizationId) {
 }
 
 /**
+ * Whether this session's membership of one organisation holds a capability.
+ *
+ * Membership only: a capability the platform role holds does not count, and
+ * neither does a super administrator's `platform:admin`. It answers what the
+ * API's `resolveEventAuthority` reads first (`orgCapabilitiesFor`): whether the
+ * person acts *as the organisation*. The organiser's event editor and its
+ * danger zone ask this, so a Desi-Event administrator who is not a member is
+ * sent to the platform's own editor rather than shown an organiser's controls
+ * that would act under an authority they do not have (SPEC2-XI O9).
+ *
+ * Server-only in use: the pages that ask it compute booleans and hand those to
+ * their client components, which never ask about capabilities themselves (a
+ * test holds every `'use client'` module to that).
+ *
+ * @param {object|null} session The session payload from `GET /v1/auth/me`.
+ * @param {string} capability The capability name.
+ * @param {string} organizationId The organisation.
+ * @returns {boolean} True when the membership holds it.
+ */
+export function membershipCan(session, capability, organizationId) {
+  if (!session || !organizationId) return false
+
+  const membership = (session.memberships ?? []).find(
+    (candidate) => candidate.organizationId === organizationId,
+  )
+
+  return (membership?.capabilities ?? []).includes(capability)
+}
+
+/**
  * The organisations this session may run privacy erasures in.
  *
  * Membership-scoped on purpose. `privacy:redact` is an organisation capability

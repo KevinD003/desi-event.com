@@ -42,9 +42,11 @@ const EXPECTED_ORG_MATRIX = {
     'ticket:check_in',
   ],
   // Runs the event. No money, and no door: an event manager is not on shift.
+  // Takes down an event nobody paid for (event:delete_unsold), not a sold one.
   EVENT_MANAGER: [
     'attendee:export',
     'event:create',
+    'event:delete_unsold',
     'event:pause_sales',
     'event:publish',
     'event:submit_review',
@@ -76,6 +78,7 @@ const EXPECTED_ORG_MATRIX = {
   MANAGER: [
     'attendee:export',
     'event:create',
+    'event:delete_unsold',
     'event:pause_sales',
     'event:publish',
     'event:submit_review',
@@ -100,6 +103,7 @@ const EXPECTED_ORG_MATRIX = {
     'event:cancel',
     'event:create',
     'event:delete',
+    'event:delete_unsold',
     'event:pause_sales',
     'event:publish',
     'event:submit_review',
@@ -134,6 +138,7 @@ const EXPECTED_ORG_MATRIX = {
     'event:cancel',
     'event:create',
     'event:delete',
+    'event:delete_unsold',
     'event:pause_sales',
     'event:publish',
     'event:submit_review',
@@ -188,9 +193,13 @@ const EXPECTED_PLATFORM_MATRIX = {
     'reconciliation:manage',
     'support:view_order',
   ],
-  // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand.
+  // Exactly PLATFORM_ADMINISTRATOR_CAPABILITIES, written out by hand: the ten
+  // of SPEC2-XI O1.
   ADMIN: [
     'analytics:view_all',
+    'event:import',
+    'event:platform_delete',
+    'event:platform_edit',
     'event:view_draft',
     'moderation:review',
     'organizer:invite',
