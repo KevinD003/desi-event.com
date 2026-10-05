@@ -41,6 +41,7 @@ import {
 import { addressFree } from './addresses.js'
 import { venueAccessibilitySchema } from './venues.js'
 import { publicMediaSchema } from './media.js'
+import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } from './website.js'
 import {
   eventFaqSchema,
   eventPerformersSchema,
@@ -538,6 +539,26 @@ export const eventWithRelationsSchema = eventSchema.extend({
    * date in your calendar", and `schema.org` has a field for exactly that.
    */
   previousStartsAt: timestampSchema.nullish(),
+  /**
+   * Where "Visit the organiser's website" goes, as a host, never the address:
+   * the link itself is Desi-Event's own `/events/{slug}/website`. Null unless a
+   * Desi-Event administrator has the link on, the address they approved still
+   * passes the address rules, and the event's page is public.
+   */
+  websiteLink: publicWebsiteLinkSchema.nullable().default(null),
+  /**
+   * The organiser's current website address. Present only for callers who may
+   * see the event's drafts (its own team, moderators and platform
+   * administrators); the key is absent for everybody else.
+   */
+  websiteUrl: z.string().max(WEBSITE_LIMITS.url).nullish(),
+  /**
+   * The website link's switch as insiders read it: on or off, whether an
+   * address waits for a decision, where the link goes, who decided, when and
+   * why. Present only for the same callers as `websiteUrl`; absent for
+   * everybody else.
+   */
+  websiteRedirect: websiteRedirectStateSchema.nullish(),
   /**
    * The platform fee terms checkout charges with, one entry per currency this
    * event's tiers are priced in.

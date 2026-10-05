@@ -16733,7 +16733,7 @@
       "post": {
         "operationId": "events.create",
         "summary": "Create an event",
-        "description": "Creates an event in DRAFT status. Requires `event:create` for the target organisation. The slug must be unique across the platform.",
+        "description": "Creates an event in DRAFT status. Requires `event:create` for the target organisation. The slug must be unique across the platform. `websiteUrl` is the organiser’s own website (an https address with a public name and no sign-in, port or key in it, stored as written by `new URL()`); it waits for a Desi-Event administrator and the website link starts off. `websiteRedirectEnabled`, `websiteRedirect` and `websiteDecidedUrl` are refused: only administrators turn the link on or off.",
         "tags": [
           "events"
         ],
@@ -17834,18 +17834,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -17905,6 +17893,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -17974,6 +17965,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -18034,6 +18155,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -18464,18 +18586,6 @@
                   "socialLinks": {
                     "type": "object",
                     "properties": {
-                      "website": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 2048
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
                       "instagram": {
                         "anyOf": [
                           {
@@ -18535,6 +18645,9 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "website": {
+                        "not": {}
                       }
                     },
                     "additionalProperties": false
@@ -18586,6 +18699,26 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "websiteUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 2048
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "websiteRedirectEnabled": {
+                    "not": {}
+                  },
+                  "websiteRedirect": {
+                    "not": {}
+                  },
+                  "websiteDecidedUrl": {
+                    "not": {}
                   },
                   "coverImageUrl": {
                     "not": {}
@@ -18781,7 +18914,7 @@
       "get": {
         "operationId": "events.get",
         "summary": "Get an event by slug",
-        "description": "Full event detail including venue, organisation, ticket types and the event's nights (`sessions`, soonest first, each with its label, times, sales window, whether it has a seat map and how many seats a buyer could take now: free seats sold under a tier that is neither a draft nor hidden and is inside its sales window, the seat map's own rule). Each tier names its night (`eventSessionId`, null for every night) and, for reserved seating, its price zone; a reserved tier on a night with a seat map also carries its own free seats (`availableQuantity`, `isSoldOut`), so one zone selling out is not read off another's seats. The path segment is the slug, or the event id for callers whose own screens are keyed by it; the slug is tried first. A draft event answers 404 unless the caller holds `event:view_draft` for its organisation. `onlineUrl`, an online event's joining link, is present only for callers who may see the event's drafts (organisation members with `event:view_draft`, moderators and platform administrators), so the editor can show it; everybody else gets null, and a ticket holder reads it as `onlineJoinUrl` on their ticket.",
+        "description": "Full event detail including venue, organisation, ticket types and the event's nights (`sessions`, soonest first, each with its label, times, sales window, whether it has a seat map and how many seats a buyer could take now: free seats sold under a tier that is neither a draft nor hidden and is inside its sales window, the seat map's own rule). Each tier names its night (`eventSessionId`, null for every night) and, for reserved seating, its price zone; a reserved tier on a night with a seat map also carries its own free seats (`availableQuantity`, `isSoldOut`), so one zone selling out is not read off another's seats. The path segment is the slug, or the event id for callers whose own screens are keyed by it; the slug is tried first. A draft event answers 404 unless the caller holds `event:view_draft` for its organisation. `onlineUrl`, an online event's joining link, is present only for callers who may see the event's drafts (organisation members with `event:view_draft`, moderators and platform administrators), so the editor can show it; everybody else gets null, and a ticket holder reads it as `onlineJoinUrl` on their ticket. `websiteLink` is `{host}` while a Desi-Event administrator has the event’s website link on and its page is public, else null; it never carries the address. `websiteUrl` (the organiser’s current address) and `websiteRedirect` (the switch: on or off, whether an address waits for a decision, the address it goes to, and the administrator’s name, when and why) are present only for the same callers as `onlineUrl`, and absent for everybody else.",
         "tags": [
           "events"
         ],
@@ -19882,18 +20015,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -19953,6 +20074,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -20022,6 +20146,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -20082,6 +20336,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -20144,7 +20399,7 @@
       "patch": {
         "operationId": "events.update",
         "summary": "Update an event",
-        "description": "Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` is not writable here (one in the body is dropped): the status moves only through the lifecycle commands — submit-review, withdraw-review, rework, publish, open-sales, pause-sales, postpone, reschedule and cancel under `/v1/events/:id/`, and a moderator’s decision — each with its own capability and gates. Requires `event:update`. A draft may be marked online before its joining link is typed; a live (published, on sale, paused, sold out or postponed) online event with no link is refused with 422. On a live event, a change to the date, time zone, venue, age limit, online status or policies needs `confirmMaterialChange: true` and a `changeReason`, and queues a notice for every current order; anything else, including the event page content (FAQ, line-up, running order, sponsors, social links, dress code, directions, public contact), is housekeeping. `performers` is the line-up and `artists` is kept in step with its names; sending only `artists` rebuilds `performers`, keeping the role and bio of any performer matched by name.",
+        "description": "Partial update; at least one field must be supplied. The owning organisation is immutable, and `status` is not writable here (one in the body is dropped): the status moves only through the lifecycle commands — submit-review, withdraw-review, rework, publish, open-sales, pause-sales, postpone, reschedule and cancel under `/v1/events/:id/`, and a moderator’s decision — each with its own capability and gates. Requires `event:update`. A draft may be marked online before its joining link is typed; a live (published, on sale, paused, sold out or postponed) online event with no link is refused with 422. On a live event, a change to the date, time zone, venue, age limit, online status or policies needs `confirmMaterialChange: true` and a `changeReason`, and queues a notice for every current order; anything else, including the event page content (FAQ, line-up, running order, sponsors, social links, dress code, directions, public contact), is housekeeping. `performers` is the line-up and `artists` is kept in step with its names; sending only `artists` rebuilds `performers`, keeping the role and bio of any performer matched by name. `websiteUrl` is housekeeping in every editable state and never needs a confirmation: a new or cleared address waits for a Desi-Event administrator, and saving it never moves the website link’s switch; while the link is on it keeps going to the address an administrator approved. `websiteRedirectEnabled`, `websiteRedirect` and `websiteDecidedUrl` are refused (only administrators turn the link on or off), and any other `websiteRedirect*` key is ignored.",
         "tags": [
           "events"
         ],
@@ -21245,18 +21500,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -21316,6 +21559,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -21385,6 +21631,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -21445,6 +21821,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -21872,18 +22249,6 @@
                   "socialLinks": {
                     "type": "object",
                     "properties": {
-                      "website": {
-                        "anyOf": [
-                          {
-                            "type": "string",
-                            "minLength": 1,
-                            "maxLength": 2048
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
                       "instagram": {
                         "anyOf": [
                           {
@@ -21943,6 +22308,9 @@
                             "type": "null"
                           }
                         ]
+                      },
+                      "website": {
+                        "not": {}
                       }
                     },
                     "additionalProperties": false
@@ -21994,6 +22362,26 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "websiteUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 2048
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "websiteRedirectEnabled": {
+                    "not": {}
+                  },
+                  "websiteRedirect": {
+                    "not": {}
+                  },
+                  "websiteDecidedUrl": {
+                    "not": {}
                   },
                   "coverImageUrl": {
                     "not": {}
@@ -23391,18 +23779,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -23462,6 +23838,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -23531,6 +23910,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -23591,6 +24100,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -24808,18 +25318,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -24879,6 +25377,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -24948,6 +25449,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -25008,6 +25639,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -26189,18 +26821,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -26260,6 +26880,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -26329,6 +26952,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -26389,6 +27142,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -27601,18 +28355,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -27672,6 +28414,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -27741,6 +28486,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -27801,6 +28676,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -29013,18 +29889,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -29084,6 +29948,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -29153,6 +30020,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -29213,6 +30210,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -30421,18 +31419,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -30492,6 +31478,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -30561,6 +31550,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -30621,6 +31740,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -31873,18 +32993,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -31944,6 +33052,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -32013,6 +33124,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -32073,6 +33314,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -33254,18 +34496,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -33325,6 +34555,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -33394,6 +34627,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -33454,6 +34817,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -34772,18 +36136,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -34843,6 +36195,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -34912,6 +36267,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -34972,6 +36457,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -41537,6 +43023,114 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/traffic/website-visits": {
+      "post": {
+        "operationId": "traffic.websiteVisit",
+        "summary": "Where an event’s website link goes, counting the visit",
+        "description": "Server to server: the web tier asks this when somebody follows “Visit the organiser’s website” at `GET /events/{slug}/website`, and redirects them with a 302 it builds itself. The web’s same-origin proxy refuses this path, so a browser cannot reach it through the site. Answers 200 with the address a Desi-Event administrator approved (`websiteDecidedUrl`) only while the website link is on, that address still passes the address rules and the event’s page is public; every other case — no such event, a draft, the link off — is the same 404, so it says nothing about an event that is not public. The address comes from the event and never from the request: the body names the event’s slug and carries `counted`, which the web tier sets only for a real top-level navigation from this site (or typed in), so it can only stop a visit being counted. A counted visit is recorded as a website visit in the event’s analytics, without the visitor’s address, browser string or account; robots, repeats within ten minutes and visits past a ceiling of 300 a minute per event on one server are answered and not counted, and a visit that could not be stored is still answered. Always `cache-control: no-store, private` and `x-robots-tag: noindex, nofollow`. A ceiling per visitor of 120 a minute (6000 a minute shared when no visitor address arrived) answers 429; it exists only to stop abuse.",
+        "tags": [
+          "traffic"
+        ],
+        "responses": {
+          "200": {
+            "description": "Where an event’s website link goes, counting the visit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "url": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2048
+                        }
+                      },
+                      "required": [
+                        "url"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts; retry after the interval in the `Retry-After` header.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slug": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 140,
+                    "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                  },
+                  "counted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "slug",
+                  "counted"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
       }
     },
     "/v1/finance/balance": {
@@ -50693,18 +52287,6 @@
                             {
                               "type": "object",
                               "properties": {
-                                "website": {
-                                  "anyOf": [
-                                    {
-                                      "type": "string",
-                                      "minLength": 1,
-                                      "maxLength": 2048
-                                    },
-                                    {
-                                      "type": "null"
-                                    }
-                                  ]
-                                },
                                 "instagram": {
                                   "anyOf": [
                                     {
@@ -50764,6 +52346,9 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "website": {
+                                  "not": {}
                                 }
                               },
                               "additionalProperties": false
@@ -50833,6 +52418,136 @@
                             }
                           ]
                         },
+                        "websiteLink": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteRedirect": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "enabled": {
+                                  "type": "boolean"
+                                },
+                                "pending": {
+                                  "type": "boolean"
+                                },
+                                "decidedUrl": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 2048
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "submittedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedAt": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "reason": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 500
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "changedByName": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 200
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "websiteProblem": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "enabled",
+                                "pending",
+                                "decidedUrl",
+                                "submittedAt",
+                                "changedAt",
+                                "reason",
+                                "changedByName",
+                                "websiteProblem"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
                         "feeTerms": {
                           "anyOf": [
                             {
@@ -50893,6 +52608,7 @@
                         "ticketTypes",
                         "sessions",
                         "artists",
+                        "websiteLink",
                         "revision"
                       ],
                       "additionalProperties": false
@@ -51269,6 +52985,647 @@
             }
           }
         },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/moderation/events/{id}/website-redirect": {
+      "post": {
+        "operationId": "moderation.setWebsiteRedirect",
+        "summary": "Turn an event’s website link on or off",
+        "description": "Whether the event’s public page shows “Visit the organiser’s website”. Platform administrators only (`website_redirect:manage`: ADMIN and SUPER_ADMIN; not moderators, and never an organiser), in any state of the event, at any time, with a second factor confirmed within the MODERATION window and a reason of 3 to 500 characters, which the organiser sees with the administrator’s name and which is recorded on the audit row with the address decided on. `websiteUrl` is the address on the administrator’s screen, required in both directions (null when there was none): the decision is about exactly that stored address, and if the organiser changed it since, the answer is 409 `WEBSITE_CHANGED`, with the address stored now in `error.details.currentWebsiteUrl` (null when it was removed), and nothing is written. Turning the link on makes it go to that address (`websiteDecidedUrl`); an organiser’s later change never moves the switch, and while the link is on it keeps going to the approved address until an administrator approves the new one or turns the link off. Turning it on needs an address that passes today’s address rules (422 `NO_WEBSITE`, 422 `WEBSITE_NOT_ACCEPTABLE`), checked before the address is compared with the stored one. Turning it off while an address waits records a decision about that address. A decision that changes nothing answers 409 `WEBSITE_REDIRECT_UNCHANGED`, with where the switch stands in `error.details.enabled`, so two administrators at once produce one change. The event’s revision is not changed, and turning the link on publishes nothing: it shows only while the event’s page is public.\n\nRequires the `website_redirect:manage` capability.\n\nRequires a recent step-up authentication: see `POST /v1/auth/step-up`.",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "200": {
+            "description": "Turn an event’s website link on or off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "eventId": {
+                          "type": "string",
+                          "maxLength": 64,
+                          "pattern": "^[a-z][a-z0-9]{7,31}$"
+                        },
+                        "websiteUrl": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 2048
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "websiteLink": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "host": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 253
+                                }
+                              },
+                              "required": [
+                                "host"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "redirect": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "pending": {
+                              "type": "boolean"
+                            },
+                            "decidedUrl": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 2048
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "submittedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "changedAt": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "reason": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 500
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "changedByName": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "websiteProblem": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 300
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "enabled",
+                            "pending",
+                            "decidedUrl",
+                            "submittedAt",
+                            "changedAt",
+                            "reason",
+                            "changedByName",
+                            "websiteProblem"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "eventId",
+                        "websiteUrl",
+                        "websiteLink",
+                        "redirect"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller lacks the required capability, or holds it but has not authenticated again recently enough for an action of this kind.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such resource, or it is not visible to this caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The request collides with current state, e.g. a duplicate slug or a released hold.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Well-formed but not actionable, e.g. sold out or outside the sales window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z][a-z0-9]{7,31}$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 500
+                  },
+                  "websiteUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "enabled",
+                  "reason",
+                  "websiteUrl"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/moderation/website-links": {
+      "get": {
+        "operationId": "moderation.websiteLinks",
+        "summary": "Website links, for the administrators who decide on them",
+        "description": "Events whose organisers have given a website address, or whose link is on, for the platform administrators who turn links on and off (`website_redirect:manage`). `state`: `waiting` (an address nobody has decided on, for an event under review, approved or public, longest waiting first; the default), `drafts` (the same for every other event except a deleted one: a draft, one sent back for changes, a rejected or an archived one), `on`, `off` (an address decided off), `all`. `q` matches the title or the web address. Carries each address in full, because deciding needs it. Answers `cache-control: no-store, private`.\n\nRequires the `website_redirect:manage` capability.",
+        "tags": [
+          "events"
+        ],
+        "responses": {
+          "200": {
+            "description": "Website links, for the administrators who decide on them",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "eventId": {
+                            "type": "string",
+                            "maxLength": 64,
+                            "pattern": "^[a-z][a-z0-9]{7,31}$"
+                          },
+                          "slug": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "DRAFT",
+                              "REVIEW_PENDING",
+                              "CHANGES_REQUIRED",
+                              "APPROVED",
+                              "PUBLISHED",
+                              "ON_SALE",
+                              "SALES_PAUSED",
+                              "SOLD_OUT",
+                              "COMPLETED",
+                              "POSTPONED",
+                              "CANCELLED",
+                              "REJECTED",
+                              "ARCHIVED"
+                            ]
+                          },
+                          "organizationName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "organizationVerified": {
+                            "type": "boolean"
+                          },
+                          "websiteUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 2048
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "websiteHost": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 253
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "websiteDecidedUrl": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 2048
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "websiteSubmittedAt": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "pagePublic": {
+                            "type": "boolean"
+                          },
+                          "redirect": {
+                            "type": "object",
+                            "properties": {
+                              "enabled": {
+                                "type": "boolean"
+                              },
+                              "pending": {
+                                "type": "boolean"
+                              },
+                              "decidedUrl": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 2048
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "submittedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "changedAt": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "reason": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 500
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "changedByName": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 200
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "websiteProblem": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "maxLength": 300
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              }
+                            },
+                            "required": [
+                              "enabled",
+                              "pending",
+                              "decidedUrl",
+                              "submittedAt",
+                              "changedAt",
+                              "reason",
+                              "changedByName",
+                              "websiteProblem"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "eventId",
+                          "slug",
+                          "title",
+                          "status",
+                          "organizationName",
+                          "organizationVerified",
+                          "websiteUrl",
+                          "websiteHost",
+                          "websiteDecidedUrl",
+                          "websiteSubmittedAt",
+                          "pagePublic",
+                          "redirect"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "perPage": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "total": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "totalPages": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "hasNextPage": {
+                          "type": "boolean"
+                        },
+                        "hasPreviousPage": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "page",
+                        "perPage",
+                        "total",
+                        "totalPages",
+                        "hasNextPage",
+                        "hasPreviousPage"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "data",
+                    "pagination"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed schema validation; `error.issues` lists the offending fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The bearer token is missing, malformed or expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the required capability.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            }
+          },
+          {
+            "name": "perPage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "waiting",
+              "type": "string",
+              "enum": [
+                "waiting",
+                "drafts",
+                "on",
+                "off",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 100
+            }
+          }
+        ],
         "security": [
           {
             "sessionCookie": []
@@ -66435,6 +68792,27 @@
               "orderReference": {
                 "type": "string",
                 "pattern": "^[A-Z0-9-]{4,32}$"
+              },
+              "details": {
+                "type": "object",
+                "properties": {
+                  "currentWebsiteUrl": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2048
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
               },
               "requestId": {
                 "type": "string",

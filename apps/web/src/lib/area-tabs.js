@@ -68,7 +68,9 @@ export function operationsTabs(session) {
 /**
  * The moderation area's sections: events waiting for review, and
  * organisations waiting to be verified. Both are held by `moderation:review`,
- * which admits the area, so both are offered to everybody it admits.
+ * which admits the area, so both are offered to everybody it admits. Website
+ * links are decided by platform administrators alone
+ * (`website_redirect:manage`), so a moderator is not offered them.
  *
  * @param {object|null} session The session payload.
  * @returns {Tab[]} The tabs, events first.
@@ -79,5 +81,31 @@ export function moderationTabs(session) {
   return [
     { href: '/moderation/events', label: 'Events' },
     { href: '/moderation/organizations', label: 'Organisations' },
+    ...(sessionCan(session, 'website_redirect:manage')
+      ? [{ href: '/moderation/websites', label: 'Website links' }]
+      : []),
+  ]
+}
+
+/**
+ * The platform administration area's sections.
+ *
+ * Inviting organisers is held by `organizer:invite` (platform administrators
+ * and super administrators); changing platform roles and putting people into
+ * organisations directly by `platform:admin` (super administrators alone).
+ * Each tab is offered only to somebody its page serves. The literals stay in
+ * this server module; no client component imports it.
+ *
+ * @param {object|null} session The session payload.
+ * @returns {Tab[]} The tabs, invitations first.
+ */
+export function adminTabs(session) {
+  return [
+    ...(sessionCan(session, 'organizer:invite')
+      ? [{ href: '/admin/organizer-invitations', label: 'Organiser invitations' }]
+      : []),
+    ...(sessionCan(session, 'platform:admin')
+      ? [{ href: '/admin/users', label: 'People and roles' }]
+      : []),
   ]
 }

@@ -189,4 +189,29 @@ describe('ModerationMediaReview', () => {
     await waitFor(() => expect(message.closest('[tabindex="-1"]')).toHaveFocus())
     expect(refresh).not.toHaveBeenCalled()
   })
+
+  it('shows a member of the organisation every picture, says somebody else decides, and offers no decision', () => {
+    const notice =
+      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.'
+
+    render(
+      <ModerationMediaReview
+        media={[
+          picture(),
+          picture({ ...GALLERY, moderationStatus: 'REJECTED', rejectionReason: 'x' }),
+        ]}
+        notYours={notice}
+      />,
+    )
+
+    // The pictures are still there to see, with their descriptions.
+    expect(screen.getByRole('listitem', { name: 'Cover' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'The band at soundcheck' })).toBeInTheDocument()
+    // The sentence is said once, above them, and no picture offers a decision
+    // the API would refuse (CONFLICT_OF_INTEREST).
+    expect(screen.getByText('Somebody else decides this')).toBeInTheDocument()
+    expect(screen.getAllByText(notice)).toHaveLength(1)
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
 })

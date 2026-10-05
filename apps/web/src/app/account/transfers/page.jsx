@@ -33,10 +33,12 @@
  * Withdrawing an offer, or making one, happens on the ticket's own page, which
  * knows the ticket's state and asks the server before it offers anything. This
  * page links there rather than repeating it. Accepting has its own page too,
- * because the code for it is typed in and never carried in a link. This build
- * delivers no email: the code is shown once to the person who made the offer,
- * when they made it, and they pass it on themselves. The page says exactly
- * that and claims no email was sent.
+ * because the code for it is typed in and never carried in a link. How the
+ * code reaches the person it was offered to depends on the delivery mode the
+ * session (`GET /v1/auth/me`) reports: when codes are not emailed, it is shown
+ * once to the person who made the offer, when they made it, and they pass it
+ * on themselves; when they are, it is emailed to the address it was offered
+ * to. The page says exactly which, and claims no email was sent when none is.
  *
  * ## One clock
  *
@@ -59,11 +61,24 @@ import { Empty } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { PosterThumb, TEXT_LINK } from '../../../components/workspace-kit.jsx'
 import { getMyTickets } from '../../../lib/organizer-api.js'
+import { readSession } from '../../../lib/session.js'
 import { groupTickets } from '../../../lib/wallet.js'
 import { eventWhenText, instantText, ticketStatusMeaning } from '../orders/order-status.js'
 import { StatusChip } from '../orders/status-chip.jsx'
 
 export const dynamic = 'force-dynamic'
+
+/**
+ * How the code for an offer reaches the person it was offered to, per delivery mode.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const HOW_AN_OFFER_ARRIVES = Object.freeze({
+  MANUAL:
+    'An offer is accepted with the code shown to the person who made it, once, when they made it. They pass it on to you themselves: codes are not emailed from this site.',
+  EMAIL:
+    'An offer is accepted with a code emailed to the address it was offered to. The person who made it does not see it.',
+})
 
 export const metadata = { title: 'Transfers', robots: { index: false, follow: false } }
 
@@ -228,6 +243,11 @@ function TicketCard({ ticket }) {
  * @returns {Promise<JSX.Element>} The rendered page.
  */
 export default async function TransfersPage() {
+  const session = await readSession()
+  const deliveryMode =
+    session?.deliveryMode === 'EMAIL' || session?.deliveryMode === 'MANUAL'
+      ? session.deliveryMode
+      : null
   let tickets = []
   let pagination = null
   let failure = null
@@ -317,8 +337,8 @@ export default async function TransfersPage() {
       {!failure ? (
         <Section id="transfers-accept" title="Accept a ticket">
           <p className="mt-2 text-sm text-ink">
-            An offer is accepted with the code shown to the person who made it, once, when they made
-            it. They pass it on to you themselves; this site sends no email. If you have one,{' '}
+            {deliveryMode ? `${HOW_AN_OFFER_ARRIVES[deliveryMode]} ` : null}
+            If you have one,{' '}
             <Link href="/tickets/accept" className={LINK}>
               enter the code to accept the ticket
             </Link>

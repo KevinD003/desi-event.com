@@ -49,19 +49,15 @@ export const CONTENT_LIMITS = Object.freeze({
 /** The longest description the server takes (`richTextSchema`). */
 export const DESCRIPTION_LIMIT = 20_000
 
-/** The social networks, in the order the page lists them. */
-export const SOCIAL_NETWORKS = Object.freeze([
-  'website',
-  'instagram',
-  'facebook',
-  'youtube',
-  'x',
-  'whatsapp',
-])
+/**
+ * The social networks, in the order the page lists them. The organiser's own
+ * website is not one: it has its own field, `websiteUrl` (`lib/website.js`),
+ * behind a switch only the Desi-Event team turns.
+ */
+export const SOCIAL_NETWORKS = Object.freeze(['instagram', 'facebook', 'youtube', 'x', 'whatsapp'])
 
 /** How each network is named to a person. */
 export const SOCIAL_NETWORK_LABELS = Object.freeze({
-  website: 'Website',
   instagram: 'Instagram',
   facebook: 'Facebook',
   youtube: 'YouTube',
@@ -70,7 +66,7 @@ export const SOCIAL_NETWORK_LABELS = Object.freeze({
 })
 
 /**
- * The hosts each network's link may point at. `website` takes any https host.
+ * The hosts each network's link may point at.
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}
  */
@@ -217,9 +213,10 @@ export function socialLinkProblem(network, href) {
     return `Keep the address to ${CONTENT_LIMITS.url} characters.`
   }
   if (!isHttpsAddress(text)) return 'Use a full https:// address.'
-  if (network === 'website') return null
 
   const hosts = SOCIAL_HOSTS[network] ?? []
+
+  if (hosts.length === 0) return 'That is not a social network this page can link to.'
 
   if (!hosts.includes(new URL(text).hostname.toLowerCase())) {
     return `That address is not on ${SOCIAL_NETWORK_LABELS[network]}. Use a link that starts https://${hosts[0]}/.`

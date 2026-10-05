@@ -76,6 +76,7 @@ import { INVERSE_TEXT_LINK, PRIMARY_LINK, TEXT_LINK } from '../../../components/
 import { AvailabilityChip } from '../../../components/listing-card.jsx'
 import { EventArt } from '../../../components/event-art.jsx'
 import { EventGallery } from '../../../components/event-gallery.jsx'
+import { EventWebsiteLink } from '../../../components/event-website-link.jsx'
 import { JsonLd } from '../../../components/json-ld.jsx'
 import {
   EventContact,
@@ -732,6 +733,11 @@ export default async function EventDetailPage({ params }) {
                 </div>
               </Reveal>
             ) : null}
+
+            {/* Only while a Desi-Event administrator has the link on and the
+                page is public; the API sends no host otherwise. It goes through
+                this site's redirect, never straight to the address. */}
+            <EventWebsiteLink slug={event.slug} link={event.websiteLink ?? null} />
 
             <EventContact email={event.publicEmail} phone={event.publicPhone} />
             <EventSocialLinks links={event.socialLinks} />

@@ -28,6 +28,17 @@
  * that start latest, in date order (see `listOrganizationEvents`). When the
  * organisation has more, the picker says how many are left out.
  *
+ * ## The roles offered are the API's, member by member
+ *
+ * The team list carries, for each member, the roles this caller may set for
+ * them (`roleChoices`), and the select offers exactly those. Roles that create
+ * or publish events — event manager, manager, administrator, owner — are given
+ * by the Desi-Event team: somebody who already posts events can be moved down
+ * among them, and nobody can be moved up into one from here. A member who does
+ * not post events is told so beside the select. When the API refuses all the
+ * same (`POSTING_ROLE_NEEDS_PLATFORM`, decided again on the locked row), its
+ * sentence is shown as it is.
+ *
  * ## A role that cannot be kept starts on no role
  *
  * An owner may change another owner's role, and Owner is never on offer. The
@@ -40,7 +51,8 @@
  *
  * An open invitation can be given a new code (`…/reissue`) when the first was
  * lost or never handed out. The old code stops working in the same moment, and
- * the new one is shown once in {@link OneTimeCodePanel}. Offered only for a
+ * the new one is shown once in {@link OneTimeCodePanel} — or, when codes are
+ * emailed, sent to the invited address and never shown. Offered only for a
  * role the caller may grant, which is the bound the API applies.
  *
  * An owner can hand ownership to another member ({@link TransferOwnership}).
@@ -80,6 +92,33 @@ import {
   roleLabel,
 } from './team-vocabulary.js'
 
+/**
+ * Said beside the role select for a member who does not post events: the
+ * roles that do are not on offer, and why.
+ */
+export const POSTING_ROLES_HINT =
+  'Roles that create or publish events — event manager, manager and administrator — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person in one of those roles.'
+
+/**
+ * What withdrawing and reissuing say about the code, per delivery mode.
+ *
+ * @type {Readonly<Record<string, {withdraw: string, reissue: string}>>}
+ */
+export const INVITATION_DELIVERY_COPY = Object.freeze({
+  MANUAL: {
+    withdraw:
+      'It stops working at once, and so does its code. Nobody is told: codes are not emailed from this site, so if you handed the code to somebody, let them know yourself.',
+    reissue:
+      'The code issued before stops working at once. The new one is shown to you once, to hand over yourself.',
+  },
+  EMAIL: {
+    withdraw:
+      'It stops working at once, and so does its code. Withdrawing it is not emailed to anybody, so if they are expecting it, let them know yourself.',
+    reissue:
+      'The code issued before stops working at once. The new one is emailed to the invited address. You will not see it.',
+  },
+})
+
 /** The frame of an open panel. */
 const PANEL =
   'mt-3 rounded-card border border-line-strong bg-surface-raised p-5 shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
@@ -110,8 +149,15 @@ function refusedBecause(response, body) {
   if (response.status === 429) {
     const retryAfterSeconds = parseRetryAfter(response.headers?.get?.('retry-after') ?? null)
 
+    // The code and message go along: an address that has had its codes for
+    // the day is told so, rather than "wait a little".
     return {
-      sentence: describeApiRefusal({ status: 429, retryAfterSeconds }).detail,
+      sentence: describeApiRefusal({
+        status: 429,
+        code: body?.error?.code ?? null,
+        message: body?.error?.message ?? null,
+        retryAfterSeconds,
+      }).detail,
       enrol: false,
     }
   }
@@ -182,8 +228,8 @@ function useOutcome() {
 /**
  * @typedef {object} MemberActionsProps
  * @property {string} organizationId Whose team.
- * @property {{id: string, name: string, role: string, scopedEventIds: string[]}} member The member, with a name already cleared of any address.
- * @property {string[]} assignableRoles The roles the API says this caller may grant.
+ * @property {{id: string, name: string, role: string, postsEvents?: boolean, scopedEventIds: string[]}} member The member, with a name already cleared of any address.
+ * @property {string[]} roleChoices The roles the API says this caller may set for this member (its `roleChoices`).
  * @property {PickerEvent[]|null} events The organisation's events, or null when they could not be read.
  * @property {number|null} [eventTotal] How many events the organisation has in all, when the picker could not list every one.
  * @property {boolean} offerRoleChange Whether to offer changing this member's role.
@@ -199,7 +245,7 @@ function useOutcome() {
 export function MemberActions({
   organizationId,
   member,
-  assignableRoles,
+  roleChoices = [],
   events,
   eventTotal = null,
   offerRoleChange,
@@ -208,9 +254,9 @@ export function MemberActions({
   const router = useRouter()
   const id = useId()
   const { announce, region } = useOutcome()
-  // OWNER is never assignable here — ownership moves by its own route
-  // (`TransferOwnership`) — so it is filtered here as well as by the API.
-  const grantable = assignableRoles.filter((role) => role !== 'OWNER')
+  // Exactly the API's list for this member. OWNER is never on it — ownership
+  // moves by its own route (`TransferOwnership`) — and is filtered here too.
+  const grantable = roleChoices.filter((role) => role !== 'OWNER')
   // A role that cannot be kept (an owner's) starts on no choice at all.
   const keepsRole = grantable.includes(member.role)
   const initialRole = keepsRole ? member.role : ''
@@ -226,7 +272,7 @@ export function MemberActions({
   const returnFocus = useRef(null)
   const focusAfterRender = useFocusAfterRender()
 
-  const canChange = offerRoleChange && grantable.length > 0
+  const canChange = offerRoleChange && grantable.some((role) => role !== member.role)
 
   if (!canChange && !offerRemove) return null
 
@@ -413,7 +459,7 @@ export function MemberActions({
             <FormField
               label="New role"
               id={`${id}-role`}
-              description="Only the roles your own role can grant. Owner is not among them: an owner hands ownership over from the Ownership section."
+              description="Only the roles your own role can give this member. Owner is not among them: an owner hands ownership over from the Ownership section."
             >
               <Select value={role} onChange={(changed) => setRole(changed.target.value)}>
                 {keepsRole ? null : (
@@ -429,6 +475,9 @@ export function MemberActions({
               </Select>
             </FormField>
             <p className="mt-2 text-sm text-ink-muted">{ROLE_DESCRIPTIONS[role] ?? ''}</p>
+            {member.postsEvents ? null : (
+              <p className="mt-2 text-sm text-ink-muted">{POSTING_ROLES_HINT}</p>
+            )}
           </div>
 
           {scoped && events ? (
@@ -605,6 +654,7 @@ export function MemberActions({
  * @property {boolean} [reissuable] Whether this caller may issue a new code for it: its role is one they may grant.
  * @property {string|null} [recipient] Its address, when this caller may see addresses; otherwise null.
  * @property {boolean} [neverDelivered] Whether its code never reached anybody, so a new one is the only way in.
+ * @property {'MANUAL'|'EMAIL'|null} [deliveryMode] How codes go out here, as the session says.
  */
 
 /**
@@ -624,6 +674,7 @@ export function InvitationActions({
   reissuable = false,
   recipient = null,
   neverDelivered = false,
+  deliveryMode = null,
 }) {
   const router = useRouter()
   const id = useId()
@@ -768,8 +819,10 @@ export function InvitationActions({
           </h3>
           <p className="mt-1 text-sm text-ink-muted">
             {reissuing
-              ? 'The code issued before stops working at once. The new one is shown to you once, to hand over yourself.'
-              : 'It stops working at once, and so does its code. Nobody is told: this site sends no email, so if you handed the code to somebody, let them know yourself.'}
+              ? (INVITATION_DELIVERY_COPY[deliveryMode]?.reissue ??
+                'The code issued before stops working at once.')
+              : (INVITATION_DELIVERY_COPY[deliveryMode]?.withdraw ??
+                'It stops working at once, and so does its code. Withdrawing it is not emailed to anybody, so if they are expecting it, let them know yourself.')}
           </p>
 
           <RefusalAlert refused={refused} />

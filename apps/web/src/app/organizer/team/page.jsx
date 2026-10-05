@@ -20,21 +20,36 @@
  * through the same address scrubber the API uses before it is drawn. Nothing
  * is derived from a name.
  *
- * ## Inviting, when nothing sends email
+ * ## Inviting, and how the code goes out
  *
- * This build has no email provider, so the API runs `DELIVERY_MODE` MANUAL: an
- * invitation's code is returned once, to whoever issued it, and they hand it
- * over themselves. The invite form (`./invite-form.jsx`) shows it once in the
- * one-time code panel. Each open invitation says how its code went out, and an
- * invitation issued before codes were shown to anybody says that nobody ever
- * received one — with "Issue a new code" beside it for a role the caller may
- * grant.
+ * The session (`GET /v1/auth/me`) says how codes go out in this deployment.
+ * When they are not emailed (`MANUAL`, how this site runs unless a mail server
+ * is configured), an invitation's code is returned once, to whoever issued it,
+ * and they hand it over themselves: the invite form (`./invite-form.jsx`)
+ * shows it once in the one-time code panel. When they are emailed (`EMAIL`),
+ * the code goes to the invited address and the inviter never sees it. The page
+ * says which, in the mode it is read in. Each open invitation says how its
+ * code went out, and an invitation issued before codes were shown to anybody
+ * says that nobody ever received one — with "Issue a new code" beside it for a
+ * role the caller may grant.
+ *
+ * ## Roles that create or publish events
+ *
+ * Event manager, manager, administrator and owner are given by the Desi-Event
+ * team, not from this page: an organiser invitation makes somebody an owner,
+ * and a super administrator may put anybody in any role. So the invite form
+ * offers only the roles that do not post events (`assignableRoles`), and a
+ * member's role can be changed only to one the API lists for that member
+ * (`roleChoices`): somebody who posts events can be moved down, never up, and
+ * nobody can be moved into posting from here. The page says so beside the
+ * invite form.
  *
  * ## Ownership
  *
  * An owner of this organisation, through their own membership, is offered
- * handing ownership to another member. Nobody else is offered it, and the API
- * refuses a platform role on this path.
+ * handing ownership to another member who already creates events here (the
+ * API refuses anybody else, with `HEIR_MUST_POST_EVENTS`). Nobody else is
+ * offered it, and the API refuses a platform role on this path.
  *
  * ## Door scopes, in the API's terms
  *
@@ -64,6 +79,24 @@ import { deliveryLabel, isEventScoped, isOrganizationWide, roleLabel } from './t
 export const dynamic = 'force-dynamic'
 
 export const metadata = { title: 'Team and roles', robots: { index: false, follow: false } }
+
+/** What the page says beside the invite form about roles that post events. */
+export const POSTING_ROLES_SENTENCE =
+  'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. To add somebody who will create events, ask the Desi-Event team to add them to your organisation.'
+
+/** What the Ownership section says about who can take it. */
+export const HEIR_SENTENCE = 'Ownership can go only to somebody who already creates events here.'
+
+/**
+ * How an invitation's code reaches the person invited, per delivery mode.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const INVITE_DELIVERY_SENTENCES = Object.freeze({
+  MANUAL:
+    'Codes are not emailed from this site. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
+  EMAIL: 'The code is emailed to that address. You will not see it.',
+})
 
 /** A header cell. */
 const TH = 'border-b border-line-strong px-3 py-2 text-left font-semibold text-ink'
@@ -229,16 +262,34 @@ export default async function TeamPage({ searchParams }) {
   const data = team.value
   const full = data?.emailVisibility === 'FULL'
   const assignable = (data?.assignableRoles ?? []).filter((role) => role !== 'OWNER')
+  const deliveryMode =
+    session?.deliveryMode === 'EMAIL' || session?.deliveryMode === 'MANUAL'
+      ? session.deliveryMode
+      : null
 
   /**
    * Whether the caller's role reaches a member's, as the API's
-   * `assertMayActOn` decides it: they may grant that role, or both are owners.
+   * `assertMayActOn` decides it: they may grant that role (by capability, so
+   * roles that post events count too), or both are owners. The API lists the
+   * roles this caller may set for each member (`roleChoices`), which is
+   * non-empty exactly when the caller's role reaches the member's and they
+   * manage roles here — and everybody who may remove members here does.
    *
-   * @param {string} role The member's current role.
+   * @param {{role: string, roleChoices?: string[]}} member The member.
    * @returns {boolean} True when the API would let them act.
    */
-  const reaches = (role) =>
-    assignable.includes(role) || (role === 'OWNER' && callerRole === 'OWNER')
+  const reaches = (member) =>
+    (member.roleChoices ?? []).length > 0 || (member.role === 'OWNER' && callerRole === 'OWNER')
+
+  /**
+   * The roles the API says this caller may set for a member, other than the
+   * one they hold now.
+   *
+   * @param {{role: string, roleChoices?: string[]}} member The member.
+   * @returns {string[]} The other roles on offer.
+   */
+  const otherChoices = (member) =>
+    (member.roleChoices ?? []).filter((role) => role !== 'OWNER' && role !== member.role)
 
   const events = eventList.value
     ? eventList.value.events.map((event) => ({
@@ -366,8 +417,9 @@ export default async function TeamPage({ searchParams }) {
                   <tbody>
                     {data.members.map((member) => {
                       const name = safeName(member.displayName, full)
-                      const offerRoleChange = mayChangeRoles && !member.self && reaches(member.role)
-                      const offerRemove = mayRemove && !member.self && reaches(member.role)
+                      const offerRoleChange =
+                        mayChangeRoles && !member.self && otherChoices(member).length > 0
+                      const offerRemove = mayRemove && !member.self && reaches(member)
 
                       return (
                         <tr key={member.id}>
@@ -404,9 +456,10 @@ export default async function TeamPage({ searchParams }) {
                                     id: member.id,
                                     name,
                                     role: member.role,
+                                    postsEvents: member.postsEvents === true,
                                     scopedEventIds: member.scopedEventIds ?? [],
                                   }}
-                                  assignableRoles={assignable}
+                                  roleChoices={member.roleChoices ?? []}
                                   events={events}
                                   eventTotal={eventTotal}
                                   offerRoleChange={offerRoleChange}
@@ -433,12 +486,21 @@ export default async function TeamPage({ searchParams }) {
               <h2 id="invite-heading" className="text-xl font-semibold text-ink">
                 Invite somebody
               </h2>
-              <p className="mt-1 max-w-3xl text-sm text-ink-muted">
-                This site sends no email. When you invite somebody, their invitation code is shown
-                to you once, and you hand it to them yourself.
-              </p>
-              <InviteForm organizationId={organizationId} assignableRoles={assignable} />
+              {deliveryMode ? (
+                <p className="mt-1 max-w-3xl text-sm text-ink-muted">
+                  {INVITE_DELIVERY_SENTENCES[deliveryMode]}
+                </p>
+              ) : null}
+              <InviteForm
+                organizationId={organizationId}
+                assignableRoles={assignable}
+                deliveryMode={deliveryMode}
+              />
             </section>
+          ) : null}
+
+          {mayWithdraw ? (
+            <p className="mt-4 max-w-3xl text-sm text-ink-muted">{POSTING_ROLES_SENTENCE}</p>
           ) : null}
 
           <section aria-labelledby="invitations-heading" className="mt-10">
@@ -529,6 +591,7 @@ export default async function TeamPage({ searchParams }) {
                                 reissuable={assignable.includes(invitation.role)}
                                 recipient={full ? (invitation.email ?? null) : null}
                                 neverDelivered={!invitation.deliveryMode}
+                                deliveryMode={deliveryMode}
                               />
                             </td>
                           ) : null}
@@ -549,16 +612,19 @@ export default async function TeamPage({ searchParams }) {
               <p className="mt-1 max-w-3xl text-sm text-ink-muted">
                 You own this organisation. You can hand ownership to another member: they become the
                 owner and you become an administrator, in one step, after you confirm your second
-                factor.
+                factor. {HEIR_SENTENCE}
               </p>
-              {data.members.filter((member) => !member.self).length === 0 ? (
+              {data.members.filter((member) => !member.self && member.postsEvents === true)
+                .length === 0 ? (
                 <p className="mt-3 text-sm text-ink-muted">
-                  Nobody else is on this team, so there is nobody to hand it to.
+                  {data.members.some((member) => !member.self)
+                    ? 'Nobody else on this team creates events here, so there is nobody to hand it to.'
+                    : 'Nobody else is on this team, so there is nobody to hand it to.'}
                 </p>
               ) : (
                 <ul className="mt-4 space-y-3">
                   {data.members
-                    .filter((member) => !member.self)
+                    .filter((member) => !member.self && member.postsEvents === true)
                     .map((member) => {
                       const name = safeName(member.displayName, full)
 

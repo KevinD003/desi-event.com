@@ -14,6 +14,11 @@
  * (`SECURITY_ROLE`), because verification gates publishing and being paid. When
  * it does, the step-up prompt is shown and the decision is sent again after it.
  *
+ * A reviewer who belongs to the organisation may not decide on it
+ * (`CONFLICT_OF_INTEREST`). The page knows that from the session and passes
+ * the sentence in, and no decision is offered; the API refuses all the same,
+ * and its sentence is shown when it does.
+ *
  * @module components/verification-decision
  */
 
@@ -37,6 +42,7 @@ import { describeApiRefusal, parseRetryAfter, refusalSentence } from '../lib/ref
  * @property {string} organizationId Which organisation.
  * @property {string} organizationName Its name, for the confirmation.
  * @property {string} status Its current verification state.
+ * @property {string|null} [notYours] Why this reviewer may not decide at all, in a sentence; no decision is offered and the sentence is shown instead.
  */
 
 /**
@@ -45,7 +51,12 @@ import { describeApiRefusal, parseRetryAfter, refusalSentence } from '../lib/ref
  * @param {VerificationDecisionProps} props Component props.
  * @returns {JSX.Element} The rendered form.
  */
-export function VerificationDecision({ organizationId, organizationName, status }) {
+export function VerificationDecision({
+  organizationId,
+  organizationName,
+  status,
+  notYours = null,
+}) {
   const router = useRouter()
   const id = useId()
   const offered = MODERATOR_DECISIONS[status] ?? []
@@ -77,6 +88,19 @@ export function VerificationDecision({ organizationId, organizationName, status 
       {announcement}
     </p>
   )
+
+  if (notYours && offered.length > 0) {
+    return (
+      <div className="mt-3">
+        {region}
+        <div className="mt-3">
+          <Alert variant="info" title="Somebody else decides this">
+            <p>{notYours}</p>
+          </Alert>
+        </div>
+      </div>
+    )
+  }
 
   if (offered.length === 0) {
     return (

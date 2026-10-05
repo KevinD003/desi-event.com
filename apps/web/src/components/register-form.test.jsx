@@ -186,7 +186,9 @@ describe('RegisterForm', () => {
   it('says up front that the address is not confirmed and a password cannot be reset', () => {
     render(<RegisterForm next="/account" />)
 
-    expect(screen.getByText(/sends no email, so it is not confirmed/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Addresses are not confirmed by email on this site\./i),
+    ).toBeInTheDocument()
     expect(screen.getByText(/forgotten password cannot be reset/i)).toBeInTheDocument()
   })
 })

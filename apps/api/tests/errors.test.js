@@ -4,7 +4,7 @@ import { InventoryError } from '@desi-event/inventory'
 import { PermissionError } from '@desi-event/permissions'
 import { PricingError } from '@desi-event/pricing'
 import { ProviderError } from '@desi-event/providers'
-import { ValidationError } from '@desi-event/schemas'
+import { ValidationError, errorResponseSchema } from '@desi-event/schemas'
 
 import {
   DATABASE_REFUSALS,
@@ -198,6 +198,42 @@ describe('normaliseError', () => {
     expect(toErrorBody(normaliseError(pending)).error.orderReference).toBe('DE-7K2M9Q')
     expect(normaliseError(prose)).not.toHaveProperty('orderReference')
     expect(toErrorBody(normaliseError(prose)).error).not.toHaveProperty('orderReference')
+  })
+
+  it('forwards details only for the website refusals that name them, and only their keys', () => {
+    const changed = httpError(409, 'WEBSITE_CHANGED', 'The address changed.', {
+      currentWebsiteUrl: 'https://rangoli.example/',
+      problems: ['ignored here'],
+      internal: 'never sent',
+    })
+    const removed = httpError(409, 'WEBSITE_CHANGED', 'The address changed.', {
+      currentWebsiteUrl: null,
+    })
+    const unchanged = httpError(409, 'WEBSITE_REDIRECT_UNCHANGED', 'Already on.', {
+      enabled: true,
+      currentWebsiteUrl: 'https://rangoli.example/',
+    })
+
+    expect(errorResponseSchema.parse(toErrorBody(normaliseError(changed))).error.details).toEqual({
+      currentWebsiteUrl: 'https://rangoli.example/',
+    })
+    expect(toErrorBody(normaliseError(removed)).error.details).toEqual({ currentWebsiteUrl: null })
+    expect(errorResponseSchema.parse(toErrorBody(normaliseError(unchanged))).error.details).toEqual(
+      { enabled: true },
+    )
+
+    // Any other code, a wrong type, or a 5xx carries none.
+    const others = [
+      httpError(409, 'CONFLICT', 'No.', { currentWebsiteUrl: 'https://rangoli.example/' }),
+      httpError(409, 'WEBSITE_REDIRECT_UNCHANGED', 'Already on.', { enabled: 'yes' }),
+      httpError(409, 'WEBSITE_CHANGED', 'Changed.', { currentWebsiteUrl: 42 }),
+      httpError(409, 'WEBSITE_CHANGED', 'Changed.'),
+      httpError(500, 'WEBSITE_CHANGED', 'Changed.', { currentWebsiteUrl: 'https://x.example/' }),
+    ]
+
+    for (const error of others) {
+      expect(toErrorBody(normaliseError(error)).error).not.toHaveProperty('details')
+    }
   })
 
   it('treats a nonsensical status as a server error', () => {

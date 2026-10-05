@@ -627,7 +627,7 @@ export function EventLifecyclePanel({
                 required={command.reason === 'required'}
                 description={
                   command.reason === 'required'
-                    ? 'Recorded with the notice for every current order. This build does not send email, so tell ticket holders yourself as well.'
+                    ? 'Recorded with the notice for every current order. Notices are not emailed, so tell ticket holders yourself as well.'
                     : 'Optional. Kept on the record.'
                 }
               >

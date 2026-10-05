@@ -2,12 +2,16 @@
 
 /**
  * The editor's two content steps: the line-up and running order, and the
- * information guests look for — questions, a public contact, links and sponsors.
+ * information guests look for — questions, a public contact, the organiser's
+ * website, links and sponsors.
  *
  * Both write through the editor's one `PATCH /v1/events/:id`, like the details
  * step: the fields are part of the event's form values, autosaved with the
  * rest, and checked by `contentProblems` before anything is sent. Everything
- * here is shown to the public, so every box says so where it matters.
+ * here is shown to the public, so every box says so where it matters — apart
+from the website's address, which the public page links to only while the
+Desi-Event team has the website link on. The organiser types the address; the
+switch is read-only here.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.
@@ -17,6 +21,7 @@
 
 import { RepeatableList } from './repeatable-list.jsx'
 import { FormField, Input, Textarea } from './ui.jsx'
+import { WebsiteRedirectStatus } from './website-redirect-status.jsx'
 import {
   CONTENT_LIMITS,
   SOCIAL_HOSTS,
@@ -171,13 +176,34 @@ export function ProgrammeStep({ values, setField, editable, errors = {} }) {
   )
 }
 
+/** What the website box says about itself. */
+export const WEBSITE_FIELD_DESCRIPTION =
+  'Your own site’s full address, starting https://, such as https://www.yourfestival.com/. It is not shown on your event page unless the Desi-Event team turns the website link on.'
+
 /**
- * Questions, a public contact, links and sponsors.
+ * @typedef {object} GuestInfoStepProps
+ * @property {object} values The editor's form values.
+ * @property {Function} setField Change one field.
+ * @property {boolean} editable Whether the fields accept input.
+ * @property {Record<string, string>} [errors] Problems by field id, without the `event-` prefix.
+ * @property {object|null} [websiteRedirect] The website link's switch, as the API's `websiteRedirect`.
+ * @property {string|null} [savedWebsiteUrl] The address as last saved, which the switch's sentences are about.
+ */
+
+/**
+ * Questions, a public contact, the organiser's website, links and sponsors.
  *
- * @param {ContentStepProps} props Component props.
+ * @param {GuestInfoStepProps} props Component props.
  * @returns {JSX.Element} The step.
  */
-export function GuestInfoStep({ values, setField, editable, errors = {} }) {
+export function GuestInfoStep({
+  values,
+  setField,
+  editable,
+  errors = {},
+  websiteRedirect = null,
+  savedWebsiteUrl = null,
+}) {
   /**
    * Change one social link.
    *
@@ -194,7 +220,8 @@ export function GuestInfoStep({ values, setField, editable, errors = {} }) {
         Guest information
       </h2>
       <p className="text-sm text-ink-muted">
-        Everything on this step is shown on the public event page.
+        Everything on this step is shown on the public event page, apart from your website’s
+        address: the page links to it only while the Desi-Event team has the website link on.
       </p>
 
       <RepeatableList
@@ -271,21 +298,38 @@ export function GuestInfoStep({ values, setField, editable, errors = {} }) {
       </fieldset>
 
       <fieldset className="space-y-3 rounded-card border border-line p-4">
+        <legend className="px-1 text-base font-semibold text-ink">Your website</legend>
+        <FormField
+          label="Your website"
+          description={WEBSITE_FIELD_DESCRIPTION}
+          {...fieldProps(errors, 'websiteUrl')}
+        >
+          <Input
+            type="url"
+            inputMode="url"
+            placeholder="https://"
+            autoComplete="url"
+            value={values.websiteUrl ?? ''}
+            disabled={!editable}
+            onChange={(change) => setField('websiteUrl', change.target.value)}
+          />
+        </FormField>
+        <WebsiteRedirectStatus state={websiteRedirect} websiteUrl={savedWebsiteUrl} />
+      </fieldset>
+
+      <fieldset className="space-y-3 rounded-card border border-line p-4">
         <legend className="px-1 text-base font-semibold text-ink">Links</legend>
         <p className="text-sm text-ink-muted">
           https addresses only. Each network&apos;s link has to point at that network, so a link
-          labelled Instagram always goes to Instagram.
+          labelled Instagram always goes to Instagram. Your own website goes in “Your website”
+          above.
         </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {SOCIAL_NETWORKS.map((network) => (
             <FormField
               key={network}
               label={SOCIAL_NETWORK_LABELS[network]}
-              description={
-                network === 'website'
-                  ? 'Any https address.'
-                  : `https only, on ${SOCIAL_HOSTS[network][0]}.`
-              }
+              description={`https only, on ${SOCIAL_HOSTS[network][0]}.`}
               {...fieldProps(errors, `social-${network}`)}
             >
               <Input

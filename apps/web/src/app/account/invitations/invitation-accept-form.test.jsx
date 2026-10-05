@@ -15,8 +15,13 @@ const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
 
 const { apiFetch } = await import('../../../lib/api-fetch.js')
-const { CODE_STILL_GOOD, InvitationAcceptForm, UNUSABLE_CODE } =
-  await import('./invitation-accept-form.jsx')
+const {
+  CODE_STILL_GOOD,
+  InvitationAcceptForm,
+  ORGANIZER_CODE_HERE,
+  POSTING_ROLE_CODE,
+  UNUSABLE_CODE,
+} = await import('./invitation-accept-form.jsx')
 
 const CODE = 'Ab3_dE6-gH9iJ2kL5mN8oP1qR4sT7uV0wX3yZ6aB9cD'
 
@@ -49,7 +54,7 @@ function joined(session, gained = true) {
     data: {
       organizationId: 'org00000000000000000001',
       organizationName: 'Rangoli Collective',
-      role: 'ADMIN',
+      role: 'STAFF',
       joined: gained,
       session,
     },
@@ -113,7 +118,7 @@ describe('the invitation accept form', () => {
     expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ token: CODE })
 
     expect(
-      await screen.findByText(/You are now in Rangoli Collective as administrator/u),
+      await screen.findByText(/You are now in Rangoli Collective as staff/u),
     ).toBeInTheDocument()
     expect(container.innerHTML).not.toContain(CODE)
     expect(screen.queryByRole('link', { name: 'Set up two-step sign-in' })).not.toBeInTheDocument()
@@ -180,7 +185,7 @@ describe('the invitation accept form', () => {
 
     expect(await screen.findByText('You were already a member')).toBeInTheDocument()
     expect(
-      screen.getByText(/You already belong to Rangoli Collective as administrator/u),
+      screen.getByText(/You already belong to Rangoli Collective as staff/u),
     ).toBeInTheDocument()
     expect(screen.queryByText(/sessions have ended/u)).not.toBeInTheDocument()
     expect(screen.queryByText('You have joined')).not.toBeInTheDocument()
@@ -217,6 +222,55 @@ describe('the invitation accept form', () => {
     expect(screen.queryByText(/\/v1\/auth/u)).not.toBeInTheDocument()
     // Kept, so it can be entered again once the factor is set up.
     expect(field).toHaveValue(CODE)
+  })
+
+  it('sends an organiser invitation’s code to the page where it works, and keeps it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(403, {
+        error: {
+          code: 'WRONG_INVITATION_KIND',
+          message:
+            'That is an organiser invitation code. Enter it at Your account → Accept an organiser invitation (/account/organizations/new).',
+        },
+      }),
+    )
+    render(<InvitationAcceptForm />)
+
+    const field = screen.getByLabelText(/Invitation code/u)
+
+    await user.type(field, CODE)
+    await user.click(screen.getByRole('button', { name: 'Join the organisation' }))
+
+    expect(await screen.findByText(ORGANIZER_CODE_HERE)).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Accept an organiser invitation' })).toHaveAttribute(
+      'href',
+      '/account/organizations/new',
+    )
+    expect(screen.queryByText(UNUSABLE_CODE)).not.toBeInTheDocument()
+    expect(field).toHaveValue(CODE)
+  })
+
+  it('says a code for a role that posts events comes from the Desi-Event team, not that it is dead', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(403, {
+        error: {
+          code: 'POSTING_ROLE_NEEDS_PLATFORM',
+          message:
+            'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.',
+        },
+      }),
+    )
+    render(<InvitationAcceptForm />)
+
+    await user.type(screen.getByLabelText(/Invitation code/u), CODE)
+    await user.click(screen.getByRole('button', { name: 'Join the organisation' }))
+
+    expect(await screen.findByText(POSTING_ROLE_CODE)).toBeVisible()
+    expect(screen.queryByText(UNUSABLE_CODE)).not.toBeInTheDocument()
   })
 
   it('says how long to wait when rate limited', async () => {

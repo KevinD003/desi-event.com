@@ -89,8 +89,10 @@ const AREA_OF = Object.freeze({
   '/operations/notifications': 'operations',
   '/moderation/events': 'moderation',
   '/moderation/organizations': 'moderation',
+  '/moderation/websites': 'moderation',
   '/privacy': 'privacy',
   '/retention': 'retention',
+  '/admin/organizer-invitations': 'admin',
   '/admin/users': 'admin',
 })
 
@@ -312,6 +314,56 @@ describe('workspace offers, by role', () => {
     for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
       expect(offered(member(role)), role).not.toContain('/admin/users')
     }
+  })
+
+  it('offers organiser invitations to a platform administrator and a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/admin/organizer-invitations'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN',
+      )
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/admin/organizer-invitations')
+    }
+  })
+
+  it('lists organiser invitations before people and roles, in trust and safety', () => {
+    const trust = workspaceGroups(platform('SUPER_ADMIN')).find((group) => group.id === 'trust')
+    const hrefs = trust.items.map((item) => item.href)
+
+    expect(hrefs.indexOf('/admin/organizer-invitations')).toBeGreaterThan(-1)
+    expect(hrefs.indexOf('/admin/organizer-invitations')).toBeLessThan(
+      hrefs.indexOf('/admin/users'),
+    )
+    expect(trust.items.find((item) => item.href === '/admin/organizer-invitations').label).toBe(
+      'Organiser invitations',
+    )
+  })
+
+  it('offers website links to a platform administrator and a super administrator, never a moderator', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/moderation/websites'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN',
+      )
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/moderation/websites')
+    }
+
+    const trust = workspaceGroups(platform('ADMIN')).find((group) => group.id === 'trust')
+
+    expect(trust.items.find((item) => item.href === '/moderation/websites').label).toBe(
+      'Website links',
+    )
+  })
+
+  it('offers a platform administrator invitations and never people and roles', () => {
+    const items = offered(platform('ADMIN'))
+
+    expect(items).toContain('/admin/organizer-invitations')
+    expect(items).not.toContain('/admin/users')
   })
 })
 

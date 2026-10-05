@@ -869,7 +869,17 @@ describe('the traffic branch of GET /v1/analytics/summary', () => {
       title: ids.publishedEvent.title,
       deleted: false,
       websiteLinkOn: false,
-      websiteRedirect: null,
+      // The switch as the event's team reads it: never decided, nothing waiting.
+      websiteRedirect: {
+        enabled: false,
+        pending: false,
+        decidedUrl: null,
+        submittedAt: null,
+        changedAt: null,
+        reason: null,
+        changedByName: null,
+        websiteProblem: null,
+      },
     })
     expect(own.totals.views).toBe(14)
     expect(own.byEvent).toEqual([])

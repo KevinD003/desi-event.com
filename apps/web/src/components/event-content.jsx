@@ -278,7 +278,6 @@ export function EventContact({ email = null, phone = null }) {
  */
 function isAllowedLink(network, href) {
   if (!isSafeHref(href)) return false
-  if (network === 'website') return true
 
   return (SOCIAL_HOSTS[network] ?? []).includes(new URL(href).hostname.toLowerCase())
 }

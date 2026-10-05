@@ -57,9 +57,16 @@ const DISCOVER = Object.freeze([
 
 /**
  * A few of the things the limitations page lists, in the footer's words. Each
- * is true of this build; the page itself is the full, recorded list.
+ * is true of this build in every configuration; the page itself is the full,
+ * recorded list. Email is named narrowly: a deployment with a mail server
+ * emails invitation and ticket-transfer codes, but never receipts or password
+ * resets.
  */
-const CANNOT = Object.freeze(['Take real payments', 'Calculate US sales tax', 'Send email'])
+const CANNOT = Object.freeze([
+  'Take real payments',
+  'Calculate US sales tax',
+  'Email receipts or password resets',
+])
 
 /** A footer link: lavender on the night, ivory and underlined on hover, 44px tall. */
 const FOOTER_LINK =
@@ -129,12 +136,12 @@ export function SiteFooter() {
           <div>
             <h2 className={COLUMN_HEADING}>For organisers</h2>
             <p className="mt-2 text-sm leading-6 text-ink-inverse-muted">
-              Listings, ticket tiers, seat maps and door check-in, from the organiser workspace. An
-              organisation you create from your account can publish once the platform has verified
-              it.
+              Listings, ticket tiers, seat maps and door check-in, from the organiser workspace.
+              Organisers join by invitation from the Desi-Event team, and every event is reviewed by
+              the team before it is published.
             </p>
             <Link href="/account/organizations/new" className={FOOTER_LINK}>
-              Create an organisation
+              Accept an organiser invitation
             </Link>
           </div>
 

@@ -167,12 +167,16 @@ describe('AreaRefusal', () => {
   it('offers somebody refused the organiser workspace the two ways in that are their own', () => {
     render(<AreaRefusal area="organizer" />)
 
-    expect(screen.getByRole('link', { name: 'Create an organisation' }).getAttribute('href')).toBe(
-      '/account/organizations/new',
-    )
     expect(
-      screen.getByRole('link', { name: 'Join with an invitation code' }).getAttribute('href'),
+      screen.getByRole('link', { name: 'Accept an organiser invitation' }).getAttribute('href'),
+    ).toBe('/account/organizations/new')
+    expect(
+      screen
+        .getByRole('link', { name: 'Join a team with an invitation code' })
+        .getAttribute('href'),
     ).toBe('/account/invitations')
+    // Organisations are not made from an account here.
+    expect(screen.queryByRole('link', { name: /create an organisation/iu })).toBeNull()
   })
 
   it.each(['privacy', 'finance', 'moderation', 'admin'])(
@@ -190,6 +194,7 @@ describe('AreaRefusal', () => {
     render(<AreaRefusal area="admin" />)
 
     expect(screen.getByText('Platform administration').tagName).toBe('P')
-    expect(screen.getByText(/held by platform super administrators alone/u)).toBeTruthy()
+    expect(screen.getByText(/platform administrators: inviting organisers/u)).toBeTruthy()
+    expect(screen.getByText(/Nothing on this page can grant it\./u)).toBeTruthy()
   })
 })

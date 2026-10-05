@@ -79,7 +79,7 @@ describe('what the words promise', () => {
     ...Object.values(COMMANDS).flatMap((command) => [command.label, command.confirm ?? '']),
   ].join('\n')
 
-  it('never says people were told or emailed, because this build sends no email', () => {
+  it('never says people were told or emailed, because notices are not emailed', () => {
     expect(copy).not.toMatch(/have been told|has been told|were told|is sent to|been emailed/i)
   })
 

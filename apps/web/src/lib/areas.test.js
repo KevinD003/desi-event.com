@@ -1,5 +1,6 @@
 /**
- * The platform administration area admits a super administrator alone.
+ * The platform administration area admits the Desi-Event team's platform
+ * administrators and super administrators, and nobody else.
  *
  * Sessions are built from the real role tables, the same ones the API
  * resolves `GET /v1/auth/me` from.
@@ -43,10 +44,26 @@ function member(role) {
 }
 
 describe('the admin area', () => {
-  it('admits a super administrator and no other platform role', () => {
+  it('admits a platform administrator and a super administrator, and no other platform role', () => {
     for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
-      expect(admits(platform(role), 'admin'), role).toBe(role === 'SUPER_ADMIN')
+      expect(admits(platform(role), 'admin'), role).toBe(role === 'ADMIN' || role === 'SUPER_ADMIN')
     }
+  })
+
+  it('refuses a moderator, the platform role closest to it', () => {
+    expect(admits(platform('MODERATOR'), 'admin')).toBe(false)
+  })
+
+  it('admits on inviting organisers alone, or on platform administration alone', () => {
+    const only = (capability) => ({
+      user: { id: 'u3' },
+      capabilities: [capability],
+      memberships: [],
+    })
+
+    expect(admits(only('organizer:invite'), 'admin')).toBe(true)
+    expect(admits(only('platform:admin'), 'admin')).toBe(true)
+    expect(admits(only('moderation:review'), 'admin')).toBe(false)
   })
 
   it('admits no organisation role, however senior', () => {
@@ -57,9 +74,27 @@ describe('the admin area', () => {
     expect(admits(null, 'admin')).toBe(false)
   })
 
-  it('begins at the people and roles screen, and says nothing can grant it', () => {
-    expect(AREAS.admin.href).toBe('/admin/users')
-    expect(AREAS.admin.refusal).toMatch(/nothing on this page can grant it/u)
+  it('does not take a membership’s claim to either capability', () => {
+    const claimed = {
+      user: { id: 'u4' },
+      capabilities: [],
+      memberships: [
+        {
+          organizationId: 'org_1',
+          role: 'OWNER',
+          capabilities: ['organizer:invite', 'platform:admin'],
+        },
+      ],
+    }
+
+    expect(admits(claimed, 'admin')).toBe(false)
+  })
+
+  it('begins at organiser invitations, says who it is for, and says nothing can grant it', () => {
+    expect(AREAS.admin.href).toBe('/admin/organizer-invitations')
+    expect(AREAS.admin.refusal).toBe(
+      'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+    )
   })
 
   it('offers alternatives only where they are the person’s own to take', () => {
@@ -72,6 +107,16 @@ describe('the admin area', () => {
       '/account/organizations/new',
       '/account/invitations',
     ])
+  })
+
+  it('names the organiser alternatives as invitations, never as making an organisation', () => {
+    // Organisations are not made from an account: organisers join by an
+    // invitation from the Desi-Event team.
+    expect(AREAS.organizer.alternatives.map((alternative) => alternative.label)).toEqual([
+      'Accept an organiser invitation',
+      'Join a team with an invitation code',
+    ])
+    expect(JSON.stringify(AREAS.organizer.alternatives)).not.toMatch(/create an organisation/iu)
   })
 })
 

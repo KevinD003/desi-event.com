@@ -13,12 +13,38 @@
  *
  * The server holds only the code's digest. It has never held the code.
  *
+ * ## How the code arrived
+ *
+ * Said from the delivery mode `GET /v1/auth/me` reports, so the sentence is
+ * true in the deployment it is read in: handed over by whoever invited you
+ * when codes are not emailed, or emailed to the invited address when they are.
+ *
+ * This page is for team codes. An organiser invitation from the Desi-Event
+ * team has its own page, and the page says so.
+ *
  * @module app/account/invitations/page
  */
 
 import Link from 'next/link'
 
+import { readSession } from '../../../lib/session.js'
 import { InvitationAcceptForm } from './invitation-accept-form.jsx'
+
+/** A link that reads as a link. */
+const LINK =
+  'rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none'
+
+/**
+ * How a team code reaches the person typing it, per delivery mode.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const HOW_THE_CODE_ARRIVES = Object.freeze({
+  MANUAL:
+    'Codes are not emailed from this site, so the code does not arrive on its own: whoever invited you hands it to you themselves.',
+  EMAIL:
+    'The code is emailed to the address the invitation was sent to. If it has not arrived, ask whoever invited you to issue a new one.',
+})
 
 export const dynamic = 'force-dynamic'
 
@@ -27,9 +53,12 @@ export const metadata = { title: 'Join an organisation', robots: { index: false,
 /**
  * The join screen.
  *
- * @returns {JSX.Element} The rendered page.
+ * @returns {Promise<JSX.Element>} The rendered page.
  */
-export default function JoinOrganisationPage() {
+export default async function JoinOrganisationPage() {
+  const session = await readSession()
+  const arrives = HOW_THE_CODE_ARRIVES[session?.deliveryMode] ?? null
+
   return (
     <div>
       <p className="text-micro font-semibold tracking-eyebrow text-accent-strong uppercase">
@@ -42,18 +71,22 @@ export default function JoinOrganisationPage() {
         to, so sign in with that address first.
       </p>
       <p className="mt-2 max-w-2xl text-sm text-ink-muted">
-        This site sends no email, so the code does not arrive on its own: whoever invited you hands
-        it to you themselves.{' '}
-        <Link
-          href="/limitations"
-          className="rounded-sm font-medium text-accent-strong underline underline-offset-4 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-        >
+        {arrives ? `${arrives} ` : null}
+        <Link href="/limitations" className={LINK}>
           What this site does not do
         </Link>
       </p>
       <p className="mt-2 max-w-2xl text-sm text-ink-muted">
         The code is only ever typed in, never carried in a web address — an address with a secret in
         it survives in your history and in somebody’s server log long after the invitation is used.
+      </p>
+
+      <p className="mt-2 max-w-2xl text-sm text-ink-muted">
+        Sent an organiser invitation by the Desi-Event team? Enter that code at{' '}
+        <Link href="/account/organizations/new" className={LINK}>
+          Accept an organiser invitation
+        </Link>{' '}
+        instead.
       </p>
 
       <InvitationAcceptForm />

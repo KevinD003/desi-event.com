@@ -5,17 +5,21 @@
  *
  * `POST /v1/organizations/:id/invitations` with an address and a role. The
  * roles offered are the ones the API said this caller may grant
- * (`assignableRoles` on the team list); the API bounds them again.
+ * (`assignableRoles` on the team list): finance, staff, door scanner and
+ * viewer at most. Roles that create or publish events are given by the
+ * Desi-Event team, so they are never on offer here; the API refuses one with
+ * `POSTING_ROLE_NEEDS_PLATFORM`, and its sentence is shown as it is.
  *
  * ## The code is shown once, here, and handed over by the inviter
  *
- * This build sends no email. The API therefore answers with the invitation
- * code in the response (`delivery.mode` MANUAL), exactly once, and keeps only
- * its digest. This form puts it in {@link OneTimeCodePanel} and in nothing
- * else — not in a web address, not in browser storage. The page is refreshed
- * only after the person says they have handed it over, so a re-render cannot
- * lose it before then. Where a deployment does send email (`EMAIL`), the
- * response carries no code and the form says it was emailed.
+ * When codes are not emailed (`MANUAL`, how this site runs unless a mail
+ * server is configured), the API answers with the invitation code in the
+ * response, exactly once, and keeps only its digest. This form puts it in
+ * {@link OneTimeCodePanel} and in nothing else — not in a web address, not in
+ * browser storage. The page is refreshed only after the person says they have
+ * handed it over, so a re-render cannot lose it before then. Where codes are
+ * emailed (`EMAIL`), the response carries no code and the form says it was
+ * emailed.
  *
  * @module app/organizer/team/invite-form
  */
@@ -41,6 +45,7 @@ import {
  * @typedef {object} InviteFormProps
  * @property {string} organizationId Whose team.
  * @property {string[]} assignableRoles The roles the API says this caller may grant.
+ * @property {'MANUAL'|'EMAIL'|null} [deliveryMode] How codes go out here, as the session says.
  */
 
 /**
@@ -49,7 +54,7 @@ import {
  * @param {InviteFormProps} props Component props.
  * @returns {JSX.Element|null} The form, or nothing when no role may be granted.
  */
-export function InviteForm({ organizationId, assignableRoles }) {
+export function InviteForm({ organizationId, assignableRoles, deliveryMode = null }) {
   const router = useRouter()
   const id = useId()
   const roles = assignableRoles.filter((role) => role !== 'OWNER')
@@ -110,7 +115,12 @@ export function InviteForm({ organizationId, assignableRoles }) {
       setRefused({
         sentence:
           response.status === 429
-            ? describeApiRefusal({ status: 429, retryAfterSeconds }).detail
+            ? describeApiRefusal({
+                status: 429,
+                code: body?.error?.code ?? null,
+                message: body?.error?.message ?? null,
+                retryAfterSeconds,
+              }).detail
             : refusalSentence(response.status, body, 'The invitation was refused.'),
         enrol: body?.error?.code === 'MFA_ENROLMENT_REQUIRED',
       })
@@ -174,7 +184,11 @@ export function InviteForm({ organizationId, assignableRoles }) {
         label="Their email address"
         id={`${id}-email`}
         required
-        description="They join by signing in with this address and typing the code you are about to be shown."
+        description={
+          deliveryMode === 'EMAIL'
+            ? 'They join by signing in with this address and typing the code that is emailed to it.'
+            : 'They join by signing in with this address and typing the code you are about to be shown.'
+        }
       >
         <Input
           type="email"

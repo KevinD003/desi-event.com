@@ -299,7 +299,9 @@ when()('a NUL in a request, against PostgreSQL', () => {
       [{ performers: [{ name: 'A\u0000B' }] }, 'performers[0].name'],
       [{ runningOrder: [{ time: '19:00', title: 'Open\u0000ing' }] }, 'runningOrder[0].title'],
       [{ sponsors: [{ name: 'Spon\u0000sor' }] }, 'sponsors[0].name'],
-      [{ socialLinks: { website: 'https://example.com/a\u0000b' } }, 'socialLinks.website'],
+      // The organiser's website is not a social link any more (it has its own
+      // field and switch); a social network's link still lands in JSON.
+      [{ socialLinks: { instagram: 'https://instagram.com/a\u0000b' } }, 'socialLinks.instagram'],
       [{ policies: { refund: 'no\u0000refunds' } }, 'policies.refund'],
     ]
 
@@ -313,6 +315,31 @@ when()('a NUL in a request, against PostgreSQL', () => {
     expect(stored.faq).toEqual(event.faq)
     expect(stored.policies).toEqual(event.policies)
     expect(stored.performers).toEqual(event.performers)
+    expect(stored.socialLinks).toEqual(event.socialLinks)
+  })
+
+  it('refuses one in the website address by the address rule itself, and stores nothing', async () => {
+    const { event } = await eventIn('website', 'DRAFT')
+    const response = await patchEvent(event.id, { websiteUrl: 'https://example.com/a\u0000b' })
+
+    expect(response.statusCode, response.body).toBe(400)
+
+    const { error } = response.json()
+
+    // The field refuses control characters itself, so it keeps its own message.
+    expect(error.code).toBe('VALIDATION_ERROR')
+    expect(error.issues).toEqual([
+      expect.objectContaining({
+        path: 'websiteUrl',
+        message: 'An address has no spaces or line breaks in it.',
+      }),
+    ])
+
+    const stored = await prisma.event.findUnique({ where: { id: event.id } })
+
+    expect(stored.revision).toBe(event.revision)
+    expect(stored.websiteUrl).toBeNull()
+    expect(stored.websiteDecisionPending).toBe(false)
   })
 
   it('refuses one in a material change reason, and queues no notice', async () => {

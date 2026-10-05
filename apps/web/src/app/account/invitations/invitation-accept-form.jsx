@@ -10,7 +10,9 @@
  *
  * Every refusal the API gives for a code that cannot be used — expired,
  * withdrawn, replaced, used, or issued to another address — is one sentence
- * here. Telling them apart would tell somebody feeding in guesses which guess
+ * here. (An organiser invitation's code typed here is the exception: the API
+ * says which kind it is, which tells its holder nothing they did not have,
+ * and the form sends them to the page where it works.) Telling them apart would tell somebody feeding in guesses which guess
  * was a real invitation.
  *
  * One 403 is not about the code at all: an account that already holds a role
@@ -54,6 +56,18 @@ export const PART_OF_A_CODE =
 export const UNUSABLE_CODE =
   'That code cannot be used by this account. It may have expired, been withdrawn or used already, or it was issued to a different email address — sign in with the address the invitation was sent to.'
 
+/** What an organiser invitation's code typed here is told. */
+export const ORGANIZER_CODE_HERE =
+  'That is an organiser invitation code from the Desi-Event team, not a team invitation. Enter it where organiser codes go instead.'
+
+/**
+ * What a code for a role that creates or publishes events is told: such roles
+ * come from the Desi-Event team now, so an older invitation to one cannot be
+ * accepted. The code is not spent.
+ */
+export const POSTING_ROLE_CODE =
+  'This invitation is for a role that creates or publishes events. Those roles are given by the Desi-Event team, so it cannot be accepted here. Ask whoever invited you to ask the Desi-Event team to add you.'
+
 /** Said after the enrolment refusal: the code was never looked at. */
 export const CODE_STILL_GOOD =
   'Your code has not been used, so keep it and enter it again once two-step sign-in is set up.'
@@ -74,6 +88,7 @@ export function InvitationAcceptForm() {
   const [error, setError] = useState(null)
   const [joined, setJoined] = useState(null)
   const [needsFactorFirst, setNeedsFactorFirst] = useState(false)
+  const [organizerCode, setOrganizerCode] = useState(false)
   const [refusals, setRefusals] = useState(0)
   const [fieldError, setFieldError] = useState(null)
   const errorRef = useRef(null)
@@ -116,6 +131,7 @@ export function InvitationAcceptForm() {
     setBusy(true)
     setError(null)
     setNeedsFactorFirst(false)
+    setOrganizerCode(false)
 
     try {
       const response = await apiFetch('/v1/invitations/accept', {
@@ -142,6 +158,13 @@ export function InvitationAcceptForm() {
       } else if (response.status === 403 && errorCode === 'MFA_ENROLMENT_REQUIRED') {
         setError(describeApiRefusal({ status: 403, code: errorCode }).detail)
         setNeedsFactorFirst(true)
+      } else if (response.status === 403 && errorCode === 'POSTING_ROLE_NEEDS_PLATFORM') {
+        setError(POSTING_ROLE_CODE)
+      } else if (response.status === 403 && errorCode === 'WRONG_INVITATION_KIND') {
+        // An organiser invitation's code typed here: it is not spent, and it
+        // works where organiser codes go.
+        setError(ORGANIZER_CODE_HERE)
+        setOrganizerCode(true)
       } else if (response.status === 403 || response.status === 409 || response.status === 400) {
         setError(UNUSABLE_CODE)
       } else {
@@ -206,6 +229,13 @@ export function InvitationAcceptForm() {
         <div ref={errorRef} tabIndex={-1} className="mb-3 focus-visible:outline-none">
           <Alert variant="error" title="That did not work">
             <p>{error}</p>
+            {organizerCode ? (
+              <p className="mt-2">
+                <Link href="/account/organizations/new" className={LINK}>
+                  Accept an organiser invitation
+                </Link>
+              </p>
+            ) : null}
             {needsFactorFirst ? (
               <p className="mt-2">
                 {CODE_STILL_GOOD}{' '}

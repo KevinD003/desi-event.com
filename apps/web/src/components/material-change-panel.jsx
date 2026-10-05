@@ -7,8 +7,9 @@
  * somebody bought, so it goes through this panel: the organiser edits the
  * fields, sees in words what they are changing, gives a reason, ticks that they
  * understand, and only then is anything sent. The API records a notice against
- * every current order in the same transaction — and this build sends no email,
- * which the panel says rather than implying people have been told.
+ * every current order in the same transaction — and notices are not emailed in
+ * any configuration, which the panel says rather than implying people have
+ * been told.
  *
  * Only the material fields that actually changed are sent, with the revision
  * the editor holds, `confirmMaterialChange: true` and the reason. A stale
@@ -309,8 +310,7 @@ export function MaterialChangePanel({
       </h2>
       <p className="text-sm text-ink-muted">
         People have bought tickets on the strength of these. A notice is recorded for every current
-        order when you save. This build does not send email, so tell ticket holders yourself as
-        well.
+        order when you save. Notices are not emailed, so tell ticket holders yourself as well.
       </p>
 
       <form onSubmit={submit} noValidate className="space-y-4">

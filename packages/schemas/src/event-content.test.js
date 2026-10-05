@@ -5,6 +5,7 @@ import {
   SOCIAL_HOSTS,
   SOCIAL_NETWORKS,
   SOCIAL_NETWORK_LABELS,
+  SOCIAL_WEBSITE_MOVED_MESSAGE,
   dressCodeSchema,
   eventDirectionsSchema,
   eventFaqSchema,
@@ -112,7 +113,7 @@ describe('links are https only', () => {
       expect(isHttpsUrl(href)).toBe(false)
       expect(httpsUrlSchema.safeParse(href).success).toBe(false)
       expect(eventSponsorsSchema.safeParse([{ name: 'Sponsor', url: href }]).success).toBe(false)
-      expect(eventSocialLinksSchema.safeParse({ website: href }).success).toBe(false)
+      expect(eventSocialLinksSchema.safeParse({ instagram: href }).success).toBe(false)
     },
   )
 
@@ -146,9 +147,29 @@ describe('social links name the network they point at', () => {
     expect(eventSocialLinksSchema.safeParse({ x: 'https://twitter.com/desi' }).success).toBe(true)
     expect(eventSocialLinksSchema.safeParse({ youtube: 'https://youtu.be/abc' }).success).toBe(true)
     expect(eventSocialLinksSchema.safeParse({ facebook: 'https://fb.com/desi' }).success).toBe(true)
-    expect(eventSocialLinksSchema.safeParse({ website: 'https://any.example/page' }).success).toBe(
-      true,
-    )
+  })
+
+  it('has no website network: the website is its own field, and the old key is refused by name', () => {
+    expect(SOCIAL_NETWORKS).not.toContain('website')
+    expect(SOCIAL_NETWORK_LABELS).not.toHaveProperty('website')
+    expect(isAllowedSocialHost('website', 'https://any.example/page')).toBe(false)
+
+    for (const value of ['https://any.example/page', 'http://any.example', '', null]) {
+      const result = eventSocialLinksSchema.safeParse({ website: value })
+
+      expect(result.success).toBe(false)
+      expect(issuePaths(result)).toEqual(['website'])
+      expect(result.error.issues[0].message).toBe(SOCIAL_WEBSITE_MOVED_MESSAGE)
+    }
+
+    expect(SOCIAL_WEBSITE_MOVED_MESSAGE).toMatch(/websiteUrl/u)
+    // Beside a network it still refuses the whole object, rather than saving the rest.
+    expect(
+      eventSocialLinksSchema.safeParse({
+        instagram: 'https://instagram.com/x',
+        website: 'https://any.example/',
+      }).success,
+    ).toBe(false)
   })
 
   it('refuses an unknown network rather than dropping it', () => {
@@ -160,7 +181,7 @@ describe('social links name the network they point at', () => {
   it('checks every network the page lists', () => {
     for (const network of SOCIAL_NETWORKS) {
       expect(SOCIAL_NETWORK_LABELS[network]).toBeTruthy()
-      if (network !== 'website') expect(SOCIAL_HOSTS[network].length).toBeGreaterThan(0)
+      expect(SOCIAL_HOSTS[network].length).toBeGreaterThan(0)
     }
     expect(isAllowedSocialHost('instagram', 'https://INSTAGRAM.com/x')).toBe(true)
     expect(isAllowedSocialHost('unknown', 'https://example.com')).toBe(false)

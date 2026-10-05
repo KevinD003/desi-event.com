@@ -157,6 +157,35 @@ export function describeApiRefusal(error) {
     }
   }
 
+  // A code could not be emailed, so the API withdrew what it had issued: the
+  // sentence says that, and that nothing reached anybody. A 503 is otherwise a
+  // server error whose wording is replaced, which would hide both.
+  if (code === 'DELIVERY_FAILED') {
+    return {
+      state: 'delivery-failed',
+      title: 'The email could not be sent',
+      detail:
+        specificMessage(error) ??
+        'The email could not be sent, so what it carried was withdrawn and nothing reached them. Try again in a few minutes.',
+      recoverable: true,
+      retryAfterSeconds: null,
+    }
+  }
+
+  // Not this person going too fast: the address has been sent its codes for
+  // the day by anybody at all, so the generic "wait a moment" would be wrong.
+  if (code === 'RECIPIENT_DAILY_LIMIT') {
+    return {
+      state: 'recipient-limit',
+      title: 'That address has had its codes for today',
+      detail:
+        specificMessage(error) ??
+        'This address has already been sent three codes from Desi-Event today. Try again tomorrow.',
+      recoverable: false,
+      retryAfterSeconds,
+    }
+  }
+
   if (status === 0 || code === 'API_UNREACHABLE') {
     return {
       state: 'network',

@@ -31,7 +31,8 @@ describe('AuthFrame', () => {
 
     const panel = screen.getByRole('complementary', { name: 'What an account is for' })
 
-    expect(panel).toHaveTextContent('this site sends no email')
+    expect(panel).toHaveTextContent('receipts are not emailed')
+    expect(panel).not.toHaveTextContent(/sends no email/i)
     expect(panel).toHaveTextContent(
       'Payments on this site are simulated — no card, no money moves.',
     )

@@ -10,6 +10,7 @@ import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 import { INDEXABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { organizationsWhere } from '../lib/actor.js'
+import { maySeeDrafts } from '../lib/event-insiders.js'
 import {
   availableTransitions,
   capabilityFor,
@@ -41,6 +42,12 @@ import {
 } from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
 import { loadEventFacets } from '../lib/facets.js'
+import {
+  WEBSITE_REDIRECT_INCLUDE,
+  applyWebsiteChange,
+  websiteColumnsFor,
+  websiteViewFor,
+} from '../lib/website-redirect.js'
 import { defineRoute } from '../lib/register.js'
 
 /**
@@ -54,6 +61,8 @@ const EVENT_INCLUDE = Object.freeze({
   // The nights. The presenter sorts them; the list include stays lean.
   sessions: { orderBy: [{ startsAt: 'asc' }, { sortOrder: 'asc' }] },
   ...EVENT_MEDIA_INCLUDE,
+  // Who last decided the website link, for the switch's state an insider reads.
+  ...WEBSITE_REDIRECT_INCLUDE,
 })
 
 /**
@@ -467,25 +476,10 @@ function assertVisibleTo(event, actor) {
   throw notFound('No such event.')
 }
 
-/**
- * Whether this caller may see what the organiser has not announced.
- *
- * The same question twice over: whether an unpublished *event* resolves at all,
- * and whether an unpublished *ticket type* appears in the payload of one that
- * does. Both are "is this person on the inside", so both ask it here rather
- * than each growing its own version of the answer.
- *
- * @param {object} event The event row.
- * @param {object|null} actor The request actor.
- * @returns {boolean} True when the caller is staff or a member of the organisation.
- */
-export function maySeeDrafts(event, actor) {
-  return (
-    can(actor, CAPABILITIES.MODERATION_REVIEW) ||
-    can(actor, CAPABILITIES.PLATFORM_ADMIN) ||
-    can(actor, CAPABILITIES.EVENT_VIEW_DRAFT, { organizationId: event.organizationId })
-  )
-}
+// `maySeeDrafts` lives in `lib/event-insiders.js`, so the website link's
+// library can ask the same question; re-exported here for the routes that
+// already import it from this module.
+export { maySeeDrafts }
 
 /**
  * Reserve a unique slug, retrying once with a random suffix on collision.
@@ -675,6 +669,7 @@ export function registerEventRoutes(app, { prisma, env }) {
           includeOnlineUrl: insider,
           sessionsAvailability: seats.bySession,
           tierSeatsAvailable: seats.byTier,
+          website: websiteViewFor(request.actor, event),
           ...pricing,
         }),
       }
@@ -705,7 +700,14 @@ export function registerEventRoutes(app, { prisma, env }) {
       const data = withEventDates(syncLineUp(toEventColumns({ ...writable, slug })))
 
       const event = await prisma.event.create({
-        data: { ...data, status: 'DRAFT', publishedAt: null },
+        data: {
+          ...data,
+          // An address given at creation waits for a Desi-Event administrator;
+          // the link starts off. Computed here as the database's trigger does.
+          ...websiteColumnsFor(null, data.websiteUrl ?? null, new Date()),
+          status: 'DRAFT',
+          publishedAt: null,
+        },
         include: EVENT_INCLUDE,
       })
 
@@ -717,7 +719,12 @@ export function registerEventRoutes(app, { prisma, env }) {
       // the default: an organiser's own editor going blank after a save is not
       // a bug anybody would guess at.
       return {
-        data: toEventDetail(event, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+        data: toEventDetail(event, {
+          includeDraftTiers: true,
+          includeOnlineUrl: true,
+          website: websiteViewFor(request.actor, event),
+          ...pricing,
+        }),
       }
     },
   })
@@ -805,7 +812,17 @@ export function registerEventRoutes(app, { prisma, env }) {
         // the audit row, except the before and after of a material change below.
         metadata: { fields: changedFields(existing, data).sort() },
         write: async (tx) => {
-          await tx.event.update({ where: { id: existing.id }, data })
+          // The organiser's website address, with whether it now waits for an
+          // administrator. Read under the row lock `authorChange` took, so a
+          // decision committed a moment ago is what this is measured against.
+          // The switch, the decided address and the reason are never written
+          // here: an organiser's change never moves the link.
+          const website =
+            data.websiteUrl === undefined
+              ? {}
+              : await applyWebsiteChange(tx, { eventId: existing.id, nextUrl: data.websiteUrl })
+
+          await tx.event.update({ where: { id: existing.id }, data: { ...data, ...website } })
 
           if (!live || material.length === 0) return
 
@@ -846,7 +863,12 @@ export function registerEventRoutes(app, { prisma, env }) {
       })
 
       return {
-        data: toEventDetail(event, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+        data: toEventDetail(event, {
+          includeDraftTiers: true,
+          includeOnlineUrl: true,
+          website: websiteViewFor(request.actor, event),
+          ...pricing,
+        }),
       }
     },
   })
@@ -903,7 +925,12 @@ export function registerEventRoutes(app, { prisma, env }) {
     })
 
     return {
-      data: toEventDetail(full, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+      data: toEventDetail(full, {
+        includeDraftTiers: true,
+        includeOnlineUrl: true,
+        website: websiteViewFor(request.actor, full),
+        ...pricing,
+      }),
     }
   }
 
@@ -1170,7 +1197,12 @@ export function registerEventRoutes(app, { prisma, env }) {
       })
 
       return {
-        data: toEventDetail(full, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+        data: toEventDetail(full, {
+          includeDraftTiers: true,
+          includeOnlineUrl: true,
+          website: websiteViewFor(request.actor, full),
+          ...pricing,
+        }),
       }
     },
   })

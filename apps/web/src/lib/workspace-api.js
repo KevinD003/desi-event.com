@@ -1,5 +1,6 @@
 /**
- * Server-side reads for the team, notification, refund and reconciliation lists.
+ * Server-side reads for the team, notification, refund, reconciliation and
+ * organiser invitation lists.
  *
  * Built on `callApi` from `./organizer-api.js`, and for the same reason it
  * gives: **nothing here falls back**. A list of team members, messages or
@@ -264,6 +265,34 @@ export async function listReconciliationTasks(options = {}) {
   const body = await callApi(`/v1/operations/reconciliation${suffix}`)
 
   return { tasks: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * The Desi-Event team's organiser invitations, newest first.
+ *
+ * `GET /v1/platform/organizer-invitations`. Platform administrators and super
+ * administrators (`organizer:invite`). `q` searches organisation names only:
+ * an email address in a query string is written to access logs, so the API
+ * offers no way to search by one, and neither does this. The answer carries
+ * addresses and notes and is `no-store`; it is never cached here either.
+ *
+ * @param {object} [options] Filters.
+ * @param {string} [options.status] `PENDING` (the API's default), `ACCEPTED`, `REVOKED`, `EXPIRED` or `ALL`.
+ * @param {string} [options.q] Part of an organisation's name.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] Page size; the API's ceiling is 50.
+ * @returns {Promise<{invitations: object[], pagination: object|null, deliveryMode: 'MANUAL'|'EMAIL'|null}>} The list, and how codes go out.
+ */
+export async function getOrganizerInvitations(options = {}) {
+  const suffix = queryFrom(options, ['status', 'q', 'page', 'perPage'])
+  const body = await callApi(`/v1/platform/organizer-invitations${suffix}`)
+  const mode = body.meta?.deliveryMode
+
+  return {
+    invitations: body.data ?? [],
+    pagination: body.pagination ?? null,
+    deliveryMode: mode === 'EMAIL' || mode === 'MANUAL' ? mode : null,
+  }
 }
 
 /**

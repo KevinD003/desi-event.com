@@ -44,7 +44,7 @@ import { PAYMENT_MODES } from './payments.js'
 import { publicMediaSchema } from './media.js'
 import { utcDaySchema } from './traffic.js'
 import { CARD_PLACEMENTS, TRAFFIC_SOURCES } from './traffic-vocabulary.js'
-import { websiteRedirectStateSchema } from './website.js'
+import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } from './website.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -145,6 +145,20 @@ export const errorResponseSchema = z.object({
     orderReference: z
       .string()
       .regex(/^[A-Z0-9-]{4,32}$/u)
+      .optional(),
+    /**
+     * What a few refusals name so the caller can act without reading the page
+     * again, from a closed list: the address stored now, on 409
+     * `WEBSITE_CHANGED` (null when the organiser removed it), and where the
+     * website link's switch stands, on 409 `WEBSITE_REDIRECT_UNCHANGED`. No
+     * other refusal carries it, and no other key exists.
+     */
+    details: z
+      .object({
+        currentWebsiteUrl: z.string().min(1).max(WEBSITE_LIMITS.url).nullable().optional(),
+        enabled: z.boolean().optional(),
+      })
+      .strict()
       .optional(),
     requestId: z.string().min(1).max(64).optional(),
   }),
@@ -1305,6 +1319,59 @@ export const trafficEventListResponseSchema = z.object({
     events: z.array(trafficPlatformRowSchema),
   }),
   pagination: paginationMetaSchema,
+})
+
+/**
+ * `POST /v1/traffic/website-visits`: where an event's website link goes.
+ *
+ * Answered to the web tier only, which re-validates the address before it
+ * sends anybody there. Always the address an administrator approved, never one
+ * the request named.
+ */
+export const websiteVisitResponseSchema = z.object({
+  data: z.object({ url: z.string().min(1).max(WEBSITE_LIMITS.url) }).strict(),
+})
+
+/** One row of the administrators' list of website links. */
+export const websiteLinkRowSchema = z
+  .object({
+    eventId: cuidSchema,
+    slug: z.string(),
+    title: z.string(),
+    status: eventStatusSchema,
+    organizationName: z.string().nullable(),
+    organizationVerified: z.boolean(),
+    /** The organiser's current address; null when they removed it while the link is on. */
+    websiteUrl: z.string().max(WEBSITE_LIMITS.url).nullable(),
+    /** The current address's host, as a person is shown it. */
+    websiteHost: z.string().max(WEBSITE_LIMITS.host).nullable(),
+    /** The address the last administrator decision was about; while on, the link goes here. */
+    websiteDecidedUrl: z.string().max(WEBSITE_LIMITS.url).nullable(),
+    /** When the current address started waiting for a decision. */
+    websiteSubmittedAt: timestampSchema.nullable(),
+    /** Whether the event's page is public, so the link would show while on. */
+    pagePublic: z.boolean(),
+    redirect: websiteRedirectStateSchema,
+  })
+  .strict()
+
+/** `GET /v1/moderation/website-links`. */
+export const websiteLinkListResponseSchema = z.object({
+  data: z.array(websiteLinkRowSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `POST /v1/moderation/events/:id/website-redirect`: the switch after the decision. */
+export const websiteRedirectResponseSchema = z.object({
+  data: z
+    .object({
+      eventId: cuidSchema,
+      websiteUrl: z.string().max(WEBSITE_LIMITS.url).nullable(),
+      /** What the public page shows now: null while the link is off or the page is not public. */
+      websiteLink: publicWebsiteLinkSchema.nullable(),
+      redirect: websiteRedirectStateSchema,
+    })
+    .strict(),
 })
 
 /**

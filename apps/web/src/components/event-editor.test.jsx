@@ -9,8 +9,15 @@ vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { EventEditor, formGaps, formProblems, stepOfField, toHousekeepingPatch, toPatch } =
-  await import('./event-editor.jsx')
+const {
+  EventEditor,
+  formGaps,
+  formProblems,
+  stepOfField,
+  toFormValues,
+  toHousekeepingPatch,
+  toPatch,
+} = await import('./event-editor.jsx')
 
 /** A draft with everything the form needs. */
 const event = {
@@ -909,7 +916,9 @@ describe('a public event', () => {
     await user.click(screen.getByRole('button', { name: /policies and access/i }))
 
     expect(screen.getByText(/a notice is recorded for every current order/i)).toBeInTheDocument()
-    expect(screen.getByText(/This build does not send email/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/Notices are not emailed, so tell ticket holders yourself as well\./),
+    ).toBeInTheDocument()
     expect(screen.queryByText(/is sent to everybody/i)).not.toBeInTheDocument()
   })
 })
@@ -1194,5 +1203,346 @@ describe('what the form knows is still missing', () => {
         message: 'An online event needs an address to join it at before it can be published.',
       },
     ])
+  })
+})
+
+describe('the organiser’s website', () => {
+  /** The switch, never decided. */
+  const NEVER = Object.freeze({
+    enabled: false,
+    pending: false,
+    decidedUrl: null,
+    submittedAt: null,
+    changedAt: null,
+    reason: null,
+    changedByName: null,
+    websiteProblem: null,
+  })
+
+  /** The switch, on for the banyan address. */
+  const ON = Object.freeze({
+    ...NEVER,
+    enabled: true,
+    decidedUrl: 'https://banyan.example/',
+    changedAt: '2026-09-30T10:00:00.000Z',
+    reason: 'Checked: their own site.',
+    changedByName: 'Anil Administrator',
+  })
+
+  /** The event as an insider reads it, with no address. */
+  const insider = { ...event, websiteUrl: null, websiteRedirect: NEVER }
+
+  /**
+   * An event detail without the website keys, as an answer that does not carry them.
+   *
+   * @param {object} detail The event.
+   * @returns {object} The event without `websiteUrl` and `websiteRedirect`.
+   */
+  function withoutWebsite(detail) {
+    const { websiteUrl: _url, websiteRedirect: _switch, ...rest } = detail
+
+    return rest
+  }
+
+  /**
+   * The PATCH bodies sent so far.
+   *
+   * @returns {object[]} The parsed bodies.
+   */
+  function patches() {
+    return apiFetch.mock.calls
+      .filter(([, options]) => options?.method === 'PATCH')
+      .map(([, options]) => JSON.parse(options.body))
+  }
+
+  it('saves https://www.Example.com once, takes the stored form back, and is not left dirty', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const waiting = { ...NEVER, pending: true, submittedAt: '2026-10-05T09:00:00.000Z' }
+
+    apiFetch.mockResolvedValue(
+      answer(200, {
+        data: {
+          ...insider,
+          revision: 4,
+          websiteUrl: 'https://www.example.com/',
+          websiteRedirect: waiting,
+        },
+      }),
+    )
+
+    render(<EventEditor event={insider} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+
+    const box = screen.getByRole('textbox', { name: /^Your website/u })
+
+    await user.type(box, 'https://www.Example.com')
+    await vi.advanceTimersByTimeAsync(2000)
+    await waitFor(() => expect(screen.getByTestId('save-status')).toHaveTextContent(/Saved at/))
+    // Long enough for a second autosave, had the form been left dirty.
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(patches()).toHaveLength(1)
+    expect(patches()[0].websiteUrl).toBe('https://www.Example.com')
+
+    // The switch is never the organiser's to send.
+    for (const key of ['websiteRedirect', 'websiteRedirectEnabled', 'websiteDecidedUrl']) {
+      expect(patches()[0]).not.toHaveProperty(key)
+    }
+
+    expect(box).toHaveValue('https://www.example.com/')
+    expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument()
+    // The status follows the answer: the address now waits for the team.
+    expect(
+      screen.getByRole('group', { name: 'Website link on your event page' }),
+    ).toHaveTextContent(
+      /Your address is on the Desi-Event team’s list of website links to look at/u,
+    )
+  })
+
+  it('keeps an address typed on after the save went, and saves it next', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    let answered = null
+
+    apiFetch.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answered = resolve
+        }),
+    )
+
+    render(<EventEditor event={insider} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+
+    const box = screen.getByRole('textbox', { name: /^Your website/u })
+
+    await user.type(box, 'https://www.Example.com')
+    await vi.advanceTimersByTimeAsync(2000)
+    await waitFor(() => expect(answered).not.toBeNull())
+
+    // More typed while the first save is in flight.
+    await user.type(box, '/tickets')
+    answered(
+      answer(200, {
+        data: { ...insider, revision: 4, websiteUrl: 'https://www.example.com/' },
+      }),
+    )
+
+    await waitFor(() => expect(screen.getByTestId('save-status')).toHaveTextContent(/Saved at/))
+    expect(box).toHaveValue('https://www.Example.com/tickets')
+  })
+
+  it('does not lose the address when a lifecycle answer leaves it out', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const postponed = {
+      ...event,
+      status: 'POSTPONED',
+      timezone: 'America/New_York',
+      websiteUrl: 'https://banyan.example/',
+      websiteRedirect: ON,
+    }
+    const night = {
+      id: 'snight1',
+      timezone: 'America/New_York',
+      startsAt: postponed.startsAt,
+      endsAt: postponed.endsAt,
+    }
+    const week = 7 * 24 * 60 * 60 * 1000
+    const later = (instant) => new Date(new Date(instant).getTime() + week).toISOString()
+    const back = withoutWebsite({
+      ...postponed,
+      status: 'PUBLISHED',
+      revision: 4,
+      startsAt: later(postponed.startsAt),
+      endsAt: later(postponed.endsAt),
+    })
+    const moves = {
+      status: 'POSTPONED',
+      transitions: [{ to: 'PUBLISHED', actor: 'organizer', entitled: true, blockers: [] }],
+    }
+    const readiness = {
+      ready: true,
+      status: 'POSTPONED',
+      publishable: [],
+      sellable: [],
+      inventory: [],
+      organizerVerified: true,
+    }
+    const answers = {
+      '/readiness': answer(200, { data: readiness }),
+      '/transitions': answer(200, { data: moves }),
+      '/reschedule': answer(200, { data: back }),
+      '/sessions': answer(200, {
+        data: [{ ...night, startsAt: back.startsAt, endsAt: back.endsAt }],
+        meta: { revision: 4 },
+      }),
+      [`/v1/events/${event.id}`]: answer(200, {
+        data: { ...postponed, ...back, title: 'Qawwali Under the Banyan!', revision: 5 },
+      }),
+    }
+
+    apiFetch.mockImplementation(async (path) => {
+      for (const [suffix, response] of Object.entries(answers)) {
+        if (path.endsWith(suffix)) return response
+      }
+
+      return answer(500, { error: { message: `No answer set up for ${path}.` } })
+    })
+
+    render(
+      <EventEditor
+        event={postponed}
+        venues={venues}
+        sessions={[night]}
+        readiness={readiness}
+        transitions={moves}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+    await user.click(screen.getByRole('button', { name: 'Set a new date and bring it back' }))
+    await user.type(
+      screen.getByLabelText(/^Why, for the people holding tickets/),
+      'The venue is ready again.',
+    )
+    await user.click(screen.getByRole('checkbox', { name: /I understand this changes the date/ }))
+    await user.click(screen.getByRole('button', { name: 'Bring it back' }))
+
+    await waitFor(() => expect(screen.getByText('Revision 4')).toBeInTheDocument())
+
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() => expect(patches()).toHaveLength(1))
+
+    expect(patches()[0].title).toBe('Qawwali Under the Banyan!')
+    // The address nobody touched is not sent, so it is never sent as null.
+    expect(patches()[0]).not.toHaveProperty('websiteUrl')
+
+    // The switch the reschedule did not mention is still the one shown.
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+
+    expect(screen.getByRole('textbox', { name: /^Your website/u })).toHaveValue(
+      'https://banyan.example/',
+    )
+    expect(
+      screen.getByRole('group', { name: 'Website link on your event page' }),
+    ).toHaveTextContent(/^Website link on your event page.*On/u)
+  })
+
+  it('refuses an address that fails the rules before sending, and the summary opens its step', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const message =
+      'Your website: Use an address that starts https://. Other kinds of link are not accepted.'
+
+    render(<EventEditor event={insider} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: /^Your website/u }),
+      'http://banyan.example/',
+    )
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: /step 1/i }))
+    await user.click(screen.getByRole('link', { name: message }))
+
+    expect(screen.getByRole('heading', { name: 'Guest information', level: 2 })).toBeInTheDocument()
+  })
+
+  it('reads the address only from an answer that carries it, and sends it trimmed or as null', () => {
+    const previous = toFormValues({ ...event, websiteUrl: 'https://banyan.example/' })
+
+    expect(previous.websiteUrl).toBe('https://banyan.example/')
+    expect(toFormValues(withoutWebsite(event), previous).websiteUrl).toBe('https://banyan.example/')
+    expect(toFormValues({ ...event, websiteUrl: null }, previous).websiteUrl).toBe('')
+    expect(toFormValues(withoutWebsite(event)).websiteUrl).toBe('')
+
+    expect(toPatch({ ...previous, websiteUrl: '  https://banyan.example/  ' }).websiteUrl).toBe(
+      'https://banyan.example/',
+    )
+    expect(toPatch({ ...previous, websiteUrl: '   ' }).websiteUrl).toBeNull()
+    // Housekeeping: a public event autosaves it.
+    expect(toHousekeepingPatch(previous).websiteUrl).toBe('https://banyan.example/')
+    expect(stepOfField('websiteUrl')).toBe('guests')
+
+    // Measured against what was last saved, it is sent only when it changed.
+    expect(toPatch(previous, previous)).not.toHaveProperty('websiteUrl')
+    expect(
+      toPatch({ ...previous, websiteUrl: ' https://banyan.example/ ' }, previous),
+    ).not.toHaveProperty('websiteUrl')
+    expect(toHousekeepingPatch(previous, previous)).not.toHaveProperty('websiteUrl')
+    expect(
+      toHousekeepingPatch({ ...previous, websiteUrl: 'https://banyan.example/nights' }, previous)
+        .websiteUrl,
+    ).toBe('https://banyan.example/nights')
+    expect(toPatch({ ...previous, websiteUrl: '' }, previous).websiteUrl).toBeNull()
+  })
+
+  it('finds a failing address with the server’s rule, and says nothing about an empty one', () => {
+    const base = toFormValues(event)
+
+    expect(formProblems({ ...base, websiteUrl: '' })).toEqual([])
+    expect(formProblems({ ...base, websiteUrl: 'https://www.Example.com' })).toEqual([])
+    expect(formProblems({ ...base, websiteUrl: 'https://banyan.example/?token=1' })).toEqual([
+      {
+        field: 'websiteUrl',
+        message:
+          'Your website: Take “token” out of the address. A public link never carries a password, key or code.',
+      },
+    ])
+
+    // An address saved before today's rules is not sent, so it stops nothing;
+    // a change to it is checked like any other.
+    const legacy = { ...base, websiteUrl: 'https://banyan.example/?token=abc' }
+
+    expect(formProblems(legacy, legacy)).toEqual([])
+    expect(
+      formProblems({ ...legacy, websiteUrl: 'https://banyan.example/?key=1' }, legacy),
+    ).toEqual([expect.objectContaining({ field: 'websiteUrl' })])
+  })
+
+  it('saves other changes on an event whose stored address fails today’s rules', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const problem =
+      'Take “token” out of the address. A public link never carries a password, key or code.'
+    const legacy = {
+      ...event,
+      websiteUrl: 'https://banyan.example/?token=abc',
+      websiteRedirect: {
+        ...NEVER,
+        pending: true,
+        submittedAt: '2026-10-01T08:30:00.000Z',
+        websiteProblem: problem,
+      },
+    }
+
+    apiFetch.mockResolvedValue(
+      answer(200, { data: { ...legacy, title: `${legacy.title}!`, revision: 4 } }),
+    )
+
+    render(<EventEditor event={legacy} venues={venues} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(5000)
+
+    await waitFor(() => expect(patches()).toHaveLength(1))
+    expect(patches()[0].title).toBe(`${legacy.title}!`)
+    expect(patches()[0]).not.toHaveProperty('websiteUrl')
+    await waitFor(() => expect(screen.getByTestId('save-status')).toHaveTextContent(/Saved at/))
+
+    // The address stays as it was, and the status under it says what is wrong.
+    await user.click(screen.getByRole('button', { name: /step 8/i }))
+
+    expect(screen.getByRole('textbox', { name: /^Your website/u })).toHaveValue(
+      'https://banyan.example/?token=abc',
+    )
+    expect(
+      screen.getByRole('group', { name: 'Website link on your event page' }),
+    ).toHaveTextContent(`Your address does not pass the address rules: ${problem}`)
   })
 })

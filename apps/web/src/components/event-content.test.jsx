@@ -129,8 +129,12 @@ describe('contact and links', () => {
 
     const links = screen.getAllByRole('link')
 
-    expect(links.map((link) => link.textContent)).toEqual(['Website', 'Instagram'])
-    expect(links[1]).toHaveAttribute('rel', 'nofollow ugc noopener noreferrer')
+    // A stored `website` key is never a link here: the website has its own
+    // switched link, through Desi-Event's redirect.
+    expect(links.map((link) => link.textContent)).toEqual(['Instagram'])
+    expect(screen.queryByText('Website')).toBeNull()
+    expect(screen.queryByText('(garba.example)')).toBeNull()
+    expect(links[0]).toHaveAttribute('rel', 'nofollow ugc noopener noreferrer')
     expect(screen.getByText('(instagram.com)')).toBeInTheDocument()
   })
 

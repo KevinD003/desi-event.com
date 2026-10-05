@@ -126,7 +126,13 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'updatedAt',
       'venue',
       'venueId',
+      // Where "Visit the organiser's website" goes, as a host, or null. Never
+      // the address: no `websiteUrl` and no `websiteRedirect` (the switch, with
+      // the deciding administrator's name) for a stranger; both keys absent.
+      'websiteLink',
     ])
+    expect(response.json().data).not.toHaveProperty('websiteUrl')
+    expect(response.json().data).not.toHaveProperty('websiteRedirect')
 
     await app.close()
   })

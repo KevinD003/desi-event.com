@@ -27,7 +27,7 @@ const RECORDED = [
   ['Virus scanning of uploaded pictures', 'NOT IMPLEMENTED'],
   ['Adding pictures to a published event', 'NOT IMPLEMENTED'],
   ['Text messages', 'NOT IMPLEMENTED'],
-  ['Email', 'NOT IMPLEMENTED'],
+  ['Email', 'EXTERNAL VERIFICATION PENDING'],
   ['Automatic deletion after a set time', 'DISABLED'],
 ]
 
@@ -79,15 +79,22 @@ describe('LimitationsPage', () => {
     expect(container.textContent).not.toMatch(/UNIQUE-SEAT TRANSFER DEFECT/)
   })
 
-  it('says an invitation code is shown once to whoever issues it, and passing it on is theirs', () => {
+  it('says which codes can be emailed and only with a mail server, and that without one each is shown once', () => {
     render(<LimitationsPage />)
 
     const email = entryFor('Email')
 
-    expect(email.textContent).toMatch(/this site sends no email/i)
-    expect(email.textContent).toMatch(/invite somebody to your team or offer somebody a ticket/i)
-    expect(email.textContent).toMatch(/shown its invitation code once/i)
-    expect(email.textContent).toMatch(/passing it on is up to you/i)
+    // True whichever way the site is configured: no blanket "sends no email".
+    expect(email.textContent).not.toMatch(/sends no email|does not send email|delivers no email/i)
+    expect(email.textContent).toMatch(
+      /can email organiser-invitation, team-invitation and ticket-transfer codes, but only when its operator has configured an SMTP mail server/i,
+    )
+    expect(email.textContent).toMatch(/tested only against a local test mail server/i)
+    expect(email.textContent).toMatch(/each code is shown once to whoever issues it/i)
+    expect(email.textContent).toMatch(/passing it on is up to them/i)
+    expect(email.textContent).toMatch(
+      /Receipts, address confirmation and password resets are not emailed in any configuration/i,
+    )
     // The old sentence said there were no invitations at all; there are.
     expect(email.textContent).not.toMatch(/no team invitations|no invitation codes/i)
   })
@@ -151,17 +158,23 @@ describe('LimitationsPage', () => {
     )
   })
 
-  it('keeps no sentence the build has overtaken, and says how a new organisation is verified', () => {
+  it('keeps no sentence the build has overtaken, and says how organisers join and are verified', () => {
     const { container } = render(<LimitationsPage />)
 
     expect(container.textContent).not.toMatch(/no seat picker/i)
     expect(container.textContent).not.toMatch(/no way to create an organisation/i)
+    // Organisations are not made from an account any more.
+    expect(container.textContent).not.toMatch(/create for yourself|starts unverified/i)
+    expect(container.textContent).toMatch(/started from one is verified from the start/i)
+    expect(container.textContent).toMatch(/can publish only after the platform has verified it/i)
     expect(container.textContent).toMatch(
-      /can publish them only after the platform has verified it/i,
+      /Every event is reviewed by the Desi-Event team before it can be published/i,
     )
-    expect(screen.getByRole('link', { name: 'create for yourself' }).getAttribute('href')).toBe(
-      '/account/organizations/new',
-    )
+    expect(
+      screen
+        .getByRole('link', { name: 'invitation from the Desi-Event team' })
+        .getAttribute('href'),
+    ).toBe('/account/organizations/new')
   })
 
   it('says the booking fee is worked out after a promo code’s discount', () => {

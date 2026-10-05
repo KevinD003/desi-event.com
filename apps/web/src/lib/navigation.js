@@ -196,9 +196,26 @@ export const WORKSPACE_GROUPS = Object.freeze([
         offered: (session) => admits(session, 'moderation'),
       },
       {
+        href: '/moderation/websites',
+        label: 'Website links',
+        // Platform administrators and super administrators turn an event's
+        // website link on or off; a moderator does not.
+        offered: (session) =>
+          admits(session, 'moderation') && sessionCan(session, 'website_redirect:manage'),
+      },
+      {
+        href: '/admin/organizer-invitations',
+        label: 'Organiser invitations',
+        // Platform administrators and super administrators: the Desi-Event
+        // team is who invites organisers.
+        offered: (session) => sessionCan(session, 'organizer:invite') && admits(session, 'admin'),
+      },
+      {
         href: '/admin/users',
         label: 'People and roles',
-        offered: (session) => admits(session, 'admin'),
+        // The area admits platform administrators too; this page is the
+        // super administrators' alone.
+        offered: (session) => sessionCan(session, 'platform:admin') && admits(session, 'admin'),
       },
     ],
   },

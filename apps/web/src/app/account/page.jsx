@@ -94,8 +94,8 @@ export default async function AccountPage() {
             {user.email}
             {user.emailVerified ? null : (
               <span className="mt-1 block text-ink-muted">
-                Not confirmed. This build has no email service, so it cannot send the confirmation
-                link; nothing you can do here depends on it.
+                Not confirmed. This site does not email confirmation links, and nothing you can do
+                here depends on it.
               </span>
             )}
           </Fact>
@@ -130,12 +130,12 @@ export default async function AccountPage() {
           <Destination href="/account/privacy" title="Privacy">
             What is kept about you, who sees it, and what you can change.
           </Destination>
-          <Destination href="/account/invitations" title="Join an organisation">
-            Type the invitation code somebody on a team handed you, and join it in the role they
+          <Destination href="/account/invitations" title="Join an organisation’s team">
+            Type the invitation code somebody on a team gave you, and join it in the role they
             chose.
           </Destination>
-          <Destination href="/account/organizations/new" title="Create an organisation">
-            Start your own, as its owner, and put on events once a moderator has checked it.
+          <Destination href="/account/organizations/new" title="Accept an organiser invitation">
+            Enter the organiser invitation code the Desi-Event team sent you.
           </Destination>
           {workspace ? (
             <Destination href={workspace} title="Workspace">

@@ -36,6 +36,7 @@ import { EVENT_MEDIA_INCLUDE, approvePendingEventMedia, decideMedia } from '../l
 import { EVENT_SUMMARY_SELECT, toEventDetail, toEventSummary } from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
 import { defineRoute } from '../lib/register.js'
+import { WEBSITE_REDIRECT_INCLUDE, websiteViewFor } from '../lib/website-redirect.js'
 
 /** Relations an event payload carries out of these routes. */
 const EVENT_INCLUDE = Object.freeze({
@@ -43,6 +44,7 @@ const EVENT_INCLUDE = Object.freeze({
   organization: true,
   ticketTypes: true,
   ...EVENT_MEDIA_INCLUDE,
+  ...WEBSITE_REDIRECT_INCLUDE,
 })
 
 /**
@@ -177,7 +179,12 @@ export function registerModerationRoutes(app, { prisma, env }) {
       // A moderator sees everything, including the tiers not on sale yet:
       // deciding whether a listing is fit to be public means seeing all of it.
       return {
-        data: toEventDetail(full, { includeDraftTiers: true, includeOnlineUrl: true, ...pricing }),
+        data: toEventDetail(full, {
+          includeDraftTiers: true,
+          includeOnlineUrl: true,
+          website: websiteViewFor(request.actor, full),
+          ...pricing,
+        }),
       }
     },
   })

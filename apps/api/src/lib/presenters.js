@@ -37,6 +37,7 @@ import {
   publicGallery,
 } from './event-media.js'
 import { REDACTED_EMAIL_DOMAIN } from './privacy-placeholders.js'
+import { publicWebsiteLink, websiteRedirectState } from './website-redirect.js'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
 import { BADGED_STATES } from './verification.js'
@@ -138,6 +139,22 @@ function parsedOrNull(value, schema) {
 }
 
 /**
+ * Social links without the former `website` key.
+ *
+ * @param {unknown} links The stored `socialLinks`.
+ * @returns {unknown} The same links, minus `website`.
+ */
+function withoutSocialWebsite(links) {
+  if (!links || typeof links !== 'object' || Array.isArray(links) || !('website' in links)) {
+    return links
+  }
+
+  const { website: _dropped, ...rest } = links
+
+  return rest
+}
+
+/**
  * The event page's own content, each part parsed before it is published.
  *
  * All of it is public because the organiser chose to publish it. The contact
@@ -164,7 +181,10 @@ export function toPublicEventContent(event) {
             bio: null,
           }))
       : null)
-  const socialLinks = parsedOrNull(event.socialLinks, eventSocialLinksSchema)
+  // The website left the social links for its own switched field. The database
+  // refuses the old key now; a stale row is still never published through it,
+  // and does not make the rest of the links unreadable.
+  const socialLinks = parsedOrNull(withoutSocialWebsite(event.socialLinks), eventSocialLinksSchema)
   const text = (value, max) =>
     typeof value === 'string' && value.trim().length > 0 ? value.trim().slice(0, max) : null
 
@@ -508,6 +528,7 @@ export function joinUrlFor(ticket, order, event) {
  * @param {Map<string, number>} [options.sessionsAvailability] Seats available now, per seated session id.
  * @param {Map<string, number>} [options.tierSeatsAvailable] Free seats per reserved tier id, for the tiers shown; each carries its own as `availableQuantity`.
  * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them; when given, the detail carries `feeTerms`.
+ * @param {'public'|'insider'|'administrator'} [options.website] The caller's view of the website link, from `websiteViewFor`. Everybody gets `websiteLink` (a host or null); an insider or administrator also gets `websiteUrl` and the switch's state, and for everybody else both keys are absent.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
 export function toEventDetail(
@@ -518,6 +539,7 @@ export function toEventDetail(
     sessionsAvailability = new Map(),
     tierSeatsAvailable = new Map(),
     feeConfigFor = null,
+    website = 'public',
   } = {},
 ) {
   const { venue = null, organization = null, ticketTypes = [], sessions = [] } = event
@@ -574,6 +596,18 @@ export function toEventDetail(
     // put an unreviewed picture on a page.
     coverImage: publicCover(event),
     gallery: publicGallery(event),
+    // Where "Visit the organiser's website" goes, as a host; the address only
+    // ever leaves through the tracked redirect. The organiser's own address and
+    // the switch are insiders' business: absent, not null, for everybody else.
+    websiteLink: publicWebsiteLink(event),
+    ...(website === 'insider' || website === 'administrator'
+      ? {
+          websiteUrl: event.websiteUrl ?? null,
+          websiteRedirect: websiteRedirectState(event, {
+            administrator: website === 'administrator',
+          }),
+        }
+      : {}),
     venue,
     organization: toPublicOrganizer(organization),
     ticketTypes: [...visibleTiers].sort(

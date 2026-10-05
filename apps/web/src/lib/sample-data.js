@@ -631,6 +631,9 @@ function toEvent(definition) {
     // exactly as the API's payload does for an event with no approved cover.
     coverImage: null,
     gallery: [],
+    // The fallback catalogue never sends a visitor to another site: no
+    // administrator has turned a website link on for a sample event.
+    websiteLink: null,
     organization: toPublicOrganizer(organization),
     venue: place,
     ticketTypes: tiers.map((tier, index) => toTicketType(event.id, currency, tier, index)),
@@ -1092,7 +1095,10 @@ const EVENT_DEFINITIONS = [
         answer: 'Food and drink are served in the lobby and stay off the dance floor.',
       },
     ],
-    socialLinks: { website: 'https://mirrorwork.example' },
+    // The organiser's website is not a social link. It is linked from an event
+    // page only while a Desi-Event administrator has the link on, and the
+    // fallback catalogue never links out (`websiteLink: null` on every event).
+    socialLinks: {},
     sponsors: [],
     dressCode: 'Whatever you can dance in. Traditional dress is welcome and never required.',
     directions: null,

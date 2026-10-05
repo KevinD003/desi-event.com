@@ -190,3 +190,39 @@ describe('where focus goes when the decision panel closes', () => {
     expect(screen.getByText(/No decision is open to a moderator from here/u)).toBeVisible()
   })
 })
+
+describe('somebody else decides', () => {
+  const NOTICE =
+    'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.'
+
+  it('draws the sentence instead of the decisions for a member of the organisation', () => {
+    render(
+      <VerificationDecision
+        organizationId={ORG}
+        organizationName="Bay Lights"
+        status="PENDING"
+        notYours={NOTICE}
+      />,
+    )
+
+    expect(screen.getByText(NOTICE)).toBeVisible()
+    expect(screen.queryByRole('group', { name: 'Decisions' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Verify' })).toBeNull()
+  })
+
+  it('shows the API’s sentence when it refuses a member all the same', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(403, { error: { code: 'CONFLICT_OF_INTEREST', message: NOTICE } }),
+    )
+    draw('PENDING')
+
+    await user.click(screen.getByRole('button', { name: 'Verify' }))
+    await user.type(screen.getByLabelText(/^Reason/u), 'Checked their trading record.')
+    await user.click(screen.getByRole('button', { name: 'Record: verify' }))
+
+    expect(await screen.findByText(NOTICE)).toBeVisible()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+})

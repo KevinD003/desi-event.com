@@ -178,14 +178,66 @@ describe('offering a ticket', () => {
     expect(path).toBe('/v1/tickets/ticket000000000000000001/transfers')
     expect(JSON.parse(options.body)).toEqual({ toEmail: 'rival@dhol.example' })
 
-    // This build sends no email; the confirmation must not claim a send.
+    // A MANUAL answer: the confirmation must not claim a send.
     expect(
       await screen.findByText(/give them the code shown below; it is shown only once/i),
     ).toBeInTheDocument()
     expect(screen.queryByText(/have been sent|has been sent/i)).toBeNull()
   })
 
-  it('says no email is sent, and that the address must be the one they sign in with', async () => {
+  it('says, when codes are not emailed, that the sender is shown the code to give them', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        deliveryMode="MANUAL"
+      />,
+    )
+
+    expect(screen.getByText(/You are shown a one-time code to give them yourself/u)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    const field = screen.getByRole('textbox', { name: /their email address/i })
+    const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
+
+    expect(described.textContent).toMatch(/must be signed in with this address/i)
+    expect(described.textContent).toMatch(/codes are not emailed from this site/i)
+    expect(described.textContent).toMatch(/one-time code to give them yourself/i)
+    expect(described.textContent).not.toMatch(/sends no email/i)
+  })
+
+  it('says, when codes are emailed, that the code goes to the address and the sender will not see it', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        deliveryMode="EMAIL"
+      />,
+    )
+
+    expect(screen.getByText(/A one-time code is emailed to the address you name/u)).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+
+    const field = screen.getByRole('textbox', { name: /their email address/i })
+    const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
+
+    expect(described.textContent).toBe(
+      'They must be signed in with this address to accept. The code is emailed to that address. You will not see it.',
+    )
+    expect(described.textContent).not.toMatch(/give them yourself/i)
+  })
+
+  it('says only what holds in every mode when the mode is not known', async () => {
     const user = userEvent.setup()
 
     render(<TicketTransferActions ticket={ticket()} transfers={[]} holder mayRevoke={false} />)
@@ -195,9 +247,34 @@ describe('offering a ticket', () => {
     const field = screen.getByRole('textbox', { name: /their email address/i })
     const described = document.getElementById(field.getAttribute('aria-describedby').split(' ')[0])
 
-    expect(described.textContent).toMatch(/must be signed in with this address/i)
-    expect(described.textContent).toMatch(/this site sends no email/i)
-    expect(described.textContent).toMatch(/one-time code to give them yourself/i)
+    expect(described.textContent).toBe('They must be signed in with this address to accept.')
+  })
+
+  it('shows the API’s sentence when the address has had its codes for the day', async () => {
+    const user = userEvent.setup()
+    const sentence =
+      'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+
+    apiFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: { code: 'RECIPIENT_DAILY_LIMIT', message: sentence } }),
+    })
+    render(
+      <TicketTransferActions
+        ticket={ticket()}
+        transfers={[]}
+        holder
+        mayRevoke={false}
+        deliveryMode="EMAIL"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /offer this ticket/i }))
+    await user.type(screen.getByRole('textbox', { name: /their email address/i }), 'a@b.example')
+    await user.click(screen.getByRole('button', { name: /send the offer/i }))
+
+    expect(await screen.findByText(sentence)).toBeVisible()
   })
 
   it('shows the one-time code after a MANUAL offer, focuses it, and forgets it on Done', async () => {

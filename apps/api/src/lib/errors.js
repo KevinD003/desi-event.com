@@ -14,6 +14,8 @@
  * @module @desi-event/api/lib/errors
  */
 
+import { WEBSITE_LIMITS } from '@desi-event/schemas/website'
+
 /** Fallback code used when nothing more specific is known. */
 export const INTERNAL_ERROR_CODE = 'INTERNAL_SERVER_ERROR'
 
@@ -77,8 +79,30 @@ const JWT_ERROR_CODES = new Set([
  * @property {string[]} [problems] Business-rule reasons, for a 4xx.
  * @property {string} [reason] A closed-vocabulary refusal code, for a 4xx.
  * @property {string} [orderReference] The order a checkout answer is about, when one was placed and the caller has to find it (see `orderReferenceOf`).
+ * @property {{currentWebsiteUrl?: string|null, enabled?: boolean}} [details] The facts a few refusals name, from a closed list (see `exposedDetailsOf`).
  * @property {boolean} expected Whether this is an anticipated 4xx rather than a bug.
  */
+
+/**
+ * The few refusals whose `details` reach the caller, and which keys of them.
+ *
+ * `details` is otherwise context for whoever reads the code, never sent. These
+ * name what the caller has to know to act without reading the page again:
+ * the address an organiser changed the website to while an administrator was
+ * deciding on the old one, and where the website link's switch stands when a
+ * decision changed nothing. Both come from an administrators-only route, and
+ * the address is what that route's own reads show the same reader in full.
+ * Each key has one type; a value of another type is left out.
+ */
+const EXPOSED_DETAILS = Object.freeze({
+  WEBSITE_CHANGED: Object.freeze({
+    currentWebsiteUrl: (value) =>
+      value === null || (typeof value === 'string' && value.length <= WEBSITE_LIMITS.url),
+  }),
+  WEBSITE_REDIRECT_UNCHANGED: Object.freeze({
+    enabled: (value) => typeof value === 'boolean',
+  }),
+})
 
 /**
  * Whether a thrown value is one of the domain error classes.
@@ -391,7 +415,34 @@ export function normaliseError(error, options = {}) {
   const orderReference = orderReferenceOf(error)
   if (orderReference) normalised.orderReference = orderReference
 
+  const details = exposedDetailsOf(error, code)
+  if (details) normalised.details = details
+
   return normalised
+}
+
+/**
+ * The part of a refusal's `details` its caller is told, for the codes in
+ * `EXPOSED_DETAILS` only.
+ *
+ * @param {unknown} error The thrown value.
+ * @param {string} code The code the answer carries.
+ * @returns {Record<string, unknown>|null} The keys that are told, or null.
+ */
+function exposedDetailsOf(error, code) {
+  const allowed = Object.hasOwn(EXPOSED_DETAILS, code) ? EXPOSED_DETAILS[code] : null
+  const details = /** @type {{details?: unknown}} */ (error)?.details
+
+  if (!allowed || !details || typeof details !== 'object') return null
+
+  /** @type {Record<string, unknown>} */
+  const exposed = {}
+
+  for (const [key, accepts] of Object.entries(allowed)) {
+    if (Object.hasOwn(details, key) && accepts(details[key])) exposed[key] = details[key]
+  }
+
+  return Object.keys(exposed).length > 0 ? exposed : null
 }
 
 /**
@@ -438,7 +489,7 @@ function refusalReasonOf(error) {
  *
  * @param {NormalisedError} normalised The normalised error.
  * @param {string} [requestId] The request id, echoed so a user can quote it in a support ticket.
- * @returns {{error: {code: string, message: string, statusCode: number, issues?: object[], problems?: string[], reason?: string, orderReference?: string, requestId?: string}}} The response body.
+ * @returns {{error: {code: string, message: string, statusCode: number, issues?: object[], problems?: string[], reason?: string, orderReference?: string, details?: object, requestId?: string}}} The response body.
  */
 export function toErrorBody(normalised, requestId) {
   /** @type {Record<string, unknown>} */
@@ -452,6 +503,7 @@ export function toErrorBody(normalised, requestId) {
   if (normalised.problems) error.problems = normalised.problems
   if (normalised.reason) error.reason = normalised.reason
   if (normalised.orderReference) error.orderReference = normalised.orderReference
+  if (normalised.details) error.details = normalised.details
   if (requestId) error.requestId = String(requestId).slice(0, 64)
 
   return { error: /** @type {never} */ (error) }

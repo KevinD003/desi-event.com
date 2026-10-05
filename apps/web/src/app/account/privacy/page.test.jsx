@@ -46,10 +46,14 @@ describe('AccountPrivacyPage', () => {
     expect(container.textContent).not.toMatch(/coming soon|\bsoon\b|\byet\b|in a future/i)
   })
 
-  it('says a forgotten password cannot be reset, because no email is delivered', () => {
+  it('says a forgotten password cannot be reset, because resets are not emailed', () => {
     const { container } = render(<AccountPrivacyPage />)
 
     expect(container.textContent).toMatch(/forgotten password cannot be reset/i)
+    expect(container.textContent).toMatch(
+      /does not email receipts, confirmation links or password resets/i,
+    )
+    expect(container.textContent).not.toMatch(/delivers no email|sends no email/i)
   })
 
   it('shows no email address, and no address-shaped example', () => {

@@ -410,7 +410,7 @@ export function SessionForm({
           <p className="text-sm text-status-warning">
             You are changing {material.map((field) => FIELD_WORDS[field]).join(', ')} of a night
             people may have bought tickets for. A notice is recorded for every order for this night.
-            This build does not send email, so tell them yourself as well.
+            Notices are not emailed, so tell ticket holders yourself as well.
           </p>
           <FormField
             label="Why the night is moving"

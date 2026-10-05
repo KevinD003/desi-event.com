@@ -887,3 +887,56 @@ describe('structured data written by an organiser', () => {
     expect(data.subEvent[1].name).toContain(`Night 2 ${breakout}`)
   })
 })
+
+describe('the event detail page and the organiser’s website', () => {
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+  })
+
+  it('links to the organiser’s website through this site, naming the host, only when the API sent one', async () => {
+    await renderEvent({ ...selling, websiteLink: { host: 'swar-sadhana.example' } })
+
+    const link = screen.getByRole('link', { name: 'Visit the organiser’s website' })
+
+    // Never the address itself: the redirect counts the visit and goes to the
+    // address an administrator approved.
+    expect(link).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website')
+    expect(link).toHaveAttribute('rel', 'nofollow')
+    expect(link).toHaveAccessibleDescription(
+      'Opens swar-sadhana.example, which Desi-Event does not run. Desi-Event counts the visit without recording your address, browser or account.',
+    )
+    expect(screen.getByText('(swar-sadhana.example)')).toBeInTheDocument()
+  })
+
+  it('shows no website link when the API sent none, whatever else the event carries', async () => {
+    for (const payload of [
+      selling,
+      { ...selling, websiteLink: null },
+      // An insider's field never reaches the public page as a link.
+      { ...selling, websiteUrl: 'https://swar-sadhana.example/', websiteLink: null },
+    ]) {
+      const { container, unmount } = await renderEvent(payload)
+
+      expect(
+        screen.queryByRole('link', { name: 'Visit the organiser’s website' }),
+      ).not.toBeInTheDocument()
+      expect(container.innerHTML).not.toContain('/website')
+      expect(container.innerHTML).not.toContain('swar-sadhana.example')
+      unmount()
+    }
+  })
+
+  it('has no "Website" among the social links', async () => {
+    await renderEvent({
+      ...selling,
+      socialLinks: {
+        instagram: 'https://instagram.com/swarsadhana',
+        website: 'https://swar-sadhana.example/',
+      },
+    })
+
+    expect(screen.getByRole('link', { name: 'Instagram' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Website' })).not.toBeInTheDocument()
+    expect(document.body.innerHTML).not.toContain('https://swar-sadhana.example/')
+  })
+})

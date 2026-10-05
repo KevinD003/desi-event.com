@@ -214,6 +214,10 @@ describe('AUDIT_ACTIONS', () => {
     })
   })
 
+  it('names the website link decision exactly as SPEC2 does', () => {
+    expect(AUDIT_ACTIONS.EVENT_WEBSITE_REDIRECT_CHANGED).toBe('event.website_redirect_changed')
+  })
+
   it('has no two names sharing one action string', () => {
     const values = Object.values(AUDIT_ACTIONS)
 

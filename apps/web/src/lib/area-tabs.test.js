@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ORG_ROLE_CAPABILITIES, PLATFORM_ROLE_CAPABILITIES } from '@desi-event/permissions'
 
-import { financeTabs, moderationTabs, operationsTabs } from './area-tabs.js'
+import { adminTabs, financeTabs, moderationTabs, operationsTabs } from './area-tabs.js'
 
 /**
  * A session holding one organisation role.
@@ -87,16 +87,64 @@ describe('operationsTabs', () => {
 })
 
 describe('moderationTabs', () => {
-  it('offers a moderator and a super administrator events and organisations', () => {
-    for (const role of ['MODERATOR', 'SUPER_ADMIN']) {
+  it('offers a moderator events and organisations, and not the website links', () => {
+    expect(moderationTabs(platform('MODERATOR'))).toEqual([
+      { href: '/moderation/events', label: 'Events' },
+      { href: '/moderation/organizations', label: 'Organisations' },
+    ])
+  })
+
+  it('offers platform administrators and super administrators the website links as well', () => {
+    for (const role of ['ADMIN', 'SUPER_ADMIN']) {
       expect(moderationTabs(platform(role)), role).toEqual([
         { href: '/moderation/events', label: 'Events' },
         { href: '/moderation/organizations', label: 'Organisations' },
+        { href: '/moderation/websites', label: 'Website links' },
       ])
+    }
+  })
+
+  it('offers the website links to exactly the platform roles that may turn a link on or off', () => {
+    for (const [role, capabilities] of Object.entries(PLATFORM_ROLE_CAPABILITIES)) {
+      const offered = hrefs(moderationTabs(platform(role))).includes('/moderation/websites')
+
+      expect(offered, role).toBe(
+        capabilities.includes('website_redirect:manage') &&
+          capabilities.includes('moderation:review'),
+      )
     }
   })
 
   it('offers an organisation owner neither, since moderation is platform-held', () => {
     expect(moderationTabs(member('OWNER'))).toEqual([])
+  })
+})
+
+describe('adminTabs', () => {
+  it('offers a super administrator both sections, invitations first', () => {
+    expect(adminTabs(platform('SUPER_ADMIN'))).toEqual([
+      { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
+      { href: '/admin/users', label: 'People and roles' },
+    ])
+  })
+
+  it('offers a platform administrator the invitations and never people and roles', () => {
+    expect(adminTabs(platform('ADMIN'))).toEqual([
+      { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
+    ])
+  })
+
+  it('offers every other platform role, and every organisation role, nothing', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN') continue
+
+      expect(adminTabs(platform(role)), role).toEqual([])
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(adminTabs(member(role)), role).toEqual([])
+    }
+
+    expect(adminTabs(null)).toEqual([])
   })
 })

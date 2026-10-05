@@ -6,7 +6,7 @@
  * @file app/moderation/events/id/page.test.jsx
  */
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -16,6 +16,7 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock('../../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
 vi.mock('../../../../lib/organizer-api.js', async () => {
   const actual = await vi.importActual('../../../../lib/organizer-api.js')
 
@@ -39,7 +40,17 @@ const {
   getModerationHistory,
   getOrganizerEvent,
 } = await import('../../../../lib/organizer-api.js')
+const { readSession } = await import('../../../../lib/session.js')
 const { default: ReviewEventPage } = await import('./page.jsx')
+const { CONFLICT_OF_INTEREST_NOTICE } = await import('../../../../lib/review-independence.js')
+const { CANNOT_DECIDE } = await import('../../../../components/website-redirect-panel.jsx')
+
+/** A platform reviewer who belongs to no organisation. */
+const REVIEWER = {
+  user: { displayName: 'Mod' },
+  capabilities: ['moderation:review', 'event:view_draft'],
+  memberships: [],
+}
 
 /** The event under review. */
 const EVENT = {
@@ -103,6 +114,8 @@ beforeEach(() => {
   })
   getModerationHistory.mockResolvedValue([])
   getEventMedia.mockReset()
+  readSession.mockReset()
+  readSession.mockResolvedValue(REVIEWER)
 })
 
 describe('the pictures on the review page', () => {
@@ -304,5 +317,155 @@ describe('the decision, once it is taken', () => {
     for (const name of ['Request changes', 'Approve', 'Reject']) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }
+  })
+})
+
+describe('a reviewer who belongs to the event’s organisation', () => {
+  it('is told somebody else decides, and is offered no decision', async () => {
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, organizationId: 'org1' })
+    readSession.mockResolvedValue({
+      ...REVIEWER,
+      memberships: [{ organizationId: 'org1', role: 'VIEWER', capabilities: [] }],
+    })
+
+    await renderPage()
+
+    // Said twice: in place of the event decision, and above the pictures,
+    // whose decisions the API refuses to a member just the same.
+    const notices = screen.getAllByText(CONFLICT_OF_INTEREST_NOTICE)
+
+    expect(notices).toHaveLength(2)
+    for (const notice of notices) expect(notice).toBeVisible()
+    expect(CONFLICT_OF_INTEREST_NOTICE).toBe(
+      'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.',
+    )
+
+    for (const name of ['Request changes', 'Approve', 'Reject']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+    // The waiting cover is still shown, with no picture decision on it.
+    expect(screen.getByRole('listitem', { name: 'Cover' })).toBeInTheDocument()
+    for (const name of ['Reject this picture', 'Approve this picture']) {
+      expect(screen.queryByRole('button', { name })).toBeNull()
+    }
+  })
+
+  it('is offered every decision when the membership is in another organisation', async () => {
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, organizationId: 'org1' })
+    readSession.mockResolvedValue({
+      ...REVIEWER,
+      memberships: [{ organizationId: 'org2', role: 'OWNER', capabilities: [] }],
+    })
+
+    await renderPage()
+
+    expect(screen.queryByText(CONFLICT_OF_INTEREST_NOTICE)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject this picture' })).toBeEnabled()
+  })
+})
+
+describe('the website link on the review page', () => {
+  /** The organiser's address, waiting for a decision. */
+  const WAITING = {
+    enabled: false,
+    pending: true,
+    decidedUrl: null,
+    submittedAt: '2026-10-01T08:30:00.000Z',
+    changedAt: null,
+    reason: null,
+    changedByName: null,
+    websiteProblem: null,
+  }
+
+  /** A platform administrator, who may switch the link. */
+  const ADMINISTRATOR = {
+    ...REVIEWER,
+    user: { displayName: 'Anil Administrator' },
+    capabilities: [...REVIEWER.capabilities, 'website_redirect:manage'],
+  }
+
+  it('writes the address out, and gives a moderator the panel without its controls, in any status', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+
+    for (const status of ['REVIEW_PENDING', 'PUBLISHED', 'DRAFT']) {
+      cleanup()
+      getOrganizerEvent.mockResolvedValue({
+        ...EVENT,
+        status,
+        websiteUrl: 'https://banyan.example/nights?lang=ur',
+        websiteRedirect: WAITING,
+      })
+
+      await renderPage()
+
+      const listing = screen.getByRole('region', { name: 'What the listing says' })
+
+      expect(within(listing).getByText('Website')).toBeInTheDocument()
+      expect(within(listing).getByText('https://banyan.example/nights?lang=ur')).toHaveClass(
+        'break-all',
+      )
+
+      const panel = screen.getByRole('region', { name: 'Website link' })
+
+      expect(panel).toHaveAttribute('id', 'website-link')
+      expect(within(panel).getByText(CANNOT_DECIDE)).toBeInTheDocument()
+      expect(within(panel).queryByRole('button')).toBeNull()
+    }
+  })
+
+  it('gives an administrator the controls, and says when the page is not public', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+    readSession.mockResolvedValue(ADMINISTRATOR)
+    getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      websiteUrl: 'https://banyan.example/',
+      websiteRedirect: WAITING,
+    })
+
+    await renderPage()
+
+    const panel = screen.getByRole('region', { name: 'Website link' })
+
+    expect(within(panel).getByRole('button', { name: 'Turn the link on' })).toBeEnabled()
+    expect(within(panel).getByRole('button', { name: 'Turn the link off' })).toBeEnabled()
+    expect(
+      within(panel).getByText(
+        'The link shows on the public page only while the event’s page is public.',
+      ),
+    ).toBeInTheDocument()
+
+    cleanup()
+    getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'PUBLISHED',
+      websiteUrl: 'https://banyan.example/',
+      websiteRedirect: WAITING,
+    })
+
+    await renderPage()
+
+    expect(
+      screen.queryByText(
+        'The link shows on the public page only while the event’s page is public.',
+      ),
+    ).toBeNull()
+  })
+
+  it('says "None given" when the organiser gave no address', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+
+    await renderPage()
+
+    const listing = screen.getByRole('region', { name: 'What the listing says' })
+
+    expect(within(listing).getByText('None given')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'The organiser has not given a website address, so there is nothing to link to.',
+      ),
+    ).toBeInTheDocument()
   })
 })

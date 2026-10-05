@@ -17,7 +17,7 @@ import { FadeIn } from './motion.jsx'
 /** What an account is for, in three true sentences. */
 const REASONS = Object.freeze([
   'Your tickets are kept in your account, with an entry pass for each.',
-  'Orders and transfers are on your account pages; this site sends no email.',
+  'Orders and transfers are on your account pages; receipts are not emailed.',
   'Payments on this site are simulated — no card, no money moves.',
 ])
 

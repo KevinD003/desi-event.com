@@ -222,6 +222,16 @@ export const AUDIT_ACTIONS = Object.freeze({
    * their zone. Counts and the session, never a seat list.
    */
   SEATS_BOUND: 'event.seats_bound',
+  /**
+   * A platform administrator turned an event's website link on or off
+   * (`lib/website-redirect.js`, the only writer of the switch), in the
+   * transaction that changed it. Metadata: on or off, what it was before and
+   * whether a decision was waiting, the administrator's reason, the decided
+   * address in full (credential-free by rule) with its host, the address
+   * decided before, the actor's platform role and the event's status. Never a
+   * visitor.
+   */
+  EVENT_WEBSITE_REDIRECT_CHANGED: 'event.website_redirect_changed',
 
   // Commerce. Promo code writes carry ids, the discount's terms and its
   // window, never the code's text; a hold reclaimed on the way to a new seat

@@ -5,10 +5,11 @@
  *
  * ## The invitation is not in the URL
  *
- * A transfer is authorised by a one-time code. This build sends no email, so
- * the API returns the code exactly once, in the response to the offer, and the
- * sender passes it on themselves; the shared `OneTimeCodePanel` is the only
- * place it is drawn, it lives in this component's state and nowhere else, and
+ * A transfer is authorised by a one-time code. When codes are not emailed
+ * (`MANUAL`, how this site runs unless a mail server is configured), the API
+ * returns the code exactly once, in the response to the offer, and the sender
+ * passes it on themselves; the shared `OneTimeCodePanel` is the only place it
+ * is drawn, it lives in this component's state and nowhere else, and
  * it is dropped on "I have handed it over", on leaving the page and on
  * unmount — not when the tab is hidden, so the sender can switch to a
  * messaging app and paste it. The recipient pastes it into the field below —
@@ -19,6 +20,11 @@
  * at the address it was offered to.
  *
  * A reserved seat is offered like any other ticket; the seat goes with it.
+ *
+ * When codes are emailed (`EMAIL`), the API sends the code to the address the
+ * ticket is offered to and returns none, and the panel says so. What the
+ * screen says about the code follows the delivery mode the session reports
+ * (`deliveryMode`), so it is true in the deployment it is read in.
  *
  * The field is a password input for the same reason a password is: this screen
  * gets used on a train.
@@ -57,11 +63,36 @@ import { apiFetch } from '../lib/api-fetch.js'
 const OFFERABLE = Object.freeze(['VALID'])
 
 /**
+ * What the offer says about its code, per delivery mode. `MANUAL` keeps "shown
+ * once … give them yourself"; `EMAIL` says the code goes to the address and the
+ * sender does not see it; an unknown mode says neither.
+ *
+ * @type {Readonly<Record<string, {how: string, field: string}>>}
+ */
+export const TRANSFER_DELIVERY_COPY = Object.freeze({
+  MANUAL: {
+    how: 'You are shown a one-time code to give them yourself; they accept it signed in at the address you name.',
+    field:
+      'They must be signed in with this address to accept. Codes are not emailed from this site: after you offer it you are shown a one-time code to give them yourself.',
+  },
+  EMAIL: {
+    how: 'A one-time code is emailed to the address you name, and they accept it signed in there. You will not see the code.',
+    field:
+      'They must be signed in with this address to accept. The code is emailed to that address. You will not see it.',
+  },
+  UNKNOWN: {
+    how: 'They accept it with a one-time code, signed in at the address you name.',
+    field: 'They must be signed in with this address to accept.',
+  },
+})
+
+/**
  * @typedef {object} TicketTransferActionsProps
  * @property {object} ticket The ticket.
  * @property {Array<object>} transfers Its transfers, oldest first.
  * @property {boolean} holder Whether the caller is the person holding it.
  * @property {boolean} mayRevoke Whether the caller may withdraw it.
+ * @property {'MANUAL'|'EMAIL'|null} [deliveryMode] How codes go out here, as the session says.
  */
 
 /**
@@ -70,7 +101,14 @@ const OFFERABLE = Object.freeze(['VALID'])
  * @param {TicketTransferActionsProps} props Component props.
  * @returns {JSX.Element} The rendered panel.
  */
-export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) {
+export function TicketTransferActions({
+  ticket,
+  transfers,
+  holder,
+  mayRevoke,
+  deliveryMode = null,
+}) {
+  const words = TRANSFER_DELIVERY_COPY[deliveryMode] ?? TRANSFER_DELIVERY_COPY.UNKNOWN
   const router = useRouter()
   const [pending, setPending] = useState(null)
   const [toEmail, setToEmail] = useState('')
@@ -211,8 +249,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
                 Offer this ticket to somebody
               </Button>
               <p className="mt-1 text-sm text-ink-muted">
-                You are shown a one-time code to give them yourself; they accept it signed in at the
-                address you name. Until they do, the ticket stays yours and still admits you.
+                {words.how} Until they do, the ticket stays yours and still admits you.
               </p>
             </li>
           ) : null}
@@ -304,7 +341,7 @@ export function TicketTransferActions({ ticket, transfers, holder, mayRevoke }) 
                   label="Their email address"
                   id="transfer-to"
                   required
-                  description="They must be signed in with this address to accept. This site sends no email: after you offer it you are shown a one-time code to give them yourself."
+                  description={words.field}
                 >
                   <Input
                     type="email"

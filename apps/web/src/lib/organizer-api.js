@@ -267,6 +267,30 @@ export async function getModerationQueue(options = {}) {
 }
 
 /**
+ * Website links, for the administrators who turn them on and off.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.state] `waiting` (the API's default), `drafts`, `on`, `off` or `all`.
+ * @param {string} [options.q] Matches the title, the web address or the website.
+ * @param {number} [options.page] The page.
+ * @param {number} [options.perPage] Rows per page.
+ * @returns {Promise<{links: object[], pagination: object|null}>} The list.
+ */
+export async function getWebsiteLinks(options = {}) {
+  const query = new URLSearchParams()
+
+  if (options.state) query.set('state', options.state)
+  if (options.q) query.set('q', options.q)
+  if (options.page) query.set('page', String(options.page))
+  if (options.perPage) query.set('perPage', String(options.perPage))
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/moderation/website-links${suffix}`)
+
+  return { links: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
  * The finance view for one organisation, or for the platform.
  *
  * @param {object} [options] Query options.

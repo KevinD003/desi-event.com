@@ -1,13 +1,13 @@
 /**
- * The administration shell admits platform super administrators and nobody
- * else.
+ * The administration shell admits the Desi-Event team's platform
+ * administrators and super administrators, and nobody else.
  *
- * `platform:admin` is a platform capability that no organisation role carries,
- * so the shell asks the unscoped question, as the retention shell does. A
- * moderator — privileged, enrolled, and in the trust and safety group of the
- * rail — is the refusal worth pinning: close to the area, and not in it. So is
- * an organisation owner whose membership claims the capability, which must not
- * be believed.
+ * `organizer:invite` and `platform:admin` are platform capabilities that no
+ * organisation role carries, so the shell asks the unscoped question, as the
+ * retention shell does. A moderator — privileged, enrolled, and in the trust
+ * and safety group of the rail — is the refusal worth pinning: close to the
+ * area, and not in it. So is an organisation owner whose membership claims the
+ * capability, which must not be believed.
  *
  * @module app/admin/layout.test
  */
@@ -64,15 +64,43 @@ async function renderShell(value) {
 }
 
 describe('who the administration shell admits', () => {
-  it('admits a super administrator', async () => {
+  it('admits a super administrator, and offers both sections as tabs', async () => {
     await renderShell(
       session({
         user: { displayName: 'Root', role: 'SUPER_ADMIN' },
-        capabilities: ['platform:admin', 'moderation:review'],
+        capabilities: ['platform:admin', 'organizer:invite', 'moderation:review'],
       }),
     )
 
     expect(screen.getByText('inside')).toBeInTheDocument()
+
+    const tabs = screen.getByRole('navigation', { name: 'Platform administration' })
+
+    expect(Array.from(tabs.querySelectorAll('a')).map((link) => link.getAttribute('href'))).toEqual(
+      ['/admin/organizer-invitations', '/admin/users'],
+    )
+  })
+
+  it('admits a platform administrator, and offers organiser invitations alone', async () => {
+    await renderShell(
+      session({
+        user: { displayName: 'Anil', role: 'ADMIN' },
+        capabilities: [
+          'moderation:review',
+          'event:view_draft',
+          'venue:manage',
+          'organizer:invite',
+          'report:view',
+          'website_redirect:manage',
+          'analytics:view_all',
+        ],
+      }),
+    )
+
+    expect(screen.getByText('inside')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Not for you' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'Organiser invitations' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('link', { name: 'People and roles' })).not.toBeInTheDocument()
   })
 
   it('refuses a moderator, and says nothing on the page can grant it', async () => {
@@ -86,7 +114,9 @@ describe('who the administration shell admits', () => {
     expect(screen.getByRole('heading', { name: 'Not for you' })).toBeInTheDocument()
     expect(screen.queryByText('inside')).not.toBeInTheDocument()
     expect(
-      screen.getByText(/held by platform super administrators alone, and nothing on this page/u),
+      screen.getByText(
+        'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+      ),
     ).toBeInTheDocument()
   })
 

@@ -6,7 +6,10 @@
  *
  *   - **Removal needs a reason** of at least four characters before anything
  *     is sent, and the reason is what is sent.
- *   - **Owner is never offered**, even if a payload listed it.
+ *   - **The roles offered are exactly the API's `roleChoices`** for the
+ *     member, Owner never among them even if a payload listed it. A member who
+ *     does not post events is told that the roles which do come from the
+ *     Desi-Event team, and the API's own refusal is shown when it gives one.
  *   - **A role change carries the whole scope** for a door role — including
  *     scoped events the picker could not list — and none for any other role.
  *   - **A door role cannot be saved blind** when the events could not be read,
@@ -32,7 +35,13 @@ const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
 
 const { apiFetch } = await import('../../../lib/api-fetch.js')
-const { InvitationActions, MemberActions, TransferOwnership } = await import('./member-actions.jsx')
+const {
+  INVITATION_DELIVERY_COPY,
+  InvitationActions,
+  MemberActions,
+  POSTING_ROLES_HINT,
+  TransferOwnership,
+} = await import('./member-actions.jsx')
 const { TeamAnnouncer } = await import('./team-announcer.jsx')
 
 /** The organisation. */
@@ -70,8 +79,16 @@ function draw(overrides = {}) {
   return render(
     <MemberActions
       organizationId={ORG}
-      member={{ id: 'mem1', name: 'Asha Rao', role: 'STAFF', scopedEventIds: ['evt1'] }}
-      assignableRoles={['OWNER', 'MANAGER', 'STAFF', 'SCANNER', 'VIEWER']}
+      member={{
+        id: 'mem1',
+        name: 'Asha Rao',
+        role: 'STAFF',
+        postsEvents: false,
+        scopedEventIds: ['evt1'],
+      }}
+      // What the API lists for an owner acting on a staff member
+      // (`roleChoices`), with a stray Owner that must still never be offered.
+      roleChoices={['OWNER', 'FINANCE', 'STAFF', 'SCANNER', 'VIEWER']}
       events={EVENTS}
       offerRoleChange
       offerRemove
@@ -142,7 +159,7 @@ describe('removing somebody', () => {
 })
 
 describe('changing a role', () => {
-  it('never offers Owner, even when a payload lists it', async () => {
+  it('offers exactly the API’s choices for the member, and never Owner', async () => {
     const user = userEvent.setup()
 
     draw()
@@ -151,7 +168,81 @@ describe('changing a role', () => {
     const options = screen.getAllByRole('option').map((option) => option.textContent)
 
     expect(options).not.toContain('Owner')
-    expect(options).toEqual(['Manager', 'Staff', 'Door scanner', 'Viewer'])
+    expect(options).toEqual(['Finance', 'Staff', 'Door scanner', 'Viewer'])
+  })
+
+  it('offers somebody who does not post events no role that does, and says who gives those', async () => {
+    const user = userEvent.setup()
+
+    draw({
+      member: {
+        id: 'mem1',
+        name: 'Asha Rao',
+        role: 'VIEWER',
+        postsEvents: false,
+        scopedEventIds: [],
+      },
+      roleChoices: ['FINANCE', 'STAFF', 'SCANNER', 'VIEWER'],
+    })
+    await user.click(screen.getByRole('button', { name: 'Change Asha Rao’s role' }))
+
+    const options = screen.getAllByRole('option').map((option) => option.textContent)
+
+    for (const posting of ['Event manager', 'Manager', 'Administrator', 'Owner']) {
+      expect(options).not.toContain(posting)
+    }
+
+    expect(screen.getByText(POSTING_ROLES_HINT)).toBeVisible()
+    expect(POSTING_ROLES_HINT).toMatch(/given by the Desi-Event team/u)
+  })
+
+  it('offers somebody who posts events the roles below theirs, administrator included', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { ok: true }))
+    draw({
+      member: { id: 'mem1', name: 'Dev', role: 'ADMIN', postsEvents: true, scopedEventIds: [] },
+      roleChoices: ['ADMIN', 'MANAGER', 'FINANCE', 'EVENT_MANAGER', 'STAFF', 'SCANNER', 'VIEWER'],
+    })
+    await user.click(screen.getByRole('button', { name: 'Change Dev’s role' }))
+
+    const select = screen.getByRole('combobox', { name: /New role/u })
+
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Administrator',
+      'Manager',
+      'Finance',
+      'Event manager',
+      'Staff',
+      'Door scanner',
+      'Viewer',
+    ])
+    expect(select).toHaveValue('ADMIN')
+    expect(screen.queryByText(POSTING_ROLES_HINT)).not.toBeInTheDocument()
+
+    await user.selectOptions(select, 'EVENT_MANAGER')
+    await user.click(screen.getByRole('button', { name: 'Save the new role' }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ role: 'EVENT_MANAGER' })
+  })
+
+  it('shows the API’s sentence when it refuses a move into a role that posts events', async () => {
+    const user = userEvent.setup()
+    const sentence =
+      'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+
+    apiFetch.mockResolvedValue(
+      answer(403, { error: { code: 'POSTING_ROLE_NEEDS_PLATFORM', message: sentence } }),
+    )
+    draw()
+
+    await user.click(screen.getByRole('button', { name: 'Change Asha Rao’s role' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: /New role/u }), 'FINANCE')
+    await user.click(screen.getByRole('button', { name: 'Save the new role' }))
+
+    expect(await screen.findByText(sentence)).toBeVisible()
+    expect(screen.getByText('Nothing was changed')).toBeInTheDocument()
   })
 
   it('sends the whole door scope for a door role, starting from the one they have', async () => {
@@ -182,11 +273,17 @@ describe('changing a role', () => {
 
     apiFetch.mockResolvedValue(answer(200, { ok: true }))
     draw({
-      member: { id: 'mem1', name: 'Asha Rao', role: 'STAFF', scopedEventIds: ['evt1', 'evt-far'] },
+      member: {
+        id: 'mem1',
+        name: 'Asha Rao',
+        role: 'STAFF',
+        postsEvents: false,
+        scopedEventIds: ['evt1', 'evt-far'],
+      },
     })
 
     await user.click(screen.getByRole('button', { name: 'Change Asha Rao’s role' }))
-    await user.selectOptions(screen.getByRole('combobox', { name: /New role/u }), 'MANAGER')
+    await user.selectOptions(screen.getByRole('combobox', { name: /New role/u }), 'SCANNER')
 
     expect(screen.getByText(/One event in their scope is not in this list/u)).toBeInTheDocument()
 
@@ -194,7 +291,7 @@ describe('changing a role', () => {
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
 
     expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
-      role: 'MANAGER',
+      role: 'SCANNER',
       eventIds: ['evt1', 'evt-far'],
     })
   })
@@ -221,8 +318,8 @@ describe('changing a role', () => {
 
     apiFetch.mockResolvedValue(answer(200, { ok: true }))
     draw({
-      member: { id: 'mem1', name: 'Priya', role: 'OWNER', scopedEventIds: [] },
-      assignableRoles: ['ADMIN', 'MANAGER', 'VIEWER'],
+      member: { id: 'mem1', name: 'Priya', role: 'OWNER', postsEvents: true, scopedEventIds: [] },
+      roleChoices: ['ADMIN', 'MANAGER', 'VIEWER'],
     })
 
     await user.click(screen.getByRole('button', { name: 'Change Priya’s role' }))
@@ -345,12 +442,18 @@ describe('what is drawn', () => {
   })
 
   it('does not offer a role change when the caller may grant no role', () => {
-    draw({ assignableRoles: ['OWNER'] })
+    draw({ roleChoices: ['OWNER'] })
 
     expect(screen.queryByRole('button', { name: /Change/u })).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Remove Asha Rao from the team' }),
     ).toBeInTheDocument()
+  })
+
+  it('does not offer a role change when the only choice is the role they have', () => {
+    draw({ roleChoices: ['STAFF'] })
+
+    expect(screen.queryByRole('button', { name: /Change/u })).not.toBeInTheDocument()
   })
 })
 
@@ -403,6 +506,39 @@ describe('withdrawing an invitation', () => {
       `/v1/organizations/${ORG}/invitations/inv1/revoke`,
     ])
     expect(await screen.findByText(/can no longer be accepted/u)).toBeInTheDocument()
+  })
+
+  it.each(['MANUAL', 'EMAIL'])(
+    'says who is told, truly when codes go out %s',
+    async (deliveryMode) => {
+      const user = userEvent.setup()
+      const { container } = render(
+        <InvitationActions
+          organizationId={ORG}
+          invitation={{ id: 'inv1', role: 'VIEWER' }}
+          reissuable
+          deliveryMode={deliveryMode}
+        />,
+      )
+
+      await user.click(screen.getByRole('button', { name: /Withdraw the invitation/u }))
+
+      expect(screen.getByText(INVITATION_DELIVERY_COPY[deliveryMode].withdraw)).toBeVisible()
+      expect(container.textContent).not.toMatch(/sends no email/iu)
+
+      await user.click(screen.getByRole('button', { name: 'Keep it' }))
+      await user.click(screen.getByRole('button', { name: /Issue a new code/u }))
+
+      expect(screen.getByText(INVITATION_DELIVERY_COPY[deliveryMode].reissue)).toBeVisible()
+    },
+  )
+
+  it('keeps the shown-once wording only for codes that are not emailed', () => {
+    expect(INVITATION_DELIVERY_COPY.MANUAL.reissue).toMatch(
+      /shown to you once, to hand over yourself/u,
+    )
+    expect(INVITATION_DELIVERY_COPY.EMAIL.reissue).toMatch(/emailed .* You will not see it\./u)
+    expect(INVITATION_DELIVERY_COPY.EMAIL.reissue).not.toMatch(/shown to you/u)
   })
 
   it('can be backed out of without sending anything', async () => {
@@ -627,6 +763,37 @@ describe('handing ownership on', () => {
       `/v1/organizations/${ORG}/ownership`,
     ])
     expect(await screen.findByText(/Asha Rao is now the owner/u)).toBeInTheDocument()
+  })
+
+  it('shows the API’s heir sentence when the member does not create events, and changes nothing', async () => {
+    const user = userEvent.setup()
+    // The API's own words (`HEIR_MUST_POST_EVENTS_SENTENCE` in routes/teams.js).
+    const sentence =
+      'Ownership can go only to somebody who already creates events here — an event manager, manager or administrator.'
+
+    apiFetch.mockResolvedValue(
+      answer(422, { error: { code: 'HEIR_MUST_POST_EVENTS', message: sentence } }),
+    )
+    render(
+      <TransferOwnership
+        organizationId={ORG}
+        organizationName="Rangoli"
+        member={{ id: 'mem1', name: 'Asha Rao' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' }))
+    await user.click(screen.getByRole('button', { name: 'Make Asha Rao the owner' }))
+
+    expect(await screen.findByText(sentence)).toBeVisible()
+    expect(screen.getByText('Nothing was changed')).toBeInTheDocument()
+    // The panel stays open with the refusal in it, and is focused.
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'Hand Rangoli to Asha Rao?' })).toHaveFocus(),
+    )
+    expect(screen.queryByText(/is now the owner/u)).toBeNull()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('can be backed out of without sending anything', async () => {

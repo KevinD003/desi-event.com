@@ -35,6 +35,8 @@ describe('describeApiRefusal', () => {
     [{ status: 500, code: 'ORDER_NOT_COMPLETED' }, 'payment-unsettled', false],
     [{ status: 409, code: 'ORDER_PENDING' }, 'payment-unsettled', false],
     [{ status: 402, code: 'PAYMENT_DECLINED' }, 'payment-declined', true],
+    [{ status: 503, code: 'DELIVERY_FAILED' }, 'delivery-failed', true],
+    [{ status: 429, code: 'RECIPIENT_DAILY_LIMIT' }, 'recipient-limit', false],
   ])('reads %j as %s', (error, state, recoverable) => {
     const refusal = describeApiRefusal(error)
 
@@ -59,6 +61,31 @@ describe('describeApiRefusal', () => {
       recoverable: false,
     })
     expect(refusal.detail).not.toMatch(/try again/)
+  })
+
+  it('keeps the API’s sentence when an email could not be sent, rather than a server error', () => {
+    const sentence =
+      'The email could not be sent, so the invitation was withdrawn and nothing reached them. Try again in a few minutes.'
+
+    expect(
+      refusalSentence(503, { error: { code: 'DELIVERY_FAILED', message: sentence } }, 'x'),
+    ).toBe(sentence)
+    expect(describeApiRefusal({ status: 503, code: 'DELIVERY_FAILED' }).detail).toMatch(
+      /could not be sent.*withdrawn/u,
+    )
+  })
+
+  it('keeps the API’s sentence for an address that has had its codes for the day', () => {
+    const sentence =
+      'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+
+    expect(
+      refusalSentence(429, { error: { code: 'RECIPIENT_DAILY_LIMIT', message: sentence } }, 'x'),
+    ).toBe(sentence)
+    // A plain rate limit is still "wait a little".
+    expect(refusalSentence(429, { error: { code: 'RATE_LIMITED', message: 'x' } }, 'y')).toMatch(
+      /Wait a little/u,
+    )
   })
 
   it('tells a lapsed step-up apart from a refusal nothing can fix', () => {

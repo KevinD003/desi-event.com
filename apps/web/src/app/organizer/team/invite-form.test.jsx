@@ -5,7 +5,8 @@
  * The properties worth pinning:
  *
  *   - it posts the address and the role, and only roles the caller may grant
- *     are offered — never Owner;
+ *     are offered — never Owner, and never a role that creates or publishes
+ *     events, which the Desi-Event team gives;
  *   - a MANUAL answer draws the code once in the one-time panel, which "I have
  *     handed it over" removes, and only then is the page read again;
  *   - the code never reaches browser storage, a link or the address bar;
@@ -89,15 +90,31 @@ beforeEach(() => {
 })
 
 describe('the invite form', () => {
-  it('posts the address and the chosen role, and offers only grantable roles', async () => {
+  it('posts the address and the chosen role, and offers only the roles the API lists', async () => {
     const user = userEvent.setup()
 
     apiFetch.mockResolvedValue(answer(201, invited({ mode: 'MANUAL', invitationCode: CODE })))
-    render(<InviteForm organizationId={ORG} assignableRoles={['OWNER', 'MANAGER', 'STAFF']} />)
+    // What the API lists for an owner (`assignableRoles`): the roles that do
+    // not create or publish events. A stray Owner is still never offered.
+    render(
+      <InviteForm
+        organizationId={ORG}
+        assignableRoles={['OWNER', 'FINANCE', 'STAFF', 'SCANNER', 'VIEWER']}
+      />,
+    )
 
-    expect(screen.queryByRole('option', { name: 'Owner' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Finance',
+      'Staff',
+      'Door scanner',
+      'Viewer',
+    ])
 
-    await user.selectOptions(screen.getByLabelText(/Role/u), 'MANAGER')
+    for (const posting of ['Owner', 'Administrator', 'Manager', 'Event manager']) {
+      expect(screen.queryByRole('option', { name: posting })).not.toBeInTheDocument()
+    }
+
+    await user.selectOptions(screen.getByLabelText(/Role/u), 'FINANCE')
     await invite(user)
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
@@ -105,8 +122,74 @@ describe('the invite form', () => {
     expect(apiFetch.mock.calls[0][1].method).toBe('POST')
     expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
       email: 'new.person@example.com',
-      role: 'MANAGER',
+      role: 'FINANCE',
     })
+  })
+
+  it('shows the API’s sentence when it refuses a role that posts events', async () => {
+    const user = userEvent.setup()
+    const sentence =
+      'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
+
+    apiFetch.mockResolvedValue(
+      answer(403, { error: { code: 'POSTING_ROLE_NEEDS_PLATFORM', message: sentence } }),
+    )
+    render(<InviteForm organizationId={ORG} assignableRoles={['STAFF']} />)
+
+    await invite(user)
+
+    expect(await screen.findByText(sentence)).toBeVisible()
+  })
+
+  it('says, when codes are emailed, that the code goes to the address', () => {
+    render(<InviteForm organizationId={ORG} assignableRoles={['STAFF']} deliveryMode="EMAIL" />)
+
+    expect(
+      screen.getByText(
+        'They join by signing in with this address and typing the code that is emailed to it.',
+      ),
+    ).toBeVisible()
+  })
+
+  it('says, when codes are not emailed, that the inviter is shown the code', () => {
+    render(<InviteForm organizationId={ORG} assignableRoles={['STAFF']} deliveryMode="MANUAL" />)
+
+    expect(screen.getByText(/typing the code you are about to be shown/u)).toBeVisible()
+  })
+
+  it('says an address has had its codes for the day, rather than to wait a little', async () => {
+    const user = userEvent.setup()
+    const sentence =
+      'This address has already been sent three codes from Desi-Event today. Try again tomorrow.'
+
+    apiFetch.mockResolvedValue(
+      answer(
+        429,
+        { error: { code: 'RECIPIENT_DAILY_LIMIT', message: sentence } },
+        { 'retry-after': '3600' },
+      ),
+    )
+    render(<InviteForm organizationId={ORG} assignableRoles={['STAFF']} deliveryMode="EMAIL" />)
+
+    await invite(user)
+
+    expect(await screen.findByText(sentence)).toBeVisible()
+    expect(screen.queryByText(/Wait about/u)).not.toBeInTheDocument()
+  })
+
+  it('says the invitation was withdrawn when its email could not be sent', async () => {
+    const user = userEvent.setup()
+    const sentence =
+      'The email could not be sent, so the invitation was withdrawn and nothing reached them. Try again in a few minutes.'
+
+    apiFetch.mockResolvedValue(
+      answer(503, { error: { code: 'DELIVERY_FAILED', message: sentence } }),
+    )
+    render(<InviteForm organizationId={ORG} assignableRoles={['STAFF']} deliveryMode="EMAIL" />)
+
+    await invite(user)
+
+    expect(await screen.findByText(sentence)).toBeVisible()
   })
 
   it('shows the code once, and only reads the page again after it is handed over', async () => {

@@ -666,8 +666,8 @@ export function SeatCheckout({
                   Sign in to reserve
                 </Link>
                 <p className="text-xs text-ink-muted">
-                  Tickets are kept in your account, and this site sends no email, so reserving needs
-                  one. Signing in brings you back to this map.
+                  Tickets are kept in your account; receipts are not emailed. So reserving needs an
+                  account: signing in brings you back to this map.
                 </p>
               </>
             ) : holding || unsettled ? (

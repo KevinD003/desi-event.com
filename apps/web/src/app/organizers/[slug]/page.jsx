@@ -319,7 +319,7 @@ export default async function OrganizerPage({ params }) {
                 what there is.
               */}
               <p className="mt-3 text-sm text-ink-muted">
-                This site does not pass messages between buyers and organisers, and sends no email.{' '}
+                This site does not pass messages between buyers and organisers.{' '}
                 {organizer.websiteUrl
                   ? `${organizer.name}'s own website, linked above, is the way to reach them.`
                   : `${organizer.name} has not given a website, so this page has no way to reach them.`}

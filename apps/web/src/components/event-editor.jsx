@@ -82,6 +82,7 @@ import {
   toContentPatch,
 } from '../lib/event-content.js'
 import { MATERIAL_FIELDS, editMode, statusReading } from '../lib/event-status.js'
+import { normaliseWebsiteUrl, websiteUrlProblem } from '../lib/website.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /** How long to wait after the last keystroke before saving. */
@@ -134,10 +135,16 @@ const MATERIAL_FORM_FIELDS = Object.freeze([
  * Arrays become comma-separated text because that is how somebody types a list
  * of languages, and JSON columns become their own named boxes.
  *
+ * The website's address is read only from an answer that carries it. One that
+ * leaves the key out says nothing about the address, so the box keeps what it
+ * had: read as empty, the next save would send `websiteUrl: null` and remove an
+ * address nobody touched.
+ *
  * @param {object} event The event as the API returned it.
+ * @param {object|null} [previous] The values this answer replaces.
  * @returns {object} The form's values.
  */
-function toFormValues(event) {
+export function toFormValues(event, previous = null) {
   return {
     title: event.title ?? '',
     summary: event.summary ?? '',
@@ -158,6 +165,7 @@ function toFormValues(event) {
     policyAgeNote: event.policies?.ageNote ?? '',
     accessFeatures: event.accessibility?.features ?? [],
     accessNote: event.accessibility?.note ?? '',
+    websiteUrl: 'websiteUrl' in event ? (event.websiteUrl ?? '') : (previous?.websiteUrl ?? ''),
     // The line-up, running order, questions, contact, links, sponsors, dress
     // code and directions.
     ...fromEventContent(event),
@@ -165,12 +173,35 @@ function toFormValues(event) {
 }
 
 /**
+ * The website's address as a save sends it, or undefined when it is not sent.
+ *
+ * Sent only when it differs from the address last saved. An address stored
+ * before today's rules (a legacy one with a key in it, carried over and
+ * waiting for the Desi-Event team) fails them; sent with every save, it would
+ * be refused every time and stop the title, the questions and everything else
+ * from saving until the organiser changed an address they never touched. The
+ * status under the box says what is wrong with it.
+ *
+ * @param {object} values The form's values.
+ * @param {object|null} [baseline] The values last saved; without them it is always sent.
+ * @returns {string|null|undefined} The address, null to remove it, or undefined.
+ */
+export function websitePatch(values, baseline = null) {
+  const next = String(values.websiteUrl ?? '').trim() || null
+
+  if (baseline && next === (String(baseline.websiteUrl ?? '').trim() || null)) return undefined
+
+  return next
+}
+
+/**
  * The form's values as the API's update body.
  *
  * @param {object} values The form's values.
+ * @param {object|null} [baseline] The values last saved, which decide whether the website's address is sent (see `websitePatch`).
  * @returns {object} A body `updateEventRequestSchema` accepts.
  */
-export function toPatch(values) {
+export function toPatch(values, baseline = null) {
   /**
    * A comma-separated box as a list, with the empties dropped.
    *
@@ -198,6 +229,12 @@ export function toPatch(values) {
     onlineUrl: values.isOnline ? values.onlineUrl.trim() || null : null,
     ageRestriction: values.ageRestriction === '' ? null : Number(values.ageRestriction),
   }
+
+  // Housekeeping, so a public event autosaves it too. The address waits for
+  // a Desi-Event administrator; saving it never turns the link on or off.
+  const websiteUrl = websitePatch(values, baseline)
+
+  if (websiteUrl !== undefined) patch.websiteUrl = websiteUrl
 
   // Omitted rather than sent empty. A `policies` object whose every field is
   // null is not "no policies"; it is a policies object, and a publication gate
@@ -234,10 +271,11 @@ export function toPatch(values) {
  * policies in a different key order.
  *
  * @param {object} values The form's values.
+ * @param {object|null} [baseline] The values last saved (see `toPatch`).
  * @returns {object} The body, without the material fields.
  */
-export function toHousekeepingPatch(values) {
-  const patch = toPatch(values)
+export function toHousekeepingPatch(values, baseline = null) {
+  const patch = toPatch(values, baseline)
 
   for (const field of MATERIAL_FIELDS) delete patch[field]
 
@@ -259,10 +297,15 @@ export function toHousekeepingPatch(values) {
  * answer is still the one that counts; this exists so that a title somebody
  * has just emptied does not cost a round trip to be told the same thing.
  *
+ * The website's address is checked only when it would be sent: one saved
+ * before today's rules is left to the status under its box (see
+ * `websitePatch`), and does not stop everything else from saving.
+ *
  * @param {object} values The form's values.
+ * @param {object|null} [baseline] The values last saved; without them the address is always checked.
  * @returns {Array<{field: string, message: string}>} One entry per problem.
  */
-export function formProblems(values) {
+export function formProblems(values, baseline = null) {
   const problems = []
 
   if (!values.title.trim()) problems.push({ field: 'title', message: 'Give the event a title.' })
@@ -299,6 +342,13 @@ export function formProblems(values) {
 
   if (values.ageRestriction !== '' && !Number.isInteger(Number(values.ageRestriction))) {
     problems.push({ field: 'ageRestriction', message: 'An age restriction is a whole number.' })
+  }
+
+  const website = websitePatch(values, baseline)
+  const websiteProblem = website ? websiteUrlProblem(website) : null
+
+  if (websiteProblem) {
+    problems.push({ field: 'websiteUrl', message: `Your website: ${websiteProblem}` })
   }
 
   return [...problems, ...contentProblems(values)]
@@ -362,7 +412,8 @@ export function stepOfField(field) {
   if (
     /^(faq|sponsors|social-)/u.test(field) ||
     field === 'publicEmail' ||
-    field === 'publicPhone'
+    field === 'publicPhone' ||
+    field === 'websiteUrl'
   ) {
     return 'guests'
   }
@@ -419,6 +470,9 @@ export function EventEditor({
   const [pricePreview, setPricePreview] = useState(preview)
   const [materialOpen, setMaterialOpen] = useState(false)
   const [status, setStatus] = useState(event.status)
+  // The website link's switch, read-only here: only the Desi-Event team moves
+  // it. Taken from every answer that carries it.
+  const [websiteRedirect, setWebsiteRedirect] = useState(event.websiteRedirect ?? null)
   const [step, setStep] = useState('details')
   const [save, setSave] = useState({ kind: 'idle', message: 'No changes made.' })
   const [serverProblems, setServerProblems] = useState([])
@@ -444,7 +498,7 @@ export function EventEditor({
     () => JSON.stringify(values) !== JSON.stringify(baseline),
     [values, baseline],
   )
-  const problems = useMemo(() => formProblems(values), [values])
+  const problems = useMemo(() => formProblems(values, baseline), [values, baseline])
   const gaps = useMemo(() => formGaps(values), [values])
 
   /**
@@ -456,6 +510,16 @@ export function EventEditor({
    */
   const setField = useCallback((field, value) => {
     setValues((current) => ({ ...current, [field]: value }))
+  }, [])
+
+  /**
+   * Take the website link's switch from an answer that carries it.
+   *
+   * @param {object|null} detail The event as the server returned it.
+   * @returns {void}
+   */
+  const takeWebsiteRedirect = useCallback((detail) => {
+    if (detail && 'websiteRedirect' in detail) setWebsiteRedirect(detail.websiteRedirect ?? null)
   }, [])
 
   /**
@@ -483,7 +547,8 @@ export function EventEditor({
       try {
         // A public event autosaves its housekeeping only; the date, place and
         // terms go through the material change panel.
-        const patch = mode === 'live' ? toHousekeepingPatch(values) : toPatch(values)
+        const patch =
+          mode === 'live' ? toHousekeepingPatch(values, baseline) : toPatch(values, baseline)
         const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}`, {
           method: 'PATCH',
           body: JSON.stringify({ ...patch, revision }),
@@ -492,9 +557,28 @@ export function EventEditor({
         const body = await response.json().catch(() => null)
 
         if (response.ok) {
+          const sentWebsite = values.websiteUrl
+          const savedWebsite =
+            'websiteUrl' in body.data &&
+            normaliseWebsiteUrl(sentWebsite) === (body.data.websiteUrl ?? null)
+              ? (body.data.websiteUrl ?? '')
+              : null
+
           setRevision(body.data.revision)
           setStatus(body.data.status)
-          setBaseline(toFormValues(body.data))
+          setBaseline((current) => toFormValues(body.data, current))
+          // The server stores the address normalised ("https://www.Example.com"
+          // becomes "https://www.example.com/"). The box takes the stored form
+          // when it still holds what was sent, so the form is not dirty for a
+          // difference nobody typed and does not save the same address again.
+          if (savedWebsite !== null) {
+            setValues((current) =>
+              current.websiteUrl === sentWebsite
+                ? { ...current, websiteUrl: savedWebsite }
+                : current,
+            )
+          }
+          takeWebsiteRedirect(body.data)
           setSave({
             kind: 'saved',
             message: `Saved at ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}.`,
@@ -525,7 +609,7 @@ export function EventEditor({
         })
       }
     },
-    [event.id, focusAfterRender, mode, problems, revision, values],
+    [baseline, event.id, focusAfterRender, mode, problems, revision, takeWebsiteRedirect, values],
   )
 
   // Autosave. Deliberately not on an interval: a timer that fires while
@@ -572,7 +656,9 @@ export function EventEditor({
    * @returns {void}
    */
   function materialSaved(detail) {
-    const saved = toFormValues(detail)
+    const saved = toFormValues(detail, baseline)
+
+    takeWebsiteRedirect(detail)
 
     setRevision(detail.revision)
     setStatus(detail.status)
@@ -608,7 +694,9 @@ export function EventEditor({
   async function lifecycleChanged(detail) {
     if (!detail) return
 
-    const saved = toFormValues(detail)
+    const saved = toFormValues(detail, baseline)
+
+    takeWebsiteRedirect(detail)
     const moved = Object.keys(saved).filter(
       (field) => JSON.stringify(saved[field]) !== JSON.stringify(baseline[field]),
     )
@@ -679,8 +767,9 @@ export function EventEditor({
       return
     }
 
-    setValues(toFormValues(body.data))
-    setBaseline(toFormValues(body.data))
+    setValues(toFormValues(body.data, baseline))
+    setBaseline(toFormValues(body.data, baseline))
+    takeWebsiteRedirect(body.data)
     setRevision(body.data.revision)
     setStatus(body.data.status)
     setConflict(null)
@@ -990,6 +1079,8 @@ export function EventEditor({
               setField={setField}
               editable={editable}
               errors={fieldErrors}
+              websiteRedirect={websiteRedirect}
+              savedWebsiteUrl={baseline.websiteUrl.trim() || null}
             />
           ) : null}
           {step === 'review' && readiness ? (
@@ -1345,7 +1436,7 @@ function PoliciesStep({
           The policies in force for an order are the ones as they stood when it was placed. Editing
           them here changes the terms for future buyers, not past ones. After publication, a change
           to them needs a reason and a confirmation, and a notice is recorded for every current
-          order. This build does not send email, so tell ticket holders yourself as well.
+          order. Notices are not emailed, so tell ticket holders yourself as well.
         </p>
       </Alert>
 

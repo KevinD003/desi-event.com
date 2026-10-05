@@ -251,6 +251,49 @@ export function trafficBeaconRateLimit(overrides = {}) {
 }
 
 /**
+ * Website-link budget: an abuse ceiling only.
+ *
+ * Somebody follows an event's website link a few times a minute at most, so
+ * 120 a minute per visitor never refuses a person; it bounds a script that
+ * hammers the lookup. When no visitor address arrived every such request
+ * shares one key, which gets the shared ceiling instead. Counting has budgets
+ * of its own (the per-event ceiling and the dedupe), so this one never decides
+ * whether a visit counts.
+ *
+ * @type {Readonly<{max: number, sharedMax: number, timeWindow: string}>}
+ */
+export const DEFAULT_WEBSITE_VISIT_LIMIT = Object.freeze({
+  max: 120,
+  sharedMax: 6000,
+  timeWindow: '1 minute',
+})
+
+/**
+ * Build the per-route `config.rateLimit` object for `traffic.websiteVisit`.
+ *
+ * Its own budget, off the global one (every request arrives from the web
+ * server), keyed on the visitor as `lib/traffic.js` identifies them and run at
+ * `onRequest`, before the body is read.
+ *
+ * @param {{max?: number, sharedMax?: number, timeWindow?: string|number}} [overrides] Limit overrides, for a test.
+ * @returns {object} The effective limit.
+ */
+export function websiteVisitRateLimit(overrides = {}) {
+  const limit = { ...DEFAULT_WEBSITE_VISIT_LIMIT, ...overrides }
+
+  return {
+    timeWindow: limit.timeWindow,
+    hook: 'onRequest',
+    keyGenerator: (request) => {
+      const key = visitorRateKey(request)
+
+      return key ? `website-visit:client:${key}` : `website-visit:shared:${request.ip}`
+    },
+    max: (_request, key) => (key.startsWith('website-visit:client:') ? limit.max : limit.sharedMax),
+  }
+}
+
+/**
  * Organiser-invitation budget, per administrator: thirty invitations and new
  * codes an hour, together.
  *

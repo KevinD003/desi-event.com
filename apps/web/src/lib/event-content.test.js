@@ -57,8 +57,10 @@ describe('reading an event into the form', () => {
     expect(values.performers).toEqual([{ name: 'Falguni Pathak', role: 'Lead vocals', bio: '' }])
     expect(values.socialLinks).toMatchObject({
       instagram: 'https://instagram.com/desi',
-      website: '',
+      facebook: '',
     })
+    // The website has its own field now: no social box for it.
+    expect(values.socialLinks).not.toHaveProperty('website')
     expect(values.dressCode).toBe('')
   })
 })
@@ -122,7 +124,11 @@ describe('what the content check finds', () => {
     expect(socialLinkProblem('instagram', 'http://instagram.com/desi')).toBe(
       'Use a full https:// address.',
     )
-    expect(socialLinkProblem('website', 'https://desi.example')).toBeNull()
+    // The website is no social network: an unknown network is refused.
+    expect(SOCIAL_NETWORKS).not.toContain('website')
+    expect(socialLinkProblem('website', 'https://desi.example')).toBe(
+      'That is not a social network this page can link to.',
+    )
     expect(socialLinkProblem('whatsapp', '')).toBeNull()
   })
 

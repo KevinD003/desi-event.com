@@ -768,6 +768,35 @@ describe('errorResponseSchema orderReference', () => {
   })
 })
 
+describe('errorResponseSchema details', () => {
+  it('carries only the closed keys a website refusal names, each with its own type', () => {
+    const base = { code: 'WEBSITE_CHANGED', message: 'The address changed.', statusCode: 409 }
+
+    for (const details of [
+      { currentWebsiteUrl: 'https://rangoli.example/' },
+      { currentWebsiteUrl: null },
+      { enabled: false },
+    ]) {
+      expect(errorResponseSchema.parse({ error: { ...base, details } }).error.details).toEqual(
+        details,
+      )
+    }
+
+    for (const details of [
+      { currentWebsiteUrl: '' },
+      { currentWebsiteUrl: 'x'.repeat(2049) },
+      { enabled: 'yes' },
+      { orderReference: 'DE-7K2M9Q' },
+      { problem: 'anything else' },
+    ]) {
+      expect(
+        errorResponseSchema.safeParse({ error: { ...base, details } }).success,
+        JSON.stringify(details),
+      ).toBe(false)
+    }
+  })
+})
+
 describe('errorResponseSchema', () => {
   it('accepts an envelope with issues', () => {
     const parsed = errorResponseSchema.parse({

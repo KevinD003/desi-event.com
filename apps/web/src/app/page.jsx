@@ -589,10 +589,12 @@ export default async function HomePage() {
               Running a garba night?
             </h2>
             <p className="mt-4 max-w-xl text-body text-ink-inverse-muted">
-              List your event with its venue, dates and ticket tiers in US dollars, then run it —
-              sales, orders and door check-in — from the organiser workspace. Create an organisation
-              from your account: it can draft events once you have set up two-step sign-in, and
-              publish them once the platform has verified it.
+              Organisers join Desi-Event by invitation from the Desi-Event team, and every event is
+              reviewed by the team before it is published. There is no sign-up form for organisers
+              on this site. If the team has sent you an organiser invitation code, enter it from
+              your account; then list your events with their venues, dates and ticket tiers in US
+              dollars, and run them — sales, orders and door check-in — from the organiser
+              workspace.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link href="/organizer" className={PRIMARY_LINK}>
@@ -603,7 +605,7 @@ export default async function HomePage() {
                 href="/account/organizations/new"
                 className={`${INVERSE_TEXT_LINK} inline-flex min-h-11 items-center`}
               >
-                Create an organisation
+                Accept an organiser invitation
               </Link>
               <Link
                 href="/limitations"

@@ -364,8 +364,9 @@ export function registerAnalyticsRoutes(app, { prisma, providers }) {
         from: from ? new Date(from) : null,
         to: to ? new Date(to) : null,
         now: new Date(),
-        // Area W's switch state names who last decided only for those who
-        // decide; it is the one thing this flag changes.
+        // Passed to the website link's switch state. The deciding
+        // administrator's name is shown to the organisation as well (SPEC2 D6),
+        // so the state reads the same for every reader today.
         administrator: can(request.actor, CAPABILITIES.WEBSITE_REDIRECT_MANAGE),
       }),
       // Named in the payload so a platform administrator reading somebody

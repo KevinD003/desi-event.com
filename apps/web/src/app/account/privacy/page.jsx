@@ -26,8 +26,9 @@
  *   refuses while a hold or open process still needs the data.
  * - The retention worker only rehearses: a `DRY_RUN` row claiming it removed
  *   anything is refused by a database constraint.
- * - No email is delivered: the mail provider in this build is an in-memory
- *   mock.
+ * - Receipts, confirmation links and password resets are not emailed in any
+ *   configuration. Invitation and ticket-transfer codes can be, but only when
+ *   the site's operator has configured a mail server.
  *
  * It makes no request of its own. What it says is true of every account, so
  * there is nothing to fetch, and nothing here can fail to load.
@@ -176,11 +177,11 @@ export default function AccountPrivacyPage() {
             This site has no way to pass the request on for you.
           </Unavailable>
           <Unavailable title="Email from this site">
-            This build delivers no email: no receipts, no confirmation links and no password resets.
-            A forgotten password cannot be reset from this site. A team invitation or a ticket offer
-            comes with a code shown once to whoever made it, who passes it on to you themselves.
-            What an email would have told you — an order, a ticket, an offer — is on these pages
-            instead.
+            This site does not email receipts, confirmation links or password resets. A forgotten
+            password cannot be reset from this site. An invitation or a ticket offer comes with a
+            code: shown once to whoever made it, who passes it on to you themselves, unless this
+            site’s operator has set up a mail server to email it to you. What an email would have
+            told you — an order, a ticket, an offer — is on these pages instead.
           </Unavailable>
           <Unavailable title="Automatic deletion after a set time">
             Scheduled deletion is switched off. The retention job only counts what a policy would

@@ -150,10 +150,10 @@ export function AccountShell({ session, children }) {
  * never offers a way round: nothing on the page can grant access.
  *
  * An area may list alternatives that are the person's own to take — the
- * organiser workspace offers creating an organisation and joining one with a
- * code. Neither is a way round somebody else's decision: creating your own
- * organisation grants nothing in theirs, and a code works only for the address
- * it was issued to.
+ * organiser workspace offers accepting an organiser invitation and joining a
+ * team with a code. Neither is a way round somebody else's decision: each code
+ * was issued by somebody entitled to issue it, and works only for the address
+ * it names.
  *
  * @param {object} props Component props.
  * @param {string} props.area The area's key in `lib/areas.js`.

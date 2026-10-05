@@ -7,18 +7,19 @@
  * the site had no way to make one: the API's `POST /v1/auth/register` was
  * there, and nothing called it, so only seeded accounts could ever buy.
  *
- * Attendee accounts only. The API also accepts `ORGANIZER`, but the platform
- * role adds nothing: what an organiser may do comes from an organisation
- * membership. Somebody who wants to run events creates an organisation, or
- * joins one with an invitation code, from their account page once they have
- * signed up — so there is no choice to offer here.
+ * Attendee accounts only; the API refuses any other role. What an organiser
+ * may do comes from an organisation membership, and organisers join by
+ * invitation from the Desi-Event team: somebody invited enters their code from
+ * their account page once they have signed up, and somebody invited to a team
+ * does the same with a team code. So there is no choice to offer here.
  *
  * The API signs the new account in as it creates it, so success is a full
  * navigation to where the person was going, carrying the new session cookie.
  *
  * What this cannot do, said on the form rather than discovered later: the
- * address is not confirmed, because this build delivers no email, and a
- * forgotten password cannot be reset, for the same reason.
+ * address is not confirmed by email, and a forgotten password cannot be reset
+ * from here, because confirmation links and password resets are not emailed in
+ * any configuration of this site.
  *
  * @module components/register-form
  */
@@ -126,7 +127,7 @@ export function RegisterForm({ next }) {
       <FormField
         label="Email address"
         id="email"
-        description="You sign in with it. This site sends no email, so it is not confirmed."
+        description="You sign in with it. Addresses are not confirmed by email on this site."
         required
       >
         <Input id="email" name="email" type="email" autoComplete="email" required />

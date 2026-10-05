@@ -12,8 +12,9 @@
  * never stored.
  *
  * There is no "forgot password" here, and no email change. The API has routes
- * for resetting a password by email, but this build has no email service to
- * deliver the link, so offering it would be offering something that never
+ * for resetting a password by email, but this site does not email reset links
+ * in any configuration — a link carrying a reset token is a credential in a
+ * web address — so offering it would be offering something that never
  * arrives.
  *
  * @module app/account/security/page

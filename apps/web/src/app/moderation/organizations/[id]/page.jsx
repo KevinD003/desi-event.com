@@ -7,6 +7,10 @@
  * decision itself is `components/verification-decision.jsx`; the API holds the
  * transition table and asks for a recent second factor.
  *
+ * A reviewer who belongs to this organisation is told that somebody else on
+ * the Desi-Event team decides, in place of the decision: the session says
+ * which organisations they are in, and the API refuses them all the same.
+ *
  * @file app/moderation/organizations/id/page.jsx
  */
 
@@ -17,6 +21,8 @@ import { Badge } from '../../../../components/ui.jsx'
 import { VerificationDecision } from '../../../../components/verification-decision.jsx'
 import { PANEL, TEXT_LINK } from '../../../../components/workspace-kit.jsx'
 import { verificationReading } from '../../../../lib/organization-vocabulary.js'
+import { CONFLICT_OF_INTEREST_NOTICE, belongsTo } from '../../../../lib/review-independence.js'
+import { readSession } from '../../../../lib/session.js'
 import { formatInstant, getVerificationReview } from '../../../../lib/workspace-api.js'
 
 export const dynamic = 'force-dynamic'
@@ -83,6 +89,10 @@ export default async function ReviewOrganizationPage({ params }) {
   }
 
   const { organization, verification, memberCount, eventCount } = review
+  // A member of the organisation does not decide on it; the API refuses them
+  // too (`CONFLICT_OF_INTEREST`), so no decision is offered.
+  const session = await readSession()
+  const memberHere = belongsTo(session, organization.id)
   const reading = verificationReading(verification.status)
   const history = [...(verification.history ?? [])].reverse()
 
@@ -171,6 +181,7 @@ export default async function ReviewOrganizationPage({ params }) {
           organizationId={organization.id}
           organizationName={organization.name}
           status={verification.status}
+          notYours={memberHere ? CONFLICT_OF_INTEREST_NOTICE : null}
         />
       </section>
     </div>

@@ -290,7 +290,7 @@ export const COMMANDS = Object.freeze({
     verb: 'Postponing',
     reason: 'required',
     confirm:
-      'Postponing records a notice for every ticket holder that the date is off. This build does not send email, so tell them yourself too. Continue?',
+      'Postponing records a notice for every ticket holder that the date is off. Notices are not emailed, so tell them yourself too. Continue?',
     tone: 'secondary',
   },
   cancel: {

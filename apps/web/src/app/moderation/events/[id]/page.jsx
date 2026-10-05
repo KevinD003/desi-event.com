@@ -14,17 +14,26 @@
  * moderator picking this up should not have to guess what the first one asked
  * for.
  *
+ * A reviewer who belongs to the event's organisation is told that somebody
+ * else on the Desi-Event team decides, in place of the decision controls: the
+ * session says which organisations they are in, and the API refuses them all
+ * the same.
+ *
  * @file app/moderation/events/id/page.jsx
  */
 
 import Link from 'next/link'
+
+import { PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { Alert, Badge, Card, CardBody } from '../../../../components/ui.jsx'
 import { ModerationDecision } from '../../../../components/moderation-decision.jsx'
 import { ModerationMediaReview } from '../../../../components/moderation-media-review.jsx'
 import { RichText } from '../../../../components/rich-text.jsx'
+import { WebsiteRedirectPanel } from '../../../../components/website-redirect-panel.jsx'
 import { accessibilityLabel, mergedAccessibility } from '../../../../lib/accessibility.js'
+import { sessionCan } from '../../../../lib/capabilities.js'
 import { formatEventDate, formatEventTime, formatVenueAddress } from '../../../../lib/format.js'
 import { mediaReadFailure } from '../../../../lib/media.js'
 import { statusReading } from '../../../../lib/event-status.js'
@@ -38,6 +47,8 @@ import {
   getModerationHistory,
   getOrganizerEvent,
 } from '../../../../lib/organizer-api.js'
+import { CONFLICT_OF_INTEREST_NOTICE, belongsTo } from '../../../../lib/review-independence.js'
+import { readSession } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -133,6 +144,10 @@ export default async function ReviewEventPage({ params }) {
   ])
 
   const picturesUnknown = !Array.isArray(media.data)
+  // A member of the organisation does not review its events; the API refuses
+  // them too (`CONFLICT_OF_INTEREST`), so the controls are not offered.
+  const session = await readSession()
+  const memberHere = belongsTo(session, event.organizationId ?? event.organization?.id ?? null)
 
   const reading = statusReading(event.status)
   const address = formatVenueAddress(event.venue)
@@ -290,6 +305,13 @@ export default async function ReviewEventPage({ params }) {
                       </dd>
                     </div>
                   ) : null}
+                  {/* The organiser's own site, written out. Whether the public
+                      page links to it is the website panel's switch, decided
+                      apart from the listing. */}
+                  <div>
+                    <dt className="font-medium text-ink">Website</dt>
+                    <dd className="break-all text-ink-muted">{event.websiteUrl ?? 'None given'}</dd>
+                  </div>
                   {/* Each link written out in full, not as a label, so the
                       moderator sees where it goes before approving it. */}
                   {links.length > 0 ? (
@@ -439,7 +461,10 @@ export default async function ReviewEventPage({ params }) {
               </div>
             ) : (
               <div className="mt-3">
-                <ModerationMediaReview media={media.data} />
+                <ModerationMediaReview
+                  media={media.data}
+                  notYours={memberHere ? CONFLICT_OF_INTEREST_NOTICE : null}
+                />
               </div>
             )}
           </section>
@@ -532,6 +557,7 @@ export default async function ReviewEventPage({ params }) {
               ) : null}
               <ModerationDecision
                 event={event}
+                notYours={memberHere ? CONFLICT_OF_INTEREST_NOTICE : null}
                 approveBlockedReason={
                   picturesUnknown
                     ? 'Approving is not offered while the pictures cannot be shown: it would also approve pictures you have not seen. Asking for changes and rejecting are still available.'
@@ -545,6 +571,16 @@ export default async function ReviewEventPage({ params }) {
               platform, not with you.
             </p>
           </section>
+
+          {/* Every status: the website link is switched at any time, apart
+              from the review. Only administrators get the controls. */}
+          <WebsiteRedirectPanel
+            eventId={event.id}
+            websiteUrl={event.websiteUrl ?? null}
+            state={event.websiteRedirect ?? null}
+            pagePublic={PUBLICLY_VISIBLE_STATUSES.has(event.status)}
+            canDecide={sessionCan(session, 'website_redirect:manage')}
+          />
         </aside>
       </div>
     </div>

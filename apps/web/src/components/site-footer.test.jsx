@@ -60,21 +60,41 @@ describe('SiteFooter', () => {
     )
   })
 
-  it('promises nothing, and says a new organisation publishes once it is verified', () => {
+  it('promises nothing, and says organisers join by invitation and every event is reviewed', () => {
     const { container } = render(<SiteFooter />)
 
     expect(container.textContent).not.toMatch(/coming soon|\bsoon\b|\byet\b/i)
     expect(container.textContent).toMatch(
-      /An organisation you create from your account can publish once the platform has verified it\./,
+      /Organisers join by invitation from the Desi-Event team, and every event is reviewed by the team before it is published\./,
     )
-    expect(screen.getByRole('link', { name: 'Create an organisation' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Accept an organiser invitation' })).toHaveAttribute(
       'href',
       '/account/organizations/new',
     )
-    // Both overtaken by the build: seats are sold through the seat picker, and
-    // anybody signed in can create an organisation.
+    // Organisations are not made from an account: there is no such link.
+    expect(screen.queryByRole('link', { name: /create an organisation/i })).toBeNull()
+    expect(container.textContent).not.toMatch(/organisation you create/i)
+    // Overtaken by the build: seats are sold through the seat picker.
     expect(container.textContent).not.toMatch(/no sign-up for an organisation/i)
     expect(container.textContent).not.toMatch(/sell seated tickets/i)
+  })
+
+  it('says narrowly what is not emailed, true whether or not codes are emailed', () => {
+    render(<SiteFooter />)
+
+    const heading = screen.getByRole('heading', { name: 'What this site does not do' })
+    const items = within(heading.parentElement)
+      .getAllByRole('listitem')
+      .map((item) => item.textContent)
+
+    expect(items).toEqual([
+      'Take real payments',
+      'Calculate US sales tax',
+      'Email receipts or password resets',
+    ])
+    // A deployment with a mail server emails invitation and transfer codes,
+    // so a blanket "Send email" in this list would be false there.
+    expect(items.some((item) => /^send email$|no email/i.test(item))).toBe(false)
   })
 
   it('makes every link a 44px target', () => {

@@ -145,6 +145,17 @@ describe('bringing a postponed event back', () => {
     ).toBeInTheDocument()
   })
 
+  it('says notices are recorded and not emailed, without claiming the site sends no email', () => {
+    const { container } = render(
+      <EventRescheduleForm event={event} sessions={sessions} revision={12} onDone={vi.fn()} />,
+    )
+
+    expect(
+      screen.getByText(/Notices are not emailed, so tell ticket holders yourself as well\./),
+    ).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/does not send email|sends no email/i)
+  })
+
   it('moves the end and every session with the start, and sends one command with the revision', async () => {
     const user = userEvent.setup()
     const onDone = vi.fn()

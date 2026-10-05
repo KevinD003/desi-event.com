@@ -677,7 +677,7 @@ describe('postponing an event', () => {
     const reason = screen.getByLabelText(/what to tell ticket holders/i)
 
     expect(reason).toHaveAccessibleDescription(
-      'Recorded with the notice for every current order. This build does not send email, so tell ticket holders yourself as well.',
+      'Recorded with the notice for every current order. Notices are not emailed, so tell ticket holders yourself as well.',
     )
     expect(screen.queryByText(/sent to/i)).not.toBeInTheDocument()
   })

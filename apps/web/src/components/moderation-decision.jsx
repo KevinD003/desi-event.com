@@ -24,6 +24,21 @@
  * moderator pressing at the same moment gets a conflict rather than a second
  * decision.
  *
+ * ## Somebody else decides
+ *
+ * A reviewer who belongs to the event's organisation may not decide on it
+ * (`CONFLICT_OF_INTEREST`), and nor may the person who sent it for review
+ * (`SELF_REVIEW`). The page knows the first from the session and passes the
+ * sentence in, and the controls are not drawn; the API refuses both all the
+ * same, and its sentence is shown when it does.
+ *
+ * ## Approval names the version it approves
+ *
+ * The API refuses an approval that does not say which revision the moderator
+ * saw, so a version nobody has looked at cannot be approved. Every decision
+ * carries the revision this page showed; when the page has none to send,
+ * approving is not offered.
+ *
  * @module components/moderation-decision
  */
 
@@ -66,6 +81,10 @@ const DECISIONS = Object.freeze({
   },
 })
 
+/** Why approving is not offered when the page does not know the version it showed. */
+export const NO_REVISION_TO_APPROVE =
+  'Approving is not offered: this page does not say which version of the event it shows, and an approval has to name the version it approves. Reload the page. Asking for changes and rejecting are still available.'
+
 /**
  * Fields a moderator can attach a specific note to.
  *
@@ -98,6 +117,7 @@ const FIELDS = Object.freeze([
  * @property {object} event The event under review. Its `revision` is sent with the decision, so a decision is only ever taken on the version this page showed.
  * @property {Function} [onDecided] Called with the new status once the server accepts.
  * @property {string|null} [approveBlockedReason] Why approving is not offered now, in a sentence; approving is then disabled and the sentence shown. Used when the page could not show everything an approval would approve.
+ * @property {string|null} [notYours] Why this reviewer may not decide on this event at all, in a sentence; no decision is offered and the sentence is shown instead.
  */
 
 /**
@@ -106,7 +126,12 @@ const FIELDS = Object.freeze([
  * @param {ModerationDecisionProps} props Component props.
  * @returns {JSX.Element} The rendered form.
  */
-export function ModerationDecision({ event, onDecided, approveBlockedReason = null }) {
+export function ModerationDecision({
+  event,
+  onDecided,
+  approveBlockedReason = null,
+  notYours = null,
+}) {
   const router = useRouter()
   const [pending, setPending] = useState(null)
   const [reason, setReason] = useState('')
@@ -227,6 +252,10 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
   // after filling it. Kept mounted, the region and its sentence survive the
   // refresh, and the notice appears beside them.
   const decidable = event.status === 'REVIEW_PENDING'
+  // The API refuses an approval that names no revision; without one to name,
+  // approving is not offered at all rather than refused after the second press.
+  const approveBlocked =
+    approveBlockedReason ?? (Number.isInteger(event.revision) ? null : NO_REVISION_TO_APPROVE)
 
   return (
     <div>
@@ -234,7 +263,13 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
         {announcement}
       </p>
 
-      {decidable ? (
+      {decidable && notYours ? (
+        <Alert variant="info" title="Somebody else decides this">
+          <p>{notYours}</p>
+        </Alert>
+      ) : null}
+
+      {decidable && !notYours ? (
         <>
           {error && !pending ? (
             <Alert variant="error" title="That did not work" className="mb-3">
@@ -242,9 +277,9 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
             </Alert>
           ) : null}
 
-          {approveBlockedReason ? (
+          {approveBlocked ? (
             <p id="approve-blocked" className="mb-3 text-sm text-ink-muted">
-              {approveBlockedReason}
+              {approveBlocked}
             </p>
           ) : null}
 
@@ -256,9 +291,9 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
                 variant={
                   entry.tone === 'danger' ? 'danger' : key === 'approve' ? 'primary' : 'secondary'
                 }
-                disabled={busy || (key === 'approve' && Boolean(approveBlockedReason))}
+                disabled={busy || (key === 'approve' && Boolean(approveBlocked))}
                 aria-describedby={
-                  key === 'approve' && approveBlockedReason ? 'approve-blocked' : undefined
+                  key === 'approve' && approveBlocked ? 'approve-blocked' : undefined
                 }
                 onClick={(pressed) => begin(key, pressed.currentTarget)}
               >
@@ -406,7 +441,9 @@ export function ModerationDecision({ event, onDecided, approveBlockedReason = nu
             </div>
           ) : null}
         </>
-      ) : (
+      ) : null}
+
+      {decidable ? null : (
         <Alert
           variant="info"
           title="Nothing to decide"

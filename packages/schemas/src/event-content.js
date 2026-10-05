@@ -13,8 +13,10 @@
  *
  * A link labelled "Instagram" goes to Instagram. Each network has a short list
  * of hosts, and an address on any other host is refused for that key, so an
- * "Instagram" label can never point at a look-alike domain. The `website` key
- * takes any `https:` address, because it is labelled with the address itself.
+ * "Instagram" label can never point at a look-alike domain. The organiser's own
+ * website is not a social link: it has its own field, `websiteUrl`
+ * (`@desi-event/schemas/website`), behind a switch only the Desi-Event team
+ * turns, and a `website` key here is refused with a sentence saying so.
  *
  * ## Public contact is not the account contact
  *
@@ -71,18 +73,10 @@ export const EVENT_CONTENT_LIMITS = Object.freeze({
 })
 
 /** The social networks an event page links to, in the order the page lists them. */
-export const SOCIAL_NETWORKS = Object.freeze([
-  'website',
-  'instagram',
-  'facebook',
-  'youtube',
-  'x',
-  'whatsapp',
-])
+export const SOCIAL_NETWORKS = Object.freeze(['instagram', 'facebook', 'youtube', 'x', 'whatsapp'])
 
 /** How each network is named to a person. */
 export const SOCIAL_NETWORK_LABELS = Object.freeze({
-  website: 'Website',
   instagram: 'Instagram',
   facebook: 'Facebook',
   youtube: 'YouTube',
@@ -92,9 +86,6 @@ export const SOCIAL_NETWORK_LABELS = Object.freeze({
 
 /**
  * The hosts each network's link may point at.
- *
- * `website` is absent: it takes any `https:` host, because the page shows the
- * address itself as the label.
  *
  * @type {Readonly<Record<string, ReadonlyArray<string>>>}
  */
@@ -266,11 +257,10 @@ export const eventSponsorsSchema = z.array(eventSponsorSchema).max(EVENT_CONTENT
  *
  * @param {string} network One of {@link SOCIAL_NETWORKS}.
  * @param {string} href The address.
- * @returns {boolean} True when the host belongs to the network, or the key is `website`.
+ * @returns {boolean} True when the host belongs to the network.
  */
 export function isAllowedSocialHost(network, href) {
   if (!isHttpsUrl(href)) return false
-  if (network === 'website') return true
 
   const hosts = SOCIAL_HOSTS[network]
 
@@ -282,13 +272,28 @@ export function isAllowedSocialHost(network, href) {
 const socialLinkSchema = z.preprocess(blankToNull, httpsUrlSchema.nullish())
 
 /**
+ * Why a `website` key in the social links is refused.
+ *
+ * It used to be one: a direct link to any https address, with no switch and no
+ * count. The organiser's website now has its own field, shown only while the
+ * Desi-Event team has the link on, so the old key is refused by name rather
+ * than dropped, and an old client is told where it went.
+ */
+export const SOCIAL_WEBSITE_MOVED_MESSAGE =
+  'Your website has its own field: send it as websiteUrl. It appears on the event page only while the Desi-Event team has the website link on.'
+
+/**
  * Links to the organiser's accounts, one per network.
  *
  * Strict: an unknown key is refused, not dropped, so a misspelt network is an
- * error the organiser sees rather than a link that silently vanishes.
+ * error the organiser sees rather than a link that silently vanishes. The
+ * former `website` key is refused with {@link SOCIAL_WEBSITE_MOVED_MESSAGE}.
  */
 export const eventSocialLinksSchema = z
-  .object(Object.fromEntries(SOCIAL_NETWORKS.map((network) => [network, socialLinkSchema])))
+  .object({
+    ...Object.fromEntries(SOCIAL_NETWORKS.map((network) => [network, socialLinkSchema])),
+    website: z.never({ error: SOCIAL_WEBSITE_MOVED_MESSAGE }).optional(),
+  })
   .strict()
   .superRefine((links, ctx) => {
     for (const network of SOCIAL_NETWORKS) {

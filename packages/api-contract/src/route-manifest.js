@@ -792,6 +792,14 @@ export const apiRouteManifest = Object.freeze([
     query: true,
   },
   {
+    id: 'traffic.websiteVisit',
+    method: 'POST',
+    path: '/v1/traffic/website-visits',
+    auth: 'none',
+    body: true,
+    query: false,
+  },
+  {
     id: 'finance.balance',
     method: 'GET',
     path: '/v1/finance/balance',
@@ -974,6 +982,22 @@ export const apiRouteManifest = Object.freeze([
     auth: 'session',
     body: true,
     query: false,
+  },
+  {
+    id: 'moderation.setWebsiteRedirect',
+    method: 'POST',
+    path: '/v1/moderation/events/:id/website-redirect',
+    auth: 'session',
+    body: true,
+    query: false,
+  },
+  {
+    id: 'moderation.websiteLinks',
+    method: 'GET',
+    path: '/v1/moderation/website-links',
+    auth: 'session',
+    body: false,
+    query: true,
   },
   {
     id: 'events.sessions',

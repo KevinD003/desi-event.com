@@ -18,7 +18,7 @@
  * says so.
  *
  * The copy is exact about what happens to ticket holders: a notice is recorded
- * for every current order. This build does not send email.
+ * for every current order. Notices are not emailed.
  *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.
@@ -239,8 +239,8 @@ export function EventRescheduleForm({
       </h3>
       <p className="text-sm text-ink-muted">
         Times are in {zone} ({zoneAbbreviation(zone, new Date(startsAt ?? Date.now()))}). A notice
-        is recorded for every current order with the new date and your reason. This build does not
-        send email, so tell ticket holders yourself as well.
+        is recorded for every current order with the new date and your reason. Notices are not
+        emailed, so tell ticket holders yourself as well.
       </p>
 
       <form onSubmit={submit} aria-labelledby="reschedule-heading" className="space-y-4">

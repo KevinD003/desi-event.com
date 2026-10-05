@@ -611,3 +611,22 @@ describe('the event page content in the sample catalogue', () => {
     }
   })
 })
+
+describe('the organiser’s website in the sample catalogue', () => {
+  it('links no sample event to another site, and keeps no website among the social links', async () => {
+    const { eventSocialLinksSchema } = await import('@desi-event/schemas/event-content')
+
+    for (const event of SAMPLE_EVENTS) {
+      expect(event.websiteLink, event.slug).toBeNull()
+      expect(event, event.slug).not.toHaveProperty('websiteUrl')
+      expect(event, event.slug).not.toHaveProperty('websiteRedirect')
+      expect(event.socialLinks?.website, event.slug).toBeUndefined()
+
+      if (event.socialLinks) {
+        expect(eventSocialLinksSchema.safeParse(event.socialLinks).success, event.slug).toBe(true)
+      }
+    }
+
+    expect(findSampleEvent(SAMPLE_EVENTS[0].slug).websiteLink).toBeNull()
+  })
+})

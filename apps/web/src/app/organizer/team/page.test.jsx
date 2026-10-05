@@ -15,7 +15,13 @@
  *   - **The invite form is offered to a holder of `team:invite` here**, with a
  *     role it may grant, and nowhere else; every open invitation says how its
  *     code went out, and a new code is offered only for a grantable role.
- *   - **Ownership is offered only to an owner of this organisation.**
+ *     What the page says about the code is true in the delivery mode the
+ *     session reports, and it says that roles which post events come from the
+ *     Desi-Event team.
+ *   - **A role change offers the API's `roleChoices`**, and removal reaches a
+ *     member whose role posts events when the caller's role contains it.
+ *   - **Ownership is offered only to an owner of this organisation**, and
+ *     only towards a member who already creates events here.
  *   - **Door scopes say what the API enforces**: a door role with no scope
  *     admits nobody.
  *
@@ -47,7 +53,12 @@ vi.mock('../../../lib/workspace-api.js', async () => {
 })
 
 const { getTeam, listOrganizationEvents } = await import('../../../lib/workspace-api.js')
-const { default: TeamPage } = await import('./page.jsx')
+const {
+  HEIR_SENTENCE,
+  INVITE_DELIVERY_SENTENCES,
+  POSTING_ROLES_SENTENCE,
+  default: TeamPage,
+} = await import('./page.jsx')
 
 /** The organisation these tests act in. */
 const ORG = 'org00000000000000000001'
@@ -67,11 +78,26 @@ const ADMIN_CAPABILITIES = [
  * A session with the given memberships.
  *
  * @param {object[]} memberships The memberships.
+ * @param {'MANUAL'|'EMAIL'|null} [deliveryMode] How codes go out, as `auth.me` reports it.
  * @returns {object} The session.
  */
-function session(memberships) {
-  return { user: { displayName: 'Admin' }, capabilities: [], memberships }
+function session(memberships, deliveryMode = 'MANUAL') {
+  return { user: { displayName: 'Admin' }, capabilities: [], memberships, deliveryMode }
 }
+
+/** What the API offers an owner or administrator for a member who does not post events. */
+const NON_POSTING_CHOICES = ['FINANCE', 'STAFF', 'SCANNER', 'VIEWER']
+
+/** What the API offers an owner or administrator for an administrator member. */
+const ADMIN_MEMBER_CHOICES = [
+  'ADMIN',
+  'MANAGER',
+  'FINANCE',
+  'EVENT_MANAGER',
+  'STAFF',
+  'SCANNER',
+  'VIEWER',
+]
 
 /**
  * An administrator of {@link ORG}.
@@ -105,6 +131,8 @@ function member(overrides = {}) {
     scopedEventIds: [],
     joinedAt: '2026-01-02T10:00:00.000Z',
     self: false,
+    postsEvents: false,
+    roleChoices: NON_POSTING_CHOICES,
     ...overrides,
   }
 }
@@ -158,14 +186,21 @@ function team(emailVisibility, overrides = {}) {
   return {
     emailVisibility,
     members: [
-      member({ id: 'mem-self', displayName: 'Admin', role: 'ADMIN', self: true }),
+      member({
+        id: 'mem-self',
+        displayName: 'Admin',
+        role: 'ADMIN',
+        self: true,
+        postsEvents: true,
+        roleChoices: [],
+      }),
       member(),
     ],
     invitations: [invitation()],
     // What the API computes for an administrator (`assignableRoles` in
-    // apps/api/src/routes/teams.js): ADMIN included, since an administrator
-    // holds every capability an administrator does.
-    assignableRoles: ['ADMIN', 'MANAGER', 'FINANCE', 'EVENT_MANAGER', 'STAFF', 'SCANNER', 'VIEWER'],
+    // apps/api/src/routes/teams.js): the roles that do not create or publish
+    // events, since those are given by the Desi-Event team.
+    assignableRoles: NON_POSTING_CHOICES,
     ...overrides,
   }
 }
@@ -312,17 +347,28 @@ describe('what is offered', () => {
     expect(screen.queryByRole('button', { name: /Withdraw/u })).not.toBeInTheDocument()
   })
 
-  it('never offers changing your own role or removing yourself, though your role is grantable', async () => {
+  it('never offers changing your own role or removing yourself, though a payload lists choices for it', async () => {
     const payload = team('HIDDEN', {
       members: [
-        member({ id: 'mem-self', displayName: 'Admin', role: 'ADMIN', self: true }),
-        member({ id: 'mem-peer', displayName: 'Peer Admin', role: 'ADMIN' }),
+        // The API lists no choices for the caller's own row; a payload that
+        // did must still not put a button there.
+        member({
+          id: 'mem-self',
+          displayName: 'Admin',
+          role: 'ADMIN',
+          self: true,
+          postsEvents: true,
+          roleChoices: ADMIN_MEMBER_CHOICES,
+        }),
+        member({
+          id: 'mem-peer',
+          displayName: 'Peer Admin',
+          role: 'ADMIN',
+          postsEvents: true,
+          roleChoices: ADMIN_MEMBER_CHOICES,
+        }),
       ],
     })
-
-    // The caller's own role is one they may grant, so the only thing between
-    // their own row and the buttons is the self check.
-    expect(payload.assignableRoles).toContain('ADMIN')
 
     await renderPage({ answer: payload })
 
@@ -340,12 +386,49 @@ describe('what is offered', () => {
   it('offers nothing over a member whose role is above the caller’s', async () => {
     await renderPage({
       answer: team('HIDDEN', {
-        members: [member({ id: 'owner', displayName: 'Priya', role: 'OWNER' })],
+        members: [
+          member({
+            id: 'owner',
+            displayName: 'Priya',
+            role: 'OWNER',
+            postsEvents: true,
+            roleChoices: [],
+          }),
+        ],
       }),
     })
 
     expect(screen.queryByRole('button', { name: /Priya/u })).not.toBeInTheDocument()
     expect(screen.getByText('Your role here cannot change this member’s.')).toBeInTheDocument()
+  })
+
+  it('offers removing a member whose role posts events when the caller’s role contains it', async () => {
+    // Removal reaches by capability, as the API's `assertMayActOn` does: an
+    // administrator may remove an event manager, though nobody may invite one.
+    await renderPage({
+      answer: team('HIDDEN', {
+        members: [
+          member({
+            id: 'em',
+            displayName: 'Dev',
+            role: 'EVENT_MANAGER',
+            postsEvents: true,
+            roleChoices: ['FINANCE', 'EVENT_MANAGER', 'STAFF', 'SCANNER', 'VIEWER'],
+          }),
+        ],
+      }),
+    })
+
+    expect(screen.getByRole('button', { name: 'Remove Dev from the team' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Change Dev’s role' })).toBeInTheDocument()
+  })
+
+  it('offers no role change when the API lists nothing but the role the member has', async () => {
+    await renderPage({
+      answer: team('HIDDEN', { members: [member({ roleChoices: ['STAFF'] })] }),
+    })
+
+    expect(screen.queryByRole('button', { name: 'Change Asha Rao’s role' })).toBeNull()
   })
 
   it('offers withdrawing an invitation only with team:invite here', async () => {
@@ -357,18 +440,62 @@ describe('what is offered', () => {
   })
 
   it('offers the invite form to a holder of team:invite here, and says the code is handed over by hand', async () => {
-    await renderPage({ answer: team('FULL') })
+    const { container } = await renderPage({ answer: team('FULL') })
 
     expect(screen.getByRole('heading', { name: 'Invite somebody' })).toBeInTheDocument()
     expect(screen.getByLabelText(/Their email address/u)).toHaveAttribute('type', 'email')
     expect(screen.getByRole('button', { name: 'Invite them' })).toBeInTheDocument()
+    expect(screen.getByText(INVITE_DELIVERY_SENTENCES.MANUAL)).toBeInTheDocument()
+    expect(INVITE_DELIVERY_SENTENCES.MANUAL).toMatch(
+      /shown to you once, and you hand it to them yourself/u,
+    )
+    expect(container.textContent).not.toMatch(/sends no email/iu)
+    // Only the roles that do not post events; Owner never.
+    const invite = screen.getByRole('form', { name: 'Invite somebody' })
+
     expect(
-      screen.getByText(
-        'This site sends no email. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
-      ),
-    ).toBeInTheDocument()
-    // Owner is never on offer, even though an owner can reach this page.
+      within(invite)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Finance', 'Staff', 'Door scanner', 'Viewer'])
     expect(screen.queryByRole('option', { name: 'Owner' })).not.toBeInTheDocument()
+  })
+
+  it('says, when codes are emailed, that the code goes to the address and the inviter will not see it', async () => {
+    const { container } = await renderPage({
+      as: session(admin().memberships, 'EMAIL'),
+      answer: team('FULL'),
+    })
+
+    expect(
+      screen.getByText('The code is emailed to that address. You will not see it.'),
+    ).toBeInTheDocument()
+    expect(container.textContent).not.toContain(INVITE_DELIVERY_SENTENCES.MANUAL)
+  })
+
+  it('says to a holder of team:invite that roles which post events come from the Desi-Event team', async () => {
+    await renderPage({ answer: team('HIDDEN') })
+
+    expect(screen.getByText(POSTING_ROLES_SENTENCE)).toBeInTheDocument()
+    expect(POSTING_ROLES_SENTENCE).toMatch(
+      /event manager, manager, administrator and owner — are given by the Desi-Event team/u,
+    )
+  })
+
+  it('does not say it to somebody who cannot invite here', async () => {
+    await renderPage({
+      as: session([
+        {
+          organizationId: ORG,
+          organizationName: 'Rangoli',
+          role: 'VIEWER',
+          capabilities: ['organization:view_members'],
+        },
+      ]),
+      answer: team('HIDDEN'),
+    })
+
+    expect(screen.queryByText(POSTING_ROLES_SENTENCE)).not.toBeInTheDocument()
   })
 
   it('offers no invite form when team:invite is held only in another organisation', async () => {
@@ -454,14 +581,50 @@ describe('what is offered', () => {
     ).toBeInTheDocument()
   })
 
-  it('offers handing ownership on to an owner of this organisation, for every other member', async () => {
-    await renderPage({ as: owner(), answer: team('HIDDEN') })
+  it('offers handing ownership on to an owner of this organisation, only towards somebody who creates events here', async () => {
+    await renderPage({
+      as: owner(),
+      answer: team('HIDDEN', {
+        members: [
+          member({
+            id: 'mem-self',
+            displayName: 'Admin',
+            role: 'OWNER',
+            self: true,
+            postsEvents: true,
+            roleChoices: [],
+          }),
+          member(),
+          member({
+            id: 'em',
+            displayName: 'Dev',
+            role: 'EVENT_MANAGER',
+            postsEvents: true,
+            roleChoices: ['FINANCE', 'EVENT_MANAGER', 'STAFF', 'SCANNER', 'VIEWER'],
+          }),
+        ],
+      }),
+    })
 
     expect(screen.getByRole('heading', { name: 'Ownership' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Hand ownership to Asha Rao' })).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(HEIR_SENTENCE, 'u'))).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hand ownership to Dev' })).toBeInTheDocument()
+    // A staff member does not create events, so the API would refuse them.
+    expect(screen.queryByRole('button', { name: 'Hand ownership to Asha Rao' })).toBeNull()
     expect(
       screen.queryByRole('button', { name: 'Hand ownership to Admin' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('says there is nobody to hand ownership to when nobody else creates events here', async () => {
+    await renderPage({ as: owner(), answer: team('HIDDEN') })
+
+    expect(
+      screen.getByText(
+        'Nobody else on this team creates events here, so there is nobody to hand it to.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Hand ownership/u })).toBeNull()
   })
 
   it('offers no ownership section to an administrator, or to an owner of another organisation', async () => {

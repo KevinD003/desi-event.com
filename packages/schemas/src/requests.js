@@ -64,6 +64,7 @@ import {
 } from './event-content.js'
 import { revisionQueryParamSchema } from './media.js'
 import { venueAccessibilitySchema } from './venues.js'
+import { WEBSITE_LIMITS, websiteUrlSchema } from './website.js'
 
 /** Sort orders accepted by the event listing endpoint. */
 export const EVENT_SORT_OPTIONS = Object.freeze([
@@ -92,6 +93,14 @@ export const loginRequestSchema = z.object({
   email: emailSchema,
   password: z.string().min(1).max(128),
 })
+
+/**
+ * Why an event write may not carry the website link's switch.
+ *
+ * @type {string}
+ */
+export const WEBSITE_SWITCH_REFUSAL =
+  'Only the Desi-Event team turns the website link on or off, from its own screens. Leave this out.'
 
 /**
  * Fields an organiser may supply when creating or updating an event.
@@ -148,6 +157,24 @@ const eventWritableFields = {
    */
   publicEmail: publicEmailSchema.optional(),
   publicPhone: publicPhoneSchema.optional(),
+  /**
+   * The organiser's own website. Blank or null clears it; anything else must
+   * pass `websiteUrlProblem` and is stored as `new URL(...).href`. Saving it
+   * never moves the website link's switch: a changed address waits for a
+   * Desi-Event administrator, and while the link is on it keeps going to the
+   * address an administrator approved.
+   */
+  websiteUrl: websiteUrlSchema.optional(),
+  /**
+   * The switch and the address it was decided on are the Desi-Event team's
+   * (`moderation.setWebsiteRedirect`). Refused by name, so an organiser's
+   * client is told rather than silently ignored; every other `websiteRedirect*`
+   * and `websiteDecided*` key is stripped by this schema and never reaches a
+   * column.
+   */
+  websiteRedirectEnabled: z.never({ error: WEBSITE_SWITCH_REFUSAL }).optional(),
+  websiteRedirect: z.never({ error: WEBSITE_SWITCH_REFUSAL }).optional(),
+  websiteDecidedUrl: z.never({ error: WEBSITE_SWITCH_REFUSAL }).optional(),
   /**
    * Refused, with a sentence naming the replacement. The cover used to be an
    * external address the editor's preview fetched from wherever it pointed;
@@ -1332,6 +1359,61 @@ export const balanceQuerySchema = z.object({
 export const moderationQueueQuerySchema = paginationQuerySchema.extend({
   status: z.enum(['REVIEW_PENDING', 'CHANGES_REQUIRED', 'APPROVED', 'REJECTED']).optional(),
 })
+
+/**
+ * The filters of the administrators' list of website links.
+ *
+ *   - `waiting`: an address nobody has decided on, for an event under review,
+ *     approved or public; oldest first. The default.
+ *   - `drafts`: the same, for an event that is not under review, approved or
+ *     public (a draft, one sent back for changes, a rejected or an archived one).
+ *   - `on`: the link is on.
+ *   - `off`: an address an administrator decided is not linked.
+ *   - `all`: every event with an address, or with the link on.
+ */
+export const WEBSITE_LINK_STATES = Object.freeze(['waiting', 'drafts', 'on', 'off', 'all'])
+
+/**
+ * Query string for `GET /v1/moderation/website-links`.
+ *
+ * `q` matches the title or the web address. It reaches PostgreSQL as a
+ * search term, so a control character is refused here as a 400.
+ */
+export const websiteLinkListQuerySchema = paginationQuerySchema.extend({
+  state: z.enum(WEBSITE_LINK_STATES).default('waiting'),
+  q: z
+    .preprocess(
+      (value) => {
+        if (typeof value !== 'string') return value
+
+        const text = value.trim()
+
+        return text === '' ? undefined : text
+      },
+      withoutControlCharacters(
+        z
+          .string()
+          .min(WEBSITE_LIMITS.searchMin, 'Search with at least 2 characters.')
+          .max(WEBSITE_LIMITS.search, 'Keep the search to 100 characters.'),
+      ).optional(),
+    )
+    .optional(),
+})
+
+/**
+ * What the web tier asks when somebody follows an event's website link.
+ *
+ * Server to server only: the web's same-origin proxy refuses this path, so the
+ * only browser road to it is `GET /events/{slug}/website`. The address comes
+ * from the event, never from here; `counted` can only stop a visit being
+ * counted.
+ */
+export const websiteVisitRequestSchema = z
+  .object({
+    slug: slugSchema,
+    counted: z.boolean(),
+  })
+  .strict()
 
 /**
  * The optimistic-concurrency precondition every authoring write carries.

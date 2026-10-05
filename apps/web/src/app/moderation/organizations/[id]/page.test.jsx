@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
 vi.mock('../../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+vi.mock('../../../../lib/session.js', () => ({ readSession: vi.fn() }))
 vi.mock('../../../../lib/workspace-api.js', async () => {
   const actual = await vi.importActual('../../../../lib/workspace-api.js')
 
@@ -17,7 +18,9 @@ vi.mock('../../../../lib/workspace-api.js', async () => {
 })
 
 const { getVerificationReview } = await import('../../../../lib/workspace-api.js')
+const { readSession } = await import('../../../../lib/session.js')
 const { default: ReviewOrganizationPage } = await import('./page.jsx')
+const { CONFLICT_OF_INTEREST_NOTICE } = await import('../../../../lib/review-independence.js')
 
 const ORG = 'org00000000000000000001'
 
@@ -64,6 +67,12 @@ function review(status) {
 
 beforeEach(() => {
   getVerificationReview.mockReset()
+  readSession.mockReset()
+  readSession.mockResolvedValue({
+    user: { displayName: 'Mod' },
+    capabilities: ['moderation:review'],
+    memberships: [],
+  })
 })
 
 describe('the organisation review', () => {
@@ -105,5 +114,38 @@ describe('the organisation review', () => {
     expect(
       screen.getAllByRole('link', { name: 'Back to organisation checks' }).length,
     ).toBeGreaterThan(0)
+  })
+})
+
+describe('a reviewer who belongs to the organisation', () => {
+  it('is told somebody else decides, and is offered no decision', async () => {
+    getVerificationReview.mockResolvedValue(review('PENDING'))
+    readSession.mockResolvedValue({
+      user: { displayName: 'Mod' },
+      capabilities: ['moderation:review'],
+      memberships: [{ organizationId: ORG, role: 'STAFF', capabilities: [] }],
+    })
+
+    render(await ReviewOrganizationPage({ params: Promise.resolve({ id: ORG }) }))
+
+    expect(screen.getByText(CONFLICT_OF_INTEREST_NOTICE)).toBeVisible()
+
+    for (const label of ['Verify', 'Ask for more information', 'Reject']) {
+      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
+    }
+  })
+
+  it('is offered the decisions when the membership is in another organisation', async () => {
+    getVerificationReview.mockResolvedValue(review('PENDING'))
+    readSession.mockResolvedValue({
+      user: { displayName: 'Mod' },
+      capabilities: ['moderation:review'],
+      memberships: [{ organizationId: 'org00000000000000000099', role: 'OWNER', capabilities: [] }],
+    })
+
+    render(await ReviewOrganizationPage({ params: Promise.resolve({ id: ORG }) }))
+
+    expect(screen.queryByText(CONFLICT_OF_INTEREST_NOTICE)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Verify' })).toBeInTheDocument()
   })
 })

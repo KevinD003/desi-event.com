@@ -24,6 +24,7 @@ const {
   formatInstant,
   getNotification,
   getOrganizationProfile,
+  getOrganizerInvitations,
   getTeam,
   getVerification,
   getVerificationQueue,
@@ -290,6 +291,47 @@ describe('the organisation and verification reads', () => {
       '/v1/organizations/o1%3Fy/verification',
       '/v1/moderation/organizations/o1%23z',
     ])
+  })
+
+  it('asks for organiser invitations with only the filters the API takes', async () => {
+    fetch.mockResolvedValueOnce(
+      ok({
+        data: [{ id: 'inv1' }],
+        pagination: { page: 1, total: 1 },
+        meta: { deliveryMode: 'EMAIL' },
+      }),
+    )
+
+    const list = await getOrganizerInvitations({
+      status: 'ALL',
+      q: 'Rangoli & Co',
+      page: 1,
+      email: 'priya@example.com',
+      code: 'not-a-filter',
+    })
+    const url = requested()
+
+    expect(url.pathname).toBe('/v1/platform/organizer-invitations')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      status: 'ALL',
+      q: 'Rangoli & Co',
+      page: '1',
+    })
+    // No address and no code ever reaches the query string.
+    expect(url.search).not.toMatch(/priya|not-a-filter/u)
+    expect(list).toEqual({
+      invitations: [{ id: 'inv1' }],
+      pagination: { page: 1, total: 1 },
+      deliveryMode: 'EMAIL',
+    })
+  })
+
+  it('reports no delivery mode rather than guessing one', async () => {
+    fetch.mockResolvedValueOnce(ok({ data: [], meta: { deliveryMode: 'CARRIER_PIGEON' } }))
+
+    const list = await getOrganizerInvitations()
+
+    expect(list).toEqual({ invitations: [], pagination: null, deliveryMode: null })
   })
 
   it('asks the queue for only the filters it takes, and none that are empty', async () => {

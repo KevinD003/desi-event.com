@@ -16,7 +16,7 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({ getAll: () => [{ name: 'desi_session', value: 'opaque' }] }),
 }))
 
-const { callApi } = await import('./organizer-api.js')
+const { callApi, getWebsiteLinks } = await import('./organizer-api.js')
 
 const fetch = vi.fn()
 
@@ -81,5 +81,34 @@ describe('callApi', () => {
     const error = await callApi('/v1/auth/me').catch((caught) => caught)
 
     expect(error.status).toBeUndefined()
+  })
+})
+
+describe('getWebsiteLinks', () => {
+  it('asks for one filter, search and page, and gives the rows and the counters', async () => {
+    fetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: [{ eventId: 'e1' }], pagination: { page: 2, total: 21 } }),
+        { status: 200 },
+      ),
+    )
+
+    const result = await getWebsiteLinks({ state: 'on', q: 'garba night', page: 2, perPage: 20 })
+
+    expect(result).toEqual({ links: [{ eventId: 'e1' }], pagination: { page: 2, total: 21 } })
+    expect(new URL(fetch.mock.calls[0][0]).pathname).toBe('/v1/moderation/website-links')
+    expect(Object.fromEntries(new URL(fetch.mock.calls[0][0]).searchParams)).toEqual({
+      state: 'on',
+      q: 'garba night',
+      page: '2',
+      perPage: '20',
+    })
+  })
+
+  it('leaves the filter to the API’s default when none is named', async () => {
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+
+    expect(await getWebsiteLinks()).toEqual({ links: [], pagination: null })
+    expect(fetch.mock.calls[0][0]).toMatch(/\/v1\/moderation\/website-links$/u)
   })
 })

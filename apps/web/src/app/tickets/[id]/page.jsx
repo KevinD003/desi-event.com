@@ -288,6 +288,11 @@ export default async function TicketDetailPage({ params }) {
           transfers={transfers.map(({ id, status }) => ({ id, status }))}
           holder={holder}
           mayRevoke={mayRevoke}
+          deliveryMode={
+            session?.deliveryMode === 'EMAIL' || session?.deliveryMode === 'MANUAL'
+              ? session.deliveryMode
+              : null
+          }
         />
       </Section>
 

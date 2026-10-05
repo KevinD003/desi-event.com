@@ -210,7 +210,7 @@ describe('the home page', () => {
     expect(container.textContent).toMatch(/US sales tax is not calculated in this demo/)
   })
 
-  it('points organisers at the workspace and at creating an organisation', async () => {
+  it('points organisers at the workspace and at accepting an invitation, and says events are reviewed', async () => {
     const container = await draw()
 
     expect(screen.getByRole('link', { name: /Open the organiser workspace/ })).toHaveAttribute(
@@ -221,11 +221,17 @@ describe('the home page', () => {
       'href',
       '/limitations',
     )
-    expect(screen.getByRole('link', { name: 'Create an organisation' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Accept an organiser invitation' })).toHaveAttribute(
       'href',
       '/account/organizations/new',
     )
-    expect(container.textContent).toMatch(/publish them once the platform has verified it\./)
+    expect(container.textContent).toMatch(
+      /Organisers join Desi-Event by invitation from the Desi-Event team, and every event is\s+reviewed by the team before it is published\./,
+    )
+    expect(container.textContent).toMatch(/There is no sign-up form for organisers on this site\./)
+    // Organisations are not made from an account here.
+    expect(screen.queryByRole('link', { name: /create an organisation/i })).toBeNull()
+    expect(container.textContent).not.toMatch(/create an organisation/i)
     expect(container.textContent).not.toMatch(/no sign-up for an organisation/i)
   })
 

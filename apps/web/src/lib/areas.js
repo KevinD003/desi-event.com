@@ -120,12 +120,14 @@ export const AREAS = Object.freeze({
       ORGANIZER_CAPABILITIES.some((capability) => canInAnyOrganization(session, capability)),
     refusal:
       'This workspace is for people who run events: organisers, their staff and the people on their doors. Your account is not a member of any organisation that puts events on here. If you should be, ask whoever runs the organisation to add you — nothing on this page can grant it.',
-    // Starting an organisation of your own, or joining one with a code
-    // somebody gave you, is not a way round anybody's decision: each is the
-    // person's own to take, and each is checked by the API.
+    // Organisations are not made from an account here: organisers join by an
+    // invitation from the Desi-Event team. Accepting that invitation, or
+    // joining a team with a code somebody in it gave you, is not a way round
+    // anybody's decision: each code was issued by somebody entitled to, works
+    // only for the address it names, and is checked by the API.
     alternatives: Object.freeze([
-      { href: '/account/organizations/new', label: 'Create an organisation' },
-      { href: '/account/invitations', label: 'Join with an invitation code' },
+      { href: '/account/organizations/new', label: 'Accept an organiser invitation' },
+      { href: '/account/invitations', label: 'Join a team with an invitation code' },
     ]),
   },
   analytics: {
@@ -178,11 +180,16 @@ export const AREAS = Object.freeze({
   admin: {
     key: 'admin',
     label: 'Platform administration',
-    href: '/admin/users',
-    // Platform-held and unscoped: no organisation role carries it.
-    admits: (session) => sessionCan(session, 'platform:admin'),
+    href: '/admin/organizer-invitations',
+    // Platform-held and unscoped: no organisation role carries either. A
+    // platform administrator (`organizer:invite`) comes in to invite
+    // organisers; a super administrator (`platform:admin`, and every other
+    // capability) to that and to changing who can do what. Each page inside
+    // asks its own question again.
+    admits: (session) =>
+      sessionCan(session, 'organizer:invite') || sessionCan(session, 'platform:admin'),
     refusal:
-      'This area changes who can do what across the whole platform. It is held by platform super administrators alone, and nothing on this page can grant it.',
+      'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
   },
   retention: {
     key: 'retention',

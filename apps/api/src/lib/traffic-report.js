@@ -34,6 +34,7 @@ import { PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import { CARD_PLACEMENTS, TRAFFIC_SOURCES } from '@desi-event/schemas/traffic-vocabulary'
 
 import { dayDate, utcDay } from './traffic.js'
+import { WEBSITE_REDIRECT_SELECT, websiteRedirectState } from './website-redirect.js'
 
 /** The longest per-day series a payload carries. */
 export const SERIES_LIMIT_DAYS = 366
@@ -267,16 +268,22 @@ const EVENT_ROW_SELECT = Object.freeze({
 })
 
 /**
+ * The columns the narrowed-to event reads: a row's, and the website link's
+ * switch with who last decided it.
+ */
+const NARROWED_EVENT_SELECT = Object.freeze({ ...EVENT_ROW_SELECT, ...WEBSITE_REDIRECT_SELECT })
+
+/**
  * The `traffic` branch of the organiser's analytics.
  *
  * Scoped to the organisation's events. An `eventId` narrows it and never
  * widens it: an event of another organisation matches nothing, so the figures
  * are zero and `event` is null.
  *
- * The route also passes `administrator` (whether the reader holds
- * `website_redirect:manage`). It is area W's to read, in
- * `websiteRedirectState(event, { administrator })`, once that exists; until
- * then `event.websiteRedirect` is null and nothing here depends on it.
+ * The narrowed-to event carries the website link's switch as its team reads it
+ * (`websiteRedirectState`): on or off, whether an address waits, where the link
+ * goes, and who decided when and why. `administrator` (whether the reader
+ * holds `website_redirect:manage`) is passed to it unchanged.
  *
  * @param {object} prisma A Prisma client.
  * @param {object} params Inputs.
@@ -285,11 +292,12 @@ const EVENT_ROW_SELECT = Object.freeze({
  * @param {Date|null} [params.from] Window start.
  * @param {Date|null} [params.to] Window end, exclusive.
  * @param {Date} params.now The current instant.
+ * @param {boolean} [params.administrator] Whether the reader decides on website links.
  * @returns {Promise<object>} The `analyticsTrafficSchema` object.
  */
 export async function trafficSummary(
   prisma,
-  { organizationId, eventId = null, from = null, to = null, now },
+  { organizationId, eventId = null, from = null, to = null, now, administrator = false },
 ) {
   if (!organizationId) {
     throw new TypeError('Visits are always read for one organisation.')
@@ -323,7 +331,10 @@ export async function trafficSummary(
     freshness(prisma, now),
     anyDemonstration(prisma, dailyWhere),
     eventId
-      ? prisma.event.findFirst({ where: { id: eventId, organizationId }, select: EVENT_ROW_SELECT })
+      ? prisma.event.findFirst({
+          where: { id: eventId, organizationId },
+          select: NARROWED_EVENT_SELECT,
+        })
       : null,
   ])
 
@@ -420,10 +431,8 @@ export async function trafficSummary(
           deleted: narrowed.status === DELETED_STATUS,
           startsAt: narrowed.startsAt,
           websiteLinkOn: narrowed.websiteRedirectEnabled === true,
-          // The switch as insiders read it (who decided, when, why) is area W's
-          // `websiteRedirectState`; until `lib/website-redirect.js` exists the
-          // state is not known here and is null, which the schema allows.
-          websiteRedirect: null,
+          // The switch as the event's team reads it: who decided, when and why.
+          websiteRedirect: websiteRedirectState(narrowed, { administrator }),
         }
       : null,
   }

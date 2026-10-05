@@ -46,12 +46,13 @@ const ALSO = Object.freeze([
     key: 'verification',
     text: (
       <>
-        An organisation you{' '}
+        Organisers join by an{' '}
         <Link href="/account/organizations/new" className={LINK}>
-          create for yourself
-        </Link>{' '}
-        starts unverified. Once you have set up two-step sign-in it can draft events, and it can
-        publish them only after the platform has verified it.
+          invitation from the Desi-Event team
+        </Link>
+        , and an organisation started from one is verified from the start. An organisation made
+        before invitations began can publish only after the platform has verified it. Every event is
+        reviewed by the Desi-Event team before it can be published.
       </>
     ),
   },

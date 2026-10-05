@@ -56,6 +56,11 @@ function sizeLabel(bytes) {
 /**
  * @typedef {object} ModerationMediaReviewProps
  * @property {object[]} [media] The event's pictures, from `GET /v1/events/:id/media`.
+ * @property {string|null} [notYours] Why this reviewer may not decide on these
+ *   pictures at all, in a sentence: the pictures are still shown, the sentence
+ *   is shown once above them, and no picture offers a decision. The API refuses
+ *   a picture decision from a member of the event's organisation
+ *   (`CONFLICT_OF_INTEREST`), so offering one would only lead to a refusal.
  */
 
 /**
@@ -64,7 +69,7 @@ function sizeLabel(bytes) {
  * @param {ModerationMediaReviewProps} props Component props.
  * @returns {JSX.Element} The list.
  */
-export function ModerationMediaReview({ media = [] }) {
+export function ModerationMediaReview({ media = [], notYours = null }) {
   const [items, setItems] = useState(media)
   const [announcement, setAnnouncement] = useState('')
 
@@ -77,6 +82,11 @@ export function ModerationMediaReview({ media = [] }) {
 
   return (
     <div className="space-y-4">
+      {notYours ? (
+        <Alert variant="info" title="Somebody else decides this">
+          <p>{notYours}</p>
+        </Alert>
+      ) : null}
       <p role="status" aria-live="polite" className="text-sm font-medium text-ink">
         {announcement}
       </p>
@@ -92,6 +102,7 @@ export function ModerationMediaReview({ media = [] }) {
               key={item.id}
               item={item}
               label={label}
+              decidable={!notYours}
               onDecided={(updated, sentence) => {
                 setItems((current) => current.map((row) => (row.id === updated.id ? updated : row)))
                 setAnnouncement(sentence)
@@ -108,6 +119,8 @@ export function ModerationMediaReview({ media = [] }) {
  * @typedef {object} PictureCardProps
  * @property {object} item The picture.
  * @property {string} label What to call it.
+ * @property {boolean} decidable Whether this reviewer may decide on it; when
+ *   false, the picture and its details are shown without a decision.
  * @property {Function} onDecided Given the updated picture and a sentence.
  */
 
@@ -117,7 +130,7 @@ export function ModerationMediaReview({ media = [] }) {
  * @param {PictureCardProps} props Component props.
  * @returns {JSX.Element} The list item.
  */
-function PictureCard({ item, label, onDecided }) {
+function PictureCard({ item, label, decidable, onDecided }) {
   const router = useRouter()
   const headingId = useId()
   const reasonRef = useRef(null)
@@ -288,7 +301,7 @@ function PictureCard({ item, label, onDecided }) {
         </div>
       ) : null}
 
-      {!stepUp && !rejecting ? (
+      {decidable && !stepUp && !rejecting ? (
         <div className="flex flex-wrap gap-2">
           {item.moderationStatus !== 'REJECTED' ? (
             <Button

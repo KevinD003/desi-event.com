@@ -19,8 +19,8 @@
  *
  * ## Why buying needs an account
  *
- * A ticket lives in the buyer's account: this build delivers no email, so a
- * guest purchase would issue tickets nobody could ever see, and there is no
+ * A ticket lives in the buyer's account, and receipts are not emailed in any
+ * configuration, so a guest purchase would issue tickets nobody could ever see, and there is no
  * route that lets a guest claim them later. So a signed-out visitor can choose
  * and see the price, and is asked to sign in before anything is held; sign-in
  * brings them back here.
@@ -676,8 +676,8 @@ export function CheckoutBasket({
                   Sign in to buy
                 </Link>
                 <p className="text-xs text-ink-muted">
-                  Tickets are kept in your account, and this site sends no email, so buying needs
-                  one. Signing in brings you back here.
+                  Tickets are kept in your account; receipts are not emailed. So buying needs an
+                  account: signing in brings you back here.
                 </p>
               </>
             ) : holding || unsettled ? (

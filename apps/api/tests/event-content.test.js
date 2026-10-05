@@ -29,8 +29,9 @@ const CONTENT = Object.freeze({
   sponsors: [{ name: 'Chai Co', url: 'https://chai.example', level: 'Gold' }],
   socialLinks: {
     instagram: 'https://www.instagram.com/rangoli',
-    website: 'https://rangoli.example',
   },
+  // The website is its own field now, behind the Desi-Event team's switch.
+  websiteUrl: 'https://Rangoli.example',
   dressCode: 'Festive; comfortable shoes for dancing.',
   directions: 'Use the east gate; parking on Level 2.',
   publicEmail: 'Box.Office@Rangoli.example',
@@ -79,6 +80,11 @@ describe('the event page content', () => {
     expect(data.runningOrder).toEqual(CONTENT.runningOrder)
     expect(data.sponsors).toEqual(CONTENT.sponsors)
     expect(data.socialLinks).toEqual(CONTENT.socialLinks)
+    expect(data.socialLinks).not.toHaveProperty('website')
+    // Stored normalised, waiting for an administrator; the link is off.
+    expect(data.websiteUrl).toBe('https://rangoli.example/')
+    expect(data.websiteRedirect).toMatchObject({ enabled: false, pending: true })
+    expect(data.websiteLink).toBeNull()
     expect(data).toMatchObject({
       dressCode: CONTENT.dressCode,
       directions: CONTENT.directions,
@@ -152,11 +158,23 @@ describe('the event page content', () => {
       { socialLinks: { tiktok: 'https://tiktok.com/@x' } },
       { runningOrder: [{ time: '7:30pm', title: 'Set' }] },
       { sponsors: [{ name: 'Bad', url: 'javascript:alert(1)' }] },
+      // The old place for the website: refused, and the sentence names the new one.
+      { socialLinks: { website: 'https://rangoli.example' } },
+      { websiteUrl: 'http://rangoli.example' },
     ]) {
       const response = await patchEvent(app, prisma, ids.draftEvent.id, headers, patch)
 
       expect(response.statusCode, JSON.stringify(patch)).toBe(400)
     }
+
+    const website = await patchEvent(app, prisma, ids.draftEvent.id, headers, {
+      socialLinks: { website: 'https://rangoli.example' },
+    })
+
+    expect(JSON.stringify(website.json().error.issues)).toMatch(/websiteUrl/u)
+    expect(
+      prisma._store.event.find((row) => row.id === ids.draftEvent.id).socialLinks?.website,
+    ).toBeUndefined()
 
     await app.close()
   })

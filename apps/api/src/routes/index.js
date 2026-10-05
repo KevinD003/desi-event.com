@@ -38,6 +38,7 @@ import { registerTicketRoutes } from './tickets.js'
 import { registerTicketTypeRoutes } from './ticket-types.js'
 import { registerTrafficRoutes } from './traffic.js'
 import { registerWaitlistRoutes } from './waitlist.js'
+import { registerWebsiteRedirectRoutes } from './website-redirect.js'
 
 /**
  * Register every API route on an instance.
@@ -63,6 +64,7 @@ import { registerWaitlistRoutes } from './waitlist.js'
  * @param {{max?: number, timeWindow?: string|number}} [deps.mediaReadLimit] Overrides for the picture-read rate limit.
  * @param {{max?: number, timeWindow?: string|number}} [deps.quoteLimit] Overrides for the checkout-quote rate limit.
  * @param {{max?: number, sharedMax?: number, timeWindow?: string|number, processMax?: number}} [deps.trafficBeaconLimit] Overrides for the visit-beacon limits.
+ * @param {{max?: number, sharedMax?: number, timeWindow?: string|number, eventMax?: number}} [deps.websiteVisitLimit] Overrides for the website-link lookup's limits.
  * @returns {void} Nothing.
  */
 export function registerRoutes(app, deps) {
@@ -83,6 +85,7 @@ export function registerRoutes(app, deps) {
   registerEventRoutes(app, deps)
   registerEventAuthoringRoutes(app, deps)
   registerModerationRoutes(app, deps)
+  registerWebsiteRedirectRoutes(app, deps)
   registerTicketTypeRoutes(app, deps)
   registerSessionRoutes(app, deps)
   registerHoldRoutes(app, deps)

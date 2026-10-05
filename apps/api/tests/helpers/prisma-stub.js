@@ -1942,7 +1942,7 @@ export function createPrismaStub(seed = {}) {
         }
 
         try {
-          return await body(client)
+          return await body(transactionClient)
         } catch (error) {
           // Restored in place so that `_store.someModel` references held by a
           // test stay valid across a rollback.
@@ -1972,5 +1972,26 @@ export function createPrismaStub(seed = {}) {
 
   for (const model of Object.keys(DEFAULTS)) client[model] = delegate(model)
 
+  /**
+   * What a transaction body is handed: the client, read through live (so a
+   * test that replaces a delegate mid-test is still seen), without the
+   * connection methods Prisma's own transaction client lacks. Code that tells
+   * a client from a transaction client by them (`decideWebsiteRedirect`) then
+   * behaves here as it does against PostgreSQL.
+   */
+  const transactionClient = new Proxy(client, {
+    get(target, property, receiver) {
+      if (TRANSACTION_CLIENT_OMITS.has(property)) return undefined
+
+      return Reflect.get(target, property, receiver)
+    },
+    has(target, property) {
+      return !TRANSACTION_CLIENT_OMITS.has(property) && Reflect.has(target, property)
+    },
+  })
+
   return client
 }
+
+/** What Prisma's interactive transaction client does not have. */
+const TRANSACTION_CLIENT_OMITS = new Set(['$connect', '$disconnect', '$on', '$extends'])

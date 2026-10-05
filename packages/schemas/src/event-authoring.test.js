@@ -22,6 +22,7 @@ import {
   updateAuthorTicketTypeRequestSchema,
   updateEventRequestSchema,
   updateSessionRequestSchema,
+  WEBSITE_SWITCH_REFUSAL,
 } from './requests.js'
 import {
   authorTicketTypeListResponseSchema,
@@ -42,6 +43,23 @@ const OTHER_ID = 'ckv9w1p0a0001qz0l7h2k3m4n'
  */
 function issuePaths(result) {
   return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'))
+}
+
+/**
+ * The smallest body `events.create` accepts.
+ *
+ * @returns {object} A create body.
+ */
+function minimalCreate() {
+  return {
+    organizationId: ID,
+    title: 'Garba night',
+    summary: 'Dance',
+    description: 'All night.',
+    category: 'WORKSHOP',
+    startsAt: '2027-03-01T18:00:00Z',
+    endsAt: '2027-03-01T22:00:00Z',
+  }
 }
 
 describe('an online event may be saved before its link is typed', () => {
@@ -95,17 +113,76 @@ describe('an online event may be saved before its link is typed', () => {
     expect(parsed.performers[0]).toEqual({ name: 'Asha', role: 'Vocals', bio: 'Trained in Pune.' })
   })
 
-  it('refuses an http social link and a bad running-order time', () => {
+  it('refuses an http website, any social website, and a bad running-order time', () => {
+    expect(
+      issuePaths(updateEventRequestSchema.safeParse({ websiteUrl: 'http://a.example' })),
+    ).toEqual(['websiteUrl'])
     expect(
       issuePaths(
-        updateEventRequestSchema.safeParse({ socialLinks: { website: 'http://a.example' } }),
+        updateEventRequestSchema.safeParse({ socialLinks: { website: 'https://a.example' } }),
       ),
     ).toEqual(['socialLinks.website'])
+    expect(
+      issuePaths(
+        updateEventRequestSchema.safeParse({
+          socialLinks: { instagram: 'http://instagram.com/x' },
+        }),
+      ),
+    ).toEqual(['socialLinks.instagram'])
     expect(
       issuePaths(
         updateEventRequestSchema.safeParse({ runningOrder: [{ time: '7:30pm', title: 'Set' }] }),
       ),
     ).toEqual(['runningOrder.0.time'])
+  })
+})
+
+describe('the website address and the switch only the Desi-Event team turns', () => {
+  it('stores the address normalised, and reads a blank or null as clearing it', () => {
+    expect(updateEventRequestSchema.parse({ websiteUrl: 'https://WWW.Example.com' })).toEqual({
+      websiteUrl: 'https://www.example.com/',
+    })
+    expect(updateEventRequestSchema.parse({ websiteUrl: '  ' })).toEqual({ websiteUrl: null })
+    expect(updateEventRequestSchema.parse({ websiteUrl: null })).toEqual({ websiteUrl: null })
+    expect(
+      createEventRequestSchema.parse({ ...minimalCreate(), websiteUrl: 'https://a.example' })
+        .websiteUrl,
+    ).toBe('https://a.example/')
+  })
+
+  it.each(['websiteRedirectEnabled', 'websiteRedirect', 'websiteDecidedUrl'])(
+    'refuses %s on create and update with the Desi-Event sentence',
+    (key) => {
+      for (const value of [true, false, 'https://a.example/', null, {}]) {
+        const update = updateEventRequestSchema.safeParse({ title: 'T', [key]: value })
+        const create = createEventRequestSchema.safeParse({ ...minimalCreate(), [key]: value })
+
+        for (const result of [update, create]) {
+          expect(result.success).toBe(false)
+          expect(issuePaths(result)).toEqual([key])
+          expect(result.error.issues[0].message).toBe(WEBSITE_SWITCH_REFUSAL)
+        }
+      }
+    },
+  )
+
+  it('strips every other switch column, so none can reach the database', () => {
+    const smuggled = {
+      websiteDecisionPending: false,
+      websiteSubmittedAt: '2026-01-01T00:00:00.000Z',
+      websiteRedirectChangedAt: '2026-01-01T00:00:00.000Z',
+      websiteRedirectChangedById: 'cm0000000000000000000000',
+      websiteRedirectReason: 'Forged.',
+    }
+    const update = updateEventRequestSchema.parse({ title: 'T', ...smuggled })
+    const create = createEventRequestSchema.parse({ ...minimalCreate(), ...smuggled })
+
+    for (const parsed of [update, create]) {
+      for (const key of Object.keys(smuggled)) expect(parsed).not.toHaveProperty(key)
+    }
+
+    // A body that carries only stripped keys is no update at all.
+    expect(updateEventRequestSchema.safeParse(smuggled).success).toBe(false)
   })
 })
 

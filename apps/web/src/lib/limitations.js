@@ -76,9 +76,9 @@ export const LIMITATIONS = Object.freeze([
   {
     id: 'email',
     name: 'Email',
-    status: 'NOT IMPLEMENTED',
+    status: 'EXTERNAL VERIFICATION PENDING',
     meaning:
-      'This site sends no email: no receipts, no address confirmation and no password resets. A forgotten password cannot be reset from here. When you invite somebody to your team or offer somebody a ticket, you are shown its invitation code once, and passing it on is up to you. When an event’s date, place or terms change, or it is postponed or cancelled, a notice is recorded against each order and not sent. Orders and tickets are on your account pages instead.',
+      'This site can email organiser-invitation, team-invitation and ticket-transfer codes, but only when its operator has configured an SMTP mail server; that has been tested only against a local test mail server. Without one, each code is shown once to whoever issues it, with a message they can send themselves, and passing it on is up to them. Receipts, address confirmation and password resets are not emailed in any configuration, so a forgotten password cannot be reset from here. When an event’s date, place or terms change, or it is postponed or cancelled, a notice is recorded against each order and not sent. Orders and tickets are on your account pages instead.',
   },
   {
     id: 'sms',

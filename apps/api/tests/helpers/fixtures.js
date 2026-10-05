@@ -432,6 +432,16 @@ export async function makeWorld(overrides = {}) {
     // The authoring editor's optimistic-concurrency precondition. Seeded rows
     // bypass the stub's column defaults, so it is spelled here.
     revision: 0,
+    // The website link: no address and the switch off, as the database's
+    // defaults leave a new row. Spelled out for the same reason as `revision`.
+    websiteUrl: null,
+    websiteRedirectEnabled: false,
+    websiteDecidedUrl: null,
+    websiteDecisionPending: false,
+    websiteSubmittedAt: null,
+    websiteRedirectChangedAt: null,
+    websiteRedirectChangedById: null,
+    websiteRedirectReason: null,
   }
 
   const draftEvent = {

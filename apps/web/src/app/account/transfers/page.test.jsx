@@ -34,9 +34,11 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 vi.mock('../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
+vi.mock('../../../lib/session.js', () => ({ readSession: vi.fn() }))
 
 const { getMyTickets } = await import('../../../lib/organizer-api.js')
-const { default: TransfersPage } = await import('./page.jsx')
+const { readSession } = await import('../../../lib/session.js')
+const { HOW_AN_OFFER_ARRIVES, default: TransfersPage } = await import('./page.jsx')
 
 /** The recipient as the API masks it. */
 const MASKED = '••••@example.com'
@@ -130,6 +132,8 @@ async function renderPage(tickets, pagination = null) {
 
 beforeEach(() => {
   getMyTickets.mockReset()
+  readSession.mockReset()
+  readSession.mockResolvedValue({ user: { displayName: 'Meera' }, deliveryMode: 'MANUAL' })
 })
 
 afterEach(cleanup)
@@ -275,16 +279,27 @@ describe('what is always said', () => {
     ).toBe('/tickets/accept')
   })
 
-  it('says the code was shown once to whoever made the offer, and that no email is sent', async () => {
-    // The old copy said the sender never sees the code; with no delivery
-    // provider the code is shown to them once, to pass on themselves.
+  it('says, when codes are not emailed, that the code was shown once to whoever made the offer', async () => {
+    // The old copy said the sender never sees the code; with no mail server
+    // the code is shown to them once, to pass on themselves.
     await renderPage([GIVEN])
 
     const accept = screen.getByRole('region', { name: 'Accept a ticket' })
 
-    expect(accept.textContent).not.toMatch(/sent you|they sent|we sent|emailed/i)
+    expect(accept.textContent).not.toMatch(/sent you|they sent|we sent|was emailed/i)
     expect(accept.textContent).toMatch(/shown to the person who made it, once/)
-    expect(accept.textContent).toMatch(/this site sends no email/)
+    expect(accept.textContent).toMatch(/codes are not emailed from this site/)
+    expect(accept.textContent).not.toMatch(/sends no email/i)
+  })
+
+  it('says, when codes are emailed, that the code went to the address and the sender never saw it', async () => {
+    readSession.mockResolvedValue({ user: { displayName: 'Meera' }, deliveryMode: 'EMAIL' })
+    await renderPage([GIVEN])
+
+    const accept = screen.getByRole('region', { name: 'Accept a ticket' })
+
+    expect(accept.textContent).toContain(HOW_AN_OFFER_ARRIVES.EMAIL)
+    expect(accept.textContent).not.toMatch(/pass it on to you themselves/)
   })
 
   it('says a reserved seat goes with its ticket, and promises nothing else', async () => {
