@@ -334,7 +334,7 @@ describe('reviewIndependence', () => {
    * @param {object|null} submission The latest submission row.
    * @returns {{calls: object[], eventModerationAction: {findFirst: Function}}} The client.
    */
-  function client(submission) {
+  function client(submission, { platformHeldSource = null, item = null, copied = null } = {}) {
     const calls = []
 
     return {
@@ -346,6 +346,11 @@ describe('reviewIndependence', () => {
           return submission
         },
       },
+      // The import exemption's questions (SPEC2-XI O5): asked only when a
+      // self-review would otherwise be refused.
+      organization: { findUnique: async () => ({ platformHeldSource }) },
+      eventImportItem: { findUnique: async () => item },
+      eventImportImage: { findFirst: async () => copied },
     }
   }
 
@@ -361,6 +366,7 @@ describe('reviewIndependence', () => {
       independent: false,
       code: 'CONFLICT_OF_INTEREST',
       reason: REVIEW_INDEPENDENCE.CONFLICT_OF_INTEREST.message,
+      exemption: null,
     })
     expect(prisma.calls).toHaveLength(0)
   })
@@ -387,7 +393,7 @@ describe('reviewIndependence', () => {
         organizationId: 'org-1',
         eventId: 'event-1',
       }),
-    ).toEqual({ independent: true, code: null, reason: null })
+    ).toEqual({ independent: true, code: null, reason: null, exemption: null })
 
     const noEvent = client({ actorId: 'reviewer' })
 
@@ -400,5 +406,86 @@ describe('reviewIndependence', () => {
       ).independent,
     ).toBe(true)
     expect(noEvent.calls).toHaveLength(0)
+  })
+
+  it('lets the importer decide a platform-held import, and nothing else of theirs (SPEC2-XI O5)', async () => {
+    const own = { actor: { id: 'importer' }, organizationId: 'org-held', eventId: 'event-1' }
+
+    // An imported event of the platform-held organisation: the exemption.
+    expect(
+      await reviewIndependence(
+        client(
+          { actorId: 'importer' },
+          { platformHeldSource: 'SULEKHA', item: { id: 'item', reassignedAt: null } },
+        ),
+        own,
+      ),
+    ).toEqual({ independent: true, code: null, reason: null, exemption: 'PLATFORM_HELD_IMPORT' })
+
+    // The same organisation, but no import record: still the submitter's own.
+    expect(
+      (
+        await reviewIndependence(
+          client({ actorId: 'importer' }, { platformHeldSource: 'SULEKHA' }),
+          own,
+        )
+      ).code,
+    ).toBe('SELF_REVIEW')
+
+    // An ordinary organisation's event with an import record somehow: refused.
+    expect(
+      (
+        await reviewIndependence(
+          client({ actorId: 'importer' }, { item: { id: 'item', reassignedAt: null } }),
+          own,
+        )
+      ).code,
+    ).toBe('SELF_REVIEW')
+
+    // Moved to an organiser: the exemption ends.
+    expect(
+      (
+        await reviewIndependence(
+          client(
+            { actorId: 'importer' },
+            { platformHeldSource: 'SULEKHA', item: { id: 'item', reassignedAt: new Date() } },
+          ),
+          own,
+        )
+      ).code,
+    ).toBe('SELF_REVIEW')
+
+    // A picture the import copied, and one the importer uploaded by hand.
+    const picture = {
+      actor: { id: 'importer' },
+      organizationId: 'org-held',
+      uploadedById: 'importer',
+      mediaAssetId: 'media-1',
+    }
+
+    expect(
+      (
+        await reviewIndependence(
+          client(null, { platformHeldSource: 'SULEKHA', copied: { id: 'image-1' } }),
+          picture,
+        )
+      ).exemption,
+    ).toBe('PLATFORM_HELD_IMPORT')
+    expect(
+      (await reviewIndependence(client(null, { platformHeldSource: 'SULEKHA' }), picture)).code,
+    ).toBe('SELF_REVIEW')
+
+    // A member is refused before any exemption is considered.
+    expect(
+      (
+        await reviewIndependence(
+          client(
+            { actorId: 'importer' },
+            { platformHeldSource: 'SULEKHA', item: { id: 'item', reassignedAt: null } },
+          ),
+          { ...own, actor: { id: 'importer', memberships: [{ organizationId: 'org-held' }] } },
+        )
+      ).code,
+    ).toBe('CONFLICT_OF_INTEREST')
   })
 })

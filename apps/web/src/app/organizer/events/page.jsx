@@ -18,11 +18,21 @@
  * that would then refuse. Each organisation the session may see drafts in is
  * asked for by id, and the API scopes the answer to it. A platform
  * administrator with no membership is the one reader for whom the whole
- * platform is the list, and the page says that is what it is showing.
+ * platform is the list, and the page says that is what it is showing. Each of
+ * its rows opens the Desi-Event team's editor, where such a reader edits in a
+ * session opened with a reason (SPEC2-XI O9), not the organiser's.
  *
  * `@file` rather than `@module`: `events` is fine, but the sibling pages use
  * `@file` for the same reason and consistency is worth more than the two
  * characters.
+ *
+ * ## Deleted events
+ *
+ * Left out of the list, as the API leaves them out of every list that does
+ * not ask for them; the "Deleted" filter asks for them by name. Each keeps its
+ * page here, with its record. After a deletion the dialog comes back to
+ * `?deleted=1`, and the page says so in a polite status, without naming the
+ * event in the address.
  *
  * @file app/organizer/events/page
  */
@@ -41,6 +51,7 @@ import {
   TEXT_LINK,
 } from '../../../components/workspace-kit.jsx'
 import { listOrganizerEvents } from '../../../lib/organizer-api.js'
+import { platformEditorRedirect } from '../../../lib/platform-editor.js'
 import { membershipsWith, readSession, sessionCan } from '../../../lib/session.js'
 import { statusReading } from '../../../lib/event-status.js'
 import { formatEventDate } from '../../../lib/format.js'
@@ -80,9 +91,14 @@ export function eventCounts(events) {
 /**
  * The list.
  *
+ * @param {object} props Route props.
+ * @param {Promise<Record<string, string|string[]>>} [props.searchParams] The query.
  * @returns {Promise<JSX.Element>} The rendered page.
  */
-export default async function OrganizerEventsPage() {
+export default async function OrganizerEventsPage({ searchParams } = {}) {
+  const query = (await searchParams) ?? {}
+  const showDeleted = query.status === 'DELETED'
+  const justDeleted = query.deleted === '1'
   const session = await readSession()
   const organizations = membershipsWith(session, 'event:view_draft')
   const platformWide = organizations.length === 0 && sessionCan(session, 'platform:admin')
@@ -92,10 +108,14 @@ export default async function OrganizerEventsPage() {
   let failure = null
 
   try {
+    // Deleted events are listed only when asked for by name.
+    const filter = showDeleted ? { status: 'DELETED' } : null
     const results = platformWide
-      ? [await listOrganizerEvents()]
+      ? [await (filter ? listOrganizerEvents(filter) : listOrganizerEvents())]
       : await Promise.all(
-          organizations.map(({ organizationId }) => listOrganizerEvents({ organizationId })),
+          organizations.map(({ organizationId }) =>
+            listOrganizerEvents({ organizationId, ...filter }),
+          ),
         )
 
     // Each organisation's events newest first, one organisation after the
@@ -134,6 +154,48 @@ export default async function OrganizerEventsPage() {
         ) : null}
       </PageHeader>
 
+      <p role="status" aria-live="polite" className="mt-2 text-sm font-medium text-ink">
+        {justDeleted ? 'Event deleted.' : ''}
+      </p>
+
+      <nav aria-label="Which events" className="mt-4">
+        <ul className="flex flex-wrap gap-2 text-sm">
+          <li>
+            <Link
+              href="/organizer/events"
+              aria-current={showDeleted ? undefined : 'page'}
+              className={`inline-flex min-h-11 items-center rounded-control border px-3 font-medium ${
+                showDeleted
+                  ? 'border-line bg-surface-raised text-ink-muted hover:text-ink'
+                  : 'border-action-primary bg-action-primary text-action-primary-ink'
+              }`}
+            >
+              Current events
+            </Link>
+          </li>
+          <li>
+            <Link
+              href="/organizer/events?status=DELETED"
+              aria-current={showDeleted ? 'page' : undefined}
+              className={`inline-flex min-h-11 items-center rounded-control border px-3 font-medium ${
+                showDeleted
+                  ? 'border-action-primary bg-action-primary text-action-primary-ink'
+                  : 'border-line bg-surface-raised text-ink-muted hover:text-ink'
+              }`}
+            >
+              Deleted
+            </Link>
+          </li>
+        </ul>
+      </nav>
+
+      {showDeleted ? (
+        <p className="mt-3 max-w-3xl text-sm text-ink-muted">
+          Deleted events are off the site and nothing can be bought for them. Each keeps its record,
+          its orders and its history; only the Desi-Event team can restore one.
+        </p>
+      ) : null}
+
       {failure ? <ReadRefusal error={failure} what="Your events" action="see your events" /> : null}
 
       {!failure && !platformWide && organizations.length === 0 ? (
@@ -164,7 +226,17 @@ export default async function OrganizerEventsPage() {
         </p>
       ) : null}
 
-      {!failure && (platformWide || organizations.length > 0) && events.length === 0 ? (
+      {!failure &&
+      showDeleted &&
+      (platformWide || organizations.length > 0) &&
+      events.length === 0 ? (
+        <p className="mt-6 text-sm text-ink">No event has been deleted.</p>
+      ) : null}
+
+      {!failure &&
+      !showDeleted &&
+      (platformWide || organizations.length > 0) &&
+      events.length === 0 ? (
         <div className="mt-6">
           <EmptyState
             title="No events"
@@ -188,6 +260,11 @@ export default async function OrganizerEventsPage() {
         <ul className="mt-6 space-y-3">
           {events.map((event) => {
             const reading = statusReading(event.status)
+            // The Desi-Event team's own editor for an event this reader is not
+            // a member for; the organiser's for everybody else.
+            const href =
+              platformEditorRedirect(session, event) ??
+              `/organizer/events/${encodeURIComponent(event.id)}`
 
             return (
               <li
@@ -200,7 +277,7 @@ export default async function OrganizerEventsPage() {
                 <div className="grid min-w-0 flex-1 gap-3 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-6">
                   <div className="min-w-0">
                     <h2 className="text-lg font-semibold text-ink">
-                      <Link href={`/organizer/events/${event.id}`} className={TEXT_LINK}>
+                      <Link href={href} className={TEXT_LINK}>
                         {event.title}
                       </Link>
                     </h2>
@@ -221,7 +298,11 @@ export default async function OrganizerEventsPage() {
                       {reading.label}
                     </Badge>
                     <p className="text-sm text-ink-muted">
-                      {reading.whose === 'nobody' ? 'Nothing to do' : `Waiting on ${reading.whose}`}
+                      {event.status === 'DELETED'
+                        ? 'Off the site; only the Desi-Event team can restore it'
+                        : reading.whose === 'nobody'
+                          ? 'Nothing to do'
+                          : `Waiting on ${reading.whose}`}
                     </p>
                   </div>
                 </div>

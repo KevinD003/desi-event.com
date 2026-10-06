@@ -21,10 +21,10 @@
  */
 
 import {
-  EDITABLE_STATUSES,
   LIVE_STATUSES,
   MATERIAL_FIELDS as LIFECYCLE_MATERIAL_FIELDS,
   SESSION_MATERIAL_FIELDS as LIFECYCLE_SESSION_MATERIAL_FIELDS,
+  editModeFor,
 } from '@desi-event/schemas/lifecycle'
 
 /**
@@ -101,7 +101,7 @@ const READINGS = Object.freeze({
     label: 'Cancelled',
     tone: 'danger',
     whose: 'nobody',
-    next: 'Refunds have been requested for every paid order. This cannot be undone.',
+    next: 'Refunds have been requested for every paid order. Its words and pictures can still be updated.',
   },
   REJECTED: {
     label: 'Rejected',
@@ -114,6 +114,12 @@ const READINGS = Object.freeze({
     tone: 'neutral',
     whose: 'nobody',
     next: 'Kept for the record. Orders and tickets still point at it.',
+  },
+  DELETED: {
+    label: 'Deleted',
+    tone: 'danger',
+    whose: 'the Desi-Event team',
+    next: 'Its page is off the site and nothing can be bought. The Desi-Event team can restore it.',
   },
 })
 
@@ -197,22 +203,25 @@ export const MATERIAL_FIELD_LABELS = Object.freeze({
 })
 
 /**
- * How the editor treats an event in a status.
+ * How the editor treats an event in a status: `editModeFor` from
+ * `@desi-event/schemas/lifecycle`, the one function the API decides with, so
+ * the editor and the server cannot disagree about what may change.
  *
  * - `draft`: every field is an input and saves as it is typed.
- * - `live`: the page is public. Housekeeping still saves as it is typed; the
- *   date, place and terms are read-only here and change through the material
- *   change panel, with a reason.
- * - `locked`: in review, approved, rejected or finished; nothing is edited here.
+ * - `live`: the page is public. Everything can change without another review.
+ *   Housekeeping saves as it is typed; the date, place and terms are inputs
+ *   too, and a change to one is confirmed with a reason before it is sent,
+ *   because people holding tickets are shown it.
+ * - `content`: finished or cancelled. Its words and pictures can still be
+ *   updated; its date, place, terms, nights and ticket types cannot.
+ * - `locked`: in review, approved, rejected, archived or deleted; nothing is
+ *   edited here.
  *
  * @param {string} status An `EventStatus`.
- * @returns {'draft'|'live'|'locked'} The mode.
+ * @returns {'draft'|'live'|'content'|'locked'} The mode.
  */
 export function editMode(status) {
-  if (EDITABLE_STATUSES.has(status)) return 'draft'
-  if (LIVE_STATUSES.has(status)) return 'live'
-
-  return 'locked'
+  return editModeFor(status)
 }
 
 /**

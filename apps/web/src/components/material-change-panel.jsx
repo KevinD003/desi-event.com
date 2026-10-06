@@ -21,10 +21,12 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { useFocusAfterRender } from './focus-after-render.jsx'
+import { StepUpPrompt } from './step-up-prompt.jsx'
 import { TimeZoneSelect } from './time-zone-select.jsx'
 import { Alert, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { MATERIAL_FIELD_LABELS, MATERIAL_FIELDS } from '../lib/event-status.js'
+import { formatEventDate, formatEventTime } from '../lib/format.js'
 import { refusalSentence } from '../lib/refusal.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
@@ -99,6 +101,85 @@ export function materialDiff(baseline, values) {
   )
 }
 
+/** The names of the four policy boxes, as the change list reads them. */
+const POLICY_NAMES = Object.freeze({
+  entry: 'getting in',
+  refund: 'refunds',
+  conduct: 'house rules',
+  ageNote: 'what to bring for the age check',
+})
+
+/**
+ * An instant in a zone, in words.
+ *
+ * @param {string|null} value An ISO-8601 instant.
+ * @param {string} zone The zone.
+ * @returns {string} For example `Sat, Oct 17, 2026, 7:30 PM`, or `not set`.
+ */
+function instantWords(value, zone) {
+  if (!value || Number.isNaN(Date.parse(value))) return 'not set'
+
+  return `${formatEventDate(value, zone)}, ${formatEventTime(value, zone)}`
+}
+
+/**
+ * What a proposed material change does, field by field, before and after.
+ *
+ * Dates are read in the zone each side is in; a venue is named; the policies
+ * are named, not quoted, since their text is long and the boxes show it.
+ *
+ * @param {object} baseline The form values as saved.
+ * @param {object} values The form values proposed.
+ * @param {object[]} [venues] Venues, to name one.
+ * @returns {Array<{field: string, label: string, before: string, after: string}>} One line per changed field.
+ */
+export function materialChangeLines(baseline, values, venues = []) {
+  const before = materialBody(baseline)
+  const after = materialBody(values)
+  const venueName = (venueId) => {
+    if (!venueId) return 'no venue'
+
+    const venue = venues.find((candidate) => candidate.id === venueId)
+
+    return venue ? `${venue.name}${venue.city ? `, ${venue.city}` : ''}` : 'another venue'
+  }
+
+  return Object.keys(materialDiff(baseline, values)).map((field) => {
+    const label = MATERIAL_FIELD_LABELS[field] ?? field
+    let from = ''
+    let to = ''
+
+    if (field === 'startsAt' || field === 'endsAt') {
+      from = instantWords(before[field], baseline.timezone)
+      to = instantWords(after[field], values.timezone)
+    } else if (field === 'timezone') {
+      from = before.timezone
+      to = after.timezone
+    } else if (field === 'venueId') {
+      from = venueName(before.venueId)
+      to = venueName(after.venueId)
+    } else if (field === 'isOnline') {
+      from = before.isOnline ? 'online' : 'in person'
+      to = after.isOnline ? 'online' : 'in person'
+    } else if (field === 'onlineUrl') {
+      from = before.onlineUrl ? 'a joining link' : 'no joining link'
+      to = after.onlineUrl ? 'a new joining link' : 'no joining link'
+    } else if (field === 'ageRestriction') {
+      from = before.ageRestriction === null ? 'no minimum age' : `${before.ageRestriction}+`
+      to = after.ageRestriction === null ? 'no minimum age' : `${after.ageRestriction}+`
+    } else if (field === 'policies') {
+      const changed = Object.keys(POLICY_NAMES).filter(
+        (key) => (before.policies[key] ?? null) !== (after.policies[key] ?? null),
+      )
+
+      from = 'as they were'
+      to = `new wording for ${changed.map((key) => POLICY_NAMES[key]).join(', ')}`
+    }
+
+    return { field, label, before: from, after: to }
+  })
+}
+
 /**
  * What is wrong with the change, field by field.
  *
@@ -153,6 +234,11 @@ export function materialProblems(baseline, values, reason, confirmed) {
  * @property {Function} onSaved Called with the event detail the API returned.
  * @property {Function} onConflict Called with the refusal's message on `STALE_REVISION`.
  * @property {Function} onCancel Called when the organiser backs out.
+ * @property {object|null} [proposed] The editor's own values, when the date,
+ *   place or terms were changed in the steps: the panel then shows each change
+ *   before → after and asks only for the reason and the confirmation.
+ * @property {Function} [onRefusedField] Given a refused write's error code, for
+ *   the editor to react to (an editing session that has ended).
  */
 
 /**
@@ -169,8 +255,12 @@ export function MaterialChangePanel({
   onSaved,
   onConflict,
   onCancel,
+  proposed = null,
+  onRefusedField,
 }) {
-  const [values, setValues] = useState(baseline)
+  const proposing = Boolean(proposed)
+  const [values, setValues] = useState(proposed ?? baseline)
+  const [stepUp, setStepUp] = useState(false)
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [shown, setShown] = useState([])
@@ -188,6 +278,12 @@ export function MaterialChangePanel({
   useEffect(() => {
     heading.current?.focus()
   }, [])
+
+  // The steps keep changing what is proposed while the panel is open; it
+  // confirms what they hold now, not what they held when it opened.
+  useEffect(() => {
+    if (proposed) setValues(proposed)
+  }, [proposed])
 
   /**
    * Change fields.
@@ -218,7 +314,7 @@ export function MaterialChangePanel({
    * @returns {Promise<void>} Resolves when the attempt is over.
    */
   async function submit(submitted) {
-    submitted.preventDefault()
+    submitted?.preventDefault()
     setRefusal(null)
 
     if (fields.length === 0) {
@@ -259,6 +355,14 @@ export function MaterialChangePanel({
         onConflict(body.error.message)
         return
       }
+
+      if (body?.error?.code === 'STEP_UP_REQUIRED') {
+        // The server decides when; this asks, then sends the same change.
+        setStepUp(true)
+        return
+      }
+
+      onRefusedField?.(body?.error?.code ?? null)
 
       setRefusal({
         message: refusalSentence(response.status, body, 'The change was refused.'),
@@ -306,7 +410,9 @@ export function MaterialChangePanel({
         tabIndex={-1}
         className="text-lg font-semibold text-ink focus-visible:outline-none"
       >
-        Change date, place or terms
+        {proposing
+          ? 'Confirm the change to the date, place or terms'
+          : 'Change date, place or terms'}
       </h2>
       <p className="text-sm text-ink-muted">
         People have bought tickets on the strength of these. A notice is recorded for every current
@@ -326,9 +432,16 @@ export function MaterialChangePanel({
             <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-status-danger">
               {shown.map((problem) => (
                 <li key={`${problem.field}-${problem.message}`}>
-                  <a className="underline underline-offset-4" href={`#material-${problem.field}`}>
-                    {problem.message}
-                  </a>
+                  {/* In the confirming form the date, place and terms are in
+                      the editor's steps, not here: their problems are said,
+                      and fixed where the boxes are. */}
+                  {proposing && problem.field !== 'changeReason' && problem.field !== 'confirm' ? (
+                    problem.message
+                  ) : (
+                    <a className="underline underline-offset-4" href={`#material-${problem.field}`}>
+                      {problem.message}
+                    </a>
+                  )}
                 </li>
               ))}
             </ul>
@@ -348,111 +461,136 @@ export function MaterialChangePanel({
           </Alert>
         ) : null}
 
-        <FormField label="Time zone" required {...at('timezone')}>
-          <TimeZoneSelect
-            value={zone}
-            onChange={(change) => set({ timezone: change.target.value })}
-          />
-        </FormField>
+        {proposing ? (
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold text-ink">What changes</h3>
+            {fields.length === 0 ? (
+              <p className="text-sm text-ink">You have not changed anything.</p>
+            ) : (
+              <ul className="list-disc space-y-1 pl-5 text-sm text-ink">
+                {materialChangeLines(baseline, values, venues).map((line) => (
+                  <li key={line.field}>
+                    <span className="font-semibold">
+                      {line.label.charAt(0).toUpperCase()}
+                      {line.label.slice(1)}:
+                    </span>{' '}
+                    {line.before} → {line.after}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {instant('startsAt', 'Starts')}
-          {instant('endsAt', 'Ends')}
-        </div>
-
-        <fieldset className="space-y-3 rounded-card border border-line p-4">
-          <legend className="px-1 text-sm font-medium text-ink">How people attend</legend>
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              id="material-isOnline"
-              className="size-4 rounded border-line-strong"
-              checked={values.isOnline}
-              onChange={(change) => set({ isOnline: change.target.checked })}
-            />
-            This event is online
-          </label>
-          {values.isOnline ? (
-            <FormField
-              label="Where to join"
-              required
-              description="Only people with a ticket see it."
-              {...at('onlineUrl')}
-            >
-              <Input
-                type="url"
-                value={values.onlineUrl}
-                onChange={(change) => set({ onlineUrl: change.target.value })}
+        {proposing ? null : (
+          <>
+            <FormField label="Time zone" required {...at('timezone')}>
+              <TimeZoneSelect
+                value={zone}
+                onChange={(change) => set({ timezone: change.target.value })}
               />
             </FormField>
-          ) : (
-            <FormField label="Venue" required {...at('venueId')}>
-              <Select
-                value={values.venueId}
-                onChange={(change) => set({ venueId: change.target.value })}
-              >
-                <option value="">Choose a venue…</option>
-                {venues.map((venue) => (
-                  <option key={venue.id} value={venue.id}>
-                    {venue.name} — {venue.city}
-                  </option>
-                ))}
-              </Select>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {instant('startsAt', 'Starts')}
+              {instant('endsAt', 'Ends')}
+            </div>
+
+            <fieldset className="space-y-3 rounded-card border border-line p-4">
+              <legend className="px-1 text-sm font-medium text-ink">How people attend</legend>
+              <label className="flex items-center gap-2 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  id="material-isOnline"
+                  className="size-4 rounded border-line-strong"
+                  checked={values.isOnline}
+                  onChange={(change) => set({ isOnline: change.target.checked })}
+                />
+                This event is online
+              </label>
+              {values.isOnline ? (
+                <FormField
+                  label="Where to join"
+                  required
+                  description="Only people with a ticket see it."
+                  {...at('onlineUrl')}
+                >
+                  <Input
+                    type="url"
+                    value={values.onlineUrl}
+                    onChange={(change) => set({ onlineUrl: change.target.value })}
+                  />
+                </FormField>
+              ) : (
+                <FormField label="Venue" required {...at('venueId')}>
+                  <Select
+                    value={values.venueId}
+                    onChange={(change) => set({ venueId: change.target.value })}
+                  >
+                    <option value="">Choose a venue…</option>
+                    {venues.map((venue) => (
+                      <option key={venue.id} value={venue.id}>
+                        {venue.name} — {venue.city}
+                      </option>
+                    ))}
+                  </Select>
+                </FormField>
+              )}
+            </fieldset>
+
+            <FormField
+              label="Minimum age"
+              description="Leave empty when there is no restriction."
+              {...at('ageRestriction')}
+            >
+              <Input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                max="120"
+                value={values.ageRestriction}
+                onChange={(change) => set({ ageRestriction: change.target.value })}
+              />
             </FormField>
-          )}
-        </fieldset>
 
-        <FormField
-          label="Minimum age"
-          description="Leave empty when there is no restriction."
-          {...at('ageRestriction')}
-        >
-          <Input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            max="120"
-            value={values.ageRestriction}
-            onChange={(change) => set({ ageRestriction: change.target.value })}
-          />
-        </FormField>
+            <FormField label="Refunds" {...at('policyRefund')}>
+              <Textarea
+                rows={3}
+                value={values.policyRefund}
+                onChange={(change) => set({ policyRefund: change.target.value })}
+              />
+            </FormField>
+            <FormField label="Getting in" {...at('policyEntry')}>
+              <Textarea
+                rows={3}
+                value={values.policyEntry}
+                onChange={(change) => set({ policyEntry: change.target.value })}
+              />
+            </FormField>
+            <FormField label="House rules" {...at('policyConduct')}>
+              <Textarea
+                rows={3}
+                value={values.policyConduct}
+                onChange={(change) => set({ policyConduct: change.target.value })}
+              />
+            </FormField>
+            <FormField label="What to bring for the age check" {...at('policyAgeNote')}>
+              <Input
+                value={values.policyAgeNote}
+                onChange={(change) => set({ policyAgeNote: change.target.value })}
+              />
+            </FormField>
 
-        <FormField label="Refunds" {...at('policyRefund')}>
-          <Textarea
-            rows={3}
-            value={values.policyRefund}
-            onChange={(change) => set({ policyRefund: change.target.value })}
-          />
-        </FormField>
-        <FormField label="Getting in" {...at('policyEntry')}>
-          <Textarea
-            rows={3}
-            value={values.policyEntry}
-            onChange={(change) => set({ policyEntry: change.target.value })}
-          />
-        </FormField>
-        <FormField label="House rules" {...at('policyConduct')}>
-          <Textarea
-            rows={3}
-            value={values.policyConduct}
-            onChange={(change) => set({ policyConduct: change.target.value })}
-          />
-        </FormField>
-        <FormField label="What to bring for the age check" {...at('policyAgeNote')}>
-          <Input
-            value={values.policyAgeNote}
-            onChange={(change) => set({ policyAgeNote: change.target.value })}
-          />
-        </FormField>
-
-        <div
-          aria-live="polite"
-          className="rounded-card border border-line bg-surface-subtle p-3 text-sm text-ink"
-        >
-          {fields.length === 0
-            ? 'You have not changed anything.'
-            : `You are changing: ${fields.map((field) => MATERIAL_FIELD_LABELS[field] ?? field).join(', ')}.`}
-        </div>
+            <div
+              aria-live="polite"
+              className="rounded-card border border-line bg-surface-subtle p-3 text-sm text-ink"
+            >
+              {fields.length === 0
+                ? 'You have not changed anything.'
+                : `You are changing: ${fields.map((field) => MATERIAL_FIELD_LABELS[field] ?? field).join(', ')}.`}
+            </div>
+          </>
+        )}
 
         <FormField
           label="Why this is changing"
@@ -491,15 +629,29 @@ export function MaterialChangePanel({
           </Alert>
         ) : null}
 
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={busy}>
-            {busy ? 'Saving…' : 'Save the change'}
-          </Button>
-          <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-        </div>
+        {stepUp ? null : (
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Saving…' : proposing ? 'Confirm and save' : 'Save the change'}
+            </Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>
+              {proposing ? 'Not now' : 'Cancel'}
+            </Button>
+          </div>
+        )}
       </form>
+
+      {/* Outside the form: the prompt is a form of its own. */}
+      {stepUp ? (
+        <StepUpPrompt
+          action="save this change"
+          onConfirmed={() => {
+            setStepUp(false)
+            submit()
+          }}
+          onCancel={() => setStepUp(false)}
+        />
+      ) : null}
     </section>
   )
 }

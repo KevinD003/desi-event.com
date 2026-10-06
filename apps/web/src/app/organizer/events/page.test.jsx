@@ -126,6 +126,37 @@ describe('OrganizerEventsPage', () => {
     expect(screen.getByText(/every organisation’s events, not a list of its own/)).toBeTruthy()
   })
 
+  it('opens each of the platform’s events in the Desi-Event team’s editor for a super administrator who is no member', async () => {
+    // The organiser's editor acts through membership; the platform's editor
+    // opens an editing session with a reason (SPEC2-XI O9). A link here is a
+    // move inside the area, which the area's layout does not see.
+    readSession.mockResolvedValue(session([], ['platform:admin', 'event:platform_edit']))
+    listOrganizerEvents.mockResolvedValue({
+      events: [{ ...event('e9', 'Somebody', 'ON_SALE'), organizationId: 'org_somebody' }],
+      pagination: null,
+    })
+
+    render(await OrganizerEventsPage())
+
+    expect(screen.getByRole('link', { name: 'Event e9' }).getAttribute('href')).toBe(
+      '/admin/events/e9',
+    )
+  })
+
+  it('keeps a member who also edits as the Desi-Event team in the organiser’s own editor', async () => {
+    readSession.mockResolvedValue(session([RANGOLI], ['event:platform_edit']))
+    listOrganizerEvents.mockResolvedValue({
+      events: [{ ...event('e1', 'Rangoli'), organizationId: 'org_rangoli' }],
+      pagination: null,
+    })
+
+    render(await OrganizerEventsPage())
+
+    expect(screen.getByRole('link', { name: 'Event e1' }).getAttribute('href')).toBe(
+      '/organizer/events/e1',
+    )
+  })
+
   it('asks nothing for an account that can see no organisation’s drafts', async () => {
     readSession.mockResolvedValue(
       session([{ organizationId: 'org_scan', role: 'SCANNER', capabilities: ['ticket:check_in'] }]),
@@ -219,6 +250,59 @@ describe('OrganizerEventsPage', () => {
 })
 
 describe('eventCounts', () => {
+  it('leaves deleted events to their own filter, which asks for them by name', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({
+      events: [event('e9', 'Rangoli', 'DELETED')],
+      pagination: null,
+    })
+
+    render(await OrganizerEventsPage({ searchParams: Promise.resolve({ status: 'DELETED' }) }))
+
+    expect(listOrganizerEvents).toHaveBeenCalledWith({
+      organizationId: 'org_rangoli',
+      status: 'DELETED',
+    })
+    expect(screen.getByRole('link', { name: 'Deleted' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByText('Deleted', { selector: 'span *, span' })).toBeInTheDocument()
+    expect(
+      screen.getByText('Off the site; only the Desi-Event team can restore it'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Event e9' }).closest('li')).not.toHaveTextContent(
+      /Waiting on/,
+    )
+  })
+
+  it('says nothing was deleted when nothing was, and leads back to the current events', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({ events: [], pagination: null })
+
+    render(await OrganizerEventsPage({ searchParams: Promise.resolve({ status: 'DELETED' }) }))
+
+    expect(screen.getByText('No event has been deleted.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Current events' })).toHaveAttribute(
+      'href',
+      '/organizer/events',
+    )
+  })
+
+  it('says, politely and without naming it, that an event was just deleted', async () => {
+    readSession.mockResolvedValue(session([RANGOLI]))
+    listOrganizerEvents.mockResolvedValue({ events: [event('e1', 'Rangoli')], pagination: null })
+
+    render(await OrganizerEventsPage({ searchParams: Promise.resolve({ deleted: '1' }) }))
+
+    const status = screen.getByText('Event deleted.')
+
+    expect(status).toHaveAttribute('role', 'status')
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(listOrganizerEvents).toHaveBeenCalledWith({ organizationId: 'org_rangoli' })
+    expect(screen.getByRole('link', { name: 'Deleted' })).toHaveAttribute(
+      'href',
+      '/organizer/events?status=DELETED',
+    )
+  })
+
   it('counts nothing in an empty list', () => {
     expect(eventCounts([])).toEqual({ listed: 0, yours: 0, moderator: 0, onSale: 0 })
   })

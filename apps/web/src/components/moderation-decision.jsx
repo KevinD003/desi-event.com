@@ -81,6 +81,21 @@ const DECISIONS = Object.freeze({
   },
 })
 
+/**
+ * The wording for an event nobody runs on Desi-Event (a platform-held import,
+ * SPEC2-XI O16): the reason is sent to nobody, and the import's run page
+ * publishes it once approved.
+ */
+const NO_EDITOR_WORDING = Object.freeze({
+  approve:
+    'Approving says this listing is fit to be public. It is published from its import run, with “Approve and publish”.',
+  reject:
+    'Rejecting ends this submission. A later import of its listing leaves it alone until the event is deleted.',
+  reason:
+    'Kept on the event’s record. Nobody runs this event on Desi-Event, so it is sent to nobody.',
+  note: 'Optional. Kept on the event’s record.',
+})
+
 /** Why approving is not offered when the page does not know the version it showed. */
 export const NO_REVISION_TO_APPROVE =
   'Approving is not offered: this page does not say which version of the event it shows, and an approval has to name the version it approves. Reload the page. Asking for changes and rejecting are still available.'
@@ -118,6 +133,7 @@ const FIELDS = Object.freeze([
  * @property {Function} [onDecided] Called with the new status once the server accepts.
  * @property {string|null} [approveBlockedReason] Why approving is not offered now, in a sentence; approving is then disabled and the sentence shown. Used when the page could not show everything an approval would approve.
  * @property {string|null} [notYours] Why this reviewer may not decide on this event at all, in a sentence; no decision is offered and the sentence is shown instead.
+ * @property {string|null} [noEditor] Why nobody could make changes to this event (a platform-held import), in a sentence; "Request changes" is not offered, the sentence is shown, and the reason is said to go to nobody.
  */
 
 /**
@@ -131,6 +147,7 @@ export function ModerationDecision({
   onDecided,
   approveBlockedReason = null,
   notYours = null,
+  noEditor = null,
 }) {
   const router = useRouter()
   const [pending, setPending] = useState(null)
@@ -256,6 +273,12 @@ export function ModerationDecision({
   // approving is not offered at all rather than refused after the second press.
   const approveBlocked =
     approveBlockedReason ?? (Number.isInteger(event.revision) ? null : NO_REVISION_TO_APPROVE)
+  // Nobody could make the changes asked for on an event nobody runs here, and
+  // the API refuses the move (`IMPORTED_EVENT_NO_EDITOR`), so it is not offered.
+  const offered = Object.entries(DECISIONS).filter(
+    ([key]) => !(noEditor && key === 'request_changes'),
+  )
+  const confirm = noEditor && decision ? (NO_EDITOR_WORDING[pending] ?? null) : null
 
   return (
     <div>
@@ -277,6 +300,8 @@ export function ModerationDecision({
             </Alert>
           ) : null}
 
+          {noEditor ? <p className="mb-3 text-sm text-ink-muted">{noEditor}</p> : null}
+
           {approveBlocked ? (
             <p id="approve-blocked" className="mb-3 text-sm text-ink-muted">
               {approveBlocked}
@@ -284,7 +309,7 @@ export function ModerationDecision({
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            {Object.entries(DECISIONS).map(([key, entry]) => (
+            {offered.map(([key, entry]) => (
               <Button
                 key={key}
                 type="button"
@@ -327,7 +352,9 @@ export function ModerationDecision({
                 {decision.label}
               </h3>
 
-              {decision.confirm ? <p className="mt-2 text-ink-muted">{decision.confirm}</p> : null}
+              {(confirm ?? decision.confirm) ? (
+                <p className="mt-2 text-ink-muted">{confirm ?? decision.confirm}</p>
+              ) : null}
 
               {error ? (
                 <Alert variant="error" title="That did not work" className="mt-3">
@@ -344,13 +371,23 @@ export function ModerationDecision({
 
               <div className="mt-3">
                 <FormField
-                  label={decision.needsReason ? 'What the organiser needs to know' : 'Note'}
+                  label={
+                    decision.needsReason
+                      ? noEditor
+                        ? 'Reason'
+                        : 'What the organiser needs to know'
+                      : 'Note'
+                  }
                   id="decision-reason"
                   required={decision.needsReason}
                   description={
-                    decision.needsReason
-                      ? 'Sent to the organiser. Write something they can act on — "see guidelines" is not a decision anybody can do anything with.'
-                      : 'Optional. Kept on the record and sent to the organiser.'
+                    noEditor
+                      ? decision.needsReason
+                        ? NO_EDITOR_WORDING.reason
+                        : NO_EDITOR_WORDING.note
+                      : decision.needsReason
+                        ? 'Sent to the organiser. Write something they can act on — "see guidelines" is not a decision anybody can do anything with.'
+                        : 'Optional. Kept on the record and sent to the organiser.'
                   }
                 >
                   <Textarea

@@ -66,9 +66,10 @@ export function operationsTabs(session) {
 }
 
 /**
- * The moderation area's sections: events waiting for review, and
- * organisations waiting to be verified. Both are held by `moderation:review`,
- * which admits the area, so both are offered to everybody it admits. Website
+ * The moderation area's sections: events waiting for review, pictures added
+ * to posted events, and organisations waiting to be verified. All three are
+ * held by `moderation:review`, which admits the area, so each is offered to
+ * everybody it admits. Website
  * links are decided by platform administrators alone
  * (`website_redirect:manage`), so a moderator is not offered them.
  *
@@ -78,8 +79,11 @@ export function operationsTabs(session) {
 export function moderationTabs(session) {
   if (!sessionCan(session, 'moderation:review')) return []
 
+  // Pictures added to posted events wait here for somebody other than their
+  // uploader; held by `moderation:review` like the rest of the area.
   return [
     { href: '/moderation/events', label: 'Events' },
+    { href: '/moderation/pictures', label: 'Pictures' },
     { href: '/moderation/organizations', label: 'Organisations' },
     ...(sessionCan(session, 'website_redirect:manage')
       ? [{ href: '/moderation/websites', label: 'Website links' }]
@@ -120,8 +124,11 @@ export function analyticsTabs(session) {
  * The platform administration area's sections.
  *
  * Inviting organisers is held by `organizer:invite` (platform administrators
- * and super administrators); changing platform roles and putting people into
- * organisations directly by `platform:admin` (super administrators alone).
+ * and super administrators), and so is editing, deleting and restoring every
+ * organisation's events (`event:platform_edit`) and importing listed events
+ * (`event:import`); changing platform roles and
+ * putting people into organisations directly by `platform:admin` (super
+ * administrators alone).
  * Each tab is offered only to somebody its page serves. The literals stay in
  * this server module; no client component imports it.
  *
@@ -133,6 +140,15 @@ export function adminTabs(session) {
     ...(sessionCan(session, 'organizer:invite')
       ? [{ href: '/admin/organizer-invitations', label: 'Organiser invitations' }]
       : []),
+    // Every organisation's events: editing a posted one in a sitting,
+    // deleting and restoring (platform administrators and super
+    // administrators).
+    ...(sessionCan(session, 'event:platform_edit')
+      ? [{ href: '/admin/events', label: 'Events' }]
+      : []),
+    // Importing events listed on Sulekha (platform administrators and super
+    // administrators; a moderator is not offered it).
+    ...(sessionCan(session, 'event:import') ? [{ href: '/admin/imports', label: 'Imports' }] : []),
     ...(sessionCan(session, 'platform:admin')
       ? [{ href: '/admin/users', label: 'People and roles' }]
       : []),

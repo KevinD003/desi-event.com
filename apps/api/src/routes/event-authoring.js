@@ -68,6 +68,7 @@ import {
   boundSeatCounts,
   inventoryProblems,
   publishabilityProblems,
+  refuseSoldOnSource,
   sellabilityProblems,
 } from '../lib/event-lifecycle.js'
 import {
@@ -630,6 +631,10 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
   defineRoute(app, 'events.addTicketType', {
     handler: async (request) => {
       const { event, mode, authority, sessionId } = await authorable(request)
+
+      // Tickets for a platform-held import are sold on its source (SPEC2-XI I5).
+      refuseSoldOnSource(event)
+
       const { revision, ...body } = request.body
       // A complimentary tier is free and hidden, and the database refuses
       // anything else (ticket_type_complimentary_free_and_hidden). A tier

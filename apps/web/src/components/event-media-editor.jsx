@@ -5,13 +5,15 @@
  *
  * ## What the organiser can do, and when
  *
- * A new picture — an upload, a replaced cover — is added only while the event
- * is a draft or has changes requested, because every new picture is reviewed
- * with the event. Once it is live its pictures can be described again,
- * reordered or removed, and nothing new appears on its public page without a
- * moderator. The panel says which of those applies, and why, rather than
- * leaving buttons greyed out with no explanation. The server enforces every
- * one of these rules again; the buttons here are a courtesy.
+ * On a draft, a new picture is reviewed with the event, and a new cover
+ * replaces the old one at once. On a posted event (live, finished or
+ * cancelled) a new picture waits for somebody on the Desi-Event team other
+ * than the person who uploaded it, and a new cover waits beside the current
+ * one, which stays on the public page until the new one is approved; the panel
+ * shows both, the waiting one marked. Nothing new appears on a public page
+ * without a review. The panel says which of those applies, and why, rather
+ * than leaving buttons greyed out with no explanation. The server enforces
+ * every one of these rules again; the buttons here are a courtesy.
  *
  * ## Saying what happened
  *
@@ -50,6 +52,7 @@ import {
 
 import { useFocusAfterRender } from './focus-after-render.jsx'
 import { ReadRefusal } from './read-refusal.jsx'
+import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from './step-up-retry.jsx'
 import { Alert, Badge, Button, FormField, Input, Textarea } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
 import { mediaSrc, precheckImageFile, uploadPath } from '../lib/media.js'
@@ -71,6 +74,10 @@ const ACCEPT = 'image/jpeg,image/png,image/webp'
 function ordered(items) {
   return [...items].sort((left, right) => {
     if (left.kind !== right.kind) return left.kind === 'EVENT_COVER' ? -1 : 1
+    // The current cover before the replacement waiting beside it.
+    if (left.kind === 'EVENT_COVER') {
+      return Number(Boolean(left.replacesMediaId)) - Number(Boolean(right.replacesMediaId))
+    }
 
     return (left.position ?? 0) - (right.position ?? 0)
   })
@@ -84,7 +91,9 @@ function ordered(items) {
  */
 function reviewBadge(item) {
   if (item.moderationStatus === 'REJECTED') {
-    return { label: 'Removed by a moderator', variant: 'danger' }
+    return item.replacesMediaId
+      ? { label: 'Not approved', variant: 'danger' }
+      : { label: 'Removed by a moderator', variant: 'danger' }
   }
 
   if (item.moderationStatus === 'APPROVED') {
@@ -93,7 +102,9 @@ function reviewBadge(item) {
       : { label: 'Approved; shown once the event is public', variant: 'info' }
   }
 
-  return { label: 'Waiting for review', variant: 'warning' }
+  return item.replacesMediaId
+    ? { label: 'Waiting for approval', variant: 'warning' }
+    : { label: 'Waiting for review', variant: 'warning' }
 }
 
 /**
@@ -134,6 +145,8 @@ async function bodyOf(response) {
  * @property {Function} onRevision Called with the new revision after every write.
  * @property {Function} [onMediaChange] The editor shell's setter for the list, given the new list or a function from the current one to it. With it, the shell owns the list, so it survives this step being closed and opened again; without it, the panel keeps its own copy.
  * @property {{status: number, code: string|null, retryAfterSeconds: number|null}|null} [failure] Why the pictures could not be read, from `mediaReadFailure`. The step then shows the refusal and offers no change at all.
+ * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing session, whose writes ask for a fresh second factor every 10 minutes.
+ * @property {Function} [onSittingEnded] Called when a write finds that editing session closed.
  */
 
 /**
@@ -188,6 +201,8 @@ function MediaPanel({
   revision = 0,
   onRevision = () => {},
   onMediaChange,
+  platform = false,
+  onSittingEnded,
 }) {
   // Owned by the editor shell when it passes a setter: this step unmounts
   // whenever another is chosen, and a copy kept here would come back as the
@@ -208,6 +223,14 @@ function MediaPanel({
   const coverHeadingRef = useRef(null)
   const galleryHeadingRef = useRef(null)
   const itemRefs = useRef(new Map())
+  // A write the server refused for want of a fresh second factor: asked for
+  // here, then sent again (SPEC2-XI X-A).
+  const stepUp = useStepUpRetry({
+    action: 'save this change to the pictures',
+    platform,
+    onSittingEnded,
+    onDeclined: () => refuse(STEP_UP_DECLINED_SENTENCE),
+  })
 
   useEffect(() => {
     if (!focusRequest) return
@@ -230,7 +253,11 @@ function MediaPanel({
   // the event but on its own, by the Desi-Event team (SPEC2-XI X-3).
   const posted = canUpload && !EDITABLE_STATUSES.has(status)
 
-  const cover = items.find((item) => item.kind === 'EVENT_COVER') ?? null
+  // The cover on the page, and a new one waiting beside it on a posted event:
+  // the API keeps the current cover public until the new one is approved.
+  const covers = items.filter((item) => item.kind === 'EVENT_COVER')
+  const cover = covers.find((item) => !item.replacesMediaId) ?? covers[0] ?? null
+  const replacement = covers.find((item) => item.replacesMediaId && item.id !== cover?.id) ?? null
   const gallery = items.filter((item) => item.kind === 'EVENT_GALLERY')
   const galleryFull = gallery.length >= MEDIA_LIMITS.galleryMax
 
@@ -277,6 +304,11 @@ function MediaPanel({
       const body = await bodyOf(response)
 
       if (!response.ok) {
+        // Asked for a second factor: ask, and send the same write again.
+        const retried = stepUp.refused(body, () => writeList(path, init, fallback))
+
+        if (retried) return retried
+
         refuse(refusalOf(response, body, fallback))
         return null
       }
@@ -306,10 +338,13 @@ function MediaPanel({
     setError(null)
     setItems((current) =>
       ordered([
-        // A new cover replaces the old one, in the same write.
-        ...current.filter(
-          (item) => !(picture.kind === 'EVENT_COVER' && item.kind === 'EVENT_COVER'),
-        ),
+        ...current.filter((item) => {
+          if (picture.kind !== 'EVENT_COVER' || item.kind !== 'EVENT_COVER') return true
+          // On a draft a new cover replaces the old one in the same write. On a
+          // posted event it waits beside the current cover, which stays; a
+          // replacement waiting from before is discarded by the same write.
+          return posted && !item.replacesMediaId
+        }),
         picture,
       ]),
     )
@@ -322,6 +357,7 @@ function MediaPanel({
         posted
           ? 'It appears on the public page once the Desi-Event team approves it.'
           : 'It appears on the public page once a moderator approves the event.',
+        posted && picture.replacesMediaId ? 'The current cover stays until then.' : null,
         removed.length > 0 ? `Removed before saving: ${removed.join(', ')}.` : null,
       ]
         .filter(Boolean)
@@ -409,9 +445,11 @@ function MediaPanel({
 
     setItems(ordered(body.data ?? []))
     setAnnouncement(
-      item.kind === 'EVENT_COVER'
-        ? 'Cover removed. The listing and the event page show the generated poster.'
-        : 'Picture removed from the gallery.',
+      item.kind === 'EVENT_COVER' && item.replacesMediaId
+        ? 'The waiting cover was removed. The current cover stays.'
+        : item.kind === 'EVENT_COVER'
+          ? 'Cover removed. The listing and the event page show the generated poster.'
+          : 'Picture removed from the gallery.',
     )
 
     setFocusRequest({ kind: item.kind === 'EVENT_COVER' ? 'cover' : 'gallery', at: Date.now() })
@@ -422,13 +460,11 @@ function MediaPanel({
     ? 'This event is posted, so each new picture waits for the Desi-Event team: it appears on the public page once the Desi-Event team approves it. A new cover waits beside the current one, which stays on the page until then.'
     : canUpload
       ? 'New pictures are reviewed with the event: each appears on the public page once a moderator approves it.'
-      : canArrange
-        ? 'This event is live, so its pictures can be described again, reordered or removed, but a new picture cannot be added: every new picture is reviewed with the event.'
-        : canRemove
-          ? 'Pictures on this event can be removed, which also frees your organisation’s storage, but not changed.'
-          : status === 'APPROVED'
-            ? 'This event is approved and waiting for you to publish it. Its pictures can be described again, reordered or removed once it is published.'
-            : 'A moderator is looking at this version of the event, so its pictures cannot change until they decide or you withdraw it from review.'
+      : canRemove
+        ? 'Pictures on this event can be removed, which also frees your organisation’s storage, but not changed.'
+        : status === 'APPROVED'
+          ? 'This event is approved and waiting for you to publish it. Its pictures can be described again, reordered or removed once it is published.'
+          : 'A moderator is looking at this version of the event, so its pictures cannot change until they decide or you withdraw it from review.'
 
   return (
     <section aria-labelledby="media-heading" className="space-y-8" data-slot="event-media-editor">
@@ -445,6 +481,7 @@ function MediaPanel({
         <p role="status" aria-live="polite" className="text-sm font-medium text-ink">
           {announcement}
         </p>
+        {stepUp.prompt}
         {error ? (
           <div ref={errorRef} tabIndex={-1} className="focus-visible:outline-none">
             <Alert variant="error" title="That did not work">
@@ -464,10 +501,16 @@ function MediaPanel({
           Cover
         </h3>
         {cover ? (
-          <ul className="grid gap-4">
+          <ul className={`grid gap-4 ${replacement ? 'sm:grid-cols-2' : ''}`}>
             <MediaItem
               item={cover}
-              label="The cover"
+              label={
+                cover.replacesMediaId
+                  ? 'The new cover, waiting for approval'
+                  : replacement
+                    ? 'The current cover'
+                    : 'The cover'
+              }
               canArrange={canArrange}
               canRemove={canRemove}
               busy={busy}
@@ -475,6 +518,22 @@ function MediaPanel({
               onRemove={remove}
               registerRef={(node) => itemRefs.current.set(cover.id, node)}
             />
+            {replacement ? (
+              <MediaItem
+                item={replacement}
+                label={
+                  replacement.moderationStatus === 'REJECTED'
+                    ? 'The new cover, not approved'
+                    : 'The new cover, waiting for approval'
+                }
+                canArrange={canArrange}
+                canRemove={canRemove}
+                busy={busy}
+                onDescribe={describe}
+                onRemove={remove}
+                registerRef={(node) => itemRefs.current.set(replacement.id, node)}
+              />
+            ) : null}
           </ul>
         ) : (
           <p className="text-sm text-ink-muted">
@@ -491,9 +550,11 @@ function MediaPanel({
             busy={busy}
             setBusy={setBusy}
             onUploaded={uploaded}
-            onRefused={(response, body) =>
-              refuse(refusalOf(response, body, 'The picture was not uploaded.'))
-            }
+            onRefused={(response, body, retry) => {
+              if (!stepUp.refused(body, retry)) {
+                refuse(refusalOf(response, body, 'The picture was not uploaded.'))
+              }
+            }}
             onUnreachable={() =>
               refuse('The service is not responding. Nothing has been uploaded.')
             }
@@ -544,9 +605,11 @@ function MediaPanel({
             busy={busy}
             setBusy={setBusy}
             onUploaded={uploaded}
-            onRefused={(response, body) =>
-              refuse(refusalOf(response, body, 'The picture was not uploaded.'))
-            }
+            onRefused={(response, body, retry) => {
+              if (!stepUp.refused(body, retry)) {
+                refuse(refusalOf(response, body, 'The picture was not uploaded.'))
+              }
+            }}
             onUnreachable={() =>
               refuse('The service is not responding. Nothing has been uploaded.')
             }
@@ -572,7 +635,7 @@ function MediaPanel({
  * @property {boolean} busy Whether another write is in flight.
  * @property {Function} setBusy Mark a write in flight.
  * @property {Function} onUploaded Given the answer to a successful upload.
- * @property {Function} onRefused Given the response and body of a refused one.
+ * @property {Function} onRefused Given the response and body of a refused one, and a function that sends the same upload again.
  * @property {Function} onUnreachable Called when no response arrived.
  */
 
@@ -647,25 +710,39 @@ function UploadForm({
       return
     }
 
+    await send(file, described.data)
+  }
+
+  /**
+   * Upload the checked file.
+   *
+   * Its own function so a refusal for want of a fresh second factor can send
+   * the same file and description again once it is confirmed.
+   *
+   * @param {File} chosen The file.
+   * @param {string} description Its description, already checked.
+   * @returns {Promise<void>} Resolves when the attempt is over.
+   */
+  async function send(chosen, description) {
     setUploading(true)
     setBusy(true)
 
     try {
-      const declared = MEDIA_UPLOAD_CONTENT_TYPES.includes(file.type)
-        ? file.type
+      const declared = MEDIA_UPLOAD_CONTENT_TYPES.includes(chosen.type)
+        ? chosen.type
         : 'application/octet-stream'
       const response = await apiFetch(
-        uploadPath(eventId, { kind, altText: described.data, revision }),
+        uploadPath(eventId, { kind, altText: description, revision }),
         {
           method: 'POST',
           headers: { 'content-type': declared },
-          body: file,
+          body: chosen,
         },
       )
       const body = await bodyOf(response)
 
       if (!response.ok) {
-        onRefused(response, body)
+        onRefused(response, body, () => send(chosen, description))
         return
       }
 

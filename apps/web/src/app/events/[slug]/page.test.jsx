@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 
 vi.mock('../../../lib/api.js', () => ({
@@ -127,6 +127,42 @@ describe('the event detail page when the event is missing', () => {
     expect(document.body.textContent).not.toMatch(
       /draft|unpublished|withdrawn|moderat|private|deleted|cancelled/i,
     )
+  })
+})
+
+describe('the event detail page when the event was deleted', () => {
+  const deleted = { ...selling, status: 'DELETED' }
+
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+    // What the API answers an insider who may still read the deleted event.
+    loadEventBySlug.mockResolvedValue({ event: deleted, usedFallback: false })
+    readSession.mockResolvedValue({
+      user: { id: 'u1' },
+      capabilities: [],
+      memberships: [{ organizationId: 'org_1', capabilities: ['event:view_draft'] }],
+    })
+  })
+
+  afterEach(() => {
+    readSession.mockResolvedValue(null)
+  })
+
+  it('renders the not-found view even for the event’s own team, saying nothing of why', async () => {
+    const { container } = render(
+      await EventDetailPage({ params: Promise.resolve({ slug: deleted.slug }) }),
+    )
+
+    expect(screen.getByTestId('not-found-view')).toBeInTheDocument()
+    expect(screen.queryByText(deleted.title)).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/deleted/i)
+    expect(container.querySelectorAll('script[type="application/ld+json"]')).toHaveLength(0)
+  })
+
+  it('answers with the not-found metadata, out of the index and with no canonical URL', async () => {
+    const metadata = await generateMetadata({ params: Promise.resolve({ slug: deleted.slug }) })
+
+    expect(metadata).toEqual({ title: 'Event not found', robots: { index: false, follow: false } })
   })
 })
 
@@ -1043,5 +1079,125 @@ describe('counting visits to the event page', () => {
       'href',
       '/events/qawwali-under-the-banyan/website',
     )
+  })
+})
+
+describe('an event copied from its Sulekha listing', () => {
+  /** A published imported event, as the API sends it: no tiers, one night with no listed end. */
+  const imported = {
+    ...event,
+    status: 'PUBLISHED',
+    timezone: 'America/Chicago',
+    startsAt: '2026-11-07T00:30:00.000Z',
+    endsAt: '2026-11-07T03:30:00.000Z',
+    organization: {
+      name: 'Sulekha Events',
+      slug: 'sulekha-events',
+      verified: true,
+      description:
+        'Events listed on Sulekha.com and shown on Desi-Event by the Desi-Event team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+    },
+    ticketTypes: [],
+    sessions: [
+      {
+        id: 'sesimported0000000000001',
+        label: null,
+        startsAt: '2026-11-07T00:30:00.000Z',
+        endsAt: '2026-11-07T03:30:00.000Z',
+        doorsOpenAt: null,
+        timezone: 'America/Chicago',
+        status: 'SCHEDULED',
+        salesStartAt: null,
+        salesEndAt: null,
+        hasSeatMap: false,
+        seatsAvailable: null,
+        endTimeListed: false,
+      },
+    ],
+    websiteLink: { host: 'events.sulekha.com' },
+    importedFrom: {
+      sourceName: 'Sulekha',
+      presentedBy: 'Raga Nights Houston',
+      listedOn: '2026-09-30',
+      prices: [
+        { name: 'Adult', priceCents: 2500, currency: 'USD' },
+        { name: 'Child', priceCents: 0, currency: 'USD' },
+      ],
+      priceListed: true,
+      ticketsOnSource: true,
+    },
+  }
+
+  beforeEach(() => {
+    loadEventBySlug.mockReset()
+    readSession.mockResolvedValue(null)
+  })
+
+  it('says who presents it, under the title, with no badge vouching for them', async () => {
+    await renderEvent(imported)
+
+    expect(screen.getByText('Presented by Raga Nights Houston')).toBeInTheDocument()
+    expect(screen.queryByText('Presented by Sulekha Events')).not.toBeInTheDocument()
+    expect(screen.queryByText('Verified organiser')).not.toBeInTheDocument()
+  })
+
+  it('sends buyers to Sulekha with the prices as listed, and offers no buying here', async () => {
+    await renderEvent(imported)
+
+    const tickets = screen.getByRole('complementary', { name: 'Tickets' })
+
+    expect(
+      within(tickets).getByText('Tickets for this event are sold on Sulekha, not on Desi-Event.'),
+    ).toBeInTheDocument()
+    expect(
+      within(tickets).getByText(
+        'As listed on Sulekha on 30 September 2026: Adult $25.00, Child Free.',
+      ),
+    ).toBeInTheDocument()
+
+    const buy = within(tickets).getByRole('link', { name: 'Buy tickets on Sulekha' })
+
+    expect(buy).toHaveAttribute('href', '/events/qawwali-under-the-banyan/website')
+    expect(screen.queryByRole('link', { name: /choose tickets/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Visit the organiser’s website' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/not on sale|cannot be bought here/i)
+    expect(document.body.textContent).not.toMatch(/payments on this site are simulated/i)
+  })
+
+  it('says when Sulekha lists no price, and offers no link while it is off', async () => {
+    await renderEvent({
+      ...imported,
+      websiteLink: null,
+      importedFrom: {
+        ...imported.importedFrom,
+        prices: [],
+        priceListed: false,
+        ticketsOnSource: false,
+      },
+    })
+
+    expect(screen.getByText('Sulekha does not list a price for this event.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Buy tickets on Sulekha' })).toBeNull()
+    expect(document.body.innerHTML).not.toContain('/website')
+  })
+
+  it('shows only the start when the listing gave no end time', async () => {
+    const { container } = await renderEvent(imported)
+    const nights = screen.getByRole('list', { name: 'Nights' })
+
+    expect(within(nights).getByText('Starts')).toBeInTheDocument()
+    expect(within(nights).queryByText('Ends')).not.toBeInTheDocument()
+    expect(within(nights).getByText('Tickets on Sulekha')).toBeInTheDocument()
+    // Neither the hero nor the ticket box prints the estimated end.
+    expect(container.textContent).not.toMatch(/–\s*9:30/u)
+  })
+
+  it('publishes the presenting organiser, no offers and no end in its structured data', async () => {
+    const { container } = await renderEvent(imported)
+    const data = structuredData(container)
+
+    expect(data.organizer).toEqual({ '@type': 'Organization', name: 'Raga Nights Houston' })
+    expect(data.offers).toBeUndefined()
+    expect(data).not.toHaveProperty('endDate')
   })
 })

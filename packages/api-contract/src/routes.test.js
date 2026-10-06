@@ -494,3 +494,92 @@ describe('full control of posted events (SPEC2-XI X)', () => {
     }
   })
 })
+
+describe('importing listed events (SPEC2-XI I)', () => {
+  /** id → [method, path, step-up, success status]. */
+  const EXPECTED = {
+    'eventImports.list': ['GET', '/v1/platform/imports', undefined, 200],
+    'eventImports.preview': ['POST', '/v1/platform/imports', undefined, 201],
+    'eventImports.get': ['GET', '/v1/platform/imports/:runId', undefined, 200],
+    'eventImports.apply': ['POST', '/v1/platform/imports/:runId/apply', 'MODERATION', 200],
+    'eventImports.retryImages': [
+      'POST',
+      '/v1/platform/imports/:runId/images/retry',
+      'MODERATION',
+      200,
+    ],
+    'eventImports.approve': ['POST', '/v1/platform/imports/:runId/approve', 'EVENT_PUBLISH', 200],
+    'eventImports.targets': ['GET', '/v1/platform/import-targets', undefined, 200],
+    'eventImports.reassign': [
+      'POST',
+      '/v1/platform/imports/events/:eventId/reassign',
+      'EVENT_PUBLISH',
+      200,
+    ],
+  }
+
+  it('places the eight routes at their method and path, each held by event:import', () => {
+    const declared = apiRoutes.filter((route) => route.id.startsWith('eventImports.'))
+
+    expect(declared.map((route) => route.id).sort()).toEqual(Object.keys(EXPECTED).sort())
+
+    for (const [id, [method, path, stepUp, status]] of Object.entries(EXPECTED)) {
+      const route = routeById(id)
+
+      expect(routeKey(route), id).toBe(`${method} ${path}`)
+      expect(route.auth, id).toBe('session')
+      expect(route.capability, id).toBe('event:import')
+      expect(route.capabilityScope ?? null, id).toBeNull()
+      expect(route.stepUp ?? undefined, id).toBe(stepUp)
+      expect(route.successStatus, id).toBe(status)
+    }
+  })
+
+  it('tags them `imports`, never `platform`, and describes the tag', () => {
+    for (const id of Object.keys(EXPECTED)) {
+      expect(routeById(id).tags, id).toEqual(['imports'])
+    }
+
+    expect(API_TAGS.find((tag) => tag.name === 'imports').description).toBe(
+      'Bringing events listed on another site onto Desi-Event, by the Desi-Event team.',
+    )
+  })
+
+  it('declares a step-up on every POST but the preview, which writes only the run', () => {
+    for (const id of Object.keys(EXPECTED)) {
+      const route = routeById(id)
+
+      if (route.method !== 'POST' || id === 'eventImports.preview') continue
+
+      expect(route.stepUp, id).toBeTruthy()
+    }
+  })
+
+  it('declares 409 on every write that refuses a run or an event in the wrong state', () => {
+    // Apply and retry refuse a run applied, expired or not applied; approve
+    // refuses a run not applied (`NOT_EDITABLE`); reassign refuses an event
+    // not imported or a target not eligible.
+    for (const id of [
+      'eventImports.apply',
+      'eventImports.retryImages',
+      'eventImports.approve',
+      'eventImports.reassign',
+    ]) {
+      expect(
+        routeById(id).errors.map((error) => error.status),
+        id,
+      ).toContain(409)
+    }
+  })
+
+  it('never lets the apply body ask for anything but the digest and the listings to update', () => {
+    const body = routeById('eventImports.apply').body
+
+    expect(body.safeParse({ planDigest: 'a'.repeat(64) }).data).toEqual({
+      planDigest: 'a'.repeat(64),
+      updateFromSource: [],
+    })
+    expect(body.safeParse({ planDigest: 'a'.repeat(64), approve: true }).success).toBe(false)
+    expect(body.safeParse({ planDigest: 'not-a-digest' }).success).toBe(false)
+  })
+})

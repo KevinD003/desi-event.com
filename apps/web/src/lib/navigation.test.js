@@ -90,10 +90,13 @@ const AREA_OF = Object.freeze({
   '/operations/notifications': 'operations',
   '/moderation/events': 'moderation',
   '/moderation/organizations': 'moderation',
+  '/moderation/pictures': 'moderation',
   '/moderation/websites': 'moderation',
   '/privacy': 'privacy',
   '/retention': 'retention',
   '/admin/organizer-invitations': 'admin',
+  '/admin/events': 'admin',
+  '/admin/imports': 'admin',
   '/admin/users': 'admin',
 })
 
@@ -202,6 +205,7 @@ describe('workspace offers, by role', () => {
     expect(offered(platform('MODERATOR'))).toEqual([
       '/moderation/events',
       '/moderation/organizations',
+      '/moderation/pictures',
     ])
     expect(workspaceHome(platform('MODERATOR'))).toBe('/moderation/events')
   })
@@ -287,6 +291,7 @@ describe('workspace offers, by role', () => {
       '/moderation/events',
       '/retention',
       '/moderation/organizations',
+      '/moderation/pictures',
       '/admin/users',
     ])
   })
@@ -384,6 +389,56 @@ describe('workspace offers, by role', () => {
     expect(hrefs.indexOf('/analytics/events')).toBe(hrefs.indexOf('/analytics') + 1)
     expect(events.items.find((item) => item.href === '/analytics/events').label).toBe(
       'Every event’s visits',
+    )
+  })
+
+  it('offers all events to a platform administrator and a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/admin/events'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN',
+      )
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/admin/events')
+    }
+
+    const trust = workspaceGroups(platform('ADMIN')).find((group) => group.id === 'trust')
+
+    expect(trust.items.find((item) => item.href === '/admin/events').label).toBe('All events')
+  })
+
+  it('offers the imports to a platform administrator and a super administrator alone', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/admin/imports'), role).toBe(
+        role === 'ADMIN' || role === 'SUPER_ADMIN',
+      )
+    }
+
+    for (const role of Object.keys(ORG_ROLE_CAPABILITIES)) {
+      expect(offered(member(role)), role).not.toContain('/admin/imports')
+    }
+
+    expect(offered(platform('MODERATOR'))).not.toContain('/admin/imports')
+
+    const trust = workspaceGroups(platform('ADMIN')).find((group) => group.id === 'trust')
+
+    expect(trust.items.find((item) => item.href === '/admin/imports').label).toBe('Imports')
+  })
+
+  it('offers the pictures waiting to whoever moderation admits, and to nobody else', () => {
+    for (const role of Object.keys(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(offered(platform(role)).includes('/moderation/pictures'), role).toBe(
+        admits(platform(role), 'moderation'),
+      )
+    }
+
+    expect(offered(member('OWNER'))).not.toContain('/moderation/pictures')
+
+    const trust = workspaceGroups(platform('MODERATOR')).find((group) => group.id === 'trust')
+
+    expect(trust.items.find((item) => item.href === '/moderation/pictures').label).toBe(
+      'Pictures waiting',
     )
   })
 

@@ -16,6 +16,7 @@ import { installRawBodyParser, registerWebhookRoutes } from './webhooks.js'
 import { registerTeamRoutes } from './teams.js'
 import { registerEventRoutes } from './events.js'
 import { registerEventControlRoutes } from './event-control.js'
+import { registerEventImportRoutes } from './event-imports.js'
 import { registerFinanceRoutes } from './finance.js'
 import { registerHealthRoutes } from './health.js'
 import { registerHoldRoutes } from './holds.js'
@@ -59,6 +60,8 @@ import { registerWebsiteRedirectRoutes } from './website-redirect.js'
  * @param {function(object): Promise<void>} [deps.codeDeliver] Where show-once codes are sent in EMAIL mode: the injected hook, or the SMTP mailer.
  * @param {{max?: number, timeWindow?: string|number}} [deps.organizerInviteLimit] Overrides for the organiser-invitation budget.
  * @param {{max?: number, timeWindow?: string|number}} [deps.platformEditLimit] Overrides for the platform editing-sitting budget.
+ * @param {{max?: number, timeWindow?: string|number}} [deps.eventImportLimit] Overrides for the import budget.
+ * @param {Function} [deps.fetchImportImage] How an import copies one picture.
  * @param {{max?: number, timeWindow?: string|number}} [deps.transferMailLimit] Overrides for the ticket-transfer mail budget.
  * @param {'MANUAL'|'EMAIL'} [deps.deliveryMode] How single-use codes reach people, resolved once by `buildApp`.
  * @param {object} [deps.mediaStorage] Where picture bytes live; see `lib/media-storage.js`.
@@ -87,6 +90,7 @@ export function registerRoutes(app, deps) {
   registerEventRoutes(app, deps)
   registerEventAuthoringRoutes(app, deps)
   registerEventControlRoutes(app, deps)
+  registerEventImportRoutes(app, deps)
   registerModerationRoutes(app, deps)
   registerWebsiteRedirectRoutes(app, deps)
   registerTicketTypeRoutes(app, deps)

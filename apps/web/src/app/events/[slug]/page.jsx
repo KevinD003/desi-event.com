@@ -59,6 +59,7 @@ import {
   formatVenueAddress,
   toDateTimeAttribute,
 } from '../../../lib/format.js'
+import { endTimeListed } from '../../../lib/imports.js'
 import { initialOf } from '../../../lib/initial.js'
 import { formatPrice, priceSelection, taxLabelForPlace } from '../../../lib/pricing.js'
 import { buildEventsHref } from '../../../lib/search-params.js'
@@ -89,6 +90,7 @@ import { AvailabilityChip } from '../../../components/listing-card.jsx'
 import { EventArt } from '../../../components/event-art.jsx'
 import { EventGallery } from '../../../components/event-gallery.jsx'
 import { EventWebsiteLink } from '../../../components/event-website-link.jsx'
+import { ImportedEventPanel } from '../../../components/imported-event-panel.jsx'
 import { JsonLd } from '../../../components/json-ld.jsx'
 import {
   EventContact,
@@ -206,7 +208,9 @@ export async function generateMetadata({ params }) {
   const { slug } = await params
   const { event } = await loadEventBySlug(slug)
 
-  if (!event) {
+  // A deleted event is not found, for everybody: even its own team, whose
+  // session the API would answer with it, reads it in the workspace instead.
+  if (!event || event.status === 'DELETED') {
     return { title: 'Event not found', robots: { index: false, follow: false } }
   }
 
@@ -262,11 +266,19 @@ export default async function EventDetailPage({ params }) {
 
   // Next.js 16.3.5 answers `notFound()` with a document that has no body until
   // the browser hydrates, so a missing event renders the shared not-found view
-  // here instead. See components/not-found-view.jsx.
-  if (!event) return <NotFoundView />
+  // here instead. See components/not-found-view.jsx. A deleted event is not
+  // found for everybody, its own team included (SPEC2-XI X-S).
+  if (!event || event.status === 'DELETED') return <NotFoundView />
 
   const ticketTypes = event.ticketTypes ?? []
   const sessions = event.sessions ?? []
+  // An event copied from its Sulekha listing (SPEC2-XI I-E): its tickets are
+  // sold there, its organiser is the one the listing names, and an end the
+  // listing did not give is never shown (the API keeps an estimate).
+  const imported = event.importedFrom ?? null
+  const endListed = endTimeListed(event)
+  const shownEndsAt = endListed ? event.endsAt : null
+  const presenter = imported?.presentedBy ?? event.organization?.name ?? null
   const cheapest = cheapestAvailable(ticketTypes, new Date())
   const soldOut = allTiersSoldOut(ticketTypes)
   const address = formatVenueAddress(event.venue)
@@ -430,10 +442,10 @@ export default async function EventDetailPage({ params }) {
                     aria-hidden="true"
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-page font-display text-base font-bold text-ink"
                   >
-                    {initialOf(event.organization.name)}
+                    {initialOf(presenter)}
                   </span>
-                  <span>{`Presented by ${event.organization.name}`}</span>
-                  {event.organization.verified ? (
+                  <span>{`Presented by ${presenter}`}</span>
+                  {event.organization.verified && !imported ? (
                     <span className="inline-flex min-h-7 items-center gap-1.5 rounded-full border border-ink-inverse/25 bg-ink-inverse/10 pr-3 pl-1.5 text-xs font-bold text-ink-inverse">
                       <VerifiedIcon className="h-4.5 w-4.5 text-accent-inverse" />
                       Verified organiser
@@ -458,7 +470,7 @@ export default async function EventDetailPage({ params }) {
                     </span>
                     <span className="block text-sm text-ink-inverse-muted">
                       {formatEventTime(event.startsAt, event.timezone)}
-                      {event.endsAt ? ` – ${formatEventTime(event.endsAt, event.timezone)}` : ''}
+                      {shownEndsAt ? ` – ${formatEventTime(shownEndsAt, event.timezone)}` : ''}
                       {zoneLabel ? ` ${zoneLabel}` : ''}
                     </span>
                   </span>
@@ -487,7 +499,7 @@ export default async function EventDetailPage({ params }) {
                 ) : null}
               </ul>
 
-              {ticketTypes.length > 0 ? (
+              {ticketTypes.length > 0 || imported ? (
                 <a
                   href="#tickets"
                   className={`${INVERSE_TEXT_LINK} mt-6 inline-flex min-h-11 items-center gap-2 lg:hidden`}
@@ -574,6 +586,7 @@ export default async function EventDetailPage({ params }) {
                     buyable={BUYABLE_STATUSES.has(event.status)}
                     ticketTypes={ticketTypes}
                     traffic={traffic}
+                    soldOn={imported?.sourceName ?? null}
                   />
                 </div>
               ) : (
@@ -584,12 +597,14 @@ export default async function EventDetailPage({ params }) {
                       {formatEventTime(event.startsAt, event.timezone)}
                     </time>
                   </ScheduleFact>
-                  <ScheduleFact Icon={ClockIcon} term="Ends">
-                    <time dateTime={toDateTimeAttribute(event.endsAt)}>
-                      {formatEventDate(event.endsAt, event.timezone)} ·{' '}
-                      {formatEventTime(event.endsAt, event.timezone)}
-                    </time>
-                  </ScheduleFact>
+                  {shownEndsAt ? (
+                    <ScheduleFact Icon={ClockIcon} term="Ends">
+                      <time dateTime={toDateTimeAttribute(shownEndsAt)}>
+                        {formatEventDate(shownEndsAt, event.timezone)} ·{' '}
+                        {formatEventTime(shownEndsAt, event.timezone)}
+                      </time>
+                    </ScheduleFact>
+                  ) : null}
                   <ScheduleFact Icon={PinIcon} term="Local time" wide>
                     All times are {zoneLabel ? `${zoneLabel} — ` : ''}the local time at the venue (
                     {event.timezone}), not your own.
@@ -727,32 +742,56 @@ export default async function EventDetailPage({ params }) {
                   Presented by
                 </h2>
                 <div className="mt-5 rounded-card bg-surface-raised p-6 shadow-card">
-                  <p className="flex flex-wrap items-center gap-3">
-                    {/*
+                  {imported ? (
+                    /*
+                      The organiser the listing names, who has no page here;
+                      then who holds the listing on Desi-Event, and why.
+                    */
+                    <>
+                      <p className="font-display text-h3 font-bold text-ink">{presenter}</p>
+                      <p className="mt-3 text-ink-muted">
+                        {`Copied from this event’s listing on ${imported.sourceName} by the Desi-Event team, and shown under `}
+                        {event.organization.slug ? (
+                          <Link
+                            href={`/organizers/${event.organization.slug}`}
+                            className={TEXT_LINK}
+                          >
+                            {event.organization.name}
+                          </Link>
+                        ) : (
+                          event.organization.name
+                        )}
+                        .
+                      </p>
+                    </>
+                  ) : (
+                    <p className="flex flex-wrap items-center gap-3">
+                      {/*
                       Linked when there is a slug to link to, plain text when
                       there is not. Building the href from the name would
                       produce a URL that looks right and 404s.
                     */}
-                    {event.organization.slug ? (
-                      <Link
-                        href={`/organizers/${event.organization.slug}`}
-                        className={`${TEXT_LINK} font-display text-h3`}
-                      >
-                        {event.organization.name}
-                      </Link>
-                    ) : (
-                      <span className="font-display text-h3 font-bold text-ink">
-                        {event.organization.name}
-                      </span>
-                    )}
-                    {event.organization.verified ? (
-                      <Badge variant="secondary" srLabel="Organiser status:">
-                        <VerifiedIcon className="h-4 w-4" />
-                        Verified organiser
-                      </Badge>
-                    ) : null}
-                  </p>
-                  {event.organization.description ? (
+                      {event.organization.slug ? (
+                        <Link
+                          href={`/organizers/${event.organization.slug}`}
+                          className={`${TEXT_LINK} font-display text-h3`}
+                        >
+                          {event.organization.name}
+                        </Link>
+                      ) : (
+                        <span className="font-display text-h3 font-bold text-ink">
+                          {event.organization.name}
+                        </span>
+                      )}
+                      {event.organization.verified ? (
+                        <Badge variant="secondary" srLabel="Organiser status:">
+                          <VerifiedIcon className="h-4 w-4" />
+                          Verified organiser
+                        </Badge>
+                      ) : null}
+                    </p>
+                  )}
+                  {event.organization.description && !imported ? (
                     <p className="mt-3 text-ink-muted">{event.organization.description}</p>
                   ) : null}
                 </div>
@@ -762,11 +801,13 @@ export default async function EventDetailPage({ params }) {
             {/* Only while a Desi-Event administrator has the link on and the
                 page is public; the API sends no host otherwise. It goes through
                 this site's redirect, never straight to the address. */}
-            <EventWebsiteLink
-              slug={event.slug}
-              link={event.websiteLink ?? null}
-              uncounted={uncounted}
-            />
+            {imported?.ticketsOnSource ? null : (
+              <EventWebsiteLink
+                slug={event.slug}
+                link={event.websiteLink ?? null}
+                uncounted={uncounted}
+              />
+            )}
 
             <EventContact email={event.publicEmail} phone={event.publicPhone} />
             <EventSocialLinks links={event.socialLinks} />
@@ -838,16 +879,23 @@ export default async function EventDetailPage({ params }) {
                   <h2 id="tickets-heading" className="text-h2 font-semibold text-ink">
                     Tickets
                   </h2>
-                  {buyable ? (
+                  {buyable && !imported ? (
                     <AvailabilityChip availability={{ tone: 'open', label: 'On sale' }} />
                   ) : null}
                 </div>
                 <p className="mt-1 text-sm text-ink-subtle">
-                  {formatEventWhen(event)}
+                  {formatEventWhen({ ...event, endsAt: shownEndsAt })}
                   {zoneLabel ? ` ${zoneLabel}` : ''}
                 </p>
 
-                {ticketTypes.length === 0 ? (
+                {imported ? (
+                  <ImportedEventPanel
+                    importedFrom={imported}
+                    slug={event.slug}
+                    websiteLink={event.websiteLink ?? null}
+                    uncounted={uncounted}
+                  />
+                ) : ticketTypes.length === 0 ? (
                   <p className="mt-5 text-ink-muted">
                     The organiser has not put any tickets for this event on sale.
                   </p>
@@ -937,15 +985,17 @@ export default async function EventDetailPage({ params }) {
                   </>
                 )}
 
-                <p className="mt-5 flex items-start gap-3 rounded-control bg-surface-subtle px-4 py-3 text-sm text-ink-muted">
-                  <ShieldIcon className="mt-0.5 h-4.5 w-4.5 text-accent-strong" />
-                  <span>
-                    <strong className="font-bold text-ink">
-                      Payments on this site are simulated.
-                    </strong>{' '}
-                    You will not be asked for a card.
-                  </span>
-                </p>
+                {imported ? null : (
+                  <p className="mt-5 flex items-start gap-3 rounded-control bg-surface-subtle px-4 py-3 text-sm text-ink-muted">
+                    <ShieldIcon className="mt-0.5 h-4.5 w-4.5 text-accent-strong" />
+                    <span>
+                      <strong className="font-bold text-ink">
+                        Payments on this site are simulated.
+                      </strong>{' '}
+                      You will not be asked for a card.
+                    </span>
+                  </p>
+                )}
               </div>
             </FadeIn>
           </aside>

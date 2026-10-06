@@ -182,6 +182,8 @@ export function sessionFormProblems(
  * @property {'draft'|'live'} mode The editing mode.
  * @property {object[]} mapVersions Published seating map versions for the venue.
  * @property {{sold: number, held: number}|null} [usage] What is using it, when editing.
+ * @property {boolean} [used] Whether anything uses the night (a seat sold or held, an order,
+ *   a check-in): its seating map is then what those people bought, and stays.
  * @property {boolean} [busy] Whether a save is in flight.
  * @property {Function} onSubmit Called with the body; for an edit, only what changed plus any confirmation.
  * @property {Function} [onCancel] Called when the person backs out of an edit.
@@ -200,6 +202,7 @@ export function SessionForm({
   mode = 'draft',
   mapVersions = [],
   usage = null,
+  used = false,
   busy = false,
   onSubmit,
   onCancel = null,
@@ -213,7 +216,10 @@ export function SessionForm({
   const summary = useRef(null)
   const focusAfterRender = useFocusAfterRender()
   const zone = values.timezone
-  const layoutLocked = kind === 'edit' && mode === 'live'
+  // A night nobody has bought into can take another seating map, even on a
+  // public event; one with seats sold or held keeps the map they bought, and
+  // the API refuses the change (MAP_FROZEN) as well.
+  const layoutLocked = kind === 'edit' && (used || (usage ? usage.sold + usage.held > 0 : false))
   const changed = kind === 'edit' ? diffSessionBody(initial, values) : {}
   const material = mode === 'live' && kind === 'edit' ? materialSessionFields(changed) : []
   const errors = Object.fromEntries(shown.map((entry) => [entry.field, entry.message]))
@@ -387,7 +393,7 @@ export function SessionForm({
         id={`${idPrefix}-venueMapVersionId`}
         description={
           layoutLocked
-            ? 'This event is public, so the seating layout of a session stays as it is. Add a new session for another layout.'
+            ? 'Seats have been sold or held at this night, so its seating map is what those people bought. Add a new night for another layout.'
             : 'Only published versions appear here. A version somebody is still editing cannot back a session, because the seats would move underneath the tickets.'
         }
       >

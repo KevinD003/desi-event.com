@@ -18,8 +18,17 @@
  * @module app/organizer/layout
  */
 
+import { redirect } from 'next/navigation'
+
 import { AreaRefusal, WorkspaceShell } from '../../components/shells.jsx'
 import { enterArea } from '../../lib/area-gate.js'
+import { getOrganizerEvent } from '../../lib/organizer-api.js'
+import {
+  editsAsPlatform,
+  organizerEventIdFromPath,
+  platformEditorRedirect,
+} from '../../lib/platform-editor.js'
+import { requestPath } from '../../lib/request-path.js'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,6 +47,22 @@ export const metadata = { robots: { index: false, follow: false } }
  */
 export default async function OrganizerLayout({ children }) {
   const { session, admitted } = await enterArea('organizer')
+
+  // The Desi-Event team edits an organisation's event in its own editor, in an
+  // editing session opened with a reason, never in the organiser's (SPEC2-XI
+  // O9). Here, in the area's own layout, so the redirect is a real one: no
+  // page under the loading boundary may call `redirect()`. A layout does not
+  // run again when somebody moves between the area's pages in the browser, so
+  // the events list links such a reader to the platform's editor and the
+  // organiser's editor page shows them the way there itself.
+  const eventId = editsAsPlatform(session) ? organizerEventIdFromPath(await requestPath()) : null
+
+  if (eventId) {
+    const event = await getOrganizerEvent(eventId).catch(() => null)
+    const elsewhere = platformEditorRedirect(session, event)
+
+    if (elsewhere) redirect(elsewhere)
+  }
 
   if (!admitted) return <AreaRefusal area="organizer" />
 

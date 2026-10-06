@@ -55,6 +55,7 @@ import {
   isRetryableConflict,
   notFound,
 } from './errors.js'
+import { sanitiseImportedImage } from './import-images.js'
 import { STRUCTURAL_SCAN_NOTE, createPostgresMediaStorage } from './media-storage.js'
 import { assertIndependentReviewer } from './review-independence.js'
 
@@ -905,6 +906,315 @@ export async function approvePendingEventMedia(tx, event, actor) {
   return waiting.length
 }
 
+/**
+ * The statuses an imported picture may be stored onto: a draft or an event
+ * waiting for review (which ordinary uploads refuse; only an import's own
+ * pictures go there, reviewed with the event), a moderator's approval not yet
+ * published, and a posted event (pictures retried after publication, each
+ * waiting for approval beside what is public).
+ */
+const IMPORTED_PICTURE_STATUSES = Object.freeze(
+  new Set(['DRAFT', 'REVIEW_PENDING', 'APPROVED', ...PUBLICLY_VISIBLE_STATUSES]),
+)
+
+/**
+ * A picture's description as the dataset gives it, normalised as an upload's
+ * is and held to the same length.
+ *
+ * @param {string} alt The dataset's description.
+ * @returns {string} The description to store.
+ */
+function importedAltText(alt) {
+  const text = String(alt ?? '')
+    .normalize('NFC')
+    .replace(/\s+/gu, ' ')
+    .trim()
+
+  return text.slice(0, MEDIA_LIMITS.altTextMax)
+}
+
+/**
+ * Store one picture an import copied (SPEC2-XI I-C).
+ *
+ * The bytes go through the upload sanitiser for the kind of picture they will
+ * be; a cover refused only for being too small for a cover is stored in the
+ * gallery instead, with the note "Too small for a cover". In one transaction
+ * that locks the Event row first (the order every picture write takes): the
+ * event is checked to be an import still held by the platform-held
+ * organisation, the revision is bumped (as every picture write bumps it, which
+ * is what pins an approval to the pictures the administrator saw), the gallery
+ * and the organisation's quota are checked, and the asset is written PENDING,
+ * uploaded by the importer, with its bytes and an audit row. `onStored` runs
+ * in the same transaction, so the import's record of the picture moves with
+ * it (only `lib/event-import.js` writes import rows).
+ *
+ * On a draft, or an event waiting for review or approved, a cover replaces the
+ * cover there; on a posted event it waits beside the current one, as an
+ * organiser's replacement does, and approving it swaps it in.
+ *
+ * This is the only writer that stores a picture onto an event waiting for
+ * review, and only for an import's own event.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} storage The `MediaStorage` adapter.
+ * @param {object} options Options.
+ * @param {{id: string}} options.event The event.
+ * @param {{id: string, role: string, alt: string}} options.image The `EventImportImage` row.
+ * @param {Uint8Array} options.bytes The fetched bytes.
+ * @param {string} [options.contentType] The type the fetcher sniffed; the sanitiser decides again.
+ * @param {{id: string}} options.actor The importing administrator.
+ * @param {Date} [options.now] The moment.
+ * @param {function(object, object): Promise<void>} [options.onStored] Run in the transaction with `(tx, asset)`.
+ * @returns {Promise<{ok: true, asset: object, note: string|null, revision: number} | {ok: false, code: string}>} The stored picture, or why it was refused.
+ */
+export async function storeImportedImage(prisma, storage, options) {
+  const { event, image, bytes, actor, now = new Date(), onStored = null } = options
+  const sanitised = sanitiseImportedImage(bytes, { role: image.role })
+
+  if (!sanitised.ok) return { ok: false, code: sanitised.code }
+
+  const { kind, note, image: upload } = sanitised
+  const altText = importedAltText(image.alt)
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${event.id} FOR UPDATE`
+
+      const current = await tx.event.findUnique({
+        where: { id: event.id },
+        select: {
+          id: true,
+          status: true,
+          revision: true,
+          organizationId: true,
+          organization: { select: { platformHeldSource: true } },
+          importItem: { select: { id: true, reassignedAt: true } },
+        },
+      })
+
+      if (!current) return { ok: false, code: 'EVENT_GONE' }
+      if (!current.importItem || current.importItem.reassignedAt) {
+        return { ok: false, code: 'NOT_IMPORTED' }
+      }
+      if (!current.organization?.platformHeldSource) return { ok: false, code: 'NOT_PLATFORM_HELD' }
+      if (!IMPORTED_PICTURE_STATUSES.has(current.status)) return { ok: false, code: 'NOT_EDITABLE' }
+
+      const posted = PUBLICLY_VISIBLE_STATUSES.has(current.status)
+      /** @type {string|null} */
+      let replacesMediaId = null
+      let position = null
+      /** @type {Array<{id: string, position: number|null}>|null} */
+      let galleryAfter = null
+
+      if (kind === 'EVENT_COVER' && posted) {
+        const earlier = await tx.mediaAsset.findMany({
+          where: { eventId: event.id, kind: 'EVENT_COVER', replacesMediaId: { not: null } },
+          select: { id: true, storageKey: true },
+        })
+
+        for (const row of earlier) {
+          await storage.remove(tx, row.storageKey)
+          await tx.mediaAsset.deleteMany({ where: { id: row.id } })
+        }
+
+        const live = await tx.mediaAsset.findFirst({
+          where: { eventId: event.id, kind: 'EVENT_COVER', replacesMediaId: null },
+          select: { id: true },
+        })
+
+        replacesMediaId = live?.id ?? null
+      } else if (kind === 'EVENT_COVER') {
+        const covers = await tx.mediaAsset.findMany({
+          where: { eventId: event.id, kind: 'EVENT_COVER' },
+          select: { id: true, storageKey: true, replacesMediaId: true },
+        })
+
+        for (const row of [...covers].sort(
+          (left, right) =>
+            Number(Boolean(right.replacesMediaId)) - Number(Boolean(left.replacesMediaId)),
+        )) {
+          await storage.remove(tx, row.storageKey)
+          await tx.mediaAsset.deleteMany({ where: { id: row.id } })
+        }
+      } else {
+        position = await assertGalleryRoom(tx, event.id)
+
+        // A cover too small for a cover leads the gallery (SPEC2-XI I-C): it
+        // takes the first place and the gallery moves down one, in its order,
+        // even when it is copied after the gallery (a retry).
+        if (note) {
+          galleryAfter = await tx.mediaAsset.findMany({
+            where: { eventId: event.id, kind: 'EVENT_GALLERY' },
+            select: { id: true, position: true, createdAt: true },
+            orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+          })
+          position = 0
+        }
+      }
+
+      await assertQuota(tx, current.organizationId, upload.byteSize)
+
+      // Every picture write bumps the revision: an approval names the one the
+      // administrator's page showed, so a picture stored since is not
+      // approved unseen.
+      const bumped = await tx.event.update({
+        where: { id: event.id },
+        data: { revision: { increment: 1 } },
+        select: { revision: true },
+      })
+
+      const key = storage.newKey()
+      const asset = await tx.mediaAsset.create({
+        data: {
+          ownerType: 'EVENT',
+          ownerId: event.id,
+          eventId: event.id,
+          kind,
+          storageKey: key,
+          contentType: upload.contentType,
+          byteSize: upload.byteSize,
+          width: upload.width,
+          height: upload.height,
+          checksum: upload.checksum,
+          altText,
+          position,
+          sanitisedAt: now,
+          scanStatus: 'CLEAN',
+          scanNote: STRUCTURAL_SCAN_NOTE,
+          moderationStatus: 'PENDING',
+          uploadedById: actor?.id ?? null,
+          replacesMediaId,
+        },
+        select: EVENT_MEDIA_SELECT,
+      })
+
+      await storage.put(tx, {
+        key,
+        bytes: upload.bytes,
+        checksum: upload.checksum,
+        byteSize: upload.byteSize,
+      })
+
+      if (galleryAfter) await writePositions(tx, [{ id: asset.id, position }, ...galleryAfter])
+
+      if (onStored) await onStored(tx, asset)
+
+      await recordAudit(tx, {
+        action: AUDIT_ACTIONS.EVENT_MEDIA_ADDED,
+        entityType: 'Event',
+        entityId: event.id,
+        actorId: actor?.id ?? null,
+        metadata: {
+          mediaId: asset.id,
+          kind,
+          contentType: upload.contentType,
+          byteSize: upload.byteSize,
+          width: upload.width,
+          height: upload.height,
+          checksum: upload.checksum,
+          altTextLength: altText.length,
+          replacesMediaId,
+          importImageId: image.id,
+          note,
+          via: 'import',
+          revision: bumped.revision,
+        },
+      })
+
+      return { ok: true, asset, note, revision: bumped.revision }
+    })
+  } catch (error) {
+    // A full gallery or quota is the import's refusal for this picture, not a
+    // fault: it is reported for the picture and the rest go on.
+    if (
+      error?.statusCode === 409 &&
+      ['GALLERY_FULL', 'MEDIA_QUOTA_EXCEEDED'].includes(error.code)
+    ) {
+      return { ok: false, code: error.code }
+    }
+
+    return rethrowMediaChanged(error)
+  }
+}
+
+/**
+ * Approve the waiting pictures an import copied onto an event that is already
+ * posted (SPEC2-XI I-C): pictures retried after publication. The same query
+ * and audit as {@link approvePendingEventMedia}, narrowed to pictures with an
+ * import record; nothing else about the event changes. Runs in the caller's
+ * transaction, which has locked the event and compared its revision.
+ *
+ * A replacement cover is swapped in, the cover it replaces going first.
+ *
+ * @param {object} tx The transaction client.
+ * @param {object} options Options.
+ * @param {string} options.eventId The event.
+ * @param {{id: string}} options.actor The approving administrator.
+ * @param {Date} [options.now] The moment.
+ * @returns {Promise<number>} How many pictures were approved.
+ */
+export async function approveImportedMedia(tx, { eventId, actor, now = new Date() }) {
+  const copied = await tx.eventImportImage.findMany({
+    where: { item: { eventId }, mediaAssetId: { not: null } },
+    select: { mediaAssetId: true },
+  })
+  const ids = copied.map((row) => row.mediaAssetId)
+
+  if (ids.length === 0) return 0
+
+  const waiting = await tx.mediaAsset.findMany({
+    where: {
+      id: { in: ids },
+      eventId,
+      moderationStatus: 'PENDING',
+      scanStatus: 'CLEAN',
+      sanitisedAt: { not: null },
+    },
+    select: { id: true, kind: true, checksum: true, replacesMediaId: true },
+  })
+
+  if (waiting.length === 0) return 0
+
+  const storage = createPostgresMediaStorage(null)
+
+  for (const asset of waiting.filter((row) => row.replacesMediaId)) {
+    await removeReplacedCover(tx, storage, asset.replacesMediaId)
+  }
+
+  await tx.mediaAsset.updateMany({
+    where: { id: { in: waiting.map((asset) => asset.id) }, moderationStatus: 'PENDING' },
+    data: {
+      moderationStatus: 'APPROVED',
+      moderatedAt: now,
+      moderatedById: actor?.id ?? null,
+      moderationNote: null,
+      replacesMediaId: null,
+    },
+  })
+
+  for (const asset of waiting) {
+    await recordAudit(tx, {
+      action: AUDIT_ACTIONS.MEDIA_APPROVED,
+      entityType: 'MediaAsset',
+      entityId: asset.id,
+      actorId: actor?.id ?? null,
+      metadata: { eventId, kind: asset.kind, checksum: asset.checksum, via: 'import' },
+    })
+
+    if (asset.replacesMediaId) {
+      await recordAudit(tx, {
+        action: AUDIT_ACTIONS.EVENT_MEDIA_REPLACEMENT_APPLIED,
+        entityType: 'Event',
+        entityId: eventId,
+        actorId: actor?.id ?? null,
+        metadata: { mediaId: asset.id, replacedMediaId: asset.replacesMediaId, via: 'import' },
+      })
+    }
+  }
+
+  return waiting.length
+}
+
 /** What each per-picture decision writes. */
 const DECISIONS = Object.freeze({
   approve: { to: 'APPROVED', from: ['PENDING', 'REJECTED'], action: AUDIT_ACTIONS.MEDIA_APPROVED },
@@ -963,10 +1273,13 @@ export async function decideMedia(prisma, { mediaId, decision, reason = null, ac
   // A reviewer who belongs to the event's organisation does not decide its
   // pictures, and nobody approves a picture they uploaded: somebody else on
   // the Desi-Event team does. Taking a picture down is not approving it.
-  await assertIndependentReviewer(prisma, {
+  const { exemption } = await assertIndependentReviewer(prisma, {
     actor,
     organizationId: asset.event.organizationId,
     uploadedById: decision === 'approve' ? (asset.uploadedById ?? null) : null,
+    // A picture an import copied into the platform-held organisation may be
+    // approved by the administrator who imported it (SPEC2-XI O5).
+    mediaAssetId: asset.id,
   })
 
   const rule = DECISIONS[decision]
@@ -1045,6 +1358,15 @@ export async function decideMedia(prisma, { mediaId, decision, reason = null, ac
           // The moderator's reason, as `moderation.decide` records one: it is
           // the note the organiser reads, not a secret and not the picture.
           ...(rule.to === 'REJECTED' ? { reason } : {}),
+          // Who imported it and who approved it, when the import exemption
+          // let the uploader approve it.
+          ...(exemption
+            ? {
+                exemption,
+                importedById: asset.uploadedById ?? null,
+                approvedById: actor?.id ?? null,
+              }
+            : {}),
         },
       })
 

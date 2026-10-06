@@ -42,6 +42,7 @@ import {
 } from './event-media.js'
 import { REDACTED_EMAIL_DOMAIN } from './privacy-placeholders.js'
 import { publicWebsiteLink, websiteRedirectState } from './website-redirect.js'
+import { websiteHost } from '@desi-event/schemas/website'
 import { agingBand } from './reconciliation.js'
 import { admissionRefusal } from './tickets.js'
 import { BADGED_STATES } from './verification.js'
@@ -244,6 +245,24 @@ function inSalesWindow(ticketType, now) {
   }
 }
 
+/** Each import source's name, as a page writes it. */
+export const IMPORT_SOURCE_NAMES = Object.freeze({ SULEKHA: 'Sulekha' })
+
+/**
+ * What an event's import record is read with, for {@link importedFromView}.
+ * Never a picture's address, a source note or the curator's notes.
+ */
+export const IMPORTED_FROM_SELECT = Object.freeze({
+  select: {
+    source: true,
+    sourceUrl: true,
+    scrapedAt: true,
+    presentedBy: true,
+    prices: true,
+    reassignedAt: true,
+  },
+})
+
 /**
  * Every column {@link toEventSummary} reads, and nothing else.
  *
@@ -277,7 +296,12 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
   isOnline: true,
   // The card's place, and the jurisdiction its "from" price is taxed in.
   venue: { select: { name: true, slug: true, city: true, region: true, country: true } },
-  organization: { select: { name: true, slug: true } },
+  organization: { select: { name: true, slug: true, platformHeldSource: true } },
+  // An imported event's card names where it is listed and its lowest price
+  // there, and whether its link goes to the listing (SPEC2-XI §5.I-E).
+  importItem: IMPORTED_FROM_SELECT,
+  websiteRedirectEnabled: true,
+  websiteDecidedUrl: true,
   // What the price, "sold out" and "on sale" are worked out from.
   ticketTypes: {
     select: {
@@ -296,6 +320,61 @@ export const EVENT_SUMMARY_SELECT = Object.freeze({
   // The approved cover only, as before. Filtered again by the presenter.
   ...EVENT_COVER_INCLUDE,
 })
+
+/**
+ * Where an imported event is listed, and what the listing said, for an event
+ * still held by the Desi-Event team's platform-held organisation (SPEC2-XI
+ * §5.I-E); null for every other event, and once it has been moved to an
+ * organiser's own organisation.
+ *
+ * Only what the source listed: who presents it, the day it was read (UTC) and
+ * each price's name and amount, in the listing's order. A price's note
+ * (availability, "sold out", sales dates) is never carried. `ticketsOnSource`
+ * says the website link is on, public, and goes to the listing's own site, so
+ * the page may label it "Buy tickets on Sulekha".
+ *
+ * @param {object|null|undefined} event An event row with `importItem` ({@link IMPORTED_FROM_SELECT}), `organization.platformHeldSource`, `status` and the website columns.
+ * @returns {object|null} An `importedFromSchema` payload, or null.
+ */
+export function importedFromView(event) {
+  const item = event?.importItem
+
+  if (!item || item.reassignedAt) return null
+  if (!event.organization?.platformHeldSource) return null
+
+  const scrapedAt = item.scrapedAt instanceof Date ? item.scrapedAt : new Date(item.scrapedAt)
+
+  if (Number.isNaN(scrapedAt.getTime())) return null
+
+  const prices = (Array.isArray(item.prices) ? item.prices : [])
+    .filter(
+      (price) =>
+        typeof price?.name === 'string' &&
+        price.name.trim().length > 0 &&
+        Number.isInteger(price.priceCents) &&
+        price.priceCents >= 0 &&
+        typeof price.currency === 'string' &&
+        /^[A-Z]{3}$/u.test(price.currency),
+    )
+    .slice(0, 20)
+    .map((price) => ({
+      name: price.name.trim().slice(0, 100),
+      priceCents: price.priceCents,
+      currency: price.currency,
+    }))
+
+  const link = publicWebsiteLink(event)
+  const sourceHost = websiteHost(item.sourceUrl)
+
+  return {
+    sourceName: IMPORT_SOURCE_NAMES[item.source] ?? 'Sulekha',
+    presentedBy: typeof item.presentedBy === 'string' ? item.presentedBy.slice(0, 200) : null,
+    listedOn: scrapedAt.toISOString().slice(0, 10),
+    prices,
+    priceListed: prices.length > 0,
+    ticketsOnSource: Boolean(link && sourceHost && link.host === sourceHost),
+  }
+}
 
 /**
  * The lean event shape used by listings and cards.
@@ -344,6 +423,7 @@ export function toEventSummary(event, { feeConfigFor = null, now = new Date() } 
     coverImage: publicCover(event),
     minPriceCents,
     currency: priced[0]?.currency ?? null,
+    importedFrom: importedFromView(event),
   }
 
   if (typeof feeConfigFor === 'function' && minPriceCents !== null && summary.currency) {
@@ -451,6 +531,9 @@ export function toPublicSession(session, seatsAvailable = null) {
     hasSeatMap: Boolean(session.venueMapVersionId),
     seatsAvailable:
       session.venueMapVersionId && Number.isInteger(seatsAvailable) ? seatsAvailable : null,
+    // False for an imported night whose listing gave no end: `endsAt` is then
+    // a planning estimate no page shows (SPEC2-XI §0.9).
+    endTimeListed: session.endTimeListed !== false,
   }
 }
 
@@ -616,6 +699,8 @@ export function toEventDetail(
       : {}),
     venue,
     organization: toPublicOrganizer(organization),
+    // Where an imported event is listed and its prices there; null otherwise.
+    importedFrom: importedFromView(event),
     ticketTypes: [...visibleTiers].sort(
       (left, right) => left.sortOrder - right.sortOrder || left.priceCents - right.priceCents,
     ),

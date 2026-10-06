@@ -47,7 +47,11 @@ import {
   getModerationHistory,
   getOrganizerEvent,
 } from '../../../../lib/organizer-api.js'
-import { CONFLICT_OF_INTEREST_NOTICE, belongsTo } from '../../../../lib/review-independence.js'
+import {
+  CONFLICT_OF_INTEREST_NOTICE,
+  IMPORTED_EVENT_NO_EDITOR_NOTICE,
+  belongsTo,
+} from '../../../../lib/review-independence.js'
 import { readSession } from '../../../../lib/session.js'
 
 export const dynamic = 'force-dynamic'
@@ -148,6 +152,10 @@ export default async function ReviewEventPage({ params }) {
   // them too (`CONFLICT_OF_INTEREST`), so the controls are not offered.
   const session = await readSession()
   const memberHere = belongsTo(session, event.organizationId ?? event.organization?.id ?? null)
+  // An import the platform-held organisation holds has nobody to make changes
+  // (SPEC2-XI O16): "request changes" is not offered, and the reason goes to
+  // nobody.
+  const noEditor = Boolean(event.importedFrom)
 
   const reading = statusReading(event.status)
   const address = formatVenueAddress(event.venue)
@@ -185,6 +193,30 @@ export default async function ReviewEventPage({ params }) {
           {reading.label}
         </Badge>
       </div>
+
+      {/* The Desi-Event team's own page for this event: editing it once it is
+          posted, deleting it, restoring it. Offered to platform editors only;
+          a moderator reviews here and nowhere else. */}
+      {sessionCan(session, 'event:platform_edit') ? (
+        <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <Link
+            href={`/admin/events/${encodeURIComponent(event.id)}`}
+            className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+          >
+            {event.status === 'DELETED'
+              ? 'Open its record as the Desi-Event team'
+              : 'Open in the editor as the Desi-Event team'}
+          </Link>
+          {event.status !== 'DELETED' ? (
+            <Link
+              href={`/admin/events/${encodeURIComponent(event.id)}#delete-event`}
+              className="inline-flex min-h-11 items-center rounded-sm font-medium underline underline-offset-4 hover:text-accent-strong focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+            >
+              Delete…
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
 
       <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-[1.6fr_1fr] lg:items-start">
         <div className="min-w-0 space-y-6">
@@ -461,9 +493,28 @@ export default async function ReviewEventPage({ params }) {
               </div>
             ) : (
               <div className="mt-3">
+                {PUBLICLY_VISIBLE_STATUSES.has(event.status) &&
+                media.data.some((item) => item.moderationStatus === 'PENDING') ? (
+                  <p className="mb-3 text-sm text-ink">
+                    {(() => {
+                      const waiting = media.data.filter(
+                        (item) => item.moderationStatus === 'PENDING',
+                      ).length
+
+                      return `${waiting.toLocaleString('en-US')} ${waiting === 1 ? 'picture is' : 'pictures are'} waiting for a decision on this posted event.`
+                    })()}{' '}
+                    <Link
+                      href="/moderation/pictures"
+                      className="font-medium underline underline-offset-4 hover:text-accent-strong"
+                    >
+                      Pictures waiting
+                    </Link>
+                  </p>
+                ) : null}
                 <ModerationMediaReview
                   media={media.data}
                   notYours={memberHere ? CONFLICT_OF_INTEREST_NOTICE : null}
+                  approvePending={PUBLICLY_VISIBLE_STATUSES.has(event.status)}
                 />
               </div>
             )}
@@ -558,17 +609,19 @@ export default async function ReviewEventPage({ params }) {
               <ModerationDecision
                 event={event}
                 notYours={memberHere ? CONFLICT_OF_INTEREST_NOTICE : null}
+                noEditor={noEditor ? IMPORTED_EVENT_NO_EDITOR_NOTICE : null}
                 approveBlockedReason={
                   picturesUnknown
-                    ? 'Approving is not offered while the pictures cannot be shown: it would also approve pictures you have not seen. Asking for changes and rejecting are still available.'
+                    ? `Approving is not offered while the pictures cannot be shown: it would also approve pictures you have not seen. ${noEditor ? 'Rejecting is' : 'Asking for changes and rejecting are'} still available.`
                     : null
                 }
               />
             </div>
 
             <p className="mt-3 text-sm text-ink-muted">
-              Your reason goes to the organiser. Your name does not: they are negotiating with the
-              platform, not with you.
+              {noEditor
+                ? 'Your reason is kept on the event’s record. Nobody runs this event on Desi-Event, so it goes to nobody.'
+                : 'Your reason goes to the organiser. Your name does not: they are negotiating with the platform, not with you.'}
             </p>
           </section>
 

@@ -14,7 +14,7 @@
  * @module app/tickets/id/page.test
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }))
@@ -170,5 +170,95 @@ describe('joining the online event', () => {
 describe('the page itself', () => {
   it('stays out of the index', () => {
     expect(metadata.robots).toEqual({ index: false, follow: false })
+  })
+})
+
+describe('what changed since the ticket was bought', () => {
+  it('lists a cancelled night in its own box, naming the night', async () => {
+    getTicket.mockResolvedValue(
+      detail({
+        eventChanges: [
+          {
+            id: 'cnotice000000000000000002',
+            kind: 'SESSION_CANCELLED',
+            at: '2026-10-01T10:00:00.000Z',
+            changed: [],
+            before: null,
+            after: null,
+            reason: 'The singer cancelled.',
+            sessionId: 'ses00000000000000000002',
+            by: 'ORGANIZER',
+          },
+        ],
+      }),
+    )
+    await renderPage()
+
+    const changes = screen.getByRole('region', { name: 'Changes since you bought' })
+
+    expect(within(changes).getByText('A night was cancelled')).toBeInTheDocument()
+    expect(changes).toHaveTextContent('The night of Night 2')
+    expect(changes).toHaveTextContent('Reason given: The singer cancelled.')
+  })
+
+  it('names a cancelled night by when it was to start on a ticket good for every night', async () => {
+    // An every-night pass has no night of its own (`session` is null), and the
+    // holder is the one a cancelled night matters to.
+    getTicket.mockResolvedValue(
+      detail({
+        session: null,
+        eventChanges: [
+          {
+            id: 'cnotice000000000000000002',
+            kind: 'SESSION_CANCELLED',
+            at: '2026-10-01T10:00:00.000Z',
+            changed: ['a night'],
+            before: { startsAt: '2030-10-11T13:30:00.000Z' },
+            after: null,
+            reason: 'The singer cancelled.',
+            sessionId: 'ses00000000000000000003',
+            by: 'ORGANIZER',
+          },
+        ],
+      }),
+    )
+    await renderPage()
+
+    expect(screen.getByRole('region', { name: 'Changes since you bought' })).toHaveTextContent(
+      /The night of Fri, Oct 11, 2030, \d{1,2}:\d{2}\s?[AP]M\./,
+    )
+  })
+
+  it('says a deleted event’s ticket no longer works at the door, and who took the page down', async () => {
+    getTicket.mockResolvedValue(
+      detail({
+        event: { ...detail().event, status: 'DELETED' },
+        eventChanges: [
+          {
+            ...{
+              id: 'cnotice000000000000000001',
+              kind: 'MATERIAL_CHANGE',
+              at: '2026-10-01T10:00:00.000Z',
+              changed: ['startsAt'],
+              before: { startsAt: '2026-10-10T13:30:00.000Z' },
+              after: { startsAt: '2026-10-17T13:30:00.000Z' },
+              reason: 'The garden was booked twice.',
+              sessionId: null,
+              by: 'DESI_EVENT',
+            },
+            kind: 'DELETED',
+            changed: [],
+            by: 'DESI_EVENT',
+          },
+        ],
+      }),
+    )
+    await renderPage()
+
+    expect(
+      screen.getByText(
+        'The Desi-Event team removed this event’s page. It is no longer on the site, and this ticket no longer works at the door.',
+      ),
+    ).toBeInTheDocument()
   })
 })

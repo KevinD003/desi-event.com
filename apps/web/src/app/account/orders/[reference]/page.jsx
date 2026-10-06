@@ -67,12 +67,14 @@
 
 import Link from 'next/link'
 
+import { EventChangesList } from '../../../../components/event-changes-list.jsx'
 import { GroupPass } from '../../../../components/group-pass.jsx'
 import { Breadcrumbs } from '../../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../../components/read-refusal.jsx'
 import { getMyOrder } from '../../../../lib/account-api.js'
 import { formatEventLocation } from '../../../../lib/format.js'
 import { formatAmount } from '../../../../lib/pricing.js'
+import { deletedForHolder } from '../../../../lib/event-control.js'
 import { describeApiRefusal } from '../../../../lib/refusal.js'
 import { readSession } from '../../../../lib/session.js'
 import { joinLinkHost, sessionDisplayLabel } from '../../../../lib/sessions.js'
@@ -186,6 +188,27 @@ function paymentSentence(order) {
   if (['PENDING', 'CANCELLED', 'EXPIRED'].includes(order.status)) return 'Not paid.'
 
   return null
+}
+
+/**
+ * The nights this page can name a cancelled one by: the event's, when the
+ * order carries them, and each line's own night, once each. A night it cannot
+ * name is named by the start its notice recorded (`EventChangesList`).
+ *
+ * @param {object} order The order.
+ * @returns {object[]} The nights, each once.
+ */
+function orderNights(order) {
+  const nights = new Map()
+
+  for (const night of [
+    ...(order?.event?.sessions ?? []),
+    ...(order?.items ?? []).map((item) => item?.session),
+  ]) {
+    if (night?.id && !nights.has(night.id)) nights.set(night.id, night)
+  }
+
+  return [...nights.values()]
 }
 
 /**
@@ -464,6 +487,25 @@ export default async function OrderPage({ params }) {
       ) : (
         <p className="mt-1 text-ink-muted">The event this order was for is no longer listed.</p>
       )}
+
+      {order.event?.status === 'DELETED' ? (
+        <p className="mt-4 max-w-prose rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-ink">
+          {deletedForHolder(
+            (order.eventChanges ?? []).find((notice) => notice.kind === 'DELETED') ?? null,
+          )}{' '}
+          It is no longer on the site. What happened to this order, and any refund, is below.
+        </p>
+      ) : null}
+
+      {(order.eventChanges ?? []).length > 0 ? (
+        <div className="mt-8">
+          <EventChangesList
+            notices={order.eventChanges}
+            timeZone={zone}
+            sessions={orderNights(order)}
+          />
+        </div>
+      ) : null}
 
       <section aria-labelledby="order-facts" className="mt-8">
         <h2 id="order-facts" className="text-xl font-semibold text-ink">

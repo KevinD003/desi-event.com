@@ -28,9 +28,12 @@
 
 import { useState } from 'react'
 
+import { CancelSessionDialog } from './cancel-session-dialog.jsx'
 import { SessionForm, toSessionForm } from './session-form.jsx'
+import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from './step-up-retry.jsx'
 import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import { refundSummarySentence } from '../lib/event-control.js'
 import { refusalSentence } from '../lib/refusal.js'
 import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
@@ -43,7 +46,13 @@ import { toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
  * @property {Function} [onSessions] Called with the list after it changes, so the tickets step sees new sessions.
  * @property {object[]} mapVersions Published map versions for the event's venue.
  * @property {boolean} [editable] Whether the event's state allows changes. Superseded by `mode`.
- * @property {'draft'|'live'|'locked'} [mode] The editing mode.
+ * @property {'draft'|'live'|'content'|'locked'} [mode] The editing mode. Nights change in a
+ *   draft or on a live event; a finished or cancelled event's nights stay as they were.
+ * @property {boolean} [mayCancelNights] Whether to offer cancelling a night of a live event,
+ *   worked out on the server; the API decides every cancellation again.
+ * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing
+ *   session, whose writes ask for a fresh second factor every 10 minutes.
+ * @property {Function} [onSittingEnded] Called when a write finds that editing session closed.
  */
 
 /**
@@ -76,9 +85,12 @@ export function EventSessionsEditor({
   mapVersions = [],
   editable = true,
   mode: givenMode = null,
+  mayCancelNights = false,
+  platform = false,
+  onSittingEnded,
 }) {
   const mode = givenMode ?? (editable ? 'draft' : 'locked')
-  const canEdit = mode !== 'locked'
+  const canEdit = mode === 'draft' || mode === 'live'
   const [sessions, setSessionsState] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -87,6 +99,14 @@ export function EventSessionsEditor({
   const [editing, setEditing] = useState(null)
   const [confirmRemove, setConfirmRemove] = useState(null)
   const [addKey, setAddKey] = useState(0)
+  // A write the server refused for want of a fresh second factor: asked for
+  // here, then sent again (SPEC2-XI X-A).
+  const stepUp = useStepUpRetry({
+    action: 'save this change to the nights',
+    platform,
+    onSittingEnded,
+    onDeclined: () => setError(STEP_UP_DECLINED_SENTENCE),
+  })
 
   /**
    * Keep the list, and tell the shell.
@@ -125,6 +145,11 @@ export function EventSessionsEditor({
         if (Number.isInteger(parsed?.meta?.revision)) onRevision(parsed.meta.revision)
         return parsed ?? {}
       }
+
+      // Asked for a second factor: ask, and send the same write again.
+      const retried = stepUp.refused(parsed, () => write(path, init, body))
+
+      if (retried) return retried
 
       setError(refusalSentence(response.status, parsed, 'The change was refused.'))
       setProblems(parsed?.error?.problems ?? [])
@@ -213,6 +238,22 @@ export function EventSessionsEditor({
   }
 
   /**
+   * Take a cancelled night back from its dialog: re-read the list, which also
+   * brings the event's new revision, and say what the cancellation refunded.
+   *
+   * @param {{refunds: object|null}} result What the cancellation answered.
+   * @returns {Promise<void>} Resolves when reloaded.
+   */
+  async function nightCancelled(result) {
+    await reload()
+    setNotice(
+      `Night cancelled. Its tickets no longer work at the door. ${
+        refundSummarySentence(result?.refunds) ?? 'Nobody was owed a refund.'
+      }`,
+    )
+  }
+
+  /**
    * Prepare inventory for one session.
    *
    * @param {object} session The session.
@@ -232,6 +273,8 @@ export function EventSessionsEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
+        if (stepUp.refused(body, () => prepare(session))) return
+
         setError(refusalSentence(response.status, body, 'Inventory could not be prepared.'))
         setProblems(body?.error?.problems ?? [])
         return
@@ -280,8 +323,16 @@ export function EventSessionsEditor({
 
       {mode === 'live' ? (
         <p className="text-sm text-ink-muted">
-          This event is public. You can add a night, move one, or remove one nobody has a ticket
-          for. Moving a night people have tickets for records a notice for each of their orders.
+          This event is public. You can add a night, move one, remove one nobody has a ticket for
+          {mayCancelNights ? ', or cancel one, refunding its tickets' : ''}. Moving a night people
+          have tickets for records a notice for each of their orders.
+        </p>
+      ) : null}
+
+      {mode === 'content' ? (
+        <p className="text-sm text-ink-muted">
+          This event has ended or was cancelled, so its nights stay as ticket holders were told
+          them.
         </p>
       ) : null}
 
@@ -292,6 +343,8 @@ export function EventSessionsEditor({
           </Alert>
         ) : null}
       </div>
+
+      {stepUp.prompt}
 
       {error ? (
         <Alert variant="error" title="That did not work">
@@ -315,6 +368,11 @@ export function EventSessionsEditor({
           {sessions.map((session, index) => {
             const usage = usageLine(session)
             const zones = session.priceZones ?? []
+            const cancelled = session.status === 'CANCELLED'
+            // A night of a live event that people hold tickets for cannot be
+            // removed; it can be cancelled, which refunds them.
+            const cancellable =
+              mode === 'live' && mayCancelNights && !cancelled && session.removable === false
 
             return (
               <li key={session.id}>
@@ -324,6 +382,11 @@ export function EventSessionsEditor({
                       <div>
                         <h3 className="font-medium text-ink">
                           {session.label || `Session ${index + 1}`}{' '}
+                          {cancelled ? (
+                            <Badge variant="danger" srLabel="State:">
+                              Cancelled
+                            </Badge>
+                          ) : null}{' '}
                           {session.venueMapVersionId ? (
                             <Badge variant="info" srLabel="Seating:">
                               Reserved seating
@@ -353,53 +416,74 @@ export function EventSessionsEditor({
                           </p>
                         ) : null}
                         {usage ? <p className="mt-1 text-sm text-ink-muted">{usage}</p> : null}
+                        {cancelled && session.cancellationReason ? (
+                          <p className="mt-1 text-sm text-ink">
+                            Cancelled: {session.cancellationReason}
+                          </p>
+                        ) : null}
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => prepare(session)}
-                        >
-                          Prepare inventory
-                        </Button>
-                        {canEdit && editing !== session.id ? (
+                      {cancelled ? null : (
+                        <div className="flex flex-wrap gap-2">
                           <Button
                             type="button"
                             variant="secondary"
                             size="sm"
                             disabled={busy}
-                            aria-label={`Edit session ${index + 1}`}
-                            onClick={() => {
-                              setConfirmRemove(null)
-                              setEditing(session.id)
-                            }}
+                            onClick={() => prepare(session)}
                           >
-                            Edit
+                            Prepare inventory
                           </Button>
-                        ) : null}
-                        {canEdit && session.removable !== false && confirmRemove !== session.id ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            disabled={busy}
-                            aria-label={`Remove session ${index + 1}`}
-                            onClick={() => setConfirmRemove(session.id)}
-                          >
-                            Remove
-                          </Button>
-                        ) : null}
-                      </div>
+                          {canEdit && editing !== session.id ? (
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={`Edit session ${index + 1}`}
+                              onClick={() => {
+                                setConfirmRemove(null)
+                                setEditing(session.id)
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          ) : null}
+                          {canEdit &&
+                          session.removable !== false &&
+                          confirmRemove !== session.id ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={busy}
+                              aria-label={`Remove session ${index + 1}`}
+                              onClick={() => setConfirmRemove(session.id)}
+                            >
+                              Remove
+                            </Button>
+                          ) : null}
+                        </div>
+                      )}
                     </div>
 
-                    {canEdit && session.removable === false ? (
+                    {canEdit && !cancelled && session.removable === false ? (
                       <p className="mt-2 text-sm text-ink-muted">
-                        Cannot be removed: this night has orders, baskets or check-ins. Move it
-                        instead, or cancel the event.
+                        {cancellable
+                          ? 'Cannot be removed: this night has orders, baskets or check-ins. Move it instead, or cancel it, which refunds its tickets.'
+                          : 'Cannot be removed: this night has orders, baskets or check-ins. Move it instead, or cancel the event.'}
                       </p>
+                    ) : null}
+
+                    {cancellable && editing !== session.id ? (
+                      <div className="mt-3">
+                        <CancelSessionDialog
+                          eventId={event.id}
+                          session={session}
+                          timeZone={session.timezone ?? event.timezone}
+                          onCancelled={nightCancelled}
+                        />
+                      </div>
                     ) : null}
 
                     {confirmRemove === session.id ? (
@@ -437,6 +521,7 @@ export function EventSessionsEditor({
                           mode={mode}
                           mapVersions={mapVersions}
                           usage={session.usage ?? null}
+                          used={session.removable === false}
                           busy={busy}
                           onSubmit={(patch) => saveSession(session, patch)}
                           onCancel={() => setEditing(null)}

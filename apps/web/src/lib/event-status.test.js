@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import {
   EDITABLE_STATUSES,
-  LIVE_STATUSES,
   MATERIAL_FIELDS as SERVER_MATERIAL_FIELDS,
   SESSION_MATERIAL_FIELDS as SERVER_SESSION_MATERIAL_FIELDS,
+  editModeFor,
 } from '@desi-event/schemas/lifecycle'
 
 import {
@@ -32,6 +32,7 @@ const STATUSES = [
   'CANCELLED',
   'COMPLETED',
   'ARCHIVED',
+  'DELETED',
 ]
 
 describe('the lists the web shares with the server', () => {
@@ -52,24 +53,37 @@ describe('the lists the web shares with the server', () => {
 })
 
 describe('the editing mode of each status', () => {
-  it.each(STATUSES)('%s', (status) => {
-    const expected = EDITABLE_STATUSES.has(status)
-      ? 'draft'
-      : LIVE_STATUSES.has(status)
-        ? 'live'
-        : 'locked'
-
-    expect(editMode(status)).toBe(expected)
+  it.each(STATUSES)('%s reads as the server decides it', (status) => {
+    expect(editMode(status)).toBe(editModeFor(status))
   })
 
-  it('edits a draft, keeps a public event editable, and locks review and the end states', () => {
+  it('locks review, rejection, archive and deletion; keeps a finished or cancelled event’s words editable', () => {
     expect(editMode('DRAFT')).toBe('draft')
     expect(editMode('ON_SALE')).toBe('live')
     expect(editMode('POSTPONED')).toBe('live')
     expect(editMode('REVIEW_PENDING')).toBe('locked')
     expect(editMode('APPROVED')).toBe('locked')
     expect(editMode('REJECTED')).toBe('locked')
-    expect(editMode('CANCELLED')).toBe('locked')
+    expect(editMode('ARCHIVED')).toBe('locked')
+    expect(editMode('DELETED')).toBe('locked')
+    expect(editMode('CANCELLED')).toBe('content')
+    expect(editMode('COMPLETED')).toBe('content')
+  })
+
+  it('reads a deleted event as off the site, in the Desi-Event team’s hands', () => {
+    const reading = statusReading('DELETED')
+
+    expect(reading.label).toBe('Deleted')
+    expect(reading.tone).toBe('danger')
+    expect(reading.whose).toBe('the Desi-Event team')
+    expect(reading.next).toMatch(/off the site/)
+    expect(reading.next).toMatch(/can restore it/)
+  })
+
+  it('says a cancelled event’s words and pictures can still be updated', () => {
+    expect(statusReading('CANCELLED').next).toBe(
+      'Refunds have been requested for every paid order. Its words and pictures can still be updated.',
+    )
   })
 })
 

@@ -505,6 +505,123 @@ describe('what the event’s status allows', () => {
   })
 })
 
+describe('a new cover on a posted event', () => {
+  const current = picture({
+    moderationStatus: 'APPROVED',
+    publiclyVisible: true,
+    altText: 'The current poster',
+  })
+
+  it('keeps the current cover beside the new one, which is marked as waiting', async () => {
+    const user = userEvent.setup()
+    const waiting = picture({
+      id: 'cmedia0000000000000000009',
+      altText: 'The new poster',
+      replacesMediaId: current.id,
+    })
+
+    apiFetch.mockResolvedValue(answer(201, { data: waiting, meta: { revision: 4 } }))
+    renderPanel({ status: 'ON_SALE', media: [current] })
+
+    const form = coverForm()
+
+    await user.upload(within(form).getByLabelText(/^Picture file/), pngFile())
+    await user.type(within(form).getByLabelText(/^Describe the picture/), 'The new poster')
+    await user.click(within(form).getByRole('button', { name: 'Upload' }))
+
+    const fresh = await screen.findByRole('listitem', {
+      name: 'The new cover, waiting for approval',
+    })
+    const old = screen.getByRole('listitem', { name: 'The current cover' })
+
+    expect(within(fresh).getByText('Waiting for approval')).toBeInTheDocument()
+    expect(within(old).getByText('On the public page')).toBeInTheDocument()
+    expect(within(old).getByRole('img', { name: 'The current poster' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent(
+      /once the Desi-Event team approves it\. The current cover stays until then\./,
+    )
+  })
+
+  it('discards a replacement that was waiting when another is uploaded', async () => {
+    const user = userEvent.setup()
+    const earlier = picture({
+      id: 'cmedia0000000000000000008',
+      altText: 'An earlier try',
+      replacesMediaId: current.id,
+    })
+    const later = picture({
+      id: 'cmedia0000000000000000009',
+      altText: 'A better try',
+      replacesMediaId: current.id,
+    })
+
+    apiFetch.mockResolvedValue(answer(201, { data: later, meta: { revision: 4 } }))
+    renderPanel({ status: 'ON_SALE', media: [current, earlier] })
+
+    expect(screen.getByRole('img', { name: 'An earlier try' })).toBeInTheDocument()
+
+    const form = coverForm()
+
+    await user.upload(within(form).getByLabelText(/^Picture file/), pngFile())
+    await user.type(within(form).getByLabelText(/^Describe the picture/), 'A better try')
+    await user.click(within(form).getByRole('button', { name: 'Upload' }))
+
+    expect(await screen.findByRole('img', { name: 'A better try' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'An earlier try' })).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'The current poster' })).toBeInTheDocument()
+  })
+
+  it('replaces the cover at once on a draft, where it is reviewed with the event', async () => {
+    const user = userEvent.setup()
+    const fresh = picture({ id: 'cmedia0000000000000000009', altText: 'The new poster' })
+
+    apiFetch.mockResolvedValue(answer(201, { data: fresh, meta: { revision: 4 } }))
+    renderPanel({ status: 'DRAFT', media: [picture({ altText: 'The old poster' })] })
+
+    const form = coverForm()
+
+    await user.upload(within(form).getByLabelText(/^Picture file/), pngFile())
+    await user.type(within(form).getByLabelText(/^Describe the picture/), 'The new poster')
+    await user.click(within(form).getByRole('button', { name: 'Upload' }))
+
+    expect(await screen.findByRole('img', { name: 'The new poster' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'The old poster' })).not.toBeInTheDocument()
+  })
+
+  it('says the current cover stays when the waiting one is removed, and shows a refusal’s reason', async () => {
+    const user = userEvent.setup()
+    const refused = picture({
+      id: 'cmedia0000000000000000009',
+      altText: 'The new poster',
+      replacesMediaId: current.id,
+      moderationStatus: 'REJECTED',
+      rejectionReason: 'The text on it is too small to read.',
+    })
+
+    apiFetch.mockResolvedValue(answer(200, { data: [current], meta: { revision: 5 } }))
+    renderPanel({ status: 'ON_SALE', media: [current, refused] })
+
+    const item = screen.getByRole('listitem', { name: 'The new cover, not approved' })
+
+    expect(within(item).getByText('Not approved')).toBeInTheDocument()
+    expect(within(item).getByText('The text on it is too small to read.')).toBeInTheDocument()
+
+    await user.click(within(item).getByRole('button', { name: /^Remove/ }))
+    await user.click(screen.getByRole('button', { name: 'Remove picture' }))
+
+    expect(
+      await screen.findByText('The waiting cover was removed. The current cover stays.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'The current poster' })).toBeInTheDocument()
+  })
+
+  it('no longer says a live event cannot take a new picture', () => {
+    renderPanel({ status: 'ON_SALE', media: [current] })
+
+    expect(screen.queryByText(/cannot be added/)).not.toBeInTheDocument()
+  })
+})
+
 describe('when the pictures could not be read', () => {
   it('shows the refusal, not an empty list, and offers no upload', () => {
     renderPanel({ failure: { status: 429, code: 'RATE_LIMITED', retryAfterSeconds: 30 } })
@@ -536,5 +653,105 @@ describe('a list the editor shell owns', () => {
     await user.click(screen.getByRole('button', { name: 'Remove picture' }))
 
     await waitFor(() => expect(onMediaChange).toHaveBeenCalledWith([]))
+  })
+})
+
+describe('writing as the Desi-Event team, whose second factor lapses every 10 minutes', () => {
+  const PLATFORM_SENTENCE =
+    'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.'
+
+  /**
+   * Answer the first write with STEP_UP_REQUIRED, the second factor with
+   * success, and every later write with `then`.
+   *
+   * @param {object} then The answer once the second factor is fresh.
+   * @returns {Function} The writes sent so far, as `[path, init]` pairs.
+   */
+  function lapsedOnce(then) {
+    const writes = []
+
+    apiFetch.mockImplementation(async (path, init = {}) => {
+      if (path === '/v1/auth/step-up') return answer(200, { data: {} })
+
+      writes.push([path, init])
+
+      return writes.length === 1
+        ? answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate again.' } })
+        : then
+    })
+
+    return () => writes
+  }
+
+  it('asks for the second factor where the picture was uploaded, then sends the same file again', async () => {
+    const user = userEvent.setup()
+    const uploaded = picture({ altText: 'The stage at dusk', kind: 'EVENT_GALLERY', position: 0 })
+    const writes = lapsedOnce(answer(201, { data: uploaded, meta: { revision: 4 } }))
+    const { onRevision } = renderPanel({ status: 'ON_SALE', platform: true })
+    const form = screen.getByRole('form', { name: 'Add a gallery picture' })
+    const file = pngFile('stage.png')
+
+    await user.upload(within(form).getByLabelText(/^Picture file/), file)
+    await user.type(within(form).getByLabelText(/^Describe the picture/), 'The stage at dusk')
+    await user.click(within(form).getByRole('button', { name: 'Upload' }))
+
+    expect(await screen.findByText(PLATFORM_SENTENCE)).toBeInTheDocument()
+    expect(screen.queryByText('That did not work')).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Your password/), 'correct horse')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(onRevision).toHaveBeenCalledWith(4))
+    expect(writes()).toHaveLength(2)
+    expect(writes()[1][0]).toBe(writes()[0][0])
+    expect(writes()[1][1].body).toBe(file)
+  })
+
+  it('asks before describing a picture again, then saves the same description', async () => {
+    const user = userEvent.setup()
+    const cover = picture()
+    const writes = lapsedOnce(
+      answer(200, { data: { ...cover, altText: 'The band at soundcheck' }, meta: { revision: 4 } }),
+    )
+    const { onRevision } = renderPanel({ status: 'ON_SALE', media: [cover], platform: true })
+
+    await user.click(screen.getByRole('button', { name: 'Edit description' }))
+
+    const box = screen.getByLabelText(/^New description/)
+
+    await user.clear(box)
+    await user.type(box, 'The band at soundcheck')
+    await user.click(screen.getByRole('button', { name: 'Save description' }))
+
+    expect(await screen.findByText(PLATFORM_SENTENCE)).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Your password/), 'correct horse')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(onRevision).toHaveBeenCalledWith(4))
+    expect(JSON.parse(writes()[1][1].body)).toEqual({
+      revision: 3,
+      altText: 'The band at soundcheck',
+    })
+    expect(await screen.findByText('Description saved.')).toBeInTheDocument()
+  })
+
+  it('says nothing was sent when the second factor is not given', async () => {
+    const user = userEvent.setup()
+    const cover = picture()
+    const writes = lapsedOnce(answer(200, { data: [], meta: { revision: 4 } }))
+
+    renderPanel({ status: 'ON_SALE', media: [cover], platform: true })
+
+    await user.click(screen.getByRole('button', { name: 'Remove: the cover' }))
+    await user.click(screen.getByRole('button', { name: 'Remove picture' }))
+    await user.click(await screen.findByRole('button', { name: 'Not now' }))
+
+    expect(
+      await screen.findByText(
+        'Not saved: confirm it’s you to make this change. Nothing has been sent.',
+      ),
+    ).toBeInTheDocument()
+    expect(writes()).toHaveLength(1)
   })
 })

@@ -19,9 +19,16 @@
  *   - the accepting account becomes its **OWNER**, a membership that records
  *     which invitation made it.
  *
+ * The one other organisation that comes into being is made by the platform,
+ * not by a person: the **platform-held** organisation an import puts listed
+ * events in ({@link ensurePlatformHeldOrganization}, SPEC2-XI I-B). It is
+ * VERIFIED by the importing administrator and has no members; the database
+ * refuses any (trigger `desi_platform_held_has_no_members`).
+ *
  * @module @desi-event/api/lib/organization-provisioning
  */
 
+import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { conflict, databaseErrorCode, unprocessable } from './errors.js'
 import { disambiguateSlug, slugify } from './identifiers.js'
 import { isEligible } from './verification.js'
@@ -180,4 +187,103 @@ export async function createInvitedOrganization(
   })
 
   return { organization, membership }
+}
+
+/**
+ * The platform-held organisation each import source's events belong to, as it
+ * is created the first time.
+ */
+export const PLATFORM_HELD_ORGANIZATIONS = Object.freeze({
+  SULEKHA: Object.freeze({
+    name: 'Sulekha Events',
+    slug: 'sulekha-events',
+    description:
+      'Events listed on Sulekha.com and shown on Desi-Event by the Desi-Event team. Each event page names the organiser who runs it. Tickets for these events are sold on Sulekha.',
+    // The listings imported are Texas events.
+    timezone: 'America/Chicago',
+  }),
+})
+
+/** The note on a platform-held organisation's verification. */
+export const PLATFORM_HELD_VERIFICATION_NOTE = 'Held by the Desi-Event team for imported events'
+
+/**
+ * Find the platform-held organisation for an import source, creating it the
+ * first time (SPEC2-XI I-B).
+ *
+ * Created VERIFIED, with its first verification event by the importing
+ * administrator; `websiteUrl` null; paid in USD; `platformHeldSource` set,
+ * which the unique index keeps to one organisation per source; no membership,
+ * not even the importer's (the database refuses one). Its contact address is
+ * the importing administrator's own, recorded for the platform and never shown
+ * publicly. It is not made through `organizations.create`, which stays 403.
+ * Audited `organization.platform_held_created`.
+ *
+ * Runs in the caller's transaction. Two imports creating it at once meet the
+ * unique index: the loser's transaction fails with `P2002`, and the caller
+ * reads the winner's (see `lib/event-import.js`).
+ *
+ * @param {object} tx A transaction client.
+ * @param {object} options Inputs.
+ * @param {'SULEKHA'} options.source The import source.
+ * @param {{id: string}} options.actor The importing administrator.
+ * @param {Date} options.now The moment.
+ * @returns {Promise<{organization: object, created: boolean}>} The organisation, and whether this call made it.
+ */
+export async function ensurePlatformHeldOrganization(tx, { source, actor, now }) {
+  const shape = PLATFORM_HELD_ORGANIZATIONS[source]
+
+  if (!shape) throw new TypeError(`No platform-held organisation is defined for ${source}.`)
+
+  const existing = await tx.organization.findUnique({ where: { platformHeldSource: source } })
+
+  if (existing) return { organization: existing, created: false }
+
+  const taken = await tx.organization.findUnique({
+    where: { slug: shape.slug },
+    select: { id: true },
+  })
+  const slug = taken ? disambiguateSlug(shape.slug) : shape.slug
+  const importer = await tx.user.findUnique({ where: { id: actor.id }, select: { email: true } })
+
+  if (!importer?.email) throw new TypeError('The importing administrator has no account.')
+
+  const organization = await tx.organization.create({
+    data: {
+      name: shape.name,
+      slug,
+      description: shape.description,
+      websiteUrl: null,
+      timezone: shape.timezone,
+      contactEmail: importer.email,
+      payoutCurrency: ORGANIZATION_PAYOUT_CURRENCY,
+      verificationStatus: 'VERIFIED',
+      verified: true,
+      verificationNote: PLATFORM_HELD_VERIFICATION_NOTE,
+      verificationUpdatedAt: now,
+      createdById: actor.id,
+      platformHeldSource: source,
+    },
+  })
+
+  await tx.organizationVerificationEvent.create({
+    data: {
+      organizationId: organization.id,
+      fromStatus: null,
+      toStatus: 'VERIFIED',
+      actorId: actor.id,
+      reason: PLATFORM_HELD_VERIFICATION_NOTE,
+      createdAt: now,
+    },
+  })
+
+  await recordAudit(tx, {
+    action: AUDIT_ACTIONS.ORGANIZATION_PLATFORM_HELD_CREATED,
+    entityType: 'Organization',
+    entityId: organization.id,
+    actorId: actor.id,
+    metadata: { source, slug, verificationStatus: 'VERIFIED' },
+  })
+
+  return { organization, created: true }
 }

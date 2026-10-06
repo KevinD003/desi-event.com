@@ -198,6 +198,43 @@ export const eventSchema = z.object({
 })
 
 /**
+ * Where an imported event is listed, and what that listing said, for an event
+ * still held by the Desi-Event team's platform-held organisation (SPEC2-XI
+ * §5.I-E). Null for every other event, and for an imported event once it has
+ * been moved to an organiser's own organisation.
+ *
+ * Only what the source listed: the organiser who presents it, the day it was
+ * read, and each price's name and amount. Never a source note (availability,
+ * "sold out", sales dates), never a picture address on the source's site, and
+ * never a quantity: tickets for these events are sold on the source's page.
+ */
+export const importedFromSchema = z.object({
+  /** The site the listing is on, in words: "Sulekha". */
+  sourceName: z.string().min(1).max(100),
+  /** The organiser the listing names, shown as "Presented by". */
+  presentedBy: z.string().max(200).nullable(),
+  /** The UTC day the listing was read, `YYYY-MM-DD`. */
+  listedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u),
+  /** The prices as the listing gave them, in its order. No ticket type is made from them. */
+  prices: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(100),
+        priceCents: centsSchema,
+        currency: currencySchema,
+      }),
+    )
+    .max(20),
+  /** Whether the listing gave any price at all. */
+  priceListed: z.boolean(),
+  /**
+   * Whether the website link is on and goes to the listing's own site, so the
+   * page may label it "Buy tickets on Sulekha".
+   */
+  ticketsOnSource: z.boolean(),
+})
+
+/**
  * The lean event shape used in listings and cards. It carries denormalised
  * fields (venue city, cheapest ticket price) that the list endpoint computes,
  * so a card can render without a second request.
@@ -248,6 +285,12 @@ export const eventSummarySchema = z.object({
    * `soldOut`, rather than guessed.
    */
   salesOpen: z.boolean().optional(),
+  /**
+   * For an event imported from another site and still held by the Desi-Event
+   * team: where it is listed and the prices it listed, so a card says "On
+   * Sulekha from …" instead of a Desi-Event price. Null for every other event.
+   */
+  importedFrom: importedFromSchema.nullable().default(null),
 })
 
 /** A `TicketType` row. */
@@ -318,6 +361,12 @@ export const publicEventSessionSchema = sessionSummarySchema.extend({
   salesEndAt: timestampSchema.nullable(),
   hasSeatMap: z.boolean(),
   seatsAvailable: z.int().min(0).nullable(),
+  /**
+   * False when the night's listing gave no end time (an imported event):
+   * `endsAt` is then a planning estimate, start plus three hours, which the
+   * database needs and no page shows. True for every night an organiser set.
+   */
+  endTimeListed: z.boolean().default(true),
 })
 
 /** A `TicketHold` row: a short-lived reservation taken during checkout. */
@@ -562,6 +611,13 @@ export const eventWithRelationsSchema = eventSchema.extend({
    * everybody else.
    */
   websiteRedirect: websiteRedirectStateSchema.nullish(),
+  /**
+   * For an event imported from another site and still held by the Desi-Event
+   * team: who presents it, the prices the listing gave and whether the
+   * website link goes to the listing (SPEC2-XI §5.I-E). Null for every other
+   * event, and once the event is moved to an organiser's own organisation.
+   */
+  importedFrom: importedFromSchema.nullable().default(null),
   /**
    * The platform fee terms checkout charges with, one entry per currency this
    * event's tiers are priced in.

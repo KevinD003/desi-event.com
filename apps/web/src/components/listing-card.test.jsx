@@ -212,6 +212,62 @@ describe('EventCard', () => {
   })
 })
 
+describe('EventCard for an event copied from its Sulekha listing', () => {
+  const imported = (prices, extra = {}) => ({
+    ...garba,
+    minPriceCents: null,
+    currency: null,
+    salesOpen: false,
+    status: 'PUBLISHED',
+    organizationName: 'Sulekha Events',
+    importedFrom: {
+      sourceName: 'Sulekha',
+      presentedBy: 'Raga Nights Houston',
+      listedOn: '2026-09-30',
+      prices,
+      priceListed: prices.length > 0,
+      ticketsOnSource: true,
+      ...extra,
+    },
+  })
+  const usd = (name, priceCents) => ({ name, priceCents, currency: 'USD' })
+
+  it('says the tickets are on Sulekha, from the lowest listed price above zero', () => {
+    const { container } = render(
+      <EventCard event={imported([usd('Child', 0), usd('Adult', 2500), usd('VIP', 6000)])} />,
+    )
+
+    expect(screen.getByText('On Sulekha from $25.00')).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/from \$0\.00|from free/i)
+    expect(screen.queryByText('Price to be announced')).not.toBeInTheDocument()
+  })
+
+  it('says free when every listed price is zero, and only where when none is listed', () => {
+    const { rerender } = render(
+      <EventCard event={imported([usd('RSVP', 0), usd('RSVP for two', 0)])} />,
+    )
+
+    expect(screen.getByText('Free, on Sulekha')).toBeInTheDocument()
+
+    rerender(<EventCard event={imported([])} />)
+    expect(screen.getByText('On Sulekha')).toBeInTheDocument()
+  })
+
+  it('names the organiser who presents it, and never says it is not on sale', () => {
+    render(<EventCard event={imported([usd('Adult', 2500)])} />)
+
+    expect(screen.getByText('Raga Nights Houston')).toBeInTheDocument()
+    expect(screen.queryByText('Not on sale now')).not.toBeInTheDocument()
+    expect(screen.queryByText('On sale')).not.toBeInTheDocument()
+  })
+
+  it('still says when the event itself is cancelled', () => {
+    render(<EventCard event={{ ...imported([usd('Adult', 2500)]), status: 'CANCELLED' }} />)
+
+    expect(screen.getByText('Cancelled')).toBeInTheDocument()
+  })
+})
+
 describe('AvailabilityChip', () => {
   it('carries its meaning in words, with the dot only as decoration', () => {
     const { container } = render(

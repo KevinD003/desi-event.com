@@ -40,9 +40,10 @@ export const BODY_LIMIT_BYTES = 1_048_576
  * @property {object} [redis] An ioredis-compatible client, probed by `GET /health`.
  * @property {string} [version] Version string reported by the health endpoint and the OpenAPI document.
  * @property {boolean} [docs] Whether to mount `/docs` and `/openapi.json`. Defaults to `true`.
- * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizerInvite?: object, transferMail?: object, quote?: object, trafficBeacon?: object, websiteVisit?: object}} [rateLimit] Rate-limit overrides. `trafficBeacon` takes `max` (per visitor, from `TRAFFIC_BEACON_MAX_PER_MINUTE` in `server.js`), `sharedMax`, `timeWindow` and `processMax`; `websiteVisit` takes `max`, `sharedMax`, `timeWindow` and `eventMax` (counted visits per event a minute).
+ * @property {{global?: object, auth?: object, pass?: object, admission?: object, mediaUpload?: object, mediaRead?: object, organizerInvite?: object, transferMail?: object, quote?: object, trafficBeacon?: object, websiteVisit?: object, eventImport?: object}} [rateLimit] Rate-limit overrides. `trafficBeacon` takes `max` (per visitor, from `TRAFFIC_BEACON_MAX_PER_MINUTE` in `server.js`), `sharedMax`, `timeWindow` and `processMax`; `websiteVisit` takes `max`, `sharedMax`, `timeWindow` and `eventMax` (counted visits per event a minute).
  * @property {object} [mediaStorage] Where picture bytes live. Defaults to the PostgreSQL adapter; see `lib/media-storage.js`.
  * @property {Record<string, string|undefined>} [processEnv] Environment the payment kill switch inspects. Defaults to the process environment; a test passes its own.
+ * @property {Function} [fetchImportImage] How an import copies one picture; `lib/import-images.js`'s `fetchImportImage` by default. A test passes its own to hold a picture back or count calls.
  * @property {function(object): Promise<void>} [deliver] A delivery hook injected by a caller (tests). It receives the auth routes' single-use links and the show-once codes alike. Without one, codes are emailed only when `DELIVERY_MODE=EMAIL` names an SMTP server (`lib/code-mailer.js`), and auth links are never emailed — see `lib/delivery.js`.
  */
 
@@ -68,6 +69,7 @@ export async function buildApp(options) {
     payments: paymentsOverride,
     processInline = false,
     mediaStorage: mediaStorageOverride,
+    fetchImportImage,
   } = options
 
   if (!prisma) throw new TypeError('buildApp requires a prisma client')
@@ -166,6 +168,8 @@ export async function buildApp(options) {
     quoteLimit: rateLimit.quote,
     trafficBeaconLimit: rateLimit.trafficBeacon,
     websiteVisitLimit: rateLimit.websiteVisit,
+    eventImportLimit: rateLimit.eventImport,
+    fetchImportImage,
     processInline,
   })
 

@@ -61,6 +61,10 @@ function sizeLabel(bytes) {
  *   is shown once above them, and no picture offers a decision. The API refuses
  *   a picture decision from a member of the event's organisation
  *   (`CONFLICT_OF_INTEREST`), so offering one would only lead to a refusal.
+ * @property {boolean} [approvePending] Whether a picture still waiting can be
+ *   approved on its own: a new picture or replacement cover on a posted event,
+ *   which is not approved with the event (SPEC2-XI X-3). The server refuses
+ *   the person who uploaded it (`SELF_REVIEW`), and this shows its sentence.
  */
 
 /**
@@ -69,7 +73,7 @@ function sizeLabel(bytes) {
  * @param {ModerationMediaReviewProps} props Component props.
  * @returns {JSX.Element} The list.
  */
-export function ModerationMediaReview({ media = [], notYours = null }) {
+export function ModerationMediaReview({ media = [], notYours = null, approvePending = false }) {
   const [items, setItems] = useState(media)
   const [announcement, setAnnouncement] = useState('')
 
@@ -94,7 +98,9 @@ export function ModerationMediaReview({ media = [], notYours = null }) {
         {items.map((item) => {
           const label =
             item.kind === 'EVENT_COVER'
-              ? 'Cover'
+              ? item.replacesMediaId
+                ? 'New cover'
+                : 'Cover'
               : `Gallery picture ${(galleryNumber += 1)} of ${galleryCount}`
 
           return (
@@ -103,6 +109,7 @@ export function ModerationMediaReview({ media = [], notYours = null }) {
               item={item}
               label={label}
               decidable={!notYours}
+              approvePending={approvePending}
               onDecided={(updated, sentence) => {
                 setItems((current) => current.map((row) => (row.id === updated.id ? updated : row)))
                 setAnnouncement(sentence)
@@ -121,6 +128,7 @@ export function ModerationMediaReview({ media = [], notYours = null }) {
  * @property {string} label What to call it.
  * @property {boolean} decidable Whether this reviewer may decide on it; when
  *   false, the picture and its details are shown without a decision.
+ * @property {boolean} [approvePending] Whether a waiting picture can be approved on its own.
  * @property {Function} onDecided Given the updated picture and a sentence.
  */
 
@@ -130,7 +138,7 @@ export function ModerationMediaReview({ media = [], notYours = null }) {
  * @param {PictureCardProps} props Component props.
  * @returns {JSX.Element} The list item.
  */
-function PictureCard({ item, label, decidable, onDecided }) {
+function PictureCard({ item, label, decidable, approvePending = false, onDecided }) {
   const router = useRouter()
   const headingId = useId()
   const reasonRef = useRef(null)
@@ -185,7 +193,9 @@ function PictureCard({ item, label, decidable, onDecided }) {
           body.data,
           decision === 'reject'
             ? `${label} taken down. It is off every public page now.`
-            : `${label} approved.`,
+            : item.replacesMediaId
+              ? `${label} approved. It takes the old cover’s place on the event’s page.`
+              : `${label} approved.`,
         )
         router.refresh()
         return
@@ -303,6 +313,11 @@ function PictureCard({ item, label, decidable, onDecided }) {
 
       {decidable && !stepUp && !rejecting ? (
         <div className="flex flex-wrap gap-2">
+          {approvePending && item.moderationStatus === 'PENDING' ? (
+            <Button type="button" loading={busy} onClick={() => send('approve')}>
+              Approve this picture
+            </Button>
+          ) : null}
           {item.moderationStatus !== 'REJECTED' ? (
             <Button
               type="button"

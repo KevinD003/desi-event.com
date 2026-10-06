@@ -77,6 +77,9 @@ describe('apiEnvSchema', () => {
       // visitor's address.
       TRAFFIC_TRUSTED_FORWARDERS: ['127.0.0.1', '::1', '::ffff:127.0.0.1'],
       TRAFFIC_BEACON_MAX_PER_MINUTE: 60,
+      // Imported pictures come from their one allowed host unless a test says
+      // otherwise (SPEC2-XI §4.5).
+      IMPORT_IMAGE_SOURCE: 'network',
     })
   })
 
@@ -339,6 +342,45 @@ describe('apiEnvSchema: visit counting', () => {
         issuePaths(apiEnvSchema.safeParse(apiEnv({ TRAFFIC_BEACON_MAX_PER_MINUTE: value }))),
       ).toEqual(['TRAFFIC_BEACON_MAX_PER_MINUTE'])
     }
+  })
+
+  it('reads imported pictures from a fixture directory only outside production', () => {
+    const fixtures = { IMPORT_IMAGE_SOURCE: 'fixtures', IMPORT_IMAGE_FIXTURE_DIR: '/tmp/pictures' }
+
+    expect(apiEnvSchema.parse(apiEnv({ NODE_ENV: 'test', ...fixtures }))).toMatchObject(fixtures)
+    expect(
+      issuePaths(apiEnvSchema.safeParse(apiEnv({ NODE_ENV: 'production', ...fixtures }))),
+    ).toEqual(['IMPORT_IMAGE_SOURCE'])
+    // An unset NODE_ENV is production: the fixtures source is refused there too.
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv(fixtures)))).toEqual(['IMPORT_IMAGE_SOURCE'])
+  })
+
+  it('needs the fixture directory when pictures come from fixtures', () => {
+    expect(
+      issuePaths(
+        apiEnvSchema.safeParse(apiEnv({ NODE_ENV: 'test', IMPORT_IMAGE_SOURCE: 'fixtures' })),
+      ),
+    ).toEqual(['IMPORT_IMAGE_FIXTURE_DIR'])
+    expect(
+      issuePaths(
+        apiEnvSchema.safeParse(
+          apiEnv({
+            NODE_ENV: 'test',
+            IMPORT_IMAGE_SOURCE: 'fixtures',
+            IMPORT_IMAGE_FIXTURE_DIR: ' ',
+          }),
+        ),
+      ),
+    ).toEqual(['IMPORT_IMAGE_FIXTURE_DIR'])
+  })
+
+  it('refuses an unknown picture source and treats a blank one as the default', () => {
+    expect(issuePaths(apiEnvSchema.safeParse(apiEnv({ IMPORT_IMAGE_SOURCE: 'disk' })))).toEqual([
+      'IMPORT_IMAGE_SOURCE',
+    ])
+    expect(apiEnvSchema.parse(apiEnv({ IMPORT_IMAGE_SOURCE: '' })).IMPORT_IMAGE_SOURCE).toBe(
+      'network',
+    )
   })
 })
 

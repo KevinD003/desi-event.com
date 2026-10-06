@@ -33,13 +33,31 @@
  *
  * ## After publication
  *
- * A public event is still edited here, in `live` mode. The description, the
- * line-up, the questions and the other housekeeping still autosave, and only
- * those fields are sent. The date, the place and the terms are read-only in
- * the steps: somebody bought a ticket on the strength of them, so they change
- * through the material change panel, with a reason and a confirmation, and the
- * API records a notice for every current order. In review, approved, rejected
- * or finished, nothing is edited here (`locked`).
+ * A public event is still edited here, in `live` mode, without another review.
+ * The description, the line-up, the questions and the other housekeeping
+ * autosave, and only those fields are sent. The date, the place and the terms
+ * are inputs too, but a change to one is never autosaved: somebody bought a
+ * ticket on the strength of them, so the editor lists what changed and asks
+ * for a reason and a confirmation in the material change panel, and the API
+ * records a notice for every current order. A finished or cancelled event
+ * (`content`) keeps its words and pictures editable and nothing else. In
+ * review, approved, rejected, archived or deleted, nothing is edited here
+ * (`locked`).
+ *
+ * ## Whose authority
+ *
+ * The organiser edits as the organisation. The Desi-Event team edits a posted
+ * event in an editing session it opened with a reason (`authority.kind ===
+ * 'platform'`): a banner says so, the lifecycle panel is not offered (those
+ * moves are the organiser's), and every write needs a second factor from the
+ * last 10 minutes — the server asks, the autosave stops, asks, and sends the
+ * same change again ("Not now" keeps it stopped until the next edit), and the
+ * nights, ticket types and pictures ask where their own write was made. A
+ * session opened again after this one ended arrives through a refresh, and
+ * the fields take input again. Under the organisation's authority, the
+ * organiser is told at the top while the Desi-Event team has the event open.
+ * Which controls are offered (the danger zone, cancelling a night) comes in
+ * as booleans the server page worked out.
  *
  * ## What it does not decide
  *
@@ -60,15 +78,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFocusAfterRender } from './focus-after-render.jsx'
 import { Alert, Badge, Button, FormField, Input, Select, Textarea } from './ui.jsx'
 import { TEXT_LINK } from './link-classes.js'
+import { DeleteEventDialog } from './delete-event-dialog.jsx'
 import { GuestInfoStep, ProgrammeStep } from './event-content-steps.jsx'
 import { EventLifecyclePanel } from './event-lifecycle-panel.jsx'
 import { EventMediaEditor } from './event-media-editor.jsx'
 import { EventSessionsEditor } from './event-sessions-editor.jsx'
 import { EventTiersEditor } from './event-tiers-editor.jsx'
-import { MaterialChangePanel } from './material-change-panel.jsx'
+import { MaterialChangePanel, materialDiff } from './material-change-panel.jsx'
+import { PlatformChangesPanel } from './platform-changes-panel.jsx'
+import { PlatformEditBanner } from './platform-edit-banner.jsx'
 import { RichTextField } from './rich-text-field.jsx'
+import { StepUpPrompt } from './step-up-prompt.jsx'
 import { TimeZoneSelect } from './time-zone-select.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
+import {
+  PLATFORM_STEP_UP_SENTENCE,
+  SITTING_ENDED_SENTENCE,
+  teamEditingSentence,
+} from '../lib/event-control.js'
 import { refusalSentence } from '../lib/refusal.js'
 import { ACCESSIBILITY_LABELS } from '../lib/accessibility.js'
 // The one list of categories this application has. Duplicating it here is how
@@ -81,7 +108,12 @@ import {
   fromEventContent,
   toContentPatch,
 } from '../lib/event-content.js'
-import { MATERIAL_FIELDS, editMode, statusReading } from '../lib/event-status.js'
+import {
+  MATERIAL_FIELDS,
+  MATERIAL_FIELD_LABELS,
+  editMode,
+  statusReading,
+} from '../lib/event-status.js'
 import { normaliseWebsiteUrl, websiteUrlProblem } from '../lib/website.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
@@ -283,6 +315,23 @@ export function toHousekeepingPatch(values, baseline = null) {
 }
 
 /**
+ * The form's values without the date, place and terms: what an autosave on a
+ * public, finished or cancelled event may change, so a change waiting for its
+ * reason never counts as unsaved housekeeping (and never sets the autosave
+ * going round again and again).
+ *
+ * @param {object} values The form's values.
+ * @returns {object} The values, the material ones left out.
+ */
+export function housekeepingValues(values) {
+  const rest = { ...values }
+
+  for (const field of MATERIAL_FORM_FIELDS) delete rest[field]
+
+  return rest
+}
+
+/**
  * What would make the save itself fail.
  *
  * Deliberately *only* that. A draft is allowed to be incomplete — being
@@ -434,6 +483,11 @@ export function stepOfField(field) {
  * @property {object[]} history The moderation history, newest first.
  * @property {object[]} [media] The event's pictures with their review state, from `GET /v1/events/:id/media`.
  * @property {{status: number, code: string|null, retryAfterSeconds: number|null}|null} [mediaFailure] Why the pictures could not be read, from `mediaReadFailure`; the Media step then shows that instead of an empty list.
+ * @property {{kind: 'organization'}|{kind: 'platform', editId: string, reason: string, expiresAt: string, organizationName?: string|null}} [authority] Whose authority the edits are made under: the organisation's, or the Desi-Event team's open editing session (with the name of the organisation whose event it is).
+ * @property {boolean} [mayDelete] Whether to offer the danger zone, worked out on the server.
+ * @property {boolean} [mayCancelNights] Whether to offer cancelling a night, worked out on the server.
+ * @property {object[]} [platformEdits] The Desi-Event team's editing sessions on this event.
+ * @property {string} [listHref] The list this editor came from, where a deletion leads back to.
  */
 
 /**
@@ -454,7 +508,13 @@ export function EventEditor({
   history = [],
   media = [],
   mediaFailure = null,
+  authority = { kind: 'organization' },
+  mayDelete = false,
+  mayCancelNights = false,
+  platformEdits = [],
+  listHref = '/organizer/events',
 }) {
+  const platform = authority?.kind === 'platform'
   const [values, setValues] = useState(() => toFormValues(event))
   const [baseline, setBaseline] = useState(() => toFormValues(event))
   const [revision, setRevision] = useState(event.revision ?? 0)
@@ -468,7 +528,9 @@ export function EventEditor({
   const [sessionList, setSessionList] = useState(sessions)
   const [tierList, setTierList] = useState(tiers)
   const [pricePreview, setPricePreview] = useState(preview)
-  const [materialOpen, setMaterialOpen] = useState(false)
+  // The material change panel, when open: `proposed` to confirm what the
+  // steps hold, or `form` for its own boxes ("Change date, place or terms…").
+  const [materialOpen, setMaterialOpen] = useState(null)
   const [status, setStatus] = useState(event.status)
   // The website link's switch, read-only here: only the Desi-Event team moves
   // it. Taken from every answer that carries it.
@@ -477,6 +539,22 @@ export function EventEditor({
   const [save, setSave] = useState({ kind: 'idle', message: 'No changes made.' })
   const [serverProblems, setServerProblems] = useState([])
   const [conflict, setConflict] = useState(null)
+  // Under the Desi-Event team's authority: a save waiting for a second factor,
+  // and whether the editing session was found closed by a refused write.
+  const [stepUpPending, setStepUpPending] = useState(false)
+  // The second factor was asked for and the person backed out: the autosave
+  // stays paused until the next edit or "Save now", rather than asking again
+  // a moment later.
+  const [stepUpDeclined, setStepUpDeclined] = useState(false)
+  const [sittingEnded, setSittingEnded] = useState(false)
+  // A new editing session, opened again after this one ended, reaches here
+  // through `router.refresh()`, which keeps this component's state: the ended
+  // flag is reset when the session the page hands down changes.
+  const sittingKey = platform ? `${authority.editId ?? ''}|${authority.expiresAt ?? ''}` : null
+
+  useEffect(() => {
+    setSittingEnded(false)
+  }, [sittingKey])
   // Everything here is client-side: until hydration the step buttons, the
   // autosave and the lifecycle panel do nothing. `data-enhanced` marks the
   // moment they start to, for anything that has to wait for it.
@@ -490,16 +568,41 @@ export function EventEditor({
 
   const mode = editMode(status)
   // Whether the step fields accept input at all, and whether the material ones
-  // do. On a public event the second is false: they change through the panel.
-  const editable = mode !== 'locked'
-  const materialEditable = mode === 'draft'
+  // do. On a public event both do; a change to a material one waits for its
+  // reason. A finished or cancelled event keeps only its words.
+  const editable = mode !== 'locked' && !sittingEnded
+  const materialEditable = editable && (mode === 'draft' || mode === 'live')
   const reading = statusReading(status)
+  // In a draft every field saves as it is typed; anywhere else only the
+  // housekeeping does, so only it counts as unsaved.
   const dirty = useMemo(
-    () => JSON.stringify(values) !== JSON.stringify(baseline),
-    [values, baseline],
+    () =>
+      mode === 'draft'
+        ? JSON.stringify(values) !== JSON.stringify(baseline)
+        : JSON.stringify(housekeepingValues(values)) !==
+          JSON.stringify(housekeepingValues(baseline)),
+    [mode, values, baseline],
+  )
+  // The date, place and terms changed in the steps of a public event, waiting
+  // for a reason and a confirmation.
+  const pendingMaterial = useMemo(
+    () => (mode === 'live' ? Object.keys(materialDiff(baseline, values)) : []),
+    [mode, values, baseline],
   )
   const problems = useMemo(() => formProblems(values, baseline), [values, baseline])
   const gaps = useMemo(() => formGaps(values), [values])
+  // The Desi-Event team's editing session open on this event, which the
+  // organiser is told about at the top of the editor (X-7).
+  const openSitting = platform ? null : ((platformEdits ?? []).find((edit) => edit?.open) ?? null)
+  // A step's write found the editing session closed: the banner offers to
+  // open it again.
+  const endSitting = useCallback(() => setSittingEnded(true), [])
+  // "Change date, place or terms…": the panel's own boxes, offered on a
+  // public event while nothing changed in the steps waits to be confirmed.
+  const changeMaterial =
+    mode === 'live' && pendingMaterial.length === 0 && !materialOpen
+      ? () => setMaterialOpen('form')
+      : null
 
   /**
    * Change one field.
@@ -509,6 +612,7 @@ export function EventEditor({
    * @returns {void}
    */
   const setField = useCallback((field, value) => {
+    setStepUpDeclined(false)
     setValues((current) => ({ ...current, [field]: value }))
   }, [])
 
@@ -545,10 +649,11 @@ export function EventEditor({
       setServerProblems([])
 
       try {
-        // A public event autosaves its housekeeping only; the date, place and
-        // terms go through the material change panel.
+        // A public, finished or cancelled event autosaves its housekeeping
+        // only; the date, place and terms go through the material change
+        // panel, with a reason.
         const patch =
-          mode === 'live' ? toHousekeepingPatch(values, baseline) : toPatch(values, baseline)
+          mode === 'draft' ? toPatch(values, baseline) : toHousekeepingPatch(values, baseline)
         const response = await apiFetch(`/v1/events/${encodeURIComponent(event.id)}`, {
           method: 'PATCH',
           body: JSON.stringify({ ...patch, revision }),
@@ -595,6 +700,22 @@ export function EventEditor({
           return
         }
 
+        if (platform && body?.error?.code === 'STEP_UP_REQUIRED') {
+          // The Desi-Event team confirms every 10 minutes of writes. Stop the
+          // autosave, ask, and send the same change once confirmed.
+          setStepUpPending(true)
+          setSave({ kind: 'unsaved', message: 'Not saved yet: confirm it’s you to keep editing.' })
+          return
+        }
+
+        // Only an editing session can end. Under the organisation's authority
+        // the same code is a plain refusal, and its own sentence says why.
+        if (platform && body?.error?.code === 'PLATFORM_EDIT_NOT_OPEN') {
+          setSittingEnded(true)
+          setSave({ kind: 'error', message: `Not saved. ${SITTING_ENDED_SENTENCE}` })
+          return
+        }
+
         setServerProblems(body?.error?.problems ?? [])
         setSave({
           kind: 'error',
@@ -609,13 +730,23 @@ export function EventEditor({
         })
       }
     },
-    [baseline, event.id, focusAfterRender, mode, problems, revision, takeWebsiteRedirect, values],
+    [
+      baseline,
+      event.id,
+      focusAfterRender,
+      mode,
+      platform,
+      problems,
+      revision,
+      takeWebsiteRedirect,
+      values,
+    ],
   )
 
   // Autosave. Deliberately not on an interval: a timer that fires while
   // somebody is mid-sentence saves half a word and announces it.
   useEffect(() => {
-    if (!editable || conflict) return undefined
+    if (!editable || conflict || stepUpPending) return undefined
 
     if (!dirty) {
       // The boxes match what was saved, so whatever went wrong a moment ago is
@@ -639,12 +770,15 @@ export function EventEditor({
       return undefined
     }
 
+    // Paused after "Not now" on the second-factor prompt; its message stays.
+    if (stepUpDeclined) return undefined
+
     setSave({ kind: 'unsaved', message: 'Unsaved changes.' })
 
     timer.current = setTimeout(() => commit({ silent: true }), AUTOSAVE_DELAY_MS)
 
     return () => clearTimeout(timer.current)
-  }, [commit, conflict, dirty, editable, problems.length])
+  }, [commit, conflict, dirty, editable, problems.length, stepUpDeclined, stepUpPending])
 
   /**
    * Fold a saved material change back in.
@@ -667,7 +801,7 @@ export function EventEditor({
       ...current,
       ...Object.fromEntries(MATERIAL_FORM_FIELDS.map((field) => [field, saved[field]])),
     }))
-    setMaterialOpen(false)
+    setMaterialOpen(null)
     setSave({
       kind: 'saved',
       message: `Change saved at ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. A notice has been recorded for every current order.`,
@@ -837,6 +971,61 @@ export function EventEditor({
 
       <p className="mt-2 text-sm text-ink-muted">{reading.next}</p>
 
+      {platform ? (
+        <PlatformEditBanner
+          eventId={event.id}
+          sitting={{
+            reason: authority.reason ?? '',
+            expiresAt: authority.expiresAt,
+            organizationName: authority.organizationName ?? null,
+          }}
+          ended={sittingEnded}
+          timeZone={baseline.timezone}
+        />
+      ) : null}
+
+      {/* The organiser sees, at the top, that the Desi-Event team has this
+          event open for editing, until when and why (X-7); never who. */}
+      {openSitting ? (
+        <Alert
+          variant="info"
+          title="The Desi-Event team is editing this event"
+          className="mt-4"
+          data-testid="team-editing-notice"
+        >
+          <p>{teamEditingSentence(openSitting.expiresAt, baseline.timezone)}</p>
+          {openSitting.reason ? <p className="mt-1">Reason: {openSitting.reason}</p> : null}
+          <p className="mt-1">
+            Each change it makes is listed under “Changes made by the Desi-Event team” on the Review
+            step.
+          </p>
+        </Alert>
+      ) : null}
+
+      {stepUpPending ? (
+        <div className="mt-4 space-y-2">
+          <p className="text-sm font-medium text-ink">{PLATFORM_STEP_UP_SENTENCE}</p>
+          <StepUpPrompt
+            action="keep editing this event"
+            onConfirmed={() => {
+              setStepUpPending(false)
+              // The same change, sent again now the second factor is fresh.
+              commit()
+            }}
+            onCancel={() => {
+              // Paused until the next edit or "Save now": asking again a
+              // moment later would make "Not now" mean "in a second".
+              setStepUpPending(false)
+              setStepUpDeclined(true)
+              setSave({
+                kind: 'unsaved',
+                message: 'Not saved: confirm it’s you to save these changes.',
+              })
+            }}
+          />
+        </div>
+      ) : null}
+
       {conflict ? (
         <Alert
           variant="warning"
@@ -927,26 +1116,81 @@ export function EventEditor({
       {mode === 'live' ? (
         <Alert variant="info" title="This event is public" className="mt-4">
           <p>
-            The description, line-up, questions and other details save as you type. The date, place
-            and terms change through “Change date, place or terms…”, with a reason, because people
-            have bought tickets on the strength of them.
+            Everything here can change. The description, line-up and other details save as you type.
+            A change to the date, place or terms is confirmed with a reason, because people holding
+            tickets are shown it.
           </p>
         </Alert>
+      ) : null}
+
+      {mode === 'content' ? (
+        <Alert
+          variant="info"
+          title={status === 'COMPLETED' ? 'This event has finished' : 'This event was cancelled'}
+          className="mt-4"
+        >
+          <p>
+            Its words and pictures can still be updated, and save as you type. Its date, place,
+            terms, nights and ticket types stay as ticket holders were told them.
+          </p>
+        </Alert>
+      ) : null}
+
+      {pendingMaterial.length > 0 && !materialOpen ? (
+        <section
+          aria-labelledby="pending-material-heading"
+          data-testid="pending-material"
+          className="mt-4 space-y-2 rounded-card border border-status-warning/30 bg-status-warning-soft p-4"
+        >
+          <h2 id="pending-material-heading" className="text-sm font-semibold text-ink">
+            Not saved: a change to the date, place or terms
+          </h2>
+          <p className="text-sm text-ink">
+            You changed{' '}
+            {pendingMaterial.map((field) => MATERIAL_FIELD_LABELS[field] ?? field).join(', ')}.
+            People holding tickets are shown this change, so it is saved only once you confirm it
+            with a reason.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" onClick={() => setMaterialOpen('proposed')}>
+              Confirm these changes…
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                setValues((current) => ({
+                  ...current,
+                  ...Object.fromEntries(
+                    MATERIAL_FORM_FIELDS.map((field) => [field, baseline[field]]),
+                  ),
+                }))
+              }
+            >
+              Put them back
+            </Button>
+          </div>
+        </section>
       ) : null}
 
       {materialOpen && mode === 'live' ? (
         <MaterialChangePanel
           event={event}
           baseline={baseline}
+          proposed={materialOpen === 'proposed' && pendingMaterial.length > 0 ? values : null}
           revision={revision}
           venues={venues}
+          onRefusedField={(code) => {
+            if (platform && code === 'PLATFORM_EDIT_NOT_OPEN') setSittingEnded(true)
+          }}
           onSaved={materialSaved}
           onConflict={(message) => {
-            setMaterialOpen(false)
+            setMaterialOpen(null)
             setConflict(message)
             setSave({ kind: 'conflict', message: 'Not saved. Somebody else changed this event.' })
           }}
-          onCancel={() => setMaterialOpen(false)}
+          onCancel={() => setMaterialOpen(null)}
         />
       ) : null}
 
@@ -994,7 +1238,8 @@ export function EventEditor({
               setField={setField}
               editable={editable}
               materialEditable={materialEditable}
-              onChangeMaterial={() => setMaterialOpen(true)}
+              materialNote={materialNoteFor(mode, status)}
+              onChangeMaterial={changeMaterial}
               venues={venues}
             />
           ) : null}
@@ -1015,6 +1260,9 @@ export function EventEditor({
               mode={mode}
               revision={revision}
               onRevision={setRevision}
+              mayCancelNights={mayCancelNights && !sittingEnded}
+              platform={platform}
+              onSittingEnded={endSitting}
             />
           ) : null}
           {step === 'tickets' ? (
@@ -1030,6 +1278,8 @@ export function EventEditor({
               mode={mode}
               revision={revision}
               onRevision={setRevision}
+              platform={platform}
+              onSittingEnded={endSitting}
             />
           ) : null}
           {step === 'tickets' ? (
@@ -1048,7 +1298,8 @@ export function EventEditor({
               setField={setField}
               editable={editable}
               materialEditable={materialEditable}
-              onChangeMaterial={() => setMaterialOpen(true)}
+              materialNote={materialNoteFor(mode, status)}
+              onChangeMaterial={changeMaterial}
             />
           ) : null}
           {/* Shown in every status: the panel says which changes the event's
@@ -1063,6 +1314,8 @@ export function EventEditor({
               failure={mediaFailure}
               revision={revision}
               onRevision={setRevision}
+              platform={platform}
+              onSittingEnded={endSitting}
             />
           ) : null}
           {step === 'programme' ? (
@@ -1083,7 +1336,10 @@ export function EventEditor({
               savedWebsiteUrl={baseline.websiteUrl.trim() || null}
             />
           ) : null}
-          {step === 'review' && readiness ? (
+          {/* The lifecycle moves are the organiser's: under the Desi-Event
+              team's editing session the review step offers only what that
+              session may do. */}
+          {step === 'review' && readiness && !platform ? (
             <EventLifecyclePanel
               event={{ ...event, status }}
               readiness={readiness}
@@ -1094,10 +1350,39 @@ export function EventEditor({
               onChanged={lifecycleChanged}
             />
           ) : null}
+          {step === 'review' ? (
+            <PlatformChangesPanel edits={platformEdits} timeZone={values.timezone} />
+          ) : null}
+          {step === 'review' && mayDelete ? (
+            <section
+              aria-labelledby="danger-zone-heading"
+              className="mt-6 space-y-3 rounded-card border border-status-danger/30 bg-surface-raised p-4"
+            >
+              <h2 id="danger-zone-heading" className="text-lg font-semibold text-ink">
+                Danger zone
+              </h2>
+              <p className="text-sm text-ink">
+                Deleting takes the event off the site straight away. What else it does depends on
+                its sales, and is shown before anything is deleted.
+              </p>
+              <DeleteEventDialog
+                event={{ id: event.id, title: baseline.title || event.title, slug: event.slug }}
+                listHref={listHref}
+                listLabel={platform ? 'Back to all events' : 'Back to your events'}
+              />
+            </section>
+          ) : null}
 
           {editable && FORM_STEPS.has(step) ? (
             <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Button type="button" onClick={() => commit()} disabled={save.kind === 'saving'}>
+              <Button
+                type="button"
+                onClick={() => {
+                  setStepUpDeclined(false)
+                  commit()
+                }}
+                disabled={save.kind === 'saving'}
+              >
                 {dirty ? 'Save now' : 'Saved'}
               </Button>
               <span className="text-sm text-ink-muted">
@@ -1116,29 +1401,52 @@ export function EventEditor({
  * @property {object} values The form's values.
  * @property {Function} setField Change one field.
  * @property {boolean} editable Whether the fields accept input.
- * @property {boolean} [materialEditable] Whether the date, place and terms accept input; false on a public event.
- * @property {Function} [onChangeMaterial] Opens the material change panel.
+ * @property {boolean} [materialEditable] Whether the date, place and terms accept input; false on a finished or cancelled event.
+ * @property {string|null} [materialNote] What the step says about those fields, when the event is not a draft.
+ * @property {Function|null} [onChangeMaterial] Opens the material change panel's own form, on a public event.
  * @property {Record<string, string>} [errors] Problems by field id.
  * @property {object[]} [venues] Venues to choose from.
  */
 
 /**
- * The line a public event shows where its date, place or terms are.
+ * What the date, place and terms steps say about those fields, by mode.
+ *
+ * @param {string} mode The editing mode.
+ * @param {string} status The event's status.
+ * @returns {string|null} The sentence, or null in a draft.
+ */
+export function materialNoteFor(mode, status) {
+  if (mode === 'live') {
+    return 'This event is public: a change to its date, place or terms is saved only once you confirm it with a reason, and every current order is shown a notice of it.'
+  }
+  if (mode === 'content') {
+    return `This event ${status === 'COMPLETED' ? 'has finished' : 'was cancelled'}, so its date, place and terms stay as ticket holders were told them.`
+  }
+
+  return null
+}
+
+/**
+ * The line a public, finished or cancelled event shows where its date, place
+ * or terms are.
+ *
+ * On a public event it keeps "Change date, place or terms…" for somebody who
+ * prefers the panel's own form to changing the boxes in the steps (X-5).
  *
  * @param {object} props Component props.
- * @param {Function} props.onChangeMaterial Opens the panel.
- * @returns {JSX.Element} The note and its button.
+ * @param {string} props.children The sentence.
+ * @param {Function|null} [props.onChangeMaterial] Opens the panel's own form; no button without it.
+ * @returns {JSX.Element} The note.
  */
-function MaterialNote({ onChangeMaterial }) {
+function MaterialNote({ children, onChangeMaterial = null }) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface-subtle p-4">
-      <p className="text-sm text-ink-muted">
-        This event is public, so these fields change with a reason and a notice for every current
-        order.
-      </p>
-      <Button type="button" variant="secondary" size="sm" onClick={onChangeMaterial}>
-        Change date, place or terms…
-      </Button>
+      <p className="text-sm text-ink">{children}</p>
+      {onChangeMaterial ? (
+        <Button type="button" variant="secondary" size="sm" onClick={onChangeMaterial}>
+          Change date, place or terms…
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -1258,7 +1566,8 @@ function ScheduleStep({
   setField,
   editable,
   materialEditable = editable,
-  onChangeMaterial = () => {},
+  materialNote = null,
+  onChangeMaterial = null,
   venues,
 }) {
   const zone = values.timezone
@@ -1282,7 +1591,9 @@ function ScheduleStep({
         When and where
       </h2>
 
-      {editable && !materialEditable ? <MaterialNote onChangeMaterial={onChangeMaterial} /> : null}
+      {editable && materialNote ? (
+        <MaterialNote onChangeMaterial={onChangeMaterial}>{materialNote}</MaterialNote>
+      ) : null}
 
       <FormField
         label="Time zone"
@@ -1408,7 +1719,8 @@ function PoliciesStep({
   setField,
   editable,
   materialEditable = editable,
-  onChangeMaterial = () => {},
+  materialNote = null,
+  onChangeMaterial = null,
 }) {
   /**
    * Turn one accessibility claim on or off.
@@ -1440,7 +1752,9 @@ function PoliciesStep({
         </p>
       </Alert>
 
-      {editable && !materialEditable ? <MaterialNote onChangeMaterial={onChangeMaterial} /> : null}
+      {editable && materialNote ? (
+        <MaterialNote onChangeMaterial={onChangeMaterial}>{materialNote}</MaterialNote>
+      ) : null}
 
       <FormField
         label="Refunds"

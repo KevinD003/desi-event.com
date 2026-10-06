@@ -33,11 +33,13 @@
 import { HIDDEN_EMAIL } from '@desi-event/schemas'
 import Link from 'next/link'
 
+import { EventChangesList } from '../../../components/event-changes-list.jsx'
 import { TicketPass } from '../../../components/ticket-pass.jsx'
 import { TicketTransferActions } from '../../../components/ticket-transfer-actions.jsx'
 import { AsOf, Breadcrumbs, Empty, Forbidden } from '../../../components/page-state.jsx'
 import { ReadRefusal } from '../../../components/read-refusal.jsx'
 import { PANEL, PosterThumb, Section, TEXT_LINK } from '../../../components/workspace-kit.jsx'
+import { deletedForHolder } from '../../../lib/event-control.js'
 import { formatEventWhen, formatTimeZoneLabel } from '../../../lib/format.js'
 import { getTicket } from '../../../lib/organizer-api.js'
 import { describeApiRefusal } from '../../../lib/refusal.js'
@@ -170,6 +172,25 @@ export default async function TicketDetailPage({ params }) {
           <AsOf asOf={new Date().toISOString()} />
         </div>
       </div>
+
+      {event.status === 'DELETED' ? (
+        <p className="mt-4 max-w-prose rounded-card border border-status-danger/25 bg-status-danger-soft p-4 text-sm text-ink">
+          {deletedForHolder(
+            (detail.eventChanges ?? []).find((notice) => notice.kind === 'DELETED') ?? null,
+          )}{' '}
+          It is no longer on the site, and this ticket no longer works at the door.
+        </p>
+      ) : null}
+
+      {(detail.eventChanges ?? []).length > 0 ? (
+        <div className="mt-8">
+          <EventChangesList
+            notices={detail.eventChanges}
+            timeZone={event.timezone ?? 'UTC'}
+            sessions={detail.session ? [detail.session] : []}
+          />
+        </div>
+      ) : null}
 
       <Section id="status-heading" title="Where it stands">
         <p

@@ -42,13 +42,14 @@ import { routeSchema } from './validation.js'
  * @param {Function} options.handler The request handler; it receives `(request, reply)`.
  * @param {object} [options.config] Fastify route `config`, e.g. a per-route rate limit.
  * @param {Array<Function>} [options.preHandler] Extra preHandlers appended after the auth guard.
+ * @param {number} [options.bodyLimit] This route's own body limit in bytes, where it takes more than the API-wide one (an import file).
  * @param {Array<Function>} [options.onRequest] Extra `onRequest` hooks appended after the auth guard. They run before the body is read, so a route that takes a large body can refuse a caller without reading it; anything that needs the validated body belongs in `preHandler` instead.
  * @returns {object} The contract descriptor the route was registered from.
  * @throws {Error} When no route has that id.
  */
 export function defineRoute(app, id, options) {
   const route = routeById(id)
-  const { handler, config, preHandler = [], onRequest = [] } = options
+  const { handler, config, preHandler = [], onRequest = [], bodyLimit } = options
 
   /** @type {Array<Function>} */
   const guards = []
@@ -88,6 +89,7 @@ export function defineRoute(app, id, options) {
     url: route.path,
     schema: routeSchema(route),
     ...(config ? { config } : {}),
+    ...(bodyLimit ? { bodyLimit } : {}),
     ...(guards.length > 0 ? { onRequest: guards } : {}),
     ...(preHandlers.length > 0 ? { preHandler: preHandlers } : {}),
     /**

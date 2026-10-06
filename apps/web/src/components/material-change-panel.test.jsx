@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
-const { MaterialChangePanel, materialDiff, materialProblems } =
+const { MaterialChangePanel, materialChangeLines, materialDiff, materialProblems } =
   await import('./material-change-panel.jsx')
 
 /** The saved form values of a public event. */
@@ -233,5 +233,108 @@ describe('the panel', () => {
     await user.click(screen.getByRole('button', { name: 'Save the change' }))
 
     await waitFor(() => expect(onConflict).toHaveBeenCalledWith('Somebody saved first.'))
+  })
+})
+
+describe('confirming a change made in the editor’s steps', () => {
+  const proposed = {
+    ...baseline,
+    startsAt: '2027-10-11T23:00:00.000Z',
+    endsAt: '2027-10-12T03:00:00.000Z',
+    venueId: 'vnpark',
+    policyConduct: 'Be kind.',
+  }
+
+  it('reads each change before and after, naming the venue and the policy, not quoting it', () => {
+    const lines = materialChangeLines(baseline, proposed, venues)
+
+    expect(lines.map((line) => line.field)).toEqual(['startsAt', 'endsAt', 'venueId', 'policies'])
+    expect(lines[0].before).toMatch(/Oct 4, 2027, 7:00\s?PM/)
+    expect(lines[0].after).toMatch(/Oct 11, 2027, 7:00\s?PM/)
+    expect(lines[2]).toMatchObject({
+      before: 'Lamplight Expo Hall, Edison',
+      after: 'Riverside Pavilion, Hoboken',
+    })
+    expect(lines[3].after).toBe('new wording for house rules')
+  })
+
+  it('shows the changes, asks only for the reason and the tick, and sends what the steps hold', async () => {
+    const onSaved = vi.fn()
+
+    apiFetch.mockResolvedValueOnce(answer(200, { data: { id: 'ev1', revision: 5 } }))
+    const user = userEvent.setup()
+
+    render(
+      <MaterialChangePanel
+        event={{ id: 'ev1' }}
+        baseline={baseline}
+        proposed={proposed}
+        revision={4}
+        venues={venues}
+        onSaved={onSaved}
+        onConflict={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: 'Confirm the change to the date, place or terms' }),
+    ).toHaveFocus()
+    expect(screen.getByText(/Riverside Pavilion, Hoboken/)).toBeVisible()
+    // The boxes are the editor's, not the panel's.
+    expect(screen.queryByLabelText(/^Starts/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Venue')).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Why this is changing/), 'The hall double-booked us.')
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Confirm and save' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ id: 'ev1', revision: 5 }))
+
+    const body = JSON.parse(apiFetch.mock.calls[0][1].body)
+
+    expect(body).toMatchObject({
+      startsAt: '2027-10-11T23:00:00.000Z',
+      endsAt: '2027-10-12T03:00:00.000Z',
+      venueId: 'vnpark',
+      revision: 4,
+      confirmMaterialChange: true,
+      changeReason: 'The hall double-booked us.',
+    })
+    expect(body.policies.conduct).toBe('Be kind.')
+  })
+
+  it('asks for the second factor when the server does, and sends the same change again', async () => {
+    const onSaved = vi.fn()
+
+    apiFetch.mockImplementation(async (path) => {
+      if (path === '/v1/auth/step-up') return answer(200, { data: {} })
+
+      return apiFetch.mock.calls.filter(([called]) => called === '/v1/events/ev1').length === 1
+        ? answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Again.' } })
+        : answer(200, { data: { id: 'ev1', revision: 5 } })
+    })
+    const user = userEvent.setup()
+
+    render(
+      <MaterialChangePanel
+        event={{ id: 'ev1' }}
+        baseline={baseline}
+        proposed={proposed}
+        revision={4}
+        venues={venues}
+        onSaved={onSaved}
+        onConflict={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    await user.type(screen.getByLabelText(/Why this is changing/), 'The hall double-booked us.')
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Confirm and save' }))
+    await user.type(await screen.findByLabelText(/Your password/), 'correct horse')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
   })
 })

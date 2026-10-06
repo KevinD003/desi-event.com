@@ -16,7 +16,16 @@ vi.mock('next/headers', () => ({
   cookies: async () => ({ getAll: () => [{ name: 'desi_session', value: 'opaque' }] }),
 }))
 
-const { callApi, getPlatformTraffic, getWebsiteLinks } = await import('./organizer-api.js')
+const {
+  callApi,
+  getDeletionPreview,
+  getMediaQueue,
+  getPlatformEdits,
+  getPlatformTraffic,
+  getWebsiteLinks,
+  listOrganizerEvents,
+  listPlatformEvents,
+} = await import('./organizer-api.js')
 
 const fetch = vi.fn()
 
@@ -157,5 +166,78 @@ describe('getPlatformTraffic', () => {
 
     expect(error.status).toBe(403)
     expect(fetch.mock.calls[0][0]).toMatch(/\/v1\/traffic\/events$/u)
+  })
+})
+
+describe('the full-control reads', () => {
+  it('lists every organisation’s events with only the fields the list takes', async () => {
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: [{ id: 'e1' }], pagination: { page: 1, total: 1 } }), {
+        status: 200,
+      }),
+    )
+
+    const result = await listPlatformEvents({
+      q: 'garba',
+      deleted: 'only',
+      sort: 'startsAt:asc',
+      status: '',
+      page: 2,
+      sneaky: 'widen',
+    })
+
+    expect(result).toEqual({ events: [{ id: 'e1' }], pagination: { page: 1, total: 1 } })
+
+    const url = new URL(fetch.mock.calls[0][0])
+
+    expect(url.pathname).toBe('/v1/platform/events')
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: 'garba',
+      deleted: 'only',
+      sort: 'startsAt:asc',
+      page: '2',
+    })
+  })
+
+  it('reads an event’s sittings, its deletion preview and the pictures queue', async () => {
+    fetch
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ id: 's1' }] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: { outcome: 'REMOVE' } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ id: 'm1' }], pagination: { total: 1 } }), {
+          status: 200,
+        }),
+      )
+
+    expect(await getPlatformEdits('e 1')).toEqual([{ id: 's1' }])
+    expect(await getDeletionPreview('e1')).toEqual({ outcome: 'REMOVE' })
+    expect(await getMediaQueue({ status: 'REJECTED', page: 3 })).toEqual({
+      pictures: [{ id: 'm1' }],
+      pagination: { total: 1 },
+    })
+
+    expect(new URL(fetch.mock.calls[0][0]).pathname).toBe('/v1/events/e%201/platform-edits')
+    expect(new URL(fetch.mock.calls[1][0]).pathname).toBe('/v1/events/e1/deletion')
+
+    const queue = new URL(fetch.mock.calls[2][0])
+
+    expect(queue.pathname).toBe('/v1/moderation/media')
+    expect(Object.fromEntries(queue.searchParams)).toEqual({ status: 'REJECTED', page: '3' })
+  })
+
+  it('asks for deleted events by name, and leaves them out otherwise', async () => {
+    fetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+
+    await listOrganizerEvents({ organizationId: 'o1', status: 'DELETED' })
+    await listOrganizerEvents({ organizationId: 'o1' })
+
+    expect(new URL(fetch.mock.calls[0][0]).searchParams.get('status')).toBe('DELETED')
+    expect(new URL(fetch.mock.calls[1][0]).searchParams.has('status')).toBe(false)
   })
 })

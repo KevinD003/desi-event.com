@@ -204,6 +204,13 @@ export const WORKSPACE_GROUPS = Object.freeze([
         offered: (session) => admits(session, 'moderation'),
       },
       {
+        href: '/moderation/pictures',
+        label: 'Pictures waiting',
+        // New pictures and replacement covers on posted events, each approved
+        // by somebody other than its uploader.
+        offered: (session) => admits(session, 'moderation'),
+      },
+      {
         href: '/moderation/websites',
         label: 'Website links',
         // Platform administrators and super administrators turn an event's
@@ -217,6 +224,21 @@ export const WORKSPACE_GROUPS = Object.freeze([
         // Platform administrators and super administrators: the Desi-Event
         // team is who invites organisers.
         offered: (session) => sessionCan(session, 'organizer:invite') && admits(session, 'admin'),
+      },
+      {
+        href: '/admin/events',
+        label: 'All events',
+        // Platform administrators and super administrators: every
+        // organisation's events, to edit once posted, delete or restore.
+        offered: (session) =>
+          sessionCan(session, 'event:platform_edit') && admits(session, 'admin'),
+      },
+      {
+        href: '/admin/imports',
+        label: 'Imports',
+        // Platform administrators and super administrators: events listed on
+        // Sulekha, brought here for review.
+        offered: (session) => sessionCan(session, 'event:import') && admits(session, 'admin'),
       },
       {
         href: '/admin/users',

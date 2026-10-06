@@ -589,17 +589,60 @@ describe('an event that is not open for editing', () => {
     expect(screen.getByText(/a moderator has asked for something specific/i)).toBeInTheDocument()
   })
 
-  it.each(['REVIEW_PENDING', 'APPROVED', 'CANCELLED'])(
+  it.each(['REVIEW_PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED', 'DELETED'])(
     'never autosaves one that is %s',
     async (status) => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
       render(<EventEditor event={{ ...event, status }} venues={venues} />)
 
+      expect(screen.getByLabelText(/^Title/)).toBeDisabled()
+
       await user.click(screen.getByRole('button', { name: /when and where/i }))
       await vi.advanceTimersByTimeAsync(5000)
 
       expect(apiFetch).not.toHaveBeenCalled()
+    },
+  )
+})
+
+describe('a finished or cancelled event', () => {
+  it.each([
+    ['CANCELLED', 'This event was cancelled'],
+    ['COMPLETED', 'This event has finished'],
+  ])(
+    'autosaves the words of one that is %s and never sends a material field',
+    async (status, title) => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const ended = { ...event, status }
+
+      apiFetch.mockResolvedValue(answer(200, { data: { ...ended, revision: 4 } }))
+
+      render(<EventEditor event={ended} venues={venues} />)
+
+      expect(screen.getByText(title)).toBeInTheDocument()
+      expect(screen.getByText(/can still be updated, and save as you type/)).toBeInTheDocument()
+
+      await user.type(screen.getByLabelText(/^Title/), '!')
+      await vi.advanceTimersByTimeAsync(2000)
+
+      await waitFor(() => expect(apiFetch).toHaveBeenCalled())
+
+      const body = JSON.parse(apiFetch.mock.calls[0][1].body)
+
+      expect(body.title).toBe('Qawwali Under the Banyan!')
+
+      for (const field of ['startsAt', 'endsAt', 'timezone', 'venueId', 'policies', 'isOnline']) {
+        expect(body).not.toHaveProperty(field)
+      }
+
+      await user.click(screen.getByRole('button', { name: /when and where/i }))
+
+      expect(screen.getByLabelText(/^Starts/, { selector: '#event-startsAt' })).toBeDisabled()
+      expect(screen.getByLabelText(/^Venue/, { selector: '#event-venueId' })).toBeDisabled()
+      expect(
+        screen.getByText(/so its date, place and terms stay as ticket holders were told them\./),
+      ).toBeInTheDocument()
     },
   )
 })
@@ -848,24 +891,63 @@ describe('a public event', () => {
     }
   })
 
-  it('keeps the date and place read-only, behind a button that opens the change panel', async () => {
+  it('takes the date and place in the steps, and a change to one asks to be confirmed', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 
-    render(<EventEditor event={live} venues={venues} />)
+    render(
+      <EventEditor
+        event={live}
+        venues={[...venues, { id: 'vnhall', name: 'Lamplight Hall', city: 'Pune' }]}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: /when and where/i }))
 
-    expect(screen.getByLabelText(/^Starts/, { selector: '#event-startsAt' })).toBeDisabled()
-    expect(screen.getByLabelText(/^Venue/, { selector: '#event-venueId' })).toBeDisabled()
+    const starts = screen.getByLabelText(/^Starts/, { selector: '#event-startsAt' })
+    const venue = screen.getByLabelText(/^Venue/, { selector: '#event-venueId' })
+
+    expect(starts).toBeEnabled()
+    expect(venue).toBeEnabled()
     expect(
       screen.getByLabelText(/^Parking and directions/, { selector: '#event-directions' }),
     ).toBeEnabled()
 
-    await user.click(screen.getByRole('button', { name: 'Change date, place or terms…' }))
+    await user.selectOptions(venue, 'vnhall')
 
-    const heading = screen.getByRole('heading', { name: 'Change date, place or terms' })
+    const callout = screen.getByTestId('pending-material')
+
+    expect(callout).toHaveTextContent('You changed the venue.')
+
+    // A change waiting for its reason is never autosaved.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    await user.click(within(callout).getByRole('button', { name: 'Confirm these changes…' }))
+
+    const heading = screen.getByRole('heading', {
+      name: 'Confirm the change to the date, place or terms',
+    })
 
     expect(heading).toHaveFocus()
+    expect(screen.getByText(/Banyan Courtyard, Mumbai → Lamplight Hall, Pune/)).toBeInTheDocument()
+  })
+
+  it('puts the date, place and terms back when the change is not wanted', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={live} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /policies and access/i }))
+    await user.type(
+      screen.getByLabelText(/^Minimum age/, { selector: '#event-ageRestriction' }),
+      '18',
+    )
+    await user.click(screen.getByRole('button', { name: 'Put them back' }))
+
+    expect(screen.queryByTestId('pending-material')).not.toBeInTheDocument()
+    expect(
+      screen.getByLabelText(/^Minimum age/, { selector: '#event-ageRestriction' }),
+    ).toHaveValue(null)
   })
 
   it('sends a material change with the revision, only the changed field, a reason and the tick', async () => {
@@ -876,23 +958,28 @@ describe('a public event', () => {
     render(<EventEditor event={live} venues={venues} />)
 
     await user.click(screen.getByRole('button', { name: /policies and access/i }))
-    await user.click(screen.getByRole('button', { name: 'Change date, place or terms…' }))
 
     await user.type(
-      screen.getByLabelText(/^Minimum age/, { selector: '#material-ageRestriction' }),
+      screen.getByLabelText(/^Minimum age/, { selector: '#event-ageRestriction' }),
       '18',
     )
 
-    expect(screen.getByText('You are changing: the age restriction.')).toBeInTheDocument()
+    expect(screen.getByTestId('pending-material')).toHaveTextContent(
+      'You changed the age restriction.',
+    )
 
-    await user.click(screen.getByRole('button', { name: 'Save the change' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm these changes…' }))
+
+    expect(screen.getByText(/no minimum age → 18\+/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Confirm and save' }))
 
     expect(await screen.findAllByText('Say why this is changing.')).not.toHaveLength(0)
     expect(apiFetch).not.toHaveBeenCalled()
 
     await user.type(screen.getByLabelText(/^Why this is changing/), 'The venue licence changed.')
     await user.click(screen.getByRole('checkbox', { name: /I understand this changes/ }))
-    await user.click(screen.getByRole('button', { name: 'Save the change' }))
+    await user.click(screen.getByRole('button', { name: 'Confirm and save' }))
 
     await waitFor(() => expect(apiFetch).toHaveBeenCalled())
 
@@ -920,6 +1007,418 @@ describe('a public event', () => {
       screen.getByText(/Notices are not emailed, so tell ticket holders yourself as well\./),
     ).toBeInTheDocument()
     expect(screen.queryByText(/is sent to everybody/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('editing as the Desi-Event team', () => {
+  const live = { ...event, status: 'ON_SALE' }
+  const authority = {
+    kind: 'platform',
+    editId: 'cedit00000000000000000001',
+    reason: 'The organiser asked us to fix the description',
+    expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+  }
+  const readiness = {
+    ready: true,
+    status: 'ON_SALE',
+    publishable: [],
+    sellable: [],
+    inventory: [],
+    organizerVerified: true,
+  }
+
+  it('says whose authority and why, and offers no lifecycle move on the review step', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(
+      <EventEditor
+        event={live}
+        venues={venues}
+        authority={authority}
+        readiness={readiness}
+        transitions={{ status: 'ON_SALE', transitions: [{ to: 'SALES_PAUSED' }] }}
+        mayDelete
+        listHref="/admin/events"
+      />,
+    )
+
+    expect(screen.getByText('Editing as the Desi-Event team')).toBeInTheDocument()
+    expect(
+      screen.getByText(/^Reason: The organiser asked us to fix the description\. Until/),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+
+    expect(screen.queryByRole('heading', { name: /review and publish/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Danger zone' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete this event…' })).toBeInTheDocument()
+  })
+
+  it('stops the autosave when the second factor has lapsed, asks, and sends the same change again', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    let saves = 0
+
+    apiFetch.mockImplementation(async (path) => {
+      if (path === '/v1/auth/step-up') return answer(200, { data: {} })
+
+      saves += 1
+
+      return saves === 1
+        ? answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate again.' } })
+        : answer(200, { data: { ...live, title: 'Qawwali Under the Banyan!', revision: 4 } })
+    })
+
+    render(<EventEditor event={live} venues={venues} authority={authority} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(
+      await screen.findByText(
+        'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.',
+        { selector: 'p.font-medium' },
+      ),
+    ).toBeInTheDocument()
+
+    // Paused: nothing more is sent while the prompt waits.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(saves).toBe(1)
+
+    await user.type(screen.getAllByLabelText(/Your password/).at(-1), 'correct horse')
+    await user.click(screen.getAllByRole('button', { name: 'Confirm' }).at(-1))
+
+    await waitFor(() => expect(saves).toBe(2))
+
+    const resent = apiFetch.mock.calls.filter(([path]) => path === `/v1/events/${live.id}`)
+
+    expect(JSON.parse(resent[1][1].body)).toMatchObject({
+      title: 'Qawwali Under the Banyan!',
+      revision: 3,
+    })
+    expect(await screen.findByText('Revision 4')).toBeInTheDocument()
+  })
+
+  it('says the session has ended when a save finds it closed, and stops taking input', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(
+      answer(403, {
+        error: {
+          code: 'PLATFORM_EDIT_NOT_OPEN',
+          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+        },
+      }),
+    )
+
+    render(<EventEditor event={live} venues={venues} authority={authority} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(
+      await screen.findAllByText(
+        /This editing session has ended\. Open it again to keep editing\./,
+      ),
+    ).not.toHaveLength(0)
+    expect(screen.getByLabelText(/^Title/)).toBeDisabled()
+    expect(screen.getByRole('heading', { name: 'Open it again' })).toBeInTheDocument()
+  })
+
+  it('never shows an organiser the second-factor prompt or the banner', () => {
+    render(<EventEditor event={live} venues={venues} />)
+
+    expect(screen.queryByText('Editing as the Desi-Event team')).not.toBeInTheDocument()
+  })
+
+  it('takes input again once the page hands it the editing session opened again', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(
+      answer(403, { error: { code: 'PLATFORM_EDIT_NOT_OPEN', message: 'Open it.' } }),
+    )
+
+    const { rerender } = render(<EventEditor event={live} venues={venues} authority={authority} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+    await waitFor(() => expect(screen.getByLabelText(/^Title/)).toBeDisabled())
+
+    // "Open it again" refreshes the page, which keeps this component's state
+    // and hands down the new session.
+    apiFetch.mockResolvedValue(
+      answer(200, { data: { ...live, title: 'Qawwali Under the Banyan!', revision: 4 } }),
+    )
+    rerender(
+      <EventEditor
+        event={live}
+        venues={venues}
+        authority={{
+          ...authority,
+          editId: 'cedit00000000000000000002',
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        }}
+      />,
+    )
+
+    expect(screen.getByLabelText(/^Title/)).toBeEnabled()
+    expect(screen.queryByText(/This editing session has ended/)).not.toBeInTheDocument()
+    // What was typed before the session ended is still there, and saves now.
+    expect(screen.getByLabelText(/^Title/)).toHaveValue('Qawwali Under the Banyan!')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(await screen.findByText('Revision 4')).toBeInTheDocument()
+  })
+
+  it('keeps the autosave paused after “Not now” on the second factor, until the next edit', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    let saves = 0
+
+    apiFetch.mockImplementation(async () => {
+      saves += 1
+
+      return answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate again.' } })
+    })
+
+    render(<EventEditor event={live} venues={venues} authority={authority} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+    await user.click(await screen.findByRole('button', { name: 'Not now' }))
+
+    expect(screen.getByTestId('save-status')).toHaveTextContent(
+      'Not saved: confirm it’s you to save these changes.',
+    )
+
+    // Not asked again a moment later: nothing more is sent.
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(saves).toBe(1)
+    expect(screen.queryByRole('button', { name: 'Not now' })).not.toBeInTheDocument()
+
+    // The next edit is a fresh attempt, which asks again.
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+    await waitFor(() => expect(saves).toBe(2))
+    expect(await screen.findByRole('button', { name: 'Not now' })).toBeInTheDocument()
+  })
+
+  it('offers to open the session again when a step’s own write finds it closed', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(
+      answer(403, {
+        error: {
+          code: 'PLATFORM_EDIT_NOT_OPEN',
+          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+        },
+      }),
+    )
+
+    render(
+      <EventEditor
+        event={live}
+        venues={venues}
+        authority={authority}
+        sessions={[
+          {
+            id: 'snight1',
+            eventId: live.id,
+            startsAt: live.startsAt,
+            endsAt: live.endsAt,
+            doorsOpenAt: null,
+            timezone: live.timezone,
+            venueMapVersionId: null,
+            capacity: 100,
+            priceZones: [],
+            usage: { sold: 0, held: 0 },
+            removable: true,
+          },
+        ]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 3/i }))
+    await user.click(screen.getByRole('button', { name: 'Remove session 1' }))
+    await user.click(screen.getByRole('button', { name: 'Yes, remove it' }))
+
+    expect(await screen.findByRole('heading', { name: 'Open it again' })).toBeInTheDocument()
+  })
+})
+
+describe('under the organisation’s own authority', () => {
+  const live = { ...event, status: 'ON_SALE' }
+
+  it('reads a refusal for want of an editing session as a refusal, and keeps taking input', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    apiFetch.mockResolvedValue(
+      answer(403, {
+        error: {
+          code: 'PLATFORM_EDIT_NOT_OPEN',
+          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+        },
+      }),
+    )
+
+    render(<EventEditor event={live} venues={venues} authority={{ kind: 'organization' }} />)
+
+    await user.type(screen.getByLabelText(/^Title/), '!')
+    await vi.advanceTimersByTimeAsync(2000)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('save-status')).toHaveTextContent(
+        /Not saved\. Open this event for editing as the Desi-Event team/,
+      ),
+    )
+    expect(screen.getByLabelText(/^Title/)).toBeEnabled()
+    expect(screen.queryByText(/This editing session has ended/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Open it again' })).not.toBeInTheDocument()
+  })
+
+  it('tells the organiser, at the top, that the Desi-Event team has the event open and until when', () => {
+    render(
+      <EventEditor
+        event={{ ...live, timezone: 'America/Chicago' }}
+        venues={venues}
+        platformEdits={[
+          {
+            id: 'cedit00000000000000000001',
+            openedAt: '2026-10-06T18:40:00.000Z',
+            expiresAt: '2026-10-06T19:40:00.000Z',
+            closedAt: null,
+            endedBy: null,
+            open: true,
+            mine: false,
+            reason: 'Fixing the directions.',
+            administratorName: null,
+            changes: [],
+          },
+        ]}
+      />,
+    )
+
+    const notice = screen.getByTestId('team-editing-notice')
+
+    expect(notice).toHaveTextContent('The Desi-Event team is editing this event until 2:40 PM CDT.')
+    expect(notice).toHaveTextContent('Reason: Fixing the directions.')
+    // Never who.
+    expect(notice).not.toHaveTextContent(/administrator/i)
+  })
+
+  it('says nothing of the kind once the Desi-Event team’s sessions are over', () => {
+    render(
+      <EventEditor
+        event={live}
+        venues={venues}
+        platformEdits={[
+          {
+            id: 'cedit00000000000000000001',
+            openedAt: '2026-10-05T15:00:00.000Z',
+            expiresAt: '2026-10-05T16:00:00.000Z',
+            closedAt: '2026-10-05T15:20:00.000Z',
+            endedBy: 'CLOSED',
+            open: false,
+            mine: false,
+            reason: 'Fixing the directions.',
+            administratorName: null,
+            changes: [],
+          },
+        ]}
+      />,
+    )
+
+    expect(screen.queryByTestId('team-editing-notice')).not.toBeInTheDocument()
+  })
+
+  it('keeps “Change date, place or terms…” for the panel’s own form, while nothing waits to be confirmed', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={live} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /when and where/i }))
+    await user.click(screen.getByRole('button', { name: 'Change date, place or terms…' }))
+
+    const heading = screen.getByRole('heading', { name: 'Change date, place or terms' })
+
+    expect(heading).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Save the change' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(
+      screen.queryByRole('heading', { name: 'Change date, place or terms' }),
+    ).not.toBeInTheDocument()
+
+    // A change made in the steps is confirmed from its own callout instead.
+    await user.click(screen.getByRole('button', { name: /policies and access/i }))
+    await user.type(
+      screen.getByLabelText(/^Minimum age/, { selector: '#event-ageRestriction' }),
+      '18',
+    )
+
+    expect(screen.getByTestId('pending-material')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Change date, place or terms…' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers no such button on a finished or cancelled event', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(<EventEditor event={{ ...event, status: 'COMPLETED' }} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /when and where/i }))
+
+    expect(
+      screen.queryByRole('button', { name: 'Change date, place or terms…' }),
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe('the danger zone', () => {
+  it('is offered on the review step only when the server page says so', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const { unmount } = render(<EventEditor event={event} venues={venues} />)
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+    expect(screen.queryByRole('heading', { name: 'Danger zone' })).not.toBeInTheDocument()
+
+    unmount()
+    render(<EventEditor event={event} venues={venues} mayDelete />)
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+    expect(screen.getByRole('heading', { name: 'Danger zone' })).toBeInTheDocument()
+  })
+
+  it('lists the Desi-Event team’s changes on the review step, without naming anybody', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    render(
+      <EventEditor
+        event={{ ...event, status: 'ON_SALE' }}
+        venues={venues}
+        platformEdits={[
+          {
+            id: 'cedit00000000000000000001',
+            openedAt: '2026-10-05T15:00:00.000Z',
+            expiresAt: '2026-10-05T16:00:00.000Z',
+            closedAt: '2026-10-05T15:20:00.000Z',
+            endedBy: 'CLOSED',
+            open: false,
+            mine: false,
+            reason: 'Fixing the directions.',
+            administratorName: null,
+            changes: [
+              { action: 'event.updated', fields: ['directions'], at: '2026-10-05T15:05:00.000Z' },
+            ],
+          },
+        ]}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /step 9/i }))
+
+    expect(
+      screen.getByRole('heading', { name: 'Changes made by the Desi-Event team' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('By a Desi-Event administrator.')).toBeInTheDocument()
   })
 })
 

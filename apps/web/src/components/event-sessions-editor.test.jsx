@@ -184,13 +184,20 @@ describe('editing a session', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps the seating layout of a public event’s session', async () => {
+  it('keeps the seating map of a live night whose seats are sold', async () => {
     const user = userEvent.setup()
 
     render(
       <EventSessionsEditor
         event={event}
-        sessions={[session({ venueMapVersionId: 'v1', capacity: null })]}
+        sessions={[
+          session({
+            venueMapVersionId: 'v1',
+            capacity: null,
+            usage: { sold: 12, held: 0 },
+            removable: false,
+          }),
+        ]}
         mapVersions={[{ id: 'v1', mapName: 'Main hall', version: 2, seatCount: 400 }]}
         revision={6}
         mode="live"
@@ -202,6 +209,183 @@ describe('editing a session', () => {
     expect(
       screen.getByLabelText(/^Seating map/, { selector: '#session-snight1-venueMapVersionId' }),
     ).toBeDisabled()
+    expect(
+      screen.getByText(/Seats have been sold or held at this night, so its seating map is what/),
+    ).toBeInTheDocument()
+  })
+
+  it('offers another map for an unused live night', async () => {
+    const user = userEvent.setup()
+
+    respond(answer(200, { data: session(), meta: { revision: 7 } }))
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[session({ venueMapVersionId: 'v1', capacity: null })]}
+        mapVersions={[
+          { id: 'v1', mapName: 'Main hall', version: 2, seatCount: 400 },
+          { id: 'v2', mapName: 'Main hall', version: 3, seatCount: 420 },
+        ]}
+        revision={6}
+        mode="live"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Edit session 1' }))
+
+    const map = screen.getByLabelText(/^Seating map/, {
+      selector: '#session-snight1-venueMapVersionId',
+    })
+
+    expect(map).toBeEnabled()
+
+    await user.selectOptions(map, 'v2')
+    await user.click(screen.getByRole('button', { name: /^Save/ }))
+
+    await waitFor(() => expect(writeCall()).toBeDefined())
+    expect(JSON.parse(writeCall()[1].body)).toMatchObject({ venueMapVersionId: 'v2', revision: 6 })
+  })
+})
+
+describe('cancelling a night', () => {
+  const used = session({ usage: { sold: 5, held: 0 }, removable: false })
+
+  it('offers a used live night a cancellation when the server page allows it', () => {
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[used]}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Cancel this night…' })).toBeInTheDocument()
+    expect(screen.getByText(/or cancel it, which refunds its tickets\./)).toBeInTheDocument()
+    expect(screen.getByText(/or cancel one, refunding its tickets/)).toBeInTheDocument()
+  })
+
+  it('offers no cancellation without it, nor on a draft', () => {
+    const { unmount } = render(
+      <EventSessionsEditor event={event} sessions={[used]} revision={6} mode="live" />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[used]}
+        revision={6}
+        mode="draft"
+        mayCancelNights
+      />,
+    )
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+  })
+
+  it('marks a cancelled night and offers nothing on it', () => {
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[
+          session({
+            status: 'CANCELLED',
+            cancellationReason: 'The singer cancelled.',
+            removable: false,
+          }),
+        ]}
+        revision={6}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    expect(screen.getByText('Cancelled', { selector: 'span *, span' })).toBeInTheDocument()
+    expect(screen.getByText('Cancelled: The singer cancelled.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Edit session/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Prepare inventory' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel this night…' })).not.toBeInTheDocument()
+  })
+
+  it('re-reads the nights, with the new revision, and says what was refunded', async () => {
+    const user = userEvent.setup()
+    const onRevision = vi.fn()
+
+    apiFetch.mockImplementation(async (path, init = {}) => {
+      if (path.endsWith('/cancellation')) {
+        return answer(200, {
+          data: {
+            sessionId: used.id,
+            revision: 6,
+            permitted: true,
+            missing: null,
+            refusal: null,
+            orders: 5,
+            ordersRefunded: 5,
+            ordersToldOnly: 0,
+            zeroValueOrders: 0,
+            disputedOrders: 0,
+            ordersCancelled: 0,
+            ticketsWithdrawn: 7,
+            refundableCents: 25_000,
+            currency: 'USD',
+            paymentMode: 'MOCK',
+          },
+        })
+      }
+      if (path.endsWith('/cancel')) {
+        return answer(200, {
+          data: {
+            session: { ...used, status: 'CANCELLED' },
+            refunds: {
+              owed: 5,
+              settled: 5,
+              waiting: 0,
+              failed: 0,
+              disputed: 0,
+              amountCents: 25_000,
+              currency: 'USD',
+            },
+          },
+        })
+      }
+
+      return answer(200, {
+        data: [{ ...used, status: 'CANCELLED' }],
+        meta: { revision: 8 },
+        method: init.method,
+      })
+    })
+
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[used]}
+        revision={6}
+        onRevision={onRevision}
+        mode="live"
+        mayCancelNights
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Cancel this night…' }))
+    await screen.findByText(/paid orders for this night are refunded/)
+    await user.type(
+      screen.getByLabelText(/Why is this night being cancelled/),
+      'The singer cancelled at short notice.',
+    )
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Cancel this night and refund it' }))
+
+    expect(
+      await screen.findByText(
+        'Night cancelled. Its tickets no longer work at the door. 5 orders refunded ($250.00).',
+      ),
+    ).toBeInTheDocument()
+    expect(onRevision).toHaveBeenCalledWith(8)
   })
 })
 
@@ -247,6 +431,14 @@ describe('adding a session', () => {
     expect(screen.queryByRole('button', { name: 'Add session' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Edit/ })).not.toBeInTheDocument()
   })
+
+  it('keeps a finished or cancelled event’s nights as they were', () => {
+    render(<EventSessionsEditor event={event} sessions={[session()]} revision={1} mode="content" />)
+
+    expect(screen.queryByRole('button', { name: 'Add session' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Edit/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/its nights stay as ticket holders were told them/)).toBeInTheDocument()
+  })
 })
 
 describe('preparing inventory', () => {
@@ -273,5 +465,115 @@ describe('preparing inventory', () => {
         /Already prepared: 400 of 400 seats exist\. Nothing new was created\. 120 seats were matched/,
       ),
     ).toBeInTheDocument()
+  })
+})
+
+describe('writing as the Desi-Event team, whose second factor lapses every 10 minutes', () => {
+  const PLATFORM_SENTENCE =
+    'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.'
+
+  /**
+   * Answer the first write with STEP_UP_REQUIRED and every later one with `then`.
+   *
+   * @param {object} then The answer once the second factor is fresh.
+   * @returns {Function} How many writes were sent so far.
+   */
+  function lapsedOnce(then) {
+    let writes = 0
+
+    apiFetch.mockImplementation(async (path, init = {}) => {
+      if (path === '/v1/auth/step-up') return answer(200, { data: {} })
+      if (!init.method || init.method === 'GET') {
+        return answer(200, { data: [session({ capacity: 250 })], meta: { revision: 8 } })
+      }
+
+      writes += 1
+
+      return writes === 1
+        ? answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate again.' } })
+        : then
+    })
+
+    return () => writes
+  }
+
+  it('asks for the second factor where the night was saved, then sends the same change again', async () => {
+    const user = userEvent.setup()
+    const writes = lapsedOnce(
+      answer(200, { data: session({ capacity: 250 }), meta: { revision: 7 } }),
+    )
+
+    render(<EventSessionsEditor event={event} sessions={[session()]} revision={6} platform />)
+
+    await user.click(screen.getByRole('button', { name: 'Edit session 1' }))
+
+    const capacity = screen.getByLabelText(/^Capacity/, { selector: '#session-snight1-capacity' })
+
+    await user.clear(capacity)
+    await user.type(capacity, '250')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByText(PLATFORM_SENTENCE)).toBeInTheDocument()
+    expect(screen.queryByText(/That did not work/)).not.toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Your password/), 'correct horse')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(writes()).toBe(2))
+
+    const sent = apiFetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+
+    expect(sent).toHaveLength(2)
+    expect(JSON.parse(sent[1][1].body)).toEqual({ capacity: 250, revision: 6 })
+    expect(await screen.findByText('Session saved.')).toBeInTheDocument()
+    expect(screen.queryByText(PLATFORM_SENTENCE)).not.toBeInTheDocument()
+  })
+
+  it('sends nothing more, and says so, when the second factor is not given', async () => {
+    const user = userEvent.setup()
+    const writes = lapsedOnce(answer(200, { data: session(), meta: { revision: 7 } }))
+
+    render(<EventSessionsEditor event={event} sessions={[session()]} revision={6} platform />)
+
+    await user.click(screen.getByRole('button', { name: 'Prepare inventory' }))
+    await user.click(await screen.findByRole('button', { name: 'Not now' }))
+
+    expect(
+      await screen.findByText(
+        'Not saved: confirm it’s you to make this change. Nothing has been sent.',
+      ),
+    ).toBeInTheDocument()
+    expect(writes()).toBe(1)
+  })
+
+  it('tells the editor when a write finds the editing session closed', async () => {
+    const user = userEvent.setup()
+    const onSittingEnded = vi.fn()
+
+    respond(
+      answer(403, {
+        error: {
+          code: 'PLATFORM_EDIT_NOT_OPEN',
+          message: 'Open this event for editing as the Desi-Event team in this browser first.',
+        },
+      }),
+    )
+    render(
+      <EventSessionsEditor
+        event={event}
+        sessions={[session()]}
+        revision={6}
+        platform
+        onSittingEnded={onSittingEnded}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Remove session 1' }))
+    await user.click(screen.getByRole('button', { name: 'Yes, remove it' }))
+
+    expect(
+      await screen.findByText(/Open this event for editing as the Desi-Event team/),
+    ).toBeInTheDocument()
+    expect(onSittingEnded).toHaveBeenCalledTimes(1)
   })
 })

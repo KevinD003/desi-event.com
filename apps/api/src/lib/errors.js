@@ -190,6 +190,16 @@ export const EVENT_CONTROL_CONFLICT_SENTENCE =
   'This event changed while that was being saved, so nothing was changed. Reload and try again.'
 
 /**
+ * What a caller is told when a membership or a team invitation would put
+ * somebody into the organisation that holds imported events (SPEC2-XI I-B),
+ * which the database refuses (`platform_held_organization_has_no_members`).
+ *
+ * @type {string}
+ */
+export const PLATFORM_HELD_ORGANIZATION_SENTENCE =
+  "This organisation holds imported events for the Desi-Event team and has no members. Move the event to the organiser's own organisation instead."
+
+/**
  * Database refusals the API answers with a sentence instead of a 500.
  *
  * Each is a rule the service already keeps, held again by the database for a
@@ -228,6 +238,15 @@ export const DATABASE_REFUSALS = Object.freeze([
       message: EVENT_CONTROL_CONFLICT_SENTENCE,
     }),
   ),
+  // The organisation holding imported events has no members and takes no
+  // team invitation (trigger `desi_platform_held_has_no_members`, SPEC2-XI
+  // §4.3): every writer of `Membership` or `Invitation` meets it.
+  Object.freeze({
+    constraint: 'platform_held_organization_has_no_members',
+    statusCode: 409,
+    code: 'PLATFORM_HELD_ORGANIZATION',
+    message: PLATFORM_HELD_ORGANIZATION_SENTENCE,
+  }),
   // A replacement cover's CHECK and trigger (`media_asset_replacement_shape`,
   // `media_asset_replacement_matches`): the cover it pointed at moved.
   Object.freeze({

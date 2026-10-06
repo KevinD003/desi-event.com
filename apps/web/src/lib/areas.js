@@ -187,10 +187,18 @@ export const AREAS = Object.freeze({
     // Platform-held and unscoped: no organisation role carries either. A
     // platform administrator (`organizer:invite`) comes in to invite
     // organisers; a super administrator (`platform:admin`, and every other
-    // capability) to that and to changing who can do what. Each page inside
-    // asks its own question again.
+    // capability) to that and to changing who can do what. Editing and
+    // deleting any organisation's posted events (`event:platform_edit`) is the
+    // Desi-Event team's too, held by the same two roles, and so is importing
+    // events listed on Sulekha (`event:import`). Each page inside asks its own
+    // question again. `href` stays the invitations: the area's index page
+    // sends a session to the first tab it is offered, so one holding only the
+    // editing capability lands on All events.
     admits: (session) =>
-      sessionCan(session, 'organizer:invite') || sessionCan(session, 'platform:admin'),
+      sessionCan(session, 'organizer:invite') ||
+      sessionCan(session, 'platform:admin') ||
+      sessionCan(session, 'event:platform_edit') ||
+      sessionCan(session, 'event:import'),
     refusal:
       'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
   },

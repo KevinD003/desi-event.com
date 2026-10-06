@@ -215,3 +215,65 @@ describe('ModerationMediaReview', () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 })
+
+describe('a picture waiting on a posted event', () => {
+  const waiting = picture({
+    id: 'cmedia0000000000000000009',
+    replacesMediaId: 'cmedia0000000000000000001',
+  })
+
+  it('is not approved on its own where the event’s own approval approves it', () => {
+    render(<ModerationMediaReview media={[picture()]} />)
+
+    expect(screen.queryByRole('button', { name: 'Approve this picture' })).not.toBeInTheDocument()
+  })
+
+  it('can be approved on its own, and a new cover says it takes the old one’s place', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(200, {
+        data: { ...waiting, moderationStatus: 'APPROVED', replacesMediaId: null },
+        meta: { revision: 2 },
+      }),
+    )
+
+    render(<ModerationMediaReview media={[waiting]} approvePending />)
+
+    expect(screen.getByRole('listitem', { name: 'New cover' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Approve this picture' }))
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(apiFetch.mock.calls[0][0]).toBe(
+      '/v1/moderation/media/cmedia0000000000000000009/decision',
+    )
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({ decision: 'approve' })
+    expect(
+      screen.getByText('New cover approved. It takes the old cover’s place on the event’s page.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows the server’s sentence when the person approving uploaded it', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(
+      answer(403, {
+        error: {
+          code: 'SELF_REVIEW',
+          message:
+            'You uploaded this picture, so somebody else on the Desi-Event team approves it.',
+        },
+      }),
+    )
+
+    render(<ModerationMediaReview media={[waiting]} approvePending />)
+
+    await user.click(screen.getByRole('button', { name: 'Approve this picture' }))
+
+    expect(
+      await screen.findByText(/somebody else on the Desi-Event team approves it/),
+    ).toBeVisible()
+    expect(refresh).not.toHaveBeenCalled()
+  })
+})

@@ -40,6 +40,7 @@ import { disambiguateSlug, slugify } from '../lib/identifiers.js'
 import { equalsIgnoringCase, likeLiteral } from '../lib/like-pattern.js'
 import {
   EVENT_SUMMARY_SELECT,
+  IMPORTED_FROM_SELECT,
   isPublicTier,
   toEventDetail,
   toEventSummary,
@@ -69,6 +70,8 @@ const EVENT_INCLUDE = Object.freeze({
   ...WEBSITE_REDIRECT_INCLUDE,
   // Who deleted it, for a deleted event's record (named only to those allowed).
   deletedBy: { select: { displayName: true } },
+  // Where an imported event is listed and its prices there (SPEC2-XI §5.I-E).
+  importItem: IMPORTED_FROM_SELECT,
 })
 
 /**

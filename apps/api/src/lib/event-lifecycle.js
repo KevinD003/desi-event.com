@@ -61,6 +61,7 @@ import {
   databaseRefusal,
   exposedServerError,
   forbidden,
+  httpError,
   notFound,
   unprocessable,
 } from './errors.js'
@@ -325,6 +326,66 @@ async function checkGate(gate, prisma, event) {
 }
 
 /**
+ * Why a set of gates is shut for an event, every reason from every gate.
+ *
+ * The same checks {@link transitionEvent} runs, for a move another module
+ * makes itself: an import's own moves into review and into PUBLISHED
+ * (`lib/event-import.js`, SPEC2-XI I-C), which the table's actor would refuse
+ * the Desi-Event team.
+ *
+ * @param {object} prisma The Prisma client or a transaction client.
+ * @param {object} event The event, loaded as {@link loadForTransition} loads it.
+ * @param {ReadonlyArray<string>} gates The gates, from the move.
+ * @returns {Promise<string[]>} Reasons. Empty means every gate is open.
+ */
+export async function gateProblems(prisma, event, gates) {
+  /** @type {string[]} */
+  const blockers = []
+
+  for (const gate of gates) blockers.push(...(await checkGate(gate, prisma, event)))
+
+  return blockers
+}
+
+/**
+ * Why an event in the organisation that holds imported events cannot be sent
+ * back for changes (SPEC2-XI O16): nobody runs it on Desi-Event, so nobody
+ * could make them.
+ */
+export const IMPORTED_EVENT_NO_EDITOR_SENTENCE =
+  'Nobody runs this event on Desi-Event yet, so nobody could make the changes. Approve it and correct it once it is published, reject it, or delete it.'
+
+/**
+ * Whether an event belongs to an organisation that holds imported events.
+ *
+ * @param {object} event The event, with `organization` loaded.
+ * @returns {boolean} True when it is platform-held.
+ */
+export function isPlatformHeld(event) {
+  return Boolean(event?.organization?.platformHeldSource)
+}
+
+/** Why a platform-held import takes no ticket type and opens no sales (SPEC2-XI I5). */
+export const SOLD_ON_SOURCE_SENTENCE =
+  "Tickets for this event are sold on Sulekha. Move it to the organiser's own organisation before selling tickets here."
+
+/**
+ * Refuse a ticket type or sales for an event the platform-held organisation
+ * holds: tickets for it are sold on its source's page, and the organisation has
+ * no payout account, so nothing may be sold here until the event is moved to
+ * the organiser's own organisation. Even a super administrator is refused.
+ *
+ * @param {object} event The event, with `organization` loaded.
+ * @returns {void}
+ * @throws {Error} 409 `SOLD_ON_SOURCE`.
+ */
+export function refuseSoldOnSource(event) {
+  if (isPlatformHeld(event)) {
+    throw httpError(409, 'SOLD_ON_SOURCE', SOLD_ON_SOURCE_SENTENCE)
+  }
+}
+
+/**
  * Assert the actor is entitled to make this kind of move, and say whose
  * authority it is made under.
  *
@@ -413,6 +474,8 @@ export async function availableTransitions(prisma, event, actor) {
 
   for (const move of moves) {
     if (move.actor === ACTORS.SYSTEM || isOwnCommand(move)) continue
+    // Nobody could make the changes to a platform-held import (O16).
+    if (move.to === 'CHANGES_REQUIRED' && isPlatformHeld(event)) continue
 
     let entitled =
       move.actor === ACTORS.MODERATOR
@@ -504,12 +567,43 @@ export async function transitionEvent(prisma, options) {
   // not the person who sent it for review.
   const authority = assertEntitled(move, actor, event)
 
+  // Nothing is sold here for a platform-held import (SPEC2-XI I5).
+  if (to === 'ON_SALE') refuseSoldOnSource(event)
+
+  // A platform-held import has nobody to make changes: approve, reject or
+  // delete it instead (SPEC2-XI O16).
+  if (to === 'CHANGES_REQUIRED' && isPlatformHeld(event)) {
+    throw httpError(409, 'IMPORTED_EVENT_NO_EDITOR', IMPORTED_EVENT_NO_EDITOR_SENTENCE, {
+      from,
+      to,
+    })
+  }
+
+  /** @type {{exemption: string, importedById: string|null, approvedById: string|null}|null} */
+  let exempted = null
+
   if (move.actor === ACTORS.MODERATOR) {
-    await assertIndependentReviewer(prisma, {
+    const { exemption } = await assertIndependentReviewer(prisma, {
       actor,
       organizationId: event.organizationId,
       eventId: event.id,
     })
+
+    // The administrator who imported a platform-held event approving it
+    // (SPEC2-XI O5): recorded on the moderation action and in the audit, with
+    // who imported and who approved.
+    if (exemption) {
+      const item = await prisma.eventImportItem.findUnique({
+        where: { eventId: event.id },
+        select: { importedById: true },
+      })
+
+      exempted = {
+        exemption,
+        importedById: item?.importedById ?? null,
+        approvedById: actor?.id ?? null,
+      }
+    }
   }
 
   // Opening sales binds every seated session's free seats to the reserved tier
@@ -568,7 +662,7 @@ export async function transitionEvent(prisma, options) {
           actorId: actor?.id ?? null,
           fromStatus: from,
           toStatus: to,
-          reason,
+          reason: exempted ? exemptionNote(exempted, reason) : reason,
           requestedChanges,
         },
       })
@@ -593,6 +687,7 @@ export async function transitionEvent(prisma, options) {
         metadata: {
           ...(work?.auditMetadata ?? {}),
           ...authorityAuditMetadata(authority),
+          ...(exempted ?? {}),
           from,
           to,
           reason,
@@ -607,6 +702,21 @@ export async function transitionEvent(prisma, options) {
       // `REVIEW_REQUIRED`, not a 500.
       throw databaseRefusal(error) ?? outranBudget(error, { from, to })
     })
+}
+
+/**
+ * The note an approval under the import exemption carries on its moderation
+ * action: the exemption, who imported and who approved (SPEC2-XI O5), after
+ * the reviewer's own reason when there is one.
+ *
+ * @param {{exemption: string, importedById: string|null, approvedById: string|null}} exempted The exemption.
+ * @param {string|null} reason The reviewer's reason.
+ * @returns {string} The note.
+ */
+export function exemptionNote({ exemption, importedById, approvedById }, reason = null) {
+  const note = `Approved under the ${exemption} exemption: imported by ${importedById ?? 'an account since removed'}, approved by ${approvedById ?? 'an account since removed'}.`
+
+  return reason ? `${reason} ${note}` : note
 }
 
 /**

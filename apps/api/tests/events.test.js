@@ -97,6 +97,9 @@ describe('what a public event page says about its organiser, finding NF-14', () 
       'feeTerms',
       'gallery',
       'id',
+      // Where an imported event is listed and its prices there (SPEC2-XI
+      // §5.I-E); null for an organiser's own event, as here.
+      'importedFrom',
       'isOnline',
       'languages',
       // No `onlineUrl`: an online event's joining link is its ticket holders'
@@ -1384,6 +1387,8 @@ describe('GET /v1/events/:slug: the online joining link and the nights', () => {
       salesEndAt: null,
       hasSeatMap: false,
       seatsAvailable: null,
+      // An organiser's night lists its end; only an imported one may not.
+      endTimeListed: true,
     })
     // A label is trimmed, never padded out to the page.
     expect(sessions[1].label).toBe('Night 2')

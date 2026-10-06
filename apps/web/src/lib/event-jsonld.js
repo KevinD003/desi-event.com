@@ -33,6 +33,7 @@
  * @file lib/event-jsonld
  */
 
+import { endTimeListed } from './imports.js'
 import { absoluteMediaUrl } from './media.js'
 import { sessionDisplayLabel } from './sessions.js'
 import { socialImageFor } from './social-image.js'
@@ -109,6 +110,13 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     (tier) => Number.isFinite(tier.priceCents) && tier.visibility !== 'HIDDEN',
   )
 
+  // An event copied from its Sulekha listing: its tickets are sold there, so
+  // it has no offers here; its organiser is the one the listing names; and
+  // where the listing gave no end time, no end is claimed (the API's end is a
+  // planning estimate then).
+  const imported = event.importedFrom ?? null
+  const endListed = endTimeListed(event)
+
   const rescheduled = wasRescheduled(event)
   const status = rescheduled
     ? 'https://schema.org/EventRescheduled'
@@ -121,7 +129,7 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     name: event.title,
     description: event.summary,
     startDate: event.startsAt,
-    endDate: event.endsAt,
+    ...(endListed ? { endDate: event.endsAt } : {}),
     eventStatus: status,
     eventAttendanceMode: event.isOnline
       ? 'https://schema.org/OnlineEventAttendanceMode'
@@ -156,7 +164,9 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
     }
   }
 
-  if (event.organization?.name) {
+  if (imported?.presentedBy) {
+    data.organizer = { '@type': 'Organization', name: imported.presentedBy }
+  } else if (event.organization?.name) {
     data.organizer = {
       '@type': 'Organization',
       name: event.organization.name,
@@ -179,7 +189,7 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
 
   // A cancelled event has no offers. Leaving them in would describe tickets on
   // sale for something that is not happening.
-  if (tiers.length > 0 && event.status !== 'CANCELLED') {
+  if (tiers.length > 0 && event.status !== 'CANCELLED' && !imported) {
     data.offers = tiers.map((tier) => ({
       '@type': 'Offer',
       name: tier.name,
@@ -204,7 +214,7 @@ export function eventJsonLd(event, { siteUrl = '' } = {}) {
       '@type': 'Event',
       name: `${event.title} — ${sessionDisplayLabel(session)}`,
       startDate: session.startsAt,
-      endDate: session.endsAt,
+      ...(session.endTimeListed === false ? {} : { endDate: session.endsAt }),
       ...(session.doorsOpenAt ? { doorTime: session.doorsOpenAt } : {}),
       eventStatus: session.status === 'CANCELLED' ? 'https://schema.org/EventCancelled' : status,
       url,

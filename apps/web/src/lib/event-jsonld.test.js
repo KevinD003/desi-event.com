@@ -386,3 +386,70 @@ describe('the line-up and the offers in structured data', () => {
     expect(data.offers.map((offer) => offer.name)).toEqual(['General'])
   })
 })
+
+describe('the structured data of an event copied from its Sulekha listing', () => {
+  const imported = {
+    ...event,
+    status: 'PUBLISHED',
+    ticketTypes: [],
+    organization: { name: 'Sulekha Events', slug: 'sulekha-events' },
+    sessions: [
+      {
+        id: 'ses_1',
+        label: null,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        endTimeListed: false,
+        status: 'SCHEDULED',
+      },
+    ],
+    importedFrom: {
+      sourceName: 'Sulekha',
+      presentedBy: 'Raga Nights Houston',
+      listedOn: '2026-09-30',
+      prices: [{ name: 'Adult', priceCents: 2500, currency: 'USD' }],
+      priceListed: true,
+      ticketsOnSource: true,
+    },
+  }
+
+  it('names the organiser who presents it, with no page of ours to point at', () => {
+    expect(eventJsonLd(imported, { siteUrl: 'https://example.test' }).organizer).toEqual({
+      '@type': 'Organization',
+      name: 'Raga Nights Houston',
+    })
+  })
+
+  it('offers nothing, since its tickets are sold on Sulekha', () => {
+    const data = eventJsonLd({
+      ...imported,
+      ticketTypes: [{ id: 'tt_1', name: 'General', priceCents: 2500, currency: 'USD' }],
+    })
+
+    expect(data.offers).toBeUndefined()
+  })
+
+  it('claims no end when the listing gave none, and keeps one it gave', () => {
+    expect(eventJsonLd(imported)).not.toHaveProperty('endDate')
+
+    const listed = eventJsonLd({
+      ...imported,
+      sessions: [{ ...imported.sessions[0], endTimeListed: true }],
+    })
+
+    expect(listed.endDate).toBe(event.endsAt)
+  })
+
+  it('leaves a night’s end out of its sub-event when the listing gave none', () => {
+    const data = eventJsonLd({
+      ...imported,
+      sessions: [
+        imported.sessions[0],
+        { ...imported.sessions[0], id: 'ses_2', startsAt: '2026-11-02T14:30:00.000Z' },
+      ],
+    })
+
+    expect(data.subEvent).toHaveLength(2)
+    expect(data.subEvent[0]).not.toHaveProperty('endDate')
+  })
+})

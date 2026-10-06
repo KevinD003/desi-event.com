@@ -30,8 +30,14 @@ import {
   checkInOutcomeSchema,
   connectOnboardingStatusSchema,
   eventCategorySchema,
+  eventImportImageRoleSchema,
+  eventImportImageStatusSchema,
+  eventImportRunStatusSchema,
+  eventImportSourceSchema,
   eventSessionStatusSchema,
   eventStatusSchema,
+  mediaModerationStatusSchema,
+  verificationStatusSchema,
   logLevelSchema,
   promoQuoteReasonSchema,
   promoStatusSchema,
@@ -50,6 +56,7 @@ import {
   refundDriveSummarySchema,
 } from './event-control.js'
 import { mediaQueueItemSchema, publicMediaSchema } from './media.js'
+import { IMPORT_LIMITS, IMPORT_PLAN_ACTIONS, importSourceIdSchema } from './imports.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -1756,4 +1763,163 @@ export const platformEventListResponseSchema = z.object({
 export const mediaQueueResponseSchema = z.object({
   data: z.array(mediaQueueItemSchema),
   pagination: paginationMetaSchema,
+})
+
+// --- Importing listed events (SPEC2-XI area I) ---------------------------------
+//
+// Administrators' reads only: each names the source's own addresses (the
+// listing and its pictures), which no public payload carries.
+
+// The public projection of an import lives beside the event shapes it is part
+// of; it is exported from here as well, where the import responses are.
+export { importedFromSchema } from './entities.js'
+
+/** One picture a listing names, and what copying it came to. */
+export const eventImportPictureSchema = z.object({
+  id: cuidSchema,
+  /** The source's own address for it. Administrators only; never public. */
+  url: z.string().max(IMPORT_LIMITS.url),
+  role: eventImportImageRoleSchema,
+  alt: z.string().max(IMPORT_LIMITS.alt),
+  position: z.int().min(0),
+  status: eventImportImageStatusSchema,
+  /** Why the last attempt failed (`HOST_NOT_ALLOWED`, `TIMEOUT`, …), or null. */
+  failureCode: z.string().max(100).nullable(),
+  attempts: z.int().min(0),
+  lastTriedAt: timestampSchema.nullable(),
+  /** The stored picture, once copied, and where its approval stands. */
+  mediaId: cuidSchema.nullable(),
+  mediaStatus: mediaModerationStatusSchema.nullable(),
+  /** "Too small for a cover" when a cover was stored in the gallery instead, or null. */
+  note: z.string().max(200).nullable(),
+})
+
+/** The event an import row wrote, as the run page reads it. */
+export const eventImportRowEventSchema = z.object({
+  id: cuidSchema,
+  title: nonEmptyStringSchema,
+  slug: z.string().max(200),
+  status: eventStatusSchema,
+  /** What an approval must name: every stored picture moves it. */
+  revision: z.int().min(0),
+  /** Whether this run last wrote it, so this run's page may approve it. */
+  inThisRun: z.boolean(),
+  /** Whether it has since been moved to an organiser's own organisation. */
+  reassigned: z.boolean(),
+  organizationName: z.string().max(200).nullable(),
+  importedByName: z.string().max(200).nullable(),
+  approvedAt: timestampSchema.nullable(),
+  approvedByName: z.string().max(200).nullable(),
+})
+
+/** One listing of a run: what the plan says, and, once applied, what it wrote. */
+export const eventImportRowSchema = z.object({
+  sourceId: importSourceIdSchema,
+  title: nonEmptyStringSchema,
+  startsAt: timestampSchema,
+  city: z.string().max(100).nullable(),
+  action: z.enum(IMPORT_PLAN_ACTIONS),
+  /** Why an INVALID row cannot be imported, or null. */
+  problem: z.string().max(1000).nullable(),
+  /** What the curator noted, for administrators only. */
+  importNotes: z.array(z.string().max(500)).max(IMPORT_LIMITS.importNotes),
+  imageCount: z.int().min(0),
+  priceCount: z.int().min(0),
+  /** False when the listing gives no end time. */
+  endTimeListed: z.boolean(),
+  /** A posted event whose listing changed: "Update from Sulekha" may be ticked for it. */
+  updatable: z.boolean(),
+  /** An unchanged draft that applying sends for review again. */
+  resubmit: z.boolean(),
+  eventStatusAtPlan: eventStatusSchema.nullable(),
+  event: eventImportRowEventSchema.nullable(),
+  pictures: z.array(eventImportPictureSchema).max(IMPORT_LIMITS.images),
+})
+
+/** How a run's pictures stand. */
+export const eventImportPictureCountsSchema = z.object({
+  total: countSchema,
+  stored: countSchema,
+  failed: countSchema,
+  waiting: countSchema,
+})
+
+/** A run, as its list row shows it. */
+export const eventImportRunSummarySchema = z.object({
+  id: cuidSchema,
+  source: eventImportSourceSchema,
+  /** PREVIEWED, APPLIED, or EXPIRED (a plan not applied within its hour). */
+  status: eventImportRunStatusSchema,
+  fileName: z.string().max(IMPORT_LIMITS.fileName),
+  eventCount: z.int().min(0),
+  createdAt: timestampSchema,
+  expiresAt: timestampSchema,
+  appliedAt: timestampSchema.nullable(),
+  createdByName: z.string().max(200).nullable(),
+  appliedByName: z.string().max(200).nullable(),
+  /** What applying it did, by action; null until it is applied. */
+  summary: z.record(z.string(), countSchema).nullable(),
+})
+
+/** A run in full: its plan, row by row, and what each row wrote. */
+export const eventImportRunSchema = eventImportRunSummarySchema.extend({
+  /** The digest of the plan as shown, which applying it must name. */
+  planDigest: z.string().regex(/^[0-9a-f]{64}$/u),
+  rows: z.array(eventImportRowSchema).max(IMPORT_LIMITS.events),
+  pictures: eventImportPictureCountsSchema,
+})
+
+/**
+ * `POST /v1/platform/imports`, `GET /v1/platform/imports/:runId`, and apply
+ * and retry. `meta.picturesWaiting` says how many pictures were not tried in
+ * the request's time and wait for "Retry pictures".
+ */
+export const eventImportRunResponseSchema = z.object({
+  data: eventImportRunSchema,
+  meta: z.object({ picturesWaiting: countSchema }).optional(),
+})
+
+/** `GET /v1/platform/imports`: a page of runs, newest first. */
+export const eventImportRunListResponseSchema = z.object({
+  data: z.array(eventImportRunSummarySchema),
+  pagination: paginationMetaSchema,
+})
+
+/** What "Approve and publish" did for one event. */
+export const eventImportApproveResultSchema = z.object({
+  eventId: cuidSchema,
+  /**
+   * `PUBLISHED`: approved (unless a moderator already had) and published,
+   * with the Sulekha link on. `PICTURES_APPROVED`: a posted event whose
+   * waiting pictures were approved. `REFUSED`: nothing was written for it.
+   */
+  outcome: z.enum(['PUBLISHED', 'PICTURES_APPROVED', 'REFUSED']),
+  /** The event's status after this, or null when it was refused. */
+  status: eventStatusSchema.nullable(),
+  revision: z.int().min(0).nullable(),
+  picturesApproved: countSchema,
+  /** For a refusal: the API's code and sentence. */
+  code: z.string().max(100).nullable(),
+  message: z.string().max(1000).nullable(),
+})
+
+/** `POST /v1/platform/imports/:runId/approve`: one result per event, in the order asked. */
+export const eventImportApproveResponseSchema = z.object({
+  data: z.object({
+    results: z.array(eventImportApproveResultSchema).max(IMPORT_LIMITS.approveItems),
+  }),
+})
+
+/** `GET /v1/platform/import-targets`: organisations an imported event may move to. */
+export const importTargetListResponseSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        id: cuidSchema,
+        name: nonEmptyStringSchema,
+        slug: z.string().max(200),
+        verificationStatus: verificationStatusSchema,
+      }),
+    )
+    .max(20),
 })

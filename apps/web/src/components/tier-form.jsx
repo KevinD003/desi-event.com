@@ -10,7 +10,9 @@
  * midnight closes at midnight where the show is.
  *
  * On a live event the form says what it will not allow before the server has
- * to: the price of a tier that has sold, and the seating of one people hold.
+ * to: the price while somebody's basket holds it, the currency of a tier that
+ * has taken orders, and the seating of one people hold. A tier that has sold
+ * can be re-priced: people who bought keep what they paid.
  *
  * @module components/tier-form
  */
@@ -26,6 +28,8 @@ import {
   tierFormProblems,
   toTierBody,
 } from '../lib/tier-form.js'
+import { parseMoneyInput } from '../lib/money.js'
+import { formatAmount } from '../lib/pricing.js'
 import { fromLocalInputValue, toLocalInputValue, zoneAbbreviation } from '../lib/zoned-time.js'
 
 /** Currencies a tier may be priced in, with the catalogue's own first. */
@@ -76,10 +80,20 @@ export function TierForm({
   const mapped = sessions.filter((candidate) => candidate.venueMapVersionId)
   const zones = session?.priceZones ?? []
   const sold = usage?.sold ?? 0
+  const held = usage?.held ?? 0
   const inUse = Boolean(usage && (usage.sold > 0 || usage.held > 0 || usage.hasOrders))
   // The server keeps these; the form says so rather than letting somebody try.
-  const priceLocked = kind === 'edit' && (sold > 0 || (usage?.held ?? 0) > 0)
+  // A sold tier can be re-priced for the next buyer (people who bought keep
+  // what they paid); a price somebody's basket holds stays until they buy or
+  // let go; and the currency of a tier that has taken orders stays.
+  const priceLocked = kind === 'edit' && held > 0
+  const currencyLocked = kind === 'edit' && (sold > 0 || held > 0)
   const seatingLocked = kind === 'edit' && inUse
+  const parsedPrice = parseMoneyInput(String(initial.price ?? ''), initial.currency)
+  const paid =
+    'cents' in parsedPrice
+      ? formatAmount(parsedPrice.cents, initial.currency)
+      : String(initial.price ?? '')
   const errors = { ...Object.fromEntries(shown.map((entry) => [entry.field, entry.message])) }
 
   for (const [field, message] of Object.entries(serverErrors)) {
@@ -192,8 +206,10 @@ export function TierForm({
             values.complimentary
               ? 'A complimentary ticket is free.'
               : priceLocked
-                ? `The price stays as it is: ${sold > 0 ? `${sold} sold at it` : 'some are in baskets at it'}.`
-                : 'In the currency, as a buyer reads it: 35.00 for thirty-five dollars. 0 makes it free.'
+                ? `The price stays while ${held.toLocaleString('en-US')} ${held === 1 ? 'is' : 'are'} in somebody’s basket at it. Try again once they are bought or released.`
+                : kind === 'edit' && sold > 0
+                  ? `People who already bought keep what they paid: ${sold.toLocaleString('en-US')} sold at ${paid}. A new price applies to the next buyer.`
+                  : 'In the currency, as a buyer reads it: 35.00 for thirty-five dollars. 0 makes it free.'
           }
           {...described('price')}
         >
@@ -206,10 +222,17 @@ export function TierForm({
           />
         </FormField>
 
-        <FormField label="Currency" id={id('currency')} required>
+        <FormField
+          label="Currency"
+          id={id('currency')}
+          required
+          {...(currencyLocked
+            ? { description: `Orders were paid in ${initial.currency}, so the currency stays.` }
+            : {})}
+        >
           <Select
             value={values.currency}
-            disabled={priceLocked}
+            disabled={currencyLocked}
             onChange={(change) => set({ currency: change.target.value })}
           >
             {[...new Set([values.currency, ...CURRENCIES])].map((code) => (

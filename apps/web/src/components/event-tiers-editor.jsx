@@ -30,6 +30,7 @@
 
 import { useState } from 'react'
 
+import { STEP_UP_DECLINED_SENTENCE, useStepUpRetry } from './step-up-retry.jsx'
 import { TierForm } from './tier-form.jsx'
 import { Alert, Badge, Button, Card, CardBody } from './ui.jsx'
 import { apiFetch } from '../lib/api-fetch.js'
@@ -113,7 +114,10 @@ function unremovableReason(tier) {
  * @property {Function} onRevision Called with the new revision after every write.
  * @property {Function} [onTiers] Called with the tiers and the preview after a reload, so the shell keeps them when this step unmounts.
  * @property {boolean} [editable] Whether the event's state allows changes. Superseded by `mode`.
- * @property {'draft'|'live'|'locked'} [mode] The editing mode.
+ * @property {'draft'|'live'|'content'|'locked'} [mode] The editing mode.
+ * @property {boolean} [platform] Whether the edits are made in the Desi-Event team's editing
+ *   session, whose writes ask for a fresh second factor every 10 minutes.
+ * @property {Function} [onSittingEnded] Called when a write finds that editing session closed.
  */
 
 /**
@@ -132,9 +136,12 @@ export function EventTiersEditor({
   onTiers = () => {},
   editable = true,
   mode: givenMode = null,
+  platform = false,
+  onSittingEnded,
 }) {
   const mode = givenMode ?? (editable ? 'draft' : 'locked')
-  const canEdit = mode !== 'locked'
+  // A finished or cancelled event keeps its ticket types as they were sold.
+  const canEdit = mode === 'draft' || mode === 'live'
   const [tiers, setTiers] = useState(initialTiers ?? event.ticketTypes ?? [])
   const [preview, setPreview] = useState(initialPreview)
   const [busy, setBusy] = useState(false)
@@ -146,6 +153,14 @@ export function EventTiersEditor({
   const [notice, setNotice] = useState(null)
   const [addKey, setAddKey] = useState(0)
   const eventZone = event.timezone ?? 'America/New_York'
+  // A write the server refused for want of a fresh second factor: asked for
+  // here, then sent again (SPEC2-XI X-A).
+  const stepUp = useStepUpRetry({
+    action: 'save this change to the ticket types',
+    platform,
+    onSittingEnded,
+    onDeclined: () => setError(STEP_UP_DECLINED_SENTENCE),
+  })
 
   /**
    * Re-read the tiers and the priced preview together.
@@ -197,6 +212,11 @@ export function EventTiersEditor({
       const body = await response.json().catch(() => null)
 
       if (!response.ok) {
+        // Asked for a second factor: ask, and send the same write again.
+        const retried = stepUp.refused(body, () => write(path, init, fallback))
+
+        if (retried) return retried.then(Boolean)
+
         setError(refusalSentence(response.status, body, fallback))
         setProblems(body?.error?.problems ?? [])
         setFieldErrors(fieldIssues(body))
@@ -330,6 +350,8 @@ export function EventTiersEditor({
       <p role="status" aria-live="polite" className="text-sm font-medium text-ink-muted">
         {notice}
       </p>
+
+      {stepUp.prompt}
 
       {error ? (
         <Alert variant="error" title="That did not work">

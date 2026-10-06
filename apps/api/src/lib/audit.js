@@ -231,6 +231,19 @@ export const AUDIT_ACTIONS = Object.freeze({
    */
   EVENT_MEDIA_REPLACEMENT_APPLIED: 'event.media_replacement_applied',
 
+  // --- Importing listed events (SPEC2-XI I) -----------------------------------
+  //
+  // Each written inside the transaction that made the change. A run's rows
+  // carry its id, the file's name and digest and the counts; an event's carry
+  // the listing's id, the run and whether the web or the command line did it
+  // (`via`). Never a picture's address on the source, and never the dataset.
+  EVENT_IMPORT_PREVIEWED: 'event_import.previewed',
+  EVENT_IMPORT_APPLIED: 'event_import.applied',
+  EVENT_IMPORT_IMAGES_RETRIED: 'event_import.images_retried',
+  EVENT_IMPORTED: 'event.imported',
+  EVENT_IMPORT_REASSIGNED: 'event.import_reassigned',
+  ORGANIZATION_PLATFORM_HELD_CREATED: 'organization.platform_held_created',
+
   // --- Event authoring ----------------------------------------------------------
   //
   // Tier and session writes carry the changed field names, never their values;

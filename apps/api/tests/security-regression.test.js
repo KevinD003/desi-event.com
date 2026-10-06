@@ -1393,6 +1393,13 @@ const OPAQUE_EVENT_WRITES = {
   // SPEC2-XI X-D: a deletion that refunds cancels the live event first, stamped
   // exactly as a cancellation is (`lifecycleStamps` is the lifecycle's own
   // `stampsFor`), public to public; the review gate holds it on PostgreSQL.
+  // SPEC2-XI I-C: the import's own organiser moves (into review, back to a
+  // draft, and publication after review) of a platform-held import, stamped as
+  // the lifecycle stamps them; `importMove` checks the table first.
+  'apps/api/src/lib/event-import.js updateMany': {
+    why: 'importMove writes the lifecycle’s stamps for one of the import’s own moves, compare-and-set on the status it read',
+    args: /^\s*\{\s*where:\s*\{\s*id:\s*event\.id,\s*status:\s*from\s*\},\s*data:\s*lifecycleStamps\(\{\s*to,\s*reason:\s*null,\s*event\s*\}\),?\s*\}\s*$/u,
+  },
   'apps/api/src/lib/event-deletion.js update': {
     why: 'deleteEvent cancels a live event before deleting it, with the lifecycle’s CANCELLED stamps',
     args: /^\s*\{\s*where:\s*\{\s*id:\s*event\.id\s*\},\s*data:\s*lifecycleStamps\(\{\s*to:\s*'CANCELLED',\s*reason,\s*event:\s*locked\s*\}\),?\s*\}\s*$/u,
@@ -1434,6 +1441,10 @@ describe('every path to a public event (SPEC2 §6)', () => {
    * gate and named.
    */
   const STATUS_ROUTES = [
+    // SPEC2-XI §7: an import moves its own events into review, and approving
+    // one publishes it (through `lib/event-import.js`).
+    'eventImports.apply',
+    'eventImports.approve',
     'events.cancel',
     // SPEC2-XI §7: deletion and the platform's restore, each its own command.
     'events.delete',
@@ -1452,7 +1463,7 @@ describe('every path to a public event (SPEC2 §6)', () => {
   /**
    * Every place the application creates event rows, with the tests that prove
    * each one makes a draft whatever it is sent (SPEC2 §6, binding rule).
-   * SPEC2-XI O11 adds the importer here, with its own DRAFT test, when it lands.
+   * SPEC2-XI O11 adds the importer here, with its own DRAFT tests.
    */
   const EVENT_CREATORS = {
     'apps/api/src/routes/events.js': {
@@ -1462,6 +1473,15 @@ describe('every path to a public event (SPEC2 §6)', () => {
           'ignores a status the caller supplies and always starts in DRAFT',
         'apps/api/tests/event-review-gate-integration.test.js':
           'makes a create that asks to be public a draft',
+      },
+    },
+    'apps/api/src/lib/event-import.js': {
+      calls: 1,
+      provedBy: {
+        'apps/api/tests/event-import.test.js':
+          'creates each event as a draft in the platform-held organisation and sends it for review',
+        'apps/api/tests/event-import-integration.test.js':
+          'creates an imported event as a draft and moves it into review through the gate',
       },
     },
   }
@@ -1532,7 +1552,7 @@ describe('every path to a public event (SPEC2 §6)', () => {
     for (const file of sourceFiles().filter((path) => path.startsWith('apps/api/src/routes/'))) {
       for (const route of routeRegistrations(readCode(file))) {
         if (
-          /\bcommand\(\s*request\b|\btransitionEvent\s*\(|\bdeleteEvent\s*\(|\brestoreEvent\s*\(/u.test(
+          /\bcommand\(\s*request\b|\btransitionEvent\s*\(|\bdeleteEvent\s*\(|\brestoreEvent\s*\(|\bapplyImport\s*\(|\bapproveImported\s*\(/u.test(
             route.body,
           )
         ) {
@@ -1555,7 +1575,70 @@ describe('every path to a public event (SPEC2 §6)', () => {
       if (calls.length > 0) callers.push(file)
     }
 
-    expect(callers).toEqual(['apps/api/src/routes/events.js', 'apps/api/src/routes/moderation.js'])
+    // The importer's approval is a moderator's move (SPEC2-XI I-C): its one
+    // call is inside `approveOne`, to APPROVED, and only `approveImported`
+    // (the approve route's, listed above) reaches it.
+    expect(callers).toEqual([
+      'apps/api/src/lib/event-import.js',
+      'apps/api/src/routes/events.js',
+      'apps/api/src/routes/moderation.js',
+    ])
+
+    const importer = readCode('apps/api/src/lib/event-import.js')
+    const calls = [...importer.matchAll(/(?<!function\s+)\btransitionEvent\s*\(/gu)]
+    const approval = functionRange(importer, 'approveOne')
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0].index).toBeGreaterThan(approval.start)
+    expect(calls[0].index).toBeLessThan(approval.end)
+    expect(importer.slice(calls[0].index, calls[0].index + 200)).toMatch(/to:\s*'APPROVED'/u)
+  })
+
+  it('moves an import only by its own organiser moves, of a platform-held import, publishing only after approval', () => {
+    const importer = readCode('apps/api/src/lib/event-import.js')
+    const move = functionRange(importer, 'importMove')
+    const body = importer.slice(move.start, move.end)
+
+    // In the table, as an organiser's move, of an import the platform holds,
+    // with the move's gates run before the write.
+    expect(body).toMatch(/findTransition\(from, to\)/u)
+    expect(body).toMatch(/move\.actor !== ACTORS\.ORGANIZER/u)
+    expect(body).toMatch(/NOT_PLATFORM_HELD/u)
+    expect(body.indexOf('gateProblems(')).toBeGreaterThan(-1)
+    expect(body.indexOf('gateProblems(')).toBeLessThan(body.indexOf('updateMany('))
+
+    const targets = [...importer.matchAll(/importMove\(tx,\s*\{[^}]*?to:\s*'([A-Z_]+)'/gu)].map(
+      (match) => [match[1], match.index],
+    )
+
+    expect([...new Set(targets.map(([to]) => to))].sort()).toEqual([
+      'DRAFT',
+      'PUBLISHED',
+      'REVIEW_PENDING',
+    ])
+
+    // Publication only in `publishImported`, which only an approval calls.
+    const publish = functionRange(importer, 'publishImported')
+
+    for (const [to, index] of targets.filter(([to]) => to === 'PUBLISHED')) {
+      expect(index, to).toBeGreaterThan(publish.start)
+      expect(index, to).toBeLessThan(publish.end)
+    }
+
+    const approval = functionRange(importer, 'approveOne')
+    const publishers = [...importer.matchAll(/(?<!function\s+)\bpublishImported\s*\(/gu)]
+
+    expect(publishers.length).toBeGreaterThan(0)
+    for (const call of publishers) {
+      expect(call.index).toBeGreaterThan(approval.start)
+      expect(call.index).toBeLessThan(approval.end)
+    }
+
+    // The route that approves needs the review capability and EVENT_PUBLISH.
+    expect(routeById('eventImports.approve').stepUp).toBe('EVENT_PUBLISH')
+    expect(readCode('apps/api/src/routes/event-imports.js')).toMatch(
+      /assertCan\(request\.actor, CAPABILITIES\.MODERATION_REVIEW\)/u,
+    )
   })
 
   it('guards each status route in the contract, and approves only the revision the reviewer saw', () => {
@@ -1672,6 +1755,8 @@ describe('every path to a public event (SPEC2 §6)', () => {
     expect(writers.sort()).toEqual([
       'apps/api/src/lib/event-deletion.js update',
       'apps/api/src/lib/event-deletion.js updateMany',
+      // The importer's create, always DRAFT (the creators test above).
+      'apps/api/src/lib/event-import.js create',
       'apps/api/src/routes/events.js create',
     ])
     // A row built elsewhere could carry a status the list above cannot see,
@@ -1874,9 +1959,43 @@ describe('the website link (SPEC2 §4.W, §6)', () => {
       callers.push([file, routes])
     }
 
+    // The importer switches an imported event's Sulekha link on in the
+    // transaction that publishes it, and off when it moves to an organiser
+    // (SPEC2-XI O6, O10, I-F), through the same function; its routes are the
+    // approve and reassign routes, below.
     expect(callers).toEqual([
+      ['apps/api/src/lib/event-import.js', []],
       ['apps/api/src/routes/website-redirect.js', ['moderation.setWebsiteRedirect']],
     ])
+
+    const importer = readCode('apps/api/src/lib/event-import.js')
+    const decisions = [...importer.matchAll(/(?<!function\s+)\bdecideWebsiteRedirect\s*\(/gu)]
+    const publish = functionRange(importer, 'publishImported')
+    const reassign = functionRange(importer, 'reassignImportedEvent')
+
+    expect(decisions).toHaveLength(2)
+    expect(decisions[0].index).toBeGreaterThan(publish.start)
+    expect(decisions[0].index).toBeLessThan(publish.end)
+    expect(importer.slice(decisions[0].index, decisions[0].index + 160)).toMatch(
+      /enabled:\s*true,\s*reason:\s*IMPORT_REDIRECT_REASON/u,
+    )
+    expect(decisions[1].index).toBeGreaterThan(reassign.start)
+    expect(decisions[1].index).toBeLessThan(reassign.end)
+    expect(importer.slice(decisions[1].index, decisions[1].index + 160)).toMatch(
+      /enabled:\s*false/u,
+    )
+
+    const importRoutes = routeRegistrations(readCode('apps/api/src/routes/event-imports.js'))
+      .filter((route) => /\b(approveImported|reassignImportedEvent)\s*\(/u.test(route.body))
+      .map((route) => route.id)
+      .sort()
+
+    expect(importRoutes).toEqual(['eventImports.approve', 'eventImports.reassign'])
+
+    for (const id of importRoutes) {
+      expect(routeById(id).capability, id).toBe('event:import')
+      expect(routeById(id).stepUp, id).toBe('EVENT_PUBLISH')
+    }
 
     const route = routeById('moderation.setWebsiteRedirect')
 

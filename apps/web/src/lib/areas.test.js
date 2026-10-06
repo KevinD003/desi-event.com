@@ -63,6 +63,8 @@ describe('the admin area', () => {
 
     expect(admits(only('organizer:invite'), 'admin')).toBe(true)
     expect(admits(only('platform:admin'), 'admin')).toBe(true)
+    expect(admits(only('event:platform_edit'), 'admin')).toBe(true)
+    expect(admits(only('event:import'), 'admin')).toBe(true)
     expect(admits(only('moderation:review'), 'admin')).toBe(false)
   })
 
@@ -82,7 +84,12 @@ describe('the admin area', () => {
         {
           organizationId: 'org_1',
           role: 'OWNER',
-          capabilities: ['organizer:invite', 'platform:admin'],
+          capabilities: [
+            'organizer:invite',
+            'platform:admin',
+            'event:platform_edit',
+            'event:import',
+          ],
         },
       ],
     }

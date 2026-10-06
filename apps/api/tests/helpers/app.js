@@ -64,6 +64,7 @@ export function testEnv(overrides = {}) {
  * @param {object} [options.payments] Override the resolved payment mode, so a test can supply sandbox signing secrets without a live boot gate.
  * @param {boolean} [options.processInline] Process a webhook delivery before answering, since the tests have no worker.
  * @param {function(object): Promise<void>} [options.deliver] Captures the single-use links the auth routes issue, which is the only way a test can see one: the database holds a digest.
+ * @param {Function} [options.fetchImportImage] How an import copies one picture, in place of the network fetcher.
  * @param {Record<string, string|undefined>} [options.processEnv] Environment the payment kill switch inspects. Empty by default, so a stray variable on the machine running the suite cannot change the result.
  * @returns {Promise<{app: object, prisma: object, providers: object, ids: object}>} The harness.
  */
@@ -91,6 +92,7 @@ export async function createTestApp(options = {}) {
     deliver: options.deliver,
     payments: options.payments,
     processInline: options.processInline ?? false,
+    fetchImportImage: options.fetchImportImage,
   })
 
   await app.ready()

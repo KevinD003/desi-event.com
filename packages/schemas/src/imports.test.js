@@ -8,9 +8,12 @@ import {
   eventImportApproveRequestSchema,
   eventImportPreviewRequestSchema,
   eventImportReassignRequestSchema,
+  eventImportRetryRequestSchema,
+  eventImportRunParamSchema,
   importDatasetSchema,
   importEventSchema,
   importSourceIdSchema,
+  importTargetQuerySchema,
 } from './imports.js'
 
 const SOURCE_URL =
@@ -273,5 +276,36 @@ describe('the request bodies', () => {
     expect(eventImportReassignRequestSchema.safeParse({ ...body, notify: true }).success).toBe(
       false,
     )
+  })
+})
+
+describe('the retry body, the run parameter and the target search', () => {
+  const RUN = 'ckimportrun0000000000000a'
+  const EVENT = 'ckimportevent00000000000a'
+
+  it('retries every picture, or only those of the events named once each', () => {
+    expect(eventImportRetryRequestSchema.parse({})).toEqual({})
+    expect(eventImportRetryRequestSchema.parse({ eventIds: [EVENT] })).toEqual({
+      eventIds: [EVENT],
+    })
+    expect(eventImportRetryRequestSchema.safeParse({ eventIds: [] }).success).toBe(false)
+    expect(eventImportRetryRequestSchema.safeParse({ eventIds: [EVENT, EVENT] }).success).toBe(
+      false,
+    )
+    expect(eventImportRetryRequestSchema.safeParse({ eventIds: ['../x'] }).success).toBe(false)
+    expect(eventImportRetryRequestSchema.safeParse({ all: true }).success).toBe(false)
+  })
+
+  it('takes a run id that is an id', () => {
+    expect(eventImportRunParamSchema.parse({ runId: RUN })).toEqual({ runId: RUN })
+    expect(eventImportRunParamSchema.safeParse({ runId: 'nope' }).success).toBe(false)
+  })
+
+  it('searches by a trimmed line of text without control characters', () => {
+    expect(importTargetQuerySchema.parse({ q: '  Garba  ' })).toEqual({ q: 'Garba' })
+    expect(importTargetQuerySchema.parse({})).toEqual({})
+    expect(importTargetQuerySchema.safeParse({ q: '' }).success).toBe(false)
+    expect(importTargetQuerySchema.safeParse({ q: 'a\u0000b' }).success).toBe(false)
+    expect(importTargetQuerySchema.safeParse({ q: 'x'.repeat(121) }).success).toBe(false)
   })
 })

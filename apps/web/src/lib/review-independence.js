@@ -19,6 +19,15 @@ export const CONFLICT_OF_INTEREST_NOTICE =
   'You belong to this organisation, so somebody else on the Desi-Event team has to decide this.'
 
 /**
+ * What a reviewer is told about an event nobody runs on Desi-Event: an import
+ * the platform-held organisation holds, which has no members (SPEC2-XI O16).
+ * The API refuses "request changes" on it (`IMPORTED_EVENT_NO_EDITOR`), so the
+ * review page does not offer it and says why.
+ */
+export const IMPORTED_EVENT_NO_EDITOR_NOTICE =
+  'Nobody runs this event on Desi-Event, so nobody could make changes you ask for. Approve it and correct it once it is published, reject it, or delete it.'
+
+/**
  * Whether this session belongs to an organisation, through its own membership.
  *
  * Membership only: a platform role is not a membership, and a platform

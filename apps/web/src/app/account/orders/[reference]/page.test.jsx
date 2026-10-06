@@ -23,7 +23,7 @@
  * @module app/account/orders/reference/page.test
  */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../../lib/account-api.js', () => ({ getMyOrder: vi.fn() }))
@@ -727,5 +727,157 @@ describe('what a line bought, a discount, and an online event’s link', () => {
     await renderPage()
 
     expect(screen.queryByRole('heading', { name: 'Join online' })).toBeNull()
+  })
+})
+
+describe('what changed since the order was placed', () => {
+  it('lists each change, who made it and why, in the event’s zone', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        eventChanges: [
+          {
+            id: 'cnotice000000000000000001',
+            kind: 'MATERIAL_CHANGE',
+            at: '2026-10-01T10:00:00.000Z',
+            changed: ['startsAt'],
+            before: { startsAt: '2026-10-10T13:30:00.000Z' },
+            after: { startsAt: '2026-10-17T13:30:00.000Z' },
+            reason: 'The garden was booked twice.',
+            sessionId: null,
+            by: 'DESI_EVENT',
+          },
+        ],
+      }),
+    )
+    await renderPage()
+
+    const changes = screen.getByRole('region', { name: 'Changes since you bought' })
+
+    expect(within(changes).getByText('The event changed')).toBeInTheDocument()
+    expect(changes).toHaveTextContent(/The start time: .*Oct 10, 2026.* → .*Oct 17, 2026/)
+    expect(changes).toHaveTextContent('Reason given: The garden was booked twice.')
+    expect(changes).toHaveTextContent('Changed by the Desi-Event team.')
+    expect(changes).toHaveTextContent('These notices are not emailed.')
+  })
+
+  it('names a cancelled night from the order’s own lines, as `orders.get` really answers (no event nights)', async () => {
+    const night2 = {
+      id: 'csession000000000000000002',
+      label: 'Night 2',
+      startsAt: '2030-10-11T13:30:00.000Z',
+      endsAt: '2030-10-11T18:00:00.000Z',
+      doorsOpenAt: null,
+      timezone: 'Asia/Kolkata',
+    }
+
+    getMyOrder.mockResolvedValue(
+      order({
+        items: [
+          {
+            id: 'itm00000000000000000001',
+            orderId: 'ord00000000000000000001',
+            ticketTypeId: 'tt000000000000000000001',
+            ticketTypeName: 'Night 1 entry',
+            session: { ...night2, id: 'csession000000000000000001', label: 'Night 1' },
+            quantity: 1,
+            unitPriceCents: 50000,
+            subtotalCents: 50000,
+          },
+          {
+            id: 'itm00000000000000000002',
+            orderId: 'ord00000000000000000001',
+            ticketTypeId: 'tt000000000000000000002',
+            ticketTypeName: 'Night 2 entry',
+            session: night2,
+            quantity: 1,
+            unitPriceCents: 50000,
+            subtotalCents: 50000,
+          },
+        ],
+        eventChanges: [
+          {
+            id: 'cnotice000000000000000002',
+            kind: 'SESSION_CANCELLED',
+            at: '2026-10-05T10:00:00.000Z',
+            changed: ['a night'],
+            before: { startsAt: night2.startsAt },
+            after: null,
+            reason: 'The singer is unwell.',
+            sessionId: night2.id,
+            by: 'ORGANIZER',
+          },
+        ],
+      }),
+    )
+    await renderPage()
+
+    const changes = screen.getByRole('region', { name: 'Changes since you bought' })
+
+    expect(changes).toHaveTextContent('A night was cancelled')
+    expect(changes).toHaveTextContent('The night of Night 2 · Fri, Oct 11 · 7:00 PM.')
+  })
+
+  it('names a cancelled night no line is for (a ticket good for every night) by when it was to start', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        eventChanges: [
+          {
+            id: 'cnotice000000000000000002',
+            kind: 'SESSION_CANCELLED',
+            at: '2026-10-05T10:00:00.000Z',
+            changed: ['a night'],
+            before: { startsAt: '2030-10-11T13:30:00.000Z' },
+            after: null,
+            reason: 'The singer is unwell.',
+            sessionId: 'csession000000000000000002',
+            by: 'ORGANIZER',
+          },
+        ],
+      }),
+    )
+    await renderPage()
+
+    expect(screen.getByRole('region', { name: 'Changes since you bought' })).toHaveTextContent(
+      'The night of Fri, Oct 11, 2030, 7:00 PM.',
+    )
+  })
+
+  it('says who took a deleted event’s page down, and lists nothing when nothing changed', async () => {
+    getMyOrder.mockResolvedValue(
+      order({
+        event: { ...order().event, status: 'DELETED' },
+        eventChanges: [
+          {
+            ...{
+              id: 'cnotice000000000000000001',
+              kind: 'MATERIAL_CHANGE',
+              at: '2026-10-01T10:00:00.000Z',
+              changed: ['startsAt'],
+              before: { startsAt: '2026-10-10T13:30:00.000Z' },
+              after: { startsAt: '2026-10-17T13:30:00.000Z' },
+              reason: 'The garden was booked twice.',
+              sessionId: null,
+              by: 'DESI_EVENT',
+            },
+            kind: 'DELETED',
+            changed: [],
+            by: 'ORGANIZER',
+          },
+        ],
+      }),
+    )
+    const { unmount } = await renderPage()
+
+    expect(
+      screen.getByText(/^The organiser removed this event’s page\. It is no longer on the site\./),
+    ).toBeInTheDocument()
+    unmount()
+
+    getMyOrder.mockResolvedValue(order())
+    await renderPage()
+
+    expect(
+      screen.queryByRole('region', { name: 'Changes since you bought' }),
+    ).not.toBeInTheDocument()
   })
 })

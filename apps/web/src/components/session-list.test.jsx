@@ -184,3 +184,38 @@ describe('the list of nights', () => {
     expect(screen.queryByRole('link')).toBeNull()
   })
 })
+
+describe('the nights of an event copied from its Sulekha listing', () => {
+  it('shows only the start of a night whose end the listing did not give', () => {
+    render(
+      <SessionList
+        sessions={[night({ doorsOpenAt: null, endTimeListed: false })]}
+        eventSlug="raga-night"
+        buyable={false}
+        now={NOW}
+        soldOn="Sulekha"
+      />,
+    )
+
+    const nights = screen.getByRole('list', { name: 'Nights' })
+
+    expect(within(nights).getByText('Starts')).toBeInTheDocument()
+    expect(within(nights).queryByText('Ends')).not.toBeInTheDocument()
+  })
+
+  it('says the tickets are on Sulekha rather than on sale, and still says a night is cancelled', () => {
+    render(
+      <SessionList
+        sessions={[night(), night({ id: 'snnightthree', label: 'Night 3', status: 'CANCELLED' })]}
+        eventSlug="raga-night"
+        buyable={false}
+        now={NOW}
+        soldOn="Sulekha"
+      />,
+    )
+
+    expect(screen.getByText('Tickets on Sulekha')).toBeInTheDocument()
+    expect(screen.getByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByText('On sale')).not.toBeInTheDocument()
+  })
+})

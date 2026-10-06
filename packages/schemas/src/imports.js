@@ -20,7 +20,13 @@ import { z } from 'zod'
 
 import { eventCategorySchema, eventImportSourceSchema } from './enums.js'
 import { controlReasonSchema } from './event-control.js'
-import { centsSchema, cuidSchema, isoDateTimeSchema, timezoneSchema } from './primitives.js'
+import {
+  centsSchema,
+  cuidSchema,
+  isoDateTimeSchema,
+  paginationQuerySchema,
+  timezoneSchema,
+} from './primitives.js'
 
 /** The format every import file declares, and the only one this build reads. */
 export const IMPORT_DATASET_FORMAT = 'desi-event-import/1'
@@ -283,3 +289,42 @@ export const eventImportReassignRequestSchema = z
     revision: z.int().min(0),
   })
   .strict()
+
+/** `GET /v1/platform/imports`: a page of runs, newest first. */
+export const eventImportListQuerySchema = paginationQuerySchema
+
+/** `:runId` in the run routes. */
+export const eventImportRunParamSchema = z.object({ runId: cuidSchema })
+
+/** `:eventId` in the reassign route. */
+export const eventImportEventParamSchema = z.object({ eventId: cuidSchema })
+
+/**
+ * `POST /v1/platform/imports/:runId/images/retry`: every waiting or failed
+ * picture of the run, or only those of the events named (each must be in the
+ * run).
+ */
+export const eventImportRetryRequestSchema = z
+  .object({
+    eventIds: z
+      .array(cuidSchema)
+      .min(1)
+      .max(IMPORT_LIMITS.events)
+      .refine((ids) => new Set(ids).size === ids.length, 'Name each event once.')
+      .optional(),
+  })
+  .strict()
+
+/** `GET /v1/platform/import-targets`: organisations matched by name or web address. */
+export const importTargetQuerySchema = z.object({
+  q: z
+    .preprocess(
+      (value) => (typeof value === 'string' ? value.trim() : value),
+      z
+        .string()
+        .min(1)
+        .max(120)
+        .refine((value) => !/\p{Cc}/u.test(value), 'Remove the control character.'),
+    )
+    .optional(),
+})

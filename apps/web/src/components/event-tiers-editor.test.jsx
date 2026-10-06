@@ -136,10 +136,11 @@ describe('editing a ticket type', () => {
     expect(JSON.parse(init.body)).toEqual({ revision: 7, name: 'General (standing)' })
   })
 
-  it('keeps the price of a tier that has sold, and says why', async () => {
+  it('re-prices a tier that has sold for the next buyer, and keeps its currency', async () => {
     const user = userEvent.setup()
     const sold = tier({ quantitySold: 2, removable: false, hasOrders: true, status: 'ON_SALE' })
 
+    respond(answer(200, { data: sold, meta: { revision: 8 } }), [sold])
     render(
       <EventTiersEditor
         event={event}
@@ -152,10 +153,69 @@ describe('editing a ticket type', () => {
 
     await user.click(screen.getByRole('button', { name: 'Edit' }))
 
+    const price = screen.getByLabelText(/^Face value/, { selector: '#tier-tgeneral-price' })
+
+    expect(price).toBeEnabled()
+    expect(
+      screen.getByText(
+        'People who already bought keep what they paid: 2 sold at $35.00. A new price applies to the next buyer.',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByLabelText(/^Currency/, { selector: '#tier-tgeneral-currency' }),
+    ).toBeDisabled()
+    expect(screen.getByText('Orders were paid in USD, so the currency stays.')).toBeInTheDocument()
+
+    await user.clear(price)
+    await user.type(price, '40.00')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(writeCall()).toBeDefined())
+    expect(JSON.parse(writeCall()[1].body)).toMatchObject({ revision: 7, priceCents: 4000 })
+  })
+
+  it('keeps the price while some are in somebody’s basket, and says why', async () => {
+    const user = userEvent.setup()
+    const held = tier({ heldQuantity: 3, removable: false, status: 'ON_SALE' })
+
+    render(
+      <EventTiersEditor
+        event={event}
+        sessions={sessions}
+        tiers={[held]}
+        revision={7}
+        mode="live"
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
     expect(
       screen.getByLabelText(/^Face value/, { selector: '#tier-tgeneral-price' }),
     ).toBeDisabled()
-    expect(screen.getByText(/The price stays as it is: 2 sold at it/)).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'The price stays while 3 are in somebody’s basket at it. Try again once they are bought or released.',
+      ),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('a finished or cancelled event', () => {
+  it('keeps its ticket types as they were sold: no edit, no removal, no add form', () => {
+    render(
+      <EventTiersEditor
+        event={event}
+        sessions={sessions}
+        tiers={[tier()]}
+        revision={4}
+        mode="content"
+      />,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add ticket type' })).not.toBeInTheDocument()
   })
 })
 
@@ -416,5 +476,61 @@ describe('what a buyer is charged', () => {
     const card = screen.getByText('General').closest('li')
 
     expect(card).toHaveTextContent('$44.91 all in ($3.06 fee + $6.85 tax)')
+  })
+})
+
+describe('writing as the Desi-Event team, whose second factor lapses every 10 minutes', () => {
+  it('asks for the second factor where the ticket type was saved, then sends the same change again', async () => {
+    const user = userEvent.setup()
+    let writes = 0
+
+    apiFetch.mockImplementation(async (path, init = {}) => {
+      if (path === '/v1/auth/step-up') return answer(200, { data: {} })
+      if (!init.method || init.method === 'GET') {
+        return path.endsWith('/tiers')
+          ? answer(200, { data: [tier({ name: 'General (standing)' })], meta: { revision: 8 } })
+          : answer(200, { data: [] })
+      }
+
+      writes += 1
+
+      return writes === 1
+        ? answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate again.' } })
+        : answer(200, { data: tier({ name: 'General (standing)' }), meta: { revision: 8 } })
+    })
+    render(
+      <EventTiersEditor
+        event={event}
+        sessions={sessions}
+        tiers={[tier()]}
+        revision={7}
+        mode="live"
+        platform
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+    const name = screen.getByLabelText(/^Name/, { selector: '#tier-tgeneral-name' })
+
+    await user.clear(name)
+    await user.type(name, 'General (standing)')
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(
+      await screen.findByText(
+        'Confirm it’s you to keep editing. The Desi-Event team confirms every 10 minutes while editing someone else’s event.',
+      ),
+    ).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/Your password/), 'correct horse')
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(writes).toBe(2))
+
+    const sent = apiFetch.mock.calls.filter(([, init]) => init?.method === 'PATCH')
+
+    expect(JSON.parse(sent[1][1].body)).toEqual({ revision: 7, name: 'General (standing)' })
+    expect(await screen.findByText('Saved "General (standing)".')).toBeInTheDocument()
   })
 })

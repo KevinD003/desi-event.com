@@ -119,6 +119,7 @@ export async function getMapVersion(versionId) {
  *
  * @param {object} [options] Query options.
  * @param {string} [options.organizationId] Restrict to one organisation.
+ * @param {string} [options.status] Restrict to one status, such as `DELETED`.
  * @param {number} [options.perPage] Page size.
  * @returns {Promise<{events: object[], pagination: object}>} The events and their page counters.
  */
@@ -129,6 +130,9 @@ export async function listOrganizerEvents(options = {}) {
   })
 
   if (options.organizationId) query.set('organizationId', options.organizationId)
+  // A deleted event is listed only when asked for by name: the API leaves
+  // DELETED out of every list that does not name it.
+  if (options.status) query.set('status', options.status)
 
   const body = await callApi(`/v1/events?${query.toString()}`)
 
@@ -288,6 +292,101 @@ export async function getWebsiteLinks(options = {}) {
   const body = await callApi(`/v1/moderation/website-links${suffix}`)
 
   return { links: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/** The fields `GET /v1/platform/events` takes, and nothing else. */
+const PLATFORM_EVENT_KEYS = Object.freeze([
+  'q',
+  'status',
+  'organizationId',
+  'deleted',
+  'imported',
+  'sort',
+  'page',
+  'perPage',
+])
+
+/**
+ * Every organisation's events, for the Desi-Event team's platform editors
+ * (`GET /v1/platform/events`).
+ *
+ * Only the fields the endpoint's query schema names are sent, so a page cannot
+ * widen the request by passing a key through. The API refuses the list to
+ * anybody without the platform editing capability.
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.q] Matches the title, the web address or the organisation's name.
+ * @param {string} [options.status] One status.
+ * @param {string} [options.organizationId] One organisation's events.
+ * @param {string} [options.deleted] `exclude` (the API's default), `only` or `include`.
+ * @param {string} [options.imported] `include` (the API's default), `only` or `exclude`.
+ * @param {string} [options.sort] `updatedAt:desc`, `startsAt:asc` or `createdAt:desc`.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] How many to a page.
+ * @returns {Promise<{events: object[], pagination: object|null}>} The rows and their counters.
+ */
+export async function listPlatformEvents(options = {}) {
+  const query = new URLSearchParams()
+
+  for (const key of PLATFORM_EVENT_KEYS) {
+    const value = options[key]
+
+    if (value === undefined || value === null || value === '') continue
+
+    query.set(key, String(value))
+  }
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/platform/events${suffix}`)
+
+  return { events: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * The Desi-Event team's editing sittings on an event, newest first, each with
+ * its reason and what it changed. The administrator's name is sent only to the
+ * Desi-Event team.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object[]>} The sittings.
+ */
+export async function getPlatformEdits(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/platform-edits`)).data ?? []
+}
+
+/**
+ * Pictures of posted events waiting for the Desi-Event team, oldest first
+ * (`GET /v1/moderation/media`).
+ *
+ * @param {object} [options] Query options.
+ * @param {string} [options.status] `PENDING` (the API's default) or `REJECTED`.
+ * @param {number} [options.page] Which page.
+ * @param {number} [options.perPage] How many to a page.
+ * @returns {Promise<{pictures: object[], pagination: object|null}>} The queue.
+ */
+export async function getMediaQueue(options = {}) {
+  const query = new URLSearchParams()
+
+  if (options.status) query.set('status', options.status)
+  if (options.page) query.set('page', String(options.page))
+  if (options.perPage) query.set('perPage', String(options.perPage))
+
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const body = await callApi(`/v1/moderation/media${suffix}`)
+
+  return { pictures: body.data ?? [], pagination: body.pagination ?? null }
+}
+
+/**
+ * What deleting an event would do now, as the server decides it: the outcome
+ * or the choice, the counts its sentences are built from, and whether this
+ * reader may.
+ *
+ * @param {string} id The event id.
+ * @returns {Promise<object>} The preview.
+ */
+export async function getDeletionPreview(id) {
+  return (await callApi(`/v1/events/${encodeURIComponent(id)}/deletion`)).data
 }
 
 /**

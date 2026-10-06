@@ -42,7 +42,8 @@ const {
 } = await import('../../../../lib/organizer-api.js')
 const { readSession } = await import('../../../../lib/session.js')
 const { default: ReviewEventPage } = await import('./page.jsx')
-const { CONFLICT_OF_INTEREST_NOTICE } = await import('../../../../lib/review-independence.js')
+const { CONFLICT_OF_INTEREST_NOTICE, IMPORTED_EVENT_NO_EDITOR_NOTICE } =
+  await import('../../../../lib/review-independence.js')
 const { CANNOT_DECIDE } = await import('../../../../components/website-redirect-panel.jsx')
 
 /** A platform reviewer who belongs to no organisation. */
@@ -367,6 +368,59 @@ describe('a reviewer who belongs to the event’s organisation', () => {
   })
 })
 
+describe('an import the platform-held organisation holds (SPEC2-XI O16)', () => {
+  /** What the event read carries for a platform-held import. */
+  const IMPORTED_FROM = {
+    sourceName: 'Sulekha',
+    presentedBy: 'DFW Garba Collective',
+    listedOn: '2026-09-29',
+    prices: [],
+    priceListed: false,
+    ticketsOnSource: false,
+  }
+
+  it('offers approving and rejecting, not "request changes", and sends the reason to nobody', async () => {
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      organization: { id: 'orgsulekha', name: 'Sulekha Events', slug: 'sulekha-events' },
+      importedFrom: IMPORTED_FROM,
+    })
+
+    await renderPage()
+
+    expect(screen.getByText(IMPORTED_EVENT_NO_EDITOR_NOTICE)).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Request changes' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
+    expect(screen.queryByText(/your reason goes to the organiser/i)).toBeNull()
+    expect(
+      screen.getByText(/nobody runs this event on desi-event, so it goes to nobody/i),
+    ).toBeVisible()
+  })
+
+  it('says only rejecting is left when the pictures cannot be shown', async () => {
+    getEventMedia.mockRejectedValue(Object.assign(new Error('down'), { status: 503 }))
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, importedFrom: IMPORTED_FROM })
+
+    await renderPage()
+
+    expect(screen.getByText(/rejecting is still available/i)).toBeVisible()
+    expect(screen.queryByText(/asking for changes/i)).toBeNull()
+  })
+
+  it('keeps every decision and the organiser sentence for any other event', async () => {
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, importedFrom: null })
+
+    await renderPage()
+
+    expect(screen.queryByText(IMPORTED_EVENT_NO_EDITOR_NOTICE)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Request changes' })).toBeEnabled()
+    expect(screen.getByText(/your reason goes to the organiser/i)).toBeVisible()
+  })
+})
+
 describe('the website link on the review page', () => {
   /** The organiser's address, waiting for a decision. */
   const WAITING = {
@@ -467,5 +521,47 @@ describe('the website link on the review page', () => {
         'The organiser has not given a website address, so there is nothing to link to.',
       ),
     ).toBeInTheDocument()
+  })
+})
+
+describe('the Desi-Event team’s own page for the event', () => {
+  it('is offered to a platform editor, with deleting, and not to a moderator', async () => {
+    getEventMedia.mockResolvedValue({ data: [], meta: { revision: 6 } })
+    readSession.mockResolvedValue({
+      ...REVIEWER,
+      capabilities: [...REVIEWER.capabilities, 'event:platform_edit'],
+    })
+    await renderPage()
+
+    expect(
+      screen.getByRole('link', { name: 'Open in the editor as the Desi-Event team' }),
+    ).toHaveAttribute('href', `/admin/events/${EVENT.id}`)
+    expect(screen.getByRole('link', { name: 'Delete…' })).toHaveAttribute(
+      'href',
+      `/admin/events/${EVENT.id}#delete-event`,
+    )
+
+    cleanup()
+    readSession.mockResolvedValue(REVIEWER)
+    await renderPage()
+
+    expect(
+      screen.queryByRole('link', { name: 'Open in the editor as the Desi-Event team' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('counts the pictures waiting on a posted event, links the queue, and lets each be approved', async () => {
+    getOrganizerEvent.mockResolvedValue({ ...EVENT, status: 'ON_SALE' })
+    getEventMedia.mockResolvedValue({ data: [COVER], meta: { revision: 6 } })
+    await renderPage()
+
+    expect(
+      screen.getByText(/1 picture is waiting for a decision on this posted event\./),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Pictures waiting' })).toHaveAttribute(
+      'href',
+      '/moderation/pictures',
+    )
+    expect(screen.getByRole('button', { name: 'Approve this picture' })).toBeInTheDocument()
   })
 })

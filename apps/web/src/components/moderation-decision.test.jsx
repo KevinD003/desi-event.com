@@ -7,7 +7,8 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn(), push: 
 
 const { apiFetch } = await import('../lib/api-fetch.js')
 const { ModerationDecision, NO_REVISION_TO_APPROVE } = await import('./moderation-decision.jsx')
-const { CONFLICT_OF_INTEREST_NOTICE } = await import('../lib/review-independence.js')
+const { CONFLICT_OF_INTEREST_NOTICE, IMPORTED_EVENT_NO_EDITOR_NOTICE } =
+  await import('../lib/review-independence.js')
 
 // The revision the page showed: every decision names it, and the API refuses
 // an approval that does not.
@@ -495,5 +496,54 @@ describe('somebody else decides', () => {
 
     expect(await screen.findByText(sentence)).toBeVisible()
     expect(screen.queryByText(/this event is now/i)).toBeNull()
+  })
+})
+
+describe('an event nobody runs on Desi-Event (a platform-held import, SPEC2-XI O16)', () => {
+  it('does not offer "Request changes", and says why', () => {
+    render(<ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />)
+
+    expect(screen.queryByRole('button', { name: 'Request changes' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeEnabled()
+    expect(screen.getByText(IMPORTED_EVENT_NO_EDITOR_NOTICE)).toBeVisible()
+    expect(IMPORTED_EVENT_NO_EDITOR_NOTICE).not.toMatch(/\byet\b|\bsoon\b/iu)
+  })
+
+  it('never says the reason goes to an organiser, nor that one publishes it', async () => {
+    const user = userEvent.setup()
+    const { container } = render(
+      <ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+
+    expect(screen.getByText(/published from its import run/i)).toBeVisible()
+    expect(container.textContent).not.toMatch(/organiser/iu)
+
+    await user.click(screen.getByRole('button', { name: 'Not now' }))
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+
+    expect(screen.getByLabelText(/^reason/i)).toHaveAccessibleDescription(/sent to nobody/i)
+    expect(screen.getByText(/leaves it alone until the event is deleted/i)).toBeVisible()
+    expect(container.textContent).not.toMatch(/organiser/iu)
+  })
+
+  it('still rejects with the reason given', async () => {
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValue(answer(200, { data: { status: 'REJECTED' } }))
+    render(<ModerationDecision event={event} noEditor={IMPORTED_EVENT_NO_EDITOR_NOTICE} />)
+
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+    await user.type(screen.getByLabelText(/^reason/i), 'Not an event we list.')
+    await user.click(screen.getByRole('button', { name: /yes, reject/i }))
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toMatchObject({
+      decision: 'reject',
+      reason: 'Not an event we list.',
+      revision: 3,
+    })
   })
 })

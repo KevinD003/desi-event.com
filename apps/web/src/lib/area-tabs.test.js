@@ -93,9 +93,10 @@ describe('operationsTabs', () => {
 })
 
 describe('moderationTabs', () => {
-  it('offers a moderator events and organisations, and not the website links', () => {
+  it('offers a moderator events, pictures and organisations, and not the website links', () => {
     expect(moderationTabs(platform('MODERATOR'))).toEqual([
       { href: '/moderation/events', label: 'Events' },
+      { href: '/moderation/pictures', label: 'Pictures' },
       { href: '/moderation/organizations', label: 'Organisations' },
     ])
   })
@@ -104,6 +105,7 @@ describe('moderationTabs', () => {
     for (const role of ['ADMIN', 'SUPER_ADMIN']) {
       expect(moderationTabs(platform(role)), role).toEqual([
         { href: '/moderation/events', label: 'Events' },
+        { href: '/moderation/pictures', label: 'Pictures' },
         { href: '/moderation/organizations', label: 'Organisations' },
         { href: '/moderation/websites', label: 'Website links' },
       ])
@@ -127,17 +129,39 @@ describe('moderationTabs', () => {
 })
 
 describe('adminTabs', () => {
-  it('offers a super administrator both sections, invitations first', () => {
+  it('offers a super administrator every section, invitations first', () => {
     expect(adminTabs(platform('SUPER_ADMIN'))).toEqual([
       { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
+      { href: '/admin/events', label: 'Events' },
+      { href: '/admin/imports', label: 'Imports' },
       { href: '/admin/users', label: 'People and roles' },
     ])
   })
 
-  it('offers a platform administrator the invitations and never people and roles', () => {
+  it('offers a platform administrator the invitations, the events and the imports, never people and roles', () => {
     expect(adminTabs(platform('ADMIN'))).toEqual([
       { href: '/admin/organizer-invitations', label: 'Organiser invitations' },
+      { href: '/admin/events', label: 'Events' },
+      { href: '/admin/imports', label: 'Imports' },
     ])
+  })
+
+  it('offers the imports to exactly the platform roles that import, and never a moderator', () => {
+    for (const [role, capabilities] of Object.entries(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(hrefs(adminTabs(platform(role))).includes('/admin/imports'), role).toBe(
+        capabilities.includes('event:import'),
+      )
+    }
+
+    expect(hrefs(adminTabs(platform('MODERATOR')))).not.toContain('/admin/imports')
+  })
+
+  it('offers the events to exactly the platform roles that edit posted events', () => {
+    for (const [role, capabilities] of Object.entries(PLATFORM_ROLE_CAPABILITIES)) {
+      expect(hrefs(adminTabs(platform(role))).includes('/admin/events'), role).toBe(
+        capabilities.includes('event:platform_edit'),
+      )
+    }
   })
 
   it('offers every other platform role, and every organisation role, nothing', () => {
