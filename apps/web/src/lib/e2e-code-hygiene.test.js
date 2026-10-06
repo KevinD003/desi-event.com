@@ -49,6 +49,8 @@ import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
+import { reachableFrom } from './browser-bundle.js'
+
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const e2e = join(webRoot, 'e2e')
 
@@ -133,6 +135,91 @@ describe('invitation codes in end-to-end specs', () => {
     expect(read(...invitations, 'organizer-invite-form.jsx')).toContain(
       'Organiser invitation code for',
     )
+  })
+})
+
+describe('the full-control and import screens, which their journeys picture', () => {
+  /**
+   * SPEC2-XI §9 rows 11 and 12 keep screenshots, traces and video on for the
+   * full-control and import journeys (`detail-event-full-control.spec.js`,
+   * `detail-event-import.spec.js`), because these screens show no show-once
+   * code: a step-up is a one-time TOTP, and nothing here issues an
+   * invitation, a transfer code or a pass. That holds only while the screens
+   * reach no code: a code panel imported into one of them, or a code named in
+   * one, fails here before a journey pictures it. (A spec that reaches a code
+   * anyway is still held to the rule above, like every other.)
+   */
+  const SCREEN_DIRECTORIES = [
+    'src/app/admin/events',
+    'src/app/admin/imports',
+    'src/app/moderation/pictures',
+  ]
+
+  const SCREEN_COMPONENTS = [
+    'cancel-session-dialog.jsx',
+    'control-reason-field.jsx',
+    'delete-event-dialog.jsx',
+    'deleted-event-summary.jsx',
+    'event-changes-list.jsx',
+    'finish-refunds-button.jsx',
+    'imported-event-panel.jsx',
+    'open-platform-edit-form.jsx',
+    'platform-changes-panel.jsx',
+    'platform-edit-banner.jsx',
+    'reassign-event-dialog.jsx',
+    'restore-event-dialog.jsx',
+    'step-up-retry.jsx',
+  ].map((name) => join('src', 'components', name))
+
+  /** The libraries those screens read and send through, which they picture too. */
+  const SCREEN_LIBRARIES = [
+    'event-control.js',
+    'imports-api.js',
+    'imports.js',
+    'platform-editor.js',
+  ].map((name) => join('src', 'lib', name))
+
+  /** The components that draw a show-once code or a pass. */
+  const CODE_DRAWERS = ['one-time-code-panel.jsx', 'ticket-pass.jsx', 'group-pass.jsx'].map(
+    (name) => `apps/web/src/components/${name}`,
+  )
+
+  /**
+   * Every module of a directory, tests left out.
+   *
+   * @param {string} directory Relative to `apps/web`.
+   * @returns {string[]} Paths relative to `apps/web`.
+   */
+  function modulesUnder(directory) {
+    return readdirSync(join(webRoot, directory), { recursive: true })
+      .map(String)
+      .filter((name) => /\.jsx?$/u.test(name) && !name.includes('.test.'))
+      .map((name) => join(directory, name))
+  }
+
+  const screens = [
+    ...SCREEN_DIRECTORIES.flatMap(modulesUnder),
+    ...SCREEN_COMPONENTS,
+    ...SCREEN_LIBRARIES,
+  ]
+
+  it('finds the screens, so the rule is not passing on nothing', () => {
+    expect(screens).toEqual(
+      expect.arrayContaining([
+        join('src', 'app', 'admin', 'events', '[id]', 'page.jsx'),
+        join('src', 'app', 'admin', 'imports', '[runId]', 'import-run-plan.jsx'),
+        join('src', 'components', 'delete-event-dialog.jsx'),
+      ]),
+    )
+    expect(screens.length).toBeGreaterThan(15)
+  })
+
+  it.each(screens)('%s names no show-once code and draws none', (screen) => {
+    expect(withoutComments(readFileSync(join(webRoot, screen), 'utf8'))).not.toMatch(NAMES_THE_CODE)
+
+    const reached = [...reachableFrom([`apps/web/${screen}`]).keys()]
+
+    for (const drawer of CODE_DRAWERS) expect(reached, drawer).not.toContain(drawer)
   })
 })
 

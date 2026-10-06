@@ -51,6 +51,7 @@ import {
 } from '../lib/delivery.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { disambiguateSlug } from '../lib/identifiers.js'
+import { likeLiteral } from '../lib/like-pattern.js'
 import {
   SLUG_TAKEN_SENTENCE,
   createInvitedOrganization,
@@ -294,8 +295,11 @@ export function registerOrganizerInvitationRoutes(
           q
             ? {
                 OR: [
-                  { organizationName: { contains: q, mode: 'insensitive' } },
-                  { organization: { name: { contains: q, mode: 'insensitive' } } },
+                  // As typed: an `_` or a `%` is a character, not a wildcard.
+                  { organizationName: { contains: likeLiteral(q), mode: 'insensitive' } },
+                  {
+                    organization: { name: { contains: likeLiteral(q), mode: 'insensitive' } },
+                  },
                 ],
               }
             : {},

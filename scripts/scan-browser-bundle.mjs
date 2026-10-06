@@ -114,6 +114,9 @@ const FORBIDDEN = [
       ['TRAFFIC_TRUSTED_FORWARDERS', 'TRAFFIC_TRUSTED_FORWARDERS'],
       ['TRAFFIC_TRUSTED_PROXY_HOPS', 'TRAFFIC_TRUSTED_PROXY_HOPS'],
       ['TRAFFIC_BEACON_MAX_PER_MINUTE', 'TRAFFIC_BEACON_MAX_PER_MINUTE'],
+      // Where the importer reads its pictures from (SPEC2-XI §4.5).
+      ['IMPORT_IMAGE_SOURCE', 'IMPORT_IMAGE_SOURCE'],
+      ['IMPORT_IMAGE_FIXTURE_DIR', 'IMPORT_IMAGE_FIXTURE_DIR'],
     ],
   },
   {
@@ -147,6 +150,11 @@ const FORBIDDEN = [
       ['capability: organizer:invite', 'organizer:invite'],
       ['capability: website_redirect:manage', 'website_redirect:manage'],
       ['capability: analytics:view_all', 'analytics:view_all'],
+      // SPEC2-XI §0.7: full control of posted events and the import.
+      ['capability: event:platform_edit', 'event:platform_edit'],
+      ['capability: event:platform_delete', 'event:platform_delete'],
+      ['capability: event:import', 'event:import'],
+      ['capability: event:delete_unsold', 'event:delete_unsold'],
       ['step-up policy name on a route', 'capabilityScope'],
     ],
   },
@@ -403,6 +411,56 @@ const FORBIDDEN = [
       ['server-only lookup path', '/v1/traffic/website-visits'],
     ],
   },
+  {
+    /*
+     * Full control of posted events (SPEC2-XI X). Which outcome a deletion
+     * takes, who holds authority over an event, and how a notice withholds a
+     * joining link are the server's rules; a screen is shown the outcome, the
+     * refusal and the notice.
+     */
+    group: 'full control of posted events (server-only)',
+    markers: [
+      ['deletion outcome table', 'classifyDeletion'],
+      ['deletion facts', 'loadDeletionFacts'],
+      ['refunds a deletion asks for', 'refundWhatIsLeft'],
+      ['night cancellation table', 'classifySessionCancellation'],
+      ['authority over an event', 'resolveEventAuthority'],
+      ['sittings ended by a deletion', 'endSittingsOnDeletion'],
+      ['change notice writer', 'recordChangeNotice'],
+      ['change notice withholding', 'withholdNoticeValues'],
+      ['refund driver selection', 'sendableRefundsWhere'],
+    ],
+  },
+  {
+    /*
+     * Importing listed events (SPEC2-XI I). The fetcher is the API's one way
+     * out: the ranges it refuses and how it pins a connection are what
+     * somebody probing it would want to read, and the importer's plan,
+     * exemption and publication are an administrator's request's business.
+     * The import screens are given the plan and the run, never these.
+     */
+    group: 'the import (server-only)',
+    markers: [
+      ['picture fetcher', 'fetchImportImage'],
+      ['public-address check', 'isPublicAddress'],
+      ['pinned lookup', 'pinnedLookup'],
+      ['refused IPv4 ranges', 'REFUSED_IPV4_RANGES'],
+      ['refused IPv6 ranges', 'REFUSED_IPV6_RANGES'],
+      ['picture address check', 'checkImportImageUrl'],
+      ['imported picture sanitiser', 'sanitiseImportedImage'],
+      ["the fetcher's user agent", 'Desi-Event importer'],
+      ['import file reader', 'parseImportDataset'],
+      ['import planner', 'planImport'],
+      ['plan by status', 'PLAN_ACTION_BY_STATUS'],
+      ['platform-held organisation', 'ensurePlatformHeldOrganization'],
+      ['import approval and publication', 'approveImported'],
+      ['import status moves', 'importMove'],
+      ['imported event publication', 'publishImported'],
+      ['imported event reassignment', 'reassignImportedEvent'],
+      ['picture copying pass', 'fetchRunImages'],
+      ['stored-size measure', 'jsonbTextBytes'],
+    ],
+  },
 ]
 
 /**
@@ -486,6 +544,18 @@ const REQUIRED = [
   // Visit counting: a build without the beacon path counts nothing and would
   // still pass every check above.
   ['visit beacon path', '/v1/traffic/beacons'],
+  // Full control of posted events: the commands the delete, night, sitting
+  // and restore dialogs issue.
+  ['deletion refunds path', '/refunds/finish'],
+  ['night cancellation path', '/cancellation'],
+  ['platform event path (sittings, restore)', '/v1/platform/events/'],
+  ['sitting close path', '/edit/close'],
+  // The import screens: upload and plan, apply, approve and retry, and the
+  // reassign dialog's target search and move.
+  ['import run path', '/v1/platform/imports'],
+  ['import picture retry path', '/images/retry'],
+  ['import target search path', '/v1/platform/import-targets'],
+  ['imported event move path', '/reassign'],
 ]
 
 /**

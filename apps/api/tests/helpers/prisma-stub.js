@@ -469,9 +469,14 @@ const DEFAULTS = {
     expiresAt: null,
     paidAt: null,
     cancelledAt: null,
+    // `@default(0)` in the schema: an order made through the API starts with
+    // nothing refunded and nothing reserved, as it does on PostgreSQL.
+    refundedCents: 0,
+    refundPendingCents: 0,
   },
-  // Staged names for a general-admission line, cleared at settlement.
-  orderItem: { attendeeNames: [] },
+  // Staged names for a general-admission line, cleared at settlement; nothing
+  // refunded yet (`@default(0)`).
+  orderItem: { attendeeNames: [], refundedQuantity: 0, refundedCents: 0 },
   ticket: {
     status: 'VALID',
     checkedInAt: null,

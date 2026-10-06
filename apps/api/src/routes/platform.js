@@ -48,6 +48,7 @@ import {
   notFound,
   unprocessable,
 } from '../lib/errors.js'
+import { likeLiteral } from '../lib/like-pattern.js'
 import { assertNotLastOwner, lockMembership, setScannerScopes } from '../lib/memberships.js'
 import { revokeAllSessionsOf } from '../lib/privilege-change.js'
 import { defineRoute } from '../lib/register.js'
@@ -101,8 +102,9 @@ export function registerPlatformRoutes(app, { prisma }) {
         AND: [
           {
             OR: [
-              { email: { contains: q, mode: 'insensitive' } },
-              { displayName: { contains: q, mode: 'insensitive' } },
+              // As typed: an `_` or a `%` is a character, not a wildcard.
+              { email: { contains: likeLiteral(q), mode: 'insensitive' } },
+              { displayName: { contains: likeLiteral(q), mode: 'insensitive' } },
               { id: q },
             ],
           },
@@ -245,8 +247,8 @@ export function registerPlatformRoutes(app, { prisma }) {
 
       const where = {
         OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { slug: { contains: q.toLowerCase() } },
+          { name: { contains: likeLiteral(q), mode: 'insensitive' } },
+          { slug: { contains: likeLiteral(q.toLowerCase()) } },
         ],
       }
 

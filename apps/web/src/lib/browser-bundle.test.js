@@ -204,6 +204,89 @@ describe('what reaches the browser', () => {
   })
 })
 
+describe('full control of posted events and the import (SPEC2-XI §0.7, §7)', () => {
+  /** The capability names SPEC2-XI adds, each forbidden in a client module. */
+  const NEW_LITERALS = [
+    'event:platform_edit',
+    'event:platform_delete',
+    'event:import',
+    'event:delete_unsold',
+  ]
+
+  /** The importer's server-only modules. */
+  const IMPORT_MODULES = [
+    'apps/api/src/lib/event-import.js',
+    'apps/api/src/lib/import-images.js',
+    'apps/api/src/lib/import-dataset.js',
+  ]
+
+  it('forbids the four capability names in a client module, in code and not in a comment', () => {
+    for (const literal of NEW_LITERALS) {
+      expect(Object.keys(FORBIDDEN_CLIENT_LITERALS), literal).toContain(literal)
+      expect(forbiddenLiteralsIn(`const may = membershipCan(session, '${literal}', id)`)).toEqual([
+        literal,
+      ])
+      expect(forbiddenLiteralsIn(`// Held by \`${literal}\` holders.\nconst a = 1`)).toEqual([])
+    }
+  })
+
+  it('names those capabilities only in server modules, which no client module reaches', () => {
+    const entries = [...browserEntryPoints(), 'apps/web/src/lib/api-client.js']
+    const reached = new Set(reachableFrom(entries).keys())
+    const namers = []
+
+    for (const file of filesUnder('apps/web/src').filter(
+      (path) => /\.jsx?$/u.test(path) && !path.includes('.test.'),
+    )) {
+      const source = readFileSync(resolve(ROOT, file), 'utf8')
+      const found = forbiddenLiteralsIn(source).filter((literal) => NEW_LITERALS.includes(literal))
+
+      if (found.length === 0) continue
+
+      namers.push(file)
+      expect(declaresUseClient(source), `${file} is a client module naming ${found}`).toBe(false)
+      expect(reached.has(file), `${file} is reached from a client module`).toBe(false)
+    }
+
+    // The pages and libraries that decide, so the rule is not passing on nothing.
+    expect(namers).toEqual(
+      expect.arrayContaining([
+        'apps/web/src/app/admin/events/[id]/page.jsx',
+        'apps/web/src/app/admin/imports/page.jsx',
+        'apps/web/src/app/organizer/events/[id]/page.jsx',
+      ]),
+    )
+  })
+
+  it('refuses the importer’s modules by name, and none of them reaches the browser', () => {
+    for (const file of IMPORT_MODULES) {
+      const reason = forbiddenReason(file)
+
+      expect(reason, file).toBeTruthy()
+      // Its own rule, not only the catch-all for the API.
+      expect(reason, file).not.toBe(FORBIDDEN['apps/api/'])
+    }
+
+    // The importer pulls the other two in; the walk follows it there.
+    const fromImporter = [...reachableFrom(['apps/api/src/lib/event-import.js']).keys()]
+
+    expect(fromImporter).toEqual(expect.arrayContaining(IMPORT_MODULES))
+
+    // And the import screens, client and server, reach none of them.
+    const screens = filesUnder('apps/web/src/app/admin/imports').filter(
+      (path) => /\.jsx?$/u.test(path) && !path.includes('.test.'),
+    )
+
+    expect(screens.length).toBeGreaterThan(2)
+
+    const reached = [
+      ...reachableFrom([...screens, 'apps/web/src/components/reassign-event-dialog.jsx']).keys(),
+    ]
+
+    for (const file of IMPORT_MODULES) expect(reached, file).not.toContain(file)
+  })
+})
+
 describe('the walker itself', () => {
   it('finds the directive behind a long docstring, which is the house style', () => {
     // The bug this replaced: the first version looked at the first 200

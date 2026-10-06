@@ -643,6 +643,10 @@ describe('the shared queue: listing', () => {
       'a@example.com',
     ])
     expect((await search('b@example')).json().data).toEqual([])
+    // As typed: `_` and `%` are characters here, never wildcards that would
+    // find every invitation, or one whose name only looks like the search.
+    expect((await search('NAVRATR_')).json().data).toEqual([])
+    expect((await search('%%')).json().data).toEqual([])
 
     for (const q of ['x', 'nav\u0000ratri']) {
       const refused = await search(q)

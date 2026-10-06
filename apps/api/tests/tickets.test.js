@@ -322,6 +322,11 @@ describe('GET /v1/tickets/admission/events', () => {
     expect(nothing.statusCode).toBe(200)
     expect(nothing.json().data).toEqual([])
 
+    // As typed: an `_` or a `%` is a character, not a wildcard that would find
+    // the masterclass, or every event at the door.
+    expect((await list('q=master_lass')).json().data).toEqual([])
+    expect((await list('q=%25%25')).json().data).toEqual([])
+
     expect((await list(`q=${'x'.repeat(101)}`)).statusCode).toBe(400)
     // PostgreSQL refuses NUL in text, so a search carrying one is refused here,
     // as a 400, rather than by the database as a 500.

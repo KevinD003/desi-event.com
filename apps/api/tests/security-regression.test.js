@@ -23,7 +23,11 @@
  * @module @desi-event/api/tests/security-regression
  */
 
+import { execFile } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
+import { createServer, isIP } from 'node:net'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 
 import { describe, expect, it } from 'vitest'
 
@@ -43,13 +47,19 @@ import {
 import { EXPORT_COLUMNS as ANALYTICS_EXPORT_COLUMNS } from '../src/routes/analytics.js'
 import { toConnectStatus } from '../src/lib/connect.js'
 import { toDispute, toEvidence, toPayout, toRefund, toTransfer } from '../src/lib/presenters.js'
+import { fetchImportImage } from '../src/lib/import-images.js'
 import { mediaReadRateLimit, mediaUploadRateLimit } from '../src/plugins/rate-limit.js'
-import { bearer, createTestApp, signIn } from './helpers/app.js'
+import { bearer, createTestApp, signIn, stepUp } from './helpers/app.js'
+import { addRows, makeWorld, platformHeldImportFixture } from './helpers/fixtures.js'
+import { cuid } from './helpers/prisma-stub.js'
 import {
   WRITE_OPERATIONS,
+  braceStarts,
   delegateCalls,
   functionRange,
+  moduleLoads,
   namesColumn,
+  patternFilters,
   rawWrites,
   readCode,
   relationsTo,
@@ -59,6 +69,9 @@ import {
   writesTo,
   writtenFields,
 } from './helpers/source-scan.js'
+
+/** `execFile`, awaited. */
+const run = promisify(execFile)
 
 /** The organisation's owner, who holds `finance:view`. */
 const OWNER = 'owner@rangoli.example'
@@ -938,6 +951,28 @@ describe('the surfaces added for feature completion', () => {
     'traffic.beacon',
     'traffic.events',
     'traffic.websiteVisit',
+    // Full control of posted events (SPEC2-XI X): deletion, restore, nights,
+    // the Desi-Event team's sittings and the pictures queue.
+    'events.cancelSession',
+    'events.delete',
+    'events.deletionPreview',
+    'events.finishRefunds',
+    'events.platformEdits',
+    'events.sessionCancellationPreview',
+    'moderation.mediaQueue',
+    'platformEvents.closeEdit',
+    'platformEvents.list',
+    'platformEvents.openEdit',
+    'platformEvents.restore',
+    // Importing listed events (SPEC2-XI I).
+    'eventImports.apply',
+    'eventImports.approve',
+    'eventImports.get',
+    'eventImports.list',
+    'eventImports.preview',
+    'eventImports.reassign',
+    'eventImports.retryImages',
+    'eventImports.targets',
   ]
 
   /**
@@ -1361,6 +1396,55 @@ describe('the source scans themselves', () => {
     expect(files.some((file) => /\.(test|spec)\./u.test(file))).toBe(false)
     expect(files.some((file) => file.includes('/scripts/') || file.includes('/e2e/'))).toBe(false)
   })
+
+  it('finds every pattern filter, its value as written, and an insensitive equals only beside its mode', () => {
+    const code = withoutComments(`
+      // { title: { contains: q } } in a comment is no filter.
+      const where = { OR: [{ title: { contains: q, mode: 'insensitive' } }, { slug: { startsWith: likeLiteral(q) } }] }
+      const notes = 'a string holding { contains: q } is no filter'
+      const exact = { email: { equals: email } }
+      const loose = { email: { equals: email, mode: 'insensitive' } }
+      const shorthand = { name: { endsWith } }
+      const city = { city: { equals: likeLiteral(city), mode: "insensitive" } }
+    `)
+
+    expect(patternFilters(code).map(({ key, value }) => [key, value])).toEqual([
+      ['contains', 'q'],
+      ['startsWith', 'likeLiteral(q)'],
+      ['equals (insensitive)', 'email'],
+      ['endsWith', 'endsWith'],
+      ['equals (insensitive)', 'likeLiteral(city)'],
+    ])
+    expect(braceStarts("const a = '{' + `${'{'}` + /{/.source")).toEqual([])
+  })
+
+  it('finds every module a file loads, and the names it takes from one', () => {
+    const code = withoutComments(`
+      // import https from 'node:https' in a comment loads nothing.
+      import { isIP, BlockList as List } from 'node:net'
+      import https from 'node:https'
+      import * as http from 'http'
+      import {
+        request,
+      } from 'undici'
+      import 'node:tls'
+      export { lookup } from 'node:dns'
+      const later = await import('node:http2')
+      const old = require("child_process")
+      const text = 'require is a word'
+    `)
+
+    expect(moduleLoads(code).map(({ specifier, names }) => [specifier, names])).toEqual([
+      ['node:net', ['isIP', 'BlockList']],
+      ['node:https', null],
+      ['http', null],
+      ['undici', ['request']],
+      ['node:tls', []],
+      ['node:dns', null],
+      ['node:http2', null],
+      ['child_process', null],
+    ])
+  })
 })
 
 /**
@@ -1592,6 +1676,127 @@ describe('every path to a public event (SPEC2 §6)', () => {
     expect(calls[0].index).toBeGreaterThan(approval.start)
     expect(calls[0].index).toBeLessThan(approval.end)
     expect(importer.slice(calls[0].index, calls[0].index + 200)).toMatch(/to:\s*'APPROVED'/u)
+  })
+
+  it('reaches deletion, restore and the import’s moves only from their own routes, never through a wrapper', () => {
+    // The scan of route bodies above sees a direct call. These library entry
+    // points move an event's status (deletion, restore, the import's own
+    // moves) or its website switch (reassignment, SPEC2-XI I-F); called from a
+    // wrapper in another module, or from a route somewhere else, they would
+    // make a status route that list cannot see. So each is called from exactly
+    // these routes, under its own name, and nowhere else.
+    const DELETION = 'apps/api/src/lib/event-deletion.js'
+    const IMPORTER = 'apps/api/src/lib/event-import.js'
+    const ENTRY_POINTS = {
+      deleteEvent: { owner: DELETION, routes: ['events.delete'] },
+      restoreEvent: { owner: DELETION, routes: ['platformEvents.restore'] },
+      applyImport: { owner: IMPORTER, routes: ['eventImports.apply'] },
+      approveImported: { owner: IMPORTER, routes: ['eventImports.approve'] },
+      reassignImportedEvent: { owner: IMPORTER, routes: ['eventImports.reassign'] },
+      // Exported, though only the importer's own steps (below) may call it:
+      // no route and no other module.
+      importMove: { owner: IMPORTER, routes: [] },
+    }
+    // Inside the importer: which steps make the import's moves, and which
+    // entry point reaches each step. None of the steps is exported.
+    const STEPS = {
+      importMove: ['confirmUnchanged', 'createImported', 'publishImported', 'updateImportedDraft'],
+      createImported: ['applyImport'],
+      updateImportedDraft: ['applyImport'],
+      confirmUnchanged: ['applyImport'],
+      publishImported: ['approveOne'],
+      approveOne: ['approveImported'],
+    }
+    const OWNERS = /(?:^|\/)(?:event-deletion|event-import)\.js$/u
+    const callsOf = (code, name) => [
+      ...code.matchAll(new RegExp(`(?<!function\\s+)\\b${name}\\s*\\(`, 'gu')),
+    ]
+    /** @type {Record<string, string[]>} */
+    const found = {}
+
+    // The server's code; the web reaches none of `apps/api` (browser-bundle.js
+    // refuses it), and its own helpers may share these names.
+    for (const file of sourceFiles({ packages: true }).filter(
+      (path) => !path.startsWith('apps/web/'),
+    )) {
+      const code = readCode(file)
+
+      for (const load of moduleLoads(code)) {
+        if (!OWNERS.test(load.specifier)) continue
+
+        // Taken whole, a call would read `deletion.deleteEvent(`, or not at all.
+        expect(load.names, `${file} takes ${load.specifier} whole`).not.toBeNull()
+      }
+
+      // What is left once the import statements are gone: every mention of
+      // an entry point there must be a call, so it cannot be passed on.
+      const body = code.replace(/\bimport\s*\{[^}]*\}\s*from\s*(['"])[^'"\n]+\1/gu, '')
+
+      for (const [name, entry] of Object.entries(ENTRY_POINTS)) {
+        if (file === entry.owner) continue
+
+        expect(code, `${file} takes ${name} under another name`).not.toMatch(
+          new RegExp(`\\b${name}\\s+as\\b`, 'u'),
+        )
+
+        const calls = callsOf(body, name)
+        const mentions = [...body.matchAll(new RegExp(`\\b${name}\\b`, 'gu'))]
+
+        expect(mentions.length, `${file} hands ${name} on without calling it`).toBe(calls.length)
+        if (calls.length === 0) continue
+
+        const routes = routeRegistrations(code).filter((route) => callsOf(route.body, name).length)
+        const inRoutes = routes.reduce((sum, route) => sum + callsOf(route.body, name).length, 0)
+
+        expect(inRoutes, `${file} calls ${name} outside a route`).toBe(calls.length)
+        found[name] = [...(found[name] ?? []), ...routes.map((route) => route.id)].sort()
+      }
+    }
+
+    expect(found).toEqual(
+      Object.fromEntries(
+        Object.entries(ENTRY_POINTS)
+          .filter(([, entry]) => entry.routes.length > 0)
+          .map(([name, entry]) => [name, entry.routes]),
+      ),
+    )
+
+    // Deletion's module calls neither of its entry points itself.
+    const deletion = readCode(DELETION)
+
+    for (const name of ['deleteEvent', 'restoreEvent']) {
+      expect(callsOf(deletion, name), `${DELETION} calls ${name}`).toEqual([])
+    }
+
+    // The importer's entry points call none of each other, and each step that
+    // moves an import sits only where it is listed.
+    const importer = readCode(IMPORTER)
+
+    for (const name of ['applyImport', 'approveImported', 'reassignImportedEvent']) {
+      expect(callsOf(importer, name), `${IMPORTER} calls ${name}`).toEqual([])
+    }
+
+    for (const [name, callers] of Object.entries(STEPS)) {
+      const ranges = callers.map((caller) => [caller, functionRange(importer, caller)])
+      const seen = new Set()
+
+      for (const call of callsOf(importer, name)) {
+        const inside = ranges.find(
+          ([, range]) => range && call.index > range.start && call.index < range.end,
+        )
+
+        expect(inside, `${name} is called outside ${callers.join(', ')}`).toBeTruthy()
+        seen.add(inside[0])
+      }
+
+      expect([...seen].sort(), name).toEqual(callers)
+
+      if (name !== 'importMove') {
+        expect(importer, `${name} is exported`).not.toMatch(
+          new RegExp(`\\bexport\\s+(?:async\\s+)?function\\s+${name}\\b`, 'u'),
+        )
+      }
+    }
   })
 
   it('moves an import only by its own organiser moves, of a platform-held import, publishing only after approval', () => {
@@ -2484,5 +2689,717 @@ describe('full control of posted events (SPEC2-XI X)', () => {
     }
 
     await app.close()
+  })
+})
+
+describe('importing listed events (SPEC2-XI I, §7)', () => {
+  /** Every route the import work added, which is everything on the `imports` tag. */
+  const I_ROUTES = [
+    'eventImports.apply',
+    'eventImports.approve',
+    'eventImports.get',
+    'eventImports.list',
+    'eventImports.preview',
+    'eventImports.reassign',
+    'eventImports.retryImages',
+    'eventImports.targets',
+  ]
+
+  /** The one command without a second factor: planning writes nothing but the run. */
+  const PLANS_ONLY = new Set(['eventImports.preview'])
+
+  it('names every import route, on its own tag and off the platform one, none MFA-exempt', () => {
+    const manifest = new Set(apiRouteManifest.map((route) => route.id))
+
+    expect(
+      apiRoutes
+        .filter((route) => route.tags.includes('imports'))
+        .map((route) => route.id)
+        .sort(),
+    ).toEqual(I_ROUTES)
+
+    for (const id of I_ROUTES) {
+      const route = routeById(id)
+
+      expect(manifest.has(id), `${id} is not in the manifest`).toBe(true)
+      expect(route.auth, id).toBe('session')
+      expect(route.mfaExempt ?? false, `${id} is MFA-exempt`).toBe(false)
+      // The platform tag is the SECURITY_ROLE surface; an import is event work.
+      expect(route.tags, id).not.toContain('platform')
+      expect(
+        route.tags.some((tag) => MONEY_TAGS.has(tag)),
+        `${id} carries a money tag`,
+      ).toBe(false)
+    }
+  })
+
+  it('holds every import route by event:import alone, a platform-only capability, never scoped', () => {
+    expect(PLATFORM_ONLY_CAPABILITIES).toContain('event:import')
+    expect(
+      apiRoutes
+        .filter((route) => route.capability === 'event:import')
+        .map((route) => route.id)
+        .sort(),
+    ).toEqual(I_ROUTES)
+
+    for (const id of I_ROUTES) {
+      expect(routeById(id).capabilityScope, id).toBeUndefined()
+    }
+  })
+
+  it('demands a second factor on every import command but planning: MODERATION to write, EVENT_PUBLISH to publish or move', () => {
+    /** @type {Record<string, string>} */
+    const declared = {}
+
+    for (const id of I_ROUTES) {
+      const route = routeById(id)
+
+      if (route.method === 'GET') {
+        expect(route.stepUp ?? null, `${id} is a read`).toBeNull()
+      } else if (PLANS_ONLY.has(id)) {
+        expect(route.stepUp ?? null, `${id} only plans`).toBeNull()
+      } else {
+        expect(Object.keys(STEP_UP_POLICIES), `${id} has no second factor`).toContain(route.stepUp)
+        declared[id] = route.stepUp
+      }
+    }
+
+    expect(declared).toEqual({
+      'eventImports.apply': 'MODERATION',
+      'eventImports.approve': 'EVENT_PUBLISH',
+      'eventImports.reassign': 'EVENT_PUBLISH',
+      'eventImports.retryImages': 'MODERATION',
+    })
+  })
+
+  it('spends one budget on planning, importing and copying pictures', () => {
+    const code = readCode('apps/api/src/routes/event-imports.js')
+    const registrations = Object.fromEntries(
+      routeRegistrations(code).map((route) => [route.id, route.body]),
+    )
+
+    expect(Object.keys(registrations).sort()).toEqual(I_ROUTES)
+    expect(code).toMatch(/const budget = eventImportRateLimit\(/u)
+
+    for (const id of ['eventImports.apply', 'eventImports.preview', 'eventImports.retryImages']) {
+      expect(registrations[id], id).toMatch(/preHandler:\s*\[budget\]/u)
+      expect(
+        routeById(id).errors.map((error) => error.code),
+        id,
+      ).toContain('RATE_LIMITED')
+    }
+  })
+})
+
+/**
+ * Every write to one model's rows under `apps/<app>/src`: its delegate's own
+ * calls, the nested writes another model's write makes through a relation, and
+ * raw `UPDATE`, `INSERT` or `MERGE` statements on its table.
+ *
+ * @param {string} model The model (`EventPlatformEdit`).
+ * @returns {Array<object>} The writes, each with its file; a raw one has `raw: true` and its statement as `text`.
+ */
+function modelWrites(model) {
+  return sourceFiles().flatMap((file) => {
+    const code = readCode(file)
+
+    return [
+      ...writesTo(code, model).map((write) => ({ ...write, file, raw: false })),
+      ...rawWrites(code)
+        .filter((write) => write.table === model && write.verb !== 'DELETE FROM')
+        .map((write) => ({ ...write, file, raw: true, fields: new Set(), opaque: false })),
+    ]
+  })
+}
+
+/**
+ * Whether a write names a column: in its row, or in its raw statement.
+ *
+ * @param {object} write A write from {@link modelWrites}.
+ * @param {string} column The column.
+ * @returns {boolean} True when it writes the column.
+ */
+function writesColumn(write, column) {
+  return write.raw ? namesColumn(write.text, column) : write.fields.has(column)
+}
+
+/**
+ * The files a list of writes sits in, in order and once each.
+ *
+ * @param {Array<{file: string}>} writes The writes.
+ * @returns {string[]} The files.
+ */
+function filesOf(writes) {
+  return [...new Set(writes.map((write) => write.file))].sort()
+}
+
+describe('the records full control and imports keep, each with one writer (SPEC2-XI §7)', () => {
+  /** An event's deletion record (SPEC2-XI §5.X-D, `event_deletion_consistency`). */
+  const DELETION_COLUMNS = [
+    'deletedAt',
+    'deletedById',
+    'deletionReason',
+    'deletionOutcome',
+    'deletionAuthority',
+    'statusBeforeDeletion',
+    'deletedSlug',
+  ]
+
+  const DELETION_OWNER = 'apps/api/src/lib/event-deletion.js'
+
+  it('records a deletion only in deleteEvent, and clears it only in restoreEvent', () => {
+    const writers = modelWrites('Event').filter(
+      (write) =>
+        DELETION_COLUMNS.some((column) => writesColumn(write, column)) ||
+        (write.raw ? /'DELETED'/u.test(write.text) : /\bstatus\s*:\s*'DELETED'/u.test(write.args)),
+    )
+
+    expect(filesOf(writers)).toEqual([DELETION_OWNER])
+
+    const code = readCode(DELETION_OWNER)
+    const remove = functionRange(code, 'deleteEvent')
+    const restore = functionRange(code, 'restoreEvent')
+
+    expect(writers).toHaveLength(2)
+
+    const [setting, clearing] = writers
+
+    // The whole record at once, never half of it.
+    for (const write of writers) {
+      expect(
+        DELETION_COLUMNS.filter((column) => !writesColumn(write, column)),
+        `line ${write.line}`,
+      ).toEqual([])
+    }
+
+    expect(setting.index).toBeGreaterThan(remove.start)
+    expect(setting.index).toBeLessThan(remove.end)
+    expect(setting.args).toMatch(/\bstatus:\s*'DELETED'/u)
+
+    expect(clearing.index).toBeGreaterThan(restore.start)
+    expect(clearing.index).toBeLessThan(restore.end)
+    // Out of DELETED (the `where`), to the target restoreTarget gives (the `data`).
+    expect(clearing.args).toMatch(
+      /where:\s*\{[^}]*\bstatus:\s*'DELETED'[^}]*\},\s*data:\s*\{[^}]*\bstatus:\s*to\b/u,
+    )
+
+    for (const column of DELETION_COLUMNS) {
+      expect(clearing.args, column).toMatch(new RegExp(`\\b${column}:\\s*null\\b`, 'u'))
+      expect(setting.args, column).not.toMatch(new RegExp(`\\b${column}:\\s*null\\b`, 'u'))
+    }
+  })
+
+  it('lets no row built elsewhere, and no request, carry a deletion record', () => {
+    // Every event row built away from its write has been read and pinned
+    // (OPAQUE_EVENT_WRITES); none of the shapes read can hold these columns.
+    expect(
+      eventWrites()
+        .filter((write) => write.opaque)
+        .map((write) => write.label)
+        .sort(),
+    ).toEqual(Object.keys(OPAQUE_EVENT_WRITES).sort())
+
+    const lifecycle = readCode('apps/api/src/lib/event-lifecycle.js')
+    const stamps = functionRange(lifecycle, 'stampsFor')
+
+    for (const column of DELETION_COLUMNS) {
+      expect(namesColumn(lifecycle.slice(stamps.start, stamps.end), column), column).toBe(false)
+    }
+
+    // No request body anywhere names a column of the record: the server
+    // writes it from the actor, the clock and what it decided.
+    for (const route of apiRoutes) {
+      const keys = [route.body, route.query, route.params].flatMap((schema) => [
+        ...schemaKeys(schema),
+      ])
+
+      for (const column of DELETION_COLUMNS) {
+        expect(keys, `${route.id} accepts ${column}`).not.toContain(column)
+      }
+    }
+
+    // And the organiser's edit drops them with everything else it does not know.
+    const parsed = routeById('events.update').body.safeParse({
+      title: 'A title',
+      ...Object.fromEntries(DELETION_COLUMNS.map((column) => [column, 'x'])),
+    })
+
+    expect(parsed.success).toBe(true)
+    expect(Object.keys(parsed.data)).toEqual(['title'])
+  })
+
+  it('opens the Desi-Event team’s sittings in the open route alone, and ends them only in the authority module and the control routes', () => {
+    const writes = modelWrites('EventPlatformEdit')
+
+    expect(filesOf(writes)).toEqual([
+      'apps/api/src/lib/event-authority.js',
+      'apps/api/src/routes/event-control.js',
+    ])
+    expect(writes.filter((write) => write.opaque || write.raw)).toEqual([])
+
+    const opening = new Set(['create', 'createMany', 'createManyAndReturn', 'upsert', null])
+    const opened = writes.filter((write) => opening.has(write.operation))
+
+    expect(opened.map((write) => `${write.file} ${write.operation}`)).toEqual([
+      'apps/api/src/routes/event-control.js create',
+    ])
+
+    // Every other write only ends a sitting.
+    for (const write of writes.filter((candidate) => !opened.includes(candidate))) {
+      expect([...write.fields].sort(), `${write.file}:${write.line}`).toEqual([
+        'closedAt',
+        'endedBy',
+      ])
+    }
+
+    const openers = routeRegistrations(readCode('apps/api/src/routes/event-control.js'))
+      .filter((route) => /\beventPlatformEdit\s*\.\s*create\s*\(/u.test(route.body))
+      .map((route) => route.id)
+
+    expect(openers).toEqual(['platformEvents.openEdit'])
+    expect(routeById('platformEvents.openEdit').stepUp).toBe('MODERATION')
+    expect(PLATFORM_ONLY_CAPABILITIES).toContain(routeById('platformEvents.openEdit').capability)
+  })
+
+  it('never lets a sitting’s authority move an event’s status (Rule L)', () => {
+    // SPEC2-XI §7: a sitting edits what an event says, its nights and tiers
+    // and its pictures, and cancels a night; it never publishes, opens or
+    // pauses sales, postpones, cancels, deletes or restores. The lifecycle's
+    // own check is `lifecycleAuthority`, which takes no sitting.
+    const SITTING_READERS =
+      /(?<!function\s+)\b(?:resolveEventAuthority|openSittingOf|assertSittingStillOpen)\s*\(/gu
+    const readers = sourceFiles({ packages: true }).filter(
+      (file) => [...readCode(file).matchAll(SITTING_READERS)].length > 0,
+    )
+
+    expect(readers).toEqual([
+      'apps/api/src/lib/event-authoring.js',
+      'apps/api/src/lib/event-authority.js',
+      'apps/api/src/lib/event-media.js',
+      'apps/api/src/lib/session-cancellation.js',
+      'apps/api/src/routes/event-authoring.js',
+      'apps/api/src/routes/event-control.js',
+    ])
+
+    // None of them is where a status moves, and no route that moves one
+    // reads a sitting.
+    for (const owner of [
+      'apps/api/src/lib/event-deletion.js',
+      'apps/api/src/lib/event-import.js',
+      'apps/api/src/lib/event-lifecycle.js',
+      'apps/api/src/routes/events.js',
+      'apps/api/src/routes/moderation.js',
+    ]) {
+      expect(readers, owner).not.toContain(owner)
+    }
+
+    const statusRoutes = new Set([
+      'eventImports.apply',
+      'eventImports.approve',
+      'events.delete',
+      'platformEvents.restore',
+    ])
+
+    for (const file of readers.filter((path) => path.includes('/routes/'))) {
+      for (const route of routeRegistrations(readCode(file))) {
+        if (!statusRoutes.has(route.id)) continue
+
+        expect([...route.body.matchAll(SITTING_READERS)], route.id).toEqual([])
+      }
+    }
+
+    const lifecycle = readCode('apps/api/src/lib/event-lifecycle.js')
+
+    expect(lifecycle).toMatch(
+      /return lifecycleAuthority\(actor, event, capabilityFor\(move\.to\)\)/u,
+    )
+  })
+
+  it('decides whether a picture is shown in one module', () => {
+    const writes = modelWrites('MediaAsset')
+    const deciders = writes.filter(
+      (write) => write.opaque || writesColumn(write, 'moderationStatus'),
+    )
+
+    // A picture row built elsewhere could carry the decision unseen, so it
+    // counts as one wherever it is.
+    expect(filesOf(deciders)).toEqual(['apps/api/src/lib/event-media.js'])
+    expect(deciders.length).toBeGreaterThan(0)
+  })
+
+  it('keeps the platform-held organisation with its provisioner, and the import records with the importer', () => {
+    // SPEC2-XI §7.5 allows these two; today only the provisioner writes the
+    // column, and the importer asks it (`ensurePlatformHeldOrganization`).
+    const allowed = [
+      'apps/api/src/lib/event-import.js',
+      'apps/api/src/lib/organization-provisioning.js',
+    ]
+    const holders = []
+
+    for (const file of sourceFiles()) {
+      const code = readCode(file)
+
+      for (const call of delegateCalls(code, '[a-z][A-Za-z]*', WRITE_OPERATIONS)) {
+        // `writtenFields` reads nested rows too: an organisation created
+        // through an event's relation names the column here as well.
+        if (writtenFields(call.args).fields.has('platformHeldSource')) holders.push(file)
+      }
+
+      for (const write of rawWrites(code)) {
+        if (namesColumn(write.text, 'platformHeldSource')) holders.push(`${file} raw`)
+      }
+    }
+
+    expect([...new Set(holders)]).toEqual(['apps/api/src/lib/organization-provisioning.js'])
+    for (const file of holders) expect(allowed, file).toContain(file)
+
+    // An organisation row built away from its write could carry the column
+    // where the scan cannot see it: there is none.
+    expect(
+      modelWrites('Organization')
+        .filter((write) => write.opaque)
+        .map((write) => `${write.file}:${write.line}`),
+    ).toEqual([])
+
+    for (const route of apiRoutes) {
+      const keys = [route.body, route.query, route.params].flatMap((schema) => [
+        ...schemaKeys(schema),
+      ])
+
+      expect(keys, `${route.id} accepts platformHeldSource`).not.toContain('platformHeldSource')
+    }
+
+    for (const model of ['EventImportRun', 'EventImportItem', 'EventImportImage']) {
+      const writes = modelWrites(model)
+
+      expect(filesOf(writes), model).toEqual(['apps/api/src/lib/event-import.js'])
+      expect(writes.length, model).toBeGreaterThan(0)
+    }
+  })
+
+  it('records change notices in one module, from the four moves that change an event under its buyers', () => {
+    const owner = 'apps/api/src/lib/event-change-notices.js'
+    const callers = {
+      'apps/api/src/lib/event-cancellation.js': 'cancellationWork',
+      'apps/api/src/lib/event-deletion.js': 'deleteEvent',
+      'apps/api/src/lib/event-material-change.js': 'materialChangeWork',
+      'apps/api/src/lib/session-cancellation.js': 'cancelSession',
+    }
+
+    expect(filesOf(modelWrites('EventChangeNotice'))).toEqual([owner])
+
+    /** @type {Record<string, number>} */
+    const found = {}
+
+    for (const file of sourceFiles({ packages: true })) {
+      const code = readCode(file)
+      const calls = [...code.matchAll(/(?<!function\s+)\brecordChangeNotice\s*\(/gu)]
+
+      // Taken under another name, a call would not be seen.
+      expect(code, file).not.toMatch(/\brecordChangeNotice\s+as\b/u)
+
+      for (const load of moduleLoads(code)) {
+        if (!load.specifier.endsWith('event-change-notices.js')) continue
+
+        expect(load.names, `${file} takes the whole notices module`).not.toBeNull()
+      }
+
+      if (calls.length === 0) continue
+
+      found[file] = calls.length
+
+      const body = functionRange(code, callers[file] ?? '\\u0000')
+
+      for (const call of calls) {
+        expect(body, `${file} records a notice outside ${callers[file]}`).not.toBeNull()
+        expect(call.index).toBeGreaterThan(body.start)
+        expect(call.index).toBeLessThan(body.end)
+      }
+    }
+
+    expect(Object.keys(found).sort()).toEqual(Object.keys(callers).sort())
+  })
+})
+
+describe('the picture fetcher, the API’s one way out (SPEC2-XI §0.6, §5.I-D)', () => {
+  const FETCHER = 'apps/api/src/lib/import-images.js'
+
+  /** Modules that are, or open, a network client. */
+  const CLIENTS = /^(?:node:)?(?:http|https|http2|tls|dgram|child_process|undici)$/u
+
+  /** What `node:net` may be asked for without opening anything. */
+  const NET_HELPERS = new Set(['isIP', 'isIPv4', 'isIPv6', 'BlockList', 'SocketAddress'])
+
+  it('is the only module under apps/api/src that loads an HTTP client or opens a socket, and nothing calls fetch', () => {
+    /** @type {Record<string, string[]>} */
+    const loads = {}
+    const callers = []
+
+    for (const file of sourceFiles().filter((path) => path.startsWith('apps/api/src/'))) {
+      const code = readCode(file)
+
+      for (const load of moduleLoads(code)) {
+        const net = /^(?:node:)?net$/u.test(load.specifier)
+
+        if (
+          CLIENTS.test(load.specifier) ||
+          (net && (load.names === null || load.names.some((name) => !NET_HELPERS.has(name))))
+        ) {
+          loads[file] = [...(loads[file] ?? []), load.specifier]
+        }
+      }
+
+      if (
+        /(?<![\w$.])fetch\s*\(|\bglobalThis\s*\.\s*fetch\b|\bnew\s+(?:WebSocket|EventSource|XMLHttpRequest)\b/u.test(
+          code,
+        )
+      ) {
+        callers.push(file)
+      }
+    }
+
+    expect(loads).toEqual({ [FETCHER]: ['node:https'] })
+    expect(callers).toEqual([])
+  })
+
+  it('sends nothing through a proxy, whatever the environment says', async () => {
+    // A proxy would connect to wherever it resolved the name, after this code
+    // checked a different answer. The listener stands in for one; the child
+    // process is told to use it by every variable Node and the usual tools read.
+    const seen = []
+    const proxy = createServer((socket) => {
+      socket.on('error', () => {})
+      socket.once('data', (chunk) => {
+        seen.push(chunk.toString('latin1').split('\r\n')[0])
+        socket.destroy()
+      })
+    })
+
+    await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+
+    const url = `http://127.0.0.1:${proxy.address().port}`
+
+    try {
+      const { stdout } = await run(
+        process.execPath,
+        [
+          fileURLToPath(new URL('./helpers/proxy-env-probe.mjs', import.meta.url)),
+          'control.invalid',
+        ],
+        {
+          cwd: fileURLToPath(new URL('..', import.meta.url)),
+          timeout: 30_000,
+          env: {
+            PATH: process.env.PATH ?? '',
+            NODE_ENV: 'test',
+            NODE_USE_ENV_PROXY: '1',
+            HTTPS_PROXY: url,
+            https_proxy: url,
+            HTTP_PROXY: url,
+            http_proxy: url,
+            ALL_PROXY: url,
+            all_proxy: url,
+            NO_PROXY: '',
+            no_proxy: '',
+          },
+        },
+      )
+      const result = JSON.parse(stdout.trim().split('\n').at(-1))
+
+      // The control went through the proxy, so the environment was in force.
+      expect(seen).toContain('CONNECT control.invalid:443 HTTP/1.1')
+      // The fetcher did not: no tunnel to the picture host, one direct socket.
+      expect(seen.filter((line) => /sulekha/iu.test(line))).toEqual([])
+      expect(seen).toHaveLength(1)
+      expect(result.direct).toBe(1)
+      expect(result.fetched).not.toBe('OK')
+    } finally {
+      await new Promise((resolve) => proxy.close(resolve))
+    }
+  })
+
+  it('refuses a picture whose host resolves to a private address before any connection, through the import route', async () => {
+    const world = await makeWorld()
+    const imported = platformHeldImportFixture(world.ids)
+    // One address from the ranges most worth reaching, and their IPv4-mapped
+    // and NAT64 forms; the full list is pinned in import-images.test.js.
+    const PRIVATE = [
+      '127.0.0.1',
+      '10.0.0.7',
+      '100.64.0.1',
+      '169.254.169.254',
+      '172.16.0.1',
+      '192.168.1.1',
+      '0.0.0.0',
+      '::1',
+      'fd00::1',
+      'fe80::1',
+      '::ffff:127.0.0.1',
+      '64:ff9b::a9fe:a9fe',
+    ]
+    /** @type {Map<string, Array<{address: string, family: number}>>} */
+    const answers = new Map([[imported.image.url, [{ address: '192.168.0.10', family: 4 }]]])
+    const extra = PRIVATE.map((address, index) => {
+      const url = `https://usimg.sulekha.io/cdn/events/images/private-${index}.png`
+
+      answers.set(url, [{ address, family: isIP(address) }])
+
+      return { ...imported.image, id: cuid(), url, role: 'GALLERY', position: index + 1 }
+    })
+    // A public answer beside a private one is refused too.
+    const mixed = 'https://usimg.sulekha.io/cdn/events/images/mixed.png'
+
+    answers.set(mixed, [
+      { address: '93.184.216.34', family: 4 },
+      { address: '10.1.2.3', family: 4 },
+    ])
+    extra.push({ ...imported.image, id: cuid(), url: mixed, role: 'GALLERY', position: 99 })
+
+    // The run page answers with the plan the administrator read: a whole row.
+    imported.run.plan = [
+      {
+        sourceId: imported.item.sourceId,
+        title: imported.event.title,
+        startsAt: imported.event.startsAt.toISOString(),
+        city: imported.venue.city,
+        action: 'CREATE',
+        eventId: imported.event.id,
+        eventStatus: null,
+        resubmit: false,
+        updatable: false,
+        contentDigest: 'c'.repeat(64),
+        problem: null,
+        importNotes: [],
+        imageCount: extra.length + 1,
+        priceCount: imported.item.prices.length,
+        endTimeListed: false,
+      },
+    ]
+
+    addRows(world.seed, imported.rows)
+    addRows(world.seed, { eventImportImage: extra })
+
+    const connections = []
+    const { app, prisma } = await createTestApp({
+      seed: world.seed,
+      ids: world.ids,
+      // The real fetcher, with the name answered here and no socket anywhere.
+      fetchImportImage: (url, options) =>
+        fetchImportImage(url, {
+          ...options,
+          source: 'network',
+          resolve: (_host, _options, callback) => callback(null, answers.get(url)),
+          request: (requestOptions) => {
+            connections.push(requestOptions.hostname)
+            throw new Error('No connection may be opened.')
+          },
+        }),
+    })
+    const headers = bearer(await signIn(app, 'anil@desi-event.example'))
+
+    await stepUp(app, 'anil@desi-event.example', headers)
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/platform/imports/${imported.run.id}/images/retry`,
+      headers,
+      payload: {},
+    })
+
+    expect(response.statusCode, response.body).toBe(200)
+
+    const images = prisma._store.eventImportImage.filter((row) => row.itemId === imported.item.id)
+
+    expect(images).toHaveLength(PRIVATE.length + 2)
+
+    for (const image of images) {
+      expect([image.url, image.status, image.failureCode]).toEqual([
+        image.url,
+        'FAILED',
+        'ADDRESS_NOT_PUBLIC',
+      ])
+    }
+
+    expect(connections).toEqual([])
+    expect(prisma._store.mediaAsset.filter((row) => row.eventId === imported.event.id)).toEqual([])
+
+    await app.close()
+  })
+})
+
+describe('what a person types is matched as typed (LIKE wildcards)', () => {
+  /**
+   * Every pattern filter (`contains`, `startsWith`, `endsWith`, an insensitive
+   * `equals`) whose value is not `likeLiteral(…)` where it is written, each
+   * read and pinned with why it cannot match more than it says. A new one fails
+   * here until somebody has escaped it or read it and added it.
+   */
+  const UNESCAPED = {
+    'apps/api/src/lib/delivery.js': {
+      values: ['email'],
+      why: '`addressCandidates` only narrows; `isSameAddress` decides, exactly',
+      reads: /export function addressCandidates\(email\)/u,
+    },
+    'apps/api/src/lib/event-deletion.js': {
+      values: ['base'],
+      why: 'an idempotency-key prefix built from the server’s own ids',
+      reads: /const base = `\$\{eventRefundPrefix\(event\.id\)\}\$\{order\.id\}`/u,
+    },
+    'apps/api/src/lib/event-import.js': {
+      values: ['term', 'term'],
+      why: 'the organisation search, escaped where `term` is made',
+      reads: /const term = q \? likeLiteral\(q\) : null/u,
+    },
+    'apps/api/src/lib/event-refunds.js': {
+      values: ['prefix'],
+      why: 'the event’s and nights’ refund-key prefixes, built from ids',
+      reads: /return `event-cancelled:\$\{eventId\}:`/u,
+    },
+    'apps/api/src/lib/notification-operations.js': {
+      values: ['`@${REDACTED_EMAIL_DOMAIN}`'],
+      why: 'a constant domain with no wildcard in it',
+      reads: /import \{ REDACTED_EMAIL_DOMAIN \} from '\.\/privacy-placeholders\.js'/u,
+    },
+    'apps/api/src/lib/refunds.js': {
+      values: ['prefix'],
+      why: 'the withdrawn-ticket reason prefixes, constants',
+      reads:
+        /const WITHDRAWN_REASON_PREFIXES = Object\.freeze\(\['event-deleted:', 'session-cancelled:'\]\)/u,
+    },
+    'apps/api/src/lib/website-redirect.js': {
+      values: ['literal', 'literal.toLowerCase()'],
+      why: 'the administrators’ link search, escaped where `literal` is made',
+      reads: /const literal = likeLiteral\(q\)/u,
+    },
+  }
+
+  it('escapes every search a person types, and pins each value that is not escaped where it is used', () => {
+    /** @type {Record<string, string[]>} */
+    const unescaped = {}
+    let escaped = 0
+
+    for (const file of sourceFiles().filter(
+      (path) => path.startsWith('apps/api/') || path.startsWith('apps/worker/'),
+    )) {
+      for (const filter of patternFilters(readCode(file))) {
+        if (/^likeLiteral\(/u.test(filter.value)) {
+          escaped += 1
+          continue
+        }
+
+        unescaped[file] = [...(unescaped[file] ?? []), filter.value]
+      }
+    }
+
+    expect(unescaped).toEqual(
+      Object.fromEntries(Object.entries(UNESCAPED).map(([file, entry]) => [file, entry.values])),
+    )
+    // The scan reads the searches it is about (events, venues, the door, the
+    // platform's people and organisations, invitations, the traffic report).
+    expect(escaped).toBeGreaterThanOrEqual(12)
+
+    for (const [file, entry] of Object.entries(UNESCAPED)) {
+      expect(readCode(file), `${file}: ${entry.why}`).toMatch(entry.reads)
+    }
   })
 })

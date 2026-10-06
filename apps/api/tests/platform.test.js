@@ -59,6 +59,28 @@ describe('POST /v1/platform/users/search', () => {
     await app.close()
   })
 
+  it('matches what was typed: an underscore or a percent sign is a character, not a wildcard', async () => {
+    const { app } = await createTestApp()
+    const headers = bearer(await signIn(app, SUPER))
+    const search = async (q) =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v1/platform/users/search',
+          headers,
+          payload: { q },
+        })
+      ).json().data
+
+    // `arun@rangoli.example` exists; as a pattern, `_` would match its `@`
+    // and `%` would match every account there is.
+    expect((await search('arun@rangoli')).map((row) => row.email)).toEqual(['arun@rangoli.example'])
+    expect(await search('arun_rangoli')).toEqual([])
+    expect(await search('%%%')).toEqual([])
+
+    await app.close()
+  })
+
   it('needs three characters', async () => {
     const { app } = await createTestApp()
 
@@ -341,6 +363,26 @@ describe('GET /v1/platform/organizations', () => {
       }),
     ])
     expect(response.json().data[0].memberCount).toBeGreaterThan(1)
+
+    await app.close()
+  })
+
+  it('matches the name or web address as typed, never as a pattern', async () => {
+    const { app } = await createTestApp()
+    const headers = bearer(await signIn(app, SUPER))
+    const search = async (q) =>
+      (
+        await app.inject({
+          method: 'GET',
+          url: `/v1/platform/organizations?q=${encodeURIComponent(q)}`,
+          headers,
+        })
+      ).json().data
+
+    expect((await search('rangoli')).map((row) => row.name)).toEqual(['Rangoli Collective'])
+    // As patterns, `rangol_` would find Rangoli and `%%%` every organisation.
+    expect(await search('rangol_')).toEqual([])
+    expect(await search('%%%')).toEqual([])
 
     await app.close()
   })

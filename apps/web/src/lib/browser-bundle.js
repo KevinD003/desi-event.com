@@ -79,6 +79,14 @@ export const FORBIDDEN = Object.freeze({
     'composes and sends show-once codes by email. A code reaches the recipient\u2019s mailbox and nowhere else.',
   'apps/web/src/lib/traffic-forwarding.js':
     'derives a visitor\u2019s address from the trusted proxy hops (TRAFFIC_TRUSTED_PROXY_HOPS) and forwards it to the API. It runs on the web server only; in a browser it would hand the address to whoever reads the bundle.',
+  // SPEC2-XI I: the importer's three modules. `apps/api/` below already
+  // covers them; each is named so a refusal says which rule it broke.
+  'apps/api/src/lib/event-import.js':
+    'the importer: the platform-held organisation, the review exemption and publication of imported events. Only an administrator\u2019s request reaches it, through the API.',
+  'apps/api/src/lib/import-images.js':
+    'the API\u2019s one outbound fetcher, with the address ranges it refuses and how it pins a connection. A browser holding it is a map of how to get past it.',
+  'apps/api/src/lib/import-dataset.js':
+    'the import file\u2019s run-time host checks and the plan it makes against the database.',
   'packages/db/': 'Prisma, the schema, and anything that can open a connection.',
   'packages/providers/': 'payment provider adapters, which hold secret-key handling.',
   'packages/ledger/': 'double-entry posting rules. Server-side money, never client-side.',
@@ -107,6 +115,14 @@ export const FORBIDDEN_CLIENT_LITERALS = Object.freeze({
   'moderation:review': 'who decides whether an event is published.',
   'payout:manage': 'who moves an organiser\u2019s money.',
   'ledger:manage': 'who may adjust the ledger.',
+  // SPEC2-XI §0.7: full control of posted events and the import.
+  'event:platform_edit':
+    'who on the Desi-Event team may edit any organisation\u2019s posted event (SPEC2-XI \u00a70.7).',
+  'event:platform_delete':
+    'who on the Desi-Event team may delete any event, or restore one (SPEC2-XI \u00a70.7).',
+  'event:import': 'who may import listed events and publish them (SPEC2-XI \u00a70.7).',
+  'event:delete_unsold':
+    'which organisation role may delete an event; the screen is told whether it may, never the name.',
 })
 
 /**

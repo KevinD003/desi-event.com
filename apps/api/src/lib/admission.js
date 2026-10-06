@@ -99,6 +99,7 @@ import { ADMISSION_REFUSAL_REASONS, withoutAddresses } from '@desi-event/schemas
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
 import { conflict, databaseErrorCode, forbidden, notFound } from './errors.js'
+import { likeLiteral } from './like-pattern.js'
 import { credentialDigest } from './ticket-credentials.js'
 import {
   ADMISSION_REFUSAL_SENTENCES,
@@ -1377,8 +1378,9 @@ function doorEventWhere(since, filters) {
     ...(filters.q
       ? {
           OR: [
-            { title: { contains: filters.q, mode: 'insensitive' } },
-            { organization: { name: { contains: filters.q, mode: 'insensitive' } } },
+            // As typed: an `_` or a `%` in the search is a character, not a wildcard.
+            { title: { contains: likeLiteral(filters.q), mode: 'insensitive' } },
+            { organization: { name: { contains: likeLiteral(filters.q), mode: 'insensitive' } } },
           ],
         }
       : {}),

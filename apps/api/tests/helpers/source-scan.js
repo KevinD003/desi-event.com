@@ -1040,3 +1040,126 @@ export function functionRange(code, name) {
 export function readCode(file) {
   return withoutComments(readFileSync(join(REPO_ROOT, file), 'utf8'))
 }
+
+/**
+ * Where every `{` outside a string, template or regular expression is.
+ *
+ * Each may open an object literal or a block; {@link objectEntries} reads
+ * either, and a block's statements never come out as `key: value` properties.
+ * A brace inside a template's `${…}` is not visited: an object built inside a
+ * template substitution is not where this application writes a filter.
+ *
+ * @param {string} code The text, comments blanked.
+ * @returns {number[]} The index of each `{`.
+ */
+export function braceStarts(code) {
+  /** @type {number[]} */
+  const starts = []
+  let index = 0
+
+  while (index < code.length) {
+    const literal = literalEnd(code, index)
+
+    if (literal !== -1) {
+      index = literal
+      continue
+    }
+
+    if (code[index] === '{') starts.push(index)
+    index += 1
+  }
+
+  return starts
+}
+
+/** The Prisma string filters that run as `LIKE`. */
+export const PATTERN_FILTER_KEYS = Object.freeze(['contains', 'startsWith', 'endsWith'])
+
+/**
+ * Every value a file hands to a Prisma string filter that PostgreSQL runs as a
+ * pattern: `contains`, `startsWith` and `endsWith` (`LIKE`), and an `equals`
+ * beside `mode: 'insensitive'` (`ILIKE`).
+ *
+ * Prisma passes the value through without escaping `_`, `%` or `\`, so a value
+ * a person typed matches more than they typed unless `likeLiteral` escaped it
+ * first. The value is reported as written (`likeLiteral(q)`, `term`,
+ * `` `@${DOMAIN}` ``); a shorthand (`{ contains }`) is reported by its name.
+ * What it does not see: a filter spread in from elsewhere (`{ ...filter }`) or
+ * built inside a template substitution.
+ *
+ * @param {string} code The text, comments blanked.
+ * @returns {Array<{key: string, value: string, line: number}>} The filters, in source order.
+ */
+export function patternFilters(code) {
+  /** @type {Array<{key: string, value: string, line: number}>} */
+  const found = []
+
+  for (const open of braceStarts(code)) {
+    const entries = objectEntries(code, open)
+    const valueOf = (entry) =>
+      entry.kind === 'shorthand' ? entry.key : code.slice(entry.start, entry.end).trim()
+    const insensitive = entries.some(
+      (entry) =>
+        entry.key === 'mode' &&
+        entry.kind === 'property' &&
+        /^['"`]insensitive['"`]$/u.test(valueOf(entry)),
+    )
+
+    for (const entry of entries) {
+      if (entry.kind !== 'property' && entry.kind !== 'shorthand') continue
+
+      const key = PATTERN_FILTER_KEYS.includes(entry.key)
+        ? entry.key
+        : entry.key === 'equals' && insensitive
+          ? 'equals (insensitive)'
+          : null
+
+      if (key) found.push({ key, value: valueOf(entry), line: lineOf(code, entry.start) })
+    }
+  }
+
+  return found.sort((a, b) => a.line - b.line)
+}
+
+/**
+ * Every module a file loads: static `import … from`, a bare `import '…'`,
+ * `export … from`, a literal `import('…')` and a literal `require('…')`, with
+ * the names a static import binds (`null` for a namespace, a default import,
+ * a re-export, a dynamic import or a require, each of which takes the module
+ * whole).
+ *
+ * @param {string} code The text, comments blanked.
+ * @returns {Array<{specifier: string, names: string[]|null, line: number}>} The loads.
+ */
+export function moduleLoads(code) {
+  /** @type {Array<{specifier: string, names: string[]|null, line: number}>} */
+  const loads = []
+  const statics =
+    /(?:^|[\n;])\s*(import|export)\s*([\w$*{},\s]*?)\s*(?:\bfrom\s*)?(['"])([^'"\n]+)\3/gu
+  const calls = /(?<![\w$.])(?:import|require)\s*\(\s*(['"`])([^'"`\n]+)\1\s*\)/gu
+
+  for (const match of code.matchAll(statics)) {
+    const [, verb, clause, , specifier] = match
+    const named = /^\{([^}]*)\}$/u.exec(clause.trim())
+    const names =
+      verb === 'import' && named
+        ? named[1]
+            .split(',')
+            .map((part) => part.trim().split(/\s+as\s+/u)[0])
+            .filter(Boolean)
+        : verb === 'import' && clause.trim() === ''
+          ? []
+          : null
+
+    // The match starts at the whitespace before the keyword; the line is the keyword's.
+    const at = match.index + match[0].search(/\b(?:import|export)\b/u)
+
+    loads.push({ specifier, names, line: lineOf(code, at) })
+  }
+
+  for (const match of code.matchAll(calls)) {
+    loads.push({ specifier: match[2], names: null, line: lineOf(code, match.index) })
+  }
+
+  return loads.sort((a, b) => a.line - b.line)
+}
