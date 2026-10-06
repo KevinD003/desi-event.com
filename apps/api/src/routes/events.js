@@ -19,15 +19,18 @@ import {
 } from '../lib/event-lifecycle.js'
 import {
   AUTHORING_MODES,
+  assertAuthorable,
   authorChange,
-  authoringMode,
   changedFields,
+  contentOnlyMessage,
   sessionProblems,
 } from '../lib/event-authoring.js'
+import { authorityAuditMetadata, byPlatform, lifecycleAuthority } from '../lib/event-authority.js'
 import { EVENT_MEDIA_INCLUDE } from '../lib/event-media.js'
 import { cancellationTransactionOptions, cancellationWork } from '../lib/event-cancellation.js'
 import {
   classifyChanges,
+  describeFields,
   materialChangeWork,
   refuseUnconfirmed,
 } from '../lib/event-material-change.js'
@@ -64,7 +67,24 @@ const EVENT_INCLUDE = Object.freeze({
   ...EVENT_MEDIA_INCLUDE,
   // Who last decided the website link, for the switch's state an insider reads.
   ...WEBSITE_REDIRECT_INCLUDE,
+  // Who deleted it, for a deleted event's record (named only to those allowed).
+  deletedBy: { select: { displayName: true } },
 })
+
+/**
+ * Whether a reader is on the Desi-Event team, for what a deleted event's
+ * record names.
+ *
+ * @param {object|null} actor The request actor.
+ * @returns {boolean} True for a moderator or a platform administrator.
+ */
+function platformReader(actor) {
+  return (
+    can(actor, CAPABILITIES.MODERATION_REVIEW) ||
+    can(actor, CAPABILITIES.PLATFORM_ADMIN) ||
+    can(actor, CAPABILITIES.EVENT_PLATFORM_EDIT)
+  )
+}
 
 /**
  * Whether a tier is inside its own sales window now.
@@ -323,7 +343,10 @@ export function buildEventQuery(query, actor, { search = [] } = {}) {
   /** @type {object[]} */
   const conditions = [visibilityFilter(actor)]
 
-  if (query.status) conditions.push({ status: query.status })
+  // A deleted event is listed only when asked for by name (the organiser's
+  // "Deleted" filter); strangers never see one, since `visibilityFilter`
+  // already holds them to public statuses.
+  conditions.push(query.status ? { status: query.status } : { status: { not: 'DELETED' } })
   if (query.category) conditions.push({ category: query.category })
   if (query.organizationId) conditions.push({ organizationId: query.organizationId })
   if (query.isOnline !== undefined) conditions.push({ isOnline: query.isOnline })
@@ -486,6 +509,29 @@ function assertVisibleTo(event, actor) {
 export { maySeeDrafts }
 
 /**
+ * The refusal for a web address another event holds.
+ *
+ * A deleted event that was ever public keeps its address, retired, so a link
+ * shared before it was deleted never shows a different event (SPEC2-XI X-11).
+ *
+ * @param {string} slug The address asked for.
+ * @param {object} holder The event holding it.
+ * @returns {Error} A 409: `SLUG_RETIRED` for a deleted holder, else `CONFLICT`.
+ */
+function slugTaken(slug, holder) {
+  if (holder.status === 'DELETED') {
+    return httpError(
+      409,
+      'SLUG_RETIRED',
+      'That web address belonged to an event that was deleted, so it stays retired. Choose another.',
+      { field: 'slug' },
+    )
+  }
+
+  return conflict(`The slug "${slug}" is already in use.`)
+}
+
+/**
  * Reserve a unique slug, retrying once with a random suffix on collision.
  *
  * @param {object} prisma The Prisma client.
@@ -497,7 +543,7 @@ export { maySeeDrafts }
 async function resolveSlug(prisma, requested, title) {
   if (requested) {
     const taken = await prisma.event.findUnique({ where: { slug: requested } })
-    if (taken) throw conflict(`The slug "${requested}" is already in use.`)
+    if (taken) throw slugTaken(requested, taken)
     return requested
   }
 
@@ -674,6 +720,9 @@ export function registerEventRoutes(app, { prisma, env }) {
           sessionsAvailability: seats.bySession,
           tierSeatsAvailable: seats.byTier,
           website: websiteViewFor(request.actor, event),
+          // A deleted event reaches only its own team and the Desi-Event team
+          // (`assertVisibleTo`), who read its record.
+          deletion: insider ? { platformReader: platformReader(request.actor) } : null,
           ...pricing,
         }),
       }
@@ -735,18 +784,25 @@ export function registerEventRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.update', {
     handler: async (request) => {
-      const existing = await prisma.event.findUnique({ where: { id: request.params.id } })
+      const existing = await prisma.event.findUnique({
+        where: { id: request.params.id },
+        include: { venue: true, sessions: true },
+      })
       if (!existing) throw notFound('No such event.')
 
-      assertCan(request.actor, CAPABILITIES.EVENT_UPDATE, {
-        organizationId: existing.organizationId,
+      // The organisation's authority through membership, or the Desi-Event
+      // team's in an open editing sitting of this browser session (SPEC2-XI
+      // X-A). A finished or cancelled event takes its words and pictures only.
+      const { mode, authority } = await assertAuthorable(prisma, existing, request.actor, {
+        session: request.session,
+        allow: [AUTHORING_MODES.DRAFT, AUTHORING_MODES.LIVE, AUTHORING_MODES.CONTENT],
       })
 
       const { revision, confirmMaterialChange = false, changeReason = null, ...body } = request.body
 
       if (body.slug && body.slug !== existing.slug) {
         const taken = await prisma.event.findUnique({ where: { slug: body.slug } })
-        if (taken) throw conflict(`The slug "${body.slug}" is already in use.`)
+        if (taken) throw slugTaken(body.slug, taken)
       }
 
       // A window is only valid as a whole, so a partial update that moves one
@@ -763,17 +819,47 @@ export function registerEventRoutes(app, { prisma, env }) {
       const data = withEventDates(syncLineUp(toEventColumns(body), existing))
       const { material, before, after } = classifyChanges(existing, data)
 
+      // What holders were told about a finished or cancelled event's date,
+      // place and terms stays as they were told it.
+      if (mode === AUTHORING_MODES.CONTENT && material.length > 0) {
+        throw httpError(
+          409,
+          'NOT_EDITABLE',
+          `${contentOnlyMessage(existing.status)} These stay as ticket holders were told them: ${describeFields(material).join(', ')}.`,
+          { status: existing.status, fields: material },
+        )
+      }
+
+      // A night with a seating map is seated at that venue: moving the event
+      // elsewhere would leave its seats at the old one (SPEC2-XI X-V).
+      if (
+        data.venueId !== undefined &&
+        data.venueId !== existing.venueId &&
+        (existing.sessions ?? []).some(
+          (session) => session.status !== 'CANCELLED' && session.venueMapVersionId,
+        )
+      ) {
+        throw httpError(
+          409,
+          'VENUE_HAS_SEATING',
+          `The nights of this event use ${existing.venue?.name ?? 'its venue'}'s seating map. Remove the map from each night (possible while nothing is sold there) or add nights at the new venue, then change the venue.`,
+          { field: 'venueId' },
+        )
+      }
+
       // Three worlds, and they are genuinely different rather than three
       // branches of one rule.
       //
       //   - A draft is somebody's private working copy: edit it.
       //   - A live event has an audience, so a material change is a change to
       //     the deal and needs confirming, a reason, and people told.
-      //   - Anything else — under review, approved, cancelled, rejected,
-      //     archived, finished — is not the organiser's to edit at all. Editing
-      //     a version a moderator is holding invalidates the decision rather
-      //     than amending it. `authoringMode` refuses those with 409.
-      const live = authoringMode(existing) === AUTHORING_MODES.LIVE
+      //   - A finished or cancelled event takes its words and pictures only
+      //     (refused above for its date, place and terms).
+      //   - Anything else — under review, approved, rejected, archived,
+      //     deleted — is not the organiser's to edit at all. Editing a version
+      //     a moderator is holding invalidates the decision rather than
+      //     amending it. `assertAuthorable` refuses those with 409.
+      const live = mode === AUTHORING_MODES.LIVE
 
       // A draft may be online before its link is typed — the editor saves the
       // tick on its own — and publication refuses it without one. A live event
@@ -811,6 +897,8 @@ export function registerEventRoutes(app, { prisma, env }) {
         event: existing,
         revision: expected,
         actor: request.actor,
+        authority,
+        sessionId: request.session?.id ?? null,
         action: material.length > 0 ? 'event.material_change' : 'event.updated',
         // Which fields changed, never what they say: content values stay out of
         // the audit row, except the before and after of a material change below.
@@ -837,6 +925,7 @@ export function registerEventRoutes(app, { prisma, env }) {
             before,
             after,
             reason: changeReason,
+            byPlatform: byPlatform(authority),
           })
 
           // Recorded separately from the audit row `authorChange` writes, so
@@ -849,6 +938,7 @@ export function registerEventRoutes(app, { prisma, env }) {
             entityId: existing.id,
             actorId: request.actor?.id ?? null,
             metadata: {
+              ...authorityAuditMetadata(authority),
               fields: material,
               before,
               after,
@@ -901,7 +991,7 @@ export function registerEventRoutes(app, { prisma, env }) {
       // make the move at all; everybody else gets the answer they would get
       // for any other status.
       assertVisibleTo(event, request.actor)
-      assertCan(request.actor, capabilityFor(to), { organizationId: event.organizationId })
+      lifecycleAuthority(request.actor, event, capabilityFor(to))
 
       throw httpError(
         409,
@@ -1015,11 +1105,11 @@ export function registerEventRoutes(app, { prisma, env }) {
       const event = await loadForTransition(prisma, request.params.id)
 
       // The dates are an edit; the return is a publication. Both authorities,
-      // the second asserted by the transition itself.
+      // the second asserted by the transition itself. Both are the organiser's
+      // (Rule L): a SUPER_ADMIN outside the organisation moves it as the
+      // Desi-Event team, and a platform ADMIN is told it is the organiser's.
       assertVisibleTo(event, request.actor)
-      assertCan(request.actor, CAPABILITIES.EVENT_UPDATE, {
-        organizationId: event.organizationId,
-      })
+      const authority = lifecycleAuthority(request.actor, event, CAPABILITIES.EVENT_UPDATE)
 
       if (event.status !== 'POSTPONED') {
         throw httpError(
@@ -1039,6 +1129,13 @@ export function registerEventRoutes(app, { prisma, env }) {
 
       for (const move of moves) {
         if (!byId.has(move.id)) problems.push('That session belongs to a different event.')
+
+        // A cancelled night does not come back, and does not move.
+        if (byId.get(move.id)?.status === 'CANCELLED') {
+          throw httpError(409, 'NOT_EDITABLE', 'This night was cancelled.', {
+            sessionId: move.id,
+          })
+        }
       }
 
       // Every night as it will be after the move, moved or not: an event brought
@@ -1164,6 +1261,8 @@ export function registerEventRoutes(app, { prisma, env }) {
             after: change.after,
             reason,
             sessions: moved,
+            kind: 'RESCHEDULED',
+            byPlatform: byPlatform(authority),
           })
 
           await recordAudit(tx, {
@@ -1172,6 +1271,7 @@ export function registerEventRoutes(app, { prisma, env }) {
             entityId: event.id,
             actorId: request.actor?.id ?? null,
             metadata: {
+              ...authorityAuditMetadata(authority),
               from: event.status,
               to: resume,
               revision: revision + 1,
@@ -1237,7 +1337,7 @@ export function registerEventRoutes(app, { prisma, env }) {
          * @param {object} updated The event after the status write.
          * @returns {Promise<void>} Resolves when done.
          */
-        onCommit: async (tx, updated) => {
+        onCommit: async (tx, updated, { byPlatform: platform }) => {
           if (newStartsAt && newEndsAt) {
             await tx.event.update({
               where: { id: updated.id },
@@ -1252,6 +1352,7 @@ export function registerEventRoutes(app, { prisma, env }) {
             reason,
             actorId: request.actor?.id ?? null,
             requestId: request.id,
+            byPlatform: platform,
           })
         },
         transactionOptions: await cancellationTransactionOptions(prisma, request.params.id),
@@ -1278,9 +1379,10 @@ export function registerEventRoutes(app, { prisma, env }) {
          *
          * @param {object} tx The transaction client.
          * @param {object} updated The cancelled event.
+         * @param {{byPlatform: boolean}} context Whose authority it was made under.
          * @returns {Promise<{auditMetadata: object}>} What the audit record carries.
          */
-        onCommit: async (tx, updated) => {
+        onCommit: async (tx, updated, { byPlatform: platform }) => {
           const work = await cancellationWork(tx, {
             event: updated,
             kind: 'CANCELLED',
@@ -1288,6 +1390,7 @@ export function registerEventRoutes(app, { prisma, env }) {
             reason,
             actorId: request.actor?.id ?? null,
             requestId: request.id,
+            byPlatform: platform,
           })
 
           return { auditMetadata: { refundWork: work } }

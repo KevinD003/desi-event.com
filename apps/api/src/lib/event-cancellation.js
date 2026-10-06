@@ -62,6 +62,7 @@
 
 import { isSuppressible } from '@desi-event/notifications'
 
+import { recordChangeNotice } from './event-change-notices.js'
 import { REFUND_BLOCKING_DISPUTE_STATES, refundableCents, requestRefund } from './refunds.js'
 import { openReconciliation } from './webhook-handlers.js'
 
@@ -145,10 +146,23 @@ const TEMPLATES = Object.freeze({
  * @param {string|null} [options.actorId] Who did it.
  * @param {string|null} [options.requestId] For the audit trail.
  * @param {Date} [options.now] The instant.
+ * @param {boolean} [options.byPlatform] Whether the Desi-Event team made the change
+ *   (a SUPER_ADMIN under Rule L, or a deletion): the notices say so, never who.
+ * @param {string|null} [options.via] What made it, when not the command itself
+ *   (`event_deletion`), carried on the refunds' audit rows.
  * @returns {Promise<{orders: number, notifications: number, refunds: number, skippedZeroValue: number, skippedDisputed: number, disputedOrderIds: string[]}>} Counts of what was created and what was not, and which orders were left to their disputes, for the audit record.
  */
 export async function cancellationWork(tx, options) {
-  const { event, kind, reasonCode, reason, actorId = null, requestId = null } = options
+  const {
+    event,
+    kind,
+    reasonCode,
+    reason,
+    actorId = null,
+    requestId = null,
+    byPlatform = false,
+    via = 'event_cancellation',
+  } = options
   const now = options.now ?? new Date()
 
   const orders = await tx.order.findMany({
@@ -196,6 +210,7 @@ export async function cancellationWork(tx, options) {
               reason,
               previousStartsAt: event.previousStartsAt?.toISOString() ?? null,
               startsAt: event.startsAt?.toISOString() ?? null,
+              byPlatform: Boolean(byPlatform),
             },
             dedupeKey,
             // Being told the event you bought a ticket for is cancelled is not
@@ -284,12 +299,28 @@ export async function cancellationWork(tx, options) {
       idempotencyKey: `event-${kind.toLowerCase()}:${event.id}:${order.id}`,
       actorId,
       requestId,
-      via: 'event_cancellation',
+      via,
       now,
     })
 
     if (created) refunds += 1
   }
+
+  // What holders are shown on their order and ticket pages: one notice for the
+  // change, written here and nowhere else for these two kinds (SPEC2-XI X-C).
+  await recordChangeNotice(tx, {
+    event,
+    kind,
+    fields: kind === 'POSTPONED' ? ['startsAt'] : [],
+    changed: kind === 'POSTPONED' ? ['the date'] : [],
+    before:
+      kind === 'POSTPONED' && event.previousStartsAt
+        ? { startsAt: event.previousStartsAt.toISOString() }
+        : null,
+    after: null,
+    reason,
+    byPlatform,
+  })
 
   return {
     orders: orders.length,

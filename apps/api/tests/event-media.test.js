@@ -94,12 +94,19 @@ describe('uploading: refused before the body is read', () => {
     await app.close()
   })
 
+  // SPEC2-XI X-3 (§8): a posted event takes new pictures, each waiting for the
+  // Desi-Event team; a held, rejected, filed or deleted one still takes none.
   it.each([
     ['REVIEW_PENDING', 'reviewPendingEvent'],
-    ['PUBLISHED', 'publishedEvent'],
     ['APPROVED', 'approvedEvent'],
-  ])('refuses a %s event with 409 NOT_EDITABLE before the body', async (_status, key) => {
-    const { app, ids } = await createTestApp()
+    ['REJECTED', 'rejectedEvent'],
+    ['ARCHIVED', 'publishedEvent'],
+    ['DELETED', 'publishedEvent'],
+  ])('refuses a %s event with 409 NOT_EDITABLE before the body', async (status, key) => {
+    const { app, ids, prisma } = await createTestApp()
+
+    prisma._store.event.find((row) => row.id === ids[key].id).status = status
+
     const headers = bearer(await signIn(app, MANAGER))
     const body = countingBody(1024 * 1024)
 
@@ -108,6 +115,29 @@ describe('uploading: refused before the body is read', () => {
     expect(response.statusCode).toBe(409)
     expect(response.json().error.code).toBe('NOT_EDITABLE')
     expect(body.sent()).toBe(0)
+
+    await app.close()
+  })
+
+  it('stores a picture added to a PUBLISHED event waiting for review, and not public', async () => {
+    const { app, ids, prisma } = await createTestApp()
+    const headers = bearer(await signIn(app, MANAGER))
+
+    const response = await upload(
+      app,
+      headers,
+      uploadUrl(ids.publishedEvent.id, { kind: 'EVENT_GALLERY' }),
+      solidPng(320, 320),
+    )
+
+    expect(response.statusCode).toBe(201)
+    expect(response.json().data).toMatchObject({
+      moderationStatus: 'PENDING',
+      publiclyVisible: false,
+    })
+    expect(
+      prisma._store.mediaAsset.find((row) => row.id === response.json().data.id).moderationStatus,
+    ).toBe('PENDING')
 
     await app.close()
   })
@@ -402,6 +432,8 @@ describe('uploading: what is stored', () => {
         'position',
         'publiclyVisible',
         'rejectionReason',
+        // A replacement cover names the cover it waits to replace (SPEC2-XI X-3).
+        'replacesMediaId',
         'url',
         'width',
       ].sort(),
@@ -809,6 +841,21 @@ describe('describing, reordering and removing', () => {
       expect(response.statusCode, status).toBe(200)
     }
 
+    // A deleted event's pictures stay as they are until it is restored.
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+
+    event.status = 'DELETED'
+
+    const kept = seedPicture(prisma, { event: ids.publishedEvent })
+    const deleted = await app.inject({
+      method: 'DELETE',
+      url: `/v1/events/${ids.publishedEvent.id}/media/${kept.id}?revision=${event.revision}`,
+      headers,
+    })
+
+    expect(deleted.statusCode).toBe(409)
+    expect(deleted.json().error.code).toBe('NOT_EDITABLE')
+
     await app.close()
   })
 
@@ -952,23 +999,48 @@ describe('describing, reordering and removing', () => {
     await app.close()
   })
 
-  it('refuses describing or reordering a cancelled event', async () => {
+  // SPEC2-XI X-1 (§8): a cancelled event's words and pictures can still be
+  // updated; an archived or deleted one's cannot.
+  it('describes and reorders a cancelled event’s pictures, and refuses an archived or deleted one', async () => {
     const { app, ids, prisma } = await createTestApp()
     const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
 
     event.status = 'CANCELLED'
 
     const cover = seedPicture(prisma, { event: ids.publishedEvent })
+    const gallery = seedPicture(prisma, { event: ids.publishedEvent, kind: 'EVENT_GALLERY' })
     const headers = bearer(await signIn(app, MANAGER))
-    const response = await app.inject({
+    const described = await app.inject({
       method: 'PATCH',
       url: `/v1/events/${ids.publishedEvent.id}/media/${cover.id}`,
       headers,
-      payload: { revision: 0, altText: 'A new description' },
+      payload: { revision: event.revision, altText: 'A new description' },
     })
 
-    expect(response.statusCode).toBe(409)
-    expect(response.json().error.code).toBe('NOT_EDITABLE')
+    expect(described.statusCode).toBe(200)
+
+    const reordered = await app.inject({
+      method: 'PUT',
+      url: `/v1/events/${ids.publishedEvent.id}/media/order`,
+      headers,
+      payload: { revision: event.revision, galleryIds: [gallery.id] },
+    })
+
+    expect(reordered.statusCode).toBe(200)
+
+    for (const status of ['ARCHIVED', 'DELETED']) {
+      event.status = status
+
+      const refused = await app.inject({
+        method: 'PATCH',
+        url: `/v1/events/${ids.publishedEvent.id}/media/${cover.id}`,
+        headers,
+        payload: { revision: event.revision, altText: 'Another description' },
+      })
+
+      expect(refused.statusCode, status).toBe(409)
+      expect(refused.json().error.code).toBe('NOT_EDITABLE')
+    }
 
     await app.close()
   })

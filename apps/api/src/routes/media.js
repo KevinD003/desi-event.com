@@ -175,6 +175,7 @@ export function registerMediaRoutes(
       actor: request.actor,
       kind: request.query?.kind,
       declaredBytes: Number.isFinite(declared) ? declared : 0,
+      session: request.session ?? null,
     })
   }
 
@@ -203,7 +204,9 @@ export function registerMediaRoutes(
 
       // Again, now that the body is here: the gate ran before the body was
       // read, and the event may have moved while it arrived.
-      assertMediaChange(event, request.actor, 'upload')
+      await assertMediaChange(prisma, event, request.actor, 'upload', {
+        session: request.session ?? null,
+      })
 
       const upload = sanitiseImage(request.body, { kind })
 
@@ -214,6 +217,7 @@ export function registerMediaRoutes(
         kind,
         altText,
         upload,
+        session: request.session ?? null,
       })
 
       request.log.info(
@@ -237,6 +241,7 @@ export function registerMediaRoutes(
         revision: request.body.revision,
         mediaId: request.params.mediaId,
         altText: request.body.altText,
+        session: request.session ?? null,
       })
 
       return { data: asset, meta: { revision: updated.revision } }
@@ -251,6 +256,7 @@ export function registerMediaRoutes(
         actor: request.actor,
         revision: request.body.revision,
         galleryIds: request.body.galleryIds,
+        session: request.session ?? null,
       })
 
       return { data: await listEventMedia(prisma, updated), meta: { revision: updated.revision } }
@@ -265,6 +271,7 @@ export function registerMediaRoutes(
         actor: request.actor,
         revision: request.query.revision,
         mediaId: request.params.mediaId,
+        session: request.session ?? null,
       })
 
       return { data: await listEventMedia(prisma, updated), meta: { revision: updated.revision } }

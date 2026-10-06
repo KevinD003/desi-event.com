@@ -440,11 +440,17 @@ describe('what the event’s status allows', () => {
     expect(screen.getByText(/2 of 8 pictures/)).toBeInTheDocument()
   })
 
-  it('offers only describing, reordering and removing on a live event, and says why', () => {
+  it('offers uploads, describing, reordering and removing on a live event, each new picture shown once the Desi-Event team approves it', () => {
     renderPanel({ status: 'PUBLISHED', media: [picture(), galleryPicture(0), galleryPicture(1)] })
 
-    expect(screen.queryByRole('form')).toBeNull()
-    expect(screen.getByText(/a new picture cannot be added/)).toBeInTheDocument()
+    expect(screen.getByRole('form', { name: 'Replace the cover' })).toBeInTheDocument()
+    expect(screen.getByRole('form', { name: 'Add a gallery picture' })).toBeInTheDocument()
+    expect(
+      screen.getByText(/appears on the public page once the Desi-Event team approves it/),
+    ).toBeInTheDocument()
+    // The current cover stays up until a replacement is approved.
+    expect(screen.getByText(/stays on the page until then/)).toBeInTheDocument()
+    expect(screen.queryByText(/reviewed with the event/)).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Edit description' })).toHaveLength(3)
     expect(screen.getByRole('button', { name: 'Move later: picture 1 of 2' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Remove: the cover' })).toBeEnabled()
@@ -471,11 +477,16 @@ describe('what the event’s status allows', () => {
     expect(screen.queryByText(/moderator is looking/i)).toBeNull()
   })
 
-  it('offers only removal on a cancelled event, so storage can be freed', () => {
-    renderPanel({ status: 'CANCELLED', media: [picture()] })
+  it('offers describing, reordering, removal and uploads on a cancelled event, each new picture shown once the Desi-Event team approves it', () => {
+    renderPanel({ status: 'CANCELLED', media: [picture(), galleryPicture(0), galleryPicture(1)] })
 
-    expect(screen.queryByRole('button', { name: 'Edit description' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Edit description' })).toHaveLength(3)
+    expect(screen.getByRole('button', { name: 'Move later: picture 1 of 2' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Remove: the cover' })).toBeEnabled()
+    expect(screen.getByRole('form', { name: 'Add a gallery picture' })).toBeInTheDocument()
+    expect(
+      screen.getByText(/appears on the public page once the Desi-Event team approves it/),
+    ).toBeInTheDocument()
   })
 
   it('says the gallery is full instead of offering a ninth upload', () => {

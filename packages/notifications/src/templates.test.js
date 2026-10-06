@@ -29,10 +29,17 @@ describe('the template list', () => {
   })
 
   it('names every template in the dotted, lower-case form an operator sorts by', () => {
+    // A segment may be one snake_case phrase (`session_cancelled`), as the
+    // audit actions' verbs are; it is still one segment between dots.
+    const DOTTED = /^[a-z]+(\.[a-z]+(?:_[a-z]+)*)+$/u
+
     for (const template of OUTBOX_TEMPLATES) {
-      expect(template, `${template} is not a dotted lower-case name`).toMatch(
-        /^[a-z]+(\.[a-z]+)+$/u,
-      )
+      expect(template, `${template} is not a dotted lower-case name`).toMatch(DOTTED)
+    }
+
+    // Still refused: no dot, a capital, a trailing or doubled underscore.
+    for (const bad of ['event', 'Event.cancelled', 'event.session_', 'event.session__cancelled']) {
+      expect(bad).not.toMatch(DOTTED)
     }
   })
 })
@@ -80,6 +87,7 @@ describe('suppressibility', () => {
       'event.cancelled',
       'event.postponed',
       'event.changed',
+      'event.session_cancelled',
       'ticket.issued',
       'ticket.transfer.invited',
       'ticket.revoked',

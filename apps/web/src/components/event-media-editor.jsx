@@ -38,6 +38,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react'
 
+import { EDITABLE_STATUSES } from '@desi-event/schemas/lifecycle'
 import {
   MEDIA_ARRANGE_STATUSES,
   MEDIA_LIMITS,
@@ -225,6 +226,9 @@ function MediaPanel({
   const canUpload = MEDIA_UPLOAD_STATUSES.has(status)
   const canArrange = MEDIA_ARRANGE_STATUSES.has(status)
   const canRemove = MEDIA_REMOVE_STATUSES.has(status)
+  // Posted (live, finished or cancelled): a new picture is not reviewed with
+  // the event but on its own, by the Desi-Event team (SPEC2-XI X-3).
+  const posted = canUpload && !EDITABLE_STATUSES.has(status)
 
   const cover = items.find((item) => item.kind === 'EVENT_COVER') ?? null
   const gallery = items.filter((item) => item.kind === 'EVENT_GALLERY')
@@ -315,7 +319,9 @@ function MediaPanel({
     setAnnouncement(
       [
         picture.kind === 'EVENT_COVER' ? 'Cover uploaded.' : 'Picture added to the gallery.',
-        'It appears on the public page once a moderator approves the event.',
+        posted
+          ? 'It appears on the public page once the Desi-Event team approves it.'
+          : 'It appears on the public page once a moderator approves the event.',
         removed.length > 0 ? `Removed before saving: ${removed.join(', ')}.` : null,
       ]
         .filter(Boolean)
@@ -412,15 +418,17 @@ function MediaPanel({
   }
 
   /** Why some controls are absent, in one sentence. */
-  const whatApplies = canUpload
-    ? 'New pictures are reviewed with the event: each appears on the public page once a moderator approves it.'
-    : canArrange
-      ? 'This event is live, so its pictures can be described again, reordered or removed, but a new picture cannot be added: every new picture is reviewed with the event.'
-      : canRemove
-        ? 'Pictures on this event can be removed, which also frees your organisation’s storage, but not changed.'
-        : status === 'APPROVED'
-          ? 'This event is approved and waiting for you to publish it. Its pictures can be described again, reordered or removed once it is published.'
-          : 'A moderator is looking at this version of the event, so its pictures cannot change until they decide or you withdraw it from review.'
+  const whatApplies = posted
+    ? 'This event is posted, so each new picture waits for the Desi-Event team: it appears on the public page once the Desi-Event team approves it. A new cover waits beside the current one, which stays on the page until then.'
+    : canUpload
+      ? 'New pictures are reviewed with the event: each appears on the public page once a moderator approves it.'
+      : canArrange
+        ? 'This event is live, so its pictures can be described again, reordered or removed, but a new picture cannot be added: every new picture is reviewed with the event.'
+        : canRemove
+          ? 'Pictures on this event can be removed, which also frees your organisation’s storage, but not changed.'
+          : status === 'APPROVED'
+            ? 'This event is approved and waiting for you to publish it. Its pictures can be described again, reordered or removed once it is published.'
+            : 'A moderator is looking at this version of the event, so its pictures cannot change until they decide or you withdraw it from review.'
 
   return (
     <section aria-labelledby="media-heading" className="space-y-8" data-slot="event-media-editor">

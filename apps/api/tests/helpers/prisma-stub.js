@@ -292,6 +292,11 @@ const RELATIONS = {
     order: { kind: 'one', model: 'order', from: 'orderId', to: 'id' },
     disputes: { kind: 'many', model: 'dispute', from: 'id', to: 'paymentId' },
   },
+  // A version's map, for the venue a night's new seating belongs to (a live
+  // night may move to another map, SPEC2-XI X-4).
+  venueMapVersion: {
+    venueMap: { kind: 'one', model: 'venueMap', from: 'venueMapId', to: 'id' },
+  },
   dispute: {
     payment: { kind: 'one', model: 'payment', from: 'paymentId', to: 'id' },
   },
@@ -1432,6 +1437,31 @@ export function createPrismaStub(seed = {}) {
       if (relation && condition && typeof condition === 'object') {
         const related = resolveRelation(model, row, key)
         if (relation.kind === 'one') {
+          // Prisma's to-one filters `is` and `isNot`, null meaning "no related row".
+          if ('is' in condition || 'isNot' in condition) {
+            if ('is' in condition) {
+              const clause = condition.is
+              const hit =
+                clause === null
+                  ? !related
+                  : Boolean(related) && matches(relation.model, related, clause)
+
+              if (!hit) return false
+            }
+
+            if ('isNot' in condition) {
+              const clause = condition.isNot
+              const hit =
+                clause === null
+                  ? !related
+                  : Boolean(related) && matches(relation.model, related, clause)
+
+              if (hit) return false
+            }
+
+            continue
+          }
+
           if (!related || !matches(relation.model, related, condition)) return false
           continue
         }

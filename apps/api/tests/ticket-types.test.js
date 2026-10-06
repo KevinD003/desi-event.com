@@ -313,6 +313,76 @@ describe('POST /v1/events/:eventId/ticket-types', () => {
   })
 })
 
+describe('POST /v1/events/:eventId/ticket-types — the authoring path (SPEC2-XI X-A)', () => {
+  /** A valid tier payload. */
+  const tier = (eventId) => ({ eventId, name: 'Balcony', priceCents: 250_000, quantityTotal: 50 })
+
+  it.each(['CANCELLED', 'COMPLETED', 'REVIEW_PENDING', 'DELETED'])(
+    'refuses a %s event with 409 NOT_EDITABLE, writing nothing',
+    async (status) => {
+      const { app, prisma, ids } = await createTestApp()
+
+      prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = status
+
+      const before = prisma._store.ticketType.length
+      const response = await app.inject({
+        method: 'POST',
+        url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+        headers: bearer(await signIn(app, 'arun@rangoli.example')),
+        payload: tier(ids.publishedEvent.id),
+      })
+
+      expect(response.statusCode).toBe(409)
+      expect(response.json().error.code).toBe('NOT_EDITABLE')
+      expect(prisma._store.ticketType).toHaveLength(before)
+
+      await app.close()
+    },
+  )
+
+  it('refuses a SUPER_ADMIN who is not a member and has no editing sitting', async () => {
+    const { app, ids } = await createTestApp()
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(await signIn(app, 'ops@desi-event.example')),
+      payload: tier(ids.publishedEvent.id),
+    })
+
+    expect(response.statusCode).toBe(403)
+    expect(response.json().error.code).toBe('PLATFORM_EDIT_NOT_OPEN')
+
+    await app.close()
+  })
+
+  it('bumps the event’s revision, and audits it with the new one', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+    const before = event.revision
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/v1/events/${ids.publishedEvent.id}/ticket-types`,
+      headers: bearer(await signIn(app, 'arun@rangoli.example')),
+      payload: tier(ids.publishedEvent.id),
+    })
+
+    expect(response.statusCode).toBe(201)
+    expect(event.revision).toBe(before + 1)
+
+    const audit = prisma._store.auditLog.find(
+      (row) =>
+        row.action === 'event.ticket_type_added' &&
+        row.metadata?.tierId === response.json().data.id,
+    )
+
+    expect(audit.metadata).toMatchObject({ revision: before + 1, mode: 'live' })
+
+    await app.close()
+  })
+})
+
 describe('POST /v1/events/:eventId/waitlist', () => {
   it('registers interest', async () => {
     const { app, ids } = await createTestApp()
@@ -373,6 +443,50 @@ describe('POST /v1/events/:eventId/waitlist', () => {
     })
 
     expect(response.statusCode).toBe(404)
+
+    await app.close()
+  })
+
+  // SPEC2-XI X-S (§8): only an event the public can see has a waiting list.
+  it('answers an event that is not public, a deleted one included, as an unknown one', async () => {
+    const { app, prisma, ids } = await createTestApp()
+
+    prisma._store.event.find((row) => row.id === ids.publishedEvent.id).status = 'DELETED'
+
+    for (const event of [ids.draftEvent, ids.reviewPendingEvent, ids.publishedEvent]) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/v1/events/${event.id}/waitlist`,
+        payload: { eventId: event.id, email: 'hopeful@example.com' },
+      })
+
+      expect(response.statusCode).toBe(404)
+      expect(response.json().error.message).toBe('No such event.')
+    }
+
+    expect(prisma._store.waitlistEntry).toHaveLength(0)
+
+    await app.close()
+  })
+
+  it('has no waiting list for an event that is over or was cancelled', async () => {
+    const { app, prisma, ids } = await createTestApp()
+    const event = prisma._store.event.find((row) => row.id === ids.publishedEvent.id)
+
+    for (const status of ['CANCELLED', 'COMPLETED']) {
+      event.status = status
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/v1/events/${event.id}/waitlist`,
+        payload: { eventId: event.id, email: 'hopeful@example.com' },
+      })
+
+      expect(response.statusCode, status).toBe(409)
+      expect(response.json().error.message).toBe(
+        'This event is over or was cancelled, so it has no waiting list.',
+      )
+    }
 
     await app.close()
   })

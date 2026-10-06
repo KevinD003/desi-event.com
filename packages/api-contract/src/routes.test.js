@@ -158,6 +158,8 @@ describe('apiRoutes', () => {
       'organizations.create',
       'organizerInvitations.create',
       'organizerInvitations.reissue',
+      // A platform editing sitting is a resource: it is opened, and later closed.
+      'platformEvents.openEdit',
     ]
 
     for (const id of created) {
@@ -405,5 +407,90 @@ describe('organiser onboarding routes', () => {
     expect(API_TAGS.find((tag) => tag.name === 'platform').description).toMatch(
       /organiser invitations/u,
     )
+  })
+})
+
+describe('full control of posted events (SPEC2-XI X)', () => {
+  /** id → [method, path, capability, step-up]. */
+  const EXPECTED = {
+    'events.deletionPreview': ['GET', '/v1/events/:id/deletion', undefined, undefined],
+    'events.delete': ['POST', '/v1/events/:id/delete', undefined, 'EVENT_CANCEL'],
+    'events.finishRefunds': ['POST', '/v1/events/:id/refunds/finish', undefined, 'EVENT_CANCEL'],
+    'events.sessionCancellationPreview': [
+      'GET',
+      '/v1/events/:id/sessions/:sessionId/cancellation',
+      undefined,
+      undefined,
+    ],
+    'events.cancelSession': [
+      'POST',
+      '/v1/events/:id/sessions/:sessionId/cancel',
+      undefined,
+      'EVENT_CANCEL',
+    ],
+    'events.platformEdits': ['GET', '/v1/events/:id/platform-edits', undefined, undefined],
+    'platformEvents.list': ['GET', '/v1/platform/events', 'event:platform_edit', undefined],
+    'platformEvents.openEdit': [
+      'POST',
+      '/v1/platform/events/:id/edit',
+      'event:platform_edit',
+      'MODERATION',
+    ],
+    'platformEvents.closeEdit': [
+      'POST',
+      '/v1/platform/events/:id/edit/close',
+      'event:platform_edit',
+      undefined,
+    ],
+    'platformEvents.restore': [
+      'POST',
+      '/v1/platform/events/:id/restore',
+      'event:platform_delete',
+      'EVENT_PUBLISH',
+    ],
+    'moderation.mediaQueue': ['GET', '/v1/moderation/media', 'moderation:review', undefined],
+  }
+
+  it('places the eleven routes at their method and path, with their capability and step-up', () => {
+    for (const [id, [method, path, capability, stepUp]] of Object.entries(EXPECTED)) {
+      const route = routeById(id)
+
+      expect(routeKey(route), id).toBe(`${method} ${path}`)
+      expect(route.auth, id).toBe('session')
+      expect(route.capability ?? undefined, id).toBe(capability)
+      expect(route.stepUp ?? undefined, id).toBe(stepUp)
+    }
+  })
+
+  it('tags none of them `platform`, so the closed platform list stays as it is', () => {
+    for (const id of Object.keys(EXPECTED)) {
+      expect(routeById(id).tags, id).toEqual(['events'])
+    }
+  })
+
+  it('declares a step-up on every POST but closing a sitting', () => {
+    for (const id of Object.keys(EXPECTED)) {
+      const route = routeById(id)
+
+      if (route.method !== 'POST' || id === 'platformEvents.closeEdit') continue
+
+      expect(route.stepUp, id).toBeTruthy()
+    }
+  })
+
+  it('leaves the authority of the event routes to the handler, which knows the organisation', () => {
+    // The organisation is only known once the event is loaded: membership or a
+    // platform capability is asserted in the handler, never by a scope.
+    for (const id of [
+      'events.deletionPreview',
+      'events.delete',
+      'events.finishRefunds',
+      'events.sessionCancellationPreview',
+      'events.cancelSession',
+      'events.platformEdits',
+    ]) {
+      expect(routeById(id).capability ?? null, id).toBeNull()
+      expect(routeById(id).capabilityScope ?? null, id).toBeNull()
+    }
   })
 })

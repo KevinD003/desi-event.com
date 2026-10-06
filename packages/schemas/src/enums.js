@@ -404,6 +404,10 @@ export const ADMISSION_REFUSAL_REASONS = Object.freeze([
   'NOT_ADMISSIBLE',
   'ORDER_NOT_PAID',
   'EVENT_CANCELLED',
+  /** The event was taken off Desi-Event (deleted); nobody is admitted to it. */
+  'EVENT_DELETED',
+  /** The night the ticket is for, or the night the door named, was cancelled. */
+  'SESSION_CANCELLED',
   'WRONG_EVENT',
   /**
    * The ticket is for one night and the door is admitting to another, or the

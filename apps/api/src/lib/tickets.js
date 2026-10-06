@@ -176,14 +176,33 @@ export function canTransition(from, to) {
  * `CHECKED_IN` is not a refusal: a second scan is a duplicate, answered with the
  * original admission rather than an error.
  *
+ * ## A deleted event and a cancelled night (SPEC2-XI X-S)
+ *
+ * A deleted event admits nobody (`EVENT_DELETED`), and neither does a
+ * cancelled night (`SESSION_CANCELLED`): the night the ticket is for, or the
+ * night the door named, when it was given. Their tickets are withdrawn when
+ * the event is deleted or the night cancelled, so a withdrawn ticket names the
+ * reason it was withdrawn rather than a bare `CANCELLED`.
+ *
  * @param {object} ticket The ticket.
  * @param {object|null} order Its order.
  * @param {object|null} [event] Its event, with `status` and `cancelledAt`.
+ * @param {object|null} [session] The night in question, with `status`.
  * @returns {string|null} One of `ADMISSION_REFUSAL_REASONS`, or null.
  */
-export function admissionRefusalCode(ticket, order, event = null) {
+export function admissionRefusalCode(ticket, order, event = null, session = null) {
   if (!ADMISSIBLE_STATES.includes(ticket.status)) {
     if (ticket.status === TICKET_STATES.CHECKED_IN) return null
+
+    if (ticket.status === TICKET_STATES.CANCELLED) {
+      if (event?.status === 'DELETED') return 'EVENT_DELETED'
+      if (
+        session?.status === 'CANCELLED' ||
+        String(ticket.revokedReason ?? '').startsWith(SESSION_CANCELLED_PREFIX)
+      ) {
+        return 'SESSION_CANCELLED'
+      }
+    }
 
     const codes = {
       [TICKET_STATES.REFUNDED]: 'REFUNDED',
@@ -199,7 +218,11 @@ export function admissionRefusalCode(ticket, order, event = null) {
 
   if (order && order.status !== 'PAID') return 'ORDER_NOT_PAID'
 
+  if (event?.status === 'DELETED') return 'EVENT_DELETED'
+
   if (event && (event.status === 'CANCELLED' || event.cancelledAt)) return 'EVENT_CANCELLED'
+
+  if (session?.status === 'CANCELLED') return 'SESSION_CANCELLED'
 
   return null
 }
@@ -222,6 +245,8 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
   NOT_ADMISSIBLE: 'This ticket cannot be admitted.',
   ORDER_NOT_PAID: 'The order for this ticket is not paid.',
   EVENT_CANCELLED: 'This event was cancelled.',
+  EVENT_DELETED: 'This event was taken off Desi-Event.',
+  SESSION_CANCELLED: 'This night was cancelled.',
   WRONG_EVENT: 'This ticket is for a different event.',
   WRONG_NIGHT: 'This ticket is for a different night.',
   NIGHT_REQUIRED: 'This event has more than one night. Say which night the door is admitting to.',
@@ -239,8 +264,8 @@ export const ADMISSION_REFUSAL_SENTENCES = Object.freeze({
  * @param {object|null} [event] Its event, with `status` and `cancelledAt`.
  * @returns {string|null} A sentence for the person holding the ticket or the scanner, or null.
  */
-export function admissionRefusal(ticket, order, event = null) {
-  const code = admissionRefusalCode(ticket, order, event)
+export function admissionRefusal(ticket, order, event = null, session = null) {
+  const code = admissionRefusalCode(ticket, order, event, session)
 
   return code === null ? null : ADMISSION_REFUSAL_SENTENCES[code]
 }
@@ -840,6 +865,65 @@ export async function revokeTicket(tx, { ticket, reason, actorId, requestId = nu
   })
 
   return true
+}
+
+/** The `revokedReason` prefix of a ticket withdrawn because its event was deleted. */
+export const EVENT_DELETED_PREFIX = 'event-deleted:'
+
+/** The `revokedReason` prefix of a ticket withdrawn because its night was cancelled. */
+export const SESSION_CANCELLED_PREFIX = 'session-cancelled:'
+
+/**
+ * Withdraw tickets because their event was deleted or their night cancelled.
+ *
+ * VALID and TRANSFER_PENDING tickets become CANCELLED in the caller's
+ * transaction: the pass dies with them (`credentialHash` cleared, the version
+ * bumped), and an offer outstanding on one is withdrawn. The reason names the
+ * event or the night (`event-deleted:<eventId>`, `session-cancelled:<sessionId>`),
+ * which is how the refund that later settles their order finds them
+ * (`revokeAndReturn`) and moves them to REFUNDED. A ticket already admitted,
+ * refunded or handed on is left as it is.
+ *
+ * Conditional updates, so a ticket scanned or refunded a moment earlier is not
+ * overwritten; the count is what this call withdrew.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} params Inputs.
+ * @param {string[]} params.ticketIds The tickets to withdraw.
+ * @param {string} params.reason `event-deleted:<id>` or `session-cancelled:<id>`.
+ * @param {Date} params.now The instant.
+ * @returns {Promise<number>} How many were withdrawn.
+ */
+export async function withdrawTickets(tx, { ticketIds, reason, now }) {
+  const ids = [...new Set(ticketIds ?? [])]
+
+  if (ids.length === 0) return 0
+
+  const withdrawable = [TICKET_STATES.VALID, TICKET_STATES.TRANSFER_PENDING]
+  const pending = await tx.ticket.findMany({
+    where: { id: { in: ids }, status: TICKET_STATES.TRANSFER_PENDING },
+    select: { id: true },
+  })
+
+  const { count } = await tx.ticket.updateMany({
+    where: { id: { in: ids }, status: { in: withdrawable } },
+    data: {
+      status: TICKET_STATES.CANCELLED,
+      revokedAt: now,
+      revokedReason: reason,
+      credentialHash: null,
+      credentialVersion: { increment: 1 },
+    },
+  })
+
+  if (pending.length > 0) {
+    await tx.ticketTransfer.updateMany({
+      where: { ticketId: { in: pending.map((ticket) => ticket.id) }, status: 'PENDING' },
+      data: { status: 'CANCELLED', cancelledAt: now },
+    })
+  }
+
+  return count
 }
 
 /**

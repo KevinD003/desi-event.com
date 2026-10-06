@@ -30,6 +30,7 @@ import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { buildPricingSnapshot } from '@desi-event/pricing'
 import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
+import { changesForOrder } from '../lib/event-change-notices.js'
 import { feeConfigFor, priceCheckout, toOrderQuote } from '../lib/checkout-pricing.js'
 import { EVENT_COVER_INCLUDE } from '../lib/event-media.js'
 import {
@@ -636,6 +637,9 @@ export function registerOrderRoutes(app, { prisma, providers, env, passLimit, qu
           // The joining link and the address are the buyer's alone.
           ...toOrder(order, { buyerAddress: buyer, joinUrl: buyer }),
           groupPass: groupPassSummary(order, { viewerUserId: request.actor?.id, issued }),
+          // What changed about the event since this order was placed and
+          // touches it, as recorded with each change (SPEC2-XI X-14).
+          eventChanges: await changesForOrder(prisma, order),
         },
       }
     },

@@ -186,6 +186,72 @@ function changedFieldsLine(data) {
 }
 
 /**
+ * Who made a change, as the people holding tickets are told it: the organiser,
+ * or the Desi-Event team when it changed the event in one of its editing
+ * sittings (`data.byPlatform`). Never an administrator's name.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @param {boolean} [capitalised] Whether the phrase starts a sentence.
+ * @returns {string} The phrase.
+ */
+function byWhom(data, capitalised = false) {
+  if (data?.byPlatform === true) return capitalised ? 'The Desi-Event team' : 'the Desi-Event team'
+
+  return capitalised ? 'The organiser' : 'the organiser'
+}
+
+/**
+ * Which night was cancelled, when the payload names it.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} A line, or `''`.
+ */
+function nightLine(data) {
+  const label = field(data, 'sessionLabel', '')
+  const startsAt = field(data, 'sessionStartsAt', '')
+
+  if (label === '' && startsAt === '') return ''
+
+  return `The night cancelled: ${[label, startsAt && `starting ${startsAt}`].filter(Boolean).join(', ')}.`
+}
+
+/**
+ * What a cancelled night means for this order's tickets, one sentence per
+ * outcome the API recorded (`data.outcome`, `NIGHT_OUTCOMES` in the API's
+ * `lib/session-cancellation.js`).
+ *
+ * Each outcome has its own sentence, so nobody who paid is told their tickets
+ * were free, and nobody whose refund waits on a dispute is told it is on its
+ * way. A notice queued before outcomes were recorded falls back to the two
+ * flags it carried: `keptEveryNight`, and `refunded === false` for a free
+ * ticket.
+ *
+ * @param {Record<string, unknown>} data The payload data bag.
+ * @returns {string} The line.
+ */
+function nightOutcomeLine(data) {
+  const order = orderPhrase(data)
+  const lines = {
+    REFUNDED: `Your tickets from ${order} for that night are refunded in full.`,
+    KEPT: `Your ticket from ${order} is valid for every night, so you keep it for the others.`,
+    FREE: `Your tickets from ${order} for that night are withdrawn. They were free, so there is nothing to refund.`,
+    NOTHING_OWED: `Your tickets from ${order} for that night are withdrawn. Nothing is left to refund for them.`,
+    DISPUTED: `Your tickets from ${order} for that night are withdrawn. Your payment is under dispute, so any refund is handled with the dispute.`,
+    UNPAID: `${orderPhrase(data, true)} was not paid, so it is cancelled and nothing is charged.`,
+    NOT_SENT: `Your tickets from ${order} for that night are withdrawn. Their refund was not sent automatically, so contact the organiser about it.`,
+  }
+
+  if (typeof data?.outcome === 'string' && Object.hasOwn(lines, data.outcome)) {
+    return lines[data.outcome]
+  }
+
+  if (data?.keptEveryNight === true) return lines.KEPT
+  if (data?.refunded === false) return lines.FREE
+
+  return lines.REFUNDED
+}
+
+/**
  * One renderer per template in `EMAIL_TEMPLATES`.
  *
  * @type {Readonly<Record<string, TemplateRenderer>>}
@@ -288,7 +354,7 @@ export const TEMPLATES = Object.freeze({
     heading: 'The event has been cancelled',
     lines: [
       'Hello,',
-      `${field(data, 'eventTitle', 'The event')} has been cancelled by the organiser.`,
+      `${field(data, 'eventTitle', 'The event')} has been cancelled by ${byWhom(data)}.`,
       field(data, 'reason', ''),
       `This affects ${orderPhrase(data)}.`,
       'A refund has been requested. Nothing further is needed from you.',
@@ -312,10 +378,22 @@ export const TEMPLATES = Object.freeze({
     heading: 'A detail of your event has changed',
     lines: [
       'Hello,',
-      `The organiser has changed something about ${field(data, 'eventTitle', 'your event')}.`,
+      `${byWhom(data, true)} has changed something about ${field(data, 'eventTitle', 'your event')}.`,
       changedFieldsLine(data),
       field(data, 'reason', ''),
       `Your tickets from ${orderPhrase(data)} are unaffected.`,
+    ],
+  }),
+
+  'event.session_cancelled': (data) => ({
+    subject: `A night of ${field(data, 'eventTitle', 'an event you booked')} has been cancelled`,
+    heading: 'A night of your event has been cancelled',
+    lines: [
+      'Hello,',
+      `${byWhom(data, true)} has cancelled one night of ${field(data, 'eventTitle', 'your event')}.`,
+      nightLine(data),
+      field(data, 'reason', ''),
+      nightOutcomeLine(data),
     ],
   }),
 
@@ -399,6 +477,7 @@ export const DEMO_NOTICE_BY_TEMPLATE = Object.freeze({
   TICKETS_ISSUED: DEMO_TICKET_NOTICE,
   ORDER_CANCELLED: DEMO_PAYMENT_NOTICE,
   'event.cancelled': DEMO_PAYMENT_NOTICE,
+  'event.session_cancelled': DEMO_PAYMENT_NOTICE,
   'ticket.issued': DEMO_TICKET_NOTICE,
   'ticket.transfer.invited': DEMO_TICKET_NOTICE,
   'ticket.transfer.completed': DEMO_TICKET_NOTICE,

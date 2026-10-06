@@ -11,7 +11,11 @@
 
 import { salesWindowState } from '@desi-event/inventory'
 import { computeOrderTotals, resolveTaxPolicy } from '@desi-event/pricing'
-import { BOOKABLE_STATUSES } from '@desi-event/schemas/lifecycle'
+import {
+  BOOKABLE_STATUSES,
+  DELETION_OUTCOME_COLUMN,
+  restoreTarget,
+} from '@desi-event/schemas/lifecycle'
 import {
   EVENT_CONTENT_LIMITS,
   eventFaqItemSchema,
@@ -529,6 +533,7 @@ export function joinUrlFor(ticket, order, event) {
  * @param {Map<string, number>} [options.tierSeatsAvailable] Free seats per reserved tier id, for the tiers shown; each carries its own as `availableQuantity`.
  * @param {function(string): object} [options.feeConfigFor] The fee terms for a currency, as checkout uses them; when given, the detail carries `feeTerms`.
  * @param {'public'|'insider'|'administrator'} [options.website] The caller's view of the website link, from `websiteViewFor`. Everybody gets `websiteLink` (a host or null); an insider or administrator also gets `websiteUrl` and the switch's state, and for everybody else both keys are absent.
+ * @param {{platformReader: boolean}|null} [options.deletion] For a deleted event read by its team or the Desi-Event team: the record of its deletion is added as `deletion`, naming who deleted it only to a platform reader.
  * @returns {object} A payload satisfying `eventWithRelationsSchema`.
  */
 export function toEventDetail(
@@ -540,6 +545,7 @@ export function toEventDetail(
     tierSeatsAvailable = new Map(),
     feeConfigFor = null,
     website = 'public',
+    deletion = null,
   } = {},
 ) {
   const { venue = null, organization = null, ticketTypes = [], sessions = [] } = event
@@ -623,6 +629,13 @@ export function toEventDetail(
       .map((session) => toPublicSession(session, sessionsAvailability.get(session.id) ?? null)),
   }
 
+  // A deleted event's record, for its own team and the Desi-Event team only
+  // (the route decides who; strangers never reach here, a deleted event being
+  // a 404 to them).
+  if (deletion && event.status === 'DELETED') {
+    detail.deletion = toEventDeletion(event, deletion)
+  }
+
   if (typeof feeConfigFor === 'function') {
     const currencies = [...new Set(visibleTiers.map((tier) => tier.currency ?? 'INR'))].sort()
 
@@ -634,6 +647,38 @@ export function toEventDetail(
   }
 
   return detail
+}
+
+/** Each stored deletion outcome by its wire name. */
+const DELETION_OUTCOME_WIRE = Object.freeze(
+  Object.fromEntries(
+    Object.entries(DELETION_OUTCOME_COLUMN).map(([wire, column]) => [column, wire]),
+  ),
+)
+
+/**
+ * A deleted event's record, as the people who may still read it see it.
+ *
+ * Who deleted it is named to the Desi-Event team, and to the organisation when
+ * one of its own members deleted it; an organiser reads a deletion by the
+ * Desi-Event team without the administrator's name.
+ *
+ * @param {object} event A DELETED event row, with `deletedBy` when the name may be shown.
+ * @param {{platformReader: boolean}} options Whether the reader is on the Desi-Event team.
+ * @returns {object} The `deletion` block of `eventWithRelationsSchema`.
+ */
+export function toEventDeletion(event, { platformReader = false } = {}) {
+  const named = platformReader || event.deletionAuthority === 'ORGANIZATION'
+
+  return {
+    deletedAt: new Date(event.deletedAt).toISOString(),
+    reason: event.deletionReason ?? '',
+    outcome: DELETION_OUTCOME_WIRE[event.deletionOutcome] ?? 'REMOVE',
+    authority: event.deletionAuthority ?? 'ORGANIZATION',
+    statusBefore: event.statusBeforeDeletion,
+    restoreTo: restoreTarget(event.statusBeforeDeletion),
+    deletedByName: named ? (event.deletedBy?.displayName ?? null) : null,
+  }
 }
 
 /**

@@ -272,6 +272,10 @@ export function ownNight(ticket) {
  * - A ticket whose tier names no night, on an event of more than one, is good
  *   for every night (`everyNight`) and admits once on each: the admission is
  *   recorded on the named night.
+ * - A cancelled night admits nobody: `SESSION_CANCELLED`.
+ * - Once every night but one is cancelled, an unnamed admission is to that
+ *   one: the door lists only the nights it may admit to, and names none when
+ *   only one is left.
  *
  * Pure, so the preview and the confirmation cannot disagree about it.
  *
@@ -283,16 +287,30 @@ export function ownNight(ticket) {
 export function nightFor(ticket, nights, named) {
   const own = ownNight(ticket)
   const everyNight = own === null && nights.length > 1
+  const cancelled = (id) =>
+    nights.some((candidate) => candidate.id === id && candidate.status === 'CANCELLED')
 
   if (named && !nights.some((night) => night.id === named)) {
     return { night: null, everyNight, refusal: 'WRONG_NIGHT' }
   }
 
-  if (!named && nights.length > 1) return { night: null, everyNight, refusal: 'NIGHT_REQUIRED' }
+  // A cancelled night admits nobody, whatever the ticket (SPEC2-XI X-S): the
+  // night the door named, or the night the ticket is for.
+  if ((named && cancelled(named)) || (own && cancelled(own))) {
+    return { night: null, everyNight, refusal: 'SESSION_CANCELLED' }
+  }
 
-  if (own && named && own !== named) return { night: null, everyNight, refusal: 'WRONG_NIGHT' }
+  // The door lists only the nights not cancelled (`toDoorNights`), and names
+  // none when one is left. That one is then the night, so the door is not
+  // asked for a night it was never offered a choice of.
+  const open = nights.filter((night) => night.status !== 'CANCELLED')
+  const door = named ?? (nights.length > 1 && open.length === 1 ? open[0].id : null)
 
-  return { night: everyNight ? named : own, everyNight, refusal: null }
+  if (!door && nights.length > 1) return { night: null, everyNight, refusal: 'NIGHT_REQUIRED' }
+
+  if (own && door && own !== door) return { night: null, everyNight, refusal: 'WRONG_NIGHT' }
+
+  return { night: everyNight ? door : own, everyNight, refusal: null }
 }
 
 /**
@@ -1388,14 +1406,18 @@ const DOOR_EVENT_SELECT = Object.freeze({
  * @returns {Array<object>} Each night, soonest first.
  */
 function toDoorNights(sessions) {
-  return sortNights(sessions).map((night) => ({
-    id: night.id,
-    label: typeof night.label === 'string' && night.label.trim() !== '' ? night.label.trim() : null,
-    startsAt: night.startsAt,
-    endsAt: night.endsAt,
-    timezone: night.timezone,
-    status: night.status,
-  }))
+  // A cancelled night is not one a door admits to, so it is not offered.
+  return sortNights((sessions ?? []).filter((night) => night.status !== 'CANCELLED')).map(
+    (night) => ({
+      id: night.id,
+      label:
+        typeof night.label === 'string' && night.label.trim() !== '' ? night.label.trim() : null,
+      startsAt: night.startsAt,
+      endsAt: night.endsAt,
+      timezone: night.timezone,
+      status: night.status,
+    }),
+  )
 }
 
 /**

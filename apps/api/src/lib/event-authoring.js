@@ -12,18 +12,28 @@
  *
  * ## Editing is confined to the states where editing means something
  *
- * Two modes, and a refusal for everything else:
+ * Three modes, and a refusal for everything else (`editModeFor` in
+ * `@desi-event/schemas/lifecycle`, which the web reads too):
  *
  *   - **Draft** (`DRAFT`, `CHANGES_REQUIRED`): the organiser's to change freely.
  *   - **Live** (`PUBLISHED`, `ON_SALE`, `SALES_PAUSED`, `SOLD_OUT`,
- *     `POSTPONED`): somebody may have bought a ticket on the strength of what it
- *     says, so edits are allowed where they cannot take anything away from a
- *     buyer — a new tier or night, a raised quantity, a renamed tier — and a
- *     change to what a buyer bought needs a confirmation and a reason.
+ *     `POSTPONED`): everything, with no new review, within what sold tickets
+ *     require — a sold tier may be re-priced for the next buyer, an unsold
+ *     night re-mapped — and a change to what a buyer bought needs a
+ *     confirmation and a reason (SPEC2-XI X-2, X-4).
+ *   - **Content** (`COMPLETED`, `CANCELLED`): the words and the pictures; the
+ *     nights, the tickets and the date, place and terms stay as holders were
+ *     told them.
  *   - Anything else is refused. A review-pending event is being read by a
  *     moderator; an approved one is the version the moderator said yes to; a
- *     rejected one is reworked as a draft first; a cancelled, archived or
- *     finished one is final.
+ *     rejected one is reworked as a draft first; an archived one is filed; a
+ *     deleted one is restored by the Desi-Event team first.
+ *
+ * ## Whose authority
+ *
+ * The organisation's, through membership, or the Desi-Event team's in an
+ * editing sitting (`lib/event-authority.js`). Every write re-checks the sitting
+ * inside its own transaction and is audited with it.
  *
  * ## Optimistic concurrency
  *
@@ -40,16 +50,21 @@
  */
 
 import { activeHeldQuantity } from '@desi-event/inventory'
-import { CAPABILITIES, assertCan } from '@desi-event/permissions'
-import { EDITABLE_STATUSES, LIVE_STATUSES } from '@desi-event/schemas/lifecycle'
+import { CAPABILITIES } from '@desi-event/permissions'
+import { editModeFor } from '@desi-event/schemas/lifecycle'
 import { EVENT_CONTENT_LIMITS } from '@desi-event/schemas/event-content'
 import { computeOrderTotals } from '@desi-event/pricing'
 
 import { AUDIT_ACTIONS, recordAudit } from './audit.js'
+import {
+  assertSittingStillOpen,
+  authorityAuditMetadata,
+  resolveEventAuthority,
+} from './event-authority.js'
 import { databaseErrorCode, httpError, notFound, unprocessable } from './errors.js'
 
-/** The two ways an event's content may be edited. */
-export const AUTHORING_MODES = Object.freeze({ DRAFT: 'draft', LIVE: 'live' })
+/** The three ways an event's content may be edited. */
+export const AUTHORING_MODES = Object.freeze({ DRAFT: 'draft', LIVE: 'live', CONTENT: 'content' })
 
 /** `HoldStatus.ACTIVE`, inlined to keep this module free of a database import. */
 const ACTIVE = 'ACTIVE'
@@ -139,19 +154,52 @@ function notEditableMessage(status) {
 }
 
 /**
+ * Why a finished or cancelled event refuses a change to its nights, tickets,
+ * date, place or terms. Keeps the word "final": what holders were told stays
+ * as they were told it, and the words and pictures can still be updated.
+ *
+ * @param {string} status `COMPLETED` or `CANCELLED`.
+ * @returns {string} The sentence.
+ */
+export function contentOnlyMessage(status) {
+  const state = status === 'COMPLETED' ? 'finished' : 'cancelled'
+
+  return `This event is ${state}, which is final for its nights and tickets; its words and pictures can still be updated.`
+}
+
+/**
  * Which editing mode an event's status allows.
  *
  * @param {object} event The event.
- * @returns {'draft'|'live'} The mode.
- * @throws {Error} A 409 `NOT_EDITABLE` for every other status.
+ * @param {object} [options] Options.
+ * @param {string[]} [options.allow] The modes this write accepts; `content` is accepted only when named.
+ * @returns {'draft'|'live'|'content'} The mode.
+ * @throws {Error} A 409 `NOT_EDITABLE` for every other status, or for a content-mode event a write that does not take it.
  */
-export function authoringMode(event) {
-  if (EDITABLE_STATUSES.has(event.status)) return AUTHORING_MODES.DRAFT
-  if (LIVE_STATUSES.has(event.status)) return AUTHORING_MODES.LIVE
+export function authoringMode(
+  event,
+  { allow = [AUTHORING_MODES.DRAFT, AUTHORING_MODES.LIVE, AUTHORING_MODES.CONTENT] } = {},
+) {
+  const mode = editModeFor(event.status)
 
-  throw httpError(409, 'NOT_EDITABLE', notEditableMessage(event.status), {
-    status: event.status,
-  })
+  if (mode === 'locked') {
+    throw httpError(409, 'NOT_EDITABLE', notEditableMessage(event.status), {
+      status: event.status,
+    })
+  }
+
+  if (!allow.includes(mode)) {
+    throw httpError(
+      409,
+      'NOT_EDITABLE',
+      mode === AUTHORING_MODES.CONTENT
+        ? contentOnlyMessage(event.status)
+        : notEditableMessage(event.status),
+      { status: event.status },
+    )
+  }
+
+  return mode
 }
 
 /**
@@ -161,18 +209,42 @@ export function authoringMode(event) {
  * "not in this state" is a 409. A screen that conflates them tells an organiser
  * to ask for a permission they already hold.
  *
- * The capability is `event:update` in both modes; what a live event may take is
- * decided by the rules each write applies, not by a second permission.
+ * Authority is the organisation's through membership (`event:update` by
+ * default), or the Desi-Event team's in an open editing sitting of this
+ * browser session (`lib/event-authority.js`). What a live event may take is
+ * decided by the rules each write applies, not by a second permission. The
+ * nights and tickets of a finished or cancelled event are closed: a write to
+ * them passes `allow` without `content`.
  *
+ * @param {object} db A Prisma client.
  * @param {object} event The event.
  * @param {object} actor The request actor.
- * @returns {'draft'|'live'} The editing mode.
+ * @param {object} [options] Options.
+ * @param {object|null} [options.session] The request's session row.
+ * @param {string} [options.orgCapability] The organisation capability the write needs.
+ * @param {string[]} [options.allow] The modes the write accepts.
+ * @param {Date} [options.now] The instant.
+ * @returns {Promise<{mode: 'draft'|'live'|'content', authority: object}>} The editing mode and the authority.
  * @throws {Error} A 403 or a 409.
  */
-export function assertAuthorable(event, actor) {
-  assertCan(actor, CAPABILITIES.EVENT_UPDATE, { organizationId: event.organizationId })
+export async function assertAuthorable(db, event, actor, options = {}) {
+  const {
+    session = null,
+    orgCapability = CAPABILITIES.EVENT_UPDATE,
+    allow = [AUTHORING_MODES.DRAFT, AUTHORING_MODES.LIVE],
+    now = new Date(),
+  } = options
 
-  return authoringMode(event)
+  const authority = await resolveEventAuthority(db, {
+    event,
+    actor,
+    session,
+    orgCapability,
+    now,
+  })
+  const mode = authoringMode(event, { allow })
+
+  return { mode, authority }
 }
 
 /**
@@ -185,21 +257,38 @@ export function assertAuthorable(event, actor) {
  * @param {object} prisma The Prisma client.
  * @param {object} options Options.
  * @param {object} options.event The event as loaded.
- * @param {number} options.revision The revision the caller read.
+ * @param {number|null} options.revision The revision the caller read; null for a caller that
+ *   names none (the legacy `ticketTypes.create`), which takes whatever revision the row has once
+ *   it is locked.
  * @param {object} options.actor The request actor.
  * @param {string} options.action What to call this in the audit log.
  * @param {Function} options.write Given `(tx, event)`, does the work.
  * @param {object|Function} [options.metadata] Extra audit metadata: an object, or a function given what `write` returned, called after it. Merged under the revision, which it cannot replace.
+ * @param {object|null} [options.authority] Whose authority, from `resolveEventAuthority`. Under a
+ *   sitting the sitting is re-checked inside the transaction, after the event's row lock, and the
+ *   audit row carries it and its reason.
+ * @param {string|null} [options.sessionId] The request's session id, for that re-check.
  * @returns {Promise<object>} The event after the write.
- * @throws {Error} A 409 when the revision has moved.
+ * @throws {Error} A 409 when the revision has moved; a 403 when the sitting closed meanwhile.
  */
 export async function authorChange(prisma, options) {
-  const { event, revision, actor, action, write, metadata = null } = options
+  const {
+    event,
+    revision,
+    actor,
+    action,
+    write,
+    metadata = null,
+    authority = null,
+    sessionId = null,
+  } = options
+
+  const named = revision !== null && revision !== undefined
 
   return prisma.$transaction(async (tx) => {
     const { count } = await tx.event.updateMany({
-      where: { id: event.id, revision, status: event.status },
-      data: { revision: revision + 1 },
+      where: { id: event.id, ...(named ? { revision } : {}), status: event.status },
+      data: { revision: named ? revision + 1 : { increment: 1 } },
     })
 
     if (count !== 1) {
@@ -226,15 +315,23 @@ export async function authorChange(prisma, options) {
       )
     }
 
+    // The Event row is held now, so a sitting closed or run out since the
+    // handler checked it refuses this write (SPEC2-XI X-A).
+    await assertSittingStillOpen(tx, authority, { sessionId, now: new Date() })
+
     const written = await write(tx, event)
     const extra = typeof metadata === 'function' ? await metadata(written) : metadata
+    const next = named
+      ? revision + 1
+      : ((await tx.event.findUnique({ where: { id: event.id }, select: { revision: true } }))
+          ?.revision ?? null)
 
     await recordAudit(tx, {
       action,
       entityType: 'Event',
       entityId: event.id,
       actorId: actor?.id ?? null,
-      metadata: { ...(extra ?? {}), revision: revision + 1 },
+      metadata: { ...(extra ?? {}), ...authorityAuditMetadata(authority), revision: next },
     })
 
     return tx.event.findUnique({ where: { id: event.id } })
@@ -779,21 +876,23 @@ export function tierChangeProblems(existing, patch, usage, mode) {
   const changed = changedFields(existing, patch)
   const details = { tierId: existing.id, sold: usage.sold, held: usage.held }
 
-  if (changed.includes('priceCents') || changed.includes('currency')) {
-    if (usage.sold > 0) {
-      return {
-        code: 'TIER_SOLD',
-        message: `"${existing.name}" has already sold ${usage.sold}. Changing its price would change what those buyers agreed to pay.`,
-        details,
-      }
+  // The price of a sold tier may change (SPEC2-XI X-4): every order line keeps
+  // the price it was bought at (`OrderItem.unitPriceCents`), and refunds read
+  // the order's own snapshot, so a new price changes only what the next buyer
+  // pays. Its currency may not: those orders were paid in it.
+  if (changed.includes('currency') && usage.sold > 0) {
+    return {
+      code: 'TIER_SOLD',
+      message: `Orders for "${existing.name}" were paid in ${existing.currency}, so the currency stays.`,
+      details,
     }
+  }
 
-    if (usage.held > 0) {
-      return {
-        code: 'TIER_IN_USE',
-        message: `${usage.held} of "${existing.name}" are in somebody's basket right now, at the current price. Try again once they are bought or released.`,
-        details,
-      }
+  if ((changed.includes('priceCents') || changed.includes('currency')) && usage.held > 0) {
+    return {
+      code: 'TIER_IN_USE',
+      message: `${usage.held} of "${existing.name}" are in somebody's basket right now, at the current price. Try again once they are bought or released.`,
+      details,
     }
   }
 
@@ -850,14 +949,18 @@ export function tierChangeProblems(existing, patch, usage, mode) {
 export function sessionChangeProblems(existing, patch, usage, mode) {
   const changed = changedFields(existing, patch)
 
-  if (mode === AUTHORING_MODES.LIVE && changed.includes('venueMapVersionId')) {
+  // A cancelled night is final: nothing about it changes (SPEC2-XI X-N).
+  if (existing.status === 'CANCELLED' && changed.length > 0) {
     return {
-      code: 'SESSION_LAYOUT_LOCKED',
-      message:
-        'This event is public, so the seating layout of its sessions stays as it is. Add a new session with the other layout instead.',
-      details: { sessionId: existing.id },
+      code: 'NOT_EDITABLE',
+      message: 'This night was cancelled.',
+      details: { sessionId: existing.id, mode },
     }
   }
+
+  // A live night's seating map may change while nothing at that night is sold,
+  // held, ordered or checked in (SPEC2-XI X-4): the route refuses the rest with
+  // MAP_FROZEN or MAP_PRICED, and prepares the new map's seats in the write.
 
   if (changed.includes('capacity') && patch.capacity != null) {
     const floor = usage.sold + usage.held
@@ -1065,9 +1168,15 @@ export function refuseProblems(problems, summary) {
  * @param {object} options.event The event.
  * @param {string} options.sessionId The session to prepare.
  * @param {object} options.actor The request actor.
+ * @param {object|null} [options.authority] Whose authority, from `resolveEventAuthority`: under a
+ *   sitting it is re-checked in the transaction and audited.
+ * @param {string|null} [options.requestSessionId] The request's session id, for that re-check.
  * @returns {Promise<object>} What it found and what it created.
  */
-export async function prepareInventory(prisma, { event, sessionId, actor }) {
+export async function prepareInventory(
+  prisma,
+  { event, sessionId, actor, authority = null, requestSessionId = null },
+) {
   const session = (event.sessions ?? []).find((candidate) => candidate.id === sessionId)
 
   if (!session) throw notFound('No such session on this event.')
@@ -1107,6 +1216,8 @@ export async function prepareInventory(prisma, { event, sessionId, actor }) {
   })
 
   return prisma.$transaction(async (tx) => {
+    await assertSittingStillOpen(tx, authority, { sessionId: requestSessionId, now: new Date() })
+
     const binding = await bindReservedSeats(tx, { eventSessionId: session.id })
     const prepared = await tx.eventSeat.count({ where: { eventSessionId: session.id } })
 
@@ -1116,6 +1227,7 @@ export async function prepareInventory(prisma, { event, sessionId, actor }) {
       entityId: session.id,
       actorId: actor?.id ?? null,
       metadata: {
+        ...authorityAuditMetadata(authority),
         eventId: event.id,
         expected: seats.length,
         created: count,
@@ -1144,6 +1256,49 @@ export async function prepareInventory(prisma, { event, sessionId, actor }) {
       assigned: binding.bound,
     }
   })
+}
+
+/**
+ * Give a live night the seats of its new seating map, in the caller's
+ * transaction (SPEC2-XI X-4).
+ *
+ * The in-transaction half of {@link prepareInventory}, for a live night whose
+ * map changed: its old `EventSeat` rows go (the route has checked, under the
+ * night's lock, that none is sold, held, ordered or admitted), the new
+ * version's are created, and the free ones are pointed at the reserved tier
+ * pricing their zone. So the night never stands without seats. A night moved
+ * to general admission keeps none.
+ *
+ * @param {object} tx A Prisma transaction client.
+ * @param {object} session The night as it now is, with `id` and `venueMapVersionId`.
+ * @returns {Promise<{removed: number, created: number, bound: number}>} What changed.
+ */
+export async function prepareSessionSeats(tx, session) {
+  const { count: removed } = await tx.eventSeat.deleteMany({
+    where: { eventSessionId: session.id },
+  })
+
+  if (!session.venueMapVersionId) return { removed, created: 0, bound: 0 }
+
+  const seats = await tx.seat.findMany({
+    where: { venueMapVersionId: session.venueMapVersionId },
+    select: { id: true },
+  })
+
+  const { count: created } =
+    seats.length === 0
+      ? { count: 0 }
+      : await tx.eventSeat.createMany({
+          data: seats.map((seat) => ({
+            eventSessionId: session.id,
+            seatId: seat.id,
+            status: 'AVAILABLE',
+          })),
+          skipDuplicates: true,
+        })
+  const { bound } = await bindReservedSeats(tx, { eventSessionId: session.id })
+
+  return { removed, created, bound }
 }
 
 /**

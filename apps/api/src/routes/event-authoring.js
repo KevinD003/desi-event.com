@@ -28,7 +28,7 @@
  * @file @desi-event/api/routes/event-authoring
  */
 
-import { CAPABILITIES, assertCan, can } from '@desi-event/permissions'
+import { CAPABILITIES, can } from '@desi-event/permissions'
 import { resolveTaxPolicy } from '@desi-event/pricing'
 import { sessionMaterialChanges } from '@desi-event/schemas/lifecycle'
 
@@ -45,6 +45,7 @@ import {
   loadZonesByVersion,
   lockSessionRow,
   prepareInventory,
+  prepareSessionSeats,
   refuseConflict,
   refuseProblems,
   rethrowTierTaken,
@@ -58,6 +59,11 @@ import {
   tierRemovable,
   tierUsage,
 } from '../lib/event-authoring.js'
+import {
+  authorityAuditMetadata,
+  byPlatform,
+  resolveEventAuthority,
+} from '../lib/event-authority.js'
 import {
   boundSeatCounts,
   inventoryProblems,
@@ -97,7 +103,7 @@ const UNUSED_TIER = Object.freeze({ sold: 0, held: 0, orderItems: 0, holdItems: 
  * @param {object} [usage] What is using it, from `sessionUsage`.
  * @returns {object} The payload.
  */
-function toSession(session, zonesByVersion, usage = UNUSED_SESSION) {
+export function toSession(session, zonesByVersion, usage = UNUSED_SESSION) {
   return {
     id: session.id,
     eventId: session.eventId,
@@ -109,6 +115,8 @@ function toSession(session, zonesByVersion, usage = UNUSED_SESSION) {
     salesEndAt: session.salesEndAt?.toISOString() ?? null,
     status: session.status,
     label: session.label ?? null,
+    cancelledAt: session.cancelledAt ? new Date(session.cancelledAt).toISOString() : null,
+    cancellationReason: session.cancellationReason ?? null,
     venueMapVersionId: session.venueMapVersionId,
     capacity: session.capacity,
     sortOrder: session.sortOrder,
@@ -180,6 +188,25 @@ function seatedSessionsOf(before, after) {
 }
 
 /**
+ * Refuse a write that would put tickets on, or seats under, a cancelled night.
+ * A cancelled night is final (SPEC2-XI X-N).
+ *
+ * @param {object} event The event, with `sessions`.
+ * @param {string|null|undefined} sessionId The night named.
+ * @returns {void}
+ * @throws {Error} A 409 `NOT_EDITABLE` for a cancelled night.
+ */
+function refuseCancelledNight(event, sessionId) {
+  if (!sessionId) return
+
+  const night = (event.sessions ?? []).find((session) => session.id === sessionId)
+
+  if (night?.status === 'CANCELLED') {
+    throw httpError(409, 'NOT_EDITABLE', 'This night was cancelled.', { sessionId })
+  }
+}
+
+/**
  * Turn a foreign-key refusal from a removal into the conflict it means.
  *
  * The usage check runs under a row lock and should leave nothing for the
@@ -233,16 +260,23 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
   }
 
   /**
-   * Load an event and assert the caller may change its content.
+   * Load an event and assert the caller may change its nights and tickets.
+   *
+   * The organisation's authority through membership, or the Desi-Event team's
+   * in an open editing sitting of this browser session (SPEC2-XI X-A). A
+   * finished or cancelled event's nights and tickets are closed.
    *
    * @param {object} request The Fastify request.
-   * @returns {Promise<object>} `{ event, mode }`: the event and its editing mode, `draft` or `live`.
+   * @returns {Promise<object>} `{ event, mode, authority, sessionId }`: the event, its editing mode (`draft` or `live`), whose authority, and the request's session id for the sitting's re-check.
    */
   async function authorable(request) {
     const event = await loadForAuthoring(prisma, request.params.id)
-    const mode = assertAuthorable(event, request.actor)
+    const { mode, authority } = await assertAuthorable(prisma, event, request.actor, {
+      session: request.session,
+      allow: [AUTHORING_MODES.DRAFT, AUTHORING_MODES.LIVE],
+    })
 
-    return { event, mode }
+    return { event, mode, authority, sessionId: request.session?.id ?? null }
   }
 
   defineRoute(app, 'events.sessions', {
@@ -273,7 +307,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.addSession', {
     handler: async (request) => {
-      const { event, mode } = await authorable(request)
+      const { event, mode, authority, sessionId } = await authorable(request)
       const { revision, confirmMaterialChange: _c, changeReason: _r, ...proposed } = request.body
 
       refuseProblems(
@@ -289,6 +323,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
         event,
         revision,
         actor: request.actor,
+        authority,
+        sessionId,
         action: 'event.session_added',
         /**
          * @param {object} tx The transaction client.
@@ -322,7 +358,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.updateSession', {
     handler: async (request) => {
-      const { event, mode } = await authorable(request)
+      const { event, mode, authority, sessionId } = await authorable(request)
       const {
         revision,
         confirmMaterialChange = false,
@@ -344,8 +380,10 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
       refuseConflict(sessionChangeProblems(existing, patch, usage, mode))
 
-      if (changed.includes('venueMapVersionId')) {
-        await assertMapStillMovable(prisma, existing)
+      const remaps = changed.includes('venueMapVersionId')
+
+      if (remaps) {
+        await assertMapStillMovable(prisma, existing, { live: mode === AUTHORING_MODES.LIVE })
         await assertMapPublishable(prisma, patch.venueMapVersionId, event)
         assertNoTierPricesTheMap(event, existing, patch.venueMapVersionId)
       }
@@ -380,12 +418,31 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
         event,
         revision,
         actor: request.actor,
+        authority,
+        sessionId,
         action: 'event.session_updated',
         /**
          * @param {object} tx The transaction client.
          * @returns {Promise<void>} Resolves when written.
          */
         write: async (tx) => {
+          // A live night's new map: under the night's tier locks and its own
+          // row lock, nothing may have been sold, held, ordered or admitted
+          // there since the check above (SPEC2-XI X-4).
+          if (remaps && mode === AUTHORING_MODES.LIVE) {
+            await lockTicketTypes(
+              tx,
+              (
+                await tx.ticketType.findMany({
+                  where: { eventSessionId: existing.id },
+                  select: { id: true },
+                })
+              ).map((tier) => tier.id),
+            )
+            await lockSessionRow(tx, existing.id)
+            await assertMapStillMovable(tx, existing, { live: true })
+          }
+
           if (lowersCapacity) {
             // Under the night's tier locks and then its own row lock, in the
             // order checkout takes them, so a hold or a sale landing since the
@@ -415,6 +472,9 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
             data: toSessionPatch(patch),
           })
 
+          // The night never stands without the seats of the map it now has.
+          if (remaps && mode === AUTHORING_MODES.LIVE) await prepareSessionSeats(tx, updated)
+
           if (material.length === 0) return
 
           const { before, after } = classifyChanges(
@@ -429,6 +489,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
             after,
             reason: changeReason,
             session: updated,
+            byPlatform: byPlatform(authority),
           })
 
           await recordAudit(tx, {
@@ -437,6 +498,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
             entityId: existing.id,
             actorId: request.actor?.id ?? null,
             metadata: {
+              ...authorityAuditMetadata(authority),
               eventId: event.id,
               fields: material,
               before,
@@ -461,14 +523,14 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.removeSession', {
     handler: async (request) => {
-      const { event, mode } = await authorable(request)
+      const { event, mode, authority, sessionId } = await authorable(request)
       const { revision } = request.query
       const existing = event.sessions.find((s) => s.id === request.params.sessionId)
 
       if (!existing) throw notFound('No such session on this event.')
 
       const inUse =
-        'Tickets for this session have been sold, held or scanned, so it cannot be removed. Cancel the event instead, which owes those people a refund and says so.'
+        'Tickets for this session have been sold, held or scanned, so it cannot be removed. Cancel this night instead, which refunds its tickets and tells the people holding them.'
       const onSession = event.ticketTypes.filter((tier) => tier.eventSessionId === existing.id)
 
       /**
@@ -509,7 +571,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
       }
 
       await assertRemovable(prisma)
-      assertNotLast(event.sessions.length)
+      // A cancelled night is not a night the event still has.
+      assertNotLast(event.sessions.filter((session) => session.status !== 'CANCELLED').length)
 
       /** @type {string[]} */
       let removedTierIds = []
@@ -519,6 +582,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
           event,
           revision,
           actor: request.actor,
+          authority,
+          sessionId,
           action: 'event.session_removed',
           /**
            * @param {object} tx The transaction client.
@@ -533,7 +598,11 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
             )
             await lockSessionRow(tx, existing.id)
             await assertRemovable(tx)
-            assertNotLast(await tx.eventSession.count({ where: { eventId: event.id } }))
+            assertNotLast(
+              await tx.eventSession.count({
+                where: { eventId: event.id, status: { not: 'CANCELLED' } },
+              }),
+            )
 
             // The session's tiers go with it (`onDelete: Cascade`), on sale or
             // not; nothing depends on them, or the check above refused. The
@@ -560,7 +629,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.addTicketType', {
     handler: async (request) => {
-      const { event, mode } = await authorable(request)
+      const { event, mode, authority, sessionId } = await authorable(request)
       const { revision, ...body } = request.body
       // A complimentary tier is free and hidden, and the database refuses
       // anything else (ticket_type_complimentary_free_and_hidden). A tier
@@ -570,6 +639,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
         currency: body.currency ?? defaultTierCurrency(event),
         visibility: body.visibility ?? (body.complimentary ? 'HIDDEN' : 'PUBLIC'),
       }
+
+      refuseCancelledNight(event, proposed.eventSessionId)
 
       refuseProblems(
         [
@@ -598,6 +669,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
         event,
         revision,
         actor: request.actor,
+        authority,
+        sessionId,
         action: 'event.ticket_type_added',
         /**
          * @param {object} tx The transaction client.
@@ -645,7 +718,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.updateTicketType', {
     handler: async (request) => {
-      const { event, mode } = await authorable(request)
+      const { event, mode, authority, sessionId } = await authorable(request)
       const { revision, ...patch } = request.body
       const existing = event.ticketTypes.find((t) => t.id === request.params.tierId)
 
@@ -657,6 +730,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
       }
 
       const merged = { ...existing, ...patch }
+
+      refuseCancelledNight(event, merged.eventSessionId)
 
       refuseProblems(
         [
@@ -683,6 +758,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
         event,
         revision,
         actor: request.actor,
+        authority,
+        sessionId,
         action: 'event.ticket_type_updated',
         /**
          * @param {object} tx The transaction client.
@@ -711,7 +788,20 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
             })
           }
         },
-        metadata: { tierId: existing.id, fields: changed, mode },
+        metadata: {
+          tierId: existing.id,
+          fields: changed,
+          mode,
+          // A live tier's new price is for the next buyer, and the people who
+          // bought keep theirs: the record keeps both (SPEC2-XI X-4). A draft's
+          // prices are nobody's yet, and stay out of the record.
+          ...(mode === AUTHORING_MODES.LIVE && changed.includes('priceCents')
+            ? {
+                before: { priceCents: existing.priceCents },
+                after: { priceCents: patch.priceCents },
+              }
+            : {}),
+        },
       }).catch((error) => rethrowTierTaken(error, merged.name))
 
       return { data: toAuthorTier(updated, fresh), meta: { revision: revision + 1 } }
@@ -720,7 +810,7 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
 
   defineRoute(app, 'events.removeTicketType', {
     handler: async (request) => {
-      const { event } = await authorable(request)
+      const { event, authority, sessionId } = await authorable(request)
       const { revision } = request.query
       const existing = event.ticketTypes.find((t) => t.id === request.params.tierId)
 
@@ -750,6 +840,8 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
           event,
           revision,
           actor: request.actor,
+          authority,
+          sessionId,
           action: 'event.ticket_type_removed',
           /**
            * @param {object} tx The transaction client.
@@ -777,14 +869,23 @@ export function registerEventAuthoringRoutes(app, { prisma, env }) {
     handler: async (request) => {
       const event = await loadForAuthoring(prisma, request.params.id)
 
-      assertCan(request.actor, CAPABILITIES.INVENTORY_MANAGE, {
-        organizationId: event.organizationId,
+      // `inventory:manage` in the organisation, or the Desi-Event team in an
+      // open editing sitting (SPEC2-XI X-A).
+      const authority = await resolveEventAuthority(prisma, {
+        event,
+        actor: request.actor,
+        session: request.session,
+        orgCapability: CAPABILITIES.INVENTORY_MANAGE,
       })
+
+      refuseCancelledNight(event, request.body.eventSessionId)
 
       const result = await prepareInventory(prisma, {
         event,
         sessionId: request.body.eventSessionId,
         actor: request.actor,
+        authority,
+        requestSessionId: request.session?.id ?? null,
       })
 
       return { data: result }
@@ -886,17 +987,36 @@ async function assertMapPublishable(prisma, versionId, event) {
  * Refuse to move a session's map once anything has been sold against it.
  *
  * The database enforces this as well. Both exist because the message matters:
- * a trigger name is not something an organiser can act on.
+ * a trigger name is not something an organiser can act on. On a live event the
+ * night's orders and admissions count too (SPEC2-XI X-4): somebody holding a
+ * ticket for that night bought it at that seating.
  *
- * @param {object} prisma The Prisma client.
+ * @param {object} prisma The Prisma client or a transaction client.
  * @param {object} session The existing session.
+ * @param {object} [options] Options.
+ * @param {boolean} [options.live] Whether the event is live.
  * @returns {Promise<void>} Resolves when movable.
  * @throws {Error} A 409.
  */
-async function assertMapStillMovable(prisma, session) {
-  const sold = await prisma.eventSeat.count({
+async function assertMapStillMovable(prisma, session, { live = false } = {}) {
+  let sold = await prisma.eventSeat.count({
     where: { eventSessionId: session.id, status: { in: ['SOLD', 'COMPLIMENTARY', 'HELD'] } },
   })
+
+  if (live && sold === 0) {
+    const orders = await prisma.order.count({
+      where: {
+        status: { in: ['PENDING', 'PAID'] },
+        OR: [
+          { eventSessionId: session.id },
+          { items: { some: { ticketType: { eventSessionId: session.id } } } },
+        ],
+      },
+    })
+    const checkIns = await prisma.checkIn.count({ where: { eventSessionId: session.id } })
+
+    sold = orders + checkIns
+  }
 
   if (sold > 0) {
     throw httpError(

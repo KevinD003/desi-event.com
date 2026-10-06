@@ -32,7 +32,12 @@ import { buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
 import { httpError } from '../lib/errors.js'
 import { loadForTransition, transitionEvent } from '../lib/event-lifecycle.js'
-import { EVENT_MEDIA_INCLUDE, approvePendingEventMedia, decideMedia } from '../lib/event-media.js'
+import {
+  EVENT_MEDIA_INCLUDE,
+  approvePendingEventMedia,
+  decideMedia,
+  listMediaQueue,
+} from '../lib/event-media.js'
 import { EVENT_SUMMARY_SELECT, toEventDetail, toEventSummary } from '../lib/presenters.js'
 import { feeConfigFor } from './orders.js'
 import { defineRoute } from '../lib/register.js'
@@ -84,9 +89,10 @@ function assertReviewedRevision(event, reviewed) {
  * @param {object} deps Injected dependencies.
  * @param {object} deps.prisma The Prisma client.
  * @param {object} [deps.env] The parsed API environment, for the fee terms checkout charges with.
+ * @param {object} [deps.mediaStorage] Where picture bytes live; PostgreSQL by default.
  * @returns {void} Nothing.
  */
-export function registerModerationRoutes(app, { prisma, env }) {
+export function registerModerationRoutes(app, { prisma, env, mediaStorage }) {
   const pricing = env ? { feeConfigFor: (currency) => feeConfigFor(env, currency) } : {}
 
   defineRoute(app, 'moderation.queue', {
@@ -189,6 +195,23 @@ export function registerModerationRoutes(app, { prisma, env }) {
     },
   })
 
+  defineRoute(app, 'moderation.mediaQueue', {
+    handler: async (request, reply) => {
+      reply.header('cache-control', 'no-store')
+
+      const { rows, total } = await listMediaQueue(prisma, request.query)
+
+      return {
+        data: rows,
+        pagination: buildPaginationMeta({
+          page: request.query.page,
+          perPage: request.query.perPage,
+          total,
+        }),
+      }
+    },
+  })
+
   defineRoute(app, 'moderation.decideMedia', {
     handler: async (request) => {
       const { decision, reason = null } = request.body
@@ -197,6 +220,8 @@ export function registerModerationRoutes(app, { prisma, env }) {
         decision,
         reason,
         actor: request.actor,
+        // The bytes of a cover a replacement takes the place of go with it.
+        storage: mediaStorage,
       })
 
       request.log.info(

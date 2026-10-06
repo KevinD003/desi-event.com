@@ -101,6 +101,13 @@ import { lateCaptureLedgerKey, openReconciliation } from './webhook-handlers.js'
 const REFUNDABLE_TICKET_STATES = Object.freeze(['VALID', 'TRANSFER_PENDING'])
 
 /**
+ * The `revokedReason` prefixes of tickets withdrawn because their event was
+ * deleted or their night cancelled (`withdrawTickets` in `./tickets.js`),
+ * which a cancellation refund settles as REFUNDED.
+ */
+const WITHDRAWN_REASON_PREFIXES = Object.freeze(['event-deleted:', 'session-cancelled:'])
+
+/**
  * Every state a refund can be in.
  *
  * @type {Readonly<Record<string, string>>}
@@ -1610,6 +1617,23 @@ export async function submitOutsideTransaction(payments, refund, payment) {
  */
 export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
   const items = await tx.refundItem.findMany({ where: { refundId: refund.id } })
+  // A cancelled event's or night's refund also takes the tickets withdrawn when
+  // it was deleted or the night cancelled (SPEC2-XI X-D, X-N): they are
+  // CANCELLED already, admit nobody, and are what the money is for.
+  const takesWithdrawn = refund.reason === 'EVENT_CANCELLED'
+  const settleable = takesWithdrawn
+    ? {
+        OR: [
+          { status: { in: [...REFUNDABLE_TICKET_STATES] } },
+          {
+            status: 'CANCELLED',
+            OR: WITHDRAWN_REASON_PREFIXES.map((prefix) => ({
+              revokedReason: { startsWith: prefix },
+            })),
+          },
+        ],
+      }
+    : { status: { in: [...REFUNDABLE_TICKET_STATES] } }
 
   let ticketsRevoked = 0
   let seatsReturned = 0
@@ -1627,7 +1651,7 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
     await tx.$queryRaw`SELECT "id" FROM "OrderItem" WHERE "id" = ${item.orderItemId} FOR UPDATE`
 
     const tickets = await tx.ticket.findMany({
-      where: { orderItemId: item.orderItemId, status: { in: [...REFUNDABLE_TICKET_STATES] } },
+      where: { orderItemId: item.orderItemId, ...settleable },
       orderBy: { createdAt: 'asc' },
       take: item.quantity,
     })
@@ -1646,7 +1670,7 @@ export async function revokeAndReturn(tx, { refund, seatPolicy, now }) {
       // ends with the ticket refunded, and an offer started afterwards finds
       // it REFUNDED and moves nothing.
       const { count } = await tx.ticket.updateMany({
-        where: { id: ticket.id, status: { in: [...REFUNDABLE_TICKET_STATES] } },
+        where: { id: ticket.id, ...settleable },
         data: {
           status: 'REFUNDED',
           revokedAt: now,

@@ -15,6 +15,9 @@ describe('event authoring routes', () => {
       'events.rework': 'POST /v1/events/:id/rework',
       'events.removeSession': 'DELETE /v1/events/:id/sessions/:sessionId',
       'events.removeTicketType': 'DELETE /v1/events/:id/tiers/:tierId',
+      // A night with sales is cancelled rather than removed (SPEC2-XI X-6).
+      'events.sessionCancellationPreview': 'GET /v1/events/:id/sessions/:sessionId/cancellation',
+      'events.cancelSession': 'POST /v1/events/:id/sessions/:sessionId/cancel',
     }
 
     for (const [id, key] of Object.entries(expected)) {

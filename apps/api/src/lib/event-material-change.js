@@ -52,6 +52,7 @@ import {
 } from '@desi-event/schemas/lifecycle'
 import { isSuppressible } from '@desi-event/notifications'
 
+import { recordChangeNotice, withholdNoticeValues } from './event-change-notices.js'
 import { unprocessable } from './errors.js'
 
 /**
@@ -261,6 +262,12 @@ export function refuseUnconfirmed(material, status) {
  * @param {object[]} [options.sessions] Sessions that moved with the event, as
  *   `{id, before, after}` summaries, carried in the notice so one message
  *   covers the whole reschedule.
+ * @param {'MATERIAL_CHANGE'|'SESSION_CHANGE'|'RESCHEDULED'} [options.kind] What ticket holders are
+ *   shown it as; a night's own change by default when `session` is given, the
+ *   event's otherwise.
+ * @param {boolean} [options.byPlatform] Whether the Desi-Event team made it, in
+ *   an editing sitting or as a SUPER_ADMIN under Rule L. Carried in every
+ *   notice so the message says who, never which person.
  * @returns {Promise<{orders: number, notifications: number}>} What was created.
  */
 export async function materialChangeWork(tx, options) {
@@ -275,6 +282,8 @@ export async function materialChangeWork(tx, options) {
     reason,
     session = null,
     sessions = null,
+    kind = session ? 'SESSION_CHANGE' : 'MATERIAL_CHANGE',
+    byPlatform = false,
   } = options
 
   const orders = await tx.order.findMany({
@@ -336,9 +345,13 @@ export async function materialChangeWork(tx, options) {
             changed: session
               ? describeSessionFields(material)
               : [...describeFields(material), ...describeMovedSessions(sessions)],
-            before,
-            after,
+            // Without the joining link: an outbox row is read by a worker and
+            // by whoever is debugging it, and the message only names what
+            // changed. The holder reads the link where it is gated.
+            before: withholdNoticeValues(before) ?? {},
+            after: withholdNoticeValues(after) ?? {},
             reason,
+            byPlatform: Boolean(byPlatform),
             ...(session
               ? {
                   sessionId: session.id,
@@ -362,6 +375,24 @@ export async function materialChangeWork(tx, options) {
 
     notifications += created.count
   }
+
+  // What holders are shown on their order and ticket pages: one notice for the
+  // change, whoever holds a ticket, written here and nowhere else for these
+  // three kinds (SPEC2-XI X-C).
+  await recordChangeNotice(tx, {
+    event,
+    kind,
+    fields: [...material, ...(sessions ?? []).flatMap((moved) => moved.fields ?? [])],
+    changed: session
+      ? describeSessionFields(material)
+      : [...describeFields(material), ...describeMovedSessions(sessions)],
+    before,
+    after,
+    reason,
+    session,
+    byPlatform,
+    revision,
+  })
 
   return { orders: orders.length, notifications }
 }

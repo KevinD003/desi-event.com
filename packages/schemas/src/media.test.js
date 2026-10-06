@@ -12,6 +12,8 @@ import {
   eventMediaResponseSchema,
   eventMediaSchema,
   exifOrientation,
+  mediaQueueItemSchema,
+  mediaQueueQuerySchema,
   moderateMediaRequestSchema,
   publicMediaSchema,
   readJpegOrientation,
@@ -23,6 +25,7 @@ import {
   uploadEventMediaQuerySchema,
 } from './media.js'
 import { EVENT_STATUSES } from './enums.js'
+import { EDITABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from './lifecycle.js'
 import { moderationDecisionRequestSchema } from './requests.js'
 import { ticketDetailResponseSchema, walletTicketSchema } from './responses.js'
 
@@ -112,24 +115,35 @@ describe('MEDIA_LIMITS and the status sets', () => {
     expect(PUBLIC_MEDIA_MAX_AGE_SECONDS).toBe(86_400)
   })
 
-  it('adds new pixels only while the event is editable', () => {
-    expect([...MEDIA_UPLOAD_STATUSES].sort()).toEqual(['CHANGES_REQUIRED', 'DRAFT'])
+  it('adds new pixels while the event is editable or posted, each waiting for approval once posted', () => {
+    // SPEC2-XI X-3: a posted event (live, finished or cancelled) takes new
+    // pictures; each is stored waiting for the Desi-Event team's approval.
+    expect([...MEDIA_UPLOAD_STATUSES].sort()).toEqual(
+      [...EDITABLE_STATUSES, ...PUBLICLY_VISIBLE_STATUSES].sort(),
+    )
+    for (const status of ['REVIEW_PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED', 'DELETED']) {
+      expect(MEDIA_UPLOAD_STATUSES.has(status), status).toBe(false)
+    }
   })
 
-  it('arranges while editable or live, never in review or after the end', () => {
-    for (const status of ['DRAFT', 'CHANGES_REQUIRED', 'PUBLISHED', 'ON_SALE', 'POSTPONED']) {
+  it('arranges while editable or posted, never in review, rejected, archived or deleted', () => {
+    for (const status of [
+      'DRAFT',
+      'CHANGES_REQUIRED',
+      'PUBLISHED',
+      'ON_SALE',
+      'SALES_PAUSED',
+      'SOLD_OUT',
+      'POSTPONED',
+      'COMPLETED',
+      'CANCELLED',
+    ]) {
       expect(MEDIA_ARRANGE_STATUSES.has(status), status).toBe(true)
     }
-    for (const status of [
-      'REVIEW_PENDING',
-      'APPROVED',
-      'CANCELLED',
-      'COMPLETED',
-      'ARCHIVED',
-      'DELETED',
-    ]) {
+    for (const status of ['REVIEW_PENDING', 'APPROVED', 'REJECTED', 'ARCHIVED', 'DELETED']) {
       expect(MEDIA_ARRANGE_STATUSES.has(status), status).toBe(false)
     }
+    expect([...MEDIA_ARRANGE_STATUSES].sort()).toEqual([...MEDIA_UPLOAD_STATUSES].sort())
   })
 
   it('removes in every status but the two a moderator holds and DELETED', () => {
@@ -370,14 +384,39 @@ describe('response schemas', () => {
         'position',
         'publiclyVisible',
         'rejectionReason',
+        'replacesMediaId',
         'url',
         'width',
       ].sort(),
     )
     expect(parsed.createdAt).toBe('2026-09-01T10:00:00.000Z')
+    // A picture that replaces nothing says so.
+    expect(parsed.replacesMediaId).toBeNull()
   })
 
-  it('caps a list at a cover and eight gallery pictures', () => {
+  it('names the cover a waiting replacement would take the place of, and only by its id', () => {
+    const replacement = {
+      ...picture,
+      kind: 'EVENT_COVER',
+      position: null,
+      byteSize: 4096,
+      checksum: 'a'.repeat(64),
+      moderationStatus: 'PENDING',
+      rejectionReason: null,
+      publiclyVisible: false,
+      createdAt: '2026-09-01T10:00:00Z',
+    }
+
+    expect(
+      eventMediaSchema.parse({ ...replacement, replacesMediaId: 'cmedia0000000000000000002' })
+        .replacesMediaId,
+    ).toBe('cmedia0000000000000000002')
+    expect(
+      eventMediaSchema.safeParse({ ...replacement, replacesMediaId: 'not an id' }).success,
+    ).toBe(false)
+  })
+
+  it('caps a list at a cover, a replacement cover waiting, and eight gallery pictures', () => {
     const row = eventMediaSchema.parse({
       ...picture,
       kind: 'EVENT_GALLERY',
@@ -391,11 +430,11 @@ describe('response schemas', () => {
     })
 
     expect(
-      eventMediaListResponseSchema.safeParse({ data: Array(9).fill(row), meta: { revision: 1 } })
+      eventMediaListResponseSchema.safeParse({ data: Array(10).fill(row), meta: { revision: 1 } })
         .success,
     ).toBe(true)
     expect(
-      eventMediaListResponseSchema.safeParse({ data: Array(10).fill(row), meta: { revision: 1 } })
+      eventMediaListResponseSchema.safeParse({ data: Array(11).fill(row), meta: { revision: 1 } })
         .success,
     ).toBe(false)
     expect(
@@ -417,6 +456,52 @@ describe('response schemas', () => {
       detailEvent.shape.coverImage.safeParse({ ...picture, url: 'https://elsewhere.test/a.png' })
         .success,
     ).toBe(false)
+  })
+})
+
+describe('the queue of pictures waiting for the Desi-Event team', () => {
+  it('lists PENDING by default, REJECTED on request, and nothing else', () => {
+    expect(mediaQueueQuerySchema.parse({})).toMatchObject({ status: 'PENDING', page: 1 })
+    expect(mediaQueueQuerySchema.parse({ status: 'REJECTED', page: '2' })).toMatchObject({
+      status: 'REJECTED',
+      page: 2,
+    })
+    expect(mediaQueueQuerySchema.safeParse({ status: 'APPROVED' }).success).toBe(false)
+  })
+
+  it('carries the event and whether the organiser uploaded it, never who did', () => {
+    const parsed = mediaQueueItemSchema.parse({
+      id: MEDIA_ID,
+      url: `/v1/media/${MEDIA_ID}`,
+      altText: 'Dancers circling a lit garbo',
+      width: 1200,
+      height: 630,
+      contentType: 'image/png',
+      kind: 'EVENT_GALLERY',
+      position: 0,
+      byteSize: 4096,
+      checksum: 'c'.repeat(64),
+      moderationStatus: 'PENDING',
+      rejectionReason: null,
+      publiclyVisible: false,
+      replacesMediaId: null,
+      createdAt: '2026-09-01T10:00:00Z',
+      event: {
+        id: 'cevent0000000000000000001',
+        title: 'Navratri Garba Night',
+        slug: 'navratri-garba-night',
+        status: 'ON_SALE',
+        organizationName: 'Rangoli Collective',
+      },
+      uploadedByOrganiser: true,
+      uploadedById: 'cuser000000000000000000001',
+      uploaderName: 'Somebody',
+    })
+
+    expect(parsed.event.organizationName).toBe('Rangoli Collective')
+    expect(parsed.uploadedByOrganiser).toBe(true)
+    expect(parsed).not.toHaveProperty('uploadedById')
+    expect(parsed).not.toHaveProperty('uploaderName')
   })
 })
 

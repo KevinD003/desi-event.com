@@ -1390,6 +1390,13 @@ const OPAQUE_EVENT_WRITES = {
     why: 'an erasure replaces the subject’s contact addresses, and nothing else',
     args: /^\s*\{\s*where:\s*\{\s*id:\s*event\.id\s*\},\s*data\s*\}\s*$/u,
   },
+  // SPEC2-XI X-D: a deletion that refunds cancels the live event first, stamped
+  // exactly as a cancellation is (`lifecycleStamps` is the lifecycle's own
+  // `stampsFor`), public to public; the review gate holds it on PostgreSQL.
+  'apps/api/src/lib/event-deletion.js update': {
+    why: 'deleteEvent cancels a live event before deleting it, with the lifecycle’s CANCELLED stamps',
+    args: /^\s*\{\s*where:\s*\{\s*id:\s*event\.id\s*\},\s*data:\s*lifecycleStamps\(\{\s*to:\s*'CANCELLED',\s*reason,\s*event:\s*locked\s*\}\),?\s*\}\s*$/u,
+  },
 }
 
 /**
@@ -1428,6 +1435,8 @@ describe('every path to a public event (SPEC2 §6)', () => {
    */
   const STATUS_ROUTES = [
     'events.cancel',
+    // SPEC2-XI §7: deletion and the platform's restore, each its own command.
+    'events.delete',
     'events.openSales',
     'events.pauseSales',
     'events.postpone',
@@ -1437,6 +1446,7 @@ describe('every path to a public event (SPEC2 §6)', () => {
     'events.submitReview',
     'events.withdrawReview',
     'moderation.decide',
+    'platformEvents.restore',
   ]
 
   /**
@@ -1521,7 +1531,13 @@ describe('every path to a public event (SPEC2 §6)', () => {
 
     for (const file of sourceFiles().filter((path) => path.startsWith('apps/api/src/routes/'))) {
       for (const route of routeRegistrations(readCode(file))) {
-        if (/\bcommand\(\s*request\b|\btransitionEvent\s*\(/u.test(route.body)) found.push(route.id)
+        if (
+          /\bcommand\(\s*request\b|\btransitionEvent\s*\(|\bdeleteEvent\s*\(|\brestoreEvent\s*\(/u.test(
+            route.body,
+          )
+        ) {
+          found.push(route.id)
+        }
       }
     }
 
@@ -1555,6 +1571,11 @@ describe('every path to a public event (SPEC2 §6)', () => {
     for (const id of ['events.publish', 'events.openSales', 'events.reschedule']) {
       expect(routeById(id).stepUp, id).toBe('EVENT_PUBLISH')
     }
+
+    // Deleting can move money; restoring can make something public again.
+    expect(routeById('events.delete').stepUp).toBe('EVENT_CANCEL')
+    expect(routeById('platformEvents.restore').stepUp).toBe('EVENT_PUBLISH')
+    expect(routeById('platformEvents.restore').capability).toBe('event:platform_delete')
 
     const decide = routeById('moderation.decide').body
     const unseen = decide.safeParse({ decision: 'approve' })
@@ -1646,8 +1667,13 @@ describe('every path to a public event (SPEC2 §6)', () => {
       }
     }
 
-    // The create above (always DRAFT), and nothing else names the column.
-    expect(writers).toEqual(['apps/api/src/routes/events.js create'])
+    // The create above (always DRAFT), deletion's move to DELETED and the
+    // platform's restore (SPEC2-XI §7), and nothing else names the column.
+    expect(writers.sort()).toEqual([
+      'apps/api/src/lib/event-deletion.js update',
+      'apps/api/src/lib/event-deletion.js updateMany',
+      'apps/api/src/routes/events.js create',
+    ])
     // A row built elsewhere could carry a status the list above cannot see,
     // so each one has been read and is pinned (see OPAQUE_EVENT_WRITES).
     expect(opaque.sort()).toEqual(Object.keys(OPAQUE_EVENT_WRITES).sort())
@@ -1670,6 +1696,39 @@ describe('every path to a public event (SPEC2 §6)', () => {
         file,
       ).toEqual([])
     }
+  })
+
+  it('writes DELETED only in deleteEvent, and leaves it only in restoreEvent, to restoreTarget', () => {
+    const code = readCode('apps/api/src/lib/event-deletion.js')
+    const remove = functionRange(code, 'deleteEvent')
+    const restore = functionRange(code, 'restoreEvent')
+    const writes = delegateCalls(code, 'event', WRITE_OPERATIONS)
+    const named = writes.filter((call) => writtenFields(call.args).fields.has('status'))
+
+    expect(named).toHaveLength(2)
+
+    const [deletion, restoration] = named
+
+    // The deletion: inside deleteEvent, to DELETED and nothing else, recording
+    // the status the row had (the trigger checks it is the real one).
+    expect(deletion.index).toBeGreaterThan(remove.start)
+    expect(deletion.index).toBeLessThan(remove.end)
+    expect(deletion.args).toMatch(/status:\s*'DELETED'/u)
+    expect(deletion.args).toMatch(/statusBeforeDeletion:\s*from\b/u)
+
+    // The restore: inside restoreEvent, a compare-and-set on DELETED, to the
+    // one target `restoreTarget` gives, clearing the record.
+    expect(restoration.index).toBeGreaterThan(restore.start)
+    expect(restoration.index).toBeLessThan(restore.end)
+    expect(restoration.operation).toBe('updateMany')
+    expect(restoration.args).toMatch(
+      /where:\s*\{\s*id:\s*event\.id,\s*revision,\s*status:\s*'DELETED'\s*\}/u,
+    )
+    expect(restoration.args).toMatch(/status:\s*to\b/u)
+    expect(code.slice(restore.start, restore.end)).toMatch(
+      /const to = restoreTarget\(event\.statusBeforeDeletion\)/u,
+    )
+    expect(restoration.args).toMatch(/statusBeforeDeletion:\s*null/u)
   })
 
   it('builds an event’s columns away from the write only where each has been read and pinned', () => {
@@ -2141,5 +2200,170 @@ describe('organiser invitations (SPEC2 §4.P)', () => {
     expect(
       Object.keys(parsed.data).filter((key) => !['slug', 'timezone', 'token'].includes(key)),
     ).toEqual([])
+  })
+})
+
+describe('full control of posted events (SPEC2-XI X)', () => {
+  /** Every route the X work added. */
+  const X_ROUTES = [
+    'events.cancelSession',
+    'events.delete',
+    'events.deletionPreview',
+    'events.finishRefunds',
+    'events.platformEdits',
+    'events.sessionCancellationPreview',
+    'moderation.mediaQueue',
+    'platformEvents.closeEdit',
+    'platformEvents.list',
+    'platformEvents.openEdit',
+    'platformEvents.restore',
+  ]
+
+  /** The one command without a second factor: closing a sitting only gives authority up. */
+  const GIVES_UP_ONLY = new Set(['platformEvents.closeEdit'])
+
+  /** Response keys that carry a bearer secret, as the feature-completion block names them. */
+  const SECRET_KEY =
+    /^(token|csrfToken|secret|recoveryCodes|guestToken|credential|invitationCode|groupCode)$/u
+
+  /**
+   * Every property name a JSON Schema fragment can carry, `$ref`s followed once
+   * per chain.
+   *
+   * @param {unknown} node The fragment.
+   * @param {object} components The document's component schemas.
+   * @param {Set<string>} [expanding] The `$ref`s on this chain.
+   * @param {Set<string>} [into] Where to record the names.
+   * @returns {Set<string>} The names.
+   */
+  function propertyNames(node, components, expanding = new Set(), into = new Set()) {
+    if (Array.isArray(node)) {
+      for (const item of node) propertyNames(item, components, expanding, into)
+
+      return into
+    }
+
+    if (!node || typeof node !== 'object') return into
+
+    if (typeof node.$ref === 'string') {
+      const name = node.$ref.split('/').at(-1)
+
+      if (!expanding.has(name)) {
+        propertyNames(components[name], components, new Set([...expanding, name]), into)
+      }
+    }
+
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'properties' && value && typeof value === 'object') {
+        for (const [name, child] of Object.entries(value)) {
+          into.add(name)
+          propertyNames(child, components, expanding, into)
+        }
+      } else if (key !== '$ref') {
+        propertyNames(value, components, expanding, into)
+      }
+    }
+
+    return into
+  }
+
+  it('puts every X route in the contract and the manifest, none MFA-exempt and none on the platform tag', () => {
+    const manifest = new Set(apiRouteManifest.map((route) => route.id))
+
+    for (const id of X_ROUTES) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      expect(route, `${id} is not in the contract`).toBeTruthy()
+      expect(manifest.has(id), `${id} is not in the manifest`).toBe(true)
+      expect(route.auth, id).toBe('session')
+      expect(route.mfaExempt ?? false, `${id} is MFA-exempt`).toBe(false)
+      // The platform tag is the SECURITY_ROLE surface; these are event writes.
+      expect(route.tags, id).not.toContain('platform')
+    }
+  })
+
+  it('demands a second factor on every X command but closing a sitting', () => {
+    for (const id of X_ROUTES) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      if (route.method === 'GET') {
+        expect(route.stepUp ?? null, `${id} is a read`).toBeNull()
+      } else if (GIVES_UP_ONLY.has(id)) {
+        expect(route.stepUp ?? null, `${id} only gives authority up`).toBeNull()
+      } else {
+        expect(route.stepUp, `${id} has no second factor`).toBeTruthy()
+        expect(Object.keys(STEP_UP_POLICIES), id).toContain(route.stepUp)
+      }
+    }
+
+    expect(
+      Object.fromEntries(
+        [
+          'events.delete',
+          'events.finishRefunds',
+          'events.cancelSession',
+          'platformEvents.openEdit',
+          'platformEvents.restore',
+        ].map((id) => [id, apiRoutes.find((route) => route.id === id).stepUp]),
+      ),
+    ).toEqual({
+      'events.delete': 'EVENT_CANCEL',
+      'events.finishRefunds': 'EVENT_CANCEL',
+      'events.cancelSession': 'EVENT_CANCEL',
+      'platformEvents.openEdit': 'MODERATION',
+      'platformEvents.restore': 'EVENT_PUBLISH',
+    })
+  })
+
+  it('holds the Desi-Event team’s routes by platform-only capabilities, and leaves the organisers’ to the handler', () => {
+    for (const id of X_ROUTES) {
+      const route = apiRoutes.find((candidate) => candidate.id === id)
+
+      if (id.startsWith('platformEvents.')) {
+        expect(PLATFORM_ONLY_CAPABILITIES, id).toContain(route.capability)
+      } else if (id.startsWith('events.')) {
+        // Membership first, then the platform: decided per event in the handler.
+        expect(route.capability ?? null, id).toBeNull()
+      }
+    }
+
+    expect(apiRoutes.find((route) => route.id === 'platformEvents.restore').capability).toBe(
+      'event:platform_delete',
+    )
+  })
+
+  it('carries no secret-shaped key in any X response', () => {
+    const document = buildOpenApiDocument()
+    const components = document.components?.schemas ?? {}
+
+    for (const operations of Object.values(document.paths)) {
+      for (const operation of Object.values(operations)) {
+        if (!X_ROUTES.includes(operation.operationId)) continue
+
+        const names = [...propertyNames(operation.responses ?? {}, components)]
+
+        expect(
+          names.filter((name) => SECRET_KEY.test(name)),
+          operation.operationId,
+        ).toEqual([])
+      }
+    }
+  })
+
+  it('never lets what deleting would do, or the team’s sittings, be cached', async () => {
+    const { app, ids } = await createTestApp()
+    const headers = bearer(await signIn(app, 'owner@rangoli.example'))
+
+    for (const url of [
+      `/v1/events/${ids.publishedEvent.id}/deletion`,
+      `/v1/events/${ids.publishedEvent.id}/platform-edits`,
+    ]) {
+      const response = await app.inject({ method: 'GET', url, headers })
+
+      expect(response.statusCode, url).toBe(200)
+      expect(response.headers['cache-control'], url).toBe('no-store')
+    }
+
+    await app.close()
   })
 })

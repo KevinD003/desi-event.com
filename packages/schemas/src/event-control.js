@@ -194,11 +194,18 @@ export const sessionCancellationPreviewSchema = z.object({
   refusal: z
     .object({ code: z.enum(SESSION_CANCELLATION_REFUSALS), message: z.string() })
     .nullable(),
+  /**
+   * Every order the night touches: the sum of the five counts below, and the
+   * number a cancellation sends back as `expectedOrders`.
+   */
+  orders: countSchema,
   ordersRefunded: countSchema,
   /** Every-night tickets: their holders are told, not refunded. */
   ordersToldOnly: countSchema,
   zeroValueOrders: countSchema,
   disputedOrders: countSchema,
+  /** Unpaid orders for the night, nobody paying for them now: cancelled. */
+  ordersCancelled: countSchema,
   ticketsWithdrawn: countSchema,
   refundableCents: amountSchema,
   currency: currencyOrNullSchema,

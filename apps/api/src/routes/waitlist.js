@@ -4,7 +4,9 @@
  * @module @desi-event/api/routes/waitlist
  */
 
-import { notFound } from '../lib/errors.js'
+import { PUBLICLY_VISIBLE_STATUSES } from '@desi-event/schemas/lifecycle'
+
+import { conflict, notFound } from '../lib/errors.js'
 import { defineRoute } from '../lib/register.js'
 
 /**
@@ -26,7 +28,19 @@ export function registerWaitlistRoutes(app, { prisma }) {
       const { email, quantity } = request.body
 
       const event = await prisma.event.findUnique({ where: { id: eventId } })
-      if (!event) throw notFound('No such event.')
+
+      // Only an event the public can see has a waiting list: anything else —
+      // a draft, one under review, a deleted one — answers as an unknown event
+      // does (SPEC2-XI X-S). A finished or cancelled one has nothing to wait for.
+      if (!event || !PUBLICLY_VISIBLE_STATUSES.has(event.status)) {
+        throw notFound('No such event.')
+      }
+
+      if (event.status === 'CANCELLED' || event.status === 'COMPLETED') {
+        throw conflict('This event is over or was cancelled, so it has no waiting list.', {
+          status: event.status,
+        })
+      }
 
       // Upsert rather than read-then-create. Two things depend on it: a second
       // join updates the quantity instead of silently discarding it, and two

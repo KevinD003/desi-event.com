@@ -14,7 +14,10 @@
  *     organisation. Applies to event decisions, picture decisions and
  *     organisation verification decisions.
  *   - `SELF_REVIEW` — the reviewer is the account behind the event's latest move
- *     into review. Applies to event decisions.
+ *     into review (event decisions), or the account that uploaded the picture
+ *     being decided (picture decisions, SPEC2-XI X-3: nobody approves their
+ *     own upload, which also closes the path of a Desi-Event administrator
+ *     uploading in an editing sitting and approving it themselves).
  *
  * What this cannot see: one person using two accounts. Every acceptance of an
  * organiser invitation is audited with its inviter, so the platform can list
@@ -41,6 +44,10 @@ export const REVIEW_INDEPENDENCE = Object.freeze({
     message:
       'You sent this event for review, so somebody else on the Desi-Event team has to decide it.',
   }),
+  SELF_UPLOAD: Object.freeze({
+    code: 'SELF_REVIEW',
+    message: 'You uploaded this picture, so somebody else on the Desi-Event team has to decide it.',
+  }),
 })
 
 /**
@@ -51,15 +58,25 @@ export const REVIEW_INDEPENDENCE = Object.freeze({
  * @param {{id: string, memberships?: Array<{organizationId: string}>}} options.actor The reviewer.
  * @param {string} options.organizationId The organisation whose work is being decided.
  * @param {string|null} [options.eventId] The event, for the submitter check.
+ * @param {string|null} [options.uploadedById] For a picture decision: who uploaded it.
  * @returns {Promise<{independent: boolean, code: string|null, reason: string|null}>} The answer.
  */
-export async function reviewIndependence(prisma, { actor, organizationId, eventId = null }) {
+export async function reviewIndependence(
+  prisma,
+  { actor, organizationId, eventId = null, uploadedById = null },
+) {
   const member = (actor?.memberships ?? []).some(
     (membership) => membership.organizationId === organizationId,
   )
 
   if (member) {
     const { code, message } = REVIEW_INDEPENDENCE.CONFLICT_OF_INTEREST
+
+    return { independent: false, code, reason: message }
+  }
+
+  if (uploadedById && actor?.id && uploadedById === actor.id) {
+    const { code, message } = REVIEW_INDEPENDENCE.SELF_UPLOAD
 
     return { independent: false, code, reason: message }
   }
@@ -89,14 +106,19 @@ export async function reviewIndependence(prisma, { actor, organizationId, eventI
  * @param {{id: string, memberships?: Array<{organizationId: string}>}} options.actor The reviewer.
  * @param {string} options.organizationId The organisation whose work is being decided.
  * @param {string|null} [options.eventId] The event, for the submitter check.
+ * @param {string|null} [options.uploadedById] For a picture decision: who uploaded it.
  * @returns {Promise<{exemption: null}>} Nothing to note when the reviewer is independent.
  * @throws {Error} 403 `CONFLICT_OF_INTEREST` or `SELF_REVIEW`.
  */
-export async function assertIndependentReviewer(prisma, { actor, organizationId, eventId = null }) {
+export async function assertIndependentReviewer(
+  prisma,
+  { actor, organizationId, eventId = null, uploadedById = null },
+) {
   const { independent, code, reason } = await reviewIndependence(prisma, {
     actor,
     organizationId,
     eventId,
+    uploadedById,
   })
 
   if (!independent) throw forbidden(reason, code)

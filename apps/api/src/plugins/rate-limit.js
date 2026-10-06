@@ -369,6 +369,54 @@ export function organizerInviteRateLimit(overrides = {}) {
 }
 
 /**
+ * Platform editing budget, per administrator: thirty sittings opened an hour
+ * (SPEC2-XI §4.4, `platform-edit:actor:<id>`).
+ *
+ * @type {Readonly<{max: number, timeWindow: string}>}
+ */
+export const DEFAULT_PLATFORM_EDIT_LIMIT = Object.freeze({ max: 30, timeWindow: '1 hour' })
+
+/**
+ * Build the platform editing budget: a `preHandler` for `platformEvents.openEdit`,
+ * keyed `platform-edit:actor:<id>`, run after the session, capability and
+ * step-up guards so a caller about to be refused spends nothing.
+ *
+ * @param {{max?: number, timeWindow?: string|number}} [overrides] Limit overrides, for tests.
+ * @returns {function(object): Promise<void>} The hook. Throws a 429 past the budget.
+ */
+export function platformEditRateLimit(overrides = {}) {
+  const limit = { ...DEFAULT_PLATFORM_EDIT_LIMIT, ...overrides }
+  const span = windowMs(limit.timeWindow)
+  /** @type {Map<string, {count: number, startedAt: number}>} */
+  const buckets = new Map()
+
+  return async function platformEditBudget(request) {
+    const now = Date.now()
+    const key = `platform-edit:actor:${request.actor?.id ?? `ip:${request.ip}`}`
+
+    for (const [bucketKey, bucket] of buckets) {
+      if (bucket.startedAt + span <= now) buckets.delete(bucketKey)
+    }
+
+    const bucket = buckets.get(key) ?? { count: 0, startedAt: now }
+
+    if (bucket.count >= limit.max) {
+      const retryInSeconds = Math.max(1, Math.ceil((bucket.startedAt + span - now) / 1000))
+      const error = new Error(`Too many requests. Retry in ${retryInSeconds} seconds.`)
+
+      throw Object.assign(error, {
+        statusCode: 429,
+        code: 'RATE_LIMITED',
+        retryAfterSeconds: retryInSeconds,
+      })
+    }
+
+    bucket.count += 1
+    buckets.set(key, bucket)
+  }
+}
+
+/**
  * Build the per-route `config.rateLimit` object for accepting an organiser
  * invitation: the credential budget, keyed `organizer-accept:actor:<id>`.
  *

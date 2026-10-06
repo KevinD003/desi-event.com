@@ -25,6 +25,7 @@ import {
   seedHold,
   seedOrder,
 } from './helpers/authoring-world.js'
+import { tierChangeProblems } from '../src/lib/event-authoring.js'
 import { minutesFromNow } from './helpers/fixtures.js'
 import { cuid } from './helpers/prisma-stub.js'
 
@@ -156,15 +157,40 @@ describe('a live event takes the tier edits that take nothing from a buyer', () 
     await app.close()
   })
 
-  it('keeps the price of a tier that has sold (TIER_SOLD) or is in a basket (TIER_IN_USE)', async () => {
+  // SPEC2-XI X-4 (§8): a sold tier may be re-priced for the next buyer — each
+  // order line keeps the price it was bought at — while its currency stays and
+  // a tier in somebody's basket keeps the price that basket was quoted.
+  it('re-prices a sold tier for the next buyer, keeps the currency (TIER_SOLD) and the price of a tier in a basket (TIER_IN_USE)', async () => {
     const { app, prisma, ids, patchTier } = await liveHarness()
+    const tier = prisma._store.ticketType.find((row) => row.id === ids.generalAdmission.id)
 
-    prisma._store.ticketType.find((row) => row.id === ids.generalAdmission.id).quantitySold = 1
+    tier.quantitySold = 1
+
+    const { item } = seedOrder(prisma, {
+      eventId: ids.publishedEvent.id,
+      ticketTypeId: ids.generalAdmission.id,
+    })
+    const was = tier.priceCents
 
     const sold = await patchTier(ids.generalAdmission.id, { priceCents: 1 })
 
-    expect(sold.statusCode).toBe(409)
-    expect(sold.json().error.code).toBe('TIER_SOLD')
+    expect(sold.statusCode).toBe(200)
+    expect(sold.json().data.priceCents).toBe(1)
+    // The buyer keeps what they paid.
+    expect(prisma._store.orderItem.find((row) => row.id === item.id).unitPriceCents).toBe(1000)
+
+    const [audit] = auditRows(prisma, 'event.ticket_type_updated')
+
+    expect(audit.metadata).toMatchObject({
+      tierId: ids.generalAdmission.id,
+      before: { priceCents: was },
+      after: { priceCents: 1 },
+    })
+
+    // The currency those orders were paid in stays.
+    expect(
+      tierChangeProblems(tier, { currency: 'USD' }, { sold: 1, held: 0 }, 'live'),
+    ).toMatchObject({ code: 'TIER_SOLD' })
 
     seedHold(prisma, { ticketTypeId: ids.vip.id, quantity: 1 })
 
@@ -387,16 +413,57 @@ describe('a live session', () => {
     await app.close()
   })
 
-  it('keeps its seating layout (409 SESSION_LAYOUT_LOCKED)', async () => {
-    const { app, ids, patchSession } = await liveHarness()
+  // SPEC2-XI X-4 (§8): a live night nobody holds a ticket for may move to
+  // another map, its seats prepared in the same write; one whose seats are
+  // sold keeps the map those people chose from.
+  it('moves an unused live night to another map, and keeps a night whose seats are sold (409 MAP_FROZEN)', async () => {
+    const { app, prisma, ids, patchSession } = await liveHarness()
 
     const response = await patchSession(ids.publishedSession.id, {
       venueMapVersionId: ids.versionId,
       capacity: null,
     })
 
-    expect(response.statusCode).toBe(409)
-    expect(response.json().error.code).toBe('SESSION_LAYOUT_LOCKED')
+    expect(response.statusCode).toBe(200)
+    expect(response.json().data.venueMapVersionId).toBe(ids.versionId)
+
+    const seats = prisma._store.eventSeat.filter(
+      (row) => row.eventSessionId === ids.publishedSession.id,
+    )
+
+    expect(seats).toHaveLength(ids.seats.length)
+    expect(seats.every((row) => row.status === 'AVAILABLE')).toBe(true)
+
+    // A tier pricing one of the map's zones pins it too, sold or not.
+    const priced = {
+      ...ids.vip,
+      id: cuid(),
+      name: 'Stalls',
+      quantitySold: 0,
+      eventSessionId: ids.publishedSession.id,
+      priceZoneId: ids.stalls.id,
+    }
+
+    prisma._store.ticketType.push(priced)
+
+    const pinned = await patchSession(ids.publishedSession.id, {
+      venueMapVersionId: ids.otherVersionId,
+    })
+
+    expect(pinned.statusCode).toBe(409)
+    expect(pinned.json().error.code).toBe('MAP_PRICED')
+    expect(pinned.json().error.message).toMatch(/^"Stalls" prices seats on this session/)
+
+    prisma._store.ticketType.splice(prisma._store.ticketType.indexOf(priced), 1)
+
+    seats[0].status = 'SOLD'
+
+    const frozen = await patchSession(ids.publishedSession.id, {
+      venueMapVersionId: ids.otherVersionId,
+    })
+
+    expect(frozen.statusCode).toBe(409)
+    expect(frozen.json().error.code).toBe('MAP_FROZEN')
 
     await app.close()
   })

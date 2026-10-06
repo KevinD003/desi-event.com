@@ -6,14 +6,18 @@
 
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 
-import { recordAudit } from '../lib/audit.js'
-import { httpError, notFound } from '../lib/errors.js'
+import { httpError } from '../lib/errors.js'
 import {
+  AUTHORING_MODES,
+  assertAuthorable,
+  authorChange,
   defaultTierCurrency,
+  loadForAuthoring,
   refuseProblems,
   rethrowTierTaken,
   tierCurrencyProblems,
 } from '../lib/event-authoring.js'
+import { AUTHORITY_KINDS } from '../lib/event-authority.js'
 import { readAvailabilityMap } from '../lib/inventory.js'
 import { isPublicTier, toTicketType } from '../lib/presenters.js'
 import { defineRoute } from '../lib/register.js'
@@ -101,15 +105,23 @@ export function registerTicketTypeRoutes(app, { prisma }) {
     handler: async (request) => {
       const { eventId } = request.params
 
-      const event = await prisma.event.findUnique({
-        where: { id: eventId },
-        include: { organization: true, ticketTypes: { select: { id: true, currency: true } } },
+      // The authoring routes' path (SPEC2-XI X-A): the same per-status rules,
+      // the same authority — the organisation's through membership, or the
+      // Desi-Event team's in an open editing sitting — the same revision
+      // compare-and-set and the same audit. The body is the legacy one, so the
+      // revision is whatever the event has once its row is locked.
+      const event = await loadForAuthoring(prisma, eventId)
+      const { mode, authority } = await assertAuthorable(prisma, event, request.actor, {
+        session: request.session,
+        allow: [AUTHORING_MODES.DRAFT, AUTHORING_MODES.LIVE],
       })
-      if (!event) throw notFound('No such event.')
 
-      assertCan(request.actor, CAPABILITIES.TICKET_TYPE_MANAGE, {
-        organizationId: event.organizationId,
-      })
+      // The organisation's path also keeps asking for `ticketType:manage`.
+      if (authority.kind === AUTHORITY_KINDS.ORGANIZATION) {
+        assertCan(request.actor, CAPABILITIES.TICKET_TYPE_MANAGE, {
+          organizationId: event.organizationId,
+        })
+      }
 
       // A currency left out is the event's own, as the authoring route has it,
       // and a tier priced apart from the rest could never share an order.
@@ -139,9 +151,22 @@ export function registerTicketTypeRoutes(app, { prisma }) {
         )
       }
 
-      const ticketType = await prisma
-        .$transaction(async (tx) => {
-          const created = await tx.ticketType.create({
+      /** @type {object} */
+      let ticketType
+
+      await authorChange(prisma, {
+        event,
+        revision: null,
+        actor: request.actor,
+        authority,
+        sessionId: request.session?.id ?? null,
+        action: 'event.ticket_type_added',
+        /**
+         * @param {object} tx The transaction client.
+         * @returns {Promise<void>} Resolves when written.
+         */
+        write: async (tx) => {
+          ticketType = await tx.ticketType.create({
             data: {
               ...body,
               // The path identifies the event; a body field claiming otherwise is
@@ -153,18 +178,9 @@ export function registerTicketTypeRoutes(app, { prisma }) {
               description: body.description ?? null,
             },
           })
-
-          await recordAudit(tx, {
-            action: 'event.ticket_type_added',
-            entityType: 'Event',
-            entityId: event.id,
-            actorId: request.actor?.id ?? null,
-            metadata: { tierId: created.id, fields: Object.keys(request.body).sort() },
-          })
-
-          return created
-        })
-        .catch((error) => rethrowTierTaken(error, body.name))
+        },
+        metadata: () => ({ tierId: ticketType.id, fields: Object.keys(request.body).sort(), mode }),
+      }).catch((error) => rethrowTierTaken(error, body.name))
 
       request.log.info({ eventId: event.id, ticketTypeId: ticketType.id }, 'ticket type created')
 

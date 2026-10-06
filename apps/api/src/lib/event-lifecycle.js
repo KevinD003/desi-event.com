@@ -54,6 +54,7 @@ import { ACTORS, GATES, findTransition, transitionsFrom } from '@desi-event/sche
 
 import { recordAudit } from './audit.js'
 import { bindReservedSeatsAudited } from './event-authoring.js'
+import { authorityAuditMetadata, byPlatform, lifecycleAuthority } from './event-authority.js'
 import {
   conflict,
   databaseErrorCode,
@@ -324,12 +325,17 @@ async function checkGate(gate, prisma, event) {
 }
 
 /**
- * Assert the actor is entitled to make this kind of move.
+ * Assert the actor is entitled to make this kind of move, and say whose
+ * authority it is made under.
+ *
+ * An organiser's move follows Rule L (SPEC2-XI X-A): the actor's membership,
+ * or a SUPER_ADMIN's platform role, recorded as the Desi-Event team's; a
+ * platform ADMIN is refused with `ORGANIZER_ONLY`.
  *
  * @param {object} move The transition from the table.
  * @param {object} actor The request actor.
  * @param {object} event The event.
- * @returns {void}
+ * @returns {object|null} The authority for an organiser's move; null for a moderator's.
  * @throws {Error} A 403 when the actor is not entitled.
  */
 function assertEntitled(move, actor, event) {
@@ -351,14 +357,12 @@ function assertEntitled(move, actor, event) {
 
   if (move.actor === ACTORS.MODERATOR) {
     assertCan(actor, MODERATION_CAPABILITY)
-    return
+    return null
   }
 
   // An organiser move. The capability depends on the destination, because
   // publishing and cancelling are not the same authority as submitting.
-  const capability = capabilityFor(move.to)
-
-  assertCan(actor, capability, { organizationId: event.organizationId })
+  return lifecycleAuthority(actor, event, capabilityFor(move.to))
 }
 
 /**
@@ -454,7 +458,7 @@ export async function availableTransitions(prisma, event, actor) {
  * @param {object} options.actor The request actor.
  * @param {string} [options.reason] Why, for the audit trail and the attendee notice.
  * @param {object} [options.requestedChanges] What a moderator wants changed.
- * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event)`. It may return `{ auditMetadata }`, which the transition's audit record carries beside `from`, `to` and `reason`.
+ * @param {Function} [options.onCommit] Extra work inside the transaction, given `(tx, event, { authority, byPlatform })`. It may return `{ auditMetadata }`, which the transition's audit record carries beside `from`, `to` and `reason`.
  * @param {{timeout: number, maxWait: number}} [options.transactionOptions] The transaction's budget, when `onCommit` does work that grows with the event (a cancellation reserves a refund per paid order). Prisma's default of five seconds otherwise.
  * @returns {Promise<object>} The updated event.
  * @throws {Error} 403, 404, 409 or 422, each meaning something different; 503 when the transaction outran its budget and nothing was changed.
@@ -498,7 +502,7 @@ export async function transitionEvent(prisma, options) {
   // 2. Is this actor entitled to it? A moderator decision also needs a
   // reviewer independent of the event: not a member of its organisation, and
   // not the person who sent it for review.
-  assertEntitled(move, actor, event)
+  const authority = assertEntitled(move, actor, event)
 
   if (move.actor === ACTORS.MODERATOR) {
     await assertIndependentReviewer(prisma, {
@@ -575,14 +579,24 @@ export async function transitionEvent(prisma, options) {
       // the work did — a cancellation's refunds, and the orders it left to the
       // finance team — rather than only that it happened. Both are in this
       // transaction, so neither is written without the other.
-      const work = onCommit ? await onCommit(tx, updated) : null
+      const work = onCommit
+        ? await onCommit(tx, updated, { authority, byPlatform: byPlatform(authority) })
+        : null
 
+      // A SUPER_ADMIN's move on an organisation it is not a member of is
+      // recorded as the Desi-Event team's (Rule L).
       await recordAudit(tx, {
         action: `event.${to.toLowerCase()}`,
         entityType: 'Event',
         entityId: event.id,
         actorId: actor?.id ?? null,
-        metadata: { ...(work?.auditMetadata ?? {}), from, to, reason },
+        metadata: {
+          ...(work?.auditMetadata ?? {}),
+          ...authorityAuditMetadata(authority),
+          from,
+          to,
+          reason,
+        },
       })
 
       return updated
@@ -673,4 +687,20 @@ function stampsFor({ to, reason, event }) {
   }
 
   return data
+}
+
+/**
+ * The columns a move to `to` writes, as {@link transitionEvent} writes them:
+ * for a deletion that cancels an event before taking it off (SPEC2-XI X-D),
+ * which writes CANCELLED itself because `assertEntitled` would refuse the
+ * Desi-Event team, and must stamp it exactly as a cancellation does.
+ *
+ * @param {object} options Options.
+ * @param {string} options.to The destination.
+ * @param {string|null} options.reason The reason.
+ * @param {object} options.event The event as it was.
+ * @returns {object} The Prisma `data` payload.
+ */
+export function lifecycleStamps(options) {
+  return stampsFor(options)
 }

@@ -66,6 +66,8 @@ export function seedPicture(prisma, options) {
     moderatedAt: moderationStatus === 'PENDING' ? null : now,
     moderatedById: null,
     moderationNote: moderationStatus === 'REJECTED' ? 'Shows a private home.' : null,
+    // A seeded row bypasses the stub's column defaults; a picture replaces nothing.
+    replacesMediaId: null,
     createdAt: new Date(now.getTime() + (position ?? 0)),
     updatedAt: now,
   }

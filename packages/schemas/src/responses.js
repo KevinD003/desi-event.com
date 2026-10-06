@@ -41,10 +41,15 @@ import {
 } from './enums.js'
 import { invitationDeliverySchema } from './teams.js'
 import { PAYMENT_MODES } from './payments.js'
-import { publicMediaSchema } from './media.js'
 import { utcDaySchema } from './traffic.js'
 import { CARD_PLACEMENTS, TRAFFIC_SOURCES } from './traffic-vocabulary.js'
 import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } from './website.js'
+import {
+  eventChangeNoticeSchema,
+  platformEventRowSchema,
+  refundDriveSummarySchema,
+} from './event-control.js'
+import { mediaQueueItemSchema, publicMediaSchema } from './media.js'
 import {
   eventSummarySchema,
   eventWithRelationsSchema,
@@ -599,6 +604,12 @@ export const ticketDetailResponseSchema = z.object({
      * Null for the organiser reading it and for a ticket that no longer admits.
      */
     onlineJoinUrl: urlSchema.nullish(),
+    /**
+     * What changed about the event since the ticket's order was placed and
+     * touches this ticket: event-wide changes, its own night's, and every
+     * night's for a ticket good for every night. Newest first.
+     */
+    eventChanges: z.array(eventChangeNoticeSchema).max(50).optional(),
   }),
 })
 
@@ -911,6 +922,9 @@ export const eventSessionSchema = z.object({
   status: z.string(),
   /** The organiser's short name for the night, or null when its date labels it. */
   label: z.string().nullable(),
+  /** When the night was cancelled, and why; null for a night that was not. */
+  cancelledAt: z.string().nullish(),
+  cancellationReason: z.string().max(500).nullish(),
   venueMapVersionId: z.string().nullable(),
   capacity: z.number().nullable(),
   sortOrder: z.number(),
@@ -1707,4 +1721,39 @@ export const orderQuoteResponseSchema = z.object({
       .nullable(),
     pricedAt: timestampSchema,
   }),
+})
+
+/**
+ * `POST /v1/events/:id/delete`: the event as its team now reads it (with its
+ * `deletion` record) and, when deleting it cancelled it, what the first pass of
+ * the refund driver did. `refunds` is null for an outcome that refunds nobody.
+ */
+export const eventDeletionResponseSchema = z.object({
+  data: z.object({
+    event: eventWithRelationsSchema,
+    refunds: refundDriveSummarySchema.nullable(),
+  }),
+})
+
+/**
+ * `POST /v1/events/:id/sessions/:sessionId/cancel`: the night as it now is,
+ * and what the first pass of the refund driver did for its orders.
+ */
+export const cancelSessionResponseSchema = z.object({
+  data: z.object({
+    session: eventSessionSchema,
+    refunds: refundDriveSummarySchema,
+  }),
+})
+
+/** `GET /v1/platform/events`: a page of every organisation's events. */
+export const platformEventListResponseSchema = z.object({
+  data: z.array(platformEventRowSchema),
+  pagination: paginationMetaSchema,
+})
+
+/** `GET /v1/moderation/media`: a page of pictures waiting, oldest first. */
+export const mediaQueueResponseSchema = z.object({
+  data: z.array(mediaQueueItemSchema),
+  pagination: paginationMetaSchema,
 })

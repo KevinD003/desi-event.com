@@ -42,6 +42,8 @@ import { addressFree } from './addresses.js'
 import { venueAccessibilitySchema } from './venues.js'
 import { publicMediaSchema } from './media.js'
 import { WEBSITE_LIMITS, publicWebsiteLinkSchema, websiteRedirectStateSchema } from './website.js'
+import { eventChangeNoticeSchema } from './event-control.js'
+import { DELETION_OUTCOMES } from './lifecycle.js'
 import {
   eventFaqSchema,
   eventPerformersSchema,
@@ -50,6 +52,7 @@ import {
   eventSponsorsSchema,
 } from './event-content.js'
 import {
+  eventAuthoritySchema,
   eventCategorySchema,
   eventSessionStatusSchema,
   eventStatusSchema,
@@ -585,6 +588,26 @@ export const eventWithRelationsSchema = eventSchema.extend({
    * count says nothing a visitor could not infer from the page changing.
    */
   revision: z.int().min(0).default(0),
+  /**
+   * A deleted event's record, for the people who may still read it: its own
+   * team and the Desi-Event team. Absent from every other payload, and absent
+   * for an event that is not deleted. `restoreTo` is where a restore by the
+   * Desi-Event team would bring it back. `deletedByName` is the person's name
+   * for a platform reader, or for a member when a member of their own
+   * organisation deleted it; null otherwise (an organiser reads a deletion by
+   * the Desi-Event team without the administrator's name).
+   */
+  deletion: z
+    .object({
+      deletedAt: timestampSchema,
+      reason: z.string().max(500),
+      outcome: z.enum(DELETION_OUTCOMES),
+      authority: eventAuthoritySchema,
+      statusBefore: eventStatusSchema,
+      restoreTo: eventStatusSchema,
+      deletedByName: z.string().max(200).nullable(),
+    })
+    .optional(),
 })
 
 /**
@@ -691,6 +714,12 @@ export const orderWithItemsSchema = orderSchema.extend({
       unavailableReason: groupPassUnavailableReasonSchema.nullable(),
     })
     .nullish(),
+  /**
+   * What changed about the event since this order was placed and touches it,
+   * newest first: event-wide changes, its own night's, and every night's for a
+   * ticket good for every night. Read by `orders.get`; absent elsewhere.
+   */
+  eventChanges: z.array(eventChangeNoticeSchema).max(50).optional(),
 })
 
 /**

@@ -38,6 +38,7 @@ import { isSuppressible } from '@desi-event/notifications'
 import { CAPABILITIES, assertCan } from '@desi-event/permissions'
 import { HIDDEN_EMAIL, buildPaginationMeta, toSkipTake } from '@desi-event/schemas'
 
+import { changesForOrder } from '../lib/event-change-notices.js'
 import { EVENT_COVER_INCLUDE, publicCover } from '../lib/event-media.js'
 import { conflict, forbidden, notFound, unprocessable } from '../lib/errors.js'
 import { generateTicketCode } from '../lib/identifiers.js'
@@ -126,6 +127,33 @@ function toTicketTransfer(row, { party = true } = {}) {
     resultTicketId: row.resultTicketId ?? null,
     createdAt: row.createdAt,
   }
+}
+
+/**
+ * What changed about a ticket's event since its order was placed and touches
+ * the ticket: read as the order's notices are, for the ticket's own night (its
+ * seat's, else its tier's), or every night for a ticket good for every night.
+ *
+ * @param {object} prisma The Prisma client.
+ * @param {object} ticket The ticket, with `orderItem.order`, `orderItem.ticketType.eventSession` and `eventSeat.eventSession`.
+ * @param {object} event Its event.
+ * @returns {Promise<object[]>} `eventChangeNoticeSchema` payloads.
+ */
+async function changesForTicket(prisma, ticket, event) {
+  const order = ticket.orderItem?.order
+
+  if (!order) return []
+
+  const night =
+    ticket.eventSeat?.eventSession?.id ?? ticket.orderItem?.ticketType?.eventSession?.id ?? null
+
+  return changesForOrder(prisma, {
+    id: order.id,
+    eventId: event.id,
+    createdAt: order.createdAt,
+    eventSessionId: null,
+    items: [{ ticketType: { eventSessionId: night } }],
+  })
 }
 
 /**
@@ -328,6 +356,10 @@ export function registerTicketRoutes(
           // The holder's, while the ticket admits. An organiser reading the
           // ticket has the link in their own editor and gets null here.
           onlineJoinUrl: holder ? joinUrlFor(ticket, ticket.orderItem?.order ?? null, event) : null,
+          // What changed about the event since the order was placed and
+          // touches this ticket: event-wide changes and its own night's, or
+          // every night's for a ticket good for every night (SPEC2-XI X-14).
+          eventChanges: await changesForTicket(prisma, ticket, event),
         },
       }
     },

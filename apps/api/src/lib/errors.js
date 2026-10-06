@@ -160,6 +160,36 @@ export const POSTING_ROLE_SENTENCE =
   'Roles that create or publish events — event manager, manager, administrator and owner — are given by the Desi-Event team, not from this page. Ask the Desi-Event team to add this person to your organisation.'
 
 /**
+ * What a caller is told when their write lost a deadlock or a write conflict
+ * to another change being saved at the same moment (PostgreSQL `40P01`, Prisma
+ * `P2034`). Nothing of their write was kept, so trying again is the remedy.
+ *
+ * @type {string}
+ */
+export const TRY_AGAIN_SENTENCE =
+  'Another change to this event was being saved at the same moment. Try again.'
+
+/**
+ * What a caller is told when a picture write met a change to the pictures it
+ * depended on (SPEC2-XI X-P): a replacement cover's current cover removed, a
+ * replacement already pointing somewhere, a row gone.
+ *
+ * @type {string}
+ */
+export const MEDIA_CHANGED_SENTENCE =
+  'The pictures changed while this was being saved. Reload and try again.'
+
+/**
+ * What a caller is told when a database guard on deletion, restore or a
+ * cancelled night refuses a write the service should never have made. Only a
+ * bug reaches these; the caller hears a conflict, not a 500.
+ *
+ * @type {string}
+ */
+export const EVENT_CONTROL_CONFLICT_SENTENCE =
+  'This event changed while that was being saved, so nothing was changed. Reload and try again.'
+
+/**
  * Database refusals the API answers with a sentence instead of a 500.
  *
  * Each is a rule the service already keeps, held again by the database for a
@@ -183,7 +213,48 @@ export const DATABASE_REFUSALS = Object.freeze([
     code: 'POSTING_ROLE_NEEDS_PLATFORM',
     message: POSTING_ROLE_SENTENCE,
   }),
+  // Deletion, restore and cancelled nights (SPEC2-XI X-E): guards under rules
+  // `lib/event-deletion.js` and `lib/session-cancellation.js` already keep.
+  ...[
+    'event_restore_returns_prior_status',
+    'event_deletion_records_prior_status',
+    'event_deletion_consistency',
+    'event_session_cancellation_final',
+  ].map((constraint) =>
+    Object.freeze({
+      constraint,
+      statusCode: 409,
+      code: 'CONFLICT',
+      message: EVENT_CONTROL_CONFLICT_SENTENCE,
+    }),
+  ),
+  // A replacement cover's CHECK and trigger (`media_asset_replacement_shape`,
+  // `media_asset_replacement_matches`): the cover it pointed at moved.
+  Object.freeze({
+    constraint: 'media_asset_replacement_',
+    statusCode: 409,
+    code: 'MEDIA_CHANGED',
+    message: MEDIA_CHANGED_SENTENCE,
+  }),
 ])
+
+/** The SQLSTATE and Prisma codes of a lost deadlock or write conflict. */
+const RETRYABLE_CODES = Object.freeze(new Set(['40P01', 'P2034']))
+
+/**
+ * Whether a database error is a deadlock or a write conflict that a retry
+ * would get past (`40P01`, `P2034`), wherever the driver put the code.
+ *
+ * @param {unknown} error The thrown value.
+ * @returns {boolean} True for one.
+ */
+export function isRetryableConflict(error) {
+  if (!error || typeof error !== 'object') return false
+
+  const { codes } = databaseRefusalParts(error)
+
+  return [...codes].some((code) => RETRYABLE_CODES.has(code))
+}
 
 /**
  * The SQLSTATE and the text a database refusal arrived with, wherever the
@@ -282,6 +353,12 @@ export function normaliseError(error, options = {}) {
       message: UNSTORABLE_CHARACTER_MESSAGE,
       expected: true,
     }
+  }
+
+  // A deadlock or write conflict lost to a change saved at the same moment
+  // (SPEC2-XI X-E). Nothing of this write was kept; trying again is the fix.
+  if (isRetryableConflict(error)) {
+    return { statusCode: 409, code: 'TRY_AGAIN', message: TRY_AGAIN_SENTENCE, expected: true }
   }
 
   // A rule the database holds for the service — the review gate, the posting-

@@ -18,9 +18,14 @@
 
 import { z } from 'zod'
 
-import { EVENT_STATUSES, mediaKindSchema, mediaModerationStatusSchema } from './enums.js'
-import { EDITABLE_STATUSES, LIVE_STATUSES } from './lifecycle.js'
-import { cuidSchema, timestampSchema } from './primitives.js'
+import {
+  EVENT_STATUSES,
+  eventStatusSchema,
+  mediaKindSchema,
+  mediaModerationStatusSchema,
+} from './enums.js'
+import { EDITABLE_STATUSES, PUBLICLY_VISIBLE_STATUSES } from './lifecycle.js'
+import { cuidSchema, paginationQuerySchema, slugSchema, timestampSchema } from './primitives.js'
 
 /**
  * What the platform accepts, in one place.
@@ -85,24 +90,33 @@ export const MEDIA_UPLOAD_CONTENT_TYPES = Object.freeze([
 export const PUBLIC_MEDIA_MAX_AGE_SECONDS = 86_400
 
 /**
- * Statuses in which a new picture may be uploaded, or a cover replaced.
+ * Statuses in which a new picture may be uploaded, or a cover replaced: while
+ * the event is editable, and once it is posted (publicly visible: live,
+ * finished or cancelled).
  *
- * Only while the event is editable, because every new picture is reviewed with
- * the event. After publication a picture can be described again, moved or
- * removed, but no new pixels reach a public page without a moderator.
+ * No new pixels reach a public page without a review. On a draft every new
+ * picture is reviewed with the event. On a posted event each new picture is
+ * stored waiting for the Desi-Event team's approval and is not shown until
+ * somebody other than its uploader approves it; a new cover waits beside the
+ * current one, which stays public until the new one is approved (SPEC2-XI X-3).
+ * Not while a moderator holds this version (REVIEW_PENDING, APPROVED), nor
+ * once it is rejected, archived or deleted.
  *
  * @type {ReadonlySet<string>}
  */
-export const MEDIA_UPLOAD_STATUSES = EDITABLE_STATUSES
+export const MEDIA_UPLOAD_STATUSES = Object.freeze(
+  new Set([...EDITABLE_STATUSES, ...PUBLICLY_VISIBLE_STATUSES]),
+)
 
 /**
- * Statuses in which a picture's description and order may change: while it is
- * editable, and while it is live.
+ * Statuses in which a picture's description and order may change: the same as
+ * {@link MEDIA_UPLOAD_STATUSES}, so a finished or cancelled event's pictures
+ * can still be described and reordered.
  *
  * @type {ReadonlySet<string>}
  */
 export const MEDIA_ARRANGE_STATUSES = Object.freeze(
-  new Set([...EDITABLE_STATUSES, ...LIVE_STATUSES]),
+  new Set([...EDITABLE_STATUSES, ...PUBLICLY_VISIBLE_STATUSES]),
 )
 
 /**
@@ -533,12 +547,21 @@ export const eventMediaSchema = publicMediaSchema.extend({
   moderationStatus: mediaModerationStatusSchema,
   rejectionReason: z.string().max(1000).nullable(),
   publiclyVisible: z.boolean(),
+  /**
+   * For a cover uploaded to a posted event: the current cover it would
+   * replace once the Desi-Event team approves it. The current cover stays
+   * public until then. Null for every other picture.
+   */
+  replacesMediaId: cuidSchema.nullable().default(null),
   createdAt: timestampSchema,
 })
 
-/** `GET /v1/events/:id/media` and the list-returning writes. */
+/**
+ * `GET /v1/events/:id/media` and the list-returning writes: the cover, a
+ * replacement cover waiting for approval, and the gallery.
+ */
 export const eventMediaListResponseSchema = z.object({
-  data: z.array(eventMediaSchema).max(MEDIA_LIMITS.galleryMax + 1),
+  data: z.array(eventMediaSchema).max(MEDIA_LIMITS.galleryMax + 2),
   meta: z.object({ revision: z.int().min(0) }),
 })
 
@@ -549,6 +572,32 @@ export const eventMediaResponseSchema = z.object({
     revision: z.int().min(0),
     removed: z.array(z.string().max(120)).max(10).optional(),
   }),
+})
+
+/**
+ * `GET /v1/moderation/media`: the pictures of posted events waiting for the
+ * Desi-Event team (PENDING, the default) or taken down (REJECTED), oldest
+ * first.
+ */
+export const mediaQueueQuerySchema = paginationQuerySchema.extend({
+  status: z.enum(['PENDING', 'REJECTED']).default('PENDING'),
+})
+
+/**
+ * One picture in the queue, with the event it belongs to. Who uploaded it is
+ * never named: `uploadedByOrganiser` is false when the Desi-Event team uploaded
+ * it in an editing sitting (or the uploader has since left the organisation),
+ * and nobody approves a picture they uploaded themselves.
+ */
+export const mediaQueueItemSchema = eventMediaSchema.extend({
+  event: z.object({
+    id: cuidSchema,
+    title: z.string(),
+    slug: slugSchema,
+    status: eventStatusSchema,
+    organizationName: z.string(),
+  }),
+  uploadedByOrganiser: z.boolean(),
 })
 
 /** `GET /v1/media/:id`: the picture's bytes. Documentation only. */

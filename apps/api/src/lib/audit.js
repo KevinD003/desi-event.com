@@ -211,6 +211,26 @@ export const AUDIT_ACTIONS = Object.freeze({
   MEDIA_APPROVED: 'moderation.media_approved',
   MEDIA_REJECTED: 'moderation.media_rejected',
 
+  // --- Full control of posted events (SPEC2-XI X) ------------------------------
+  //
+  // Each written inside the transaction that made the change. A deletion's
+  // metadata carries the status it left, the outcome, whose authority, the
+  // sitting and its reason when it was the Desi-Event team's, the counts and
+  // whether the web address was released; never a buyer, an amount per order
+  // or an address. `event.refunds_driven` is the one written after the
+  // provider calls, in its own transaction, with the driver's counts.
+  EVENT_DELETED: 'event.deleted',
+  EVENT_RESTORED: 'event.restored',
+  EVENT_PLATFORM_EDIT_OPENED: 'event.platform_edit_opened',
+  EVENT_PLATFORM_EDIT_CLOSED: 'event.platform_edit_closed',
+  EVENT_SESSION_CANCELLED: 'event.session_cancelled',
+  EVENT_REFUNDS_DRIVEN: 'event.refunds_driven',
+  /**
+   * A replacement cover approved: the cover it replaced was removed in the
+   * same transaction, beside `moderation.media_approved`.
+   */
+  EVENT_MEDIA_REPLACEMENT_APPLIED: 'event.media_replacement_applied',
+
   // --- Event authoring ----------------------------------------------------------
   //
   // Tier and session writes carry the changed field names, never their values;

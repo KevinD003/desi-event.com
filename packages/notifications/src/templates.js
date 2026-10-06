@@ -22,6 +22,9 @@ export const OUTBOX_TEMPLATES = Object.freeze([
   'event.cancelled',
   'event.postponed',
   'event.changed',
+  // One night of an event cancelled (SPEC2-XI X-6): its tickets are refunded,
+  // or, for a ticket good for every night, kept for the others.
+  'event.session_cancelled',
   'ticket.issued',
   'ticket.transfer.invited',
   'ticket.transfer.completed',
@@ -45,6 +48,7 @@ export const UNSUPPRESSIBLE_TEMPLATES = Object.freeze(
     'event.cancelled',
     'event.postponed',
     'event.changed',
+    'event.session_cancelled',
     // A ticket somebody paid for, and an offer of one somebody paid for. Both
     // were written `suppressible: false` at their call sites while this list
     // said they were ordinary — which is the disagreement the list exists to

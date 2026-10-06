@@ -186,6 +186,105 @@ describe('renderEmail', () => {
   })
 })
 
+describe('what ticket holders are told about a change to their event', () => {
+  it('names the organiser, or the Desi-Event team when it made the change, never a person', () => {
+    const byOrganiser = renderEmail({ template: 'event.cancelled', data: { eventTitle: 'Garba' } })
+    const byTeam = renderEmail({
+      template: 'event.cancelled',
+      data: { eventTitle: 'Garba', byPlatform: true },
+    })
+
+    expect(byOrganiser.text).toContain('Garba has been cancelled by the organiser.')
+    expect(byTeam.text).toContain('Garba has been cancelled by the Desi-Event team.')
+
+    const changed = renderEmail({
+      template: 'event.changed',
+      data: { eventTitle: 'Garba', byPlatform: true, changed: ['the start time'] },
+    })
+
+    expect(changed.text).toContain('The Desi-Event team has changed something about Garba.')
+    expect(changed.text).toContain('What changed: the start time.')
+  })
+
+  it('tells the holder of a cancelled night that its tickets are refunded', () => {
+    const rendered = renderEmail({
+      template: 'event.session_cancelled',
+      data: {
+        eventTitle: 'Navratri Nights',
+        orderReference: 'DE-3N01',
+        sessionLabel: 'Night 2',
+        sessionStartsAt: '2026-10-21T19:00:00.000Z',
+        reason: 'The hall flooded.',
+      },
+    })
+
+    expect(rendered.subject).toBe('[DEMO] A night of Navratri Nights has been cancelled')
+    expect(rendered.text).toContain('The organiser has cancelled one night of Navratri Nights.')
+    expect(rendered.text).toContain(
+      'The night cancelled: Night 2, starting 2026-10-21T19:00:00.000Z.',
+    )
+    expect(rendered.text).toContain('The hall flooded.')
+    expect(rendered.text).toContain(
+      'Your tickets from order DE-3N01 for that night are refunded in full.',
+    )
+    // The line the changed-event notice ends with is wrong for a cancelled night.
+    expect(rendered.text).not.toMatch(/unaffected/i)
+    // In this build no money moves, and the notice says so first.
+    expect(rendered.text.split('\n')[0]).toContain('DEMO')
+  })
+
+  it('tells a holder of an every-night ticket that they keep it, and a free ticket that nothing is owed', () => {
+    const kept = renderEmail({
+      template: 'event.session_cancelled',
+      data: { eventTitle: 'Navratri Nights', keptEveryNight: true, byPlatform: true },
+    })
+
+    expect(kept.text).toContain('The Desi-Event team has cancelled one night of Navratri Nights.')
+    expect(kept.text).toContain('is valid for every night, so you keep it for the others.')
+    expect(kept.text).not.toMatch(/refunded in full/)
+
+    const free = renderEmail({
+      template: 'event.session_cancelled',
+      data: { eventTitle: 'Navratri Nights', refunded: false },
+    })
+
+    expect(free.text).toContain('They were free, so there is nothing to refund.')
+  })
+
+  it('says what happened to each order by its recorded outcome, never that a paid ticket was free', () => {
+    const line = (outcome) =>
+      renderEmail({
+        template: 'event.session_cancelled',
+        data: {
+          eventTitle: 'Navratri Nights',
+          orderReference: 'DE-3N02',
+          outcome,
+          // The flags a disputed or unpaid order carries: neither refunded nor kept.
+          refunded: outcome === 'REFUNDED',
+          keptEveryNight: outcome === 'KEPT',
+        },
+      }).text
+
+    expect(line('REFUNDED')).toContain(
+      'Your tickets from order DE-3N02 for that night are refunded in full.',
+    )
+    expect(line('KEPT')).toContain('is valid for every night, so you keep it for the others.')
+    expect(line('FREE')).toContain('They were free, so there is nothing to refund.')
+    expect(line('NOTHING_OWED')).toContain('Nothing is left to refund for them.')
+    expect(line('DISPUTED')).toContain(
+      'Your payment is under dispute, so any refund is handled with the dispute.',
+    )
+    expect(line('UNPAID')).toContain(
+      'Order DE-3N02 was not paid, so it is cancelled and nothing is charged.',
+    )
+    expect(line('NOT_SENT')).toContain('contact the organiser about it.')
+
+    for (const outcome of ['NOTHING_OWED', 'DISPUTED', 'UNPAID', 'NOT_SENT']) {
+      expect(line(outcome), outcome).not.toMatch(/were free|refunded in full/)
+    }
+  })
+})
+
 describe('marking what is not real', () => {
   /**
    * Desi-Event settles every order with an in-memory mock and issues passes

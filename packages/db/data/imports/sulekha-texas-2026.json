@@ -1,0 +1,3012 @@
+{
+  "format": "desi-event-import/1",
+  "source": "SULEKHA",
+  "sourceName": "Sulekha",
+  "sourceSite": "https://events.sulekha.com/",
+  "collectedFrom": "2026-09-29T21:25:00Z",
+  "collectedTo": "2026-09-30T00:51:08Z",
+  "curatedOn": "2026-09-30",
+  "imageHosts": ["usimg.sulekha.io"],
+  "events": [
+    {
+      "sourceId": "400132",
+      "sourceUrl": "https://events.sulekha.com/falguni-pathak-live-in-dallas-dandiya-dhoom-2026_event-in_frisco-tx_400132",
+      "scrapedAt": "2026-09-29T21:25:00Z",
+      "title": "Falguni Pathak Live in Dallas – Dandiya Dhoom 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Join Falguni Pathak in Dallas for an electrifying Dandiya night filled with vibrant music and dance, celebrating the spirit of Navratri.",
+      "description": "Dance Your Heart Out at Falguni Pathak Live in Dallas – Dandiya Dhoom 2026.\n\nMark your calendars for an unforgettable night of music, dance, and culture as Falguni Pathak Live in Dallas – Dandiya Dhoom 2026 takes the stage on Thursday, October 2nd, 2026, at 7:00 PM! Hosted at the vibrant Frisco Flyers venue in Frisco, TX, this electrifying event promises to bring the festive spirit of Navratri to life. Falguni Pathak, the queen of dandiya and garba, will mesmerize the audience with her soulful melodies and energetic beats, making this an evening you won’t want to miss. Whether you’re a fan of traditional Gujarati tunes or simply love multilingual music that gets you dancing, this event is tailor-made for you. Get ready to celebrate culture, community, and joy in the heart of Texas!\n\nMeet the Icon: Falguni Pathak\n\nFalguni Pathak, born on March 12, 1971, is a celebrated singer and performer hailing from India, currently based in Mumbai. Known as the undisputed queen of dandiya and garba, her music draws inspiration from the rich traditional forms of Gujarat. Since her debut in 1998, Falguni has captivated audiences across India and beyond with her signature style and powerful vocals. Her dedication to preserving cultural heritage through music has earned her an enormous fan base. Whether it’s her chart-topping hits or her infectious live performances, Falguni Pathak continues to be one of the most sought-after artists, making her the perfect centerpiece for this dazzling event in Frisco.\n\nDiscover the Charm of Frisco Flyers\n\nThe Frisco Flyers venue, located at 6300 Flyers Way in Frisco, TX, is the ideal destination for an event of this magnitude. Nestled in the bustling city of Frisco, this modern venue offers a safe and welcoming atmosphere. Its central location ensures easy accessibility via major roads, with ample parking facilities for your convenience. Frisco itself is a vibrant hub of activity, with nearby attractions such as The Star District and Stonebriar Centre providing plenty of opportunities for dining, shopping, and entertainment. For a pre-event meal, consider indulging in authentic Indian cuisine at popular restaurants like Curry Bliss or Roti Grill, both just a short drive away. Whether you’re coming from within Frisco or traveling from across Texas, Frisco Flyers is ready to host an unforgettable evening!",
+      "startsAt": "2026-10-02T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Frisco Flyers",
+        "addressLine1": "6300 Flyers Way",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Falguni Pathak",
+          "role": null
+        }
+      ],
+      "presentedBy": "hi INDiA Entertainment",
+      "languages": ["Gujarati", "Multilingual"],
+      "prices": [
+        {
+          "name": "EARLY BIRD",
+          "priceCents": 3500,
+          "currency": "USD",
+          "note": "Sold Out"
+        },
+        {
+          "name": "Regular",
+          "priceCents": 4500,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": "$35 - $45",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [
+        {
+          "q": "Where is the Falguni Pathak Concert happening?",
+          "a": "frisco flyers, 6300 Flyers Way, Frisco, TX"
+        },
+        {
+          "q": "When do Falguni Pathak event tickets go on sale in Frisco, TX?",
+          "a": "Falguni Pathak upcoming concert tour tickets go on sale 1 to 2 months prior to the performance and sometimes even a year in advance."
+        },
+        {
+          "q": "How do I purchase tickets?",
+          "a": "You can purchase any ticket to any events listed on our website."
+        },
+        {
+          "q": "What is Sulekha's Refund Policy?",
+          "a": "All sales are final. No Refunds will be issued unless an event is canceled or rescheduled."
+        }
+      ],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/falguni-pathak-live-in-dallas-%E2%80%93-dandiya-dhoom-2026_2026-05-22-03-26-38-519_81.webp?ver=0.333792",
+          "role": "cover",
+          "alt": "Falguni Pathak Live in Dallas – Dandiya Dhoom 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-05-22-03-43-46-853_55.webp",
+          "role": "gallery",
+          "alt": "Falguni Pathak Live in Dallas – Dandiya Dhoom 2026 poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/artist/falguni-pathak_2017-9-22-3-28-15.jpg",
+          "role": "gallery",
+          "alt": "Falguni Pathak"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/falguni-pathak-live-in-dallas-dandiya-dhoom-2026_event-in_frisco-tx_400132",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401764",
+      "sourceUrl": "https://events.sulekha.com/garba-night-with-purva-mantri-live-in-houston_event-in_houston-tx_401764",
+      "scrapedAt": "2026-09-30T00:00:00Z",
+      "title": "Garba Night With Purva Mantri Live In Houston",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Join us for an electrifying Navratri Garba and Dandiya night on October 2, 2026, with Purva Mantri at GSH Event Center, Houston!",
+      "description": "Experience the Vibrant 'Garba Night With Purva Mantri Live In Houston'\n\nGet ready to immerse yourself in the vibrant and energetic rhythms of Gujarati, Hindi and Multilingual music at the 'Garba Night With Purva Mantri Live In Houston' on the 2nd of October, 2026. This Navratri/Dandiya, Live in Concert event is more than just a night of Dance and Singing - it's a cultural celebration that brings together food, music, dance, and community. Don't miss out on this amazing opportunity to witness this exciting spectacle live!\n\nMeet the Mesmerizing Performer - Purva Mantri\n\nIntroducing the star of the night, Purva Mantri, a renowned Indian playback singer who first stole the spotlight with her performances in popular TV shows like 'Balika Vadhu' and 'Yeh Rishta Kya Kehlata Hai'. Awarded as the Singer and Performer of the year 2015 by the Indian beauty and makeup awards, Purva's magnetic charisma and energy on stage are truly captivating. Having performed with industry giants like Sonu Nigam and Rahat Fateh Ali Khan, among others, she is undoubtedly one of the most talented live performers in the nation. Get ready to be swept off your feet by her electrifying performance!\n\nUnwrap the Charm of GSH Event Center\n\nThe Garba Night will be held at the GSH Event Center, located at 9550 W Bellfort Ave, Houston, TX, United States. The venue is not only safe and accessible but also surrounded by a number of popular local attractions. Parking is available at the venue, making it convenient for attendees. Additionally, the vicinity is dotted with Indian restaurants, where you can enjoy a delightful meal before or after the event.\n\nGrab Your Early Bird Tickets Now!\n\nWhy wait when you can secure your spot at this spectacular event right now? Early Bird tickets are available for just $30.00. Grab your ticket today and prepare yourself for a night filled with unforgettable performances, incredible music, and heart-thumping dance numbers.",
+      "startsAt": "2026-10-02T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "GSH Event Center",
+        "addressLine1": "9550 W Bellfort Ave",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77031",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Purva Mantri",
+          "role": null
+        }
+      ],
+      "presentedBy": "Masti Group 2026",
+      "languages": ["Gujarati", "Hindi", "Multilingual"],
+      "prices": [
+        {
+          "name": "Early Bird",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": "$30",
+      "ageRestriction": "All Age",
+      "dressCode": null,
+      "parking": "Available at venue",
+      "faq": [
+        {
+          "q": "Where is the Purva Mantri Concert happening?",
+          "a": "GSH Event Center, 9550 W Bellfort Ave, Houston, TX"
+        },
+        {
+          "q": "When do Purva Mantri event tickets go on sale in Houston, TX?",
+          "a": "Purva Mantri upcoming concert tour tickets go on sale 1 to 2 months prior to the performance."
+        },
+        {
+          "q": "How do I purchase tickets?",
+          "a": "You can purchase any ticket to any events listed on our website."
+        },
+        {
+          "q": "What is Sulekha's Refund Policy?",
+          "a": "All sales are final. No Refunds will be issued unless an event is canceled or rescheduled."
+        }
+      ],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/garba-night-with-purva-mantri-live-in-houston_2026-09-09-11-43-35-159_99.webp?ver=0.693051",
+          "role": "cover",
+          "alt": "Garba Night With Purva Mantri Live In Houston banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-14-02-27-19-871_54.webp",
+          "role": "gallery",
+          "alt": "Garba Night With Purva Mantri Live In Houston poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/purva-mantri_2020-04-24-09-11-11-308_92.jpeg",
+          "role": "gallery",
+          "alt": "Purva Mantri"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/garba-night-with-purva-mantri-live-in-houston_event-in_houston-tx_401764",
+      "importNotes": []
+    },
+    {
+      "sourceId": "400744",
+      "sourceUrl": "https://events.sulekha.com/sacred-rivers-the-musical_event-in_austin-tx_400744",
+      "scrapedAt": "2026-09-30T00:01:00Z",
+      "title": "Sacred Rivers: The Musical",
+      "category": "THEATRE",
+      "sourceCategory": "CLASSICAL",
+      "summary": "An immersive musical celebration inspired by the sacred Ganga, featuring breathtaking music, dance, and storytelling.",
+      "description": "Sacred Rivers: Unity of Flow is an immersive musical celebration inspired by the sacred Ganga and the timeless vision of Pujya Gurudev Swami Chinmayananda. Through breathtaking music, dance, and storytelling, this unforgettable production brings to life a movement that transformed millions and continues to inspire hearts across the world.\n\nExperience the rich cultural heritage of India through spectacular performances by nine classical and folk dance traditions, presented by talented artists from across the Austin community. The evening culminates with a grand musical performance by the internationally acclaimed Trichur Brothers, joined by renowned maestros Pandit Indrajit Banerjee (Sitar) and Pandit Hindole Majumdar (Tabla).\n\nJoin us for an inspiring evening where devotion, culture, and artistic excellence come together in one extraordinary celebration of unity, heritage, and the eternal flow of the Ganga.",
+      "startsAt": "2026-10-03T16:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Riverbend Center",
+        "addressLine1": "4214 N Capital of Hwy",
+        "city": "Austin",
+        "region": "TX",
+        "postalCode": "78746",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Trichur Brothers",
+          "role": null
+        },
+        {
+          "name": "Pandit Indrajit Banerjee",
+          "role": "Sitar"
+        },
+        {
+          "name": "Pandit Hindole Majumdar",
+          "role": "Tabla"
+        }
+      ],
+      "presentedBy": "Chinmaya Mission Austin",
+      "languages": ["Multilingual"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": "All Age",
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/artist/artist_2016-03-02-04-53-07-635.jpg",
+          "role": "gallery",
+          "alt": "Trichur Brothers"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/sacred-rivers-the-musical_event-in_austin-tx_400744",
+      "importNotes": [
+        "The page says CST, but the date falls in daylight saving time, so the time is imported as Central Daylight Time.",
+        "The page has no poster, so the event has no cover; its only picture is a performer photo.",
+        "Sulekha lists this as Classical; Desi-Event has no such category, so it is listed under Theatre. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401110",
+      "sourceUrl": "https://events.sulekha.com/saffron-and-silks-in-dallas_event-in_fort-worth-tx_401110",
+      "scrapedAt": "2026-09-30T00:28:24Z",
+      "title": "Saffron and Silks in Dallas",
+      "category": "FOOD_FESTIVAL",
+      "sourceCategory": "FOOD",
+      "summary": "A Bollywood-inspired adult social evening with Indian-inspired appetizers, henna, interactive belly dancing, curated social activities and one complimentary signature drink, hosted by Board Friends Events.",
+      "description": "Try something new at this Bollywood-inspired social experience with appetizers, henna, belly dancing, and great company.\n\nStep into an unforgettable evening inspired by the vibrant colors, rich flavors, and lively traditions of India. Saffron & Silks is an intimate, all-inclusive social experience designed for adults looking to try something new, meet new people, and enjoy an evening of culture, conversation, and connection.\n\nYour ticket includes:\n- A selection of Indian-inspired appetizers\n- Interactive belly dancing with a live performance\n- Henna station\n- Curated social activities designed to help guests connect naturally\n- Beautiful Bollywood-inspired décor and themed photo opportunities\n- One complimentary signature drink\n- A welcoming, all-inclusive atmosphere hosted by Board Friends Events.",
+      "startsAt": "2026-10-03T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Lumen Room FW: Panther Island",
+        "addressLine1": "1004 West Bluff Street",
+        "city": "Fort Worth",
+        "region": "TX",
+        "postalCode": "76102",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Board Friends Events",
+      "languages": [],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-27-04-23-38-088_92.webp",
+          "role": "cover",
+          "alt": "Saffron and Silks in Dallas event poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/saffron-and-silks-in-dallas_2026-07-27-04-32-39-869_29.webp",
+          "role": "gallery",
+          "alt": "Saffron and Silks in Dallas banner (thumbnail size)"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/saffron-and-silks-in-dallas_event-in_fort-worth-tx_401110",
+      "importNotes": [
+        "The page says CST, but the date falls in daylight saving time, so the time is imported as Central Daylight Time.",
+        "Sulekha lists this as Food; Desi-Event has no such category, so it is listed under Food Festivals. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401420",
+      "sourceUrl": "https://events.sulekha.com/nandgam-haveli-garba-2026_event-in_cedar-park-tx_401420",
+      "scrapedAt": "2026-09-30T00:30:07Z",
+      "title": "Nandgam Haveli Garba 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "An evening of Navratri Garba 2026 with live Garba music, Dandiya and Garba (bring your own sticks), food stalls, free parking and best-dressed prizes at Austin Sports Center. Children under 6 enter free.",
+      "description": "Get ready for an unforgettable evening of Navratri Garba 2026 filled with devotion, dance, music, and community!\n\nSaturday, October 3, 2026\n7:00 PM onwards\nAustin Sports Center\n\nWhat to expect:\n\n- Live Garba Music\n- Dandiya & Garba (bring your own dandiya sticks)\n- Delicious Food Stalls\n- Free Parking\n- Best Dressed Prizes in Multiple Categories\n- Children under 6 enter FREE!\n\nEarly Bird Tickets: $15\n\nWear your colorful traditional attire, bring your family and friends, and let's celebrate Navratri with the spirit of Maa Amba through joyful raas, garba, and togetherness.",
+      "startsAt": "2026-10-03T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Austin Sports Center - Cedar Park",
+        "addressLine1": "1420 Toro Grande Boulevard",
+        "city": "Cedar Park",
+        "region": "TX",
+        "postalCode": "78613",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Nandgam Haveli",
+      "languages": ["Gujarati"],
+      "prices": [
+        {
+          "name": "Early Bird",
+          "priceCents": 1500,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Children under 6",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Description states children under 6 enter free"
+        }
+      ],
+      "priceText": "Early Bird Tickets: $15",
+      "ageRestriction": null,
+      "dressCode": "Colorful traditional attire",
+      "parking": "Free Parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-19-04-33-02-882_72.webp",
+          "role": "cover",
+          "alt": "Nandgam Haveli Garba 2026 poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/nandgam-haveli-garba-2026_2026-08-19-04-46-03-538_39.webp",
+          "role": "gallery",
+          "alt": "Nandgam Haveli Garba 2026 banner (thumbnail size)"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/nandgam-haveli-garba-2026_event-in_cedar-park-tx_401420",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401727",
+      "sourceUrl": "https://events.sulekha.com/navratri-raas-garba-with-sunny-jadhav-dfw-gujarati-samaj_event-in_frisco-tx_401727",
+      "scrapedAt": "2026-09-30T00:30:41Z",
+      "title": "Navratri Raas Garba with Sunny Jadhav - DFW Gujarati Samaj",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "DFW Gujarati Samaj presents Navratri Garba 2026 featuring Sunny Jadhav and his live orchestra: an evening of music, Garba, Raas, Gujarati culture, traditional attire, food and nonstop dancing at Frisco Flyers.",
+      "description": "Navratri Raas Garba with Sunny Jadhav - DFW Gujarati Samaj - Frisco Flyers\n\nGet ready for an unforgettable evening of music, Garba, Raas, and Gujarati culture as DFW Gujarati Samaj proudly presents Navratri Garba 2026 featuring the electrifying Sunny Jadhav and his live orchestra.\n\nJoin hundreds of families and Garba enthusiasts for a night filled with vibrant energy, traditional attire, delicious food, and nonstop dancing. Whether you're a seasoned Garba player or experiencing Navratri for the first time, this is an event you won't want to miss!",
+      "startsAt": "2026-10-03T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Frisco Flyers Event Center",
+        "addressLine1": "Flyers Event Center Flyers Way",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Sunny Jadhav",
+          "role": "with his live orchestra"
+        }
+      ],
+      "presentedBy": "DFW Gujarati Samaj, Inc",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-07-06-32-50-928_70.webp",
+          "role": "cover",
+          "alt": "Navratri Raas Garba with Sunny Jadhav - DFW Gujarati Samaj poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/navratri-raas-garba-with-sunny-jadhav-dfw-gujarati-samaj_2026-09-07-06-57-52-161_72.webp",
+          "role": "gallery",
+          "alt": "Navratri Raas Garba with Sunny Jadhav banner (thumbnail size)"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/navratri-raas-garba-with-sunny-jadhav-dfw-gujarati-samaj_event-in_frisco-tx_401727",
+      "importNotes": []
+    },
+    {
+      "sourceId": "402025",
+      "sourceUrl": "https://events.sulekha.com/pearland-garba-2026-mts_event-in_pearland-tx_402025",
+      "scrapedAt": "2026-09-30T00:31:14Z",
+      "title": "Pearland Garba 2026 MTS",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "An evening of traditional Garba, Dandiya, music, dance and festive energy for Navratri at Sri Meenakshi Temple, Pearland. Come dressed in traditional attire; everyone is welcome.",
+      "description": "Get ready to celebrate the vibrant spirit of Navratri at Pearland Garba 2026! Join family and friends for an exciting evening filled with traditional Garba, Dandiya, music, dance, and festive energy.\n\nExperience the joy of Navratri at Sri Meenakshi Temple, Pearland, and come dressed in your favorite traditional attire. Whether you're an experienced Garba dancer or joining for the first time, everyone is welcome to enjoy the celebration.\n\nEvent Details:\nDate: Saturday, October 3, 2026\nTime: 7:30 PM CDT\nVenue: Sri Meenakshi Temple\nAddress: 17130 McLean Road, Pearland, TX, United States\n\nBring your family and friends and make unforgettable memories while celebrating the colorful traditions of Navratri with the Pearland community.\n\nJoin us for an evening of Garba, Dandiya, music, dance, and festive fun!",
+      "startsAt": "2026-10-03T19:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Sri Meenakshi Temple",
+        "addressLine1": "17130 McLean Road",
+        "city": "Pearland",
+        "region": "TX",
+        "postalCode": "77584",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Sri Meenakshi Temple society",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": "Traditional attire",
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-24-06-49-01-021_1.webp",
+          "role": "cover",
+          "alt": "Pearland Garba 2026 MTS poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/pearland-garba-2026-mts_2026-09-24-06-31-04-474_56.webp",
+          "role": "gallery",
+          "alt": "Pearland Garba 2026 MTS banner (thumbnail size)"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/pearland-garba-2026-mts_event-in_pearland-tx_402025",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401487",
+      "sourceUrl": "https://events.sulekha.com/jigardan-gadhvi-live-in-dallas-garba-mahotsav-2026_event-in_frisco-tx_401487",
+      "scrapedAt": "2026-09-30T00:31:46Z",
+      "title": "Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Jigardan Gadhavi (Jigrra) performs live at Frisco Flyers on Sunday, October 4, 2026 at 6:00 PM: a Navratri Garba Mahotsav with Dandiya beats and Gujarati folk music. Early Bird tickets $30.",
+      "description": "Experience the Magic: Jigardan Gadhvi - Live in Dallas Garba Mahotsav\n\nMark your calendars for an unforgettable evening of music, culture, and celebration at the Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026! Join us on Sunday, October 4th, 2026, at 6:00 PM for an electrifying performance by the renowned Gujarati artist Jigardan Gadhavi. This vibrant event promises to bring the spirit of Navratri alive with soulful renditions, high-energy Dandiya beats, and the captivating charm of Gujarati folk music. Hosted by Manpasand, this concert is not just an event but an experience that transcends generations, blending tradition with modernity. Whether you're a fan of Gujarati music, live concerts, or simply looking to immerse yourself in the festive celebration, this is the place to be. Get ready to dance, sing, and celebrate like never before!\n\nMeet the Star: Jigardan Gadhavi\nJigardan Gadhavi, affectionately known as Jigrra, is a name that resonates with every lover of Gujarati music. With his soulful voice and heartfelt compositions, Jigardan has carved out a special place in the hearts of fans worldwide. Born and raised in Gujarat, his journey into music was fueled by his passion and love for the rich cultural heritage of his homeland. Known for masterful hits like “Vhalam Aavo Ne” and “Mogal Taro Aashro”, Jigardan’s ability to seamlessly blend traditional Gujarati melodies with contemporary sounds has earned him widespread acclaim. Whether it’s devotional tunes or folk rhythms, his performances exude authenticity, making him an artist who connects deeply with his audience. Attending this live concert is your chance to witness the magic of Jigrra’s music firsthand and celebrate the festive season alongside one of India’s finest talents.\n\nDiscover the Venue: Frisco Flyers\nThe Frisco Flyers, located at 6300 Flyers Way, Frisco, TX, is the ideal setting for this grand celebration. Situated in the heart of Frisco, the venue is renowned for its state-of-the-art facilities and welcoming atmosphere. With ample parking space, convenient accessibility, and a safe environment, Frisco Flyers ensures a hassle-free and enjoyable experience for all attendees. Frisco itself is a vibrant city with plenty to explore, including shopping destinations and family-friendly attractions. For those looking to grab a bite before or after the event, nearby Indian restaurants such as Roti Grill and Curry Place offer authentic flavors that perfectly complement the festive spirit of Navratri. Whether you’re coming from within Texas or traveling from afar, Frisco Flyers promises to be a venue where memories are made!\n\nTicket Details: Reserve Your Spot Today\nDon’t miss out on this once-in-a-lifetime event! Tickets for Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026 are now available. The Early Bird tickets are priced at just $30.00, offering incredible value for a night filled with music, dance, and cultural celebration. Secure your tickets early to ensure your spot at this much-anticipated event. Celebrate Navratri in style and let Jigardan Gadhavi’s electrifying performance be the highlight of your festive season!",
+      "startsAt": "2026-10-04T18:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Frisco Flyers",
+        "addressLine1": "6300 Flyers Way",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Jigardan Gadhavi",
+          "role": null
+        }
+      ],
+      "presentedBy": "Aum Events, Gir Lions and Star Innovation US",
+      "languages": ["Gujarati"],
+      "prices": [
+        {
+          "name": "Early Bird",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": "Almost full"
+        }
+      ],
+      "priceText": "$30",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": "Ample parking space at the venue (per description)",
+      "faq": [
+        {
+          "q": "Where is the Jigardan Gadhavi Concert happening?",
+          "a": "Frisco Flyers, 6300 Flyers Way, Frisco, TX"
+        },
+        {
+          "q": "When do Jigardan Gadhavi event tickets go on sale in Frisco, TX?",
+          "a": "Jigardan Gadhavi upcoming concert tour tickets go on sale 1 to 2 months prior to the performance."
+        },
+        {
+          "q": "How do I purchase tickets?",
+          "a": "Tickets can be purchased on our website or by contacting us."
+        },
+        {
+          "q": "What is Sulekha's Refund Policy?",
+          "a": "All sales are final. No refunds unless the event is canceled."
+        }
+      ],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/jigardan-gadhvi-live-in-dallas-garba-mahotsav-2026_2026-08-21-07-54-11-298_35.webp?ver=0.384052",
+          "role": "cover",
+          "alt": "Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-25-06-31-07-049_29.webp",
+          "role": "gallery",
+          "alt": "Jigardan Gadhvi - Live in Dallas Garba Mahotsav 2026 poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/jigardan-gadhavi_2023-08-23-02-25-30-447_47.webp",
+          "role": "gallery",
+          "alt": "Jigardan Gadhavi"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/jigardan-gadhvi-live-in-dallas-garba-mahotsav-2026_event-in_frisco-tx_401487",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401388",
+      "sourceUrl": "https://events.sulekha.com/atx-diwali-garba-6th-annual-bollywood-garba_event-in_leander-tx_401388",
+      "scrapedAt": "2026-09-30T00:32:37Z",
+      "title": "ATX DIWALI & GARBA | 6TH ANNUAL | BOLLYWOOD GARBA",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Austin's newest indoor Diwali & Garba celebration: a family-friendly festival with free parking, a spacious weather-proof indoor venue, controlled entry, a professional stage, state-of-the-art sound and a large LED screen.",
+      "description": "Welcome to the brand-new ATX DIWALI & GARBA!\n\nAustin’s newest indoor Diwali & Garba celebration, thoughtfully designed for a fun, vibrant, and family-friendly festival experience.\n\nEnjoy:\n\nFree parking\n\nSpacious indoor venue for a comfortable, weather-proof experience\n\nEnhanced security & controlled entry for added peace of mind\n\nBuilt-in professional stage\n\nState-of-the-art sound system\n\nLarge LED screen for an immersive festival experience\n\nCelebrate Diwali and dance Garba indoors, comfortably and safely, with a well-managed environment where you can focus on what matters most—music, culture, family, and fun!",
+      "startsAt": "2026-10-09T15:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Northpoint Church",
+        "addressLine1": "10860 E Crystal Falls Pkwy",
+        "city": "Leander",
+        "region": "TX",
+        "postalCode": "78641",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "LIVVIE STAR COMPANY",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": "Free parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-18-05-38-41-759_7.webp",
+          "role": "cover",
+          "alt": "ATX Diwali & Garba 6th Annual Bollywood Garba poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/atx-diwali-garba-6th-annual-bollywood-garba_2026-08-18-05-16-44-164_19.webp",
+          "role": "gallery",
+          "alt": "ATX Diwali & Garba banner (thumbnail size)"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/atx-diwali-garba-6th-annual-bollywood-garba_event-in_leander-tx_401388",
+      "importNotes": [
+        "The Sulekha page gives 4:00 PM EDT for a Texas venue. It is imported as 3:00 PM Central, the same moment. Check the time with the organiser."
+      ]
+    },
+    {
+      "sourceId": "401908",
+      "sourceUrl": "https://events.sulekha.com/jazim-sharma-concert-between-the-lines-ishq-lafz-vibes-houston-2026_event-in_houston-tx_401908",
+      "scrapedAt": "2026-09-30T00:33:20Z",
+      "title": "Jazim Sharma Concert-Between the Lines ISHQ, LAFZ & VIBES | Houston 2026",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "A ghazal evening with Jaspreet 'Jazim' Sharma, national gold-medalist in Thumri and Ghazal, blending Hindi and multilingual poetry with music, food and drink at The Pyramids, Unity of Houston on October 9, 2026.",
+      "description": "An Enchanting Evening at the Jazim Sharma Concert-Between the Lines ISHQ, LAFZ & VIBES | Houston 2026\n\nImmerse yourself in the soulful melodies of Hindi and multilingual poetry at the Jazim Sharma Concert - Between the Lines ISHQ, LAFZ & VIBES. This captivating event is scheduled for the 9th of October, 2026. The night will be filled with a blend of music, food, and drink, promising an unforgettable experience for all ghazal enthusiasts.\n\nSpotlight on Jazim Sharma: The Maestro of Ghazals\n\nJaspreet 'Jazim' Sharma, the evening's star, is a revered figure in the Indian ghazal scene. A national gold-medalist in Thumri and Ghazal, Jazim has been captivating audiences since the tender age of 5. His artistry has been honed under the watchful eyes of Guru Vijay Sachdeva, and his style is heavily inspired by the legendary Ghazal singer Ghulam Ali Khan. Jazim's performances are an enchanting blend of tradition and innovation that never fail to mesmerize the audience.\n\nExperience the Magic at The Pyramids, Unity of Houston\n\nThe concert will be hosted at The Pyramids, Unity of Houston, located at 2929 Unity Drive in the bustling city of Houston, Texas, United States. Known for its safety and excellent accessibility, the venue is a popular choice for many cultural events. There are numerous attractions nearby, including some of the city's finest Indian restaurants, adding another layer of appeal for the attendees. Parking facilities are available, ensuring a smooth and hassle-free experience for all.\n\nSecure Your Seat: Ticket Information\n\nDon't miss out on this magical night. Secure your presence by choosing from our three ticket levels. For an exclusive experience, opt for the $129 Level at $129.00. For a balance of affordability and luxury, consider our $99 Level at $99.00. If you're looking for the best value, our $79 Level at $79.00 is the perfect choice. Experience the magic of ghazals with Jazim Sharma and create memories that will last a lifetime.",
+      "startsAt": "2026-10-09T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "The Pyramids, Unity of Houston",
+        "addressLine1": "2929 Unity Drive",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77057",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Jazim Sharma",
+          "role": "Ghazal singer"
+        }
+      ],
+      "presentedBy": "Indo-American Association",
+      "languages": ["Hindi", "Multilingual"],
+      "prices": [
+        {
+          "name": "$129 Level",
+          "priceCents": 12900,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$99 Level",
+          "priceCents": 9900,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$79 Level",
+          "priceCents": 7900,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": "$79 - $129",
+      "ageRestriction": "All Age",
+      "dressCode": null,
+      "parking": "Free Parking",
+      "faq": [
+        {
+          "q": "Where is the Jazim Sharma Concert happening?",
+          "a": "The Pyramids, Unity of Houston, 2929 Unity Drive, Houston, TX"
+        },
+        {
+          "q": "When do Jazim Sharma event tickets go on sale in Houston, TX?",
+          "a": "Jazim Sharma upcoming concert tour tickets go on sale 1 to 2 months prior to the performance and sometimes even a year in advance."
+        },
+        {
+          "q": "How do I purchase tickets?",
+          "a": "You can purchase any ticket to any events listed on our website."
+        },
+        {
+          "q": "What is Sulekha's Refund Policy?",
+          "a": "All sales are final."
+        }
+      ],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/jazim-sharma-concert-between-the-lines-ishq-lafz-vibes-houston-2026_2026-09-17-07-27-19-407_69.webp?ver=0.522293",
+          "role": "cover",
+          "alt": "Jazim Sharma Concert - Between the Lines ISHQ, LAFZ & VIBES Houston 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-23-03-30-52-197_51.webp",
+          "role": "gallery",
+          "alt": "Jazim Sharma Concert Houston 2026 poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/jazim-sharma_2025-01-07-12-18-47-518_26.webp",
+          "role": "gallery",
+          "alt": "Jazim Sharma"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/jazim-sharma-concert-between-the-lines-ishq-lafz-vibes-houston-2026_event-in_houston-tx_401908",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401819",
+      "sourceUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-10th_event-in_frisco-tx_401819",
+      "scrapedAt": "2026-09-30T00:34:02Z",
+      "title": "Gruhapravesh: India Property Expo In Frisco, TX- Oct 10th",
+      "category": "NETWORKING",
+      "sourceCategory": "EXPO",
+      "summary": "Gruhapravesh: India Property Expo comes to Hyatt Regency Frisco – Dallas on Saturday, October 10, 2026, letting NRIs and Indian-origin families meet leading Indian developers and compare residential, commercial and land options under one roof. Free entry (RSVP).",
+      "description": "Looking to invest in property in India while living in the USA? Gruhapravesh: India Property Expo is coming to Frisco, Texas, on Saturday, October 10, 2026, offering NRIs and Indian-origin families an opportunity to explore property investment options from leading Indian developers—all under one roof.\n\nHeld at the Hyatt Regency Frisco – Dallas, the expo is designed for buyers looking to purchase a home, invest in residential or commercial property, explore land opportunities, or plan their next real estate investment in India. Attendees can meet representatives, learn about available projects, compare property options, and get answers to their questions directly from participating developers.\n\nThe Frisco expo features reputed developers and property groups, including Aparna Constructions, ASBL, Brigade Group, My Home Group, Organo, and Radhey Constructions, giving visitors access to a diverse range of real estate opportunities across India.",
+      "startsAt": "2026-10-10T10:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Hyatt Regency Frisco – Dallas",
+        "addressLine1": "2615 Preston Rd",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Mysquarefeet India Pvt. Ltd.",
+      "languages": [],
+      "prices": [
+        {
+          "name": "RSVP",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Free entry"
+        }
+      ],
+      "priceText": "$0.00 (RSVP)",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [
+        {
+          "q": "How do I purchase tickets?",
+          "a": "You can purchase any ticket to any events listed on our website. To buy, select the # of tickets you want to purchase in the dropdown of a specific event and follow the instructions."
+        },
+        {
+          "q": "What is Sulekha's Refund Policy?",
+          "a": "All sales are final. No Refunds will be issued under any circumstance unless an event is canceled or rescheduled."
+        }
+      ],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/gruhapravesh-india-property-expo-in-frisco-tx-oct-10th_2026-09-12-01-52-30-104_66.webp?ver=0.693825",
+          "role": "cover",
+          "alt": "Gruhapravesh: India Property Expo in Frisco, TX - Oct 10th banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-15-01-01-20-795_29.webp",
+          "role": "gallery",
+          "alt": "Gruhapravesh: India Property Expo Frisco poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-10th_event-in_frisco-tx_401819",
+      "importNotes": [
+        "Sulekha lists this as Expo; Desi-Event has no such category, so it is listed under Networking. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401728",
+      "sourceUrl": "https://events.sulekha.com/raas-garba-with-khelaiya-group_event-in_frisco-tx_401728",
+      "scrapedAt": "2026-09-30T00:34:40Z",
+      "title": "Raas Garba with Khelaiya Group",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Raas Garba 2026 in DFW with Mumbai's famous Khelaiya Group (Piyush Shah, Rupal Doshi Shah, Shimonee Shah), hosted by DFW Gujarati Samaj at Frisco Flyers: Gujarati garba classics, high-energy Raas, culture, music and community.",
+      "description": "RAAS GARBA 2026 — A Night of Music, Dance & Gujarati Spirit!\n\nGet ready, DFW! Bring your garba spirit, dandiya, and festive energy for an unforgettable evening with Mumbai’s famous Khelaiya Group!\n\nFeaturing:\nPiyush Shah\nRupal Doshi Shah\nShimonee Shah\n\nSaturday, October 10, 2026, 7:30 PM\nFrisco Flyers, 6300 Flyers Way, Frisco, TX 75034\n\nHosted by DFW Gujarati Samaj\n\nFrom timeless Gujarati garba classics to high-energy Raas, come celebrate our culture, music, and community with family and friends!\n\nOne Night. One Community. Unlimited Garba!\n\nDress in your finest traditional Gujarati attire and get ready to dance the night away!",
+      "startsAt": "2026-10-10T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Frisco Flyers Event Center",
+        "addressLine1": "6300 Flyers Way",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Khelaiya Group",
+          "role": "Group"
+        },
+        {
+          "name": "Piyush Shah",
+          "role": null
+        },
+        {
+          "name": "Rupal Doshi Shah",
+          "role": null
+        },
+        {
+          "name": "Shimonee Shah",
+          "role": null
+        }
+      ],
+      "presentedBy": "DFW Gujarati Samaj, Inc",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": "Traditional Gujarati attire",
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/raas-garba-with-khelaiya-group_2026-09-07-07-01-22-794_81.webp",
+          "role": "cover",
+          "alt": "Raas Garba with Khelaiya Group poster (thumbnail size; the page shows no larger version)"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/raas-garba-with-khelaiya-group_event-in_frisco-tx_401728",
+      "importNotes": [
+        "The header says 7:00 PM and the description says 7:30 PM; 7:00 PM is imported."
+      ]
+    },
+    {
+      "sourceId": "402027",
+      "sourceUrl": "https://events.sulekha.com/katy-garba-2026_event-in_katy-tx_402027",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Katy Garba 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Celebrate Navratri at Katy Garba 2026 at the Merrell Center in Katy: an evening of Garba, Dandiya, music, dance and festive energy with the Katy community. Everyone is welcome, from experienced dancers to first-timers.",
+      "description": "Katy Garba 2026\n\nGet ready to celebrate the vibrant spirit of Navratri at Katy Garba 2026! Bring your family and friends and join the Katy community for an exciting evening filled with Garba, Dandiya, music, dance, and festive energy.\n\nPut on your traditional attire, grab your Dandiya sticks, and get ready to dance the night away with the community. Whether you're an experienced Garba dancer or joining for the first time, everyone is welcome to be part of this joyful celebration.\n\nEvent Details:\n\nDate: Saturday, October 10, 2026\n\nTime: 7:00 PM CDT\n\nVenue: Merrell Center - Katy\n\nAddress: 6301 S Stadium Ln, Katy, TX, United States\n\nSave the date and celebrate Navratri with family and friends at Katy Garba 2026!\n\nCome dressed in your festive best and get ready for an unforgettable night of Garba, Dandiya, music, and celebration!",
+      "startsAt": "2026-10-10T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Merrell Center - Katy",
+        "addressLine1": "6301 S Stadium Ln",
+        "city": "Katy",
+        "region": "TX",
+        "postalCode": "77494",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Katy Indian Cultural Association",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": "Traditional attire / festive best",
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/katy-garba-2026_2026-09-24-06-47-42-242_67.webp?ver=0.972408",
+          "role": "cover",
+          "alt": "Katy Garba 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-24-06-29-41-477_74.webp",
+          "role": "gallery",
+          "alt": "Katy Garba 2026 poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/katy-garba-2026_event-in_katy-tx_402027",
+      "importNotes": []
+    },
+    {
+      "sourceId": "402059",
+      "sourceUrl": "https://events.sulekha.com/gujarati-samaj-of-greater-austin-navratri-2026-october-10_event-in_round-rock-tx_402059",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Gujarati Samaj of Greater Austin - Navratri 2026 - October 10",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Gujarati Samaj of Greater Austin's Navratri 2026, Weekend 1 night (Sat Oct 10) at Round Rock Sports Center: traditional Garba and Dandiya with live band Saaz Indian Music Entertainment with Rujutaben, food vendors, family-friendly and open to all.",
+      "description": "Join the Gujarati Samaj of Greater Austin for Navratri 2026 for two exciting weekends of music, dance, and celebration!\n\nWeekend 1: Friday, October 9 & Saturday, October 10, 2026\n\nFeaturing live band Saaz Indian Music Entertainment with Rujutaben\n\nWeekend 2: Friday, October 23 & Saturday, October 24, 2026\n\nFeaturing live band Texas Melodies with Rohit Bhadresa\n\nTime: 7:00 PM onwards\n\nEnjoy traditional Garba and Dandiya, delicious food vendors, and a vibrant cultural celebration. This is a family-friendly event open to all!\n\nTicket Prices:\n\nMembers: $18 | Non-Members: $25\n\nVenue:\n\nRound Rock Sports Complex\n\n2400 Chisholm Trail Rd, Round Rock, TX 78681\n\nCome dressed in your festive best and dance the night away!",
+      "startsAt": "2026-10-10T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Round Rock Sports Center",
+        "addressLine1": "2400 Chisholm Trail Rd",
+        "city": "Round Rock",
+        "region": "TX",
+        "postalCode": "78681",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Saaz Indian Music Entertainment",
+          "role": "Live band (Weekend 1: Oct 9-10)"
+        },
+        {
+          "name": "Rujutaben",
+          "role": null
+        }
+      ],
+      "presentedBy": "GSGA",
+      "languages": ["Gujarati"],
+      "prices": [
+        {
+          "name": "Members",
+          "priceCents": 1800,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Non-Members",
+          "priceCents": 2500,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": "Members: $18 | Non-Members: $25",
+      "ageRestriction": "All Age",
+      "dressCode": "Festive best",
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/gujarati-samaj-of-greater-austin-navratri-2026-october-10_2026-09-26-03-46-37-994_62.webp?ver=0.0604149",
+          "role": "cover",
+          "alt": "Gujarati Samaj of Greater Austin - Navratri 2026 - October 10 banner"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/gujarati-samaj-of-greater-austin-navratri-2026-october-10_event-in_round-rock-tx_402059",
+      "importNotes": [
+        "Sulekha lists this event twice (402059 and 402060); only 402059 is imported.",
+        "One gallery picture on the Sulekha page was another event's poster (Navratri Dandiya Night In Austin), so it was left out."
+      ]
+    },
+    {
+      "sourceId": "401719",
+      "sourceUrl": "https://events.sulekha.com/the-space-between-the-notes_event-in_stafford-tx_401719",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "The Space Between the Notes",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CLASSICAL",
+      "summary": "“The Space Between the Notes” is a live classical music concert presented by the Society for Indo-American Arts (SIA) at Stafford Centre, Stafford, on October 10, 2026, exploring rhythm, melody, silence and emotion.",
+      "description": "Experience an unforgettable evening where rhythm, melody, silence, and emotion come together in “The Space Between the Notes,” a mesmerizing live classical music concert presented by the Society for Indo-American Arts (SIA). Taking place on October 10, 2026, at Stafford Centre in Stafford, Texas, this special musical experience invites audiences to discover the beauty that exists not only in every note, but also in the moments of silence between them.\n\nAt the heart of the evening is the extraordinary artistry of tabla maestro Zakir Hussain, one of the most celebrated figures in Indian classical and world music. Renowned for his remarkable rhythmic precision, expressive improvisation, and ability to connect deeply with audiences, Zakir Hussain has helped bring the richness of Indian percussion to stages around the world.",
+      "startsAt": "2026-10-10T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Stafford Centre",
+        "addressLine1": "10505 Cash Rd",
+        "city": "Stafford",
+        "region": "TX",
+        "postalCode": "77477",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Zakir Hussain",
+          "role": "Tabla (as named on the page)"
+        },
+        {
+          "name": "Niladri Kumar",
+          "role": null
+        }
+      ],
+      "presentedBy": "Society for Indo-American Arts (SIA)",
+      "languages": ["Hindi"],
+      "prices": [
+        {
+          "name": "$125 LEVEL",
+          "priceCents": 12500,
+          "currency": "USD",
+          "note": "Available"
+        },
+        {
+          "name": "$85 Level",
+          "priceCents": 8500,
+          "currency": "USD",
+          "note": "Available"
+        },
+        {
+          "name": "$60 Level",
+          "priceCents": 6000,
+          "currency": "USD",
+          "note": "Available"
+        },
+        {
+          "name": "$45 Level",
+          "priceCents": 4500,
+          "currency": "USD",
+          "note": "Available"
+        }
+      ],
+      "priceText": "$45 - $125",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/the-space-between-the-notes_2026-09-06-04-03-05-344_56.webp?ver=0.192173",
+          "role": "cover",
+          "alt": "The Space Between the Notes banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-06-04-53-04-266_56.webp",
+          "role": "gallery",
+          "alt": "The Space Between the Notes concert poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/the-space-between-the-notes_event-in_stafford-tx_401719",
+      "importNotes": [
+        "Sulekha lists this as Classical; Desi-Event has no such category, so it is listed under Live Music. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401820",
+      "sourceUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-11th_event-in_frisco-tx_401820",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Gruhapravesh: India Property Expo In Frisco, TX- Oct 11th",
+      "category": "NETWORKING",
+      "sourceCategory": "EXPO",
+      "summary": "Gruhapravesh: India Property Expo comes to Hyatt Regency Frisco – Dallas on Sunday, October 11, 2026: a full day for NRIs and Indian families to explore Indian real estate, compare projects and meet property developers under one roof.",
+      "description": "Looking to invest in property in India while living in the USA? Gruhapravesh: India Property Expo is coming to Frisco, Texas, offering NRIs and Indian families an opportunity to explore property investment options under one roof.\n\nJoin us on Sunday, October 11, 2026, at Hyatt Regency Frisco – Dallas for a full day dedicated to discovering real estate opportunities across India. The expo brings together prospective homebuyers, investors, and leading property developers, making it easier to explore projects, compare options, and connect directly with industry representatives.\n\nWhether you are planning to purchase a home for your family, invest in residential or commercial property, build a future home in India, or simply want to understand the latest opportunities in the Indian real estate market, Gruhapravesh provides a convenient platform to learn and make informed decisions.",
+      "startsAt": "2026-10-11T10:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Hyatt Regency Frisco – Dallas",
+        "addressLine1": "2615 Preston Rd",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Mysquarefeet India Pvt. Ltd.",
+      "languages": [],
+      "prices": [
+        {
+          "name": "RSVP",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Free RSVP"
+        }
+      ],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/gruhapravesh-india-property-expo-in-frisco-tx-oct-11th_2026-09-12-01-46-33-740_2.webp?ver=0.250145",
+          "role": "cover",
+          "alt": "Gruhapravesh: India Property Expo Frisco banner"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/gruhapravesh-india-property-expo-in-frisco-tx-oct-11th_event-in_frisco-tx_401820",
+      "importNotes": [
+        "Sulekha lists this as Expo; Desi-Event has no such category, so it is listed under Networking. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "402012",
+      "sourceUrl": "https://events.sulekha.com/desi-comedy-fest-houston-wed-oct-14_event-in_houston-tx_402012",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Desi Comedy Fest - Houston - Wed Oct 14",
+      "category": "COMEDY",
+      "sourceCategory": "COMEDY",
+      "summary": "Desi Comedy Fest, America's biggest South Asian comedy festival, opens its first Texas tour at Punch Line Houston on Wed, Oct 14 at 7:30 PM with five comedians: Sanjay Manaktala, Malay Vyas, Vishal Krishnasami, Abhay Nadkarni and Samson Koletkar. In English.",
+      "description": "After 12 years of sold-out shows and expansion across North America and India, Desi Comedy Fest — America’s biggest South Asian comedy festival — is coming to Texas for the first time.\n\nThe festival launches its inaugural Texas tour at Punch Line Houston on Wednesday, October 14 at 7:30 PM, bringing together five South Asian comedians for a night of stand-up comedy performed entirely in English.\n\nThe Houston lineup features Sanjay Manaktala, Malay Vyas, Vishal Krishnasami, Abhay Nadkarni and Samson Koletkar — five comedians whose backgrounds and comedy span India, the Middle East, the American South, New York, California and, fittingly, Houston itself.\n\nSANJAY MANAKTALA is an Indian-American comedian, writer and tech veteran who helped pioneer India’s modern stand-up comedy scene after moving to Bangalore in 2010. His stand-up, sketches and digital content have amassed more than 45 million views, and he has performed thousands of shows around the world, including alongside international acts such as Russell Brand.\n\nMALAY VYAS brings a hometown connection to the festival’s Texas debut. The Houston-based stand-up comedian, immigrant dad and mechanical engineer approaches Indian and American life with what he describes as a “satirical heart and statistical brain.” Performing in Gujarati, Hindi and English, his comedy explores culture from an outsider’s perspective.\n\nVISHAL KRISHNASAMI was born in India, raised in North Carolina and is now based in New York City. His comedy draws on growing up in a deeply religious, conservative family and navigating life in the American South. He has appeared on Amazon Prime and performed at The Stand, New York Comedy Club and Don’t Tell Comedy.\n\nABHAY NADKARNI, born in Delhi and raised in Doha and Bangalore, brings a global perspective to American absurdity. He was featured as a New Face at Montreal’s Just For Laughs, has performed at the Melbourne Comedy Festival and has more than 100,000 followers online. His debut comedy special, Brown Jesus, is streaming on Amazon Prime.\n\nSAMSON KOLETKAR blends his Indian upbringing, Jewish roots and American life into a cerebral and refreshingly clean style of comedy. He has performed across the U.S., Canada and India and has been featured on NPR, NBC, CBS, NDTV, The Times of India, Ha’aretz and more.\n\nFounded in the San Francisco Bay Area in 2014 by Abhay Nadkarni and Samson Koletkar, Desi Comedy Fest was created to showcase South Asian comedic talent and bring audiences together through laughter. What began as a Bay Area festival has grown over the past 12 years, with sold-out shows throughout the region and performances across the United States, Canada and India.\n\nNow, Desi Comedy Fest is bringing that experience to Texas for the first time. Houston opens the three-city Texas tour, followed by Austin on October 15 and Dallas on October 17.\n\n“Texas has an incredible South Asian community, and we’ve wanted to bring Desi Comedy Fest here for a long time,” said festival co-creator Abhay Nadkarni. “After 12 years of building the festival in the Bay Area and taking it to audiences across the U.S., Canada and India, it’s exciting to finally bring it to Texas — and Houston is the perfect place to kick things off.”\n\n“When we started Desi Comedy Fest, the idea was simple: put funny South Asian comedians on stage together and let audiences see just how many different voices and perspectives exist within our community,” said festival co-creator Samson Koletkar. “Twelve years later, we’re still discovering new comedians, reaching new audiences and taking the festival to new places. Bringing it to Texas for the first time is another exciting chapter for us.”\n\nDesi Comedy Fest brings together comedians from across the South Asian diaspora, with comedy spanning family, relationships, immigrant experiences, culture, careers, identity, religion and the everyday absurdities of American life.\n\nWhether you’re Indian, Pakistani, Bangladeshi, Nepali, Sri Lankan — or simply a fan of great stand-up comedy — Desi Comedy Fest offers a night of diverse voices, relatable stories and one common goal: making you laugh.\n\nAll performances are in English.",
+      "startsAt": "2026-10-14T19:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Punch Line Comedy Club",
+        "addressLine1": "1204 Caroline Street",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77002",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Sanjay Manaktala",
+          "role": "Comedian"
+        },
+        {
+          "name": "Malay Vyas",
+          "role": "Comedian"
+        },
+        {
+          "name": "Vishal Krishnasami",
+          "role": "Comedian"
+        },
+        {
+          "name": "Abhay Nadkarni",
+          "role": "Comedian"
+        },
+        {
+          "name": "Samson Koletkar",
+          "role": "Comedian"
+        }
+      ],
+      "presentedBy": "Samson Koletkar",
+      "languages": ["English"],
+      "prices": [],
+      "priceText": "Get Tickets: DesiComedyFest.com",
+      "ageRestriction": "18+",
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest-houston-wed-oct-14_2026-09-24-12-46-25-490_94.webp?ver=0.105961",
+          "role": "cover",
+          "alt": "Desi Comedy Fest Houston banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest_houston_2026-09-17-07-27-19-407_69.webp?ver=0.522293",
+          "role": "gallery",
+          "alt": "Desi Comedy Fest Houston poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/desi-comedy-fest-houston-wed-oct-14_event-in_houston-tx_402012",
+      "importNotes": [
+        "Sulekha says tickets are sold at DesiComedyFest.com; the link still goes to the Sulekha page."
+      ]
+    },
+    {
+      "sourceId": "402013",
+      "sourceUrl": "https://events.sulekha.com/desi-comedy-fest-austin-thu-oct-15_event-in_austin-tx_402013",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Desi Comedy Fest - Austin - Thu Oct 15",
+      "category": "COMEDY",
+      "sourceCategory": "COMEDY",
+      "summary": "Desi Comedy Fest comes to The Creek and The Cave in Austin on Thu, Oct 15 at 8:00 PM with six South Asian comedians: Abhay Nadkarni, Anthony Pappaly, Ashley Sharma, Samson Koletkar, Sanjay Manaktala and Vishal Krishnasami. All performances in English.",
+      "description": "America’s biggest South Asian comedy festival comes to The Creek and The Cave with a six-comedian lineup featuring Austin favorites and nationally touring acts\n\nAfter 12 years of sold-out shows and performances across the United States, Canada and India, Desi Comedy Fest — America’s biggest South Asian comedy festival — is coming to Austin for the first time.\n\nThe festival takes the stage at The Creek and The Cave on Thursday, October 15 at 8:00 PM, bringing together six South Asian comedians for a night of stand-up comedy performed entirely in English.\n\nThe Austin lineup features Abhay Nadkarni, Anthony Pappaly, Ashley Sharma, Samson Koletkar, Sanjay Manaktala and Vishal Krishnasami, combining nationally touring comedians with two familiar faces from Austin’s own comedy scene.\n\nANTHONY PAPPALY is an Austin-based stand-up comedian, writer and sketch comedy creator. A military veteran with a sharp, absurd sense of humor, he has performed across the U.S. and overseas, while his stand-up clips and sketches have accumulated millions of views online. He has opened for major headliners including Ronny Chieng, Fahim Anwar and Che Durena.\n\nASHLEY SHARMA is an Austin-based stand-up comedian who has performed at SF Sketchfest and regularly hosted at Cap City Comedy Club. She is also co-host of the comedy podcast Scumberparty. Balancing careers in both comedy and nursing, Ashley brings her unique perspective to stages throughout Austin and beyond.\n\nSANJAY MANAKTALA is an Indian-American comedian, writer and tech veteran who helped pioneer India’s modern stand-up comedy scene after moving to Bangalore in 2010. Known for his conversational takes on technology, Indian-American life, corporate culture, marriage and everyday absurdities, Sanjay has performed thousands of shows around the world. His stand-up, sketches and digital content have amassed more than 45 million views.\n\nVISHAL KRISHNASAMI was born in India, raised in North Carolina and is now based in New York City. His comedy draws on growing up in a deeply religious, conservative family, breaking away from that upbringing and navigating life in the American South. He has appeared on Amazon Prime and performed at The Stand, New York Comedy Club and Don’t Tell Comedy.\n\nABHAY NADKARNI, born in Delhi and raised in Doha and Bangalore, brings a global perspective to American absurdity. He was featured as a New Face at Montreal’s Just For Laughs, has performed at the Melbourne Comedy Festival and has more than 100,000 followers online. His debut comedy special, Brown Jesus, is streaming on Amazon Prime.\n\nSAMSON KOLETKAR blends his Indian upbringing, Jewish roots and American life into a cerebral and refreshingly clean style of comedy. He has performed across the U.S., Canada and India and has been featured on NPR, NBC, CBS, NDTV, The Times of India, Ha’aretz and more.\n\nFounded in the San Francisco Bay Area in 2014 by Abhay Nadkarni and Samson Koletkar, Desi Comedy Fest was created to showcase South Asian comedic talent and bring audiences together through laughter. What began as a Bay Area festival has grown over the past 12 years, with sold-out shows throughout the region and performances across the United States, Canada and India.\n\nThe Austin performance is part of Desi Comedy Fest’s first-ever Texas tour, which opens in Houston on October 14, arrives in Austin on October 15 and concludes in Dallas on October 17.\n\n“Austin has such a strong comedy culture, so bringing Desi Comedy Fest here felt like an important part of our first Texas tour,” said festival co-creator Abhay Nadkarni. “Having Anthony and Ashley representing the Austin comedy scene alongside comedians coming in from around the country makes this show especially exciting for us.”\n\n“Desi Comedy Fest has always been about showing that there isn’t just one South Asian story or one South Asian sense of humor,” said festival co-creator Samson Koletkar. “This lineup really represents that. Six comedians with very different backgrounds and perspectives get to share one stage, and Austin is exactly the kind of comedy town where we wanted to bring that experience.”\n\nDesi Comedy Fest brings together comedians from across the South Asian diaspora, with comedy spanning family, relationships, immigrant experiences, culture, careers, identity, religion and the everyday absurdities of American life.\n\nWhether you’re Indian, Pakistani, Bangladeshi, Nepali, Sri Lankan — or simply a fan of great stand-up comedy — Desi Comedy Fest offers a night of diverse voices, relatable stories and one common goal: making you laugh.\n\nAll performances are in English.",
+      "startsAt": "2026-10-15T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "The Creek and The Cave",
+        "addressLine1": "611 East 7th Street",
+        "city": "Austin",
+        "region": "TX",
+        "postalCode": "78701",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Abhay Nadkarni",
+          "role": "Comedian"
+        },
+        {
+          "name": "Anthony Pappaly",
+          "role": "Comedian"
+        },
+        {
+          "name": "Ashley Sharma",
+          "role": "Comedian"
+        },
+        {
+          "name": "Samson Koletkar",
+          "role": "Comedian"
+        },
+        {
+          "name": "Sanjay Manaktala",
+          "role": "Comedian"
+        },
+        {
+          "name": "Vishal Krishnasami",
+          "role": "Comedian"
+        }
+      ],
+      "presentedBy": "Samson Koletkar",
+      "languages": ["English"],
+      "prices": [],
+      "priceText": "Get Tickets: DesiComedyFest.com",
+      "ageRestriction": "18+",
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest-austin-thu-oct-15_2026-09-24-12-39-32-876_86.webp?ver=0.0831981",
+          "role": "cover",
+          "alt": "Desi Comedy Fest Austin banner"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/desi-comedy-fest-austin-thu-oct-15_event-in_austin-tx_402013",
+      "importNotes": [
+        "Sulekha says tickets are sold at DesiComedyFest.com; the link still goes to the Sulekha page."
+      ]
+    },
+    {
+      "sourceId": "400647",
+      "sourceUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-live-in-dallas_event-in_frisco-tx_400647",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Rahat Fateh Ali Khan Live In Dallas",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Rahat Fateh Ali Khan performs live at the Comerica Center in Frisco on October 16, 2026: Sufi melodies, Qawwali, devotional classics, romantic ballads and Bollywood chartbusters. Ticket levels from $47 to $997.",
+      "description": "Experience an unforgettable evening of soul-stirring music as the legendary Rahat Fateh Ali Khan takes the stage in Dallas for a spectacular live concert at the Comerica Center in Frisco, Texas, on October 16, 2026. Renowned worldwide for his mesmerizing voice, powerful stage presence, and mastery of Qawwali and Sufi music, Rahat Fateh Ali Khan promises a musical journey that transcends borders and generations.\n\nFans can look forward to an extraordinary repertoire featuring timeless Sufi melodies, devotional classics, romantic ballads, and Bollywood chartbusters that have captivated millions around the globe. From heartfelt renditions to energetic performances, every moment of the concert is designed to create an immersive and emotional experience for music lovers of all ages. Rahat's ability to blend traditional Qawwali with contemporary sounds has made him one of the most celebrated artists in South Asian music today.\n\nTickets are available at various levels, starting from the $47 Level at 47.00. Other options include the $62 Level, $72 Level, $82 Level, $97 Level, $122 Level, $124 Level, $129 Level, $144 Level, $147 Level, $159 Level, $172 Level, $222 Level, $247 Level, $297 Level, $347 Level, $497 Level, $747 Level, to the $997 Level.",
+      "startsAt": "2026-10-16T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Comerica Center",
+        "addressLine1": "2601 Avenue of the Stars",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Rahat Fateh Ali Khan",
+          "role": "Singer"
+        }
+      ],
+      "presentedBy": "3Sixty shows and Shaks Entertainment",
+      "languages": ["Hindi"],
+      "prices": [
+        {
+          "name": "$47 Level",
+          "priceCents": 4700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$62 Level",
+          "priceCents": 6200,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$72 Level",
+          "priceCents": 7200,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$82 Level",
+          "priceCents": 8200,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$97 Level",
+          "priceCents": 9700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$122 Level",
+          "priceCents": 12200,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$124 Level",
+          "priceCents": 12400,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$129 Level",
+          "priceCents": 12900,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$144 Level",
+          "priceCents": 14400,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$147 Level",
+          "priceCents": 14700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$159 Level",
+          "priceCents": 15900,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$172 Level",
+          "priceCents": 17200,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$222 Level",
+          "priceCents": 22200,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$247 Level",
+          "priceCents": 24700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$297 Level",
+          "priceCents": 29700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$347 Level",
+          "priceCents": 34700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$497 Level",
+          "priceCents": 49700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$747 Level",
+          "priceCents": 74700,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "$997 Level",
+          "priceCents": 99700,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": "Starts at $47",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/rahat-fateh-ali-khan-live-in-dallas_2026-06-23-04-01-55-783_41.webp?ver=0.881134",
+          "role": "cover",
+          "alt": "Rahat Fateh Ali Khan Live In Dallas banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-06-23-04-49-54-940_80.webp",
+          "role": "gallery",
+          "alt": "Rahat Fateh Ali Khan Live In Dallas poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-live-in-dallas_event-in_frisco-tx_400647",
+      "importNotes": []
+    },
+    {
+      "sourceId": "400972",
+      "sourceUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400972",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Bollywood Dandiya 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Bollywood Dandiya 2026 brings two nights (Oct 16–17) of Garba and Dandiya to the Austin Sports Center – Cedar Park, with DJs mixing Garba rhythms and Bollywood beats, food vendors, shopping booths and photo spots. Indoor event; kids under 10 are free.",
+      "description": "Celebrate the spirit of Navratri with an unforgettable evening of music, dance, and festive joy at Bollywood Dandiya 2026 in Cedar Park, Texas! Get ready to dress in your vibrant traditional attire, grab your dandiya sticks, and dance the night away at one of the most exciting South Asian celebrations of the season. Whether you're an experienced Garba dancer or attending your very first Dandiya night, this event promises an energetic and welcoming atmosphere for everyone. The event is scheduled for October 16–17, 2026, at the Austin Sports Center – Cedar Park, featuring two exciting nights packed with entertainment.\n\nIndoor Event! Kids under 10 are free!\n\nExperience the perfect blend of traditional Garba rhythms and modern Bollywood beats as talented DJs keep the dance floor alive throughout the evening. Beyond the music and dancing, guests can enjoy delicious Indian cuisine from food vendors, explore shopping booths featuring festive apparel and accessories, capture memorable moments at vibrant photo spots, and celebrate with family and friends in a lively indoor venue.\n\nJoin us as we celebrate Navratri/Dandiya, an integral part of India's rich tradition, and let the rhythms of Bollywood music set your feet in motion.\n\nThe foot-tapping music and the synchronized clapping of the Dandiya sticks will create a captivating symphony, making every participant a star of the show. So come, be a part of this musical extravaganza!",
+      "startsAt": "2026-10-16T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Austin Sports Center - Cedar Park",
+        "addressLine1": "1420 Toro Grande Boulevard",
+        "city": "Cedar Park",
+        "region": "TX",
+        "postalCode": "78613",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "G2 Entertainment",
+      "languages": ["Hindi", "Gujarati"],
+      "prices": [
+        {
+          "name": "Friday (Tier 1)",
+          "priceCents": 1500,
+          "currency": "USD",
+          "note": "Sold Out"
+        },
+        {
+          "name": "Friday (Tier 2)",
+          "priceCents": 1800,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Sep 30"
+        },
+        {
+          "name": "Saturday (Tier 1)",
+          "priceCents": 1500,
+          "currency": "USD",
+          "note": "Sold Out"
+        },
+        {
+          "name": "Saturday (Tier 2)",
+          "priceCents": 1800,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Sep 30"
+        },
+        {
+          "name": "Kids under 10",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Kids under 10 are free!"
+        }
+      ],
+      "priceText": "$15 - $18",
+      "ageRestriction": null,
+      "dressCode": "Traditional attire",
+      "parking": "Free Parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/bollywood-dandiya-2026_2026-07-17-08-18-50-156_77.webp?ver=0.10835",
+          "role": "cover",
+          "alt": "Bollywood Dandiya 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-17-08-08-50-484_40.webp",
+          "role": "gallery",
+          "alt": "Bollywood Dandiya 2026 poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400972",
+      "importNotes": [
+        "Sulekha lists this event twice (400522 and 400972) with different street numbers (1401 and 1420 Toro Grande Blvd); 400972 and its address are imported.",
+        "Its prices cover Friday and Saturday; the Saturday night is also listed on its own (400973)."
+      ]
+    },
+    {
+      "sourceId": "401684",
+      "sourceUrl": "https://events.sulekha.com/akriti-kakar-band-live-2026_event-in_dallas-tx_401684",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Akriti Kakar & Band Live - 2026",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "DFW Kalakars present Akriti Kakar & Band live on Friday, October 16, 2026 at Mar Thoma Event Center, as Night 1 of their 3-night 5th Durgotsava - Durga Puja 2026 celebration (Oct 16-18): 3 artists, 3 nights, 1 stage.",
+      "description": "Join DFW Kalakars for a special live performance by Akriti Kakar & Band as part of the 5th Durgotsava - Durga Puja 2026!\n\nDate: Friday, October 16, 2026\nVenue: Mar Thoma Event Center, 11500 Luna Rd, Farmers Branch, TX 75234\n\nThis is Night 1 of DFW Kalakars' 3-night Durga Puja celebration (Oct 16-18, 2026), featuring 3 artists, 3 nights, 1 stage. Enjoy an unforgettable evening of music, culture, and community.\n\nTickets: 3-Day Pass - Ages under 4: Free | Ages 4-10: $85 | Ages 11+: $105 (includes 3 days entry, all concerts, and 3 dinners)",
+      "startsAt": "2026-10-16T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Mar Thoma Event Center",
+        "addressLine1": "11500 Luna Rd",
+        "city": "Farmers Branch",
+        "region": "TX",
+        "postalCode": "75234",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Akriti Kakar & Band",
+          "role": "Live band"
+        }
+      ],
+      "presentedBy": "DFW Kalakars",
+      "languages": ["Hindi", "Bengali"],
+      "prices": [
+        {
+          "name": "3-Day Pass - Ages under 4",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Free"
+        },
+        {
+          "name": "3-Day Pass - Ages 4-10",
+          "priceCents": 8500,
+          "currency": "USD",
+          "note": "Includes 3 days entry, all concerts, and 3 dinners"
+        },
+        {
+          "name": "3-Day Pass - Ages 11+",
+          "priceCents": 10500,
+          "currency": "USD",
+          "note": "Includes 3 days entry, all concerts, and 3 dinners"
+        }
+      ],
+      "priceText": "3-Day Pass - Ages under 4: Free | Ages 4-10: $85 | Ages 11+: $105",
+      "ageRestriction": "All Age",
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/akriti-kakar-band-live-2026_2026-09-03-02-59-55-118_81.webp?ver=0.0566815",
+          "role": "cover",
+          "alt": "Akriti Kakar & Band Live - 2026 banner"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/akriti-kakar-band-live-2026_event-in_dallas-tx_401684",
+      "importNotes": ["The listing says Dallas; the venue is in Farmers Branch, which is used."]
+    },
+    {
+      "sourceId": "402028",
+      "sourceUrl": "https://events.sulekha.com/southlake-garba-night_event-in_southlake-tx_402028",
+      "scrapedAt": "2026-09-30T00:38:08Z",
+      "title": "Southlake Garba Night",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Southlake Garba Night celebrates Navratri at The Marq Southlake on Friday, October 16, 2026, 8:00–9:00 PM CDT: traditional Garba, music and community celebration. Everyone is welcome, from experienced dancers to first-timers.",
+      "description": "Get ready to celebrate the vibrant spirit of Navratri at Southlake Garba Night! Join family and friends for an exciting evening of traditional Garba, energetic dance, music, and community celebration.\n\nWhether you're an experienced Garba dancer or experiencing it for the first time, everyone is welcome to join the festivities. Put on your colorful traditional attire, bring your friends and family, and enjoy an evening filled with rhythmic beats, joyful dancing, and festive energy.\n\nEvent Details:\n\nDate: Friday, October 16, 2026\nTime: 8:00 PM – 9:00 PM CDT\nVenue: The Marq Southlake\nAddress: 285 Shady Oaks Dr, Southlake, TX 76092, United States.\n\nCome together with the Southlake community and celebrate the traditions and joy of Garba in a fun and welcoming atmosphere. Save the date and get ready to dance, celebrate, and make unforgettable Navratri memories!",
+      "startsAt": "2026-10-16T20:00:00-05:00",
+      "endsAt": "2026-10-16T21:00:00-05:00",
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "The Marq Southlake",
+        "addressLine1": "285 Shady Oaks Dr",
+        "city": "Southlake",
+        "region": "TX",
+        "postalCode": "76092",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Southlake Garba",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": "Colorful traditional attire",
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/southlake-garba-night_2026-09-24-07-14-09-732_86.webp?ver=0.608396",
+          "role": "cover",
+          "alt": "Southlake Garba Night banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-24-07-32-07-405_13.webp",
+          "role": "gallery",
+          "alt": "Southlake Garba Night poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/southlake-garba-night_event-in_southlake-tx_402028",
+      "importNotes": []
+    },
+    {
+      "sourceId": "400973",
+      "sourceUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400973",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Bollywood Dandiya 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "G2 Entertainment's Bollywood Dandiya 2026 returns to Austin Sports Center – Cedar Park for a second year and two nights (Oct 16 & 17). This listing is the Saturday, Oct 17 night: Garba, Dandiya and Bollywood energy at an indoor event. Kids under 10 are free.",
+      "description": "Bollywood Dandiya 2026\n\nAUSTIN, GET READY to TURN UP! Oct 16th & 17th!\n\nYear 2. Double the Dhamaal.For the second year in a row, G2 Entertainment is bringing Austin's most electrifying Bollywood Dandiya celebration back — and this time, we're going TWO nights!Two nights of beats, eats, treats, and all the festive vibes you love. Whether you're here for the traditional Garba, the Bollywood energy, or just the best night out of the season — we've got you covered.October 16 & 17, 2026\n\nAustin Sports Center, Cedar Park, TX\n\nIndoor Event! Kids under 10 are Free!\n\n#BollywoodDandiya #Garba #AustinEvents #DesiAustin #Navratri2026 #Dandiya2026\n\nBollywood Dandiya 2026: A Night of Music and Dance!\n\nMark your calendar for the 17th of October, 2026, as G2 Entertainment presents the much-anticipated Bollywood Dandiya 2026. Experience an unforgettable evening filled with Hindi music, singing, and traditional Navratri/Dandiya dance. This event promises to bring the vibrant colors, rhythmic beats, and infectious energy of Bollywood straight to Cedar Park, TX. So, dust off your dandiya sticks and join us for a night of culture, tradition, and fun!\n\nIntroducing the Artist: A Surprise Await!\n\nAt Bollywood Dandiya 2026, the spotlight will be on the audience and their zest to dance! This year, we're keeping the artist line-up a surprise. But rest assured, the stage will be graced by esteemed artists whose melodies will make you sway. Stay tuned for the big reveal!\n\nAustin Sports Center - Cedar Park: Your Destination for Fun\n\nThe event will be held at the Austin Sports Center in Cedar Park, located at 1420 Toro Grande Boulevard, TX, United States. Known for its safety and accessibility, the venue is perfectly suited to host large-scale events like ours. With ample parking available, you won't have to worry about finding a spot. After dancing to your heart's content, you can continue the night at one of the many nearby Indian restaurants, adding a delicious end to a memorable evening.\n\nSecure Your Spot: Ticket Details\n\nExcited about Bollywood Dandiya 2026? Make sure you don't miss out! We have a two-tier ticket system in place. The Saturday (Tier 1) tickets are priced at $15.00, and so are the Friday (Tier 1) tickets. Ensure to get yours soon and join us for a night filled with music, dance, and celebration!",
+      "startsAt": "2026-10-17T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Austin Sports Center - Cedar Park",
+        "addressLine1": "1420 Toro Grande Boulevard",
+        "city": "Cedar Park",
+        "region": "TX",
+        "postalCode": "78613",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "G2 Entertainment",
+      "languages": ["Hindi"],
+      "prices": [
+        {
+          "name": "Friday (Tier 2)",
+          "priceCents": 1800,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Sep 30"
+        },
+        {
+          "name": "Saturday (Tier 2)",
+          "priceCents": 1800,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Sep 30"
+        },
+        {
+          "name": "Saturday (Tier 1)",
+          "priceCents": 1500,
+          "currency": "USD",
+          "note": "Sold Out"
+        },
+        {
+          "name": "Kids under 10",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Kids under 10 are Free! (stated in the event description)"
+        }
+      ],
+      "priceText": "$15 - $18",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/bollywood-dandiya-2026_2026-07-17-08-52-55-468_35.webp?ver=0.751061",
+          "role": "cover",
+          "alt": "Bollywood Dandiya 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-17-08-01-55-530_5.webp",
+          "role": "gallery",
+          "alt": "Bollywood Dandiya 2026 poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/bollywood-dandiya-2026_event-in_cedar-park-tx_400973",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401529",
+      "sourceUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-the-voice-of-peace-houston_event-in_houston-tx_401529",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Rahat Fateh Ali Khan – The Voice of Peace | Houston",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Legendary Pakistani playback and Qawwali singer Rahat Fateh Ali Khan performs at Reliant Arena, Houston on Saturday, October 17, 2026 as part of his North America Tour 2026, presented by Rehan Siddiqi & Dr. Yasmeen Qureshi: Sufi music and his greatest hits.",
+      "description": "Get ready for an unforgettable evening of soulful music as legendary Pakistani playback and Qawwali singer Rahat Fateh Ali Khan brings his powerful voice to Houston as part of the North America Tour 2026.\n\nPresented by Rehan Siddiqi & Dr. Yasmeen Qureshi, this spectacular musical experience will take you on a journey through timeless melodies, soulful Sufi music, and Rahat Fateh Ali Khan’s greatest hits.\n\n📅 Saturday, October 17, 2026\n\n📍 Reliant Arena, Houston, TX\n\n🕖 Doors Open: 7:00 PM\n\n🎤 Show Starts: 8:30 PM\n\nExperience the voice that has captivated millions around the world. Don’t miss Rahat Fateh Ali Khan – The Voice of Peace LIVE in Houston!\n\n🎟️ Tickets are available now. Book yours before they sell out!\n\nExperience the Soulful Melodies with Rahat Fateh Ali Khan in Houston\n\nMark your calendars for the 17th of October, 2026, as the legendary Rahat Fateh Ali Khan graces Houston with his mesmerizing voice. Known for his profound Ghazals, enchanting Qawwali, and soul-stirring Sufi songs, Rahat Fateh Ali Khan is all set to perform live at the 'Voice of Peace' concert. This event promises an evening filled with Hindi music, live in concert, that is sure to leave the audience spellbound.\n\nMeet the Maestro: Rahat Fateh Ali Khan\n\nBelonging to a family of traditional musicians, Rahat Fateh Ali Khan carries forward the legacy of his renowned musical lineage. Famous for his melodious voice, Rahat has captivated audiences globally with hits like 'Teri Meri' from the movie Bodyguard. His unique ability to blend traditional Sufi music with contemporary sounds has made him a beloved figure in the international music scene. Witness the magic of his voice and be a part of an unforgettable musical journey.\n\nDelight in the Ambiance of Reliant Arena\n\nThe concert will be held at the well-known Reliant Arena, located at One Reliant Park, Houston, TX, United States. Known for its state-of-the-art facilities and stellar acoustics, the Reliant Arena ensures a safe and enjoyable concert experience. Its easy accessibility and abundant parking make it a preferred choice for concert-goers. After the concert, explore the vibrant city of Houston and indulge in some delicious Indian cuisine at nearby restaurants.\n\nSecure Your Seats: Ticket Details\n\nExperience this musical extravaganza from the best seats in the house! Choose from our range of ticket options: Row 1 tickets are priced at $2500, Row 2 tickets are available for $1500, while Row 3 tickets are up for grabs at $1000. For those seeking more affordable options, Row 4 and Level tickets are priced at $750 and $550 respectively. Don't miss this opportunity to witness an unforgettable performance by Rahat Fateh Ali Khan live in concert.",
+      "startsAt": "2026-10-17T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Reliant Arena",
+        "addressLine1": "One Reliant Park",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77054",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Rahat Fateh Ali Khan",
+          "role": "Singer"
+        }
+      ],
+      "presentedBy": "Rehan Siddiqi",
+      "languages": ["Hindi"],
+      "prices": [
+        {
+          "name": "$35 Level For $25 - Group Of 10",
+          "priceCents": 2500,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 17"
+        },
+        {
+          "name": "Row 1 $2500",
+          "priceCents": 250000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 17"
+        },
+        {
+          "name": "Row 2 $1500",
+          "priceCents": 150000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 17"
+        },
+        {
+          "name": "Row 3 $1000",
+          "priceCents": 100000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 17"
+        },
+        {
+          "name": "Row 4 $750",
+          "priceCents": 75000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 17"
+        },
+        {
+          "name": "Level $550",
+          "priceCents": 55000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 17"
+        }
+      ],
+      "priceText": "$25 - $2,500",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/rahat-fateh-ali-khan-%E2%80%93-the-voice-of-peace-houston_2026-08-24-07-00-10-102_59.webp?ver=0.203731",
+          "role": "cover",
+          "alt": "Rahat Fateh Ali Khan – The Voice of Peace | Houston banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-24-07-28-09-321_79.webp",
+          "role": "gallery",
+          "alt": "Rahat Fateh Ali Khan – The Voice of Peace Houston poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/rahat-fateh-ali-khan-the-voice-of-peace-houston_event-in_houston-tx_401529",
+      "importNotes": []
+    },
+    {
+      "sourceId": "402014",
+      "sourceUrl": "https://events.sulekha.com/desi-comedy-fest-dallas-sat-oct-17_event-in_irving-tx_402014",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Desi Comedy Fest - Dallas - Sat Oct 17",
+      "category": "COMEDY",
+      "sourceCategory": "COMEDY",
+      "summary": "Desi Comedy Fest, America’s biggest South Asian comedy festival, wraps its first Texas tour at Punch Line Irving on Sat, Oct 17 at 7 PM with Abhay Nadkarni, Arpit Jain, Paul Varghese, Samson Koletkar, Sri Raj and Teddy C. All performances in English; 18+.",
+      "description": "America’s biggest South Asian comedy festival wraps its first Texas tour at Punch Line Irving with Dallas favorites and nationally touring comedians.\n\nAfter 12 years of sold-out shows and performances across the United States, Canada and India, Desi Comedy Fest — America’s biggest South Asian comedy festival — is coming to the Dallas-Fort Worth area for the first time.\n\nThe festival takes the stage at Punch Line Irving on Saturday, October 17 at 7:00 PM, bringing together six South Asian comedians for a night of stand-up comedy performed entirely in English.\n\nThe Dallas lineup features Abhay Nadkarni, Arpit Jain, Paul Varghese, Samson Koletkar, Sri Raj and Teddy C, combining nationally touring comedians with established and rising voices from the Texas comedy scene.\n\nPAUL VARGHESE is a Dallas-based comedian whose sharp observational comedy has taken him to stages across the country. He has appeared on NBC’s Last Comic Standing, Comedy Central’s Live at Gotham and Stand-Up Revolution, and Showtime’s Russell Peters Presents. He has performed at Just For Laughs in Montreal and Toronto and HBO’s Las Vegas Comedy Festival, and is a winner of both the Funniest Comic in Texas and Laughing Skull comedy competitions. He has opened for comedy legends including Dave Chappelle, Joan Rivers, Russell Peters and Gabriel Iglesias.\n\nSRI RAJ is an Indian-American comedian born in Hyderabad and raised in Texas, whose comedy draws from moving constantly as a child, rebelling against traditional expectations and navigating the cultural contradictions of growing up Desi in America. A two-time finalist in the Funniest Comic in Dallas competition, placing second in 2025 and third in 2023, he has opened for comedians including Russell Peters, Ralph Barbosa, Harland Williams, Duncan Trussell, Tim Meadows and Asif Ali. He also produces The Brown Out at Dallas Comedy Club, a monthly showcase featuring Desi and other minority comedians.\n\nTEDDY C is a Bangladeshi-American comedian who grew up in New York and began his stand-up career in Texas. His comedy draws on being Bangladeshi and Muslim in Texas — including the experience of explaining that not every South Asian is Indian. He performs throughout the Texas comedy scene and produces Coffee Shop Comedy Club, a monthly series bringing stand-up into unconventional spaces. Teddy was selected for the 2025 Plano Comedy Festival and the 2026 Nate Jackson Super Funny Comedy Festival.\n\nARPIT JAIN is a stand-up comedian and a World Series of Comedy Regional winner. He has performed at the Raleigh Festival and has been featured in the Laugh Factory’s Spotlight series, bringing his comedy to stages across the country.\n\nABHAY NADKARNI, born in Delhi and raised in Doha and Bangalore, brings a global perspective to American absurdity. He was featured as a New Face at Montreal’s Just For Laughs, has performed at the Melbourne Comedy Festival and has more than 100,000 followers online. His debut comedy special, Brown Jesus, is streaming on Amazon Prime.\n\nSAMSON KOLETKAR blends his Indian upbringing, Jewish roots and American life into a cerebral and refreshingly clean style of comedy. He has performed across the U.S., Canada and India and has been featured on NPR, NBC, CBS, NDTV, The Times of India, Ha’aretz and more.\n\nFounded in the San Francisco Bay Area in 2014 by Abhay Nadkarni and Samson Koletkar, Desi Comedy Fest was created to showcase South Asian comedic talent and bring audiences together through laughter. What began as a Bay Area festival has grown over the past 12 years, with sold-out shows throughout the region and performances across the United States, Canada and India.\n\nThe Dallas performance is the final stop on Desi Comedy Fest’s first-ever Texas tour, following performances in Houston on October 14 and Austin on October 15.\n\n“Dallas has an incredible comedy scene and a huge South Asian community, which makes it a natural destination for Desi Comedy Fest,” said festival co-creator Abhay Nadkarni. “Having Paul, Sri and Teddy representing Texas alongside comedians coming in from around the country makes this a fitting way to wrap up our first Texas tour.”\n\n“One of the things we’ve loved about Desi Comedy Fest from the beginning is discovering how differently the South Asian experience can translate into comedy,” said festival co-creator Samson Koletkar. “This lineup brings together different generations, backgrounds and comedic styles, including some fantastic Texas talent. That variety is exactly what the festival is about.”\n\nDesi Comedy Fest brings together comedians from across the South Asian diaspora, with comedy spanning family, relationships, immigrant experiences, culture, careers, identity, religion and the everyday absurdities of American life.\n\nWhether you’re Indian, Pakistani, Bangladeshi, Nepali, Sri Lankan — or simply a fan of great stand-up comedy — Desi Comedy Fest offers a night of diverse voices, relatable stories and one common goal: making you laugh.\n\nAll performances are in English.",
+      "startsAt": "2026-10-17T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Punch Line Comedy Club",
+        "addressLine1": "310 West Las Colinas Boulevard",
+        "city": "Irving",
+        "region": "TX",
+        "postalCode": "75039",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Abhay Nadkarni",
+          "role": "Comedian"
+        },
+        {
+          "name": "Arpit Jain",
+          "role": "Comedian"
+        },
+        {
+          "name": "Paul Varghese",
+          "role": "Comedian"
+        },
+        {
+          "name": "Samson Koletkar",
+          "role": "Comedian"
+        },
+        {
+          "name": "Sri Raj",
+          "role": "Comedian"
+        },
+        {
+          "name": "Teddy C",
+          "role": "Comedian"
+        }
+      ],
+      "presentedBy": "Samson Koletkar",
+      "languages": ["English"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": "18+",
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/desi-comedy-fest-dallas-sat-oct-17_2026-09-24-12-32-37-798_22.webp",
+          "role": "cover",
+          "alt": "Desi Comedy Fest - Dallas - Sat Oct 17 poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/desi-comedy-fest-dallas-sat-oct-17_event-in_irving-tx_402014",
+      "importNotes": []
+    },
+    {
+      "sourceId": "402108",
+      "sourceUrl": "https://events.sulekha.com/riicas-kids-focus-math-contest-spell-bee-science-bowl-competitions_event-in_sugar-land-tx_402108",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "RIICAS KIDS FOCUS Math Contest, Spell Bee, Science Bowl competitions",
+      "category": "WORKSHOP",
+      "sourceCategory": "KIDS",
+      "summary": "RIICAS KIDS FOCUS (RKF) invites Houston-area students to compete in Spelling Bee, Math Contest, Science Bowl and Math Bowl on October 18 at 9 AM at Riverstone Montessori, Sugar Land. Early bird pricing ends September 30th.",
+      "description": "📚 RIICAS here by bringing KIDS FOCUS (RKF) competitions and calling Houston-area students to participate in Spelling Bee, Math Contest, Science Bowl and Math Bowl taking place on October 18 at 9 AM! (Early bird pricing ends September 30th). Encourage your kids and share with friends, family, neighbors and colleagues!\n\n✅ Register your child at riicas.org/signup_kidsfocus\n\n🙋 Volunteer—earn service hours and a certificate at riicas.org/signup_volunteer\n\n📲 Join our WhatsApp group for updates at riicas.org/WhatsApp",
+      "startsAt": "2026-10-18T09:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Riverstone Montessori",
+        "addressLine1": "18812 Noble Seven Lane",
+        "city": "Sugar Land",
+        "region": "TX",
+        "postalCode": "77479",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "RIICAS INDIA",
+      "languages": ["Hindi", "Telugu", "Tamil", "Malayalam"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/riicas-kids-focus-math-contest-spell-bee-science-bowl-competitions_2026-09-29-03-14-01-941_85.webp",
+          "role": "cover",
+          "alt": "RIICAS KIDS FOCUS Math Contest, Spell Bee, Science Bowl poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/riicas-kids-focus-math-contest-spell-bee-science-bowl-competitions_event-in_sugar-land-tx_402108",
+      "importNotes": [
+        "Sulekha lists this as Kids; Desi-Event has no such category, so it is listed under Workshops. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401721",
+      "sourceUrl": "https://events.sulekha.com/echoes-of-tradition-a-global-percussion-violin-summit_event-in_houston-tx_401721",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Echoes of Tradition A Global percussion & Violin Summit",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CLASSICAL",
+      "summary": "Echoes of Tradition: A Global Percussion & Violin Summit brings Grammy-winning violinist L. Shankar, Grammy-winning percussionist Selvaganesh Vinayakram, percussionist Swaminathan and tabla virtuoso Amit Kavthekar to MATCH, Houston on Oct 18, 2026.",
+      "description": "Echoes of Tradition: A Global Percussion & Violin Summit\n\nPrepare for an extraordinary evening where timeless Indian musical traditions meet global artistry at Echoes of Tradition: A Global Percussion & Violin Summit. This special live concert brings together exceptional musicians and celebrated virtuosos for a powerful celebration of rhythm, melody, heritage, and innovation.\n\nFeaturing Grammy-winning violinist and composer L. Shankar, Grammy-winning percussionist Selvaganesh Vinayakram, renowned percussionist Swaminathan, and acclaimed tabla virtuoso Amit Kavthekar, the summit promises an unforgettable musical experience. Each artist brings a distinctive style and deep connection to Indian classical traditions, creating a dynamic performance that transcends cultural and musical boundaries.\n\nImmerse in the Rhythmic Reverberation of Tradition\n\nMark your calendars for an evening of soul-stirring music at the 'Echoes of Tradition', a Global Percussion & Violin Summit on the 18th of October, 2026. This unique fusion event promises to be a feast for music lovers, blending the harmonic melodies of Hindi, Tamil, and Telugu classical music. Experience an unforgettable live concert, where the rhythm of tradition will echo through multilingual symphonies, taking you on an enchanting musical journey.\n\nMeet The Maestro\n\nThe stage will be graced by an unannounced artist, a maestro with a remarkable ability to captivate the audience. The artist's enchanting symphonies resonate with the richness of classical music, effortlessly blending with the beats of modernity. Their music, a testament to the depth of their craft, will leave you spellbound, making this evening a memorable one.\n\nExperience the Match Box4\n\nThe event will be hosted at the MATCH - Midtown Arts and Theater Center Houston, located at 3400 Main St, Houston, TX, United States. Known for its state-of-the-art facilities and vibrant ambiance, the MATCH is a haven for art and music lovers. The venue is easily accessible and ensures the safety of its patrons, making it a preferred choice for major events. Enjoy the evening amidst the city's buzzing arts scene, and don't forget to explore the nearby Indian restaurants for a delightful culinary experience.\n\nSecure Your Seat Today\n\nWitness this grandeur in person by securing your tickets today. Choose from our $82, $57, and $37 levels, each offering a unique viewing experience. Immerse in the sublime harmony of music and tradition at the Echoes of Tradition Global Percussion & Violin Summit. Remember, an evening of unforgettable music awaits you, so book your tickets now!",
+      "startsAt": "2026-10-18T18:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Match Box 4, MATCH - Midtown Arts and Theater Center Houston",
+        "addressLine1": "3400 Main St",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77002",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "L. Shankar",
+          "role": "Violinist and composer"
+        },
+        {
+          "name": "Selvaganesh Vinayakram",
+          "role": "Percussionist"
+        },
+        {
+          "name": "Swaminathan",
+          "role": "Percussionist"
+        },
+        {
+          "name": "Amit Kavthekar",
+          "role": "Tabla"
+        }
+      ],
+      "presentedBy": "Society for Indo-American Arts (SIA)",
+      "languages": ["Hindi", "Tamil", "Telugu"],
+      "prices": [
+        {
+          "name": "$82 Level",
+          "priceCents": 8200,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 18"
+        },
+        {
+          "name": "$57 Level",
+          "priceCents": 5700,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 18"
+        },
+        {
+          "name": "$37 Level",
+          "priceCents": 3700,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 18"
+        }
+      ],
+      "priceText": "$37 - $82",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/echoes-of-tradition-a-global-percussion-violin-summit_2026-09-06-06-07-11-331_64.webp?ver=0.667821",
+          "role": "cover",
+          "alt": "Echoes of Tradition A Global Percussion & Violin Summit banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-08-01-52-12-667_68.webp",
+          "role": "gallery",
+          "alt": "Echoes of Tradition A Global Percussion & Violin Summit poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/echoes-of-tradition-a-global-percussion-violin-summit_event-in_houston-tx_401721",
+      "importNotes": [
+        "Sulekha lists this as Classical; Desi-Event has no such category, so it is listed under Live Music. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401885",
+      "sourceUrl": "https://events.sulekha.com/navratri-dandiya-night-in-texas_event-in_round-rock-tx_401885",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Navratri Dandiya Night In Austin",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Art of Living Free Schools presents Navratri Dandiya Night In Austin on Friday, October 23, 2026 at St. Phillips United Methodist Church, Round Rock: Navratri/Dandiya dance, singing, Gujarati and Hindi music, and food & drink.",
+      "description": "Celebrate Navratri with Dandiya Night in Austin\n\nGet ready to groove to the beats of Gujarati and Hindi music as the Art Of Living Free Schools (careforchildren) presents the \"Navratri Dandiya Night In Austin\" on the 23rd of October, 2026. This vibrant night of Navratri/Dandiya Dance, Singing, and delicious Food & Drink promises to be an unforgettable experience. Don your traditional attire and join us for an evening filled with fun, laughter, and camaraderie.\n\nMeet the Artists: A Night of Talent and Tradition\n\nWhile we are yet to disclose the artists for the night, rest assured that you will be swaying to the tunes of some of the most talented performers in the realm of Gujarati and Hindi music. With their rich backgrounds in traditional music and their magnetic appeal, our artists promise to deliver an electrifying performance that will have you dancing the night away.\n\nSt. Phillips United Methodist Church: A Perfect Blend of Charm and Convenience\n\nThe Dandiya Night will be held at the beautiful St. Phillips United Methodist Church, located at 16321 Great Oaks Drive, Round Rock, TX, United States. Known for its peaceful ambiance and accessibility, the venue ensures a safe and comfortable environment for all attendees. There is ample parking available, and for those looking to grab a bite before or after the event, there are several Indian restaurants in the vicinity.\n\nGrab Your Tickets Now: A Celebration Not to Be Missed\n\nWe offer Regular Tickets for just $12.00, making it an affordable night out for everyone. However, if you plan to come in a group of 4 or more, you can avail of our special group tickets priced only at $10.00 per person. So, gather your friends, family, or colleagues and make the most of this exciting offer. Book your tickets now and get ready to immerse yourself in a night of tradition, music, and fun.",
+      "startsAt": "2026-10-23T18:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "St. Phillips United Methodist Church",
+        "addressLine1": "16321 Great Oaks Drive",
+        "city": "Round Rock",
+        "region": "TX",
+        "postalCode": "78681",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Art of Living Free Schools",
+      "languages": ["Gujarati", "Hindi"],
+      "prices": [
+        {
+          "name": "Regular Tickets",
+          "priceCents": 1200,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "Group Of 4 Or More",
+          "priceCents": 1000,
+          "currency": "USD",
+          "note": "Per person; ticket sales close on Oct 23"
+        }
+      ],
+      "priceText": "$10 - $12",
+      "ageRestriction": null,
+      "dressCode": "Traditional attire",
+      "parking": "Free Parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/navratri-dandiya-night-in-texas_2026-09-16-05-14-47-542_12.webp?ver=0.810876",
+          "role": "cover",
+          "alt": "Navratri Dandiya Night In Austin banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-22-11-10-02-451_41.webp",
+          "role": "gallery",
+          "alt": "Navratri Dandiya Night In Austin poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/navratri-dandiya-night-in-texas_event-in_round-rock-tx_401885",
+      "importNotes": [
+        "The page's metadata says 25 October and the visible date is 23 October; 23 October is imported."
+      ]
+    },
+    {
+      "sourceId": "401963",
+      "sourceUrl": "https://events.sulekha.com/anuradha-sriram-live-dallas_event-in_plano-tx_401963",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Anuradha Sriram Live - Dallas",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Anuradha Sriram Live - Dallas: a Tamil music concert on Friday, October 23, 2026 at 7:00 PM (CDT) at Grand Center, Plano, TX, presented by BigBaskyEvent.",
+      "description": "Anuradha Sriram Live - Dallas\n\nFriday, Oct 23, 2026, 7:00 PM (CDT) at Grand Center, 300 Chisholm Place, Plano, TX 75075.\n\nDoors open 7:00 PM (CDT). Show duration: 2 hours 45 minutes.\n\nEvent organizer: BigBaskyEvent. Category: Music. Language: Tamil.",
+      "startsAt": "2026-10-23T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Grand Center",
+        "addressLine1": "300 Chisholm Place",
+        "city": "Plano",
+        "region": "TX",
+        "postalCode": "75075",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Anuradha Sriram",
+          "role": null
+        }
+      ],
+      "presentedBy": "BigBaskyEvent",
+      "languages": ["Tamil"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/anuradha-sriram-live-dallas_2026-09-21-09-47-39-718_50.webp",
+          "role": "cover",
+          "alt": "Anuradha Sriram Live - Dallas poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/anuradha-sriram-live-dallas_event-in_plano-tx_401963",
+      "importNotes": [
+        "Its Sulekha description was for a different event (in the Bay Area), so the description here is built from the page's other details."
+      ]
+    },
+    {
+      "sourceId": "400974",
+      "sourceUrl": "https://events.sulekha.com/tribute-to-r-d-burman-by-trumpet-king-of-india-kishore-sodha-live_event-in_stafford-tx_400974",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Tribute to R.D. Burman by Trumpet King of India – Kishore Sodha Live",
+      "category": "BOLLYWOOD_NIGHT",
+      "sourceCategory": "BOLLYWOOD",
+      "summary": "Tribute to R.D. Burman: the Trumpet King of India, Kishore Sodha, who performed alongside R.D. Burman, recreates Pancham Da’s timeless Bollywood melodies live at Stafford Civic Center on Friday, October 23, 2026, presented by MB Foundation.",
+      "description": "Step into a mesmerizing evening of timeless Bollywood melodies as \"Tribute to R.D. Burman\" brings the unforgettable music of the legendary Pancham Da back to life. Featuring the Trumpet King of India, Kishore Sodha, this spectacular live concert is a heartfelt celebration of one of India's greatest music composers, whose evergreen songs continue to inspire generations of music lovers. Kishore Sodha, who performed alongside R.D. Burman during his illustrious career, recreates the magic with unmatched authenticity and emotion.\n\nPrepare to relive the golden era of Hindi cinema through iconic melodies, soulful orchestration, and captivating live performances. From romantic classics to energetic chartbusters, every composition will transport you back to an era when music touched hearts and created lifelong memories. The evening promises a rich blend of nostalgia, world-class musicianship, and vibrant stage performances that will have audiences singing along to every note.",
+      "startsAt": "2026-10-23T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Stafford Civic Center",
+        "addressLine1": "1415 Constitution Avenue",
+        "city": "Stafford",
+        "region": "TX",
+        "postalCode": "77477",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Kishore Sodha",
+          "role": "Trumpet"
+        }
+      ],
+      "presentedBy": "MB Foundation",
+      "languages": ["Hindi"],
+      "prices": [
+        {
+          "name": "VVIP",
+          "priceCents": 10000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "VIP",
+          "priceCents": 7000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "REGULAR",
+          "priceCents": 5000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "REGULAR(REAR)",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "BALCONY",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "BALCONY(REAR)",
+          "priceCents": 2000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        }
+      ],
+      "priceText": "$20 - $100",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/tribute-to-r-d-burman-by-trumpet-king-of-india-%E2%80%93-kishore-sodha-live_2026-07-17-11-24-42-881_55.webp?ver=0.155541",
+          "role": "cover",
+          "alt": "Tribute to R.D. Burman – Kishore Sodha Live banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-07-20-03-45-53-242_12.webp",
+          "role": "gallery",
+          "alt": "Tribute to R.D. Burman – Kishore Sodha Live poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/tribute-to-r-d-burman-by-trumpet-king-of-india-kishore-sodha-live_event-in_stafford-tx_400974",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401453",
+      "sourceUrl": "https://events.sulekha.com/rangtaali-aishwarya-majmudar-live-in-dallas-2026_event-in_frisco-tx_401453",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Rangtaali - Aishwarya Majmudar the Finale Live In Dallas 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Aishwarya Majmudar brings Rangtaali – the Finale to Frisco Flyers Event Center on Friday, October 23, 2026: a night of Garba, Dandiya, live Gujarati and Hindi music and Navratri celebration. Doors 7:00 PM, show 8:00 PM; all ages.",
+      "description": "Get ready for an unforgettable night of Garba, Dandiya, music, and celebration as Aishwarya Majmudar brings the vibrant energy of Rangtaali to Dallas! Experience an electrifying evening filled with soulful Gujarati and Hindi music, energetic dance beats, and the festive spirit of Navratri.\n\nJoin fellow Garba and Dandiya enthusiasts on Friday, October 23, 2026, at Frisco Flyers Event Center in Frisco, Texas. With doors opening at 7:00 PM and the show beginning at 8:00 PM, get ready for an exciting night of live music, dancing, and nonstop entertainment.\n\nAn Evening of Melody: Rangtaali - Aishwarya Majmudar the Finale Live In Dallas 2026\n\nJoin us for an unforgettable night of rhythm and melody at the 'Rangtaali - Aishwarya Majmudar the Finale Live In Dallas 2026' event. Scheduled to take place on the 23rd of October, 2026, this event will be a mesmerizing blend of Gujarati, Hindi, and Multilingual music, complemented by the energy of Navratri/Dandiya dance. Get ready to immerse yourself in a live concert that promises to be an enchanting fusion of singing and music.\n\nMeet the Star: Aishwarya Majmudar\n\nOur star performer for the evening is the talented Aishwarya Majmudar, a renowned singer from Ahmedabad, India. Rising to fame after winning the 2008 musical reality show Amul STAR Voice of India at a young age of 15, Aishwarya is known for her captivating voice and versatile performances. She has been highly praised by the judges throughout her career and was honored with the \"Chhote Ustaad\" award by Amitabh Bachchan. This enchanting evening is a perfect opportunity to witness her talent live.\n\nWhere the Magic Happens: Frisco Flyers Event Center\n\nThe Frisco Flyers Event Center, located at 6300 Flyers Way #2, Frisco, TX, United States, will be the magical setting for this event. Known for its safety and accessibility, the venue is surrounded by a plethora of attractions for visitors to explore. Ample parking is available for your convenience. For those seeking a taste of Indian cuisine before or after the event, a number of exceptional Indian restaurants can be found in the vicinity.\n\nYour Ticket to the Musical Extravaganza\n\nWe are offering a variety of ticket options to suit your preferences. Early bird general admission tickets are priced at 20.00, while regular general admission tickets are available for 30.00. If you're planning to come with a group of 10 or more, take advantage of our special group tickets priced at just 25.00 each. Don't miss your chance to be part of this musical extravaganza.",
+      "startsAt": "2026-10-23T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Frisco Flyers Event Center",
+        "addressLine1": "6300 Flyers Way #2",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Aishwarya Majmudar",
+          "role": "Singer"
+        }
+      ],
+      "presentedBy": "Yash Entertainment",
+      "languages": ["Gujarati", "Hindi"],
+      "prices": [
+        {
+          "name": "General Admission Tickets",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "Group of 4 or more",
+          "priceCents": 2500,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 23"
+        },
+        {
+          "name": "Early Bird General Admission",
+          "priceCents": 2000,
+          "currency": "USD",
+          "note": "Sold Out"
+        }
+      ],
+      "priceText": "$20 - $30",
+      "ageRestriction": "All Age",
+      "dressCode": null,
+      "parking": "Free Parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/rangtaali-aishwarya-majmudar-live-in-dallas-2026_2026-08-20-03-31-48-750_31.webp?ver=0.487955",
+          "role": "cover",
+          "alt": "Rangtaali - Aishwarya Majmudar the Finale Live In Dallas 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-14-03-28-30-686_95.webp",
+          "role": "gallery",
+          "alt": "Rangtaali - Aishwarya Majmudar Live In Dallas poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/rangtaali-aishwarya-majmudar-live-in-dallas-2026_event-in_frisco-tx_401453",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401870",
+      "sourceUrl": "https://events.sulekha.com/self-transformation-in-the-age-of-ai-ony-for-working-for-professionals_event-in_pilot-point-tx_401870",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Self-Transformation in the Age of AI ony for working for professionals",
+      "category": "WORKSHOP",
+      "sourceCategory": "OTHER",
+      "summary": "Self-Transformation in the Age of AI, for working professionals: a program by The Brahma Kumaris Meditation Center at Tapasya Dham Retreat Place, Pilot Point, TX on Saturday, October 24, 2026 from 9:00 AM (CDT).",
+      "description": "Self-Transformation in the Age of AI ony for working for professionals\n\nSaturday, Oct 24, 2026, 9:00 AM (CDT) at Tapasya Dham Retreat Place, 14135 Friendship Rd, Pilot Point, TX 76258.\n\nDoors open 9:00 AM (CDT). Duration: 10 hours.\n\nEvent organizer: The Brahma Kumaris Meditation Center.",
+      "startsAt": "2026-10-24T09:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Tapasya Dham Retreat Place",
+        "addressLine1": "14135 Friendship Rd",
+        "city": "Pilot Point",
+        "region": "TX",
+        "postalCode": "76258",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "The Brahma Kumaris Meditation Center",
+      "languages": [],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/weekend-retreat-for-working-professionals_2026-09-15-06-02-17-709_5.webp",
+          "role": "cover",
+          "alt": "Self-Transformation in the Age of AI retreat poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/self-transformation-in-the-age-of-ai-ony-for-working-for-professionals_event-in_pilot-point-tx_401870",
+      "importNotes": [
+        "Sulekha gives no description, so the description here is built from the page's other details.",
+        "Sulekha lists this as Other; Desi-Event has no such category, so it is listed under Workshops. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401212",
+      "sourceUrl": "https://events.sulekha.com/dallas-festival-of-lights-diwali-mela-2026_event-in_mckinney-tx_401212",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Dallas Festival of Lights – Diwali Mela 2026",
+      "category": "CULTURAL_FESTIVAL",
+      "sourceCategory": "FESTIVAL",
+      "summary": "Dallas Festival of Lights – Diwali Mela 2026 at Myers Park & Event Center, McKinney on Saturday, October 24: cultural performances, live music, dance, a fashion show, a Diwali Bazaar, food vendors and kids’ activities. Children under 10 free.",
+      "description": "Celebrate the joy, light, and togetherness of Dallas Festival of Lights – Diwali Mela 2026 in McKinney, Texas, one of the most anticipated Diwali celebrations in the Dallas–Fort Worth area. Gather with family and friends for an unforgettable day filled with vibrant cultural performances, live music, traditional dance, festive shopping, delicious Indian cuisine, and exciting entertainment for all ages.\n\nExperience the true spirit of Diwali as the venue comes alive with colorful décor, dazzling lights, cultural showcases, community performances, and family-friendly attractions. Browse a lively Diwali Bazaar featuring unique handicrafts, ethnic fashion, jewelry, home décor, and festive gifts while enjoying authentic flavors from a wide variety of food vendors. The event also features activities for children, cultural competitions, art displays, and entertainment that celebrates India's rich heritage.\n\nWhether you're celebrating Diwali with your loved ones or discovering the festival for the first time, this grand mela offers something for everyone. Create lasting memories, enjoy festive traditions, and join thousands of attendees in celebrating the Festival of Lights with music, culture, food, and community spirit.\n\nLights, Culture, and Celebration at Dallas Festival of Lights – Diwali Mela 2026\n\nMark your calendars for the 24th of October, 2026, as the Dallas Festival of Lights - Diwali Mela, hosted by Mystic Mandala, brings an explosion of culture, color, and celebration to Mckinney, TX. Experience the joy and vibrancy of Diwali - a grand Hindi, Telugu, and Marathi multilingual celebration that promises a day filled with food, drink, music, dance, and a spectacular fashion show. This is not just an event; it's a cultural extravaganza that unites the Indian community and invites everyone to join in the festive spirit.\n\nArtist Undefined - Yet the Celebration Continues\n\nWhile the event does not highlight a specific artist, its strength lies in the collective talent and enthusiasm of the community. The Dallas Festival of Lights – Diwali Mela is a stage where every participant is a star, every performance is a masterpiece, and every attendee is an integral part of the celebration. Enjoy the harmonious blend of tradition and modernity in music, dance, and fashion.\n\nWelcoming You to Myers Park & Event Center\n\nLocated at 7117 Co Rd 166, Mckinney, TX, United States, the Myers Park & Event Center is a verdant oasis perfect for large-scale events like the Dallas Festival of Lights - Diwali Mela. This venue is safe, easily accessible, and boasts ample parking space. While you immerse yourself in the festivities, also explore the nearby attractions and Indian restaurants that offer a taste of traditional Indian cuisine.\n\nSecure Your Spot - Ticket Information\n\nTickets are now available for purchase. Grab an Early Bird ticket for just $8.00. Children under 10 can join the festivities for free. General admission tickets are priced at $10.00. Come, be a part of this grand celebration, and make memories that will last a lifetime.",
+      "startsAt": "2026-10-24T12:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Myers Park & Event Center",
+        "addressLine1": "7117 Co Rd 166",
+        "city": "McKinney",
+        "region": "TX",
+        "postalCode": "75071",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Mystic Mandala",
+      "languages": ["Hindi", "Telugu", "Marathi"],
+      "prices": [
+        {
+          "name": "Early Bird",
+          "priceCents": 800,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 1"
+        },
+        {
+          "name": "Children under 10",
+          "priceCents": 0,
+          "currency": "USD",
+          "note": "Free; ticket sales close on Oct 24"
+        },
+        {
+          "name": "General admission",
+          "priceCents": 1000,
+          "currency": "USD",
+          "note": "Ticket sales start on Oct 2"
+        }
+      ],
+      "priceText": "$8 - $10",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/dallas-festival-of-lights-%E2%80%93-diwali-mela-2026_2026-08-05-04-39-38-332_21.webp?ver=0.861214",
+          "role": "cover",
+          "alt": "Dallas Festival of Lights – Diwali Mela 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-05-04-30-38-864_78.webp",
+          "role": "gallery",
+          "alt": "Dallas Festival of Lights – Diwali Mela 2026 poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/dallas-festival-of-lights-diwali-mela-2026_event-in_mckinney-tx_401212",
+      "importNotes": []
+    },
+    {
+      "sourceId": "402109",
+      "sourceUrl": "https://events.sulekha.com/riicas-diwali-dandiya-masti_event-in_sugar-land-tx_402109",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "RIICAS Diwali Dandiya Masti",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "RIICAS Diwali Dandiya Masti on Saturday, October 24, 1–10 PM at Satartia Middle School, Sugar Land: a family Diwali celebration with Dandiya, fashion shows, classical performances and multilingual music. Early bird tickets end 10/9.",
+      "description": "Don’t Miss Out: RIICAS Diwali Masti & Dandiya on October 24th from 1–10 PM at Sartartia Middle School. Enjoy an evening full of energy and excitement!\n\nCome with family and friends for an unforgettable Diwali night of masti & dandiya!\n\nExperience the Magic of RIICAS Diwali Dandiya Masti\n\nGet ready to immerse yourself in the vibrant celebration of RIICAS Diwali Dandiya Masti on Saturday, October 24th, 2026! Hosted at the lively Satartia Middle School in Sugar Land, TX, this event promises an unforgettable afternoon filled with dance, music, and cultural festivities. Whether you're a fan of Hindi, Telugu, Tamil, or Malayalam tunes, this multilingual extravaganza will have something for everyone. Celebrate the spirit of Diwali with exhilarating Navratri-style Dandiya dances, dazzling fashion shows, and classical performances that will leave you mesmerized. Don’t miss this chance to create lasting memories with your friends and family!\n\nSpotlight on the Artist\n\nRIICAS Diwali Dandiya Masti brings together talented performers who will elevate your experience with their artistic brilliance. Although specific artist details are yet to be announced, you can expect a lineup of extraordinary talent that resonates with the festive energy of Diwali. From captivating dance sequences to soulful music, the performers will ensure every moment of this celebration is filled with joy and cultural richness. Stay tuned for updates on the artist roster as we reveal the stars of the evening.\n\nDiscover Satartia Middle School – The Perfect Venue\n\nSatartia Middle School, located at 8125 Homeward Way in Sugar Land, TX, is the ideal venue for RIICAS Diwali Dandiya Masti. Situated in the heart of Sugar Land, this location offers a safe and accessible environment for families and friends to gather and celebrate. The venue boasts ample parking spaces and is conveniently close to major highways. After the event, treat your taste buds to authentic Indian cuisine at nearby restaurants such as Madras Pavilion or Nirmanz Food Boutique. With its welcoming ambiance and prime location, Satartia Middle School is the perfect setting for this festive extravaganza!\n\nSecure Your Tickets Today!\n\nDon’t miss your chance to join RIICAS Diwali Dandiya Masti! Tickets are priced at just $15 for Regular admission. Take advantage of our Early Bird offer and grab your tickets for only $10 before October 9th, 2026. Whether you’re planning to come solo or bring the whole family, these affordable ticket options make it easy to be part of the celebration. Mark your calendars and reserve your spot now for an unforgettable Diwali experience in Sugar Land!",
+      "startsAt": "2026-10-24T13:00:00-05:00",
+      "endsAt": "2026-10-24T22:00:00-05:00",
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Satartia Middle School",
+        "addressLine1": "8125 Homeward Way",
+        "city": "Sugar Land",
+        "region": "TX",
+        "postalCode": "77479",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "RIICAS INDIA",
+      "languages": ["Hindi", "Telugu", "Tamil", "Malayalam"],
+      "prices": [
+        {
+          "name": "Regular",
+          "priceCents": 1500,
+          "currency": "USD",
+          "note": "Available; ticket sales close on Oct 24; $20 at the gate"
+        },
+        {
+          "name": "Early Bird (Ends on 10/9)",
+          "priceCents": 1000,
+          "currency": "USD",
+          "note": "Early Bird ends on 10/9"
+        }
+      ],
+      "priceText": "$10 - $15",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": "Free Parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/riicas-diwali-dandiya-masti_2026-09-29-03-58-31-190_40.webp?ver=0.98929",
+          "role": "cover",
+          "alt": "RIICAS Diwali Dandiya Masti banner"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/riicas-diwali-dandiya-masti_event-in_sugar-land-tx_402109",
+      "importNotes": ["A personal phone number was removed from the description."]
+    },
+    {
+      "sourceId": "401869",
+      "sourceUrl": "https://events.sulekha.com/an-evening-for-peace-unity-in-texas_event-in_euless-tx_401869",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "An Evening for Peace & Unity In Texas",
+      "category": "CULTURAL_FESTIVAL",
+      "sourceCategory": "OTHER",
+      "summary": "An Evening for Peace & Unity in Texas, organized by Al-noor International at Sapphire Banquet Hall, Euless: a gathering celebrating harmony and community through Hindi, Urdu and multilingual fusion poetry from poets and performers of diverse backgrounds.",
+      "description": "Join us for An Evening for Peace & Unity in Texas, a special gathering dedicated to celebrating harmony, togetherness, and the power of community. This meaningful event brings people together from diverse backgrounds to share an evening filled with inspiration, connection, and positive energy.\n\nIn today’s fast-changing world, moments that bring communities together are more important than ever. This event creates an opportunity for families, friends, and community members to come together, connect with one another, and celebrate the values that unite us—peace, respect, compassion, and unity.\n\nMark your calendars for the 24th of October, 2026, as we invite you to 'An Evening for Peace & Unity In Texas'. Organized by Al-noor International, the event is a unique blend of Hindi, Urdu, and Multilingual Fusion Poetry that seeks to communicate and strengthen the bonds of unity and peace. Join us in immersing yourself in the rhythmic beauty of words, and let the verses resonate with your spirit.\n\nWhile the event does not feature a specific artist, it is nonetheless a grand stage for the gifted and the passionate. This evening will see a host of poets and performers from diverse backgrounds, each with their unique style and appealing charm. Their verses, spoken in the tongues of Hindi, Urdu, and other multilingual expressions, will echo the sentiments of unity and peace, touching every listener's heart.\n\nThe Sapphire Banquet Hall and Conference Center, located at 1300 N Main St, Euless, TX, United States, will be the venue for this special evening. Situated in the heart of the city, the venue offers easy accessibility, a safe environment, and ample parking. To further enhance your experience, consider exploring the nearby attractions and dining at one of the local Indian restaurants.\n\nBe sure not to miss out on this special evening. Choose from our selection of ticket options to suit your preferences. Opt for a Table Of 10 at $900.00 or a Table Of 4 at $450.00 for a shared experience. For a more exclusive experience, VIP tickets are available at $100.00. And for those who prefer a simpler option, General Admission tickets are priced at $50.00.",
+      "startsAt": "2026-10-24T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Sapphire Banquet Hall and Conference Center",
+        "addressLine1": "1300 N Main St",
+        "city": "Euless",
+        "region": "TX",
+        "postalCode": "76039",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "AL-Noor international",
+      "languages": ["Hindi", "Urdu"],
+      "prices": [
+        {
+          "name": "Table Of 10",
+          "priceCents": 90000,
+          "currency": "USD",
+          "note": "First Row, Dinner & Photo with the Artist"
+        },
+        {
+          "name": "Table Of 4",
+          "priceCents": 45000,
+          "currency": "USD",
+          "note": "Dinner Included"
+        },
+        {
+          "name": "VIP",
+          "priceCents": 10000,
+          "currency": "USD",
+          "note": "First Row, Dinner & Photo with the Artist"
+        },
+        {
+          "name": "General Admission",
+          "priceCents": 5000,
+          "currency": "USD",
+          "note": "Dinner Included"
+        }
+      ],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/an-evening-for-peace-unity-in-texas_2026-09-15-06-44-19-537_9.webp?ver=0.0241918",
+          "role": "cover",
+          "alt": "An Evening for Peace & Unity In Texas banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-16-01-09-20-375_88.webp",
+          "role": "gallery",
+          "alt": "An Evening for Peace & Unity In Texas poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/an-evening-for-peace-unity-in-texas_event-in_euless-tx_401869",
+      "importNotes": [
+        "Sulekha lists this as Other; Desi-Event has no such category, so it is listed under Melas & Festivals. If another fits better, change it in an editing session once the event is published."
+      ]
+    },
+    {
+      "sourceId": "401360",
+      "sourceUrl": "https://events.sulekha.com/vibha-houston-garba-2026_event-in_houston-tx_401360",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Vibha Houston Garba 2026",
+      "category": "GARBA_DANDIYA",
+      "sourceCategory": "GARBA_DANDIYA",
+      "summary": "Vibha Houston Garba 2026 at ISKCON of Houston: an evening of nonstop Garba, Dandiya, music and community where every ticket supports Vibha's mission of transforming children's lives through education. Seasoned dancers and first-timers welcome.",
+      "description": "Get ready to dance the night away with nonstop Garba beats and good vibes at Vibha Houston 2026!\n\nJoin us for an unforgettable evening of Garba, Dandiya, music, and community—where every spin, every beat, and every ticket helps transform a child's future through education.\n\nYour evening of celebration helps transform the lives of children through education—because every ticket sold supports Vibha's mission of creating brighter futures.\n\nWhether you're a seasoned Garba dancer or stepping onto the dance floor for the very first time, come celebrate one of the most vibrant festivals of the year while making a meaningful difference.",
+      "startsAt": "2026-10-24T19:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "ISKCON of Houston",
+        "addressLine1": "1320 West 34th Street",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77018",
+        "country": "US"
+      },
+      "performers": [],
+      "presentedBy": "Vibha Houston",
+      "languages": ["Gujarati"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/vibha-houston-garba-2026_2026-08-17-02-34-19-452_44.webp?ver=0.686839",
+          "role": "cover",
+          "alt": "Vibha Houston Garba 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-17-02-14-15-766_3.webp",
+          "role": "gallery",
+          "alt": "Vibha Houston Garba 2026 poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/vibha-houston-garba-2026_event-in_houston-tx_401360",
+      "importNotes": ["A '$0 General Admission' price could not be confirmed and was left out."]
+    },
+    {
+      "sourceId": "401558",
+      "sourceUrl": "https://events.sulekha.com/band-capricio-live-music-in-houston_event-in_houston-tx_401558",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Band Capricio Live Music in Houston",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Band Capricio performs live at Park 8 Event Center in Houston on October 24, 2026: a concert blending Telugu and Hindi melodies in the band's classical-fusion style, organized by Refresh Ritmo.",
+      "description": "Experience the Melodies of Fusion with Band Capricio Live in Houston\n\nMark your calendars for the 24th of October, 2026, as the city of Houston prepares to host a musical extravaganza like no other. The Band Capricio Live Music in Houston is a unique concert that promises to serenade the audience with a blend of Telugu and Hindi melodies. The event, organized by Refresh Ritmo, is the perfect opportunity for music enthusiasts to experience a harmonious blend of different genres, culminating in a performance that transcends borders and languages.\n\nMeet Band Capricio - Masters of Melodic Fusion\n\nBand Capricio is not just a musical ensemble. They are maestros who have fine-tuned the art of blending classical fusion with Telugu music. Their performances are a symphony of different genres, creating an aroma of music that is unique and captivating. The band's ability to weave a tapestry of melodies that resonate with their audiences has earned them a special place in the hearts of music lovers. Join us for a night of unforgettable musical experience with Band Capricio.\n\nPark 8 Event Center - Your Destination for an Enthralling Evening\n\nThe Park 8 Event Center, located at 8800 W Sam Pkwy S in Houston, TX, United States, is the perfect venue for this musical spectacle. Known for its safety and accessibility, the venue is well-equipped to ensure a comfortable and immersive experience for the attendees. With ample parking availability and a range of Indian restaurants nearby, your evening at the Band Capricio Live Music in Houston event is set to be a feast for the senses.\n\nSecure Your Spot - Early Bird Offers Await\n\nDon't miss out on this musical extravaganza. Secure your spot with our Early Bird offers. Choose from a variety of options including General Admission Phase II for $24.99, Group of 5 General Admission Phase II for $114.99, VIP tickets for $59.99, VIP group of 5 for $275.00, VVIP for 1 for $99.99 and VVIP for 8 for $750.00. Experience the magic of Band Capricio like never before. Book your tickets now!",
+      "startsAt": "2026-10-24T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Park 8 Event Center",
+        "addressLine1": "8800 W Sam Pkwy S",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77099",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Band Capricio",
+          "role": "Band"
+        }
+      ],
+      "presentedBy": "Refresh Ritmo",
+      "languages": ["Telugu", "Hindi"],
+      "prices": [
+        {
+          "name": "Early Bird General Admission Phase II",
+          "priceCents": 2499,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Early Bird Group of 5 General Admission Phase II",
+          "priceCents": 11499,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Early bird VIP",
+          "priceCents": 5999,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "General Admission",
+          "priceCents": 3299,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "General Admission group of 5",
+          "priceCents": 14999,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "VIP - admission for 1",
+          "priceCents": 7499,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "VIP Group of 5",
+          "priceCents": 34999,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "VIP - Group of 10",
+          "priceCents": 62499,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Early Bird VIP for 8",
+          "priceCents": 99999,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/band-capricio-live-music-in-houston_2026-08-25-11-11-40-479_67.webp?ver=0.830165",
+          "role": "cover",
+          "alt": "Band Capricio Live Music in Houston banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/band-capricio_2022-09-07-10-54-37-193_24.webp",
+          "role": "gallery",
+          "alt": "Band Capricio"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/band-capricio-live-music-in-houston_event-in_houston-tx_401558",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401976",
+      "sourceUrl": "https://events.sulekha.com/anuradha-sriram-live-houston_event-in_katy-tx_401976",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Anuradha Sriram Live - Houston",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Anuradha Sriram live in Katy on October 25, 2026: a musical evening through Tamil cinema's most celebrated melodies, from soulful classics and romantic favorites to energetic folk numbers and dance hits.",
+      "description": "Get ready for an unforgettable musical evening with the powerhouse performer Anuradha Sriram!\n\nKnown for her electrifying stage presence, versatile voice, and timeless hit songs, Anuradha Sriram will take the audience on a vibrant journey through Tamil cinema's most celebrated melodies. From soulful classics and romantic favorites to energetic folk numbers and foot-tapping dance hits, this concert promises music for every generation.\n\nCome sing, dance, and celebrate an extraordinary night filled with nostalgia, rhythm, and nonstop entertainment",
+      "startsAt": "2026-10-25T16:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "FLORA - Venue at KATY",
+        "addressLine1": "333 West Grand Parkway North",
+        "city": "Katy",
+        "region": "TX",
+        "postalCode": "77449",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Anuradha Sriram",
+          "role": null
+        }
+      ],
+      "presentedBy": "Big Basky Event",
+      "languages": ["Tamil"],
+      "prices": [],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/anuradha-sriram-live-houston_2026-09-22-07-28-16-268_92.webp?ver=0.782621",
+          "role": "cover",
+          "alt": "Anuradha Sriram Live - Houston banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-22-07-40-13-956_38.webp",
+          "role": "gallery",
+          "alt": "Anuradha Sriram Live - Houston poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/anuradha-sriram-live-houston_event-in_katy-tx_401976",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401935",
+      "sourceUrl": "https://events.sulekha.com/sagar-wali-qawwali-with-sagar-bhatia-live-concert-in-houston-29th-oct_event-in_houston-tx_401935",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Sagar Wali Qawwali With Sagar Bhatia Live Concert in Houston - 29th Oct",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Sagar Wali Qawwali: Delhi-born qawwali artist Sagar Bhatia performs live at Arena Theatre, Houston on October 29, 2026, an evening of soulful Hindi and Urdu qawwali.",
+      "description": "Immerse in the Enchanting Rhythms of Qawwali: Sagar Wali Qawwali With Sagar Bhatia Live Concert in Houston\n\nExperience an unforgettable evening of soulful music at the Sagar Wali Qawwali with Sagar Bhatia Live Concert happening on the 29th of October, 2026. The event promises an enthralling performance by the acclaimed artist Sagar Bhatia, mesmerizing the audience with his melodious qawwali renditions. This live concert is a must-attend for all Hindi and Urdu music enthusiasts seeking to enjoy an evening packed with rhythm, emotion, and cultural richness.\n\nSagar Bhatia: The Dynamic Voice Behind Sagar Wali Qawwali\n\nDelhi-born Sagar Bhatia, a qawwali artist par excellence, is all set to charm the audience with his captivating performance. Descending from a family steeped in musical tradition, Sagar was introduced to the world of qawwali at a tender age. His journey as a qawwali artist began at 15, and today, his soulful voice and vibrant stage presence have won hearts across India and beyond. Don't miss the chance to witness Sagar Bhatia's dynamic performance that has been enthralling audiences for over a decade.\n\nExperience the Magic at Arena Theatre\n\nThe concert is scheduled to take place at the Arena Theatre, located at 7326 Southwest Freeway, Houston, TX, United States. Known for its welcoming ambiance and excellent acoustics, the Arena Theatre ensures a memorable musical experience. The venue's location boasts safety and easy access, with ample parking facilities. For those who wish to enjoy a sumptuous Indian meal before or after the concert, the city of Houston offers numerous Indian restaurants in close proximity to the venue.\n\nYour Ticket to an Enthralling Musical Evening\n\nMake sure you secure your spot at this enchanting musical event by choosing from our range of ticket options. We have tickets available at Level $35, Level $50, Level $75, and Level $100. Each ticket is a passport to an evening filled with soul-stirring qawwali music and Sagar Bhatia's magnetic performance. Hurry, grab your tickets and immerse yourself in the magical world of qawwali!",
+      "startsAt": "2026-10-29T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Arena Theatre",
+        "addressLine1": "7326 Southwest Freeway",
+        "city": "Houston",
+        "region": "TX",
+        "postalCode": "77074",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Sagar Bhatia",
+          "role": "Qawwali artist"
+        }
+      ],
+      "presentedBy": "Ap Sqaure And Meedu",
+      "languages": ["Hindi", "Urdu"],
+      "prices": [
+        {
+          "name": "Level $35",
+          "priceCents": 3500,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Level $50",
+          "priceCents": 5000,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Level $75",
+          "priceCents": 7500,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "Level $100",
+          "priceCents": 10000,
+          "currency": "USD",
+          "note": "Selling fast"
+        }
+      ],
+      "priceText": "$35 - $100",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/sagar-wali-qawwali-with-sagar-bhatia-live-concert-in-houston-29th-oct_2026-09-21-02-13-53-038_92.webp?ver=0.843",
+          "role": "cover",
+          "alt": "Sagar Wali Qawwali With Sagar Bhatia banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-21-03-00-00-991_90.webp",
+          "role": "gallery",
+          "alt": "Sagar Wali Qawwali With Sagar Bhatia poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/sagar-bhatia_2023-09-04-08-41-51-975_4.webp",
+          "role": "gallery",
+          "alt": "Sagar Bhatia"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/sagar-wali-qawwali-with-sagar-bhatia-live-concert-in-houston-29th-oct_event-in_houston-tx_401935",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401235",
+      "sourceUrl": "https://events.sulekha.com/nishant-tanwar-live-in-austin-tx_event-in_austin-tx_401235",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Nishant Tanwar Live In Austin TX",
+      "category": "COMEDY",
+      "sourceCategory": "COMEDY",
+      "summary": "Stand-up comedian Nishant Tanwar ('Joke Singh') performs live at Dwell Coworking Oak Hill in Austin on October 30, 2026, with comedy that blends Hindi and English.",
+      "description": "A Night of Laughter: Nishant Tanwar Live In Austin TX\n\nGet ready to laugh out loud as Nishant Tanwar, the famous Indian stand-up comedian, is coming to Austin, TX for an unforgettable live performance! The event, aptly named \"Nishant Tanwar Live In Austin TX,\" is scheduled for the 30th of October, 2026. Immerse yourself in a night of comedy that transcends language barriers with the multilingual Nishant Tanwar, who effortlessly blends Hindi and English in his jokes. Don't miss this opportunity to experience a unique blend of comedy that will leave you in splits!\n\nMeet 'Joke Singh': The Multilingual Maestro, Nishant Tanwar\n\nNishant Tanwar, also known as 'Joke Singh' and 'Rider OP', is a renowned stand-up comedian and actor from India. Born on November 7, 1982, Nishant initially worked at NDTV before discovering his passion for stand-up comedy at an open mic event in 2009. His dynamic performances are a blend of Hindi, English, and multilingual comedy that keeps audiences on their toes. Nishant's unique style and charismatic stage presence make him a force to reckon with in the world of comedy.\n\nExperience the Event at Dwell Coworking Oak Hill\n\nThe event will take place at the Dwell Coworking Oak Hill - South Austin Coworking Space, located at 4220 Monterey Oaks Blvd, Austin, TX, United States. The venue is reputed for its safety standards and accessibility. It is well-connected with public transportation, making it an easy-to-reach destination. For those driving, ample parking is available. After the show, attendees can visit nearby Indian restaurants to enjoy a delightful meal.",
+      "startsAt": "2026-10-30T18:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Dwell Coworking Oak Hill - South Austin Coworking Space",
+        "addressLine1": "4220 Monterey Oaks Blvd",
+        "city": "Austin",
+        "region": "TX",
+        "postalCode": "78749",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Nishant Tanwar",
+          "role": "Stand-up comedian"
+        }
+      ],
+      "presentedBy": "Stage Adda Llc",
+      "languages": ["Hindi", "English"],
+      "prices": [
+        {
+          "name": "Platinum",
+          "priceCents": 6000,
+          "currency": "USD",
+          "note": "Ticket close on Oct 23"
+        },
+        {
+          "name": "Gold",
+          "priceCents": 5000,
+          "currency": "USD",
+          "note": "Ticket close on Oct 23"
+        },
+        {
+          "name": "Silver",
+          "priceCents": 4500,
+          "currency": "USD",
+          "note": "Ticket close on Oct 23"
+        }
+      ],
+      "priceText": "$45 - $60",
+      "ageRestriction": "18+",
+      "dressCode": null,
+      "parking": "Ample parking is available.",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/nishant-tanwar-live-in-austin-tx_2026-08-06-07-14-32-534_60.webp?ver=0.838798",
+          "role": "cover",
+          "alt": "Nishant Tanwar Live In Austin TX banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-08-06-07-11-30-409_98.webp",
+          "role": "gallery",
+          "alt": "Nishant Tanwar Live In Austin TX poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/nishant-tanwar_2023-01-23-04-37-37-329_31.webp",
+          "role": "gallery",
+          "alt": "Nishant Tanwar"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/nishant-tanwar-live-in-austin-tx_event-in_austin-tx_401235",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401940",
+      "sourceUrl": "https://events.sulekha.com/sidhu-moosewala-signed-to-god-world-tour-houston_event-in_rosenberg-tx_401940",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Sidhu Moosewala Signed to God World Tour Houston",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Sidhu Moosewala's Signed to God World Tour makes its Houston-area stop at Fort Bend Epicenter in Rosenberg on October 30, 2026: a night of Punjabi music.",
+      "description": "An Evening of Punjabi Beats with Sidhu Moosewala\n\nMark your calendars for a memorable night of Punjabi music as Sidhu Moosewala's Signed to God World Tour makes a stop in Houston on the 30th of October, 2026. Get ready to sway to the rhythmic beats and powerful lyrics as Sidhu Moosewala takes the stage for a live concert that promises to leave you spellbound.\n\nSpotlight on Sidhu Moosewala: The Voice of Punjab\nWith a voice that resonates with millions and songs that speak to the heart, Sidhu Moosewala is a force to be reckoned with in the Punjabi music industry. His unique blend of contemporary beats and traditional Punjabi lyrics have made him a favorite among music lovers across the globe.\n\nExperience the Magic at Fort Bend Epicenter\nLocated at 28505 Southwest Freeway in the vibrant city of Rosenberg, TX, the Fort Bend Epicenter is a premier event venue in the United States. The Epicenter boasts a safe, accessible location with plenty of parking available. For those looking to grab a bite before the concert, there are several Indian restaurants in the vicinity that offer a wide range of mouth-watering dishes.\n\nGrab Your Tickets Today!\nBe part of this unforgettable Punjabi musical extravaganza by securing your tickets today. With the $99 Level tickets available at a price of $99.00, you can ensure a night of melodious Punjabi beats and unforgettable memories. Don't miss out on this chance to see Sidhu Moosewala live in concert!",
+      "startsAt": "2026-10-30T20:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Fort Bend Epicenter",
+        "addressLine1": "28505 Southwest Freeway",
+        "city": "Rosenberg",
+        "region": "TX",
+        "postalCode": "77471",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Sidhu Moosewala",
+          "role": null
+        }
+      ],
+      "presentedBy": "Active Entertainment Group",
+      "languages": ["Punjabi"],
+      "prices": [
+        {
+          "name": "$99 Level",
+          "priceCents": 9900,
+          "currency": "USD",
+          "note": null
+        }
+      ],
+      "priceText": null,
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/sidhu-moosewala-signed-to-god-world-tour-houston_2026-09-19-02-41-20-054_14.webp?ver=0.842473",
+          "role": "cover",
+          "alt": "Sidhu Moosewala Signed to God World Tour Houston banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-19-02-28-20-239_82.webp",
+          "role": "gallery",
+          "alt": "Sidhu Moosewala Signed to God World Tour Houston poster"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/sidhu-moosewala-signed-to-god-world-tour-houston_event-in_rosenberg-tx_401940",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401926",
+      "sourceUrl": "https://events.sulekha.com/nishant-tanwar-live-in-dallas-tx_event-in_plano-tx_401926",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Nishant Tanwar Live In Dallas, TX",
+      "category": "COMEDY",
+      "sourceCategory": "COMEDY",
+      "summary": "Stand-up comedian Nishant Tanwar ('Joke Singh') brings his Hindi comedy show to the Courtyard Theatre in Plano (Dallas area) on October 31, 2026.",
+      "description": "Experience Laughter Therapy at Nishant Tanwar Live In Dallas\n\nComedy lovers, mark your calendars for an unforgettable evening filled with laughter and entertainment as Nishant Tanwar takes the stage on the 31st of October, 2026 in Dallas, TX. Known for his unique style of humor, this Hindi Comedy event promises to tickle your funny bones and leave you craving for more. So, join us at the Courtyard Theatre and be part of the funniest night of the year!\n\nNishant Tanwar – The Comedy Maestro\n\nMeet Nishant Tanwar, a.k.a 'Joke Singh' or 'Rider OP', the genius behind the laughter. Born on 7th November 1982, Nishant is an eminent Indian Stand-up comedian and actor. His journey started at NDTV and took a turn towards stand-up comedy in 2009 at an open mic event. Since then, he has been spreading joy and laughter with his exceptional comedic talent. With his unique style and relatable content, Nishant is sure to strike a chord with the audience at Nishant Tanwar Live in Dallas, TX.\n\nStep into the Courtyard Theatre - An Ideal Destination for Entertainment\n\nLocated at 1509 H Ave, Plano, TX, United States, the Courtyard Theatre is an ideal destination for all events and shows. Its strategic location ensures easy accessibility and safety. The theatre is surrounded by various attractions, adding to the overall experience of the event. Parking is conveniently available for all guests. Also, for our Indian guests, there are plenty of Indian restaurants nearby, offering a variety of authentic cuisines to choose from.\n\nSecure Your Seat - Tickets Details\n\nGet ready to witness a fun-filled evening with Nishant Tanwar at this Hindi Comedy event. Secure your seats now! We have Platinum tickets available at $60.00, Gold tickets for $55.00, and Silver tickets for $50.00. Choose the category that suits you best and be part of this laughter riot.",
+      "startsAt": "2026-10-31T18:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Courtyard Theatre",
+        "addressLine1": "1509 H Ave",
+        "city": "Plano",
+        "region": "TX",
+        "postalCode": "75074",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Nishant Tanwar",
+          "role": "Stand-up comedian"
+        }
+      ],
+      "presentedBy": "Stage Adda Llc",
+      "languages": ["Hindi"],
+      "prices": [
+        {
+          "name": "Platinum",
+          "priceCents": 6000,
+          "currency": "USD",
+          "note": "Ticket close on Oct 31"
+        },
+        {
+          "name": "Gold",
+          "priceCents": 5500,
+          "currency": "USD",
+          "note": "Ticket close on Oct 31"
+        },
+        {
+          "name": "Silver",
+          "priceCents": 5000,
+          "currency": "USD",
+          "note": "Ticket close on Oct 31"
+        }
+      ],
+      "priceText": "$50 - $60",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/nishant-tanwar-live-in-dallas-tx_2026-09-18-04-03-53-202_45.webp?ver=0.168439",
+          "role": "cover",
+          "alt": "Nishant Tanwar Live In Dallas, TX banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-18-05-34-26-432_1.webp",
+          "role": "gallery",
+          "alt": "Nishant Tanwar Live In Dallas, TX poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/nishant-tanwar_2023-01-23-04-37-37-329_31.webp",
+          "role": "gallery",
+          "alt": "Nishant Tanwar"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/nishant-tanwar-live-in-dallas-tx_event-in_plano-tx_401926",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401676",
+      "sourceUrl": "https://events.sulekha.com/band-capricio-live-in-dallas-halloween-concert-night-2026_event-in_frisco-tx_401676",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Band Capricio Live in Dallas: Halloween Concert Night 2026",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Band Capricio, a Telugu classical-fusion band, performs live at Frisco Flyers Event Center on October 31, 2026 for a Halloween Concert Night, with standing GA, Fan Pit and reserved VIP table options.",
+      "description": "Experience the Unforgettable: Band Capricio Live in Dallas - Halloween Concert Night\n\nMark your calendars for the 31st of October, 2026, as the night promises a mesmerizing mix of melody and magic. Band Capricio is all set to perform live at the Frisco Flyers Event Center, Dallas for an unforgettable Halloween Concert Night. This event is a must-attend for all music lovers, especially fans of Telugu fusion music and live concerts.\n\nMeet the Maestros: Band Capricio\n\nBand Capricio is an exceptional classical fusion Telugu band, known for their unique ability to blend different genres into their music. Their fusion of melodies offers a distinct aroma that captivates the hearts of their audience. With their innovative approach to music, Band Capricio has created a niche for themselves and amassed a dedicated following of music enthusiasts.\n\nA Night at the Frisco Flyers Event Center\n\nExperience the magic of live music at the Frisco Flyers Event Center, located at 6300 2nd Street, Frisco, TX, United States. This venue is well-known for its safety and accessibility, making it an ideal location for events. Its prime location also places it in close proximity to a range of attractions and Indian restaurants, perfect for a pre-show dinner. Parking is conveniently available at the venue, ensuring a hassle-free experience for all attendees.\n\nSecure Your Spot: Ticketing Details\n\nDon't miss out on this unforgettable night. Grab your tickets today! We offer a variety of options to cater to your preferences.",
+      "startsAt": "2026-10-31T19:00:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Frisco Flyers Event Center",
+        "addressLine1": "6300 2nd Street",
+        "city": "Frisco",
+        "region": "TX",
+        "postalCode": "75034",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Band Capricio",
+          "role": "Band"
+        }
+      ],
+      "presentedBy": "Yolo 2026",
+      "languages": ["Telugu"],
+      "prices": [
+        {
+          "name": "GA - Spooky Pass (Early Bird)",
+          "priceCents": 2500,
+          "currency": "USD",
+          "note": "Standing General Admission access to Band Capricio – Halloween Concert Night."
+        },
+        {
+          "name": "VVIP – Platinum Front Row (A1–A10)",
+          "priceCents": 150000,
+          "currency": "USD",
+          "note": "Experience the most premium seating at Band Capricio – Halloween Concert Night."
+        },
+        {
+          "name": "VIP – Gold Tables (B1–B10)",
+          "priceCents": 120000,
+          "currency": "USD",
+          "note": "Enjoy a premium table experience at Band Capricio – Halloween Concert Night."
+        },
+        {
+          "name": "VIP – Phase 1 Tables (C1–G10)",
+          "priceCents": 60000,
+          "currency": "USD",
+          "note": "Enjoy a premium table experience at Band Capricio – Halloween Concert Night with reserved VIP table access."
+        },
+        {
+          "name": "Fan PIT",
+          "priceCents": 3500,
+          "currency": "USD",
+          "note": "Get closer to the energy of Band Capricio – Halloween Concert Night with access to the designated Fan Pit standing area."
+        },
+        {
+          "name": "GA – Haunted Pass (Phase 2)",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": "Standing General Admission access to Band Capricio – Halloween Concert Night."
+        },
+        {
+          "name": "GA – Ghost Hour Pass Admission (Final Call)",
+          "priceCents": 3500,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "VIP - Vampire Lounge (C1 - G10)",
+          "priceCents": 100000,
+          "currency": "USD",
+          "note": "Enjoy a premium VIP table experience at Band Capricio – Halloween Concert Night."
+        },
+        {
+          "name": "VIP – Phase 2 Tables (C1–G10)",
+          "priceCents": 80000,
+          "currency": "USD",
+          "note": "Enjoy a reserved VIP table experience at Band Capricio – Halloween Concert Night in rows C through G."
+        }
+      ],
+      "priceText": "$25 - $1500",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/band-capricio-live-in-dallas-halloween-concert-night-2026_2026-09-02-09-28-05-303_74.webp?ver=0.447489",
+          "role": "cover",
+          "alt": "Band Capricio Live in Dallas: Halloween Concert Night 2026 banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-02-09-16-05-616_32.webp",
+          "role": "gallery",
+          "alt": "Band Capricio Halloween Concert Night poster"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/band-capricio_2022-09-07-10-54-37-193_24.webp",
+          "role": "gallery",
+          "alt": "Band Capricio"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/band-capricio-live-in-dallas-halloween-concert-night-2026_event-in_frisco-tx_401676",
+      "importNotes": []
+    },
+    {
+      "sourceId": "401979",
+      "sourceUrl": "https://events.sulekha.com/spooky-music-concert-by-studio71-deshi-halloween-costume-party_event-in_magnolia-tx_401979",
+      "scrapedAt": "2026-09-30T00:49:36Z",
+      "title": "Spooky Music Concert by Studio71 - Deshi Halloween Costume Party",
+      "category": "MUSIC_CONCERT",
+      "sourceCategory": "CONCERT",
+      "summary": "Spooky Music Concert by Studio71, a Deshi Halloween costume party at Ashelynn Manor in Magnolia on October 31, 2026: come in your scariest attire and dance to Bengali and Hindi music.",
+      "description": "A Spine-Chilling Night of Music: Spooky Music Concert by Studio71 - Deshi Halloween Costume Party\n\nMark your calendars for the 31st of October, 2026, as Ashelynn Events LLC presents a hair-raising adventure into the world of music and horror. The 'Spooky Music Concert by Studio71 - Deshi Halloween Costume Party' will see guests draped in their scariest attire, dancing to the thrilling tunes of Bengali and Hindi music. This is not just a concert; it's a chance to be part of an unforgettable experience that will haunt you long after Halloween.\n\nOur Mysterious Maestros\n\nWhile we are keeping the artists under wraps for now, be prepared to be spellbound by their enchanting tunes and mesmerizing performances. Their backgrounds are as diverse as their music, touching various genres and styles. From soothing melodies to heart-thumping beats, their performances will create the perfect soundtrack to your Halloween night.\n\nAshelynn Manor: A Venue Steeped in Mystery\n\nAshelynn Manor, located at 25276 Nichols Sawmill Road, Magnolia, TX, United States, will play host to our eerie extravaganza. This venue is known for its safety and easy accessibility, making it an ideal location for our guests. With parking readily available, and a plethora of Indian restaurants nearby for a pre-concert meal, Ashelynn Manor is more than just a venue - it's a destination. So come, experience the thrill of our spooky concert at a location that promises an evening of fun, fright, and fantastic music.\n\nGet Your Tickets to the Spookiest Party in Town\n\nWe're sorry, but ticket information is currently unavailable. Please check back soon to secure your place at the most frighteningly fun musical event of the year. Remember, the early bat catches the worm, so stay tuned for updates and don't miss your chance to be a part of the 'Spooky Music Concert by Studio71 - Deshi Halloween Costume Party'.",
+      "startsAt": "2026-10-31T20:30:00-05:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "Ashelynn Manor",
+        "addressLine1": "25276 Nichols Sawmill Road",
+        "city": "Magnolia",
+        "region": "TX",
+        "postalCode": "77355",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Studio71",
+          "role": "Local deshi band"
+        }
+      ],
+      "presentedBy": "Ashelynn Manor",
+      "languages": ["Bengali", "Hindi"],
+      "prices": [
+        {
+          "name": "Adult",
+          "priceCents": 1000,
+          "currency": "USD",
+          "note": "12+ requires ticket. 12 and under free."
+        }
+      ],
+      "priceText": null,
+      "ageRestriction": "All Age",
+      "dressCode": null,
+      "parking": "Free Parking",
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/header2/spooky-music-concert-by-studio71-deshi-halloween-costume-party_2026-09-22-10-36-36-850_62.webp?ver=0.276302",
+          "role": "cover",
+          "alt": "Spooky Music Concert by Studio71 banner"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/spooky-music-concert-by-studio71-deshi-halloween-costume-party_event-in_magnolia-tx_401979",
+      "importNotes": [
+        "Sulekha lists this event twice (401979 and 401980); only 401979 is imported."
+      ]
+    },
+    {
+      "sourceId": "401997",
+      "sourceUrl": "https://events.sulekha.com/neeyum-naanum-a-gopinath-interactive-show-austin_event-in_georgetown-tx_401997",
+      "scrapedAt": "2026-09-30T00:51:08Z",
+      "title": "Neeyum Naanum - A Gopinath interactive show - Austin",
+      "category": "THEATRE",
+      "sourceCategory": "OTHER",
+      "summary": "Neeyum Naanum live in Austin: an interactive evening with renowned speaker and television personality Gopinath, bringing the audience into the conversation through meaningful discussions, relatable experiences and audience participation.",
+      "description": "Hello, Austin! Get ready for a refreshing and interactive evening with renowned speaker and television personality Gopinath. Experience “Neeyum Naanum,” a unique show that brings the audience into the conversation through meaningful discussions and engaging interactions.\n\nJoin Gopinath for an evening filled with thought-provoking conversations, relatable experiences, and audience participation. Gather your family and friends and be part of an inspiring and entertaining experience that connects people through real-life stories and meaningful dialogue.\n\nDon't miss the opportunity to experience Neeyum Naanum live in Austin and be part of an interactive evening with Gopinath.",
+      "startsAt": "2026-11-22T17:00:00-06:00",
+      "endsAt": null,
+      "timeZone": "America/Chicago",
+      "venue": {
+        "name": "East View High School Theatre",
+        "addressLine1": "4490 E. University Ave",
+        "city": "Georgetown",
+        "region": "TX",
+        "postalCode": "78626",
+        "country": "US"
+      },
+      "performers": [
+        {
+          "name": "Gopinath",
+          "role": "Speaker and television personality"
+        }
+      ],
+      "presentedBy": "Big Basky Event LLC",
+      "languages": [],
+      "prices": [
+        {
+          "name": "General Admission",
+          "priceCents": 3000,
+          "currency": "USD",
+          "note": null
+        },
+        {
+          "name": "VIP Ticket",
+          "priceCents": 5000,
+          "currency": "USD",
+          "note": "Includes meet and greet with Gopinath"
+        }
+      ],
+      "priceText": "Tickets from $30",
+      "ageRestriction": null,
+      "dressCode": null,
+      "parking": null,
+      "faq": [],
+      "images": [
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/2026-09-23-07-06-02-573_72.webp",
+          "role": "cover",
+          "alt": "Neeyum Naanum - A Gopinath interactive show banner"
+        },
+        {
+          "url": "https://usimg.sulekha.io/cdn/events/images/thumbnail/neeyum-naanum-a-gopinath-interactive-show-austin_2026-09-23-07-24-03-745_75.webp",
+          "role": "gallery",
+          "alt": "Neeyum Naanum - A Gopinath interactive show - Austin thumbnail"
+        }
+      ],
+      "ticketUrl": "https://events.sulekha.com/neeyum-naanum-a-gopinath-interactive-show-austin_event-in_georgetown-tx_401997",
+      "importNotes": [
+        "Sulekha lists this as Other; Desi-Event has no such category, so it is listed under Theatre. If another fits better, change it in an editing session once the event is published."
+      ]
+    }
+  ]
+}
