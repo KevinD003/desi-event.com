@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { describe, expect, it } from 'vitest'
 
 import { useFocusAfterRender } from './focus-after-render.jsx'
@@ -181,6 +181,41 @@ describe('useFocusAfterRender', () => {
     await user.click(screen.getByRole('button', { name: 'Show' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'second' })).toHaveFocus())
+  })
+
+  it('keeps a request made before the last commit’s effects ran, as a press does that lands while the page hydrates', () => {
+    /**
+     * A panel opened before the commit that drew its opener has run its
+     * effects: what a press does when it reaches a button React has hydrated
+     * but whose effects have not run yet. A layout effect is the same window,
+     * made on purpose.
+     *
+     * @returns {JSX.Element} The opener or the panel.
+     */
+    function OpenedEarly() {
+      const [open, setOpen] = useState(false)
+      const headingRef = useRef(null)
+      const focusAfterRender = useFocusAfterRender()
+
+      useLayoutEffect(() => {
+        setOpen(true)
+        focusAfterRender(headingRef)
+      }, [focusAfterRender])
+
+      return open ? (
+        <h3 ref={headingRef} tabIndex={-1}>
+          Restore
+        </h3>
+      ) : (
+        <button type="button">Restore…</button>
+      )
+    }
+
+    render(<OpenedEarly />)
+
+    // The effects of the commit before the panel was drawn found no heading;
+    // the request waited for the commit that drew it.
+    expect(screen.getByRole('heading', { name: 'Restore' })).toHaveFocus()
   })
 })
 

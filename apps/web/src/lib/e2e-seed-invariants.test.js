@@ -145,6 +145,65 @@ const SEEDS = Object.freeze([
     explains: true,
   },
   {
+    // The organiser-onboarding journeys: a platform administrator, the people
+    // it invites and refuses, and Onboard Gamma with its owner, administrator,
+    // viewer and waiting event. Its teardown takes the organiser invitations
+    // sent to the tag's addresses, every organisation the tag names with its
+    // events and memberships, and the fixture users' sessions and factors.
+    file: 'seed-onboarding.mjs',
+    cleanup: Object.freeze([
+      /organizerInvitation\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /organization\s*\.delete(Many)?\b/u,
+      /event\s*\.delete(Many)?\b/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The full-control journeys (SPEC2-XI area X): Control Gamma and Control
+    // Other with their owners, an event manager, a buyer and two platform
+    // accounts. Its teardown takes every event no ledger batch pins, with its
+    // orders, tickets, nights, tiers and pictures, then the memberships, and
+    // the fixture users' sessions and factors.
+    file: 'seed-full-control.mjs',
+    cleanup: Object.freeze([
+      /ticket\s*\.deleteMany/u,
+      /order\s*\.delete\b/u,
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /mediaAsset\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+      /membership\s*\.deleteMany/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
+    // The import journeys (SPEC2-XI area I): a platform administrator, a
+    // moderator, and Import Gamma with its owner and one event waiting for
+    // review; the listing file itself is built at run time. Its teardown takes
+    // every event the tag's listings wrote, wherever it was moved, and Import
+    // Gamma's, with their nights, tiers and pictures, then the runs the
+    // administrator planned, the organisation and its memberships, and the
+    // fixture users' sessions and factors.
+    file: 'seed-import.mjs',
+    cleanup: Object.freeze([
+      /ticketType\s*\.deleteMany/u,
+      /eventSession\s*\.deleteMany/u,
+      /mediaAsset\s*\.deleteMany/u,
+      /event\s*\.delete\b/u,
+      /eventImportRun\s*\.deleteMany/u,
+      /membership\s*\.deleteMany/u,
+      /organization\s*\.delete\b/u,
+      /session\s*\.deleteMany/u,
+    ]),
+    idempotent: true,
+    explains: true,
+  },
+  {
     // The team-and-organisations journey's creator and invitee. Its teardown
     // removes the organisation the creator made, with its invitations and
     // memberships, and puts the feature world's role target back.

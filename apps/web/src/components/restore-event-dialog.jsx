@@ -13,13 +13,18 @@
  * An inline region, like the delete dialog: focus moves to its heading on
  * opening and back to its opener on cancelling, and its messages are polite.
  *
+ * Once restored the event is no longer deleted, so the page that held this
+ * dialog draws the event instead and the dialog is gone. Its outcome goes to
+ * the page itself: the same address with `?restored=1`, where the page says
+ * so in a polite status, as the organiser's list does after a deletion.
+ *
  * `@file` rather than `@module`: `event` is a reserved token in a JSDoc
  * namepath.
  *
  * @file components/restore-event-dialog
  */
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
 import { ControlReasonField } from './control-reason-field.jsx'
@@ -44,6 +49,7 @@ import { refusalSentence } from '../lib/refusal.js'
  */
 export function RestoreEventDialog({ event }) {
   const router = useRouter()
+  const pathname = usePathname()
   const id = useId()
   const openerRef = useRef(null)
   const headingRef = useRef(null)
@@ -90,7 +96,10 @@ export function RestoreEventDialog({ event }) {
 
       if (response.ok && body?.data) {
         setRestored(body.data.status)
-        router.refresh()
+        // The page draws the restored event in this dialog's place, and says
+        // what happened: refreshing alone would take the outcome away with
+        // the dialog, before anybody had read it.
+        router.replace(`${pathname}?restored=1`)
         return
       }
 

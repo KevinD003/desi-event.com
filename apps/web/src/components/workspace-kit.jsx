@@ -173,10 +173,18 @@ export const TEXT_LINK =
  * scrolls sideways inside itself on a narrow screen rather than widening the
  * page.
  *
+ * It is positioned (`relative`) for the same reason. A scroll box clips only
+ * the absolutely positioned descendants whose containing block it is, and the
+ * screen-reader-only words in a table — a badge's "Status:" — are absolutely
+ * positioned. Without a containing block here they sit at their place in the
+ * wide table but are measured against the page, so at 320 px a status column
+ * past the edge made the whole page scroll sideways (WCAG 1.4.10), although
+ * the table itself was scrolling inside its frame.
+ *
  * @type {string}
  */
 export const TABLE_FRAME =
-  'overflow-x-auto rounded-card border border-line bg-surface-raised shadow-card [&_thead]:bg-surface-subtle [&_th]:py-3 [&_td]:py-3 [&_tr>:first-child]:pl-4 [&_tr>:last-child]:pr-4 [&_tbody_tr:last-child]:border-b-0 [&_tbody_tr:last-child>*]:border-b-0'
+  'relative overflow-x-auto rounded-card border border-line bg-surface-raised shadow-card [&_thead]:bg-surface-subtle [&_th]:py-3 [&_td]:py-3 [&_tr>:first-child]:pl-4 [&_tr>:last-child]:pr-4 [&_tbody_tr:last-child]:border-b-0 [&_tbody_tr:last-child>*]:border-b-0'
 
 /**
  * @typedef {object} CountTileProps

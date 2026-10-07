@@ -9,6 +9,11 @@ import {
   seedTeam,
   superAdministrators,
 } from './support/seed-team.mjs'
+import {
+  acceptOrganiserInvitation,
+  handOver,
+  inviteOrganiser,
+} from './support/organiser-invitations.mjs'
 import { confirmIfPrompted, waitOutCredentialBudget } from './support/step-up.mjs'
 
 // Invitation codes are drawn on these pages and read back by this file. A code
@@ -23,11 +28,14 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *
  * ## The story
  *
- *   1. An attendee creates an organisation from their account page, becomes its
- *      owner, and asks for it to be verified.
- *   2. They invite somebody as staff. This build sends no email, so the code is
- *      shown once, to them, to hand over — copied exactly, never in an
- *      address, never in storage, and gone once they say it is handed over.
+ *   1. The super administrator invites an attendee to start an organisation —
+ *      organisations are never started from an account, only by an invitation
+ *      from the Desi-Event team — and the attendee accepts it from their
+ *      account page, becomes its owner, and finds it verified from the start.
+ *   2. They invite somebody as staff. Codes are not emailed in this build's
+ *      delivery mode, so the code is shown once, to them, to hand over —
+ *      copied exactly, never in an address, never in storage, and gone once
+ *      they say it is handed over.
  *   3. They issue a new code for the same invitation, which kills the first.
  *   4. Somebody else's account cannot use the code; the invited account cannot
  *      use the dead one, and joins with the new one.
@@ -36,24 +44,26 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  *      second-factor confirmation, which ends every session the account held.
  *      Their own row offers no change, and the API refuses one: the only super
  *      administrator cannot be demoted by anybody.
- *   6. The new moderator signs in, finds the organisation waiting, and
- *      verifies it; its owner sees it verified.
+ *   6. The new moderator signs in, finds an organisation waiting — one made
+ *      before invitations were the only way in, still asking to be verified —
+ *      and verifies it; its owner sees it verified.
  *   7. The super administrator puts that account into the organisation as an
  *      administrator, which ends its sessions.
  *   8. The owner hands the organisation to that administrator and becomes an
  *      administrator themselves.
  *   9. The super administrator puts the moderator's platform role back to
  *      attendee, through the same page.
- *  10. An attendee with no second factor — the way most people arrive — makes
- *      an organisation, is told the workspace will not open until two-step
- *      sign-in is set up, sets it up from the key on the security page, and
- *      reaches the workspace. The organisation is in no public directory: it
- *      has nothing on sale.
+ *  10. An attendee with no second factor — the way most people arrive — is
+ *      invited to start an organisation, accepts, is told the workspace will
+ *      not open until two-step sign-in is set up, sets it up from the key on
+ *      the security page, and reaches the workspace. The organisation is in no
+ *      public directory: it has nothing on sale.
  *
  * ## Who is who
  *
- * The creator and the invitee are fresh (`support/seed-team.mjs`): both gain
- * privileges, and a privilege gain ends every other session the account holds.
+ * The creators, the invitee and the grandfathered organisation's owner are
+ * fresh (`support/seed-team.mjs`): they gain privileges, and a privilege gain
+ * ends every other session the account holds.
  * The role target is the feature world's, never signed in by global setup, for
  * the same reason. The platform reader and the taker are the saved sessions,
  * and neither's privileges change: the super administrator changes other
@@ -221,23 +231,60 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     await cleanupTeam(ids().tag)
   })
 
-  test('journey 1: an attendee creates an organisation and asks for it to be verified', async () => {
+  test('journey 1: the super administrator invites the creator as an organiser, and the creator accepts', async ({
+    platform,
+  }) => {
+    recording(platform)
+
+    // Nobody starts an organisation from their account: the account page
+    // offers accepting an invitation, and the Desi-Event team sends one.
     await creator.goto('/account')
+    await expect(
+      creator
+        .getByRole('region', { name: 'Where to go', exact: true })
+        .getByRole('link', { name: /^Create an organisation/u }),
+    ).toHaveCount(0)
+
+    await platform.goto('/admin/organizer-invitations')
+    await expect(pageHeading(platform, 'Organiser invitations')).toBeVisible()
+
+    const { code, panel } = await inviteOrganiser(platform, {
+      email: team.creatorEmail,
+      organizationName: orgName(),
+    })
+
+    // In the page and in the response that minted it, and nowhere else.
+    expect(await keptByTheBrowser(platform)).not.toContain(code)
+    await handOver(panel)
+    expect(await platform.content()).not.toContain(code)
+
     await creator
       .getByRole('region', { name: 'Where to go', exact: true })
-      .getByRole('link', { name: /^Create an organisation/u })
+      .getByRole('link', { name: /^Accept an organiser invitation/u })
       .click()
+    await expect(pageHeading(creator, 'Accept an organiser invitation')).toBeVisible()
+    // What it does is said before the form, not after it.
+    await expect(
+      creator.getByText(
+        /It is verified from the start, because the Desi-Event team invited you\./u,
+      ),
+    ).toBeVisible()
 
-    await expect(pageHeading(creator, 'Create an organisation')).toBeVisible()
-    // What it cannot do is said before the form, not after it.
-    await expect(creator.getByText(/it starts unverified/i)).toBeVisible()
+    await waitOutCredentialBudget(
+      creator,
+      async () => {
+        await acceptOrganiserInvitation(creator, code, { timezone: 'America/Chicago' })
+        await expect(creator.getByText(`${orgName()} is yours`, { exact: true })).toBeVisible()
+      },
+      { refusedAt: /^\/api\/v1\/organizer-invitations\//u },
+    )
+    await expect(creator.getByText(/You are its owner, and it is verified\./u)).toBeVisible()
+    // Spent, so cleared from the form rather than left for autofill.
+    await expect(creator.getByLabel(/^Invitation code/u)).toHaveCount(0)
+    expect(await keptByTheBrowser(creator)).not.toContain(code)
 
-    await creator.getByLabel(/^Name/u).fill(orgName())
-    await creator.getByLabel(/^Time zone/u).selectOption('America/Chicago')
-    await creator.getByRole('button', { name: 'Create the organisation', exact: true }).click()
-
-    await expect(creator.getByText(`${orgName()} exists`, { exact: true })).toBeVisible()
-    await expect(creator.getByText(/You are its owner\. It is unverified/u)).toBeVisible()
+    // Neither window ever asked for an address carrying the code.
+    for (const url of requested) expect(url, 'a code reached an address').not.toContain(code)
 
     organization = await createdOrganization(ids().tag)
     expect(organization, 'the organisation was not written').not.toBeNull()
@@ -246,24 +293,20 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     // organisation rather than to set one up.
     await creator.getByRole('link', { name: 'Open its organisation page', exact: true }).click()
     await expect(pageHeading(creator, orgName())).toBeVisible()
-    await expect(creator.getByText('Verification: Unverified')).toBeVisible()
-    await expect(creator.getByText('It may not publish events or be paid.')).toBeVisible()
+
+    const verification = creator.getByRole('region', { name: 'Verification', exact: true })
+
+    // Verified at once: the Desi-Event team vouched for it by inviting it, and
+    // the history says so. There is nothing to ask for.
+    await expect(verification.getByText('Verification: Verified')).toBeVisible()
+    await expect(verification.getByText('It may publish events and be paid.').first()).toBeVisible()
+    await expect(
+      verification.getByText('Created from an organiser invitation sent by the Desi-Event team.'),
+    ).toBeVisible()
+    await expect(creator.getByRole('form', { name: 'Ask for verification' })).toHaveCount(0)
     await expect(
       creator.getByRole('link', { name: `/organizers/${organization.slug}` }),
     ).toBeVisible()
-
-    const ask = creator.getByRole('form', { name: 'Ask for verification' })
-
-    await ask
-      .getByLabel(/^A note for the moderator/u)
-      .fill('We have run a garba night in Houston for six years.')
-    await ask.getByRole('button', { name: 'Ask for verification', exact: true }).click()
-
-    // The page reads the state again once the request is in, and the form
-    // gives way to it: waiting, and said so in the history.
-    await expect(creator.getByText('Verification: Waiting for a moderator')).toBeVisible()
-    await expect(creator.getByText('Unverified → Waiting for a moderator')).toBeVisible()
-    await expect(creator.getByRole('form', { name: 'Ask for verification' })).toHaveCount(0)
   })
 
   test('journey 2: an invitation code is shown once, copied exactly, and kept nowhere', async () => {
@@ -290,7 +333,7 @@ test.describe.serial('an organisation, its team and the platform roles above it'
 
     // Copying puts exactly the code on the clipboard, and says so politely.
     await panel.getByRole('button', { name: 'Copy the code', exact: true }).click()
-    await expect(panel.getByRole('status')).toHaveText('Copied to your clipboard.')
+    await expect(panel.getByRole('status')).toHaveText('Copied the code to your clipboard.')
     expect(await creator.evaluate(() => navigator.clipboard.readText())).toBe(firstCode)
 
     // In the page and in the response that minted it, and nowhere else.
@@ -385,10 +428,17 @@ test.describe.serial('an organisation, its team and the platform roles above it'
       invitee.getByRole('row').filter({ hasText: 'Farhan Qureshi (you)' }),
     ).toContainText('Staff')
 
-    // A member of a team is not a platform administrator.
+    // A member of a team is not on the Desi-Event team: the platform's
+    // administration area is refused as a whole, before any page in it.
     await invitee.goto('/admin/users')
     await expect(pageHeading(invitee, 'Not for you')).toBeVisible()
-    await expect(invitee.getByText(/held by platform super administrators alone/u)).toBeVisible()
+    await expect(
+      invitee.getByText(
+        'This area is for the Desi-Event team’s platform administrators: inviting organisers, and changing who can do what across the platform. Nothing on this page can grant it.',
+        { exact: true },
+      ),
+    ).toBeVisible()
+    await expect(pageHeading(invitee, 'People and roles')).toHaveCount(0)
 
     // No window of this story ever asked for an address carrying a code.
     for (const url of requested) {
@@ -496,7 +546,9 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     expect(await superAdministrators()).toBe(before)
   })
 
-  test('journey 6: the new moderator verifies the organisation, and its owner sees it', async () => {
+  test('journey 6: the new moderator verifies a grandfathered organisation, and its owner sees it', async ({
+    browser,
+  }) => {
     // The window journey 5 opened, whose session the role change ended.
     expect(target, 'journey 5 opened no window for the role target').toBeDefined()
     await signIn(target, ids().roleTargetEmail)
@@ -505,15 +557,18 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     await expect(pageHeading(target, 'Organisation checks')).toBeVisible()
 
     // Waiting, beside the feature world's own pending organisation, with the
-    // note its owner sent.
+    // note its owner sent. Made before invitations were the only way in: an
+    // invited organisation is verified from the start and never waits here.
     await expect(target.getByRole('link', { name: ids().pendingOrganizationName })).toBeVisible()
+    await expect(target.getByRole('listitem').filter({ hasText: orgName() })).toHaveCount(0)
 
-    const card = target.getByRole('listitem').filter({ hasText: orgName() })
+    const waiting = team.grandfatheredName
+    const card = target.getByRole('listitem').filter({ hasText: waiting })
 
-    await expect(card).toContainText('We have run a garba night in Houston for six years.')
-    await card.getByRole('link', { name: orgName(), exact: true }).click()
+    await expect(card).toContainText(team.grandfatheredNote)
+    await card.getByRole('link', { name: waiting, exact: true }).click()
 
-    await expect(pageHeading(target, orgName())).toBeVisible()
+    await expect(pageHeading(target, waiting)).toBeVisible()
     await expect(target.getByText('State: Waiting for a moderator').first()).toBeVisible()
 
     await target
@@ -521,19 +576,24 @@ test.describe.serial('an organisation, its team and the platform roles above it'
       .getByRole('button', { name: 'Verify' })
       .click()
 
-    const decision = target.getByRole('group', { name: `Verify: ${orgName()}` })
+    const decision = target.getByRole('group', { name: `Verify: ${waiting}` })
 
     await decision.getByLabel(/^Reason/u).fill('Checked the organiser’s past events.')
     await decision.getByRole('button', { name: 'Record: verify', exact: true }).click()
 
-    await confirmed(target, target.getByText(`Recorded: verify ${orgName()}.`))
+    await confirmed(target, target.getByText(`Recorded: verify ${waiting}.`))
     await expect(target.getByText('State: Verified').first()).toBeVisible()
 
-    await creator.goto(`/organizer/organization?organizationId=${organization.id}`)
-    const verification = creator.getByRole('region', { name: 'Verification', exact: true })
+    // Its owner, signed in for the first time in this story, sees it.
+    const owner = await openWindow(browser)
+
+    await signIn(owner, team.grandfatheredOwnerEmail)
+    await owner.goto(`/organizer/organization?organizationId=${team.grandfatheredId}`)
+    const verification = owner.getByRole('region', { name: 'Verification', exact: true })
 
     await expect(verification.getByText('Verification: Verified')).toBeVisible()
     await expect(verification.getByText('It may publish events and be paid.').first()).toBeVisible()
+    await expect(verification.getByText('Waiting for a moderator → Verified')).toBeVisible()
   })
 
   test('journey 7: the super administrator puts the moderator into the organisation, which signs them out', async ({
@@ -582,7 +642,13 @@ test.describe.serial('an organisation, its team and the platform roles above it'
 
     const ownership = creator.getByRole('region', { name: 'Ownership', exact: true })
 
-    await expect(ownership).toContainText('Farhan Qureshi')
+    // Only somebody who already creates events here can take it: the
+    // administrator is offered, the staff member is not.
+    await expect(ownership).toContainText(
+      'Ownership can go only to somebody who already creates events here.',
+    )
+    await expect(ownership).toContainText(`${TARGET_NAME} · Administrator`)
+    await expect(ownership).not.toContainText('Farhan Qureshi')
     await ownership.getByRole('button', { name: `Hand ownership to ${TARGET_NAME}` }).click()
 
     const confirm = creator.getByRole('group', {
@@ -644,22 +710,36 @@ test.describe.serial('an organisation, its team and the platform roles above it'
     expect(await liveSessionsOf(ids().roleTargetEmail)).toBe(0)
   })
 
-  test('journey 10: an attendee with no second factor makes an organisation, sets one up, and reaches the workspace', async ({
+  test('journey 10: an attendee with no second factor is invited, accepts, sets one up, and reaches the workspace', async ({
     browser,
+    platform,
   }) => {
+    recording(platform)
+    await platform.goto('/admin/organizer-invitations')
+
+    const { code, panel } = await inviteOrganiser(platform, {
+      email: team.soloEmail,
+      organizationName: team.soloOrganizationName,
+    })
+
+    await handOver(panel)
+
     const solo = await openWindow(browser)
 
     // No factor, so signing in asks for none.
     await signIn(solo, team.soloEmail)
-    await solo.goto('/account/organizations/new')
-    await expect(pageHeading(solo, 'Create an organisation')).toBeVisible()
-    await solo.getByLabel(/^Name/u).fill(team.soloOrganizationName)
-    await solo.getByLabel(/^Time zone/u).selectOption('America/New_York')
-    await solo.getByRole('button', { name: 'Create the organisation', exact: true }).click()
-
-    await expect(
-      solo.getByText(`${team.soloOrganizationName} exists`, { exact: true }),
-    ).toBeVisible()
+    await waitOutCredentialBudget(
+      solo,
+      async () => {
+        await acceptOrganiserInvitation(solo, code, { timezone: 'America/New_York' })
+        await expect(
+          solo.getByText(`${team.soloOrganizationName} is yours`, { exact: true }),
+        ).toBeVisible()
+      },
+      { refusedAt: /^\/api\/v1\/organizer-invitations\//u },
+    )
+    expect(await keptByTheBrowser(solo)).not.toContain(code)
+    for (const url of requested) expect(url, 'a code reached an address').not.toContain(code)
 
     const made = await createdOrganization(ids().tag, { who: 'solo' })
 
@@ -696,10 +776,11 @@ test.describe.serial('an organisation, its team and the platform roles above it'
       'On. Signing in asks for a code from your authenticator app as well as your password.',
     )
 
-    // And now the workspace opens, on the organisation it made.
+    // And now the workspace opens, on the organisation it made — verified
+    // from the start, because the Desi-Event team invited it.
     await solo.goto(`/organizer/organization?organizationId=${made.id}`)
     await expect(pageHeading(solo, team.soloOrganizationName)).toBeVisible()
-    await expect(solo.getByText('Verification: Unverified')).toBeVisible()
+    await expect(solo.getByText('Verification: Verified')).toBeVisible()
 
     // Nothing on sale, so no public directory lists it yet.
     await solo.goto('/organizers')

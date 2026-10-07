@@ -23,6 +23,16 @@
  * attached. One request per call, so the same refusal twice in a row is
  * focused twice.
  *
+ * ## Each request waits for its own commit
+ *
+ * A request is numbered, and only the effect of the commit that drew that
+ * number takes it. Without the number, an earlier commit's effects can take it
+ * first: a press that lands just after the page hydrates, before the
+ * hydrating commit has run its effects, opens a panel whose heading is not
+ * drawn yet; the hydrating commit's effect found no heading, dropped the
+ * request, and the commit that drew the heading had nothing left to focus.
+ * Measured on the restore dialog, about one press in seven.
+ *
  * @module components/focus-after-render
  */
 
@@ -43,23 +53,27 @@ import { useCallback, useEffect, useRef, useState } from 'react'
  * @returns {function(FocusTarget): void} `focusAfterRender(target)`.
  */
 export function useFocusAfterRender() {
-  const pending = useRef(/** @type {FocusTarget|null} */ (null))
+  const pending = useRef(/** @type {{ target: FocusTarget, request: number }|null} */ (null))
+  const issued = useRef(0)
   const [requests, setRequests] = useState(0)
 
   useEffect(() => {
-    const target = pending.current
+    const request = pending.current
 
-    if (!target) return
+    // Not yet: this commit is an earlier one than the request's own.
+    if (!request || request.request !== requests) return
 
     pending.current = null
 
+    const { target } = request
     const element = typeof target === 'function' ? target() : target.current
 
     element?.focus()
   }, [requests])
 
   return useCallback((target) => {
-    pending.current = target
-    setRequests((count) => count + 1)
+    issued.current += 1
+    pending.current = { target, request: issued.current }
+    setRequests(issued.current)
   }, [])
 }

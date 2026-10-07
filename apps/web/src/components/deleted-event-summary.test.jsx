@@ -6,7 +6,10 @@ vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 
 const refresh = vi.fn()
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh, push: vi.fn(), replace: vi.fn() }),
+  usePathname: () => '/admin/events/cevent0000000000000000001',
+}))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
 const { DeletedEventSummary } = await import('./deleted-event-summary.jsx')

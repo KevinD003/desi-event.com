@@ -3,7 +3,7 @@ import { expect, test, world } from './support/detail-fixtures.mjs'
 import { AUTH_SECRET, TOTP_SECRET } from './support/seed-refusals.mjs'
 
 // The transfers case offers a ticket, and an offer shows its one-time code on
-// the page (this build sends no email, so the sender hands it over). A code on
+// the page (codes are not emailed here, so the sender hands it over). A code on
 // screen is a ticket in a screenshot, a trace or a film, so none is taken.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
@@ -307,9 +307,10 @@ test.describe('the account rail', () => {
         'Two-step sign-in': 'Off.',
       },
     )
-    // Anybody signed in can join an organisation with a code or start their
-    // own, so those two are offered to an attendee too — and still no
-    // workspace, which is for members.
+    // Anybody signed in can join a team with a code, or accept an organiser
+    // invitation the Desi-Event team sent them — organisations are never
+    // started from an account — so those two are offered to an attendee too,
+    // and still no workspace, which is for members.
     const places = region(holder, 'Where to go').getByRole('link')
 
     await expect(places).toHaveCount(7)
@@ -317,8 +318,13 @@ test.describe('the account rail', () => {
       region(holder, 'Where to go').getByRole('link', { name: /^Join an organisation/u }),
     ).toHaveAttribute('href', '/account/invitations')
     await expect(
-      region(holder, 'Where to go').getByRole('link', { name: /^Create an organisation/u }),
+      region(holder, 'Where to go').getByRole('link', {
+        name: /^Accept an organiser invitation/u,
+      }),
     ).toHaveAttribute('href', '/account/organizations/new')
+    await expect(
+      region(holder, 'Where to go').getByRole('link', { name: /^Create an organisation/u }),
+    ).toHaveCount(0)
     await expect(
       region(holder, 'Where to go').getByRole('link', { name: /^Workspace/u }),
     ).toHaveCount(0)
@@ -603,11 +609,12 @@ test.describe('transfers', () => {
       await expect(region(owner, absent), absent).toHaveCount(0)
     }
 
-    // The code is never the sender's, and nothing emails it: said as it is.
+    // The code is never the sender's, and how it travels is said as it is: in
+    // this build's delivery mode (MANUAL), nothing emails it.
     const accept = region(owner, 'Accept a ticket')
 
     await expect(accept.locator('p')).toHaveText(
-      'An offer is accepted with the code shown to the person who made it, once, when they made it. They pass it on to you themselves; this site sends no email. If you have one, enter the code to accept the ticket.',
+      'An offer is accepted with the code shown to the person who made it, once, when they made it. They pass it on to you themselves: codes are not emailed from this site. If you have one, enter the code to accept the ticket.',
     )
     await expect(
       accept.getByRole('link', { name: 'enter the code to accept the ticket', exact: true }),

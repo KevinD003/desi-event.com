@@ -768,7 +768,7 @@ test.describe('the organiser directory', () => {
     // No way to write to them is invented: no email, no form, and the page
     // says so. The organisation's contact address is an account detail.
     await expect(visitor.getByRole('region', { name: 'Contact', exact: true })).toContainText(
-      `This site does not pass messages between buyers and organisers, and sends no email. ${alpha} has not given a website, so this page has no way to reach them.`,
+      `This site does not pass messages between buyers and organisers. ${alpha} has not given a website, so this page has no way to reach them.`,
     )
     await expect(visitor.locator('a[href^="mailto:"]')).toHaveCount(0)
 

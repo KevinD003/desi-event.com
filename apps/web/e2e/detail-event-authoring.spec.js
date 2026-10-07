@@ -25,7 +25,8 @@ import { BALCONY_ROWS, PLAN_SEATS } from './support/seed-feature-world.mjs'
  *     night with a seating plan can carry one, the zone comes from that plan,
  *     there is no "how many" because the seats are the quantity, and preparing
  *     the night's inventory prices every seat in the zone.
- *   - **A live event with sales** keeps what was sold: the price is fixed, the
+ *   - **A live event with sales** keeps what was sold: a new price applies to
+ *     the next buyer while everybody who paid keeps what they paid, the
  *     quantity can rise but not fall below what is sold, a sold tier cannot be
  *     removed while an unsold draft can, a tier can be paused and put back on
  *     sale, and a new tier and a new night can be added.
@@ -194,7 +195,7 @@ test.describe.serial('authoring an event whose state the lifecycle never reaches
     ).toBeVisible()
   })
 
-  test('a live event with sales keeps its price, and changes only what nobody bought', async ({
+  test('a live event with sales re-prices for the next buyer, and changes only what nobody bought', async ({
     gamma,
   }) => {
     await openStep(gamma, seeded.liveEventId, /^step 4/iu)
@@ -214,14 +215,18 @@ test.describe.serial('authoring an event whose state the lifecycle never reaches
       'Cannot be removed: tickets of this type have been sold or ordered. Pause it or hide it instead.',
     )
 
-    // More of it, and the price nobody may change once people paid it.
+    // More of it, and a new price for the next buyer: people who already paid
+    // keep what they paid, so the price can change after sales.
     await general.getByRole('button', { name: 'Edit', exact: true }).click()
-    await expect(general.getByLabel(/^Face value/u)).toBeDisabled()
-    await expect(general).toContainText(`The price stays as it is: ${LIVE_TIER.sold} sold at it.`)
+    await expect(general.getByLabel(/^Face value/u)).toBeEnabled()
+    await expect(general).toContainText(
+      `People who already bought keep what they paid: ${LIVE_TIER.sold} sold at $35.00. A new price applies to the next buyer.`,
+    )
+    await general.getByLabel(/^Face value/u).fill('38.00')
     await general.getByLabel(/^How many/u).fill('12')
     await general.getByRole('button', { name: 'Save changes', exact: true }).click()
     await expect(gamma.getByText(`Saved "${LIVE_TIER.name}".`)).toBeVisible()
-    await expect(general).toContainText(`${LIVE_TIER.sold} of 12 sold`)
+    await expect(general).toContainText(`Face value $38.00 · ${LIVE_TIER.sold} of 12 sold`)
 
     // Fewer than were sold is refused, and says why.
     await general.getByRole('button', { name: 'Edit', exact: true }).click()
@@ -230,7 +235,7 @@ test.describe.serial('authoring an event whose state the lifecycle never reaches
     await expect(general.getByText(/sold/u).first()).toBeVisible()
     await expect(general).toContainText(/at least 2/iu)
     await general.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await expect(general).toContainText(`${LIVE_TIER.sold} of 12 sold`)
+    await expect(general).toContainText(`Face value $38.00 · ${LIVE_TIER.sold} of 12 sold`)
 
     // Paused, and back on sale.
     await general.getByRole('button', { name: 'Pause', exact: true }).click()

@@ -12,6 +12,7 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { Badge } from './ui.jsx'
 import {
   CountTile,
   CountTiles,
@@ -148,5 +149,40 @@ describe('class sets', () => {
 
   it('lets a framed table scroll inside itself rather than widen the page', () => {
     expect(TABLE_FRAME).toContain('overflow-x-auto')
+  })
+
+  it('is the containing block of the screen-reader-only words in its table, so they scroll with it', () => {
+    // A badge's "Status:" is `sr-only`, which is `position: absolute`. A scroll
+    // box clips an absolutely positioned descendant only when it is that
+    // descendant's containing block; without `relative` the words past the
+    // edge of a narrow screen widened the page instead (found by the
+    // accessibility sweep on /admin/organizer-invitations at 320 px).
+    const classes = TABLE_FRAME.split(/\s+/u)
+
+    expect(classes).toContain('relative')
+    expect(classes).toContain('overflow-x-auto')
+
+    render(
+      <div data-testid="frame" className={TABLE_FRAME}>
+        <table>
+          <tbody>
+            <tr>
+              <td>
+                <Badge variant="neutral" srLabel="Status:">
+                  Waiting
+                </Badge>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>,
+    )
+
+    const frame = screen.getByTestId('frame')
+    const label = screen.getByText('Status:')
+
+    expect(label).toHaveClass('sr-only')
+    expect(frame).toContainElement(label)
+    expect(frame).toHaveClass('relative')
   })
 })

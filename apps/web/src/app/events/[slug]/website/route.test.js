@@ -11,7 +11,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { GET, HEAD, PAGES } = await import('./route.js')
+const { GET, HEAD, PAGES, PAGE_STYLE } = await import('./route.js')
 
 const SLUG = 'navratri-garba-night'
 const SITE = 'https://rangoli.example/nights'
@@ -152,6 +152,22 @@ describe('GET /events/{slug}/website', () => {
     expect(html).toContain(`<a href="/events/${SLUG}">Back to the event</a>`)
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(html).not.toContain('<script')
+  })
+
+  it('draws each way back as a target big and far enough apart to tap, in no colour of its own', async () => {
+    fetchMock.mockResolvedValue(api({ error: { code: 'NOT_FOUND' } }, { status: 404 }))
+
+    const html = await (await GET(...follow())).text()
+    const style = html.match(/<style>([^<]*)<\/style>/u)?.[1] ?? null
+
+    // Unstyled, the two links were 17px high and 16px apart: under the 24px
+    // WCAG 2.2 asks of a target (2.5.8), which a browser sweep found.
+    expect(style).toBe(PAGE_STYLE)
+    expect(style).toMatch(/a\{display:inline-block;min-height:2\.75rem;/u)
+    expect(style).toMatch(/li\{margin:0 0 0\.75rem\}/u)
+    // The reader's colours stand: nothing here sets one.
+    expect(style).not.toMatch(/color|background/u)
+    expect(html.indexOf('<style>')).toBeLessThan(html.indexOf('</head>'))
   })
 
   it('answers an invalid slug with the 404 page and asks nothing', async () => {

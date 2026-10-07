@@ -86,10 +86,16 @@ function ordered(items) {
 /**
  * How a picture's review state reads.
  *
+ * A picture waiting on a draft waits for the event's review. On a posted
+ * event nothing is reviewed again (SPEC2-XI X-2): a new picture there waits
+ * for the Desi-Event team's approval of that picture alone, a replacement
+ * cover or a gallery picture alike, and says so in the same words.
+ *
  * @param {object} item A picture.
+ * @param {boolean} [posted] Whether the event is posted.
  * @returns {{label: string, variant: string}} The badge.
  */
-function reviewBadge(item) {
+export function reviewBadge(item, posted = false) {
   if (item.moderationStatus === 'REJECTED') {
     return item.replacesMediaId
       ? { label: 'Not approved', variant: 'danger' }
@@ -102,7 +108,7 @@ function reviewBadge(item) {
       : { label: 'Approved; shown once the event is public', variant: 'info' }
   }
 
-  return item.replacesMediaId
+  return item.replacesMediaId || posted
     ? { label: 'Waiting for approval', variant: 'warning' }
     : { label: 'Waiting for review', variant: 'warning' }
 }
@@ -517,6 +523,7 @@ function MediaPanel({
               onDescribe={describe}
               onRemove={remove}
               registerRef={(node) => itemRefs.current.set(cover.id, node)}
+              posted={posted}
             />
             {replacement ? (
               <MediaItem
@@ -532,6 +539,7 @@ function MediaPanel({
                 onDescribe={describe}
                 onRemove={remove}
                 registerRef={(node) => itemRefs.current.set(replacement.id, node)}
+                posted={posted}
               />
             ) : null}
           </ul>
@@ -591,6 +599,7 @@ function MediaPanel({
                 onMove={move}
                 onRemove={remove}
                 registerRef={(node) => itemRefs.current.set(item.id, node)}
+                posted={posted}
               />
             ))}
           </ol>
@@ -824,6 +833,7 @@ function UploadForm({
  * @property {Function} [onMove] Given the picture and -1 or 1.
  * @property {Function} onRemove Given the picture.
  * @property {Function} registerRef Given the item's focus target.
+ * @property {boolean} [posted] Whether the event is posted, so a waiting picture waits for the Desi-Event team's approval rather than for a review.
  */
 
 /**
@@ -844,6 +854,7 @@ function MediaItem({
   onMove,
   onRemove,
   registerRef,
+  posted = false,
 }) {
   const headingId = useId()
   const [editing, setEditing] = useState(false)
@@ -852,7 +863,7 @@ function MediaItem({
   const [confirming, setConfirming] = useState(false)
   const draftRef = useRef(null)
   const focusAfterRender = useFocusAfterRender()
-  const badge = reviewBadge(item)
+  const badge = reviewBadge(item, posted)
   const src = mediaSrc(item)
   const gallery = item.kind === 'EVENT_GALLERY'
 

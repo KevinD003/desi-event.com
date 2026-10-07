@@ -1,4 +1,5 @@
 import { expect, test, world } from './support/detail-fixtures.mjs'
+import { confirmIfAsked } from './support/step-up.mjs'
 
 /**
  * The refund detail screen, against a real refund.
@@ -21,6 +22,7 @@ const ids = () => world()
 test.describe('the refund detail screen', () => {
   test('shows the amount, how it divides, and which lines it came from', async ({ owner }) => {
     await owner.goto(`/finance/refunds/${ids().refundId}`)
+    await confirmIfAsked(owner)
     await expect(owner.getByRole('heading', { name: /refund on/i, level: 1 })).toBeVisible()
 
     const rendered = await owner.locator('main').innerText()
@@ -32,6 +34,7 @@ test.describe('the refund detail screen', () => {
 
   test('has nothing on it that could take a card', async ({ owner }) => {
     await owner.goto(`/finance/refunds/${ids().refundId}`)
+    await confirmIfAsked(owner)
     await owner.getByRole('button', { name: 'Approve' }).click()
 
     const rendered = (await owner.locator('body').innerText()).toLowerCase()
@@ -48,6 +51,7 @@ test.describe('the refund detail screen', () => {
 
   test('offers only the step this refund’s state allows', async ({ owner }) => {
     await owner.goto(`/finance/refunds/${ids().refundId}`)
+    await confirmIfAsked(owner)
 
     // REQUESTED: approving and cancelling are the two moves. Sending it is not
     // one of them — approving and sending are separate commands on purpose, and
@@ -59,6 +63,7 @@ test.describe('the refund detail screen', () => {
 
   test('will not send a command without a reason the audit record can keep', async ({ owner }) => {
     await owner.goto(`/finance/refunds/${ids().refundId}`)
+    await confirmIfAsked(owner)
     await owner.getByRole('button', { name: 'Approve' }).click()
 
     await expect(owner.getByRole('button', { name: 'Approve' })).toBeDisabled()
@@ -66,6 +71,7 @@ test.describe('the refund detail screen', () => {
 
   test('never lets the browser name an amount', async ({ owner }) => {
     await owner.goto(`/finance/refunds/${ids().refundId}`)
+    await confirmIfAsked(owner)
 
     // The amount was computed from the order's own lines when the refund was
     // requested. There is no control on this page that proposes a different
@@ -79,11 +85,13 @@ test.describe('the refund detail screen', () => {
     // loading boundary streams, and React reveals the finished page after
     // `load`, so a read taken straight after `goto` can see the fallback.
     await outsider.goto(`/finance/refunds/${ids().refundId}`)
+    await confirmIfAsked(outsider)
     await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const theirs = await outsider.locator('body').innerText()
 
     await outsider.goto('/finance/refunds/cmnotarealidentifier0000')
+    await confirmIfAsked(outsider)
     await expect(outsider.getByRole('heading', { name: 'Not for you', level: 1 })).toBeVisible()
 
     const imaginary = await outsider.locator('body').innerText()

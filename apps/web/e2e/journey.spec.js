@@ -45,7 +45,7 @@ test.describe('home → events → event → checkout', () => {
 
     await expect(total).not.toHaveText(emptyTotal)
     // Signed out, the next step is signing in, and it comes back to this page:
-    // tickets are kept in an account and this build sends no email.
+    // tickets are kept in an account, and receipts are not emailed.
     const signIn = page.getByRole('link', { name: 'Sign in to buy' })
 
     await expect(signIn).toBeVisible()

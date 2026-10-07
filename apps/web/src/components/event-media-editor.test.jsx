@@ -542,6 +542,27 @@ describe('a new cover on a posted event', () => {
     )
   })
 
+  it('says a gallery picture waiting on a posted event waits for approval, as the new cover does', () => {
+    // Nothing posted is reviewed again (SPEC2-XI X-2): "Waiting for review"
+    // there reads as the event going back into review. The picture waits for
+    // the Desi-Event team's approval of it alone, in the cover's words.
+    const waitingGallery = { ...galleryPicture(0), altText: 'The band warming up' }
+    const waitingCover = picture({
+      id: 'cmedia0000000000000000009',
+      altText: 'The new poster',
+      replacesMediaId: current.id,
+    })
+
+    renderPanel({ status: 'ON_SALE', media: [current, waitingCover, waitingGallery] })
+
+    const gallery = screen.getByRole('listitem', { name: 'Picture 1 of 1' })
+    const cover = screen.getByRole('listitem', { name: 'The new cover, waiting for approval' })
+
+    expect(within(gallery).getByText('Waiting for approval')).toBeInTheDocument()
+    expect(within(gallery).queryByText('Waiting for review')).not.toBeInTheDocument()
+    expect(within(cover).getByText('Waiting for approval')).toBeInTheDocument()
+  })
+
   it('discards a replacement that was waiting when another is uploaded', async () => {
     const user = userEvent.setup()
     const earlier = picture({

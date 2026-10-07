@@ -15,11 +15,15 @@ vi.mock('../../../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 const refresh = vi.fn()
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
+// A form of its own, as the real prompt is (`components/step-up-prompt.jsx`),
+// so a prompt drawn inside the invite form would be a form inside a form.
 vi.mock('../../../components/step-up-prompt.jsx', () => ({
   StepUpPrompt: ({ action, onConfirmed }) => (
-    <button type="button" onClick={onConfirmed}>
-      Confirm to {action}
-    </button>
+    <form aria-label="Confirm it is you">
+      <button type="button" onClick={onConfirmed}>
+        Confirm to {action}
+      </button>
+    </form>
   ),
 }))
 
@@ -185,6 +189,31 @@ describe('the organiser invite form', () => {
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
     expect(apiFetch.mock.calls[1][1].body).toBe(apiFetch.mock.calls[0][1].body)
     expect(await screen.findByLabelText('Invitation code')).toHaveValue(CODE)
+  })
+
+  it('draws the second-factor prompt beside the invite form, never inside it', async () => {
+    // The prompt is a form of its own. Inside the invite form it would be a
+    // form within a form, which HTML does not allow: React reports it, and the
+    // browser may send the outer form instead, so the prompt's "Confirm"
+    // reloaded the page and no code was ever shown (found by the
+    // accessibility sweep, where the administrator's second factor had aged).
+    const user = userEvent.setup()
+
+    apiFetch.mockResolvedValueOnce(
+      answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Authenticate.' } }),
+    )
+    render(<OrganizerInviteForm deliveryMode="MANUAL" />)
+
+    await fillRequired(user)
+    await user.click(screen.getByRole('button', { name: 'Create the invitation' }))
+
+    const prompt = await screen.findByRole('form', { name: 'Confirm it is you' })
+    const invite = screen.getByRole('form', { name: 'Invite an organiser' })
+
+    expect(invite).not.toContainElement(prompt)
+    expect(invite.querySelector('form')).toBeNull()
+    // Still held while the prompt is open, so the request is not sent twice.
+    expect(screen.getByRole('button', { name: 'Create the invitation' })).toBeDisabled()
   })
 
   it('does not loop when the API asks again after the second factor', async () => {

@@ -9,6 +9,9 @@
  * @module playwright.sweep.config
  */
 
+import os from 'node:os'
+import path from 'node:path'
+
 import { defineConfig, devices } from '@playwright/test'
 
 import { preinstalledChromium } from './e2e/support/chromium.js'
@@ -78,6 +81,13 @@ export default defineConfig({
         // the default budget, correctly. The limit is not disabled and the
         // default is not changed.
         RATE_LIMIT_MAX: '20000',
+        // The imported-event screens are swept after a real import, whose
+        // pictures are copied from a directory, never from Sulekha's host
+        // (SPEC2-XI §5.I-D): a temporary copy of `e2e/fixtures/import-images`
+        // that `seed-import.mjs` makes afresh, apart from the detail suite's.
+        // `SWEEP_IMPORT_PICTURE_DIR` there is the same expression.
+        IMPORT_IMAGE_SOURCE: 'fixtures',
+        IMPORT_IMAGE_FIXTURE_DIR: path.join(os.tmpdir(), 'desi-event-e2e-sweep-import-images'),
       },
     },
     {

@@ -5,8 +5,12 @@ import userEvent from '@testing-library/user-event'
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 
 const refresh = vi.fn()
+const replace = vi.fn()
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh, replace, push: vi.fn() }),
+  usePathname: () => '/admin/events/cevent0000000000000000001',
+}))
 
 const { apiFetch } = await import('../lib/api-fetch.js')
 const { RestoreEventDialog } = await import('./restore-event-dialog.jsx')
@@ -41,6 +45,7 @@ const REASON = 'The organiser deleted it by mistake and asked for it back.'
 beforeEach(() => {
   apiFetch.mockReset()
   refresh.mockReset()
+  replace.mockReset()
 })
 
 describe('RestoreEventDialog', () => {
@@ -65,7 +70,11 @@ describe('RestoreEventDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Restore this event' }))
 
     expect(await screen.findByText('It is sales paused now.')).toBeVisible()
-    expect(refresh).toHaveBeenCalled()
+    // The restored event takes this dialog's place on the page, so the page
+    // is sent back to itself with the outcome to say, not merely refreshed
+    // (which took the outcome away with the dialog before it was read).
+    expect(replace).toHaveBeenCalledWith(`/admin/events/${EVENT.id}?restored=1`)
+    expect(refresh).not.toHaveBeenCalled()
 
     const [path, options] = apiFetch.mock.calls[0]
 

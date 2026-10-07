@@ -189,8 +189,49 @@ function ImportedEventSection({ event }) {
 }
 
 /**
+ * What the page says once an event has been restored from it: the restore
+ * dialog sends the administrator back here with `?restored=1`, and the event,
+ * no longer deleted, is drawn in the dialog's place.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.event The event, as it stands now.
+ * @returns {JSX.Element|null} The status, or nothing for an event still deleted.
+ */
+function RestoredStatus({ event }) {
+  if (event.status === 'DELETED') return null
+
+  return (
+    <p role="status" aria-live="polite" className="mt-4 text-sm font-medium text-ink">
+      Event restored: {statusReading(event.status).label}.
+    </p>
+  )
+}
+
+/**
+ * What the page says once an imported event has been moved to an organisation
+ * (SPEC2-XI I-F): the move dialog sends the administrator back here with
+ * `?moved=1`, and the event, no longer held for an import, is drawn without
+ * the dialog that moved it.
+ *
+ * @param {object} props Component props.
+ * @param {object} props.event The event, as it stands now.
+ * @returns {JSX.Element|null} The status, or nothing for an event still held for an import.
+ */
+function MovedStatus({ event }) {
+  if (event.importedFrom) return null
+
+  return (
+    <p role="status" aria-live="polite" className="mt-4 text-sm font-medium text-ink">
+      {`Moved to ${event.organization?.name ?? 'its organisation'}. Its Sulekha ticket link is off until an administrator approves the organiser’s own address.`}
+    </p>
+  )
+}
+
+/**
  * @typedef {object} AdminEventPageProps
  * @property {Promise<{id: string}>} params The resolved route parameters.
+ * @property {Promise<Record<string, string>>} [searchParams] The query: `restored=1` after a
+ *   restore, `moved=1` after a move.
  */
 
 /**
@@ -199,8 +240,11 @@ function ImportedEventSection({ event }) {
  * @param {AdminEventPageProps} props Route props.
  * @returns {Promise<JSX.Element>} The rendered page.
  */
-export default async function AdminEventPage({ params }) {
+export default async function AdminEventPage({ params, searchParams }) {
   const { id } = await params
+  const query = (await searchParams) ?? {}
+  const justRestored = query.restored === '1'
+  const justMoved = query.moved === '1'
   const session = await readSession()
 
   if (!sessionCan(session, 'event:platform_edit')) {
@@ -273,6 +317,8 @@ export default async function AdminEventPage({ params }) {
     return (
       <div>
         <Header event={event} />
+        {justRestored ? <RestoredStatus event={event} /> : null}
+        {justMoved ? <MovedStatus event={event} /> : null}
 
         {posted ? (
           <div className="mt-6">
@@ -314,6 +360,8 @@ export default async function AdminEventPage({ params }) {
   return (
     <div>
       <Header event={event} />
+      {justRestored ? <RestoredStatus event={event} /> : null}
+      {justMoved ? <MovedStatus event={event} /> : null}
 
       <div className="mt-6">
         <EventEditor

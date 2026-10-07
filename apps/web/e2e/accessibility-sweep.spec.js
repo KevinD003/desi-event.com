@@ -15,6 +15,13 @@ import {
 } from './support/seed-feature-world.mjs'
 import { removePictures, seedPictures } from './support/seed-media.mjs'
 import {
+  cleanupOnboarding,
+  onboardingNames,
+  seedAdministrator,
+  seedWaitingInvitation,
+} from './support/seed-onboarding.mjs'
+import { inviteOrganiser } from './support/organiser-invitations.mjs'
+import {
   CONNECTION,
   PASSWORD,
   TOTP_SECRET,
@@ -23,7 +30,23 @@ import {
   forgetCodeUse,
   seedRefusals,
 } from './support/seed-refusals.mjs'
-import { waitOutCredentialBudget } from './support/step-up.mjs'
+import {
+  cleanupFullControl,
+  fullControlNames,
+  seedFullControl,
+} from './support/seed-full-control.mjs'
+import {
+  SWEEP_IMPORT_PICTURE_DIR,
+  buildImportDataset,
+  cleanupImport,
+  importNames,
+  planOnlyDataset,
+  platformHeldExists,
+  preparePictures,
+  seedImport,
+} from './support/seed-import.mjs'
+import { confirmStepUp, stepUpPrompt, waitOutCredentialBudget } from './support/step-up.mjs'
+import { VISITOR_AGENT, rollUpTrafficNow } from './support/traffic.mjs'
 
 // The feature-completion cases below put a team invitation code and an order's
 // group pass on the screen — the one sanctioned exception to "no credential
@@ -113,6 +136,33 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
  * walk the links, and Escape has to bring focus back. And with motion reduced,
  * nothing inside the home page's animated content may run for longer than
  * the stylesheet's 0.01 ms, or be left short of its resting state.
+ *
+ * ## The onboarding screens
+ *
+ * Organisers join only by an invitation from the Desi-Event team, so the
+ * Phase 4 block also sweeps the screens of that path: the invitations list
+ * with an invitation waiting in it (seeded, its code made and dropped), the
+ * invite form filled in, the panel a new invitation's code is shown in with
+ * the message to send and its controls walked by keyboard, the page where the
+ * invitation is accepted, and People and roles as a platform administrator
+ * sees it — refused. The invitation the panel case issues goes to an address
+ * nobody signs in as, and the block's teardown removes it.
+ *
+ * ## The website link and the visit counts
+ *
+ * The Phase 4 block also sweeps the organiser's website link and the visit
+ * figures: the administrators' list of website links in each of its five
+ * states (the "Off" one with a link the block decides and leaves off on
+ * gamma's online event), the switch's panel on a review page with the link
+ * on and with an address waiting and its box to tick, the organiser's
+ * read-only status in the editor, the public page's link, and the route's
+ * two pages of its own — the 404 for a link that is off, and the 503 shown
+ * when the lookup cannot be made, reached by a window with a browser
+ * description of its own using up its minute's lookups (so nobody else's
+ * are refused). Then an event's and an organisation's visits as the organiser
+ * reads them, and every event's visits as a platform administrator does,
+ * after one visit the block counts and adds up with the roll-up the worker
+ * runs (`support/traffic.mjs`), so the chart is drawn with a bar in it.
  *
  * ## The feature-completion screens
  *
@@ -302,6 +352,48 @@ let unverifiedSignIn = null
 /** @type {object} */
 let unverifiedContext
 /**
+ * The platform administrator's sign-in, made the first time a case asks for
+ * the window: an ADMIN, which no other window here is, for the page a platform
+ * administrator is refused (People and roles). Memoised as a promise for the
+ * reason {@link platformReader} gives.
+ *
+ * @type {(Promise<object>|null)}
+ */
+let administratorSignIn = null
+/** @type {object} */
+let administratorContext
+/**
+ * A window whose website-link lookups have used up their minute's budget, so
+ * the route's "Website link unavailable" page is what it is shown. Its own
+ * browser description gives it a budget of its own: nobody else's lookups are
+ * refused. Memoised as a promise for the reason {@link platformReader} gives.
+ *
+ * @type {(Promise<object>|null)}
+ */
+let lookupLimitedSignIn = null
+/** @type {object} */
+let lookupLimitedContext
+/**
+ * The organiser invitation the Phase 4 block seeds waiting, whose code nobody
+ * holds (`seedWaitingInvitation`), so the invitations list is measured with a
+ * row in it.
+ *
+ * @type {{id: string, email: string, organizationName: string}}
+ */
+let waitingInvitation
+/**
+ * The organiser invitation a case issues, to measure the code panel and its
+ * message: an address under this file's tag that nobody signs in as, so the
+ * code is never used. Removed with the block (`cleanupOnboarding`).
+ *
+ * @type {Readonly<{email: string, organizationName: string, note: string}>}
+ */
+const SWEEP_ORGANISER = Object.freeze({
+  email: `onboard-sweep-${TAG}@organiser.test`,
+  organizationName: `Onboard Sweep ${TAG} ગરબા`,
+  note: 'नमस्ते! Your organiser invitation is below.',
+})
+/**
  * A promo code the Phase 4 block writes for alpha, so the promo codes screen
  * is measured with a row in its table, and removes again.
  *
@@ -343,6 +435,24 @@ function gammaOwnerWindow() {
   })()
 
   return gammaSignIn
+}
+
+/**
+ * The platform administrator's page, signing in the first time it is asked
+ * for.
+ *
+ * @returns {Promise<object>} A signed-in page.
+ */
+function administratorWindow() {
+  administratorSignIn ??= (async () => {
+    const page = await administratorContext.newPage()
+
+    await signInWaitingOutTheLimiter(page, onboardingNames(TAG).adminEmail)
+
+    return page
+  })()
+
+  return administratorSignIn
 }
 
 /**
@@ -925,6 +1035,77 @@ const OUTBOX_PROBE = Object.freeze({
 })
 
 /**
+ * The website link the Phase 4 block decides on gamma's online event, left off
+ * by link-admin, so the website links' "Off" list has a row in it. Gamma's
+ * other two public events arrive with an address waiting and a link on
+ * (`seed-feature-world.mjs`).
+ *
+ * @type {Readonly<{url: string, reason: string}>}
+ */
+const SWEEP_OFF_LINK = Object.freeze({
+  url: `https://gamma-online-${TAG}.test/`,
+  reason: 'Left off for the sweep: the stream has its own page.',
+})
+
+/**
+ * The browser description of the window whose lookups are refused: ordinary,
+ * and its own, so its budget is too.
+ *
+ * @type {string}
+ */
+const LOOKUP_LIMITED_AGENT = `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 DesiEventSweepLookup/${TAG}`
+
+/**
+ * The website links' five lists, the title of an event each is measured with
+ * (a function, for the reason {@link PHASE_4_SURFACES} gives), searched by
+ * this run's tag so other runs' rows stay out.
+ *
+ * @type {ReadonlyArray<{state: string, label: string, title: function(): string}>}
+ */
+const WEBSITE_LIST_STATES = Object.freeze([
+  { state: 'waiting', label: 'Waiting for a decision', title: () => feature.gammaGaEventTitle },
+  // Alpha's draft, whose address the block's content seed left waiting.
+  { state: 'drafts', label: 'Drafts and others', title: () => `Alpha's Draft ${TAG}` },
+  { state: 'on', label: 'On', title: () => feature.gammaSeatedEventTitle },
+  { state: 'off', label: 'Off', title: () => feature.gammaOnlineEventTitle },
+  { state: 'all', label: 'All', title: () => feature.gammaSeatedEventTitle },
+])
+
+/**
+ * A page that has asked where gamma's seated event's website link goes until
+ * the lookup refused it for the minute, and then once more.
+ *
+ * The lookup's abuse ceiling is 120 a minute per visitor. Asked from a script
+ * — no fetch metadata — every lookup is served and none is counted.
+ *
+ * @returns {Promise<object>} The page.
+ */
+function lookupLimitedWindow() {
+  lookupLimitedSignIn ??= (async () => {
+    const page = await lookupLimitedContext.newPage()
+    const path = `/events/${feature.gammaSeatedEventSlug}/website`
+    let refused = false
+
+    for (let sent = 0; sent < 140 && !refused; sent += 1) {
+      const response = await page.request.get(path, {
+        maxRedirects: 0,
+        headers: { 'user-agent': LOOKUP_LIMITED_AGENT },
+      })
+
+      refused = response.status() === 503
+
+      if (!refused) expect(response.status(), 'a lookup within the budget').toBe(302)
+    }
+
+    expect(refused, 'the lookup was never refused for the minute').toBe(true)
+
+    return page
+  })()
+
+  return lookupLimitedSignIn
+}
+
+/**
  * The header's four ways into the catalogue, in order.
  *
  * `PUBLIC_ITEMS` in `lib/navigation.js`, written out for the same reason as
@@ -1011,7 +1192,7 @@ function levelOneHeadings(page) {
 /**
  * The window a surface is opened in.
  *
- * @param {'visitor'|'organiser'|'platform'|'giver'|'unverified'} kind Whose.
+ * @param {'visitor'|'organiser'|'platform'|'giver'|'unverified'|'administrator'|'gamma'|'limited'} kind Whose.
  * @returns {Promise<object>} The page.
  */
 async function windowFor(kind) {
@@ -1019,6 +1200,9 @@ async function windowFor(kind) {
   if (kind === 'platform') return platformReader()
   if (kind === 'giver') return giverWindow()
   if (kind === 'unverified') return unverifiedOwnerWindow()
+  if (kind === 'administrator') return administratorWindow()
+  if (kind === 'gamma') return gammaOwnerWindow()
+  if (kind === 'limited') return lookupLimitedWindow()
 
   return organiser
 }
@@ -1158,7 +1342,17 @@ const PHASE_4_SURFACES = Object.freeze([
       await expect(
         page.getByRole('heading', { level: 2, name: 'Email', exact: true }),
       ).toBeVisible()
-      await expect(page.getByText('EXTERNAL VERIFICATION PENDING', { exact: true })).toBeVisible()
+      // Two entries carry that status now: real payments, and email, which
+      // this build sends only through an SMTP server its operator configures
+      // and which has been tested only against a local one (SPEC2).
+      const pending = page.getByText('EXTERNAL VERIFICATION PENDING', { exact: true })
+
+      await expect(pending).toHaveCount(2)
+      for (const id of ['payments', 'email']) {
+        await expect(
+          page.locator(`[id="${id}"]`).getByText('EXTERNAL VERIFICATION PENDING', { exact: true }),
+        ).toBeVisible()
+      }
     },
   },
   {
@@ -1386,20 +1580,133 @@ const PHASE_4_SURFACES = Object.freeze([
     },
   },
   {
-    name: 'the page that creates an organisation',
+    name: 'the page where an organiser invitation is accepted',
     window: 'organiser',
     path: () => '/account/organizations/new',
-    heading: () => 'Create an organisation',
-    title: () => 'Create an organisation',
+    heading: () => 'Accept an organiser invitation',
+    title: () => 'Accept an organiser invitation',
     async arrived(page) {
       // Nothing is sent from here: the form is measured as it first appears.
-      const form = page.getByRole('form', { name: 'Create an organisation', exact: true })
+      // Organisations are started only by accepting an invitation, so this is
+      // the page the account area's link leads to, and it creates nothing by
+      // itself.
+      const form = page.getByRole('form', { name: 'Accept an organiser invitation', exact: true })
 
-      await expect(form.getByLabel(/^Name/u)).toBeVisible()
+      await expect(form.getByLabel(/^Invitation code/u)).toHaveAttribute('type', 'password')
       await expect(form.getByLabel(/^Time zone/u)).toBeVisible()
+      await expect(form.getByLabel(/^Web address on this site/u)).toBeVisible()
       await expect(
-        form.getByRole('button', { name: 'Create the organisation', exact: true }),
-      ).toBeDisabled()
+        form.getByRole('button', { name: 'Accept the invitation', exact: true }),
+      ).toBeEnabled()
+    },
+  },
+  {
+    name: 'the organiser invitations, with one waiting',
+    window: 'platform',
+    path: () => '/admin/organizer-invitations',
+    heading: () => 'Organiser invitations',
+    title: () => 'Organiser invitations',
+    async arrived(page) {
+      // The seeded row, whose code nobody holds: waiting, with its row's two
+      // actions, and how its code went out.
+      const row = page
+        .getByRole('table', { name: /^Organiser invitations, /u })
+        .getByRole('row')
+        .filter({ hasText: waitingInvitation.email })
+
+      await expect(row).toContainText('Waiting')
+      await expect(row).toContainText(`New organisation: ${waitingInvitation.organizationName}`)
+      await expect(row).toContainText('Shown once to whoever sent it')
+      await expect(
+        row.getByRole('button', { name: `Issue a new code for ${waitingInvitation.email}` }),
+      ).toBeVisible()
+      await expect(
+        row.getByRole('button', { name: `Withdraw the invitation to ${waitingInvitation.email}` }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'the organiser invite form, filled in',
+    window: 'platform',
+    path: () => '/admin/organizer-invitations',
+    heading: () => 'Organiser invitations',
+    title: () => 'Organiser invitations',
+    async arrived(page) {
+      // Every box written, the longest ones with text in scripts other than
+      // Latin, and nothing sent: the button is measured, never pressed.
+      const form = page.getByRole('form', { name: 'Invite an organiser', exact: true })
+
+      await form.getByLabel(/^Their email address/u).fill(SWEEP_ORGANISER.email)
+      await form.getByLabel(/^Organisation name/u).fill(SWEEP_ORGANISER.organizationName)
+      await form
+        .getByLabel(/^Public description of the organisation/u)
+        .fill('Garba and dandiya nights in Houston since 2018, run by volunteers.')
+      await form
+        .getByLabel(/^The organisation’s website/u)
+        .fill(`https://onboard-sweep-${TAG}.example.test/`)
+      await form.getByLabel(/^A note for them/u).fill(SWEEP_ORGANISER.note)
+      await expect(
+        form.getByRole('button', { name: 'Create the invitation', exact: true }),
+      ).toBeEnabled()
+    },
+  },
+  {
+    name: 'a new organiser invitation’s code, with the message to send',
+    window: 'platform',
+    path: () => '/admin/organizer-invitations',
+    heading: () => 'Organiser invitations',
+    title: () => 'Organiser invitations',
+    async arrived(page) {
+      // A real invitation, to an address nobody signs in as, so the panel is
+      // measured as an administrator sees it — the code, the message with it,
+      // and both copy buttons. This file keeps no screenshot, trace or film.
+      const { panel } = await inviteOrganiser(page, {
+        email: SWEEP_ORGANISER.email,
+        organizationName: SWEEP_ORGANISER.organizationName,
+        note: SWEEP_ORGANISER.note,
+      })
+
+      await expect(panel.getByLabel('Message to send them', { exact: true })).toBeVisible()
+      await expect(panel.getByRole('button', { name: 'Copy the code', exact: true })).toBeVisible()
+      await expect(
+        panel.getByRole('button', { name: 'Copy the message', exact: true }),
+      ).toBeVisible()
+
+      // Reached from the keyboard alone: from the focused heading, Tab walks
+      // to the code, the message, and the three buttons in turn.
+      await expect(
+        panel.getByRole('heading', {
+          name: `Organiser invitation code for ${SWEEP_ORGANISER.email}`,
+        }),
+      ).toBeFocused()
+
+      for (const control of [
+        panel.getByLabel('Invitation code', { exact: true }),
+        panel.getByLabel('Message to send them', { exact: true }),
+        panel.getByRole('button', { name: 'Copy the code', exact: true }),
+        panel.getByRole('button', { name: 'Copy the message', exact: true }),
+        panel.getByRole('button', { name: 'I have handed it over', exact: true }),
+      ]) {
+        await page.keyboard.press('Tab')
+        await expect(control).toBeFocused()
+      }
+    },
+  },
+  {
+    name: 'people and roles, as a platform administrator',
+    window: 'administrator',
+    path: () => '/admin/users',
+    heading: () => 'Not for you',
+    title: () => 'People and roles',
+    async arrived(page) {
+      // Admitted to the area, refused this page: who can do what across the
+      // platform is the super administrators' alone.
+      await expect(
+        page.getByText(
+          'Changing platform roles and putting people into organisations directly are held by platform super administrators alone. Your role, platform administrator, does not include them, and nothing on this page can grant them.',
+          { exact: true },
+        ),
+      ).toBeVisible()
     },
   },
   {
@@ -1764,6 +2071,205 @@ const PHASE_4_SURFACES = Object.freeze([
       }
 
       await expect(card.getByRole('button', { name: 'Admit 3', exact: true })).toBeVisible()
+    },
+  },
+  ...WEBSITE_LIST_STATES.map(({ state, label, title }) => ({
+    name: `the website links, listing “${label}”`,
+    window: 'platform',
+    path: () =>
+      `/moderation/websites?${new URLSearchParams({
+        ...(state === 'waiting' ? {} : { state }),
+        q: TAG,
+      })}`,
+    heading: () => 'Website links',
+    title: () => 'Website links',
+    async arrived(page) {
+      await expect(
+        page
+          .getByRole('navigation', { name: 'Filter by state', exact: true })
+          .getByRole('link', { name: label, exact: true }),
+      ).toHaveAttribute('aria-current', 'page')
+
+      // Measured with a row in it: an event of this run's in each list.
+      const row = page
+        .getByRole('main')
+        .getByRole('listitem')
+        .filter({ has: page.getByRole('heading', { level: 2, name: title(), exact: true }) })
+
+      await expect(row).toHaveCount(1)
+      await expect(row).toContainText('Address: https://')
+    },
+  })),
+  {
+    name: 'an event’s review page, with its website link on',
+    window: 'platform',
+    path: () => `/moderation/events/${encodeURIComponent(feature.gammaSeatedEventId)}`,
+    heading: () => feature.gammaSeatedEventTitle,
+    title: () => 'Review an event',
+    async arrived(page) {
+      const panel = page.getByRole('region', { name: 'Website link', exact: true })
+
+      await expect(panel).toContainText(`Turned on by ${feature.linkAdminName}.`)
+      await expect(
+        panel.getByRole('button', { name: 'Turn the link off', exact: true }),
+      ).toBeEnabled()
+      await expect(panel.getByLabel(/^Reason/u)).toBeVisible()
+    },
+  },
+  {
+    name: 'an event’s review page, with an address waiting for the website link',
+    window: 'platform',
+    path: () => `/moderation/events/${encodeURIComponent(feature.gammaGaEventId)}`,
+    heading: () => feature.gammaGaEventTitle,
+    title: () => 'Review an event',
+    async arrived(page) {
+      const panel = page.getByRole('region', { name: 'Website link', exact: true })
+
+      await expect(panel.getByText('Waiting since', { exact: true })).toBeVisible()
+      await expect(
+        panel.getByLabel('I have opened this address and it is the organiser’s own site.'),
+      ).toBeVisible()
+      await expect(
+        panel.getByRole('button', { name: 'Turn the link on', exact: true }),
+      ).toBeEnabled()
+    },
+  },
+  {
+    name: 'the editor’s guest information, with the website link on',
+    window: 'gamma',
+    path: () => `/organizer/events/${encodeURIComponent(feature.gammaSeatedEventId)}`,
+    heading: () => feature.gammaSeatedEventTitle,
+    title: () => 'Edit event',
+    async arrived(page) {
+      // The step buttons answer only once the editor has hydrated.
+      await expect(
+        page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+      ).toBeAttached()
+
+      const step = page
+        .getByRole('navigation', { name: 'Editor steps' })
+        .getByRole('button', { name: /Guest information$/u })
+
+      await step.click()
+      await expect(step).toHaveAttribute('aria-current', 'step')
+      await expect(page.getByRole('textbox', { name: 'Your website' })).toHaveValue(
+        feature.gammaSeatedWebsiteUrl,
+      )
+      await expect(
+        page.getByRole('group', { name: 'Website link on your event page', exact: true }),
+      ).toContainText(`${feature.linkAdminName} of the Desi-Event team turned it on`)
+    },
+  },
+  {
+    name: 'an event’s public page, with the organiser’s website link',
+    window: 'visitor',
+    path: () => `/events/${feature.gammaSeatedEventSlug}`,
+    heading: () => feature.gammaSeatedEventTitle,
+    title: () => feature.gammaSeatedEventTitle,
+    async arrived(page) {
+      await expect(
+        page.getByRole('link', { name: 'Visit the organiser’s website', exact: true }),
+      ).toHaveAttribute('href', `/events/${feature.gammaSeatedEventSlug}/website`)
+      await expect(page.locator('#website-link-note')).toContainText(
+        'Desi-Event counts the visit without recording your address, browser or account.',
+      )
+    },
+  },
+  {
+    name: 'the website link’s page when the link is off',
+    window: 'visitor',
+    path: () => `/events/${feature.gammaGaEventSlug}/website`,
+    heading: () => 'This website link is not available',
+    title: () => 'Website link not available',
+    async arrived(page) {
+      // The page a navigation is shown is the one 404 every other case gets.
+      const response = await page.request.get(`/events/${feature.gammaGaEventSlug}/website`, {
+        maxRedirects: 0,
+      })
+
+      expect(response.status()).toBe(404)
+      await expect(page.getByRole('link', { name: 'Back to the event' })).toBeVisible()
+    },
+  },
+  {
+    name: 'the website link’s page when the lookup cannot be made',
+    window: 'limited',
+    path: () => `/events/${feature.gammaSeatedEventSlug}/website`,
+    heading: () => 'Website link unavailable',
+    title: () => 'Website link unavailable',
+    async arrived(page) {
+      const response = await page.request.get(`/events/${feature.gammaSeatedEventSlug}/website`, {
+        maxRedirects: 0,
+        headers: { 'user-agent': LOOKUP_LIMITED_AGENT },
+      })
+
+      // Unavailable, and how long to wait passed on — never "too many".
+      expect(response.status()).toBe(503)
+      expect(Number(response.headers()['retry-after'])).toBeGreaterThan(0)
+      expect(response.headers().location).toBeUndefined()
+      await expect(
+        page.getByText(
+          'Desi-Event could not look up where this link goes just now. Try again from the event page in a minute.',
+          { exact: true },
+        ),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'an event’s visits, as its organiser reads them',
+    window: 'gamma',
+    path: () =>
+      `/analytics?${new URLSearchParams({
+        organizationId: feature.gammaOrganizationId,
+        eventId: feature.gammaGaEventId,
+        range: '7',
+      })}`,
+    heading: () => `Analytics for ${feature.gammaGaEventTitle}`,
+    title: () => 'Analytics',
+    async arrived(page) {
+      // Drawn from the visit the block counted, so the chart is measured
+      // with bars in it, not as the sentence an empty period gets.
+      await expect(
+        page.getByRole('img', { name: 'Page views and visitors per day (UTC)', exact: true }),
+      ).toBeVisible()
+      await expect(page.getByRole('table', { name: 'Visits per day (UTC)' })).toBeVisible()
+      await expect(
+        page.getByRole('table', { name: 'Where page views came from', exact: true }),
+      ).toBeVisible()
+      await expect(page.getByText(/^Website link: Off\./u)).toBeVisible()
+    },
+  },
+  {
+    name: 'an organisation’s visits, with its events',
+    window: 'gamma',
+    path: () => `/analytics?organizationId=${encodeURIComponent(feature.gammaOrganizationId)}`,
+    heading: () => 'Analytics',
+    title: () => 'Analytics',
+    async arrived(page) {
+      await expect(
+        page
+          .getByRole('table', { name: 'Your events in this period', exact: true })
+          .getByRole('link', { name: feature.gammaGaEventTitle, exact: true }),
+      ).toBeVisible()
+    },
+  },
+  {
+    name: 'every event’s visits, as a platform administrator reads them',
+    window: 'administrator',
+    path: () => `/analytics/events?${new URLSearchParams({ range: '7', q: TAG })}`,
+    heading: () => 'Every event’s visits',
+    title: () => 'Every event’s visits',
+    async arrived(page) {
+      await expect(
+        page
+          .getByRole('table', { name: 'Events, newest start first', exact: true })
+          .getByRole('link', { name: feature.gammaGaEventTitle, exact: true }),
+      ).toBeVisible()
+      await expect(
+        page
+          .getByRole('table', { name: 'Most visited in this period', exact: true })
+          .getByRole('link', { name: feature.gammaGaEventTitle, exact: true }),
+      ).toBeVisible()
     },
   },
 ])
@@ -2983,9 +3489,34 @@ test.describe.serial('the Phase 2 screens, swept', () => {
           update: code,
           create: { code: SWEEP_PROMO_CODE, ...code },
         })
+
+        // A website link decided and left off, on gamma's online event, so
+        // the website links' "Off" list has a row. Written as the world
+        // writes its links (in the application only `lib/website-redirect.js`
+        // does); the address is the one decided on, so nothing waits. The
+        // feature world's cleanup removes the event, and this with it.
+        await prisma.event.update({
+          where: { id: feature.gammaOnlineEventId },
+          data: {
+            websiteUrl: SWEEP_OFF_LINK.url,
+            websiteDecidedUrl: SWEEP_OFF_LINK.url,
+            websiteRedirectEnabled: false,
+            websiteRedirectChangedAt: new Date(),
+            websiteRedirectChangedById: feature.linkAdminId,
+            websiteRedirectReason: SWEEP_OFF_LINK.reason,
+          },
+        })
       } finally {
         await prisma.$disconnect()
       }
+
+      // A platform administrator, for the page that refuses one, and an
+      // organiser invitation waiting, whose code nobody holds, for the list.
+      await seedAdministrator(TAG)
+      waitingInvitation = await seedWaitingInvitation({
+        tag: TAG,
+        invitedById: seeded.platformReaderId,
+      })
 
       // Nobody signs in here, and nobody ever will: the public pages are what
       // a visitor sees, and sign-in and registration redirect anybody else.
@@ -2995,12 +3526,45 @@ test.describe.serial('the Phase 2 screens, swept', () => {
       giverContext = await browser.newContext()
       // Empty until a case asks for the unverified organisation's owner.
       unverifiedContext = await browser.newContext()
+      // Empty until a case asks for the platform administrator.
+      administratorContext = await browser.newContext()
+      // Empty until the case that needs the lookup refused asks for it.
+      lookupLimitedContext = await browser.newContext({ userAgent: LOOKUP_LIMITED_AGENT })
+
+      // One counted visit to gamma's general-admission event, added up the
+      // way the worker would, so its analytics are measured with a chart and
+      // a day's row rather than the sentence an empty period gets. A browser
+      // description of its own, so the visit is counted whatever the device
+      // in the config says about being headless.
+      const counted = await browser.newContext({ userAgent: VISITOR_AGENT(TAG) })
+
+      try {
+        const page = await counted.newPage()
+        const view = page.waitForRequest(
+          (request) =>
+            new URL(request.url()).pathname === '/api/v1/traffic/beacons' &&
+            JSON.parse(request.postData() ?? '{}').kind === 'PAGE_VIEW',
+        )
+
+        await page.goto(`/events/${feature.gammaGaEventSlug}`)
+        expect((await (await view).response())?.status()).toBe(202)
+      } finally {
+        await counted.close()
+      }
+
+      await rollUpTrafficNow()
     })
 
     test.afterAll(async () => {
       await visitorContext?.close()
       await giverContext?.close()
       await unverifiedContext?.close()
+      await administratorContext?.close()
+      await lookupLimitedContext?.close()
+
+      // The organiser invitations the block seeded and issued, and the
+      // administrator's sessions and factor.
+      await cleanupOnboarding(TAG)
 
       const prisma = createPrismaClient({ connectionString: CONNECTION })
 
@@ -3535,6 +4099,9 @@ test.describe.serial('the Phase 2 screens, swept', () => {
           `/moderation/organizations/${encodeURIComponent(feature.pendingOrganizationId)}`,
         ],
         ['platform', '/admin/users'],
+        // The filters, the name search, the invite form and each waiting
+        // row's two actions.
+        ['platform', '/admin/organizer-invitations'],
         [
           'platform',
           `/organizer/check-in?organizationId=${encodeURIComponent(feature.gammaOrganizationId)}`,
@@ -3610,5 +4177,841 @@ test.describe.serial('the Phase 2 screens, swept', () => {
         await context.close()
       }
     })
+  })
+})
+
+/**
+ * Full control of posted events (SPEC2-XI area X), swept: every dialog and
+ * page it adds, in the state that makes it more than markup, at every width
+ * and at 200% zoom, scanned clean, and walked by keyboard.
+ *
+ * Its own world (`support/seed-full-control.mjs`, `{ sweep: true }`): two
+ * organisations with their events, a deleted one, one in every deletion
+ * outcome, paid orders written the way settlement writes them, two change
+ * notices on an order, and a new cover and a gallery picture waiting for the
+ * Desi-Event team. Nothing here is deleted, cancelled or restored: each
+ * dialog is opened, read and measured, and closed again. The one write is
+ * the sitting the platform administrator opens, to measure the editor's
+ * banner; it changes no privilege and is the seed's own event's.
+ */
+/**
+ * Measure the page as it stands at every size: no sideways scroll, and a
+ * clean scan at the scanned widths.
+ *
+ * @param {object} page The page, in the state being measured.
+ * @param {string} where What it is, for the messages.
+ * @returns {Promise<void>} Resolves once measured.
+ */
+async function measuredEverywhere(page, where) {
+  for (const size of PHASE_4_SIZES) {
+    await page.setViewportSize({ width: size.width, height: size.height })
+
+    expect(
+      await sidewaysOverflow(page),
+      `${where} scrolls sideways at ${size.label}`,
+    ).toBeLessThanOrEqual(1)
+
+    if (SCANNED_WIDTHS.has(size.width)) {
+      const violations = await scan(page)
+
+      expect(violations, `${where} at ${size.label}\n  ${describe(violations)}`).toHaveLength(0)
+    }
+  }
+
+  await page.setViewportSize({ width: 1280, height: 900 })
+}
+
+/**
+ * Walk a region by keyboard from its heading: every stop inside it shows
+ * where the focus is, and Tab leaves it only after its last control.
+ *
+ * @param {object} page The page.
+ * @param {object} region The region's locator, open.
+ * @param {string} where What it is, for the messages.
+ * @returns {Promise<string[]>} What each stop was, in order.
+ */
+async function walkedByKeyboard(page, region, where) {
+  // From its heading, as a keyboard user arrives: a dialog moves focus
+  // there itself; a form's heading is made a starting point here.
+  await region.evaluate((element) => {
+    const heading = element.querySelector('h1, h2, h3, h4, h5, h6')
+
+    if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1')
+    heading.focus()
+  })
+
+  const stops = []
+
+  for (let press = 0; press < 40; press += 1) {
+    await page.keyboard.press('Tab')
+
+    const inside = await region.evaluate((element) => element.contains(document.activeElement))
+
+    if (!inside) break
+
+    const stop = await focusStop(page)
+
+    stops.push(stop)
+  }
+
+  expect(stops.length, `${where}: Tab reached nothing inside it`).toBeGreaterThan(0)
+  expect(
+    stops.filter((stop) => !stop.marked).map((stop) => stop.what),
+    `${where}: stops that show no focus`,
+  ).toEqual([])
+
+  return stops.map((stop) => stop.what)
+}
+
+test.describe.serial('full control of posted events, swept', () => {
+  /** The seeded ids. @type {object} */
+  let control
+  /** Each signed-in window, opened the first time a case asks. */
+  const controlWindows = {}
+  /** Every context this block opened. @type {object[]} */
+  const controlContexts = []
+
+  /**
+   * This run's full-control names.
+   *
+   * @returns {object} The names.
+   */
+  const controlNames = () => fullControlNames(TAG)
+
+  /**
+   * A window signed in as one of the block's accounts, opened once.
+   *
+   * @param {object} browser The browser under test.
+   * @param {'owner'|'admin'|'buyer'} who Which account.
+   * @returns {Promise<object>} A signed-in page.
+   */
+  function controlWindow(browser, who) {
+    controlWindows[who] ??= (async () => {
+      const context = await browser.newContext()
+      const page = await context.newPage()
+
+      controlContexts.push(context)
+      await signInWaitingOutTheLimiter(page, controlNames()[`${who}Email`])
+
+      return page
+    })()
+
+    return controlWindows[who]
+  }
+
+  /**
+   * Open an event's editor on one step, at the narrowest width.
+   *
+   * @param {object} page The editor's page.
+   * @param {string} eventId Which event.
+   * @param {RegExp} step The step button's name.
+   * @param {string} [base] `/organizer/events` or `/admin/events`.
+   * @returns {Promise<void>} Resolves once the step is open.
+   */
+  async function editorStep(page, eventId, step, base = '/organizer/events') {
+    await page.setViewportSize(DOOR_WIDTHS[0])
+    await page.goto(`${base}/${eventId}`)
+    await expect(
+      page.locator('[data-enhanced="true"]:has(nav[aria-label="Editor steps"])'),
+    ).toBeAttached()
+
+    const button = page
+      .getByRole('navigation', { name: 'Editor steps' })
+      .getByRole('button', { name: step })
+
+    await button.click()
+    await expect(button).toHaveAttribute('aria-current', 'step')
+  }
+
+  /**
+   * Open the delete dialog on an editor's Review step, preview read.
+   *
+   * @param {object} page The organiser's page.
+   * @param {object} event The event's ids.
+   * @returns {Promise<object>} The dialog's region.
+   */
+  async function deleteDialogOn(page, event) {
+    await editorStep(page, event.id, /review/iu)
+    await page.getByRole('button', { name: 'Delete this event…', exact: true }).click()
+
+    const dialog = page.getByRole('region', { name: `Delete “${event.title}”` })
+
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Reading what deleting would do…')).toHaveCount(0)
+    // Focus is on its heading, so a keyboard user starts there.
+    await expect(dialog.getByRole('heading', { level: 3 })).toBeFocused()
+
+    return dialog
+  }
+
+  test.beforeAll(async () => {
+    control = await seedFullControl(TAG, { sweep: true })
+  })
+
+  test.afterAll(async () => {
+    for (const context of controlContexts) await context.close().catch(() => {})
+
+    await cleanupFullControl(TAG)
+  })
+
+  test('the delete dialog for an event nobody bought reflows, scans clean and is walked by keyboard', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+    const dialog = await deleteDialogOn(owner, control.events.unsoldLive)
+
+    await expect(dialog).toContainText('Nobody has bought a ticket to this event.')
+    await expect(
+      dialog.getByRole('button', { name: 'Delete this event', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(owner, 'the delete dialog (nothing sold)')
+    await walkedByKeyboard(owner, dialog, 'the delete dialog (nothing sold)')
+  })
+
+  test('the delete dialog for a sold event, with a mistyped address, reflows and scans clean', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+    const event = control.events.soldToDelete
+    const dialog = await deleteDialogOn(owner, event)
+
+    await expect(dialog).toContainText(
+      'Deleting this event cancels it, refunds what is left of each of the 2 paid orders',
+    )
+
+    // The summary of what to fix, linked to each box, is measured too.
+    await dialog.getByLabel(/^Type the event’s web address/u).fill(`${event.slug}-not`)
+    await dialog.getByRole('button', { name: 'Cancel, refund and delete', exact: true }).click()
+    await expect(
+      dialog.getByRole('link', {
+        name: 'That is not this event’s web address. Type it exactly as shown.',
+      }),
+    ).toBeVisible()
+
+    await measuredEverywhere(owner, 'the delete dialog (sold, with its error summary)')
+    await walkedByKeyboard(owner, dialog, 'the delete dialog (sold)')
+  })
+
+  test('the delete dialog for an event that has taken place reflows and scans clean', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+    const dialog = await deleteDialogOn(owner, control.sweep.completed)
+
+    await expect(dialog).toContainText(
+      'This event has taken place. Deleting it takes its page and listing off the site. The 1 order and their tickets stay as they are and nobody is refunded.',
+    )
+
+    await measuredEverywhere(owner, 'the delete dialog (taken place)')
+    await walkedByKeyboard(owner, dialog, 'the delete dialog (taken place)')
+  })
+
+  test('the delete dialog asks whether a finished event took place in a radio group worked by keyboard', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+    const dialog = await deleteDialogOn(owner, control.sweep.finished)
+    const group = dialog.getByRole('group', {
+      name: 'Nobody was checked in through Desi-Event, so say what happened:',
+    })
+    const tookPlace = group.getByRole('radio', {
+      name: 'It took place: take its page down and refund nobody',
+    })
+    const didNot = group.getByRole('radio', {
+      name: 'It did not take place: cancel it and refund every order',
+    })
+
+    await expect(group.getByRole('radio')).toHaveCount(2)
+
+    // Reached by Tab, moved by the arrow keys, and the sentences and the
+    // button follow the choice.
+    const stops = await walkedByKeyboard(owner, dialog, 'the delete dialog (choice)')
+
+    expect(
+      stops.some((stop) => stop.includes('type="radio"')),
+      'Tab reached the choice',
+    ).toBe(true)
+
+    await tookPlace.focus()
+    await owner.keyboard.press('Space')
+    await expect(tookPlace).toBeChecked()
+    await expect(dialog).toContainText('This event has taken place.')
+    await expect(
+      dialog.getByRole('button', { name: 'Delete this event', exact: true }),
+    ).toBeVisible()
+
+    await owner.keyboard.press('ArrowDown')
+    await expect(didNot).toBeChecked()
+    await expect(didNot).toBeFocused()
+    await expect(dialog).toContainText('Deleting this event cancels it, refunds what is left')
+    await expect(
+      dialog.getByRole('button', { name: 'Cancel, refund and delete', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(owner, 'the delete dialog (choice)')
+  })
+
+  test('the delete dialog’s refusal, while a night runs, reflows and scans clean', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+    const dialog = await deleteDialogOn(owner, control.sweep.inProgress)
+
+    await expect(dialog.getByText('This event cannot be deleted now')).toBeVisible()
+    await expect(dialog).toContainText('A night of this event has started or is about to.')
+    await expect(dialog.getByRole('button', { name: /delete/iu })).toHaveCount(0)
+
+    await measuredEverywhere(owner, 'the delete dialog (refused)')
+    await walkedByKeyboard(owner, dialog, 'the delete dialog (refused)')
+  })
+
+  test('the cancel-night dialog reflows, scans clean and is walked by keyboard', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+
+    await editorStep(owner, control.events.multiNight.id, /^step 3/iu)
+
+    const night = owner
+      .getByRole('region', { name: 'Sessions', exact: true })
+      .getByRole('listitem')
+      .filter({ has: owner.getByRole('heading', { name: /^Night 2\b/u }) })
+
+    await night.getByRole('button', { name: 'Cancel this night…' }).click()
+
+    const dialog = owner.getByRole('region', { name: /^Cancel the night of /u })
+
+    await expect(dialog.getByLabel(/^Why is this night being cancelled\?/u)).toBeVisible()
+    await expect(dialog).toContainText('1 paid order for this night is refunded')
+    await expect(dialog.getByRole('heading', { level: 4 })).toBeFocused()
+
+    await measuredEverywhere(owner, 'the cancel-night dialog')
+    await walkedByKeyboard(owner, dialog, 'the cancel-night dialog')
+  })
+
+  test('a deleted event’s record reflows and scans clean', async ({ browser }) => {
+    const owner = await controlWindow(browser, 'owner')
+
+    await owner.setViewportSize(DOOR_WIDTHS[0])
+    await owner.goto(`/organizer/events/${control.events.deletedRestore.id}`)
+    await expect(owner.getByRole('heading', { name: 'This event was deleted' })).toBeVisible()
+    await expect(owner.locator('main')).toContainText(
+      'Only the Desi-Event team can restore a deleted event.',
+    )
+
+    await measuredEverywhere(owner, 'the deleted event’s record')
+  })
+
+  test('the live editor with a change to the date waiting for a reason reflows and scans clean', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+
+    await editorStep(owner, control.events.liveSold.id, /^step 2/iu)
+
+    const starts = owner.getByRole('region', { name: 'When and where' }).getByLabel(/^Starts/u)
+    const before = await starts.inputValue()
+    const [day, clock] = before.split('T')
+
+    await starts.fill(
+      `${day}T${String(Number(clock.slice(0, 2)) - 1).padStart(2, '0')}${clock.slice(2)}`,
+    )
+
+    const callout = owner.getByRole('region', {
+      name: 'Not saved: a change to the date, place or terms',
+    })
+
+    await expect(callout).toContainText('You changed the start time.')
+    await measuredEverywhere(owner, 'the live editor with the callout')
+
+    await callout.getByRole('button', { name: 'Confirm these changes…' }).click()
+
+    const panel = owner.getByRole('region', {
+      name: 'Confirm the change to the date, place or terms',
+    })
+
+    await expect(panel).toContainText(/The start time: .+ → .+/u)
+    await measuredEverywhere(owner, 'the live editor with the change to confirm')
+  })
+
+  test('the ticket form with the re-price sentence reflows and scans clean', async ({
+    browser,
+  }) => {
+    const owner = await controlWindow(browser, 'owner')
+
+    await editorStep(owner, control.events.liveSold.id, /^step 4/iu)
+
+    const tier = owner
+      .getByRole('region', { name: 'Tickets', exact: true })
+      .getByRole('listitem')
+      .filter({ hasText: /^General admission/u })
+
+    await tier.getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(tier).toContainText(
+      'People who already bought keep what they paid: 2 sold at $35.00. A new price applies to the next buyer.',
+    )
+    await expect(tier.getByLabel(/^Face value/u)).toBeEnabled()
+
+    await measuredEverywhere(owner, 'the ticket form with the re-price sentence')
+  })
+
+  test('an order page with change notices reflows and scans clean', async ({ browser }) => {
+    const buyer = await controlWindow(browser, 'buyer')
+
+    await buyer.setViewportSize(DOOR_WIDTHS[0])
+    await buyer.goto(`/account/orders/${control.sweep.orders.liveSold.reference}`)
+
+    const changes = buyer.getByRole('region', { name: 'Changes since you bought' })
+
+    await expect(changes).toContainText('The event changed')
+    await expect(changes).toContainText('A night changed')
+    await expect(changes).toContainText('Changed by the Desi-Event team.')
+
+    await measuredEverywhere(buyer, 'the order page with change notices')
+  })
+
+  test('All events, for the Desi-Event team, reflows and scans clean', async ({ browser }) => {
+    const admin = await controlWindow(browser, 'admin')
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/events?q=${encodeURIComponent(`Control`)}`)
+    await expect(admin.getByRole('heading', { level: 1, name: 'All events' })).toBeVisible()
+    await expect(
+      admin
+        .getByRole('row')
+        .filter({ hasText: control.events.otherLive.title })
+        .getByRole('link', { name: /^Open in the editor/u }),
+    ).toBeVisible()
+
+    await measuredEverywhere(admin, 'All events')
+  })
+
+  test('Pictures waiting, with a new cover beside the current one, reflows and scans clean', async ({
+    browser,
+  }) => {
+    const admin = await controlWindow(browser, 'admin')
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto('/moderation/pictures')
+    await expect(
+      admin.getByRole('heading', { level: 1, name: 'Pictures waiting for a decision' }),
+    ).toBeVisible()
+    await expect(admin.getByText('Replaces the current cover').first()).toBeVisible()
+
+    await measuredEverywhere(admin, 'Pictures waiting')
+  })
+
+  test('the restore dialog reflows, scans clean and is walked by keyboard', async ({ browser }) => {
+    const admin = await controlWindow(browser, 'admin')
+    const event = control.events.deletedRestore
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/events/${event.id}`)
+    await admin.getByRole('button', { name: 'Restore…', exact: true }).click()
+
+    const dialog = admin.getByRole('region', { name: `Restore “${event.title}”` })
+
+    await expect(dialog).toContainText('It comes back paused: the organiser reopens sales.')
+    await expect(dialog.getByRole('heading', { level: 3 })).toBeFocused()
+
+    await measuredEverywhere(admin, 'the restore dialog')
+    await walkedByKeyboard(admin, dialog, 'the restore dialog')
+  })
+
+  test('the form that opens a sitting reflows and scans clean', async ({ browser }) => {
+    const admin = await controlWindow(browser, 'admin')
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/events/${control.events.otherLive.id}`)
+
+    const form = admin.getByRole('region', {
+      name: 'Edit this event as the Desi-Event team',
+      exact: true,
+    })
+
+    await expect(form.getByLabel(/^Why are you editing this event\?/u)).toBeVisible()
+
+    await measuredEverywhere(admin, 'the form that opens a sitting')
+    await walkedByKeyboard(admin, form, 'the form that opens a sitting')
+  })
+
+  test('the editor under a sitting, with its banner, reflows and scans clean', async ({
+    browser,
+  }) => {
+    const admin = await controlWindow(browser, 'admin')
+    const event = control.events.otherLive
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/events/${event.id}`)
+
+    const form = admin.getByRole('region', {
+      name: 'Edit this event as the Desi-Event team',
+      exact: true,
+    })
+
+    await form
+      .getByLabel(/^Why are you editing this event\?/u)
+      .fill('Measuring the editor the Desi-Event team edits in.')
+
+    const opened = admin.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname === `/api/v1/platform/events/${event.id}/edit` &&
+        response.ok(),
+      { timeout: 45_000 },
+    )
+
+    await form.getByRole('button', { name: 'Open for editing', exact: true }).click()
+
+    const first = await Promise.race([
+      opened.then(() => 'opened'),
+      stepUpPrompt(admin)
+        .waitFor({ state: 'visible', timeout: 45_000 })
+        .then(() => 'prompted'),
+    ])
+
+    if (first === 'prompted') await confirmStepUp(admin)
+
+    await opened
+    await expect(admin.getByText('Editing as the Desi-Event team').first()).toBeVisible()
+    await expect(admin.getByRole('button', { name: 'Stop editing', exact: true })).toBeVisible()
+
+    await measuredEverywhere(admin, 'the editor under a sitting')
+
+    // Closed again, so nothing is left open on the event.
+    await admin.getByRole('button', { name: 'Stop editing', exact: true }).click()
+    await expect(admin).toHaveURL(/\/admin\/events$/u)
+  })
+})
+
+test.describe.serial('imported events, swept', () => {
+  /** What the block's setup imported, approved and planned. */
+  const imported = {}
+  /** Every context this block opened. @type {object[]} */
+  const importContexts = []
+  /** The administrator's window, opened once. @type {Promise<object>|null} */
+  let importAdminWindow = null
+  /** Whether "Sulekha Events" was there before this block imported anything. */
+  let importHeldBefore = true
+
+  /**
+   * This run's import names.
+   *
+   * @returns {object} The names.
+   */
+  const names = () => importNames(TAG)
+
+  /**
+   * The platform administrator who imports, signed in once.
+   *
+   * @param {object} browser The browser under test.
+   * @returns {Promise<object>} A signed-in page.
+   */
+  function importAdmin(browser) {
+    importAdminWindow ??= (async () => {
+      const context = await browser.newContext()
+      const page = await context.newPage()
+
+      importContexts.push(context)
+      await signInWaitingOutTheLimiter(page, names().adminEmail)
+
+      return page
+    })()
+
+    return importAdminWindow
+  }
+
+  /**
+   * Send one request to the API from the page, through the web's proxy with
+   * its session and CSRF token, confirming a second factor through the API
+   * and sending it once more when one is asked for.
+   *
+   * @param {object} page The administrator's page.
+   * @param {string} method The HTTP method.
+   * @param {string} path The API path.
+   * @param {object} [body] The JSON body.
+   * @returns {Promise<{status: number, data: object|null, text: string}>} The answer.
+   */
+  async function importApi(page, method, path, body) {
+    const send = (verb, address, sent) =>
+      page.evaluate(
+        async ({ verb: how, address: where, sent: payload }) => {
+          const token = document.cookie.match(/(?:^|;\s*)(?:__Host-)?desi_csrf=([^;]*)/u)
+          const response = await fetch(where, {
+            method: how,
+            headers: {
+              'content-type': 'application/json',
+              ...(token ? { 'x-desi-csrf': decodeURIComponent(token[1]) } : {}),
+            },
+            body: payload === undefined ? undefined : JSON.stringify(payload),
+          })
+          const text = await response.text()
+          let parsed = null
+
+          try {
+            parsed = JSON.parse(text)
+          } catch {
+            parsed = null
+          }
+
+          return {
+            status: response.status,
+            code: parsed?.error?.code ?? null,
+            data: parsed?.data ?? null,
+            text,
+          }
+        },
+        { verb, address, sent },
+      )
+
+    const first = await send(method, path, body)
+
+    if (first.code !== 'STEP_UP_REQUIRED') return first
+
+    await forgetCodeUse()
+
+    const confirmed = await send('POST', '/api/v1/auth/step-up', {
+      password: PASSWORD,
+      code: currentCode(),
+    })
+
+    expect(confirmed.status, confirmed.text).toBe(200)
+
+    return send(method, path, body)
+  }
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(240_000)
+
+    // Whatever a stopped attempt left under this tag goes first.
+    await cleanupImport(TAG)
+
+    importHeldBefore = await platformHeldExists()
+    await seedImport(TAG)
+    await preparePictures(SWEEP_IMPORT_PICTURE_DIR)
+
+    // Imported, applied and one event approved, through the same requests the
+    // run page sends, so every state the cases measure is a real one: a run
+    // applied with events waiting for review and a picture that could not be
+    // copied, a published import, and a plan nobody has applied.
+    const admin = await importAdmin(browser)
+
+    await admin.goto('/admin/imports')
+
+    const dataset = buildImportDataset(TAG)
+    const planned = await importApi(admin, 'POST', '/api/v1/platform/imports', {
+      fileName: names().fileName,
+      dataset,
+    })
+
+    expect(planned.status, planned.text).toBe(201)
+
+    const applied = await importApi(
+      admin,
+      'POST',
+      `/api/v1/platform/imports/${planned.data.id}/apply`,
+      { planDigest: planned.data.planDigest, updateFromSource: [] },
+    )
+
+    expect(applied.status, applied.text).toBe(200)
+
+    const garba = applied.data.rows.find(
+      (row) => row.sourceId === names().listings.garba.sourceId,
+    ).event
+    const approved = await importApi(
+      admin,
+      'POST',
+      `/api/v1/platform/imports/${planned.data.id}/approve`,
+      { items: [{ eventId: garba.id, revision: garba.revision }] },
+    )
+
+    expect(approved.status, approved.text).toBe(200)
+    expect(approved.data.results[0].outcome).toBe('PUBLISHED')
+
+    const plan = await importApi(admin, 'POST', '/api/v1/platform/imports', {
+      fileName: names().updateFileName,
+      dataset: planOnlyDataset(TAG),
+    })
+
+    expect(plan.status, plan.text).toBe(201)
+
+    Object.assign(imported, {
+      appliedRunId: planned.data.id,
+      planRunId: plan.data.id,
+      published: { id: garba.id, slug: garba.slug, title: garba.title },
+    })
+  })
+
+  test.afterAll(async () => {
+    for (const context of importContexts) await context.close().catch(() => {})
+
+    await cleanupImport(TAG, { removePlatformHeld: !importHeldBefore })
+  })
+
+  test('Imports, with its runs and the upload form’s error summary, reflows, scans clean and is walked by keyboard', async ({
+    browser,
+  }) => {
+    const admin = await importAdmin(browser)
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto('/admin/imports')
+    await expect(admin.getByRole('heading', { level: 1, name: 'Imports' })).toBeVisible()
+    await expect(admin.getByRole('table', { name: 'Imports, newest first' })).toContainText(
+      names().fileName,
+    )
+
+    await measuredEverywhere(admin, 'Imports')
+
+    // A file that is not JSON: refused in the browser, with a summary linked
+    // to the field. Pressed once React holds the form, or the browser would
+    // send the form to its own address instead.
+    const form = admin.getByRole('form', { name: 'Plan an import', exact: true })
+    const field = form.getByLabel(/^Listing file/u)
+
+    await expect
+      .poll(() =>
+        field.evaluate((node) => Object.keys(node).some((key) => key.startsWith('__reactProps$'))),
+      )
+      .toBe(true)
+    await field.setInputFiles({
+      name: 'listings.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{ "format": ', 'utf8'),
+    })
+    await form.getByRole('button', { name: 'Plan this import', exact: true }).click()
+    await expect(form.getByRole('link', { name: /^This file is not valid JSON/u })).toBeVisible()
+
+    await measuredEverywhere(admin, 'Imports, with the upload refused')
+    await walkedByKeyboard(
+      admin,
+      admin.getByRole('region', { name: 'Plan an import' }),
+      'the upload form',
+    )
+  })
+
+  test('a plan nobody has applied reflows, scans clean and is walked by keyboard', async ({
+    browser,
+  }) => {
+    const admin = await importAdmin(browser)
+    const { planOnly } = names().listings
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/imports/${imported.planRunId}`)
+    await expect(admin.getByText('Planned, not applied').first()).toBeVisible()
+
+    const table = admin.getByRole('table', { name: /^The plan for /u })
+
+    await expect(table.getByRole('row').filter({ hasText: planOnly.title })).toContainText(
+      'A personal phone number was removed from the description.',
+    )
+    await expect(
+      admin.getByRole('button', { name: 'Import this 1 event', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(admin, 'the plan')
+    await walkedByKeyboard(admin, admin.locator('main'), 'the plan')
+  })
+
+  test('an applied run, with events to approve and a picture not copied, reflows and scans clean', async ({
+    browser,
+  }) => {
+    const admin = await importAdmin(browser)
+    const { concert } = names().listings
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/imports/${imported.appliedRunId}`)
+
+    const table = admin.getByRole('table', { name: /^The plan for /u })
+    const concertRow = table.getByRole('row').filter({ hasText: concert.title })
+
+    await expect(concertRow).toContainText('Sulekha answered with status 404.')
+
+    const tick = admin.getByRole('checkbox', { name: `Approve “${concert.title}”` })
+
+    await expect
+      .poll(() =>
+        tick.evaluate((node) => Object.keys(node).some((key) => key.startsWith('__reactProps$'))),
+      )
+      .toBe(true)
+    await tick.check()
+    await expect(
+      admin.getByRole('button', { name: 'Approve and publish 1 event', exact: true }),
+    ).toBeEnabled()
+    await expect(admin.getByRole('button', { name: 'Retry pictures', exact: true })).toBeVisible()
+
+    await measuredEverywhere(admin, 'the applied run')
+    await walkedByKeyboard(admin, admin.locator('main'), 'the applied run')
+  })
+
+  test('the dialog that moves an imported event, with its search and its error summary, reflows, scans clean and is walked by keyboard', async ({
+    browser,
+  }) => {
+    const admin = await importAdmin(browser)
+    const event = imported.published
+
+    await admin.setViewportSize(DOOR_WIDTHS[0])
+    await admin.goto(`/admin/events/${event.id}`)
+
+    const section = admin.getByRole('region', { name: 'Copied from Sulekha', exact: true })
+    const opener = section.getByRole('button', { name: 'Move to an organisation…', exact: true })
+
+    await expect
+      .poll(() =>
+        opener.evaluate((node) => Object.keys(node).some((key) => key.startsWith('__reactProps$'))),
+      )
+      .toBe(true)
+    await opener.click()
+
+    const heading = admin.getByRole('heading', { name: `Move “${event.title}” to an organisation` })
+
+    await expect(heading).toBeFocused()
+    await expect(section).toContainText(
+      'The organisation is not asked before the event moves. Agree it with them first.',
+    )
+
+    const dialog = section.getByRole('form', { name: 'Move this event', exact: true })
+
+    await dialog.getByRole('searchbox', { name: /^Find the organisation/u }).fill(names().gammaName)
+    await dialog.getByRole('button', { name: 'Search', exact: true }).click()
+    await expect(
+      dialog.getByRole('radio', { name: `${names().gammaName} (${names().gammaSlug})` }),
+    ).toBeVisible()
+
+    // Pressed with nothing chosen: the summary links each problem to its field.
+    await dialog.getByRole('button', { name: 'Move the event', exact: true }).click()
+    await expect(
+      dialog.getByRole('link', { name: 'Choose the organisation to move it to.' }),
+    ).toBeVisible()
+
+    await measuredEverywhere(admin, 'the move dialog')
+    await walkedByKeyboard(admin, section, 'the move dialog')
+  })
+
+  test('an imported event’s page and its card reflow and scan clean', async ({ browser }) => {
+    const context = await browser.newContext()
+    const visitor = await context.newPage()
+    const event = imported.published
+
+    importContexts.push(context)
+    await visitor.goto(`/events/${event.slug}`)
+    await expect(visitor.getByRole('heading', { level: 1, name: event.title })).toBeVisible()
+    await expect(
+      visitor
+        .locator('#tickets')
+        .getByRole('link', { name: 'Buy tickets on Sulekha', exact: true }),
+    ).toBeVisible()
+
+    await measuredEverywhere(visitor, 'the imported event’s page')
+
+    await visitor.goto(`/events?q=${encodeURIComponent(event.title)}`)
+
+    const card = visitor
+      .getByRole('listitem')
+      .filter({ has: visitor.getByRole('link', { name: event.title, exact: true }) })
+
+    await expect(card).toContainText('On Sulekha from $25.00')
+
+    await measuredEverywhere(visitor, 'the imported event’s card')
   })
 })

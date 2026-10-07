@@ -17,7 +17,9 @@
  * held for imports. The move is `POST
  * /v1/platform/imports/events/:eventId/reassign` with the organisation, a
  * reason (kept with the event's history) and the revision this page read; it
- * needs a recent second factor, and is sent once more after one is given.
+ * needs a recent second factor, and is sent once more after one is given. Once
+ * it has moved, the page is drawn again with `?moved=1` and says so itself,
+ * since it no longer offers this dialog.
  *
  * It is an inline region rather than a modal: focus moves to its heading when
  * it opens and back to its opener when it closes, and every message is in a
@@ -30,7 +32,7 @@
  * @file components/reassign-event-dialog
  */
 
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useId, useRef, useState } from 'react'
 
 import { ControlReasonField } from './control-reason-field.jsx'
@@ -62,6 +64,7 @@ export const MOVE_SENTENCE =
  */
 export function ReassignEventDialog({ event }) {
   const router = useRouter()
+  const pathname = usePathname()
   const id = useId()
   const openerRef = useRef(null)
   const headingRef = useRef(null)
@@ -164,7 +167,11 @@ export function ReassignEventDialog({ event }) {
       if (response.ok) {
         setMoved(target.name)
         focusAfterRender(resultRef)
-        router.refresh()
+        // A moved event is no longer held for an import, so the page no
+        // longer offers this dialog: refreshing alone would take the outcome
+        // away with it, before anybody had read it. The page says what
+        // happened instead, told so by `?moved=1`.
+        router.replace(`${pathname}?moved=1`)
         return
       }
 
@@ -228,126 +235,154 @@ export function ReassignEventDialog({ event }) {
         ) : null}
       </div>
 
+      {/*
+        The second-factor prompt is a form of its own, so it is drawn after
+        the move form rather than inside it: a form within a form is not
+        HTML, and the browser could send the outer form instead.
+      */}
       {moved ? null : (
-        <form
-          onSubmit={(submitted) => {
-            submitted.preventDefault()
-            void send()
-          }}
-          noValidate
-          className="space-y-4"
-          aria-label="Move this event"
-        >
-          {problems.length > 0 || refusal ? (
-            <div
-              ref={summaryRef}
-              tabIndex={-1}
-              className="rounded-card border border-status-danger/25 bg-status-danger-soft p-4 focus-visible:outline-none"
-            >
-              <h4 className="text-sm font-semibold text-status-danger">
-                {refusal
-                  ? 'Not moved'
-                  : problems.length === 1
-                    ? 'One thing to fix before moving it'
-                    : `${problems.length} things to fix before moving it`}
-              </h4>
-              {refusal ? <p className="mt-1 text-sm text-status-danger">{refusal}</p> : null}
-              {problems.length > 0 ? (
-                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-status-danger">
-                  {problems.map((problem) => (
-                    <li key={problem.field}>
-                      <a className="underline underline-offset-4" href={`#${id}-${problem.field}`}>
-                        {problem.message}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="min-w-0 flex-1">
-              <FormField
-                label="Find the organisation"
-                id={`${id}-search`}
-                description="By its name or web address. Only verified organisations are listed."
-                error={targets ? undefined : errors.target}
+        <>
+          <form
+            onSubmit={(submitted) => {
+              submitted.preventDefault()
+              void send()
+            }}
+            noValidate
+            className="space-y-4"
+            aria-label="Move this event"
+          >
+            {problems.length > 0 || refusal ? (
+              <div
+                ref={summaryRef}
+                tabIndex={-1}
+                className="rounded-card border border-status-danger/25 bg-status-danger-soft p-4 focus-visible:outline-none"
               >
-                <Input
-                  type="search"
-                  autoComplete="off"
-                  maxLength={120}
-                  value={query}
-                  onChange={(changed) => setQuery(changed.target.value)}
-                  onKeyDown={(pressed) => {
-                    if (pressed.key === 'Enter') {
-                      pressed.preventDefault()
-                      void search()
-                    }
-                  }}
-                />
-              </FormField>
+                <h4 className="text-sm font-semibold text-status-danger">
+                  {refusal
+                    ? 'Not moved'
+                    : problems.length === 1
+                      ? 'One thing to fix before moving it'
+                      : `${problems.length} things to fix before moving it`}
+                </h4>
+                {refusal ? <p className="mt-1 text-sm text-status-danger">{refusal}</p> : null}
+                {problems.length > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-status-danger">
+                    {problems.map((problem) => (
+                      <li key={problem.field}>
+                        <a
+                          className="underline underline-offset-4"
+                          href={`#${id}-${problem.field}`}
+                        >
+                          {problem.message}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <FormField
+                  label="Find the organisation"
+                  id={`${id}-search`}
+                  description="By its name or web address. Only verified organisations are listed."
+                  error={targets ? undefined : errors.target}
+                >
+                  <Input
+                    type="search"
+                    autoComplete="off"
+                    maxLength={120}
+                    value={query}
+                    onChange={(changed) => setQuery(changed.target.value)}
+                    onKeyDown={(pressed) => {
+                      if (pressed.key === 'Enter') {
+                        pressed.preventDefault()
+                        void search()
+                      }
+                    }}
+                  />
+                </FormField>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={searching}
+                onClick={() => void search()}
+              >
+                {searching ? 'Searching…' : 'Search'}
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-11"
-              disabled={searching}
-              onClick={() => void search()}
-            >
-              {searching ? 'Searching…' : 'Search'}
-            </Button>
-          </div>
 
-          {searchFailure ? <p className="text-sm text-status-danger">{searchFailure}</p> : null}
+            {searchFailure ? <p className="text-sm text-status-danger">{searchFailure}</p> : null}
 
-          {targets ? (
-            <fieldset
-              id={`${id}-target`}
-              tabIndex={-1}
-              aria-describedby={errors.target ? `${id}-target-error` : undefined}
-              className="space-y-2"
-            >
-              <legend className="text-sm font-medium text-ink">Move it to</legend>
-              {targets.length === 0 ? (
-                <p className="text-sm text-ink-muted">No verified organisation matches.</p>
-              ) : (
-                targets.map((each) => (
-                  <label
-                    key={each.id}
-                    className="flex min-h-11 items-center gap-3 text-sm text-ink"
-                  >
-                    <input
-                      type="radio"
-                      name={`${id}-target`}
-                      value={each.id}
-                      checked={targetId === each.id}
-                      onChange={() => setTargetId(each.id)}
-                      className="h-5 w-5 accent-action-primary"
-                    />
-                    <span>
-                      {each.name} <span className="text-ink-muted">({each.slug})</span>
-                    </span>
-                  </label>
-                ))
-              )}
-              {errors.target ? (
-                <p id={`${id}-target-error`} className="text-sm text-status-danger">
-                  {errors.target}
-                </p>
-              ) : null}
-            </fieldset>
-          ) : null}
+            {targets ? (
+              <fieldset
+                id={`${id}-target`}
+                tabIndex={-1}
+                aria-describedby={errors.target ? `${id}-target-error` : undefined}
+                className="space-y-2"
+              >
+                <legend className="text-sm font-medium text-ink">Move it to</legend>
+                {targets.length === 0 ? (
+                  <p className="text-sm text-ink-muted">No verified organisation matches.</p>
+                ) : (
+                  targets.map((each) => (
+                    <label
+                      key={each.id}
+                      className="flex min-h-11 items-center gap-3 text-sm text-ink"
+                    >
+                      <input
+                        type="radio"
+                        name={`${id}-target`}
+                        value={each.id}
+                        checked={targetId === each.id}
+                        onChange={() => setTargetId(each.id)}
+                        className="h-5 w-5 accent-action-primary"
+                      />
+                      <span>
+                        {each.name} <span className="text-ink-muted">({each.slug})</span>
+                      </span>
+                    </label>
+                  ))
+                )}
+                {errors.target ? (
+                  <p id={`${id}-target-error`} className="text-sm text-status-danger">
+                    {errors.target}
+                  </p>
+                ) : null}
+              </fieldset>
+            ) : null}
 
-          <ControlReasonField
-            id={`${id}-reason`}
-            label="Why it moves"
-            value={reason}
-            onChange={setReason}
-            error={errors.reason ?? null}
-            disabled={busy}
-          />
+            <ControlReasonField
+              id={`${id}-reason`}
+              label="Why it moves"
+              value={reason}
+              onChange={setReason}
+              error={errors.reason ?? null}
+              disabled={busy}
+            />
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" className="min-h-11" disabled={busy || stepUp}>
+                {busy ? 'Moving…' : 'Move the event'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-11"
+                disabled={busy}
+                onClick={() => {
+                  setOpen(false)
+                  focusAfterRender(openerRef)
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
 
           {stepUp ? (
             <StepUpPrompt
@@ -359,25 +394,7 @@ export function ReassignEventDialog({ event }) {
               onCancel={() => setStepUp(false)}
             />
           ) : null}
-
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" className="min-h-11" disabled={busy || stepUp}>
-              {busy ? 'Moving…' : 'Move the event'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="min-h-11"
-              disabled={busy}
-              onClick={() => {
-                setOpen(false)
-                focusAfterRender(openerRef)
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
+        </>
       )}
     </div>
   )

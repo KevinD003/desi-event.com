@@ -5,13 +5,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('../lib/api-fetch.js', () => ({ apiFetch: vi.fn() }))
 
 const refresh = vi.fn()
+const replace = vi.fn()
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh, push: vi.fn() }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh, replace, push: vi.fn() }),
+  usePathname: () => '/admin/events/cevent0000000000000000001',
+}))
+// A form of its own, as the real prompt is (`step-up-prompt.jsx`), so a
+// prompt drawn inside the move form would be a form inside a form.
 vi.mock('./step-up-prompt.jsx', () => ({
   StepUpPrompt: ({ action, onConfirmed }) => (
-    <button type="button" onClick={onConfirmed}>
-      Confirm to {action}
-    </button>
+    <form aria-label="Confirm it is you">
+      <button type="button" onClick={onConfirmed}>
+        Confirm to {action}
+      </button>
+    </form>
   ),
 }))
 
@@ -59,6 +67,7 @@ async function openAndFind(user) {
 beforeEach(() => {
   apiFetch.mockReset()
   refresh.mockReset()
+  replace.mockReset()
 })
 
 describe('moving an imported event to an organisation', () => {
@@ -118,7 +127,11 @@ describe('moving an imported event to an organisation', () => {
         }),
       },
     )
-    expect(refresh).toHaveBeenCalled()
+    // The page is drawn again with the flag that makes it say so: a moved
+    // event is no longer offered this dialog, so a bare refresh would take
+    // the outcome away before anybody read it.
+    expect(replace).toHaveBeenCalledWith(`/admin/events/${EVENT.id}?moved=1`)
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('names what is missing in a summary linked to each field, and sends nothing', async () => {
@@ -180,6 +193,32 @@ describe('moving an imported event to an organisation', () => {
     expect(apiFetch.mock.calls[2][1].body).toBe(apiFetch.mock.calls[1][1].body)
   })
 
+  it('draws the second-factor prompt beside the move form, never inside it', async () => {
+    // A form within a form is not HTML: React reports it, and the browser may
+    // send the outer form when the prompt's button is pressed.
+    const user = userEvent.setup()
+
+    apiFetch
+      .mockResolvedValueOnce(answer(200, { data: [TARGET] }))
+      .mockResolvedValueOnce(
+        answer(403, { error: { code: 'STEP_UP_REQUIRED', message: 'Confirm it is you.' } }),
+      )
+    await openAndFind(user)
+    await user.click(screen.getByRole('radio', { name: /Raga Nights Houston/u }))
+    await user.type(
+      screen.getByLabelText(/Why it moves/u),
+      'The organiser joined and asked for it.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Move the event' }))
+
+    const prompt = await screen.findByRole('form', { name: 'Confirm it is you' })
+    const move = screen.getByRole('form', { name: 'Move this event' })
+
+    expect(move).not.toContainElement(prompt)
+    expect(move.querySelector('form')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Move the event' })).toBeDisabled()
+  })
+
   it('says the API’s refusal in its own words', async () => {
     const user = userEvent.setup()
 
@@ -201,5 +240,6 @@ describe('moving an imported event to an organisation', () => {
 
     expect(await screen.findByText('That organisation cannot take this event.')).toBeInTheDocument()
     expect(refresh).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 })

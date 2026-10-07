@@ -47,6 +47,9 @@ import {
   writtenCount,
 } from '../import-vocabulary.js'
 
+/** A link in the events column: never less than a 24 px target (WCAG 2.5.8). */
+const EVENT_LINK_TARGET = 'inline-flex min-h-6 items-center'
+
 /** Statuses on the public site: approving one only approves its waiting pictures. */
 const PUBLIC = new Set([
   'PUBLISHED',
@@ -279,7 +282,21 @@ export function ImportRunPlan({ run, canApprove }) {
         ) : null}
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-card border border-line bg-surface-raised shadow-card">
+      {/*
+        Positioned, so the screen-reader-only words in the wide table (a
+        badge's "Status:", the caption) scroll inside this frame: a scroll box
+        clips only the absolutely positioned descendants whose containing
+        block it is, and without one they widened the page at 320 px. A named,
+        focusable region, so the columns past the edge can be reached by
+        keyboard when no row has a box to tick (WCAG 2.1.1; as
+        `ScrollableTable` does).
+      */}
+      <div
+        role="region"
+        aria-label={`The plan for ${run.fileName}, scrolls sideways`}
+        tabIndex={0}
+        className="relative mt-4 overflow-x-auto rounded-card border border-line bg-surface-raised shadow-card focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:outline-none"
+      >
         <table className="w-full min-w-[64rem] border-collapse text-left text-sm">
           <caption className="sr-only">
             {`The plan for ${run.fileName}, one row per listing`}
@@ -391,18 +408,23 @@ export function ImportRunPlan({ run, canApprove }) {
                             {`Moved to ${event.organizationName ?? 'an organiser’s organisation'}`}
                           </p>
                         ) : null}
+                        {/*
+                          Each link at least 24 px high: wrapped one above the
+                          other in a narrow column, two text-high links left
+                          too little room to touch either (WCAG 2.5.8).
+                        */}
                         <p className="mt-1 flex flex-wrap gap-x-3 text-xs">
                           {event.status === 'REVIEW_PENDING' ? (
                             <Link
                               href={`/moderation/events/${encodeURIComponent(event.id)}`}
-                              className={TEXT_LINK}
+                              className={`${TEXT_LINK} ${EVENT_LINK_TARGET}`}
                             >
                               {`Review “${row.title}”`}
                             </Link>
                           ) : null}
                           <Link
                             href={`/admin/events/${encodeURIComponent(event.id)}`}
-                            className={TEXT_LINK}
+                            className={`${TEXT_LINK} ${EVENT_LINK_TARGET}`}
                           >
                             {`Open “${row.title}”`}
                           </Link>

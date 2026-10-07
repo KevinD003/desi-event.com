@@ -1,6 +1,8 @@
 import { createPrismaClient } from '@desi-event/db'
 
-import { expect, test, world } from './support/detail-fixtures.mjs'
+import { arriving, expect, test, world } from './support/detail-fixtures.mjs'
+import { signIn } from './support/detail-world.mjs'
+import { seedAdministrator } from './support/seed-onboarding.mjs'
 import { CONNECTION, PASSWORD, TOTP_SECRET } from './support/seed-refusals.mjs'
 import { confirmIfAsked } from './support/step-up.mjs'
 
@@ -166,10 +168,17 @@ const OWNER_RAIL = Object.freeze([
 
 /**
  * What the platform reader's rail offers: a SUPER_ADMIN with no membership, so
- * nothing that needs one — Organisation, Team, Promo codes, Analytics — and
- * every platform door. Check-in is one of those: a super administrator may
- * admit at any door by platform role (ADR 0007), and the rail offers what the
- * API would answer.
+ * nothing that needs one — Organisation, Team, Promo codes — and every
+ * platform door. Check-in is one of those: a super administrator may admit at
+ * any door by platform role (ADR 0007), and the rail offers what the API would
+ * answer. Analytics is one too, now that the platform's list of every event's
+ * visits (`analytics:view_all`) is held without a membership; so are the
+ * Desi-Event team's own pages: the pictures and website links waiting for a
+ * decision, inviting organisers, every organisation's events, imports, and
+ * people and roles.
+ *
+ * Asserted by the links' names: a spec that named the invitations page's path
+ * would be one that could show a code (`lib/e2e-code-hygiene.test.js`).
  *
  * @type {ReadonlyArray<string>}
  */
@@ -178,6 +187,8 @@ const PLATFORM_RAIL = Object.freeze([
   'Events',
   'Venues',
   'Check-in',
+  'Analytics',
+  'Every event’s visits',
   'Finance',
   'Operations',
   'Notifications',
@@ -185,7 +196,35 @@ const PLATFORM_RAIL = Object.freeze([
   'Privacy',
   'Retention',
   'Organisation checks',
+  'Pictures waiting',
+  'Website links',
+  'Organiser invitations',
+  'All events',
+  'Imports',
   'People and roles',
+])
+
+/**
+ * What a platform administrator's rail offers (SPEC2 P, SPEC2-XI O1): the
+ * Desi-Event team's own pages — every event's visits, review, organisation
+ * checks, pictures and website links waiting, inviting organisers, every
+ * organisation's events and imports — and none that needs a membership,
+ * money, a door, personal data or the power to change who can do what.
+ * People and roles is the super administrators' alone, so it is not offered,
+ * though the admin area that holds it is.
+ *
+ * @type {ReadonlyArray<string>}
+ */
+const ADMIN_RAIL = Object.freeze([
+  'Analytics',
+  'Every event’s visits',
+  'Moderation',
+  'Organisation checks',
+  'Pictures waiting',
+  'Website links',
+  'Organiser invitations',
+  'All events',
+  'Imports',
 ])
 
 /**
@@ -315,7 +354,9 @@ test.beforeAll(async () => {
 
   try {
     // Upserted, because a failed case restarts the worker and this hook runs
-    // again for the cases after it.
+    // again for the cases after it. Inserted public, as every seed inserts a
+    // public event: the review gate guards a change of status, and a re-run's
+    // update writes the status the row already has, which is no change.
     const { title, slug } = betaEvent()
     const startsAt = new Date(Date.now() + 60 * 86_400_000)
     const event = {
@@ -407,6 +448,41 @@ test.describe('the workspace rail', () => {
       platform.getByText(/^Team is not something this account can open\./u),
     ).toBeVisible()
     await expect(pageHeading(platform, 'Team and roles')).toHaveCount(0)
+  })
+
+  test('offers a platform administrator the Desi-Event team’s pages, and not People and roles', async ({
+    browser,
+  }) => {
+    // An account of this spec's own, so the onboarding story's administrator
+    // keeps its sessions and its credential budget.
+    const administrator = await seedAdministrator(ids().tag, {
+      email: `workspace-admin-${ids().tag}@desi-event.test`,
+      displayName: 'Workspace Administrator',
+    })
+    const context = await browser.newContext()
+
+    try {
+      const page = arriving(await context.newPage())
+
+      await signIn(page, administrator.email)
+      await page.goto('/moderation/events')
+      await expect(pageHeading(page, 'Review queue')).toBeVisible()
+
+      // Exactly these, in this order: nothing an organisation's member, the
+      // money, the doors or personal data would need.
+      await expect(rail(page).getByRole('link')).toHaveText([...ADMIN_RAIL])
+      await expect(rail(page).getByRole('link', { name: 'People and roles' })).toHaveCount(0)
+    } finally {
+      await context.close()
+
+      const prisma = createPrismaClient({ connectionString: CONNECTION })
+
+      try {
+        await prisma.session.deleteMany({ where: { userId: administrator.id } })
+      } finally {
+        await prisma.$disconnect()
+      }
+    }
   })
 })
 
@@ -506,16 +582,23 @@ test.describe('the team screen', () => {
       await expect(row.getByRole('button', { name: `Remove ${name} from the team` })).toBeVisible()
     }
 
-    // An invite form, which says how its code travels: shown once to the
-    // inviter, who hands it over, because this build sends no email. Nothing
-    // is pressed here — the journey through it is
-    // `detail-team-and-organisations.spec.js`, which keeps no artefacts.
+    // An invite form, which says how its code travels in this build's
+    // delivery mode (MANUAL): shown once to the inviter, who hands it over,
+    // because codes are not emailed. Nothing is pressed here — the journey
+    // through it is `detail-team-and-organisations.spec.js`, which keeps no
+    // artefacts.
     await expect(
       owner.getByText(
-        'This site sends no email. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
+        'Codes are not emailed from this site. When you invite somebody, their invitation code is shown to you once, and you hand it to them yourself.',
         { exact: true },
       ),
     ).toBeVisible()
+    // And never the other mode's sentence, which would be untrue here.
+    await expect(
+      owner.getByText('The code is emailed to that address. You will not see it.', {
+        exact: true,
+      }),
+    ).toHaveCount(0)
 
     const invite = owner.getByRole('form', { name: 'Invite somebody' })
 

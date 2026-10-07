@@ -1,4 +1,5 @@
 import { expect, test, world } from './support/detail-fixtures.mjs'
+import { confirmIfAsked } from './support/step-up.mjs'
 
 /**
  * The reconciliation detail screen, against a real work item.
@@ -21,6 +22,7 @@ const ids = () => world()
 test.describe('the reconciliation detail screen', () => {
   test('shows both sides of the evidence', async ({ owner }) => {
     await owner.goto(`/operations/reconciliation/${ids().reconciliationTaskId}`)
+    await confirmIfAsked(owner)
     await expect(owner.getByRole('heading', { name: /payment timeout/i, level: 1 })).toBeVisible()
 
     const rendered = await owner.locator('main').innerText()
@@ -35,6 +37,7 @@ test.describe('the reconciliation detail screen', () => {
 
   test('shows how long it has been open, in words as well as hours', async ({ owner }) => {
     await owner.goto(`/operations/reconciliation/${ids().reconciliationTaskId}`)
+    await confirmIfAsked(owner)
 
     const rendered = await owner.locator('main').innerText()
 
@@ -45,6 +48,7 @@ test.describe('the reconciliation detail screen', () => {
 
   test('carries no provider payload, no card and no buyer', async ({ owner }) => {
     await owner.goto(`/operations/reconciliation/${ids().reconciliationTaskId}`)
+    await confirmIfAsked(owner)
 
     const html = await owner.content()
 
@@ -55,6 +59,7 @@ test.describe('the reconciliation detail screen', () => {
 
   test('offers no command to an account that may read but not act', async ({ owner }) => {
     await owner.goto(`/operations/reconciliation/${ids().reconciliationTaskId}`)
+    await confirmIfAsked(owner)
 
     const rendered = await owner.locator('main').innerText()
 
@@ -76,6 +81,7 @@ test.describe('the reconciliation detail screen', () => {
     // came from the guard, and the case would have passed even if claiming
     // admitted an organiser.
     await owner.goto('/operations')
+    await confirmIfAsked(owner)
 
     const csrf = (await owner.context().cookies()).find(({ name }) => name.endsWith('desi_csrf'))
 
@@ -102,10 +108,12 @@ test.describe('the reconciliation detail screen', () => {
     outsider,
   }) => {
     await outsider.goto(`/operations/reconciliation/${ids().reconciliationTaskId}`)
+    await confirmIfAsked(outsider)
 
     const theirs = await outsider.locator('body').innerText()
 
     await outsider.goto('/operations/reconciliation/cmnotarealidentifier0000')
+    await confirmIfAsked(outsider)
 
     const imaginary = await outsider.locator('body').innerText()
 

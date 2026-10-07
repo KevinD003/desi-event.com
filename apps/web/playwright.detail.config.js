@@ -18,6 +18,9 @@
  * @module playwright.detail.config
  */
 
+import os from 'node:os'
+import path from 'node:path'
+
 import { defineConfig, devices } from '@playwright/test'
 
 import { preinstalledChromium } from './e2e/support/chromium.js'
@@ -93,6 +96,21 @@ export default defineConfig({
         // the default budget, correctly. The limit is not disabled and the
         // default is not changed.
         RATE_LIMIT_MAX: '20000',
+        // Every window in these specs reaches the API from one address with
+        // one device's browser, so to visit counting they are one visitor,
+        // whose beacons the default of sixty a minute would refuse in a busy
+        // minute (SPEC2 §3.5). Refused beacons change no figure a spec reads
+        // — the visitor spec's own window has an agent of its own — but a
+        // 429 in the log reads like a fault. The ceiling is raised, not
+        // removed.
+        TRAFFIC_BEACON_MAX_PER_MINUTE: '600',
+        // The import journeys copy their listings' pictures from a directory,
+        // never from Sulekha's host (SPEC2-XI §5.I-D, §9 row 12): a temporary
+        // copy of `e2e/fixtures/import-images`, which `seed-import.mjs` makes
+        // afresh on every run, so nothing under `e2e/fixtures` is written.
+        // `IMPORT_PICTURE_DIR` there is the same expression.
+        IMPORT_IMAGE_SOURCE: 'fixtures',
+        IMPORT_IMAGE_FIXTURE_DIR: path.join(os.tmpdir(), 'desi-event-e2e-import-images'),
       },
     },
     {

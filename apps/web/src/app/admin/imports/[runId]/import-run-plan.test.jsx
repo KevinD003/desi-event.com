@@ -147,6 +147,35 @@ describe('a new plan', () => {
     expect(within(table).getByText(/No end time listed/u)).toBeInTheDocument()
   })
 
+  it('scrolls the wide table inside its frame, screen-reader-only words included', () => {
+    // A badge's "Status:" and the caption are `sr-only`, which is
+    // `position: absolute`. A scroll box clips such a descendant only when it
+    // is its containing block, so the frame is positioned; without it the
+    // run page scrolled sideways at 320 px (found by the accessibility sweep).
+    render(<ImportRunPlan run={run()} canApprove />)
+
+    const frame = screen.getByRole('table').parentElement
+    const classes = frame.className.split(/\s+/u)
+
+    expect(classes).toContain('overflow-x-auto')
+    expect(classes).toContain('relative')
+  })
+
+  it('lets the keyboard reach the columns past the edge, through a named region', () => {
+    // A plan of new listings has no box to tick, so nothing inside the scroll
+    // box takes focus; axe's scrollable-region-focusable (WCAG 2.1.1) asks
+    // for the box itself to, with a name and a visible focus ring.
+    render(<ImportRunPlan run={run()} canApprove />)
+
+    const region = screen.getByRole('region', {
+      name: 'The plan for sulekha-texas-2026.json, scrolls sideways',
+    })
+
+    expect(region).toHaveAttribute('tabindex', '0')
+    expect(region).toContainElement(screen.getByRole('table'))
+    expect(region.className).toContain('focus-visible:ring-2')
+  })
+
   it('imports the plan as shown, with only the published events ticked for updating', async () => {
     const user = userEvent.setup()
 
@@ -270,6 +299,20 @@ describe('an applied plan', () => {
       screen.getByText(/Copied, waiting for approval \(Too small for a cover\)/u),
     ).toBeInTheDocument()
     expect(screen.getByText('Sulekha’s picture host took too long to answer.')).toBeInTheDocument()
+  })
+
+  it('gives each event link a target at least 24 px high, wrapped or not', () => {
+    // In the narrow events column "Review" and "Open" wrap one above the
+    // other; text-high, they left too little room to touch either (WCAG
+    // 2.5.8, found by the accessibility sweep at 320 px).
+    render(<ImportRunPlan run={applied()} canApprove />)
+
+    for (const name of ['Review “Raga Night”', 'Open “Raga Night”']) {
+      const classes = screen.getByRole('link', { name }).className.split(/\s+/u)
+
+      expect(classes).toContain('min-h-6')
+      expect(classes).toContain('inline-flex')
+    }
   })
 
   it('offers approval only for this run’s events, and reports each result politely', async () => {

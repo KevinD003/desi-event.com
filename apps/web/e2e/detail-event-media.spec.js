@@ -486,9 +486,16 @@ test.describe.serial("an event's pictures, from upload to the public page", () =
   }) => {
     await openStep(gamma, /^step 6\s*media$/iu)
 
-    // Live: pictures can be described, moved and removed, but none added.
-    await expect(uploadForm(gamma, 'Upload a cover')).toHaveCount(0)
-    await expect(gamma.getByText(/a new picture cannot be added/u)).toBeVisible()
+    // Live: pictures can be described, moved and removed — and a new one can
+    // be added, which waits beside the current cover for the Desi-Event team
+    // and appears on the public page only once they approve it.
+    await expect(uploadForm(gamma, 'Replace the cover')).toBeVisible()
+    await expect(
+      gamma
+        .getByText(/it appears on the public page once the Desi-Event team approves it/u)
+        .first(),
+    ).toBeVisible()
+    await expect(gamma.getByText(/a new picture cannot be added/u)).toHaveCount(0)
 
     const coverItem = gamma.getByRole('listitem', { name: 'The cover' })
 

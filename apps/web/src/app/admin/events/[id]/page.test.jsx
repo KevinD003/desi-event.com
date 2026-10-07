@@ -210,6 +210,58 @@ describe('one event, for the Desi-Event team', () => {
     expect(api.getPlatformEdits).not.toHaveBeenCalled()
   })
 
+  it('says the event was restored, and how it stands, when a restore sent the page back to itself', async () => {
+    api.getOrganizerEvent.mockResolvedValue({ ...EVENT, status: 'SALES_PAUSED' })
+    api.getPlatformEdits.mockResolvedValue([])
+
+    render(
+      await AdminEventPage({
+        params: Promise.resolve({ id: EVENT.id }),
+        searchParams: Promise.resolve({ restored: '1' }),
+      }),
+    )
+
+    // A polite status, beside the form's own (empty until it opens one).
+    expect(
+      screen
+        .getAllByRole('status')
+        .filter((element) => element.textContent.includes('Event restored')),
+    ).toHaveLength(1)
+    expect(screen.getByText('Event restored: Sales paused.')).toHaveAttribute('aria-live', 'polite')
+  })
+
+  it('says nothing was restored without the flag, or while the event is still deleted', async () => {
+    api.getOrganizerEvent.mockResolvedValue({ ...EVENT, status: 'SALES_PAUSED' })
+    api.getPlatformEdits.mockResolvedValue([])
+
+    await renderPage()
+
+    expect(screen.queryByText(/Event restored/)).not.toBeInTheDocument()
+
+    api.getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'DELETED',
+      deletion: {
+        deletedAt: '2026-10-01T15:00:00.000Z',
+        reason: 'Deleted by mistake.',
+        outcome: 'REMOVE',
+        authority: 'ORGANIZATION',
+        statusBefore: 'ON_SALE',
+        restoreTo: 'SALES_PAUSED',
+        deletedByName: null,
+      },
+    })
+
+    render(
+      await AdminEventPage({
+        params: Promise.resolve({ id: EVENT.id }),
+        searchParams: Promise.resolve({ restored: '1' }),
+      }),
+    )
+
+    expect(screen.queryByText(/Event restored/)).not.toBeInTheDocument()
+  })
+
   it('offers no danger zone or restore to an administrator who may not delete', async () => {
     readSession.mockResolvedValue({ ...ADMIN, capabilities: ['event:platform_edit'] })
 
@@ -283,6 +335,79 @@ describe('one event, for the Desi-Event team', () => {
     ).toBeVisible()
     expect(document.body.textContent).not.toMatch(/presented by (null|undefined)/u)
     expect(screen.getByRole('button', { name: 'Move to an organisation…' })).toBeInTheDocument()
+  })
+
+  it('says where an imported event went, and that its Sulekha link is off, when a move sent the page back to itself', async () => {
+    readSession.mockResolvedValue({
+      ...ADMIN,
+      capabilities: [...ADMIN.capabilities, 'event:import'],
+    })
+    api.getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'PUBLISHED',
+      organization: { name: 'Raga Nights Houston' },
+      importedFrom: null,
+    })
+
+    render(
+      await AdminEventPage({
+        params: Promise.resolve({ id: EVENT.id }),
+        searchParams: Promise.resolve({ moved: '1' }),
+      }),
+    )
+
+    const moved = screen
+      .getAllByRole('status')
+      .filter((element) => element.textContent.includes('Moved to'))
+
+    expect(moved).toHaveLength(1)
+    expect(moved[0]).toHaveAttribute('aria-live', 'polite')
+    expect(moved[0]).toHaveTextContent(
+      'Moved to Raga Nights Houston. Its Sulekha ticket link is off until an administrator approves the organiser’s own address.',
+    )
+    // The event is no longer held for an import, so no move is offered.
+    expect(screen.queryByRole('heading', { name: 'Copied from Sulekha' })).toBeNull()
+  })
+
+  it('says nothing was moved without the flag, or while the event is still held for an import', async () => {
+    readSession.mockResolvedValue({
+      ...ADMIN,
+      capabilities: [...ADMIN.capabilities, 'event:import'],
+    })
+    api.getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'PUBLISHED',
+      organization: { name: 'Raga Nights Houston' },
+      importedFrom: null,
+    })
+
+    await renderPage()
+
+    expect(screen.queryByText(/Moved to/u)).not.toBeInTheDocument()
+
+    api.getOrganizerEvent.mockResolvedValue({
+      ...EVENT,
+      status: 'PUBLISHED',
+      organization: { name: 'Sulekha Events' },
+      importedFrom: {
+        sourceName: 'Sulekha',
+        presentedBy: 'Raga Nights Houston',
+        listedOn: '2026-09-30',
+        prices: [],
+        priceListed: false,
+        ticketsOnSource: true,
+      },
+    })
+
+    render(
+      await AdminEventPage({
+        params: Promise.resolve({ id: EVENT.id }),
+        searchParams: Promise.resolve({ moved: '1' }),
+      }),
+    )
+
+    expect(screen.queryByText(/Moved to/u)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Copied from Sulekha' })).toBeInTheDocument()
   })
 
   it('offers no move for an event not held for an import, or to an account that does not import', async () => {

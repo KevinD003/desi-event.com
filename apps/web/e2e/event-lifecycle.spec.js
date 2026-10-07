@@ -974,17 +974,21 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
   })
 
   test('journey 19: a material change to a live event has to be meant', async () => {
-    // The editor autosaves a live event's housekeeping only, and keeps its date,
-    // place and terms behind a panel that asks for a reason and a tick — the
+    // The editor autosaves a live event's housekeeping only. Its date, place
+    // and terms can be changed in the steps, like any other field, but are
+    // saved only through a callout that asks for a reason and a tick — the
     // first line of defence. The confirmation the API asks for is the second,
     // so this journey goes at it the way a client would.
     await openStep(organiser, /^step 2/i)
 
     await expect(organiser.getByText('This event is public').first()).toBeVisible()
-    await expect(organiser.getByLabel(/^Starts/).first()).toBeDisabled()
+    await expect(organiser.getByLabel(/^Starts/).first()).toBeEnabled()
+    // Nothing is waiting to be confirmed yet, so the panel's own boxes are
+    // offered too.
     await expect(
       organiser.getByRole('button', { name: 'Change date, place or terms…' }),
     ).toBeVisible()
+    await expect(organiser.getByTestId('pending-material')).toHaveCount(0)
 
     const refused = await organiser.evaluate(async (id) => {
       const token = document.cookie.match(/(?:^|;\s*)(?:__Host-)?desi_csrf=([^;]*)/)
@@ -1030,36 +1034,61 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
   test('journey 19a: a live event moves its date only with a reason and a tick', async () => {
     await openStep(organiser, /^step 2/i)
 
-    // The step's own box, read-only; the panel opens above the steps with a
-    // box of the same name.
+    // The step's own box, open for the change; what it holds is saved only
+    // through the callout that asks for a reason.
     const scheduled = organiser
       .getByRole('region', { name: 'When and where' })
       .getByLabel(/^Starts/)
 
     await expect(scheduled).toHaveValue(wallClock(45, 19))
-    await expect(scheduled).toBeDisabled()
-
-    await organiser.getByRole('button', { name: 'Change date, place or terms…' }).click()
-
-    const panel = organiser.getByRole('region', { name: 'Change date, place or terms' })
-
-    await expect(panel).toBeVisible()
-    // Said before anything is saved: a notice per order, and no email.
-    await expect(panel).toContainText(/a notice is recorded for every current order/i)
-    await expect(panel).toContainText(/this build does not send email/i)
+    await expect(scheduled).toBeEnabled()
 
     // An hour earlier: doors at six rather than seven.
-    await panel.getByLabel(/^Starts/).fill(wallClock(45, 18))
-    await expect(panel).toContainText(/You are changing: the start time\./u)
+    await scheduled.fill(wallClock(45, 18))
 
-    await panel.getByRole('button', { name: 'Save the change' }).click()
+    // Not saved by the autosave: the callout says what changed and waits.
+    const callout = organiser.getByRole('region', {
+      name: 'Not saved: a change to the date, place or terms',
+    })
+
+    await expect(callout).toContainText('You changed the start time.')
+    await callout.getByRole('button', { name: 'Confirm these changes…' }).click()
+
+    const panel = organiser.getByRole('region', {
+      name: 'Confirm the change to the date, place or terms',
+    })
+
+    await expect(panel).toBeVisible()
+    // Said before anything is saved: a notice per order, and that notices are
+    // not emailed, so ticket holders are told by the organiser too.
+    await expect(panel).toContainText(/a notice is recorded for every current order/i)
+    await expect(panel).toContainText(
+      'Notices are not emailed, so tell ticket holders yourself as well.',
+    )
+    // What changes, from and to, before anything is saved.
+    await expect(panel).toContainText(/The start time: .+ 7:00 PM → .+ 6:00 PM/u)
+
+    // Every write of the event this journey's window sends from here on.
+    const patches = []
+    const recordPatch = (request) => {
+      if (
+        request.method() === 'PATCH' &&
+        new URL(request.url()).pathname === `/api/v1/events/${eventId}`
+      ) {
+        patches.push(request)
+      }
+    }
+
+    organiser.on('request', recordPatch)
+    await panel.getByRole('button', { name: 'Confirm and save' }).click()
 
     // Refused before it is sent, and every reason is named at once.
     await expect(panel.getByRole('link', { name: 'Say why this is changing.' })).toBeVisible()
     await expect(
       panel.getByRole('link', { name: 'Tick the box to confirm the change.' }),
     ).toBeVisible()
-    await expect(scheduled).toHaveValue(wallClock(45, 19))
+    organiser.off('request', recordPatch)
+    expect(patches, 'the change was sent without a reason').toHaveLength(0)
 
     await panel
       .getByLabel(/^Why this is changing/)
@@ -1072,16 +1101,16 @@ test.describe.serial('an event, from a blank list to a cancellation', () => {
         new URL(response.url()).pathname === `/api/v1/events/${eventId}`,
     )
 
-    await panel.getByRole('button', { name: 'Save the change' }).click()
+    await panel.getByRole('button', { name: 'Confirm and save' }).click()
 
     expect((await saved).status()).toBe(200)
     await expect(panel).toHaveCount(0)
     await expect(organiser.getByTestId('save-status')).toHaveText(
       /a notice has been recorded for every current order/i,
     )
-    // The read-only start now reads the new time, and still is read-only.
+    // The start now reads the new time, and nothing waits to be confirmed.
     await expect(scheduled).toHaveValue(wallClock(45, 18))
-    await expect(scheduled).toBeDisabled()
+    await expect(organiser.getByTestId('pending-material')).toHaveCount(0)
 
     await openStep(organiser, /^step 2/i)
     await expect(scheduled).toHaveValue(wallClock(45, 18))

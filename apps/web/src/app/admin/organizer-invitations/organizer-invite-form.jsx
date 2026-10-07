@@ -267,130 +267,145 @@ export function OrganizerInviteForm({ deliveryMode, inviterName = null }) {
     )
   }
 
+  // The second-factor prompt is a form of its own, so it is drawn after this
+  // one rather than inside it: a form within a form is not HTML, and the
+  // browser could send the outer form when the prompt's button is pressed.
   return (
-    <form
-      onSubmit={(submitted) => {
-        submitted.preventDefault()
-        void send()
-      }}
-      noValidate
-      className="mt-4 max-w-2xl"
-      aria-label="Invite an organiser"
-    >
-      {emailed ? (
-        <div ref={emailedRef} tabIndex={-1} className="mb-3 focus-visible:outline-none">
-          <Alert variant="success" title="Invitation sent">
-            <p>
-              The invitation was emailed to {emailed.recipient}.
-              {emailed.until ? ` It works until ${emailed.until}.` : ''}
-            </p>
-          </Alert>
-        </div>
-      ) : null}
-
-      {refused ? (
-        <div ref={refusalRef} tabIndex={-1} className="mb-3 focus-visible:outline-none">
-          <Alert variant="error" title="Nobody was invited">
-            <p>{refused.sentence}</p>
-            {refused.enrol ? (
-              <p className="mt-2">
-                <Link
-                  href="/account/security"
-                  className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
-                >
-                  Set up two-step sign-in
-                </Link>
-              </p>
-            ) : null}
-          </Alert>
-        </div>
-      ) : null}
-
-      <FormField
-        label="Their email address"
-        id={`${id}-email`}
-        required
-        error={issues.email}
-        description="The code works only for an account signed in with this address."
+    <>
+      <form
+        onSubmit={(submitted) => {
+          submitted.preventDefault()
+          void send()
+        }}
+        noValidate
+        className="mt-4 max-w-2xl"
+        aria-label="Invite an organiser"
       >
-        <Input
-          type="email"
-          autoComplete="off"
-          spellCheck={false}
-          value={email}
-          onChange={(changed) => setEmail(changed.target.value)}
-        />
-      </FormField>
+        {emailed ? (
+          <div ref={emailedRef} tabIndex={-1} className="mb-3 focus-visible:outline-none">
+            <Alert variant="success" title="Invitation sent">
+              <p>
+                The invitation was emailed to {emailed.recipient}.
+                {emailed.until ? ` It works until ${emailed.until}.` : ''}
+              </p>
+            </Alert>
+          </div>
+        ) : null}
 
-      <div className="mt-4">
+        {refused ? (
+          <div ref={refusalRef} tabIndex={-1} className="mb-3 focus-visible:outline-none">
+            <Alert variant="error" title="Nobody was invited">
+              <p>{refused.sentence}</p>
+              {refused.enrol ? (
+                <p className="mt-2">
+                  <Link
+                    href="/account/security"
+                    className="rounded-sm font-medium text-accent-strong underline underline-offset-2 hover:no-underline focus-visible:ring-2 focus-visible:ring-focus focus-visible:outline-none"
+                  >
+                    Set up two-step sign-in
+                  </Link>
+                </p>
+              ) : null}
+            </Alert>
+          </div>
+        ) : null}
+
         <FormField
-          label="Organisation name"
-          id={`${id}-name`}
+          label="Their email address"
+          id={`${id}-email`}
           required
-          error={issues.organizationName}
-          description="The organisation their invitation starts, as people will see it. Between 2 and 120 characters. They cannot change it when they accept."
+          error={issues.email}
+          description="The code works only for an account signed in with this address."
         >
           <Input
-            type="text"
-            autoComplete="off"
-            maxLength={120}
-            value={organizationName}
-            onChange={(changed) => setOrganizationName(changed.target.value)}
-          />
-        </FormField>
-      </div>
-
-      <div className="mt-4">
-        <FormField
-          label="Public description of the organisation (optional, shown on its organiser page)"
-          id={`${id}-description`}
-          error={issues.organizationDescription}
-          description={`Up to ${DESCRIPTION_MAX} characters. Shown publicly under the Verified badge, so write only what you have checked.`}
-        >
-          <Textarea
-            rows={4}
-            maxLength={DESCRIPTION_MAX}
-            value={description}
-            onChange={(changed) => setDescription(changed.target.value)}
-          />
-        </FormField>
-      </div>
-
-      <div className="mt-4">
-        <FormField
-          label="The organisation’s website (optional, shown on its organiser page)"
-          id={`${id}-website`}
-          error={issues.organizationWebsiteUrl}
-          description="A full address starting with https://, to a page you have checked."
-        >
-          <Input
-            type="url"
+            type="email"
             autoComplete="off"
             spellCheck={false}
-            value={websiteUrl}
-            onChange={(changed) => setWebsiteUrl(changed.target.value)}
+            value={email}
+            onChange={(changed) => setEmail(changed.target.value)}
           />
         </FormField>
-      </div>
 
-      <div className="mt-4">
-        <FormField
-          label="A note for them (optional, sent with the code, never shown publicly)"
-          id={`${id}-note`}
-          error={issues.note}
-          description={`Up to ${NOTE_MAX} characters. Do not put the code or a password in it.`}
-        >
-          <Textarea
-            rows={3}
-            maxLength={NOTE_MAX}
-            value={note}
-            onChange={(changed) => setNote(changed.target.value)}
-          />
-        </FormField>
-      </div>
+        <div className="mt-4">
+          <FormField
+            label="Organisation name"
+            id={`${id}-name`}
+            required
+            error={issues.organizationName}
+            description="The organisation their invitation starts, as people will see it. Between 2 and 120 characters. They cannot change it when they accept."
+          >
+            <Input
+              type="text"
+              autoComplete="off"
+              maxLength={120}
+              value={organizationName}
+              onChange={(changed) => setOrganizationName(changed.target.value)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-4">
+          <FormField
+            label="Public description of the organisation (optional, shown on its organiser page)"
+            id={`${id}-description`}
+            error={issues.organizationDescription}
+            description={`Up to ${DESCRIPTION_MAX} characters. Shown publicly under the Verified badge, so write only what you have checked.`}
+          >
+            <Textarea
+              rows={4}
+              maxLength={DESCRIPTION_MAX}
+              value={description}
+              onChange={(changed) => setDescription(changed.target.value)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-4">
+          <FormField
+            label="The organisation’s website (optional, shown on its organiser page)"
+            id={`${id}-website`}
+            error={issues.organizationWebsiteUrl}
+            description="A full address starting with https://, to a page you have checked."
+          >
+            <Input
+              type="url"
+              autoComplete="off"
+              spellCheck={false}
+              value={websiteUrl}
+              onChange={(changed) => setWebsiteUrl(changed.target.value)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-4">
+          <FormField
+            label="A note for them (optional, sent with the code, never shown publicly)"
+            id={`${id}-note`}
+            error={issues.note}
+            description={`Up to ${NOTE_MAX} characters. Do not put the code or a password in it.`}
+          >
+            <Textarea
+              rows={3}
+              maxLength={NOTE_MAX}
+              value={note}
+              onChange={(changed) => setNote(changed.target.value)}
+            />
+          </FormField>
+        </div>
+
+        <div className="mt-6">
+          <Button type="submit" className="min-h-11" disabled={busy || !ready || stepUp}>
+            {busy
+              ? 'Inviting…'
+              : deliveryMode === 'EMAIL'
+                ? 'Send the invitation'
+                : 'Create the invitation'}
+          </Button>
+        </div>
+      </form>
 
       {stepUp ? (
-        <div className="mt-4">
+        <div className="mt-4 max-w-2xl">
           <StepUpPrompt
             action="invite this organiser"
             onConfirmed={() => {
@@ -401,16 +416,6 @@ export function OrganizerInviteForm({ deliveryMode, inviterName = null }) {
           />
         </div>
       ) : null}
-
-      <div className="mt-6">
-        <Button type="submit" className="min-h-11" disabled={busy || !ready || stepUp}>
-          {busy
-            ? 'Inviting…'
-            : deliveryMode === 'EMAIL'
-              ? 'Send the invitation'
-              : 'Create the invitation'}
-        </Button>
-      </div>
-    </form>
+    </>
   )
 }

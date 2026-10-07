@@ -58,17 +58,45 @@ test.describe('organiser analytics', () => {
     expect(rendered).toMatch(/2,000\.00|2000\.00/u)
   })
 
-  test('names the step it cannot count instead of estimating it', async ({ owner }) => {
+  test('counts from visit to payment, and names what it does not count', async ({ owner }) => {
     await owner.goto(analyticsFor(ids().alphaOrganizationId))
 
-    const rendered = await owner.locator('main').innerText()
+    // Visits to event pages are counted now, without cookies or stored
+    // addresses, so the funnel starts at the visitor rather than at a hold —
+    // and every step is a real count over a real table, none estimated.
+    // The section, not the scrolling frame inside it that bears the same name.
+    const funnel = owner
+      .getByRole('region', { name: 'From visit to payment', exact: true })
+      .filter({
+        has: owner.getByRole('heading', { level: 2, name: 'From visit to payment', exact: true }),
+      })
 
-    // Nothing here records a page view, so the step everybody means by
-    // "conversion" does not exist as data. Saying so is the honest answer;
-    // deriving it from order counts would be inventing a metric.
-    expect(rendered.toLowerCase()).toContain('page views')
-    expect(rendered).toMatch(/tickets held/i)
-    expect(rendered).toMatch(/orders paid/i)
+    await expect(funnel).toBeVisible()
+
+    const steps = funnel
+      .getByRole('table', { name: 'From visit to payment' })
+      .getByRole('rowheader')
+
+    await expect(steps).toHaveText([
+      'Visitors',
+      'Visitors who chose tickets or seats',
+      'Tickets held',
+      'Orders started',
+      'Orders paid',
+    ])
+
+    // What is not counted is said, in a list of its own, rather than left to
+    // be guessed from a smaller number: robots first.
+    await expect(funnel.getByRole('heading', { name: 'Not counted', exact: true })).toBeVisible()
+
+    const notCounted = funnel.getByRole('listitem')
+
+    await expect(notCounted).toHaveCount(3)
+    await expect(notCounted.first()).toContainText(/robots/i)
+
+    // The old funnel named page views as the step it could not count. They
+    // are counted now, beside it, so the funnel no longer says so.
+    await expect(funnel).not.toContainText(/page views/iu)
   })
 
   test('says which mode produced the figures', async ({ owner }) => {
@@ -105,8 +133,17 @@ test.describe('organiser analytics', () => {
 
     expect(header).toBe('Section,Item,Code,Quantity,Amount (minor units),Currency,Note')
 
+    // The visit counts name clicks on an event's card in the listings, which
+    // is not a payment card. Those labels, and only those, are taken out
+    // before the scan, so a payment card's word anywhere else still fails it.
+    const scanned = body
+      .toLowerCase()
+      .replaceAll('event card clicks', '')
+      .replaceAll('card clicks by place', '')
+      .replaceAll('cardclicks', '')
+
     for (const needle of ['holder-', '@attendee.test', 'Ticket Holder', 'mock_', 'card', 'cvc']) {
-      expect(body.toLowerCase(), `the export carries ${needle}`).not.toContain(needle.toLowerCase())
+      expect(scanned, `the export carries ${needle}`).not.toContain(needle.toLowerCase())
     }
   })
 

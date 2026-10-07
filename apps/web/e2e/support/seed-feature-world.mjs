@@ -38,6 +38,22 @@
  *     waiting, with its owner, so the verification queue is not empty.
  *   - **door-moderator**, a MODERATOR with a confirmed second factor: a
  *     platform role that is not door authority, whom the door refuses.
+ *   - **link-admin**, a platform ADMIN with a confirmed second factor, who
+ *     decides on events' website links (`website_redirect:manage`) and reads
+ *     every event's visits (`analytics:view_all`). Nothing here signs it in;
+ *     the specs that need it sign it in themselves.
+ *
+ * ## The website links
+ *
+ * Gamma's general-admission event carries the organiser's address
+ * `https://gamma-<tag>.test/`, waiting for an administrator: its link is off,
+ * as an organiser's save leaves it. Gamma's seated event carries
+ * `https://gamma-balcony-<tag>.test/` with its link on, decided by link-admin
+ * for that exact address (`websiteDecidedUrl`), so a public page with a live
+ * link exists whichever order the specs run in. Both are `.test` hosts, which
+ * never resolve; a spec that follows a link answers the request itself.
+ * Written directly, as every seed writes a public event: in the application
+ * only `lib/website-redirect.js` writes the switch.
  *
  * Every address and slug carries the tag, and every name a buyer or guest
  * types is checked against the analytics and refund needle lists, so none of
@@ -215,7 +231,7 @@ export function checkedTag(tag) {
  * Pure, so a spec can name an account without reading the world file.
  *
  * @param {string} tag The run suffix.
- * @returns {{gammaOwner: string, giver: string, taker: string, roleTarget: string, pendingOwner: string, doorModerator: string}} The addresses.
+ * @returns {{gammaOwner: string, giver: string, taker: string, roleTarget: string, pendingOwner: string, doorModerator: string, linkAdmin: string}} The addresses.
  */
 export function featureAccounts(tag) {
   checkedTag(tag)
@@ -227,6 +243,32 @@ export function featureAccounts(tag) {
     roleTarget: `role-target-${tag}@platform.test`,
     pendingOwner: `pending-owner-${tag}@organiser.test`,
     doorModerator: `door-moderator-${tag}@platform.test`,
+    linkAdmin: `link-admin-${tag}@platform.test`,
+  }
+}
+
+/** The platform administrator who decides on website links, as organisers are shown the name. */
+export const LINK_ADMIN_NAME = 'Lalita Linkwala'
+
+/** Why link-admin turned the seated event's link on, as the organiser is shown it. */
+export const SEATED_LINK_REASON = 'Checked for the e2e world.'
+
+/**
+ * The website addresses gamma's two public events carry.
+ *
+ * Pure, so a spec can name them without reading the world file. On `.test`
+ * hosts, which never resolve, and carrying the tag, so a link that went to
+ * another run's address could not pass for this one's.
+ *
+ * @param {string} tag The run suffix.
+ * @returns {{gaEvent: string, seatedEvent: string}} The addresses, in the stored (normalised) form.
+ */
+export function featureWebsites(tag) {
+  checkedTag(tag)
+
+  return {
+    gaEvent: `https://gamma-${tag}.test/`,
+    seatedEvent: `https://gamma-balcony-${tag}.test/`,
   }
 }
 
@@ -696,8 +738,12 @@ export function eventContent(tag, { rows = 'all' } = {}) {
     directions: 'Parking is in the south lot. The entrance is beside the fountain.',
     publicContactEmail: `hello-${tag}@example.test`,
     publicContactPhone: '+1 201 555 0142',
+    // The website is the event's own column, never a social link: the
+    // database refuses `socialLinks.website` (`event_social_links_shape`).
+    // Writing it here leaves the link off and waiting for an administrator,
+    // as an organiser's save does; nothing here turns it on.
+    websiteUrl: `https://garba-${tag}.example.test/`,
     socialLinks: {
-      website: `https://garba-${tag}.example.test/`,
       instagram: 'https://www.instagram.com/desievent.sweep',
     },
     sponsors: [
@@ -916,6 +962,7 @@ export async function seedFeatureWorld({ tag }) {
     const roleTarget = await account(accounts.roleTarget, 'Role Target', 'ATTENDEE')
     const pendingOwner = await account(accounts.pendingOwner, 'Pending Owner', 'ORGANIZER')
     const doorModerator = await account(accounts.doorModerator, 'Door Moderator', 'MODERATOR')
+    const linkAdmin = await account(accounts.linkAdmin, LINK_ADMIN_NAME, 'ADMIN')
 
     await enrol(gammaOwner.id)
     await enrol(pendingOwner.id)
@@ -923,6 +970,8 @@ export async function seedFeatureWorld({ tag }) {
     // requires a second factor, so it has one, and it signs in the way a real
     // moderator would.
     await enrol(doorModerator.id)
+    // A platform administrator is a privileged role, which requires a factor.
+    await enrol(linkAdmin.id)
     // An attendee needs no factor, but the role this account is about to be
     // given does: a platform role without one is refused at the next
     // privileged route, which is a different journey from the one under test.
@@ -1033,6 +1082,7 @@ export async function seedFeatureWorld({ tag }) {
     // ------------------------------------------ general admission, two nights
 
     const gaNights = [night(40), night(41)]
+    const websites = featureWebsites(tag)
 
     const gaEvent = await eventOnSale({
       title: `Gamma Garba Nights ${tag}`,
@@ -1043,6 +1093,12 @@ export async function seedFeatureWorld({ tag }) {
       category: 'GARBA_DANDIYA',
       startsAt: gaNights[0].startsAt,
       endsAt: gaNights[1].endsAt,
+      // The organiser's address, waiting for an administrator, its link off:
+      // what an organiser's save leaves. `desi_event_website_change` would
+      // mark it waiting by itself; it is said here so the row reads as meant.
+      websiteUrl: websites.gaEvent,
+      websiteDecisionPending: true,
+      websiteSubmittedAt: now,
     })
 
     const gaSessions = []
@@ -1097,6 +1153,15 @@ export async function seedFeatureWorld({ tag }) {
       category: 'MUSIC_CONCERT',
       startsAt: seatedNights[0].startsAt,
       endsAt: seatedNights[1].endsAt,
+      // Its link on, decided by link-admin for exactly this address, so a
+      // public page with a live link exists whatever order the specs run in.
+      // Nothing waits: the address is the one decided on.
+      websiteUrl: websites.seatedEvent,
+      websiteRedirectEnabled: true,
+      websiteDecidedUrl: websites.seatedEvent,
+      websiteRedirectChangedAt: now,
+      websiteRedirectChangedById: linkAdmin.id,
+      websiteRedirectReason: SEATED_LINK_REASON,
     })
 
     const seatedSessions = []
@@ -1409,6 +1474,11 @@ export async function seedFeatureWorld({ tag }) {
       pendingOwnerEmail: pendingOwner.email,
       doorModeratorEmail: doorModerator.email,
       doorModeratorId: doorModerator.id,
+      linkAdminEmail: linkAdmin.email,
+      linkAdminId: linkAdmin.id,
+      linkAdminName: linkAdmin.displayName,
+      gammaGaWebsiteUrl: websites.gaEvent,
+      gammaSeatedWebsiteUrl: websites.seatedEvent,
     }
   } finally {
     await prisma.$disconnect()

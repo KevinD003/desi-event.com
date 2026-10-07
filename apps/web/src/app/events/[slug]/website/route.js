@@ -74,6 +74,24 @@ export const PAGES = Object.freeze({
 })
 
 /**
+ * The page's only style: room to read and to tap, and no colour of its own,
+ * so the browser's (and the reader's) colours and contrast stand.
+ *
+ * Each way back is a target at least 24 CSS pixels high and set apart from
+ * the next (WCAG 2.2, 2.5.8): unstyled, the two links sat 17 pixels high and
+ * 16 apart, too close to tell apart with a finger.
+ *
+ * @type {string}
+ */
+export const PAGE_STYLE = [
+  'body{margin:0;padding:1rem;font-family:system-ui,sans-serif;line-height:1.5}',
+  'main{max-width:40rem}',
+  'ul{list-style:none;margin:1.5rem 0 0;padding:0}',
+  'li{margin:0 0 0.75rem}',
+  'a{display:inline-block;min-height:2.75rem;padding:0.625rem 0;box-sizing:border-box}',
+].join('')
+
+/**
  * A minimal page: one heading, one paragraph, a way back. No script and no
  * colour of its own; the slug is written only after it matched {@link SLUG}.
  *
@@ -91,6 +109,7 @@ function pageResponse(page, slug, retryAfter = null) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${page.title}</title>
+<style>${PAGE_STYLE}</style>
 </head>
 <body>
 <main>
